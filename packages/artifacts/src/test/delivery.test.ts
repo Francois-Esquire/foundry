@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { fileResponse } from "../delivery";
 import { ArtifactManager } from "../manager";
-import { InMemoryArtifactStore } from "../memory";
+import { InMemoryArtifactStore } from "../store/memory";
 import { required } from "./helpers/required";
 
 async function fixture() {

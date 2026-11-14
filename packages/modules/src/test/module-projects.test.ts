@@ -1,4 +1,5 @@
-import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { describe, expect, it, vi } from "vitest";
 
 import { moduleIdSchema } from "../domain";

@@ -1,13 +1,13 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  ArtifactManager,
-  type ArtifactStore,
-  artifactIdSchema,
-  InMemoryArtifactStore,
-} from "@foundry/artifacts";
+import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
 import { JsonArtifactStore } from "@foundry/artifacts/node";
+import type {
+  ArtifactStore,
+  ArtifactStoreWrite,
+} from "@foundry/artifacts/store";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { describe, expect, it } from "vitest";
 
 import { MODULE_MIME } from "../constants";
@@ -514,12 +514,14 @@ describe("Artifact-backed ModuleStore", () => {
 
   it("leaves the records as they were when a write fails to commit", async () => {
     const commits: { fail: boolean } = { fail: false };
-    const store = new InMemoryArtifactStore({
-      commit: () =>
-        commits.fail
+    class FailingStore extends InMemoryArtifactStore {
+      override commit(write: ArtifactStoreWrite): Promise<void> {
+        return commits.fail
           ? Promise.reject(new Error("injected commit failure"))
-          : Promise.resolve(),
-    });
+          : super.commit(write);
+      }
+    }
+    const store = new FailingStore();
     const { modules, version } = await seed(store);
     const installation = await modules.createInstallation({
       id: installationIdSchema.parse("installation-1"),

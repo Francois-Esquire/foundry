@@ -1,4 +1,4 @@
-import { InMemoryArtifactStore } from "../memory";
+import { InMemoryArtifactStore } from "../store/memory";
 import { describeArtifactManager } from "../testing/manager";
 import { describeArtifactStore } from "../testing/store";
 

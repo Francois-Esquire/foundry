@@ -103,34 +103,6 @@ describe("JSON Artifact store persistence", () => {
     expect(artifact?.content?.metadata).toMatchObject(metadata);
   });
 
-  it("runs post-commit work after releasing the store, so it can write again", async () => {
-    const records = new JsonArtifactStore({ path: recordsPath() });
-    const order: string[] = [];
-    await records.transaction(async (transaction) => {
-      transaction.afterCommit(async () => {
-        await records.transaction(async () => {
-          order.push("nested write");
-        });
-      });
-      order.push("outer write");
-    });
-    expect(order).toEqual(["outer write", "nested write"]);
-  }, 2000);
-
-  it("discards post-commit work when the write fails", async () => {
-    const records = new JsonArtifactStore({ path: recordsPath() });
-    let ran = false;
-    await expect(
-      records.transaction(async (transaction) => {
-        transaction.afterCommit(async () => {
-          ran = true;
-        });
-        throw new Error("rolled back");
-      })
-    ).rejects.toThrow("rolled back");
-    expect(ran).toBe(false);
-  });
-
   it("applies commits to a bound directory before the mutation returns", async () => {
     const directory = join(root, crypto.randomUUID());
     const artifacts = new ArtifactManager({

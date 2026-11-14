@@ -1,9 +1,9 @@
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 import type { Artifacts, FileInput, FileRangeResolved } from "../index";
-
 // biome-ignore lint/performance/noNamespaceImport: This test inspects the complete public export contract.
 import * as artifacts from "../index";
+import type { ArtifactStore, ArtifactStoreWrite } from "../store";
 
 describe("Artifact package public surface", () => {
   test("publishes the substrate vocabulary and nothing from the release model", () => {
@@ -12,7 +12,7 @@ describe("Artifact package public surface", () => {
     expect(artifacts).toHaveProperty("StaleContentError");
     expect(artifacts).not.toHaveProperty("base64ToBytes");
     expect(artifacts).toHaveProperty("ArtifactManager");
-    expect(artifacts).toHaveProperty("InMemoryArtifactStore");
+    expect(artifacts).not.toHaveProperty("InMemoryArtifactStore");
     expect(artifacts).toHaveProperty("blobIdSchema");
     expect(artifacts).not.toHaveProperty("artifactFileSystem");
     expect(artifacts).not.toHaveProperty("digestReleaseEnvelope");
@@ -33,5 +33,17 @@ describe("Artifact package public surface", () => {
       readonly body: AsyncIterable<Uint8Array>;
     }>();
     expectTypeOf<Artifacts["readFileRange"]>().toBeFunction();
+  });
+
+  test("keeps stores on their own paths, apart from the domain", async () => {
+    const memory = await import("../store/memory");
+    const testing = await import("../testing/store");
+    expect(Object.keys(memory)).toEqual(["InMemoryArtifactStore"]);
+    expect(Object.keys(testing)).toEqual(["describeArtifactStore"]);
+    expect(Object.keys(await import("../store"))).toEqual([]);
+    expectTypeOf<ArtifactStore["commit"]>()
+      .parameter(0)
+      .toEqualTypeOf<ArtifactStoreWrite>();
+    expectTypeOf(new memory.InMemoryArtifactStore()).toExtend<ArtifactStore>();
   });
 });

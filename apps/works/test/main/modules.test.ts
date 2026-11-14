@@ -1,7 +1,8 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { MODULE_MIME } from "@foundry/modules/constants";
 import { defineModuleVersion, moduleIdSchema } from "@foundry/modules/domain";
 import { encodeModulePackage } from "@foundry/modules/package";
@@ -24,11 +25,12 @@ async function temporaryLibrary() {
 
 describe("Module library", () => {
   it("rolls back registration with authored Content when persistence fails", async () => {
-    const store = new InMemoryArtifactStore({
-      commit: () => {
-        throw new Error("Disk full");
-      },
-    });
+    class FullDiskStore extends InMemoryArtifactStore {
+      override commit(): Promise<void> {
+        return Promise.reject(new Error("Disk full"));
+      }
+    }
+    const store = new FullDiskStore();
     const library = createModuleLibrary(store);
     await expect(library.create("Unsaved")).rejects.toThrow("Disk full");
     expect(await library.list()).toEqual([]);

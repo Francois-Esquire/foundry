@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { ArtifactManager } from "../manager";
-import { InMemoryArtifactStore } from "../memory";
 import { artifactIdSchema, contentIdSchema } from "../ref";
 import { resolveReference } from "../references";
+import { InMemoryArtifactStore } from "../store/memory";
 import type { Content } from "../substrate";
 import { required } from "./helpers/required";
 

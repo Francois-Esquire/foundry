@@ -1,14 +1,20 @@
-import { mkdir, open, readFile, stat, unlink } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname } from "node:path";
+import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
+import { acquireFileLock } from "@foundry/lib/file-lock";
 
-import type { ArtifactRecords } from "../memory";
-import { commitTransaction, InMemoryArtifactStore } from "../memory";
-import type { ArtifactStore, ArtifactStoreTransaction } from "../store";
-import { hasErrorCode, writeAtomically } from "./fs";
+import type { ArtifactId, BlobId, ContentId } from "../ref";
+import type { Artifact, ArtifactRecords, Blob, Content } from "../schema";
+import type {
+  ArtifactStore,
+  ArtifactStoreWrite,
+  BlobListing,
+  BlobReferences,
+} from "../store";
+import { InMemoryArtifactStore } from "../store/memory";
 
 const FORMAT_VERSION = 1;
-const LOCK_RETRY_MS = 25;
 const DEFAULT_LOCK_TIMEOUT_MS = 10_000;
 
 export interface JsonArtifactStoreOptions {
@@ -19,10 +25,11 @@ export interface JsonArtifactStoreOptions {
 }
 
 /**
- * An `ArtifactStore` kept in one JSON file: the in-memory store's semantics,
- * saved before each write transaction commits.
+ * An `ArtifactStore` kept in one JSON file: the in-memory store's records,
+ * saved by each commit before it takes effect. Interim: it goes when the
+ * SQLite store lands.
  *
- * Several processes may share the file. A write transaction holds
+ * Several processes may share the file. A commit or transaction holds
  * `<path>.lock`, reloads the file, and replaces it by temp-and-rename, so it
  * never commits against stale records. Reads reload when the file changed.
  * The whole file is rewritten per commit, which suits a local feed's scale
@@ -43,33 +50,89 @@ export class JsonArtifactStore implements ArtifactStore {
     this.#lockTimeoutMs = options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
   }
 
-  async transaction<T>(
-    operation: (store: ArtifactStoreTransaction) => Promise<T>,
-    options?: { readonly readOnly?: boolean }
-  ): Promise<T> {
-    if (options?.readOnly) {
-      const memory = await this.#current();
-      return memory.transaction(operation, options);
-    }
-    // Post-commit work runs after the lock and the write slot are released:
-    // a callback that writes to this store again (the filesystem binding
-    // does) would otherwise wait behind the transaction waiting for it.
+  commit(write: ArtifactStoreWrite): Promise<void> {
+    return this.#locked(() => this.#commit(write));
+  }
+
+  /** `work` runs holding the lock; its view reads and commits without taking it again. */
+  transaction<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T> {
+    return this.#locked(() =>
+      work({
+        commit: (write) => this.#commit(write),
+        findBlobs: (digest) => this.findBlobs(digest),
+        findReferences: (id) => this.findReferences(id),
+        getArtifact: (id) => this.getArtifact(id),
+        getBlob: (id) => this.getBlob(id),
+        getContent: (id) => this.getContent(id),
+        listArtifacts: () => this.listArtifacts(),
+        listBlobs: () => this.listBlobs(),
+        listContents: (artifactId) => this.listContents(artifactId),
+      })
+    );
+  }
+
+  async findBlobs(digest: string): Promise<readonly Blob[]> {
+    return (await this.#current()).findBlobs(digest);
+  }
+
+  async findReferences(id: BlobId): Promise<BlobReferences> {
+    return (await this.#current()).findReferences(id);
+  }
+
+  async getArtifact(id: ArtifactId): Promise<Artifact | null> {
+    return (await this.#current()).getArtifact(id);
+  }
+
+  async getBlob(id: BlobId): Promise<Blob | null> {
+    return (await this.#current()).getBlob(id);
+  }
+
+  async getContent(id: ContentId): Promise<Content | null> {
+    return (await this.#current()).getContent(id);
+  }
+
+  async listArtifacts(): Promise<readonly Artifact[]> {
+    return (await this.#current()).listArtifacts();
+  }
+
+  async listBlobs(): Promise<readonly BlobListing[]> {
+    return (await this.#current()).listBlobs();
+  }
+
+  async listContents(artifactId?: ArtifactId): Promise<readonly Content[]> {
+    return (await this.#current()).listContents(artifactId);
+  }
+
+  /** One writer at a time: in this process by turns, across processes by the lock file. */
+  #locked<T>(work: () => Promise<T>): Promise<T> {
     const run = this.#writes.then(async () => {
-      const release = await lock(`${this.#path}.lock`, this.#lockTimeoutMs);
+      await mkdir(dirname(this.#path), { recursive: true });
+      const release = await acquireFileLock(`${this.#path}.lock`, {
+        breakStale: true,
+        waitMs: this.#lockTimeoutMs,
+      });
       try {
-        const memory = await this.#current();
-        return await memory[commitTransaction](operation, options);
+        return await work();
       } finally {
         await release();
       }
     });
     this.#writes = run.catch(() => undefined);
-    // After-commit work (such as applying the commit to disk) runs once the
-    // lock is free, so it may open the next write transaction itself.
-    return run.then(async ({ afterCommit, result }) => {
-      await afterCommit();
-      return result;
+    return run;
+  }
+
+  /** Applies `write` to the current records and saves them; held under the lock. */
+  async #commit(write: ArtifactStoreWrite): Promise<void> {
+    const next = new InMemoryArtifactStore({
+      records: await (await this.#current()).records(),
     });
+    await next.commit(write);
+    await writeFileAtomic(this.#path, encodeRecords(await next.records()), {
+      fsync: true,
+      mode: 0o600,
+    });
+    this.#memory = next;
+    this.#version = await fileVersion(this.#path);
   }
 
   /** The in-memory records, reloaded when another writer replaced the file. */
@@ -80,22 +143,11 @@ export class JsonArtifactStore implements ArtifactStore {
     }
     const text =
       version === undefined ? undefined : await readFile(this.#path, "utf8");
-    this.#memory = new InMemoryArtifactStore({
-      commit: (records) => this.#save(records),
-      ...(text === undefined ? {} : { records: decodeRecords(text) }),
-    });
+    this.#memory = new InMemoryArtifactStore(
+      text === undefined ? {} : { records: decodeRecords(text) }
+    );
     this.#version = version;
     return this.#memory;
-  }
-
-  async #save(records: ArtifactRecords): Promise<void> {
-    await mkdir(dirname(this.#path), { recursive: true });
-    await writeAtomically(
-      this.#path,
-      `${this.#path}.${crypto.randomUUID()}.tmp`,
-      encodeRecords(records)
-    );
-    this.#version = await fileVersion(this.#path);
   }
 }
 
@@ -108,58 +160,6 @@ async function fileVersion(path: string): Promise<string | undefined> {
       return;
     }
     throw error;
-  }
-}
-
-/**
- * An exclusive `wx` lock file holding the owner's pid. A lock whose pid is
- * dead is stale and replaced; a live one is waited on until the timeout.
- */
-async function lock(
-  path: string,
-  timeoutMs: number
-): Promise<() => Promise<void>> {
-  await mkdir(dirname(path), { recursive: true });
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    try {
-      const file = await open(path, "wx", 0o600);
-      try {
-        await file.writeFile(String(process.pid));
-      } finally {
-        await file.close();
-      }
-      return () => unlink(path).catch(() => undefined);
-    } catch (error) {
-      if (!hasErrorCode(error, "EEXIST")) {
-        throw error;
-      }
-    }
-    const holder = await lockHolder(path);
-    if (holder !== undefined && !alive(holder)) {
-      await unlink(path).catch(() => undefined);
-      continue;
-    }
-    if (Date.now() >= deadline) {
-      throw new Error(`Timed out waiting for artifact store lock ${path}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
-  }
-}
-
-async function lockHolder(path: string): Promise<number | undefined> {
-  // An empty read means the lock was released after the failed open.
-  const pid = Number(await readFile(path, "utf8").catch(() => ""));
-  return Number.isInteger(pid) && pid > 0 ? pid : undefined;
-}
-
-/** `EPERM` counts as alive: the pid exists but belongs to another user. */
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return hasErrorCode(error, "EPERM");
   }
 }
 

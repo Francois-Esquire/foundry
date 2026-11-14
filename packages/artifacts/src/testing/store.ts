@@ -1,166 +1,296 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import type {
-  ArtifactOperations,
-  ArtifactStore,
-  ArtifactStoreTransaction,
-  Content,
-  StoredFile,
-} from "../index";
+import type { ArtifactId, BlobId, ContentId } from "../ref";
+import { artifactIdSchema, blobIdSchema, contentIdSchema } from "../ref";
+import type { Artifact, Blob, Content } from "../schema";
+import type { ArtifactStore } from "../store";
 
-import { ArtifactManager, StaleContentError } from "../index";
+const DIGEST = "a".repeat(64);
+const OTHER_DIGEST = "b".repeat(64);
+const AT = new Date("2026-01-01T00:00:00.000Z");
 
-/** Run a read-only store transaction, for inspecting records in tests. */
-export function readStore<T>(
-  store: ArtifactStore,
-  read: (store: ArtifactStoreTransaction) => Promise<T>
-): Promise<T> {
-  return store.transaction(read, { readOnly: true });
+const artifactId = (): ArtifactId =>
+  artifactIdSchema.parse(crypto.randomUUID());
+const contentId = (): ContentId => contentIdSchema.parse(crypto.randomUUID());
+const blobId = (): BlobId => blobIdSchema.parse(crypto.randomUUID());
+
+function artifact(fields: Partial<Artifact> = {}): Artifact {
+  return {
+    archivedAt: null,
+    contentId: null,
+    createdAt: AT,
+    id: artifactId(),
+    metadata: { sessionId: "session" },
+    name: "Notes",
+    publishedAt: null,
+    status: "draft",
+    type: "text/plain",
+    updatedAt: AT,
+    ...fields,
+  };
 }
 
-function file(content: Content): StoredFile {
-  const entry = content.tree["file.txt"];
-  if (entry?.type !== "file") {
-    throw new Error("Expected stored file");
-  }
-  return entry;
+function content(owner: ArtifactId, blobs: readonly BlobId[] = []): Content {
+  return {
+    artifactId: owner,
+    createdAt: AT,
+    digest: DIGEST,
+    frozenAt: null,
+    id: contentId(),
+    metadata: { entry: "a.txt" },
+    state: "ready",
+    tag: null,
+    tree: Object.fromEntries(
+      blobs.map((id, index) => [
+        `${String(index)}.txt`,
+        { blobId: id, bytes: 1, digest: DIGEST, mime: null, type: "file" },
+      ])
+    ),
+    updatedAt: AT,
+  };
 }
 
+function inlineBlob(digest = DIGEST): Blob {
+  return {
+    byteLength: 1,
+    bytes: new Uint8Array([1]),
+    createdAt: AT,
+    digest,
+    id: blobId(),
+  };
+}
+
+function sorted<T extends { readonly id: string }>(rows: readonly T[]): T[] {
+  return [...rows].sort((a, b) => (a.id < b.id ? -1 : 1));
+}
+
+/**
+ * Registers the tests every `ArtifactStore` must pass. `open` returns a
+ * fresh, empty store each time.
+ */
 export function describeArtifactStore(
   name: string,
-  createStore: () => ArtifactStore
+  open: () => ArtifactStore | Promise<ArtifactStore>
 ): void {
   describe(`${name} Artifact store conformance`, () => {
-    it("preserves shared blobs through fork edits and only reclaims the final reference", async () => {
-      const store = createStore();
-      const artifacts = new ArtifactManager({ store });
-      const original = await artifacts.create({
-        entries: { "file.txt": { bytes: crypto.randomUUID() } },
-        name: "Original",
-        type: "text/plain",
+    it("reads back every record a commit puts", async () => {
+      const store = await open();
+      const owner = artifact();
+      const blob = inlineBlob();
+      const version = content(owner.id, [blob.id]);
+      await store.commit({
+        putArtifacts: [owner],
+        putBlobs: [blob],
+        putContents: [version],
       });
-      if (!original.content) {
-        throw new Error("Expected Content");
-      }
-      const originalBlob = file(original.content).blobId;
-      const fork = await artifacts.fork({ contentId: original.content.id });
-      if (!fork.content) {
-        throw new Error("Expected fork Content");
-      }
-      expect(file(fork.content).blobId).toBe(originalBlob);
-      const edited = await artifacts.write({
-        artifactId: fork.id,
-        changes: { put: { "file.txt": { bytes: crypto.randomUUID() } } },
-      });
-      const replacement = file(edited).blobId;
-      expect(replacement).not.toBe(originalBlob);
-      await artifacts.delete(original.id);
-      expect(
-        await readStore(store, (scoped) => scoped.getBlob(originalBlob))
-      ).toBeNull();
-      expect(
-        await readStore(store, (scoped) => scoped.getBlob(replacement))
-      ).not.toBeNull();
-      await artifacts.delete(fork.id);
-      expect(
-        await readStore(store, (scoped) => scoped.getBlob(replacement))
-      ).toBeNull();
+
+      expect(await store.getArtifact(owner.id)).toEqual(owner);
+      expect(await store.getContent(version.id)).toEqual(version);
+      expect(await store.getBlob(blob.id)).toEqual(blob);
+      expect(await store.listArtifacts()).toEqual([owner]);
+      expect(await store.listContents()).toEqual([version]);
+      expect(await store.listContents(owner.id)).toEqual([version]);
+      expect(await store.listBlobs()).toEqual([{ id: blob.id }]);
+      expect(await store.findBlobs(DIGEST)).toEqual([blob]);
     });
 
-    it("reuses an exclusive ready blob and enforces concurrent write fences", async () => {
-      const artifacts = new ArtifactManager({ store: createStore() });
-      const original = await artifacts.create({
-        entries: { "file.txt": { bytes: crypto.randomUUID() } },
-        name: "Exclusive",
-        type: "text/plain",
+    it("answers absent records with null and empty lists", async () => {
+      const store = await open();
+      expect(await store.getArtifact(artifactId())).toBeNull();
+      expect(await store.getContent(contentId())).toBeNull();
+      expect(await store.getBlob(blobId())).toBeNull();
+      expect(await store.listArtifacts()).toEqual([]);
+      expect(await store.listContents()).toEqual([]);
+      expect(await store.listBlobs()).toEqual([]);
+      expect(await store.findBlobs(DIGEST)).toEqual([]);
+      expect(await store.findReferences(blobId())).toEqual({
+        blobIds: [],
+        contentIds: [],
       });
-      if (!original.content) {
-        throw new Error("Expected Content");
-      }
-      const write = (bytes: string) =>
-        artifacts.write({
-          artifactId: original.id,
-          changes: { put: { "file.txt": { bytes } } },
-          expectedContentId: original.contentId,
-          expectedUpdatedAt: original.content?.updatedAt,
-        });
-      const results = await Promise.allSettled([
-        write(crypto.randomUUID()),
-        write(crypto.randomUUID()),
-      ]);
-      const [first, second] = results;
-      if (first.status !== "fulfilled" || second.status !== "rejected") {
-        throw new Error("Expected one winner");
-      }
-      expect(first.value.id).toBe(original.content.id);
-      expect(file(first.value).blobId).toBe(file(original.content).blobId);
-      expect(second.reason).toBeInstanceOf(StaleContentError);
     });
 
-    it("rolls back records and notifications and expires scoped handles", async () => {
-      const artifacts = new ArtifactManager({ store: createStore() });
-      const changed = vi.fn();
-      artifacts.observe(changed);
-      let scoped: ArtifactOperations | undefined;
-      let id: Awaited<ReturnType<ArtifactManager["create"]>>["id"] | undefined;
+    it("lists one Artifact's Contents apart from another's", async () => {
+      const store = await open();
+      const first = artifact();
+      const second = artifact();
+      const mine = content(first.id);
+      const theirs = content(second.id);
+      await store.commit({
+        putArtifacts: [first, second],
+        putContents: [mine, theirs],
+      });
+      expect(await store.listContents(first.id)).toEqual([mine]);
+      expect(sorted(await store.listContents())).toEqual(
+        sorted([mine, theirs])
+      );
+    });
+
+    it("finds blobs by digest and names a backing path in listings", async () => {
+      const store = await open();
+      const inline = inlineBlob();
+      const backed: Blob = {
+        byteLength: 1,
+        createdAt: AT,
+        digest: OTHER_DIGEST,
+        id: blobId(),
+        path: crypto.randomUUID(),
+      };
+      await store.commit({ putBlobs: [inline, backed] });
+      expect(await store.findBlobs(OTHER_DIGEST)).toEqual([backed]);
+      expect(sorted(await store.listBlobs())).toEqual(
+        sorted([{ id: inline.id }, { id: backed.id, path: backed.path }])
+      );
+    });
+
+    it("finds the Contents and chunked blobs naming a blob", async () => {
+      const store = await open();
+      const owner = artifact();
+      const leaf = inlineBlob();
+      const unnamed = inlineBlob();
+      const manifest: Blob = {
+        byteLength: 1,
+        chunks: [leaf.id],
+        createdAt: AT,
+        digest: OTHER_DIGEST,
+        id: blobId(),
+      };
+      const version = content(owner.id, [leaf.id]);
+      await store.commit({
+        putArtifacts: [owner],
+        putBlobs: [leaf, unnamed, manifest],
+        putContents: [version],
+      });
+      expect(await store.findReferences(leaf.id)).toEqual({
+        blobIds: [manifest.id],
+        contentIds: [version.id],
+      });
+      expect(await store.findReferences(unnamed.id)).toEqual({
+        blobIds: [],
+        contentIds: [],
+      });
+    });
+
+    it("replaces a record put again and removes deleted ones", async () => {
+      const store = await open();
+      const kept = artifact();
+      const gone = artifact();
+      const version = content(gone.id);
+      const blob = inlineBlob();
+      await store.commit({
+        putArtifacts: [kept, gone],
+        putBlobs: [blob],
+        putContents: [version],
+      });
+      const renamed = { ...kept, name: "Renamed" };
+      await store.commit({
+        deleteArtifacts: [gone.id],
+        deleteBlobs: [blob.id],
+        deleteContents: [version.id],
+        putArtifacts: [renamed],
+      });
+      expect(await store.listArtifacts()).toEqual([renamed]);
+      expect(await store.getContent(version.id)).toBeNull();
+      expect(await store.getBlob(blob.id)).toBeNull();
+      expect(await store.findReferences(blob.id)).toEqual({
+        blobIds: [],
+        contentIds: [],
+      });
+    });
+
+    it("applies deletes before puts", async () => {
+      const store = await open();
+      const record = artifact();
+      await store.commit({ putArtifacts: [record] });
+      const replaced = { ...record, name: "Replaced" };
+      await store.commit({
+        deleteArtifacts: [record.id],
+        putArtifacts: [replaced],
+      });
+      expect(await store.getArtifact(record.id)).toEqual(replaced);
+    });
+
+    it("keeps nothing from a commit that fails", async () => {
+      const store = await open();
+      const before = artifact();
+      await store.commit({ putArtifacts: [before] });
+      const unstorable = artifact({
+        metadata: { unstorable: () => undefined },
+      });
       await expect(
-        artifacts.transaction(async (transaction) => {
-          scoped = transaction;
-          ({ id } = await transaction.create({
-            entries: { "file.txt": { bytes: "abort" } },
-            name: "Abort",
-            type: "text/plain",
-          }));
-          throw new Error("rollback");
+        store.commit({
+          deleteArtifacts: [before.id],
+          putArtifacts: [artifact(), unstorable],
+          putBlobs: [inlineBlob()],
         })
-      ).rejects.toThrow("rollback");
-      if (!(id && scoped)) {
-        throw new Error("Expected transaction to execute");
-      }
-      expect(await artifacts.get(id)).toBeNull();
-      expect(changed).not.toHaveBeenCalled();
-      await expect(scoped.list()).rejects.toThrow("settled");
+      ).rejects.toThrow();
+      expect(await store.listArtifacts()).toEqual([before]);
+      expect(await store.listBlobs()).toEqual([]);
     });
 
-    it("refuses writes from a read-only snapshot", async () => {
-      const store = createStore();
-      const artifacts = new ArtifactManager({ store });
-      const original = await artifacts.create({
-        name: "Read-only",
-        type: "text/plain",
+    it("detaches what it stores from what it returns", async () => {
+      const store = await open();
+      const record = artifact();
+      const blob = inlineBlob();
+      await store.commit({ putArtifacts: [record], putBlobs: [blob] });
+      (record as { name: string }).name = "Changed by the writer";
+      blob.bytes?.fill(9);
+      Object.assign((await store.getArtifact(record.id)) ?? {}, {
+        name: "Changed by a reader",
       });
-      await expect(
-        store.transaction(
-          async (scoped) => {
-            const row = await scoped.getArtifact(original.id);
-            if (!row) {
-              throw new Error("Expected Artifact");
-            }
-            await scoped.putArtifact({ ...row, name: "Invalid update" });
-          },
-          { readOnly: true }
-        )
-      ).rejects.toThrow("read-only");
-      expect((await artifacts.get(original.id))?.name).toBe("Read-only");
+      const [listed] = await store.listArtifacts();
+      (listed?.metadata as Record<string, unknown>).sessionId = "changed";
+      (await store.getBlob(blob.id))?.bytes?.fill(7);
+
+      expect((await store.getArtifact(record.id))?.name).toBe("Notes");
+      expect((await store.getArtifact(record.id))?.metadata).toEqual({
+        sessionId: "session",
+      });
+      expect((await store.getBlob(blob.id))?.bytes).toEqual(
+        new Uint8Array([1])
+      );
     });
 
-    it("runs every required after-commit callback even when one fails", async () => {
-      const store = createStore();
-      const applied: string[] = [];
+    it("runs transactions one at a time, committing through the view", async () => {
+      const store = await open();
+      const { transaction } = store;
+      if (transaction === undefined) {
+        return;
+      }
+      const order: string[] = [];
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const first = transaction.call(store, async (view) => {
+        order.push("first starts");
+        await held;
+        await view.commit({ putArtifacts: [artifact({ name: "First" })] });
+        order.push("first commits");
+      });
+      const second = transaction.call(store, async (view) => {
+        order.push("second starts");
+        expect((await view.listArtifacts()).map((row) => row.name)).toEqual([
+          "First",
+        ]);
+        await view.commit({ putArtifacts: [artifact({ name: "Second" })] });
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      release();
+      await Promise.all([first, second]);
+      expect(order).toEqual(["first starts", "first commits", "second starts"]);
+      expect(await store.listArtifacts()).toHaveLength(2);
+    });
+
+    it("keeps nothing from a transaction whose work fails before committing", async () => {
+      const store = await open();
+      const { transaction } = store;
+      if (transaction === undefined) {
+        return;
+      }
       await expect(
-        store.transaction((scoped) => {
-          scoped.afterCommit(() => {
-            applied.push("first");
-            return Promise.reject(new Error("application failed"));
-          });
-          scoped.afterCommit(() => {
-            applied.push("second");
-            return Promise.resolve();
-          });
-          return Promise.resolve();
-        })
-      ).rejects.toThrow("application failed");
-      expect(applied).toEqual(["first", "second"]);
+        transaction.call(store, () => Promise.reject(new Error("abandoned")))
+      ).rejects.toThrow("abandoned");
+      expect(await store.listArtifacts()).toEqual([]);
     });
   });
 }

@@ -2,6 +2,7 @@ import { StorageApplicationError } from "@foundry/core/storage";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Blob, StoredFile } from "../blob";
+import { ArtifactChange } from "../change";
 import { CHUNK_BYTES } from "../constants";
 import {
   ArtifactApplicationError,
@@ -9,9 +10,8 @@ import {
   TransactionRolledBackError,
 } from "../errors";
 import { ArtifactManager } from "../manager";
-import { InMemoryArtifactStore } from "../memory";
+import { InMemoryArtifactStore } from "../store/memory";
 import type { Content } from "../substrate";
-import { readStore } from "../testing/store";
 import { fixture } from "./helpers/directory";
 import { required } from "./helpers/required";
 
@@ -40,9 +40,7 @@ describe("ArtifactManager blob objects", () => {
     expect(content.id).toBe(created.contentId);
     expect(file(content).blobId).toBe(before.blobId);
     expect(file(content).digest).not.toBe(before.digest);
-    expect(await readStore(store, (scoped) => scoped.listBlobs())).toHaveLength(
-      1
-    );
+    expect(await store.listBlobs()).toHaveLength(1);
   });
 
   it("preserves shared bytes through edits and deletion of a fork", async () => {
@@ -73,15 +71,13 @@ describe("ArtifactManager blob objects", () => {
         ).blob
       )
     ).toBe("shared");
-    expect(await readStore(store, (scoped) => scoped.listBlobs())).toHaveLength(
-      2
-    );
+    expect(await store.listBlobs()).toHaveLength(2);
     await artifacts.delete(fork.id);
-    expect(await readStore(store, (scoped) => scoped.listBlobs())).toEqual([
+    expect(await store.listBlobs()).toEqual([
       { id: file(required(original.content)).blobId },
     ]);
     await artifacts.delete(original.id);
-    expect(await readStore(store, (scoped) => scoped.listBlobs())).toEqual([]);
+    expect(await store.listBlobs()).toEqual([]);
   });
 
   it("retains a blob referenced by a sibling file during a multi-file write", async () => {
@@ -129,9 +125,7 @@ describe("ArtifactManager blob objects", () => {
       contentId: required(original.contentId),
     });
     await artifacts.delete(original.id);
-    expect(await readStore(store, (scoped) => scoped.listBlobs())).toHaveLength(
-      3
-    );
+    expect(await store.listBlobs()).toHaveLength(3);
     const range = await artifacts.readFileRange(
       required(fork.contentId),
       "a.txt",
@@ -142,7 +136,7 @@ describe("ArtifactManager blob objects", () => {
       bytes.push(...part);
     }
     expect(bytes).toEqual([1, 1, 2, 2, 2]);
-    const reads = vi.spyOn(store, "transaction");
+    const reads = vi.spyOn(store, "getBlob");
     const tail = await artifacts.readFileRange(
       required(fork.contentId),
       "a.txt",
@@ -151,10 +145,10 @@ describe("ArtifactManager blob objects", () => {
     for await (const part of required(tail).body) {
       expect([...part]).toEqual([...last]);
     }
-    // One read locates the file; the tail pulls only its own chunk.
+    // Locating reads the manifest; the tail pulls only its own chunk.
     expect(reads).toHaveBeenCalledTimes(2);
     await artifacts.delete(fork.id);
-    expect(await readStore(store, (scoped) => scoped.listBlobs())).toEqual([]);
+    expect(await store.listBlobs()).toEqual([]);
   });
 
   it("rewrites an owned object in place even when another object holds the new bytes", async () => {
@@ -177,9 +171,7 @@ describe("ArtifactManager blob objects", () => {
     });
     expect(file(edited).blobId).toBe(owned);
     expect(file(edited).blobId).not.toBe(file(required(other.content)).blobId);
-    expect(await readStore(store, (scoped) => scoped.listBlobs())).toHaveLength(
-      2
-    );
+    expect(await store.listBlobs()).toHaveLength(2);
   });
 
   it("does not rewrite an object a sibling byte write joined in the same change", async () => {
@@ -230,12 +222,8 @@ describe("ArtifactManager blob objects", () => {
     });
     const { blobId } = file(required(fromBytes.content), "a.bin");
     expect(file(required(fromStream.content), "a.bin").blobId).toBe(blobId);
-    expect(
-      (await readStore(store, (scoped) => scoped.getBlob(blobId)))?.chunks
-    ).toHaveLength(2);
-    expect(await readStore(store, (scoped) => scoped.listBlobs())).toHaveLength(
-      3
-    );
+    expect((await store.getBlob(blobId))?.chunks).toHaveLength(2);
+    expect(await store.listBlobs()).toHaveLength(3);
   });
 
   it("retires the previous backing file of a rewritten object after commit", async () => {
@@ -265,18 +253,14 @@ describe("ArtifactManager blob objects", () => {
       type: "text/plain",
     });
     const blob = required(
-      await readStore(store, (scoped) =>
-        scoped.getBlob(file(required(original.content)).blobId)
-      )
+      await store.getBlob(file(required(original.content)).blobId)
     );
+    const change = new ArtifactChange(store, {});
     await expect(
-      store.transaction((transaction) =>
-        transaction.putBlob({ ...blob, path: "elsewhere" } as unknown as Blob)
-      )
+      change.putBlob({ ...blob, path: "elsewhere" } as unknown as Blob)
     ).rejects.toThrow("Invalid blob");
-    expect(await readStore(store, (scoped) => scoped.getBlob(blob.id))).toEqual(
-      blob
-    );
+    expect(change.write()).toBeUndefined();
+    expect(await store.getBlob(blob.id)).toEqual(blob);
   });
 });
 
@@ -302,9 +286,7 @@ describe("ArtifactManager operation boundaries", () => {
     ).rejects.toThrow("abort");
     expect(await artifacts.get(artifact.id)).toEqual(artifact);
     expect(await readdir(join(root, ".blobs"))).toEqual(before);
-    expect(await readStore(store, (scoped) => scoped.listBlobs())).toHaveLength(
-      1
-    );
+    expect(await store.listBlobs()).toHaveLength(1);
     expect(changed).not.toHaveBeenCalled();
   });
 

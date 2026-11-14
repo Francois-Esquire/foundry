@@ -3,8 +3,8 @@ import {
   ArtifactManager,
   artifactIdSchema,
   contentIdSchema,
-  InMemoryArtifactStore,
 } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { describe, expect, it } from "vitest";
 
 import { MODULE_MIME } from "../constants";

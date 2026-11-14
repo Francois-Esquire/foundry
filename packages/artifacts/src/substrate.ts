@@ -131,11 +131,11 @@ export interface ArtifactOperations {
     readonly expectedContentId: ContentId;
   }): Promise<ArtifactResolved>;
   create(input: CreateArtifactInput): Promise<ArtifactResolved>;
-  /** Cascades to every Content. Throws ArtifactInUseError when a pin holds one. */
+  /** Cascades to every Content. */
   delete(artifactId: ArtifactId): Promise<boolean>;
   /**
    * Remove a Content. The active row needs a replacement named in the same
-   * call. Frozen rows held by a pin throw ContentInUseError.
+   * call.
    */
   deleteContent(input: {
     readonly contentId: ContentId;
@@ -203,7 +203,7 @@ export interface ArtifactOperations {
   ): Promise<Content>;
 
   /**
-   * Reclaim: delete unfrozen, unpointed, unpinned Contents older than
+   * Reclaim: delete unfrozen, unpointed Contents older than
    * `olderThan`, then every blob nothing references. Each operation already
    * reclaims the blobs it released; this full scan is the backstop.
    */

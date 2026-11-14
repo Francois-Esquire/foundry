@@ -1,10 +1,11 @@
 import { describe, expect, test, vi } from "vitest";
 
 import type {
+  ArtifactOperations,
   ArtifactResolved,
-  ArtifactStore,
   Content,
   ContentId,
+  StoredFile,
 } from "../index";
 import {
   ArtifactManager,
@@ -15,7 +16,7 @@ import {
   InvalidArtifactInputError,
   StaleContentError,
 } from "../index";
-import { readStore } from "./store";
+import type { ArtifactStore } from "../store";
 
 const text = (value: string, mime = "text/html") => ({ bytes: value, mime });
 function contentOf(artifact: ArtifactResolved): Content {
@@ -24,7 +25,19 @@ function contentOf(artifact: ArtifactResolved): Content {
   }
   return artifact.content;
 }
-export function describeArtifactManager(
+function file(content: Content): StoredFile {
+  const entry = content.tree["file.txt"];
+  if (entry?.type !== "file") {
+    throw new Error("Expected stored file");
+  }
+  return entry;
+}
+
+/**
+ * Registers the manager's behaviour over a store: rules, sharing, fences,
+ * rollback and commit-time effects. `createStore` returns a fresh, empty
+ * store each time.
+ */ export function describeArtifactManager(
   name: string,
   createStore: () => ArtifactStore
 ): void {
@@ -38,8 +51,7 @@ export function describeArtifactManager(
   describe(`${name} Artifact manager`, () => {
     test("stores structural entries without blobs and removes directories recursively", async () => {
       const { artifacts, store } = harness();
-      const before = (await readStore(store, (scoped) => scoped.listBlobs()))
-        .length;
+      const before = (await store.listBlobs()).length;
       const artifact = await artifacts.create({
         entries: {
           device: { type: "device" },
@@ -62,9 +74,7 @@ export function describeArtifactManager(
         src: { type: "directory" },
         "src/file.txt": { bytes: 18, type: "file" },
       });
-      expect(
-        (await readStore(store, (scoped) => scoped.listBlobs())).length
-      ).toBe(before + 1);
+      expect((await store.listBlobs()).length).toBe(before + 1);
       for (const path of ["empty", "src", "link", "socket", "pipe", "device"]) {
         expect(await artifacts.readFile(content.id, path)).toBeNull();
       }
@@ -86,9 +96,7 @@ export function describeArtifactManager(
       expect(written.tree).not.toHaveProperty("src");
       expect(written.tree).not.toHaveProperty("src/file.txt");
       expect(written.tree.empty).toEqual({ type: "directory" });
-      expect(
-        (await readStore(store, (scoped) => scoped.listBlobs())).length
-      ).toBe(before);
+      expect((await store.listBlobs()).length).toBe(before);
     });
     test("explicit revision preserves predecessors without publication and rolls back invalid contributions", async () => {
       const { artifacts, store, mutations } = harness();
@@ -103,8 +111,7 @@ export function describeArtifactManager(
         type: "text/html",
       });
       const source = contentOf(artifact);
-      const count = (await readStore(store, (scoped) => scoped.listBlobs()))
-        .length;
+      const count = (await store.listBlobs()).length;
       const notifications = mutations.length;
       await expect(
         artifacts.revise({
@@ -115,9 +122,7 @@ export function describeArtifactManager(
         })
       ).rejects.toBeInstanceOf(FilePointerError);
       expect(await artifacts.get(artifact.id)).toEqual(artifact);
-      expect(
-        (await readStore(store, (scoped) => scoped.listBlobs())).length
-      ).toBe(count);
+      expect((await store.listBlobs()).length).toBe(count);
       expect(mutations).toHaveLength(notifications);
       const successor = await artifacts.revise({
         artifactId: artifact.id,
@@ -214,8 +219,7 @@ export function describeArtifactManager(
     });
     test("create with files, autosave in place, publish, edit after freeze", async () => {
       const { store, artifacts, mutations } = harness();
-      const before = (await readStore(store, (scoped) => scoped.listBlobs()))
-        .length;
+      const before = (await store.listBlobs()).length;
 
       const created = await artifacts.create({
         entries: {
@@ -232,9 +236,7 @@ export function describeArtifactManager(
         "index.html",
         "style.css",
       ]);
-      expect(
-        (await readStore(store, (scoped) => scoped.listBlobs())).length
-      ).toBe(before + 2);
+      expect((await store.listBlobs()).length).toBe(before + 2);
       const firstId = first.id;
 
       const saved = await artifacts.write({
@@ -244,9 +246,7 @@ export function describeArtifactManager(
       });
       expect(saved.id).toBe(firstId);
       expect(saved.digest).not.toBe(first.digest);
-      expect(
-        (await readStore(store, (scoped) => scoped.listBlobs())).length
-      ).toBe(before + 2);
+      expect((await store.listBlobs()).length).toBe(before + 2);
       await new Promise((resolve) => setTimeout(resolve, 2));
 
       const published = await artifacts.write({
@@ -270,9 +270,7 @@ export function describeArtifactManager(
       expect(edited.metadata.from).toBe(firstId);
       expect(edited.artifact.contentId).toBe(edited.id);
       expect(edited.tree["index.html"]).toEqual(published.tree["index.html"]);
-      expect(
-        (await readStore(store, (scoped) => scoped.listBlobs())).length
-      ).toBe(before + 3);
+      expect((await store.listBlobs()).length).toBe(before + 3);
 
       const timeline = await artifacts.listContents(created.id);
       expect(timeline.map((c) => c.state)).toEqual(["frozen", "ready"]);
@@ -455,6 +453,156 @@ export function describeArtifactManager(
       await expect(artifacts.rename(a.id, "x")).rejects.toBeInstanceOf(
         ArtifactNotFoundError
       );
+    });
+
+    test("preserves shared blobs through fork edits and only reclaims the final reference", async () => {
+      const { artifacts, store } = harness();
+      const original = await artifacts.create({
+        entries: { "file.txt": { bytes: crypto.randomUUID() } },
+        name: "Original",
+        type: "text/plain",
+      });
+      const originalBlob = file(contentOf(original)).blobId;
+      const fork = await artifacts.fork({
+        contentId: contentOf(original).id,
+      });
+      expect(file(contentOf(fork)).blobId).toBe(originalBlob);
+      const edited = await artifacts.write({
+        artifactId: fork.id,
+        changes: { put: { "file.txt": { bytes: crypto.randomUUID() } } },
+      });
+      const replacement = file(edited).blobId;
+      expect(replacement).not.toBe(originalBlob);
+      await artifacts.delete(original.id);
+      expect(await store.getBlob(originalBlob)).toBeNull();
+      expect(await store.getBlob(replacement)).not.toBeNull();
+      await artifacts.delete(fork.id);
+      expect(await store.getBlob(replacement)).toBeNull();
+    });
+
+    test("reuses an exclusive ready blob and enforces concurrent write fences", async () => {
+      const { artifacts } = harness();
+      const original = await artifacts.create({
+        entries: { "file.txt": { bytes: crypto.randomUUID() } },
+        name: "Exclusive",
+        type: "text/plain",
+      });
+      const before = contentOf(original);
+      const write = (bytes: string) =>
+        artifacts.write({
+          artifactId: original.id,
+          changes: { put: { "file.txt": { bytes } } },
+          expectedContentId: original.contentId,
+          expectedUpdatedAt: before.updatedAt,
+        });
+      const [first, second] = await Promise.allSettled([
+        write(crypto.randomUUID()),
+        write(crypto.randomUUID()),
+      ]);
+      if (first.status !== "fulfilled" || second.status !== "rejected") {
+        throw new Error("Expected one winner");
+      }
+      expect(first.value.id).toBe(before.id);
+      expect(file(first.value).blobId).toBe(file(before).blobId);
+      expect(second.reason).toBeInstanceOf(StaleContentError);
+    });
+
+    test("enforces write fences between two managers over one store", async () => {
+      const store = createStore();
+      const one = new ArtifactManager({ store });
+      const other = new ArtifactManager({ store });
+      const original = await one.create({
+        entries: { "file.txt": { bytes: "start" } },
+        name: "Shared",
+        type: "text/plain",
+      });
+      const write = (artifacts: ArtifactManager, bytes: string) =>
+        artifacts.write({
+          artifactId: original.id,
+          changes: { put: { "file.txt": { bytes } } },
+          expectedUpdatedAt: contentOf(original).updatedAt,
+        });
+      const results = await Promise.allSettled([
+        write(one, "one"),
+        write(other, "other"),
+      ]);
+      expect(results.map((result) => result.status).sort()).toEqual([
+        "fulfilled",
+        "rejected",
+      ]);
+    });
+
+    test("rolls back records and notifications and expires scoped handles", async () => {
+      const { artifacts, mutations } = harness();
+      let scoped: ArtifactOperations | undefined;
+      let id: ArtifactResolved["id"] | undefined;
+      await expect(
+        artifacts.transaction(async (transaction) => {
+          scoped = transaction;
+          ({ id } = await transaction.create({
+            entries: { "file.txt": { bytes: "abort" } },
+            name: "Abort",
+            type: "text/plain",
+          }));
+          throw new Error("rollback");
+        })
+      ).rejects.toThrow("rollback");
+      if (!(id && scoped)) {
+        throw new Error("Expected transaction to execute");
+      }
+      expect(await artifacts.get(id)).toBeNull();
+      expect(mutations).toEqual([]);
+      await expect(scoped.list()).rejects.toThrow("settled");
+    });
+
+    test("runs every after-commit callback even when one fails", async () => {
+      const { artifacts } = harness();
+      const applied: string[] = [];
+      await expect(
+        artifacts.transaction(async (transaction, effects) => {
+          await transaction.create({ name: "Effects", type: "text/plain" });
+          effects.afterCommit(() => {
+            applied.push("first");
+            return Promise.reject(new Error("application failed"));
+          });
+          effects.afterCommit(() => {
+            applied.push("second");
+            return Promise.resolve();
+          });
+        })
+      ).rejects.toThrow("application failed");
+      expect(applied).toEqual(["first", "second"]);
+      expect((await artifacts.list()).total).toBe(1);
+    });
+
+    test("runs after-commit work once the change is released, so it can write again", async () => {
+      const { artifacts } = harness();
+      const order: string[] = [];
+      await artifacts.transaction(async (transaction, effects) => {
+        await transaction.create({ name: "Outer", type: "text/plain" });
+        effects.afterCommit(async () => {
+          await artifacts.create({ name: "Nested", type: "text/plain" });
+          order.push("nested write");
+        });
+        order.push("outer write");
+      });
+      expect(order).toEqual(["outer write", "nested write"]);
+      expect((await artifacts.list()).total).toBe(2);
+    }, 2000);
+
+    test("discards after-commit work when the change rolls back", async () => {
+      const { artifacts } = harness();
+      let ran = false;
+      await expect(
+        artifacts.transaction((_transaction, effects) => {
+          effects.afterCommit(() => {
+            ran = true;
+            return Promise.resolve();
+          });
+          return Promise.reject(new Error("rolled back"));
+        })
+      ).rejects.toThrow("rolled back");
+      expect(ran).toBe(false);
     });
   });
 }

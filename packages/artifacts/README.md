@@ -4,8 +4,10 @@ Package constants live in `@foundry/artifacts/constants`. General MIME helpers l
 
 `@foundry/artifacts` defines the shared Artifact vocabulary and the
 [`Artifacts`](src/substrate.ts) contract. An Artifact keeps stable product identity
-while its active Content changes. `ArtifactManager` owns behavior and accepts an
-`ArtifactStore`: `InMemoryArtifactStore` here or a host-provided persistent store.
+while its active Content changes. `ArtifactManager` owns behavior and every rule, and accepts an
+`ArtifactStore` from `@foundry/artifacts/store`. It defaults to
+`InMemoryArtifactStore` from `@foundry/artifacts/store/memory`; a host may supply a
+persistent store.
 
 Content extends the shared `StorageTree` vocabulary with `blobId` on file entries.
 Paths map to files, directories, symlinks, sockets, devices, or pipes. Only files
@@ -53,13 +55,13 @@ export function createPage(artifacts: Artifacts) {
 ```
 
 The returned `ArtifactResolved` contains the Artifact and its active Content.
-Create a manager with the included in-memory store:
+Create a manager over the in-memory store, the default:
 
 ```ts
-import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager } from "@foundry/artifacts";
 
 export function createArtifacts() {
-  return new ArtifactManager({ store: new InMemoryArtifactStore() });
+  return new ArtifactManager();
 }
 ```
 
@@ -187,8 +189,7 @@ StorageTree paths use forward slashes, have no leading slash, and cannot contain
 StorageTree. Use `readRoot`, `readNamedRoot`, `readThumbnail`, or `readFile` to load bytes.
 
 Deleting active Content requires a replacement in the same operation. Deleting an
-Artifact cascades through its Content unless another owner pins a frozen version; pinned
-deletion throws `ArtifactInUseError` or `ContentInUseError`. `sweep` removes old,
+Artifact cascades through its Content. `sweep` removes old,
 unselected ready or failed Content and then unreferenced blobs. It does not discard an
 active generation.
 
@@ -265,14 +266,16 @@ canonical JSON, and Base64 helpers live in `@foundry/lib/digest`,
 `@foundry/core/pagination`: `items`, exact filtered `total`, and optional
 `nextCursor`. Shared pagination helpers live in `@foundry/lib/pagination`.
 
-Persistent stores implement `ArtifactStore`: every record access happens through
-the `ArtifactStoreTransaction` its `transaction` method supplies. That interface
-documents the integrity rules a store must enforce. A SQLite adapter is not
-included in this repository. `JsonArtifactStore` from `@foundry/artifacts/node` keeps every
-record in one JSON file, rewritten per commit under a `<path>.lock` file so
-several processes can share it. Pair it with `blobFiles` for bytes. It suits a
-local feed's scale, not a large catalogue. Neither the manager nor the in-memory store imports Node
-or SQLite.
+Persistent stores implement `ArtifactStore`: detached reads, and one atomic
+`commit(write)` that carries a whole change as puts and deletes. A store enforces
+nothing; the manager checks every rule before a write reaches it. An optional
+`transaction(work)` keeps other managers over the same store from writing between a
+change's reads and its commit. Blob bytes commit as records: inline bytes inside the
+blob, or the name of an immutable file `blobFiles` published before the commit.
+`JsonArtifactStore` from `@foundry/artifacts/node` keeps every record in one JSON file,
+rewritten per commit under a `<path>.lock` file so several processes can share it. It
+is interim and goes when a SQLite store lands. Pair it with `blobFiles` for bytes.
+The in-memory store does not import Node or SQLite.
 
 ## Development
 
@@ -285,7 +288,7 @@ bun run check packages/artifacts
 bun run build --filter=@foundry/artifacts
 ```
 
-Package tests own manager, blob, and directory behavior. Shared suites in
-`@foundry/artifacts/testing/store` and `@foundry/artifacts/testing/manager` also
-support host-provided store implementations. Hosts own their persistence and
+Package tests own manager, blob, and directory behavior. The store conformance
+suite in `@foundry/artifacts/testing` and the manager suite in
+`@foundry/artifacts/testing/manager` also support host-provided store implementations. Hosts own their persistence and
 migration tests. Lib owns encoding and pagination helper tests.
