@@ -1,8 +1,14 @@
 import { symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import type { FileRepresentation, StorageEntry } from "@foundry/core/storage";
+import type { FileClassification } from "@foundry/lib/file-classification";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { MemoryWorkspaceStore } from "../memory-store";
 import {
+  type WorkspaceEntry,
+  type WorkspaceEntryId,
+  type WorkspaceFile,
+  type WorkspaceId,
   workspaceEntrySchema,
   workspaceFileSchema,
   workspaceRegistrationSchema,
@@ -12,6 +18,7 @@ import {
   artifactWorkspace,
   directoryRecord,
   fileRecord,
+  hostWorkspace,
   newRoot,
 } from "./helpers/fixtures";
 import { makeRoot } from "./helpers/temp-roots";
@@ -27,6 +34,37 @@ async function cataloged() {
   const registration = await workspace.registration();
   return { registration, root, store, workspace };
 }
+
+/** The record fields a Workspace adds to what the source observed. */
+type EntryRecordKey = "createdAt" | "id" | "name" | "updatedAt" | "workspaceId";
+/** An entry as core's storage node, without what classification adds. */
+type StorageNodeOf<Entry> = Entry extends unknown
+  ? Omit<Entry, EntryRecordKey | "extension" | "kind">
+  : never;
+
+describe("record types", () => {
+  it("keep the id brands minted by casting", () => {
+    expectTypeOf<WorkspaceId>().toEqualTypeOf<
+      string & { readonly __brand: "WorkspaceId" }
+    >();
+    expectTypeOf<WorkspaceEntryId>().toEqualTypeOf<
+      string & { readonly __brand: "WorkspaceEntryId" }
+    >();
+  });
+
+  it("restate core's storage shapes exactly", () => {
+    // `branded` compares core's union of intersections member by member.
+    expectTypeOf<
+      StorageNodeOf<WorkspaceEntry>
+    >().branded.toEqualTypeOf<StorageEntry>();
+    expectTypeOf<
+      StorageNodeOf<WorkspaceFile>
+    >().toEqualTypeOf<FileRepresentation>();
+    expectTypeOf<
+      Pick<WorkspaceFile, keyof FileClassification>
+    >().toEqualTypeOf<FileClassification>();
+  });
+});
 
 describe("record schemas", () => {
   it("describe every registration and entry the store holds", async () => {
@@ -84,11 +122,28 @@ describe("record schemas", () => {
     expect(
       workspaceFileSchema.safeParse({ ...file, digest: "abc" }).success
     ).toBe(false);
+    expect(workspaceFileSchema.safeParse({ ...file, bytes: -1 }).success).toBe(
+      false
+    );
     expect(
       workspaceFileSchema.safeParse({ ...file, path: "../outside" }).success
     ).toBe(false);
     expect(
       workspaceEntrySchema.safeParse({ ...file, type: "directory" }).success
+    ).toBe(false);
+  });
+
+  it("refuse entries core's storage rules refuse", () => {
+    const workspace = hostWorkspace({ path: newRoot("alpha") });
+    const docs = directoryRecord(workspace.id, "docs");
+    const link = { ...docs, target: "docs", type: "symlink" };
+
+    expect(workspaceEntrySchema.safeParse(link).success).toBe(true);
+    expect(
+      workspaceEntrySchema.safeParse({ ...link, target: "" }).success
+    ).toBe(false);
+    expect(
+      workspaceEntrySchema.safeParse({ ...docs, path: "../docs" }).success
     ).toBe(false);
   });
 });

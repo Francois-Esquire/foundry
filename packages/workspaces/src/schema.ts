@@ -1,25 +1,39 @@
-import { isStoragePath } from "@foundry/core/storage";
+import {
+  type StorageEntry,
+  withParentDirectories,
+} from "@foundry/core/storage";
 import { FILE_KINDS } from "@foundry/lib/file-classification";
 import { z } from "zod";
 
 /**
  * The records a `WorkspaceStore` holds: one registration per source and the
- * entries it owns. These schemas are the single definition of those shapes;
- * the record types are inferred from them. Nothing parses with them on the
- * store path today — constraints describe what the catalog and the source
- * already guarantee, not new checks.
+ * entries it owns. Each record type is inferred from its schema, so the
+ * schema is the one definition of the persisted shape; only the id brands are
+ * declared by hand, with their schemas bound to them. Nothing parses these on
+ * the way into or out of a store; a store enforces nothing (see
+ * `WorkspaceStore`).
  */
 
-const SHA256_HEX = /^[a-f0-9]{64}$/;
+export type WorkspaceId = string & { readonly __brand: "WorkspaceId" };
 
-export const workspaceIdSchema = z.string().min(1).brand<"WorkspaceId">();
-export type WorkspaceId = z.infer<typeof workspaceIdSchema>;
+export type WorkspaceEntryId = string & {
+  readonly __brand: "WorkspaceEntryId";
+};
 
-export const workspaceEntryIdSchema = z
-  .string()
-  .min(1)
-  .brand<"WorkspaceEntryId">();
-export type WorkspaceEntryId = z.infer<typeof workspaceEntryIdSchema>;
+/**
+ * Any nonempty string, bound to the `__brand` type the package mints by
+ * casting a UUID. A Zod brand would be a different type from the one every
+ * importer already holds.
+ */
+export const workspaceIdSchema = z.string().min(1) as unknown as z.ZodType<
+  WorkspaceId,
+  string
+>;
+
+export const workspaceEntryIdSchema = z.string().min(1) as unknown as z.ZodType<
+  WorkspaceEntryId,
+  string
+>;
 
 /**
  * Where a Workspace's bytes come from. `kind` is the string a layer claims
@@ -49,31 +63,47 @@ export const workspaceRegistrationSchema = z
   .readonly();
 export type WorkspaceRegistration = z.infer<typeof workspaceRegistrationSchema>;
 
+/*
+ * `@foundry/core/storage` owns the node shapes below (`StorageEntry`,
+ * `FileRepresentation`) and the rules for a valid path, digest, size, and
+ * link target. This file only declares their field types and asks core's own
+ * validator; tests hold the inferred types strictly equal to core's.
+ */
+
+/** A valid node at a valid path, by core's rules. */
+function isStorageEntry(entry: StorageEntry): boolean {
+  try {
+    withParentDirectories({ [entry.path]: entry });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Identity and time every entry carries beside what the source observed. */
 const entryRecord = {
   createdAt: z.date(),
   id: workspaceEntryIdSchema,
   /** The last path segment. */
   name: z.string(),
-  /** Root-relative POSIX path without empty, `.` or `..` segments. */
-  path: z.string().refine(isStoragePath, "Expected a root-relative path"),
+  path: z.string(),
   updatedAt: z.date(),
   workspaceId: workspaceIdSchema,
 };
 
 const fileEntry = z.strictObject({
   ...entryRecord,
-  /** Length in bytes. */
-  bytes: z.int().min(0),
-  /** SHA-256 hex digest of the observed bytes. */
-  digest: z.string().regex(SHA256_HEX),
+  bytes: z.int(),
+  digest: z.string(),
   extension: z.string().nullable(),
   kind: z.enum(FILE_KINDS),
   mime: z.string().nullable(),
   type: z.literal("file"),
 });
 
-export const workspaceFileSchema = fileEntry.readonly();
+export const workspaceFileSchema = fileEntry
+  .refine(isStorageEntry, "Expected a valid storage file")
+  .readonly();
 export type WorkspaceFile = z.infer<typeof workspaceFileSchema>;
 
 /** One included path: a File, or any other node the source reported there. */
@@ -84,15 +114,13 @@ export const workspaceEntrySchema = z
     z.strictObject({
       ...entryRecord,
       /** The stored link target, never resolved. */
-      target: z
-        .string()
-        .min(1)
-        .refine((target) => !target.includes("\0")),
+      target: z.string(),
       type: z.literal("symlink"),
     }),
     z.strictObject({ ...entryRecord, type: z.literal("socket") }),
     z.strictObject({ ...entryRecord, type: z.literal("device") }),
     z.strictObject({ ...entryRecord, type: z.literal("pipe") }),
   ])
+  .refine(isStorageEntry, "Expected a valid storage entry")
   .readonly();
 export type WorkspaceEntry = z.infer<typeof workspaceEntrySchema>;
