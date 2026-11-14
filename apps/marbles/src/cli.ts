@@ -70,7 +70,7 @@ const USAGE = `marbles — programmable workspace automation
   sessions                   sessions under --state: id, messages, updated, summary
   tasks <action> [--json]    read or change this workspace's tasks (below)
   watch <runId>              replay output, follow it live, and exit when the run ends
-  mcp                        serve this workspace to an MCP client over stdio; starts nothing (--dry-run hosts here)
+  mcp                        serve this workspace to an MCP client over stdio; starts and hosts nothing
   daemon                     run the Marbles process in the foreground
   stop                       stop the Marbles process and every workspace it hosts
   attach                     host this workspace in the Marbles process and exit; it stays hosted

@@ -21,8 +21,7 @@ import { readWorkspace, workspaceState } from "~/lib/state/workspace";
 import { daemonAlive } from "~/process/client";
 import { version } from "../package.json";
 import { stopDaemon } from "./helpers/daemon";
-import { rawMcpSession, strayLines } from "./helpers/mcp-stdio";
-import { configureProviders } from "./helpers/providers";
+import { rawMcpSession, serverPreload, strayLines } from "./helpers/mcp-stdio";
 
 const TOOL_NAMES = [
   "list_workspaces",
@@ -60,7 +59,7 @@ const summarySchema = z.object({
   state: z.string(),
 });
 
-it("loads source, lists declarations, runs validated input, and dispatches an agent over STDIO", async () => {
+it("dispatches workflows and agents through the MCP tools, over a workspace a dry-run host serves", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-"));
   const source = join(root, "marbles.ts");
   const schemaLibrary = createRequire(import.meta.url).resolve("zod");
@@ -68,29 +67,19 @@ it("loads source, lists declarations, runs validated input, and dispatches an ag
     source,
     `import { agent, step, workflow } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(schemaLibrary)};
-process.stdout.write("source diagnostic\\n");
-console.log("source console diagnostic");
 agent({ name: "helper", prompt: "You help with tasks." });
 const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => {
-  process.stdout.write("workflow diagnostic\\n");
+  console.error("workflow diagnostic");
   return { greeting: "Hello " + input.name };
 });
 workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
   );
-  configureProviders(join(root, "state"));
+  // `marbles mcp` hosts nothing, so the tools are served over a host here.
   const transport = new StdioClientTransport({
-    args: [
-      "--no-env-file",
-      resolve("src/cli.ts"),
-      "mcp",
-      "--source",
-      source,
-      "--state",
-      join(root, "state"),
-      "--dry-run",
-    ],
+    args: ["--no-env-file", resolve("test/helpers/dry-mcp-host.ts"), source],
     command: "bun",
     cwd: root,
+    env: process.env as Record<string, string>,
     stderr: "pipe",
   });
   let diagnostics = "";
@@ -111,8 +100,6 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
         );
       }
     }
-    const workspaces = await client.callTool({ name: "list_workspaces" });
-    expect(summarySchema.array().parse(payload(workspaces))).toHaveLength(1);
     // A tool with an input schema takes an arguments object, even an empty one.
     const config = await client.callTool({
       arguments: {},
@@ -220,8 +207,85 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
       name: "cancel_run",
     });
     expect(cancelled.isError).not.toBe(true);
-    // Under --dry-run the backlog is this server's own, in memory: a change
-    // reads back here and writes nothing under the state root.
+    expect(diagnostics).toContain("workflow diagnostic");
+  } catch (error) {
+    throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
+  } finally {
+    await client.close();
+    expect(transport.pid).toBeNull();
+    await rm(root, { force: true, recursive: true });
+  }
+}, 30_000);
+
+/** What a tool call answers, and whether it was refused. */
+function toolAnswer(value: unknown): { isError: boolean; text: string } {
+  const parsed = CallToolResultSchema.parse(value);
+  const [block] = parsed.content;
+  return {
+    isError: parsed.isError === true,
+    text: block?.type === "text" ? block.text : "",
+  };
+}
+
+const DRY_REFUSAL =
+  "A dry run of a workflow goes through `marbles roll --dry-run`.";
+
+it("under --dry-run, loads no source, keeps tasks in memory, and refuses what needs a running instance", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-dry-"));
+  const source = join(root, "marbles.ts");
+  const state = join(root, "state");
+  await writeFile(
+    source,
+    `import { step, workflow } from "@foundry.sh/marbles";
+console.error("SOURCE_LOADED");
+workflow("greeting").do(() => step("greet").do(() => "hello")({}));`
+  );
+  const transport = new StdioClientTransport({
+    args: [
+      "--no-env-file",
+      resolve("src/cli.ts"),
+      "mcp",
+      "--source",
+      source,
+      "--state",
+      state,
+      "--dry-run",
+    ],
+    command: "bun",
+    cwd: root,
+    stderr: "pipe",
+  });
+  let diagnostics = "";
+  transport.stderr?.on("data", (chunk: Buffer) => {
+    diagnostics += chunk.toString();
+  });
+  const client = new Client({ name: "marbles-test", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    const listed = await client.listTools();
+    expect(listed.tools.map(({ name }) => name)).toEqual(TOOL_NAMES);
+    // Its own workspace only, as stored state names it: nothing hosts it.
+    const workspaces = summarySchema
+      .array()
+      .parse(payload(await client.callTool({ name: "list_workspaces" })));
+    expect(workspaces).toEqual([
+      expect.objectContaining({ config: source, state: "stopped" }),
+    ]);
+    for (const [name, args] of [
+      ["list_config", {}],
+      ["dispatch_workflow", { name: "greeting" }],
+      ["dispatch_agent", { prompt: "Hello" }],
+      ["get_run", { runId: "any" }],
+      ["cancel_run", { runId: "any" }],
+    ] as const) {
+      const refused = toolAnswer(
+        await client.callTool({ arguments: args, name })
+      );
+      expect(refused.isError, name).toBe(true);
+      expect(refused.text, name).toContain("marbles attach");
+      expect(refused.text, name).toContain(DRY_REFUSAL);
+    }
+    // The backlog is this server's own, in memory: a change reads back here.
     const created = await client.callTool({
       arguments: {
         operations: [
@@ -236,75 +300,70 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
       items: [{ title: "Dry" }],
       total: 1,
     });
-    expect(
-      existsSync(join(root, "state")) &&
-        (await readdir(join(root, "state"), { recursive: true })).some(
-          (entry) => entry.endsWith("tasks.json")
-        )
-    ).toBe(false);
-    expect(diagnostics).toContain("source diagnostic");
-    expect(diagnostics).toContain("source console diagnostic");
-    expect(diagnostics).toContain("workflow diagnostic");
+    const elsewhere = toolAnswer(
+      await client.callTool({
+        arguments: { workspace: "other" },
+        name: "list_tasks",
+      })
+    );
+    expect(elsewhere.isError).toBe(true);
+    expect(elsewhere.text).toContain("is available under --dry-run");
   } catch (error) {
     throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
   } finally {
     await client.close();
     expect(transport.pid).toBeNull();
+    // Nothing ran the source, and nothing was written: not even a record.
+    expect(diagnostics).not.toContain("SOURCE_LOADED");
+    expect(existsSync(state)).toBe(false);
     await rm(root, { force: true, recursive: true });
   }
 }, 30_000);
 
-it("keeps a dry-run model turn's log, Bun's own stdout, and a child's off the protocol stream", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-dry-"));
-  const source = join(root, "marbles.ts");
-  await writeFile(
-    source,
-    `import { agent } from "@foundry.sh/marbles";
+it("keeps what the server process writes to stdout, natively or through a child, off the protocol stream", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-stdout-"));
+  const env = await serverPreload(
+    root,
+    `const { writeSync } = await import("node:fs");
+process.stdout.write("NODE_STDOUT\\n");
+console.log("CONSOLE_STDOUT");
 await Bun.write(Bun.stdout, "NATIVE_STDOUT\\n");
 Bun.spawnSync(["echo", "CHILD_STDOUT"], { stdout: "inherit" });
-console.error("SERVER_MARKER=" + String(process.env.MARBLES_MCP_SERVER));
-agent({ name: "helper", prompt: "You help." });`
+// What anything the server starts later inherits.
+process.on("exit", () => {
+  writeSync(2, "SERVER_MARKER=" + String(process.env.MARBLES_MCP_SERVER) + "\\n");
+});`
   );
-  configureProviders(join(root, "state"));
   const session = await rawMcpSession(
     "bun",
     [
       "--no-env-file",
       resolve("src/cli.ts"),
       "mcp",
-      "--source",
-      source,
       "--state",
       join(root, "state"),
       "--dry-run",
     ],
-    { cwd: root }
+    { cwd: root, env }
   );
   try {
-    const dispatched = z.object({ result: z.unknown() }).parse(
-      await session.request("tools/call", {
-        arguments: { agent: "helper", prompt: "Hello agent" },
-        name: "dispatch_agent",
-      })
-    );
-    const { runId } = runIdentity(dispatched.result);
-    await vi.waitFor(async () => {
-      const status = z.object({ result: z.unknown() }).parse(
+    const listed = z
+      .object({ result: z.object({ structuredContent: z.unknown() }) })
+      .parse(
         await session.request("tools/call", {
-          arguments: { runId },
-          name: "get_run",
+          arguments: {},
+          name: "list_tasks",
         })
       );
-      expect(payload(status.result)).toMatchObject({ status: "completed" });
-    });
+    expect(listed.result.structuredContent).toMatchObject({ total: 0 });
   } finally {
     const ended = await session.close();
     await rm(root, { force: true, recursive: true });
-    // The turn's model log is a diagnostic: stderr has it, stdout does not.
-    expect(ended.stderr).toContain("models.inference");
+    expect(ended.stderr).toContain("NODE_STDOUT");
+    expect(ended.stderr).toContain("CONSOLE_STDOUT");
     expect(ended.stderr).toContain("NATIVE_STDOUT");
     expect(ended.stderr).toContain("CHILD_STDOUT");
-    // Nothing the server starts takes itself for the server.
+    // The server took its marker out of the environment.
     expect(ended.stderr).toContain("SERVER_MARKER=undefined");
     expect(strayLines(ended.stdout)).toEqual([]);
   }
@@ -312,16 +371,12 @@ agent({ name: "helper", prompt: "You help." });`
 
 it("keeps stdout to protocol frames when stderr is closed", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-closed-"));
-  const source = join(root, "marbles.ts");
-  await writeFile(
-    source,
-    `import { agent } from "@foundry.sh/marbles";
-process.stdout.write("NODE_STDOUT\\n");
+  const env = await serverPreload(
+    root,
+    `process.stdout.write("NODE_STDOUT\\n");
 await Bun.write(Bun.stdout, "NATIVE_STDOUT\\n");
-Bun.spawnSync(["echo", "CHILD_STDOUT"], { stdout: "inherit" });
-agent({ name: "helper", prompt: "You help." });`
+Bun.spawnSync(["echo", "CHILD_STDOUT"], { stdout: "inherit" });`
   );
-  configureProviders(join(root, "state"));
   const session = await rawMcpSession(
     "sh",
     [
@@ -331,13 +386,11 @@ agent({ name: "helper", prompt: "You help." });`
       "--no-env-file",
       resolve("src/cli.ts"),
       "mcp",
-      "--source",
-      source,
       "--state",
       join(root, "state"),
       "--dry-run",
     ],
-    { cwd: root }
+    { cwd: root, env }
   );
   try {
     const listed = z
@@ -385,37 +438,71 @@ it("refuses to serve without the relay's protocol pipe", async () => {
   }
 }, 20_000);
 
-it("reports a source that fails to load on stderr, never on the protocol stream", async () => {
+it("under --dry-run, never runs a source that throws at load, and still serves the task tools", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-broken-"));
   const source = join(root, "marbles.ts");
-  try {
-    await writeFile(
+  const state = join(root, "state");
+  const ran = join(root, "ran");
+  await writeFile(
+    source,
+    `import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(ran)}, "");
+console.error("SOURCE_LOADED");
+throw new Error("broken source");
+`
+  );
+  const session = await rawMcpSession(
+    "bun",
+    [
+      "--no-env-file",
+      resolve("src/cli.ts"),
+      "mcp",
+      "--source",
       source,
-      'process.stdout.write("before the failure\\n");\nthrow new Error("broken source");\n'
+      "--state",
+      state,
+      "--dry-run",
+    ],
+    { cwd: root }
+  );
+  const resultSchema = z.object({
+    result: z.object({
+      isError: z.boolean().optional(),
+      structuredContent: z.unknown(),
+    }),
+  });
+  try {
+    const created = resultSchema.parse(
+      await session.request("tools/call", {
+        arguments: {
+          operations: [
+            { input: { title: "Kept" }, key: "kept", kind: "task.create" },
+          ],
+        },
+        name: "change_tasks",
+      })
     );
-    const result = spawnSync(
-      "bun",
-      [
-        "--no-env-file",
-        resolve("src/cli.ts"),
-        "mcp",
-        "--source",
-        source,
-        "--dry-run",
-      ],
-      { cwd: root, encoding: "utf8", input: "", timeout: 15_000 }
+    expect(created.result.isError).not.toBe(true);
+    const listed = resultSchema.parse(
+      await session.request("tools/call", {
+        arguments: {},
+        name: "list_tasks",
+      })
     );
-    expect(result.status).toBe(1);
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("before the failure");
-    expect(result.stderr).toContain(
-      `marbles mcp: could not open the workspace for "${source}": broken source`
-    );
-    expect(result.stderr).toContain(`${source}:2`);
+    expect(listed.result.structuredContent).toMatchObject({
+      items: [{ title: "Kept" }],
+      total: 1,
+    });
   } finally {
+    const ended = await session.close();
+    expect(ended.code).toBe(0);
+    expect(ended.stderr).not.toContain("SOURCE_LOADED");
+    expect(existsSync(ran)).toBe(false);
+    expect(existsSync(state)).toBe(false);
+    expect(strayLines(ended.stdout)).toEqual([]);
     await rm(root, { force: true, recursive: true });
   }
-}, 20_000);
+}, 30_000);
 
 it("answers from stored state with no Marbles process, and starts nothing", async () => {
   // Short on purpose: a socket path under the state root is limited.
@@ -814,6 +901,49 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
       name: "list_config",
     });
     expect(unknown.isError).toBe(true);
+    // Under --dry-run the server drives nothing, though a worker hosts the
+    // workspace: a dry dispatch never starts a real run.
+    const dry = new Client({ name: "marbles-dry", version: "1.0.0" });
+    const dryTransport = new StdioClientTransport({
+      args: [
+        "--no-env-file",
+        resolve("src/cli.ts"),
+        "mcp",
+        "--source",
+        source,
+        "--state",
+        state,
+        "--dry-run",
+      ],
+      command: "bun",
+      cwd: root,
+      stderr: "pipe",
+    });
+    try {
+      await dry.connect(dryTransport);
+      expect(
+        summarySchema
+          .array()
+          .parse(payload(await dry.callTool({ name: "list_workspaces" })))
+      ).toEqual([
+        expect.objectContaining({ id: workspace.id, state: "stopped" }),
+      ]);
+      const refused = toolAnswer(
+        await dry.callTool({
+          arguments: { input: { name: "Dry" }, name: "greeting" },
+          name: "dispatch_workflow",
+        })
+      );
+      expect(refused.isError).toBe(true);
+      expect(refused.text).toContain(DRY_REFUSAL);
+      expect(
+        toolAnswer(
+          await dry.callTool({ arguments: { runId }, name: "get_run" })
+        ).isError
+      ).toBe(true);
+    } finally {
+      await dry.close();
+    }
   } catch (error) {
     throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
   } finally {

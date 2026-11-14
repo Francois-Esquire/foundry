@@ -9,9 +9,9 @@ import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
  * `marbles mcp` runs in two processes, so stdout carries protocol frames
  * and nothing else. The relay, the process the client started, spawns the
  * server with its stdout on the relay's stderr, and the protocol on an
- * extra pipe the relay copies to its own stdout. Whatever the server, its
- * source, or anything it spawns prints to stdout reaches stderr, through
- * any writer, on any platform.
+ * extra pipe the relay copies to its own stdout. Whatever the server or
+ * anything it spawns prints to stdout reaches stderr, through any writer,
+ * on any platform.
  *
  * The pipe is not the relay's stdout itself: Bun applies a child's
  * descriptors in order, so the extra one would be wired from descriptor 1

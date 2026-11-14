@@ -40,9 +40,10 @@ function payload(value: unknown): unknown {
 }
 
 /**
- * The pipeline as an MCP client drives it: a real STDIO server over a
- * workspace that declares it with one destination double. `--dry-run`
- * answers each structured turn with the smallest value its schema accepts,
+ * The pipeline as an MCP client drives it: the MCP tools over STDIO, on a
+ * workspace that declares it with one destination double, hosted under
+ * `--dry-run` by a test helper, since `marbles mcp` hosts nothing. The dry
+ * run answers each structured turn with the smallest value its schema accepts,
  * so refinement is never ready by itself and the router is never asked:
  * the run proves the wiring, not model quality.
  */
@@ -65,14 +66,7 @@ taskPipeline({
 `
   );
   const transport = new StdioClientTransport({
-    args: [
-      "--no-env-file",
-      resolve("src/cli.ts"),
-      "mcp",
-      "--source",
-      source,
-      "--dry-run",
-    ],
+    args: ["--no-env-file", resolve("test/helpers/dry-mcp-host.ts"), source],
     command: "bun",
     cwd: root,
     env: process.env as Record<string, string>,
