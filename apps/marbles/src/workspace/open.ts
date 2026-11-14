@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Tasks } from "@foundry/tasks";
 import { plugin } from "bun";
@@ -11,10 +12,15 @@ import type { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
-import { workspaceState } from "~/lib/state/workspace";
+import { readWorkspace, workspaceState } from "~/lib/state/workspace";
 import type { WorkspaceEnvironment } from "~/workspace/env";
 import { loadEnvironment } from "~/workspace/env";
-import { resolveSource, sourceFiles, sourceRoot } from "~/workspace/source";
+import {
+  DEFAULT_SOURCE,
+  resolveSource,
+  sourceFiles,
+  sourceRoot,
+} from "~/workspace/source";
 
 /**
  * Marbles as a host of the engine: find the authoring source, load it, place
@@ -123,6 +129,28 @@ export function findWorkspace(args: HostOptions): OpenedWorkspace {
     machine: environmentSnapshot(),
     workspace: {},
   });
+}
+
+/**
+ * A workspace recorded under the state root, by its id, found without
+ * executing anything. Undefined when no readable record has that id, or
+ * its root is gone.
+ */
+export function recordedWorkspace(
+  args: HostOptions,
+  id: string
+): OpenedWorkspace | undefined {
+  const state = resolve(args.state);
+  const record = readWorkspace(join(state, id));
+  if (record?.id !== id || !existsSync(record.root)) {
+    return;
+  }
+  return {
+    config: record.config,
+    configPath: record.config ?? resolve(record.root, DEFAULT_SOURCE),
+    environment: { machine: environmentSnapshot(), workspace: {} },
+    workspace: workspaceState(state, record.root),
+  };
 }
 
 export interface OpenWorkspaceOptions {

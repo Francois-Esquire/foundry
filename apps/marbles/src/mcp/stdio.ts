@@ -3,16 +3,18 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   hostHere,
   joinProcess,
+  NotHostedError,
   withRunningWorkspace,
   withTasks,
 } from "~/access/workspace";
 import type { Flags } from "~/args";
+import { listWorkspaces } from "~/lib/state/workspace";
 import { createMcpServer, type McpServerOptions } from "~/mcp/server";
 import { takeStdout } from "~/mcp/stdout";
 import type { WorkspaceSummary } from "~/model/connection";
-import { readStatus } from "~/status/model";
 import type { WorkspaceHost } from "~/workspace/host";
-import { findWorkspace } from "~/workspace/open";
+import type { OpenedWorkspace } from "~/workspace/open";
+import { findWorkspace, recordedWorkspace } from "~/workspace/open";
 import { resolveSource } from "~/workspace/source";
 
 // The CLI loads this module only for `marbles mcp`, after its own imports;
@@ -24,16 +26,21 @@ const print = (line: string): void => {
 
 /** What the server answers for, and how to let go of it. */
 interface Served extends McpServerOptions {
-  /** The source that defines the workspace, or null without one. */
-  readonly config: string | null;
-  /** Where the source is, or would be; named when nothing loads there. */
-  readonly configPath: string;
   readonly release: () => Promise<void>;
+}
+
+/** Nothing loaded at the source; said as it is, not as a load failure. */
+class MissingSourceError extends Error {
+  override readonly name = "MissingSourceError";
 }
 
 /** Under `--dry-run` nothing persists, so the workspace is hosted here. */
 async function serveInProcess(flags: Flags): Promise<Served> {
   const host = await hostHere(flags, { askable: false, env: "require", print });
+  if (host.config === null) {
+    await host.close();
+    throw new MissingSourceError(`no Marbles source at "${host.configPath}"`);
+  }
   const only = (id: string): WorkspaceHost => {
     if (id !== host.id) {
       throw new Error(
@@ -43,8 +50,6 @@ async function serveInProcess(flags: Flags): Promise<Served> {
     return host;
   };
   return {
-    config: host.config,
-    configPath: host.configPath,
     hosted: (id, work) => work(only(id)),
     id: host.id,
     release: () => host.close(),
@@ -58,8 +63,9 @@ async function serveInProcess(flags: Flags): Promise<Served> {
 
 /**
  * Answer from stored state and the running Marbles process, joined per
- * call and never started. Tasks work either way; everything that runs or
- * reads a run needs a worker that hosts the workspace.
+ * call and never started. No source is needed: tasks work for any recorded
+ * workspace either way, and everything that runs or reads a run needs a
+ * worker that hosts the workspace.
  */
 function serveFromState(flags: Flags): Served {
   const opened = findWorkspace(flags);
@@ -72,23 +78,48 @@ function serveFromState(flags: Flags): Served {
     turn = next.catch(() => undefined);
     return next;
   };
+  const recorded = (id: string): OpenedWorkspace => {
+    const found = id === own.id ? opened : recordedWorkspace(flags, id);
+    if (found === undefined) {
+      throw new Error(
+        `no workspace "${id}" is recorded under ${resolve(flags.state)}; list_workspaces names them`
+      );
+    }
+    return found;
+  };
   return {
-    config: opened.config,
-    configPath: opened.configPath,
-    hosted: (id, work) => withRunningWorkspace(flags, id, work),
+    async hosted(id, work) {
+      try {
+        return await withRunningWorkspace(flags, id, work);
+      } catch (error) {
+        if (
+          error instanceof NotHostedError &&
+          id === own.id &&
+          opened.config === null
+        ) {
+          throw new NotHostedError(
+            `no Marbles source at "${opened.configPath}"; ${error.message}`,
+            { cause: error }
+          );
+        }
+        throw error;
+      }
+    },
     id: own.id,
     release: () => Promise.resolve(),
-    tasks: (command, id = own.id) =>
-      id === own.id
-        ? inTurn(() => withTasks(flags, opened, print, (run) => run(command)))
-        : withRunningWorkspace(flags, id, (workspace) =>
-            workspace.tasks(command)
-          ),
+    tasks: (command, id = own.id) => {
+      const target = recorded(id);
+      return inTurn(() =>
+        withTasks(flags, target, print, (run) => run(command))
+      );
+    },
     async workspaces() {
       const client = await joinProcess(flags);
       let listed: readonly WorkspaceSummary[];
       if (client === undefined) {
-        listed = storedWorkspaces(flags.state);
+        listed = listWorkspaces(resolve(flags.state)).map(
+          ({ config, id, root }) => ({ config, id, root, state: "stopped" })
+        );
       } else {
         try {
           listed = await client.workspaces();
@@ -112,16 +143,6 @@ function serveFromState(flags: Flags): Served {
   };
 }
 
-/** The workspaces kept under the state root; none is hosted while no process runs. */
-function storedWorkspaces(state: string): WorkspaceSummary[] {
-  return readStatus(resolve(state)).workspaces.map(({ config, id, root }) => ({
-    config,
-    id,
-    root,
-    state: "stopped",
-  }));
-}
-
 /** Serve the workspace until the client leaves. */
 async function serve(flags: Flags): Promise<void> {
   const configPath = resolveSource(flags.config);
@@ -129,15 +150,14 @@ async function serve(flags: Flags): Promise<void> {
   try {
     served = flags.dry ? await serveInProcess(flags) : serveFromState(flags);
   } catch (error) {
+    if (error instanceof MissingSourceError) {
+      throw error;
+    }
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
       `could not open the workspace for "${configPath}": ${reason}`,
       { cause: error }
     );
-  }
-  if (served.config === null) {
-    await served.release();
-    throw new Error(`no Marbles source at "${served.configPath}"`);
   }
   const server = createMcpServer(served);
   const close = async (): Promise<void> => {

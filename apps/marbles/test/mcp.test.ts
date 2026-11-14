@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -10,7 +10,7 @@ import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { layout } from "~/layout";
-import { readWorkspace } from "~/lib/state/workspace";
+import { readWorkspace, workspaceState } from "~/lib/state/workspace";
 import { daemonAlive } from "~/process/client";
 import { version } from "../package.json";
 import { stopDaemon } from "./helpers/daemon";
@@ -442,6 +442,85 @@ schedule(tick).every("1s");`
     expect(existsSync(ticked)).toBe(false);
     expect(existsSync(observed)).toBe(false);
   } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+}, 60_000);
+
+it("starts without a source and serves the stored tasks of every recorded workspace", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mr-"));
+  const state = join(root, "s");
+  const here = join(root, "a");
+  const other = join(root, "b");
+  await mkdir(here);
+  await mkdir(other);
+  // B is recorded, stopped, and has a task the CLI wrote without a process.
+  const recorded = workspaceState(state, other);
+  recorded.touch(null);
+  const made = spawnSync(
+    "bun",
+    [
+      "--no-env-file",
+      resolve("src/cli.ts"),
+      "tasks",
+      "create",
+      "In B",
+      "--state",
+      state,
+    ],
+    { cwd: other, encoding: "utf8", timeout: 30_000 }
+  );
+  expect(made.status, made.stderr).toBe(0);
+  const transport = new StdioClientTransport({
+    args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--state", state],
+    command: "bun",
+    cwd: here,
+    stderr: "pipe",
+  });
+  let diagnostics = "";
+  transport.stderr?.on("data", (chunk: Buffer) => {
+    diagnostics += chunk.toString();
+  });
+  const client = new Client({ name: "marbles-test", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    const listed = summarySchema
+      .array()
+      .parse(payload(await client.callTool({ name: "list_workspaces" })));
+    expect(listed.map((entry) => entry.id)).toContain(recorded.id);
+    const fromB = await client.callTool({
+      arguments: { workspace: recorded.id },
+      name: "list_tasks",
+    });
+    expect(fromB.isError, JSON.stringify(fromB)).not.toBe(true);
+    expect(fromB.structuredContent).toMatchObject({
+      items: [{ title: "In B" }],
+      total: 1,
+    });
+    // This workspace has no source, yet its tasks are stored all the same.
+    const created = await client.callTool({
+      arguments: {
+        operations: [
+          { input: { title: "In A" }, key: "a", kind: "task.create" },
+        ],
+      },
+      name: "change_tasks",
+    });
+    expect(created.isError, JSON.stringify(created)).not.toBe(true);
+    const unknown = await client.callTool({
+      arguments: { workspace: "missing" },
+      name: "list_tasks",
+    });
+    expect(unknown.isError).toBe(true);
+    const config = await client.callTool({
+      arguments: {},
+      name: "list_config",
+    });
+    expect(config.isError).toBe(true);
+    expect(JSON.stringify(config.content)).toContain("no Marbles source at");
+  } catch (error) {
+    throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
+  } finally {
+    await client.close();
     await rm(root, { force: true, recursive: true });
   }
 }, 60_000);

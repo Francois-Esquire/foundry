@@ -38,13 +38,14 @@ looks for `.foundry/marbles` under its working directory, with the CLI's
 legacy `marbles.config.ts` fallback. See [project discovery](/marbles/reference/project).
 
 Starting the server finds the `--source` workspace without running its
-source. A missing source fails the start and names the path. What each tool
-needs:
+source. It starts without a source too: the task tools still work, and the
+tools that need a host name the missing source. What each tool needs:
 
-- The task tools work with or without a running Marbles process. A worker
-  that hosts the workspace answers them; otherwise the server opens the
-  stored tasks for that one call and gives them up, the same as
-  `marbles tasks`.
+- The task tools work with or without a running Marbles process, for the
+  server's own workspace and any workspace recorded under the state root.
+  A worker that hosts the workspace answers them; otherwise the server
+  opens the stored tasks for that one call and gives them up, the same as
+  `marbles tasks`. Calls sent together take turns.
 - `list_workspaces` lists what the Marbles process hosts. Without one, it
   lists the workspaces kept under the state root, each `stopped`. The
   server's own workspace is always listed.
@@ -83,10 +84,11 @@ that does not resolve prevents startup, and no trigger loop runs.
 | `change_tasks` | `operations`, optional `workspace` | Applies one atomic batch of task operations, the same as `marbles tasks change`. |
 
 Every tool but `list_workspaces` takes an optional `workspace`: an id from
-`list_workspaces`, defaulting to the server's own workspace. Another
-workspace is reached only through the worker that hosts it: an id that is
-not hosted is a tool error, and a call to a workspace whose worker is not
-`ready` fails with its state. Under `--dry-run` only the server's own
+`list_workspaces`, defaulting to the server's own workspace. The task
+tools reach any workspace recorded under the state root; an id with no
+record is a tool error. The other tools reach a workspace only through the
+worker that hosts it: an id that is not hosted is a tool error, and a call
+to a workspace whose worker is not `ready` fails with its state. Under `--dry-run` only the server's own
 workspace exists.
 
 Dispatch responses are acknowledgements, even if their status is already
