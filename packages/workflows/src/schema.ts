@@ -8,6 +8,7 @@ import {
   counter,
   JSON_VALUE_MESSAGE,
   jsonSafe,
+  type ReadonlyArraySchema,
   readonlyArray,
   recordOf,
   stringList,
@@ -88,7 +89,21 @@ export type WorkflowStepNode = z.infer<
   readonly children?: readonly WorkflowStepNode[];
 };
 
-export const WorkflowStepNodeSchema: z.ZodType<WorkflowStepNode> = z.object({
+/** The node's object shape, with `children` recursing into the node schema. */
+export interface WorkflowStepNodeShape
+  extends Readonly<typeof workflowStepNodeFields> {
+  readonly children: z.ZodOptional<
+    ReadonlyArraySchema<WorkflowStepNodeObjectSchema>
+  >;
+}
+
+/** A `z.ZodObject` at runtime: its output is the node, its `shape` the fields. */
+export interface WorkflowStepNodeObjectSchema
+  extends z.ZodType<WorkflowStepNode> {
+  readonly shape: WorkflowStepNodeShape;
+}
+
+export const WorkflowStepNodeSchema: WorkflowStepNodeObjectSchema = z.object({
   ...workflowStepNodeFields,
   get children() {
     return readonlyArray(WorkflowStepNodeSchema).optional();

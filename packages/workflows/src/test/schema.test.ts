@@ -6,10 +6,12 @@ import {
   ORCHESTRATOR_STORE_SNAPSHOT_VERSION,
   RunFrameSchema,
   RunRecordSchema,
+  RunRecordShapeSchema,
   StepSnapshotSchema,
   SuspensionRecordSchema,
   SuspensionStateSchema,
   WorkflowSnapshotSchema,
+  WorkflowStepNodeSchema,
 } from "../schema";
 import { validateOrchestratorStoreSnapshot } from "../store-snapshot";
 
@@ -287,5 +289,42 @@ describe("rebuilt dictionaries keep every own string key", () => {
     expect(hasOwnEntry(restoredQueue?.extensions, "__proto__", entry)).toBe(
       true
     );
+  });
+});
+
+describe("record shapes stay visible for table derivation", () => {
+  test("the Run decoder is built from its exported shape", () => {
+    expect(Object.keys(RunRecordShapeSchema.shape).sort()).toEqual([
+      "definition",
+      "error",
+      "extensions",
+      "id",
+      "input",
+      "links",
+      "metadata",
+      "output",
+      "queueId",
+      "snapshot",
+      "status",
+      "step",
+      "tags",
+      "timestamps",
+    ]);
+    expect(RunRecordShapeSchema.safeParse(run).success).toBe(true);
+  });
+
+  test("readonly arrays and the recursive node expose their schemas", () => {
+    expect(WorkflowSnapshotSchema.shape.steps.element).toBe(
+      WorkflowStepNodeSchema
+    );
+    expect(WorkflowStepNodeSchema.shape.children.unwrap().element).toBe(
+      WorkflowStepNodeSchema
+    );
+    expect(Object.keys(WorkflowStepNodeSchema.shape).sort()).toEqual([
+      "children",
+      "index",
+      "key",
+      "name",
+    ]);
   });
 });

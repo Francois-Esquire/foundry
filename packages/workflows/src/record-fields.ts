@@ -26,11 +26,15 @@ export const counter = z.number().int().nonnegative();
  */
 export function readonlyArray<T extends z.ZodType>(
   item: T
-): z.ZodType<readonly z.output<T>[], readonly z.input<T>[]> {
-  return z.array(item) as unknown as z.ZodType<
-    readonly z.output<T>[],
-    readonly z.input<T>[]
-  >;
+): ReadonlyArraySchema<T> {
+  return z.array(item) as unknown as ReadonlyArraySchema<T>;
+}
+
+/** A `z.ZodArray` at runtime, typed with readonly output and input. */
+export interface ReadonlyArraySchema<T extends z.ZodType>
+  extends z.ZodType<readonly z.output<T>[], readonly z.input<T>[]> {
+  /** The element schema, as on `z.ZodArray`. */
+  readonly element: T;
 }
 
 export const stringList = readonlyArray(z.string());
