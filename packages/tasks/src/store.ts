@@ -1,25 +1,14 @@
 import { edgeKey } from "./edges";
-import type { Task, TaskDependency, TaskEvent, TaskId } from "./types";
+import type {
+  Task,
+  TaskDependency,
+  TaskId,
+  TaskSnapshot,
+  TaskStoreWrite,
+} from "./schema";
 
-/** Everything the store holds; the package resolves the graph over it. */
-export interface TaskSnapshot {
-  readonly dependencies: readonly TaskDependency[];
-  readonly tasks: readonly Task[];
-}
-
-/** One atomic write. Deletes apply before puts. */
-export interface TaskStoreWrite {
-  readonly deleteDependencies?: readonly TaskDependency[];
-  readonly deleteTasks?: readonly TaskId[];
-  /**
-   * What the write changes, present whenever it changes anything. A store
-   * that records changes keeps it in the same atomic write; one that does
-   * not ignores it.
-   */
-  readonly event?: TaskEvent;
-  readonly putDependencies?: readonly TaskDependency[];
-  readonly putTasks?: readonly Task[];
-}
+// `./store` has always exported these records; they are defined in `./schema`.
+export type { TaskSnapshot, TaskStoreWrite } from "./schema";
 
 /**
  * The persistence seam. A store keeps tasks and dependency edges and applies

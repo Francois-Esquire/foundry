@@ -1,5 +1,4 @@
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "../constants";
-import type { ContainerRowStatus } from "./store";
 import type { ContainerResourceStatus } from "./types";
 
 /**
@@ -51,15 +50,15 @@ export const DEFAULT_CONTAINER_MEMORY_MIB = 1024;
 /** Virtual CPUs when `resources.cpus` is unset. */
 export const DEFAULT_CONTAINER_CPUS = 1;
 
-export const CONTAINER_ROW_STATUSES: readonly ContainerRowStatus[] =
-  Object.freeze([
-    "starting",
-    "running",
-    "restarting",
-    "missing",
-    "stopped",
-    "failed",
-  ]);
+/** Status of the persisted row, distinct from a runtime's live VM status. */
+export const CONTAINER_ROW_STATUSES = Object.freeze([
+  "starting",
+  "running",
+  "restarting",
+  "missing",
+  "stopped",
+  "failed",
+] as const);
 
 /** Native statuses a resource must leave, via stop, before it can be removed. */
 export const ACTIVE_CONTAINER_RESOURCE_STATUSES: ReadonlySet<ContainerResourceStatus> =
