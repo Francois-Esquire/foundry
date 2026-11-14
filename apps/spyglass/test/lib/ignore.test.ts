@@ -9,7 +9,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
-import { resolveBoundary, toPosix } from "../../src/lib/boundary";
+import { resolveBoundary } from "../../src/lib/boundary";
+import { toPosix } from "../../src/lib/boundary-model";
 import { collectCrossBoundaryEdges } from "../../src/lib/dependencies";
 import { createIgnorer } from "../../src/lib/ignore";
 import { createProject } from "../../src/lib/project";

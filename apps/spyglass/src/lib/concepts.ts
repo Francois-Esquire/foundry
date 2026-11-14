@@ -1,10 +1,9 @@
-import { relative } from "node:path";
 import type { Project, SourceFile } from "ts-morph";
 import { Node, SyntaxKind, ts } from "ts-morph";
-import type { Boundary } from "./boundary";
-import { ownerBoundary, toPosix } from "./boundary";
+import { relative } from "#path";
+import type { Boundary, SourceOwner } from "./boundary-model";
+import { toPosix } from "./boundary-model";
 import type { AnalysisConfig } from "./config";
-import { ANALYSIS_CONFIG } from "./config";
 import type { CollectedSymbol } from "./symbols";
 import { kindOf } from "./symbols";
 import type {
@@ -25,7 +24,7 @@ import { classifyReference } from "./usage";
 export interface ConceptInventorySource {
   boundary: Boundary;
   project: Project;
-  /** Surface facts for the same inventory, matched by id. */
+
   surface: SurfaceSymbol[];
   symbols: CollectedSymbol[];
 }
@@ -35,7 +34,6 @@ interface ConceptSeedState {
   seed: ConceptSeed;
 }
 
-/** One package's seeds keyed by declaration node, ready for the evidence sweep. */
 export interface ConceptSeedGroup {
   boundary: Boundary;
   byNode: Map<ts.Node, ConceptSeedState>;
@@ -83,7 +81,6 @@ function isSeedKind(
   return (seedKinds as string[]).includes(kind);
 }
 
-/** Nearest top-level statement of the file containing `node`. */
 function topLevelOwner(node: Node): Node | undefined {
   const statement = node.getFirstAncestor((ancestor) =>
     Node.isSourceFile(ancestor.getParent())
@@ -100,13 +97,12 @@ function topLevelOwner(node: Node): Node | undefined {
   return statement;
 }
 
-/** The target's seeds with their declaration evidence; no workspace has been read yet. */
 export function prepareConceptSeeds(
   source: Omit<ConceptInventorySource, "project">,
-  config: AnalysisConfig = ANALYSIS_CONFIG
+  config: AnalysisConfig,
+  ownerOf: SourceOwner
 ): ConceptSeedGroup {
   const { boundary } = source;
-  const { root } = boundary;
   const surfaceById = new Map(source.surface.map((s) => [s.id, s]));
   const seedByNode = new Map<ts.Node, ConceptSeedState>();
   const seeds: ConceptSeedState[] = [];
@@ -125,10 +121,7 @@ export function prepareConceptSeeds(
     const seed: ConceptSeed = {
       declaration: {
         file,
-        package: ownerBoundary(
-          root,
-          collected.node.getSourceFile().getFilePath()
-        ),
+        package: ownerOf(collected.node.getSourceFile().getFilePath()),
       },
       id: collected.id,
       kind: collected.kind,
@@ -159,16 +152,11 @@ export function prepareConceptSeeds(
   return { boundary, byNode: seedByNode, states: seeds };
 }
 
-/**
- * One pass over every workspace file attaching relationship evidence to the
- * seeds of every group at once. A reference resolves per group to the first
- * of its symbol's declarations that group seeds, exactly as a single-group
- * sweep would; groups never see each other's evidence.
- */
 export function sweepConceptEvidence(
   project: Project,
   root: string,
-  groups: ConceptSeedGroup[]
+  groups: ConceptSeedGroup[],
+  ownerOf: SourceOwner
 ): void {
   const active = groups.filter((group) => group.states.length > 0);
   if (active.length === 0) {
@@ -229,12 +217,13 @@ export function sweepConceptEvidence(
     });
   };
 
-  sweepConceptEvidenceFile(project, root, seedsOf, record);
+  sweepConceptEvidenceFile(project, root, ownerOf, seedsOf, record);
 }
 
 function sweepConceptEvidenceFile(
   project: Project,
   root: string,
+  ownerOf: SourceOwner,
   seedsOf: (node: Node) => ConceptSeedState[],
   record: (
     seed: ConceptSeedState,
@@ -250,7 +239,7 @@ function sweepConceptEvidenceFile(
       continue;
     }
     const relFile = toPosix(relative(root, filePath));
-    const owner = ownerBoundary(root, filePath);
+    const owner = ownerOf(filePath);
 
     sweepConceptEvidenceFileReference(file, seedsOf, record, relFile, owner);
 
@@ -366,7 +355,6 @@ function seedsOfDeclaration(
   }
 }
 
-/** The inventory report from swept seeds; `surface` supplies package-public flags for representations. */
 export function buildConceptInventory(
   group: ConceptSeedGroup,
   surface: SurfaceSymbol[]

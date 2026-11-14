@@ -1,5 +1,6 @@
-import { join } from "node:path";
-import { EXCLUDED_DIRS, ownerBoundary } from "./boundary";
+import { join } from "#path";
+import type { SourceOwner } from "./boundary-model";
+import { EXCLUDED_DIRS } from "./boundary-model";
 import { renameAliases } from "./churn";
 import type { AnalysisConfig } from "./config";
 import { classifyFile } from "./file-kind";
@@ -9,11 +10,6 @@ import type {
   CommitComposition,
   WorkspaceModuleGraph,
 } from "./types";
-
-// One historical commit-filter policy shared by change coupling, change
-// radius, and evolutionary pressure: churn window, current eligible files,
-// file-kind composition, and the oversized rule. Repository-root files
-// (`<root>` owner) count as files but never as a package.
 
 export const PAIR = "\0";
 const ROOT_OWNER = "<root>";
@@ -30,12 +26,12 @@ export interface CommitFilter {
 export interface EligibleCommit {
   commit: CommitChange;
   composition: CommitComposition;
-  /** Unique, sorted, current, non-excluded files of an eligible kind. */
+
   files: string[];
   filesByKind: Record<ChurnFileKind, number>;
-  /** Fails the oversized rule; kept for metadata only. */
+
   oversized: boolean;
-  /** Owning packages of `files`, sorted, without `<root>`. */
+
   packages: string[];
 }
 
@@ -62,13 +58,6 @@ function compositionOf(
   return "mixed";
 }
 
-/**
- * Window commits with at least one eligible current file, newest first.
- * Historical paths resolve through the churn rename map; deleted paths and
- * excluded directories never appear. Oversized: more code files (source,
- * test, story) than the limit, or a config-dominant commit spanning enough
- * packages to read as a mechanical sweep.
- */
 export function eligibleCommits(
   history: AvailableHistory,
   filter: CommitFilter
@@ -126,15 +115,14 @@ export function eligibleCommits(
   return result;
 }
 
-/** Owning package of any current file: graph ownership, else nearest package.json. */
 export function ownerResolver(
   graph: WorkspaceModuleGraph,
-  root: string
+  root: string,
+  ownerOf: SourceOwner
 ): (file: string) => string {
-  return (file) => graph.owners[file] ?? ownerBoundary(root, join(root, file));
+  return (file) => graph.owners[file] ?? ownerOf(join(root, file));
 }
 
-/** Directed package edges (`from\0to`) implied by module edges across owners. */
 export function packageEdgesOf(graph: WorkspaceModuleGraph): Set<string> {
   const edges = new Set<string>();
   for (const edge of graph.edges) {

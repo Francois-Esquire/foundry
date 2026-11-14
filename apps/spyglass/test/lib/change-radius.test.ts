@@ -2,8 +2,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-
-import type { Boundary } from "../../src/lib/boundary";
+import { ownerBoundary } from "../../src/lib/boundary";
+import type { Boundary } from "../../src/lib/boundary-model";
 import { analyzeChangeRadius } from "../../src/lib/change-radius";
 import type { AnalysisConfig } from "../../src/lib/config";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
@@ -11,6 +11,8 @@ import type { CommitChange, GitHistory } from "../../src/lib/git-history";
 import type { WorkspaceModuleGraph } from "../../src/lib/types";
 
 const ROOT = join(tmpdir(), "semantic-surface-radius-fixture");
+
+const nativeOwner = (filePath: string) => ownerBoundary(ROOT, filePath);
 const A1 = "packages/a/src/a1.ts";
 const A2 = "packages/a/src/a2.ts";
 const A3 = "packages/a/src/a3.ts";
@@ -88,7 +90,8 @@ function radiusOf(
   const report = analyzeChangeRadius(
     historyOf(commits, tracked),
     { boundary, graph: graphOf(edges) },
-    override
+    override,
+    nativeOwner
   );
   if (!report.available) {
     throw new Error(report.reason);
@@ -261,7 +264,7 @@ describe("change radius", () => {
       packages: { max: 3, p50: 2, p90: 3, p95: 3 },
       singlePackageCommits: 2,
     });
-    // Equal support: smaller sets first, then lexical.
+
     expect(report.summary.packageCombinations).toEqual([
       { commits: 1, packages: ["@fixture/a", "@fixture/b"] },
       { commits: 1, packages: ["@fixture/a", "@fixture/c"] },
@@ -299,7 +302,12 @@ describe("change radius", () => {
       root: ROOT,
     };
     expect(
-      analyzeChangeRadius(history, { boundary, graph: graphOf([]) })
+      analyzeChangeRadius(
+        history,
+        { boundary, graph: graphOf([]) },
+        ANALYSIS_CONFIG,
+        nativeOwner
+      )
     ).toEqual({ available: false, reason: "not-git-repository" });
   });
 });
@@ -335,7 +343,8 @@ describe("shared commit filter", () => {
         [A1, B1, ...manifests, ...refactor]
       ),
       { boundary, graph },
-      config
+      config,
+      nativeOwner
     );
     if (!report.available) {
       throw new Error(report.reason);

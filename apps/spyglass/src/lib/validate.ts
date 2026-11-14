@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-
+import { sha256Hex } from "./sha256";
 import type {
   FoldPackagePlan,
   InternalizeSymbolPlan,
@@ -9,12 +8,6 @@ import type {
   SurfaceReport,
 } from "./types";
 
-/**
- * Stable hash of the input facts a plan was built from. Derived claims
- * (predictedDelta, prose descriptions) and positional detail (line numbers)
- * are deliberately excluded: the fingerprint answers "are the facts the
- * same?", not "is the output byte-identical?".
- */
 export function planFingerprint(
   plan:
     | Omit<InternalizeSymbolPlan, "fingerprint">
@@ -62,10 +55,7 @@ export function planFingerprint(
           source: plan.source,
           status: plan.status,
         };
-  return createHash("sha256")
-    .update(JSON.stringify(facts))
-    .digest("hex")
-    .slice(0, 16);
+  return sha256Hex(JSON.stringify(facts)).slice(0, 16);
 }
 
 function precondition(
@@ -135,12 +125,6 @@ function foldPreconditions(
   ];
 }
 
-/**
- * Re-check a plan's assumptions against a fresh analysis of the same target.
- * Ready only when every precondition holds and the freshly rebuilt plan has
- * the identical fingerprint; moved facts yield "stale", and a fresh plan that
- * is itself blocked/unsupported yields that status.
- */
 export function validateReductionPlan(
   plan: ReductionPlan,
   report: SurfaceReport

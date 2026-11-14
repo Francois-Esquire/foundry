@@ -2,8 +2,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-
-import type { Boundary } from "../../src/lib/boundary";
+import { ownerBoundary } from "../../src/lib/boundary";
+import type { Boundary } from "../../src/lib/boundary-model";
 import { analyzeChangeCoupling } from "../../src/lib/change-coupling";
 import type { AnalysisConfig } from "../../src/lib/config";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
@@ -11,6 +11,8 @@ import type { CommitChange, GitHistory } from "../../src/lib/git-history";
 import type { WorkspaceModuleGraph } from "../../src/lib/types";
 
 const ROOT = join(tmpdir(), "semantic-surface-coupling-fixture");
+
+const nativeOwner = (filePath: string) => ownerBoundary(ROOT, filePath);
 const A = "packages/a/src/a.ts";
 const B = "packages/a/src/b.ts";
 const C = "packages/a/src/c.ts";
@@ -73,7 +75,6 @@ function graphOf(edges: [string, string][]): WorkspaceModuleGraph {
   };
 }
 
-/** Full-history window and gates that keep 2-commit fixtures visible. */
 const config: AnalysisConfig = {
   ...ANALYSIS_CONFIG,
   changeCoupling: {
@@ -92,7 +93,8 @@ function couplingOf(
   const report = analyzeChangeCoupling(
     historyOf(commits, tracked),
     { boundary, graph: graphOf(edges) },
-    override
+    override,
+    nativeOwner
   );
   if (!report.available) {
     throw new Error(report.reason);
@@ -181,7 +183,7 @@ describe("change coupling", () => {
       ...Array.from({ length: 8 }, (_, i) => commit(i + 3, [A])),
       ...Array.from({ length: 8 }, (_, i) => commit(i + 11, [B])),
     ];
-    // 2 / 10 each way, Jaccard 2/18: below 0.5 / 0.5 / 0.3.
+
     expect(couplingOf(commits).filePairs).toEqual([]);
   });
 
@@ -337,7 +339,7 @@ describe("change coupling", () => {
       [A, snapshot]
     );
     expect(report.filePairs).toEqual([]);
-    // A alone still counts toward its own commit total.
+
     expect(report.history.commitsConsidered).toBe(2);
     expect(report.history.observedFilePairs).toBe(0);
   });
@@ -402,8 +404,7 @@ describe("change coupling", () => {
       commit(6, [B, C]),
       commit(7, [B, C]),
     ];
-    // A|B: 3 shared, Jaccard 3/7. A|C and B|C: 2 shared of 5 and 4 commits,
-    // Jaccard 2/7 and C's conditional 0.5 each — tie broken lexically.
+
     const order = couplingOf(commits).filePairs.map(
       (p) => `${p.left}|${p.right}`
     );
@@ -421,10 +422,12 @@ describe("change coupling", () => {
       reason: "not-git-repository",
       root: ROOT,
     };
-    const report = analyzeChangeCoupling(history, {
-      boundary,
-      graph: graphOf([]),
-    });
+    const report = analyzeChangeCoupling(
+      history,
+      { boundary, graph: graphOf([]) },
+      ANALYSIS_CONFIG,
+      nativeOwner
+    );
     expect(report).toEqual({ available: false, reason: "not-git-repository" });
   });
 });

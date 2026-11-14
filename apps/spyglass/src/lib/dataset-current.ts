@@ -1,4 +1,5 @@
-import { discoverSemanticsUnits, requireDeclared } from "./semantics-discover";
+import { requireDeclared } from "./discovery-rules";
+import { discoverSemanticsUnits } from "./semantics-discover";
 import {
   collectWorkspaceInputs,
   startOfUtcDay,

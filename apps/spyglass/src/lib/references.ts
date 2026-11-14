@@ -1,15 +1,9 @@
-import { relative } from "node:path";
 import type { Node, SourceFile } from "ts-morph";
-
 import { SyntaxKind } from "ts-morph";
+import { relative } from "#path";
 
-import type { Boundary } from "./boundary";
-import {
-  boundaryContains,
-  classifySpecifier,
-  ownerBoundary,
-  toPosix,
-} from "./boundary";
+import type { Boundary, SourceOwner } from "./boundary-model";
+import { boundaryContains, classifySpecifier, toPosix } from "./boundary-model";
 import type {
   ConsumerModuleUsage,
   ConsumerUsage,
@@ -94,11 +88,6 @@ function importSiteOf(ref: Node): ImportSite | undefined {
   return undefined;
 }
 
-/**
- * When a symbol is used externally but never named in an import specifier
- * (e.g. reached via a namespace import), derive access from how the consumer
- * file imports the boundary at all.
- */
 function fileAccess(
   file: SourceFile,
   boundary: Boundary
@@ -122,15 +111,10 @@ function fileAccess(
   return access;
 }
 
-/**
- * External usage from an already-resolved reference list — every node that
- * names the symbol, in any file. The V12.6 reference index supplies the
- * list once for the whole workspace, reproducing what one
- * `findReferencesAsNodes` call per symbol returned before it.
- */
 export function usageFromReferences(
   referenceNodes: Iterable<Node>,
-  boundary: Boundary
+  boundary: Boundary,
+  ownerOf: SourceOwner
 ): ExternalUsage {
   const consumers = new Map<string, ConsumerCounts>();
   const consumerModules = new Set<string>();
@@ -150,6 +134,7 @@ export function usageFromReferences(
     ({ importSites, references } = usageFromReferencesRef(
       referenceNodes,
       boundary,
+      ownerOf,
       consumerModules,
       consumerFiles,
       consumers,
@@ -221,6 +206,7 @@ export function usageFromReferences(
 function usageFromReferencesRef(
   referenceNodes: Iterable<Node>,
   boundary: Boundary,
+  ownerOf: SourceOwner,
   consumerModules: Set<string>,
   consumerFiles: Map<string, SourceFile>,
   consumers: Map<string, ConsumerCounts>,
@@ -244,7 +230,7 @@ function usageFromReferencesRef(
     }
 
     const relFile = toPosix(relative(boundary.root, filePath));
-    const owner = ownerBoundary(boundary.root, filePath);
+    const owner = ownerOf(filePath);
     consumerModules.add(relFile);
     consumerFiles.set(filePath, file);
     const consumer = consumers.get(owner) ?? {

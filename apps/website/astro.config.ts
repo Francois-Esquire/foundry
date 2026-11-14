@@ -1,6 +1,8 @@
 import { fileURLToPath } from "node:url";
 import react from "@astrojs/react";
+import { wgslVitePlugin } from "@vgpu/wgsl/loader-vite";
 import { defineConfig } from "astro/config";
+import { noNodeBuiltins } from "../spyglass/scripts/no-node-builtins";
 
 export default defineConfig({
   integrations: [
@@ -8,7 +10,6 @@ export default defineConfig({
     {
       hooks: {
         "astro:config:setup": ({ command, config, updateConfig }) => {
-          // Astro check optimizes production React; it must not replace dev's JSX runtime.
           updateConfig({
             vite: {
               cacheDir: fileURLToPath(
@@ -24,4 +25,14 @@ export default defineConfig({
   output: "static",
   site: "https://foundry.sh",
   trailingSlash: "always",
+  vite: {
+    plugins: [
+      wgslVitePlugin(),
+
+      {
+        ...noNodeBuiltins(),
+        applyToEnvironment: ({ name }) => name === "client",
+      },
+    ],
+  },
 });

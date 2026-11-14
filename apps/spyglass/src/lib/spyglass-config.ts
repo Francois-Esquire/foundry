@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { normalizeWorkspacePath } from "./boundary";
+import { normalizeWorkspacePath } from "./boundary-manifest";
 import type { DomainDeclaration } from "./domain-declaration";
 import { domainsSchema } from "./domain-declaration";
 import type { Rule } from "./rule-declaration";

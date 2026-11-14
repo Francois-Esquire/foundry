@@ -1,39 +1,29 @@
-import { isAbsolute, relative as pathRelative } from "node:path";
 import type { Node, Project, SourceFile } from "ts-morph";
+import { isAbsolute, relative as pathRelative } from "#path";
 
-import type { Boundary } from "./boundary";
+import type { Boundary, SourceOwner } from "./boundary-model";
 
-import { boundaryContains, ownerBoundary, toPosix } from "./boundary";
+import { boundaryContains, toPosix } from "./boundary-model";
 
-/**
- * One import site in the target that names a symbol from another internal
- * package. Same site definition as incoming usage: an import/export
- * specifier or a default import. Namespace imports name no symbol and are
- * not sites.
- */
 export interface OutgoingImportSite {
-  /** Root-relative declaring file of the symbol, or the imported module when unresolvable. */
   declarationModule: string;
-  /** Owning package of the imported module. */
+
   package: string;
-  /** Root-relative target file holding the import. */
+
   sourceModule: string;
-  /** Alias-resolved identity: declaring file plus name. */
+
   symbolKey: string;
   symbolName: string;
-  /** Every declaration is an interface or type alias — usable only as a type. */
+
   typeDeclaration: boolean;
-  /** `import type` / `export type` syntax. */
+
   typeOnly: boolean;
 }
 
-/**
- * Walks the target's import and export declarations. Reads only files the
- * project already parsed; never resolves references.
- */
 export function collectOutgoingImports(
   project: Project,
-  boundary: Boundary
+  boundary: Boundary,
+  ownerOf: SourceOwner
 ): OutgoingImportSite[] {
   const sites: OutgoingImportSite[] = [];
   const relative = (absolute: string) =>
@@ -70,7 +60,7 @@ export function collectOutgoingImports(
     const symbolName = target?.getName() ?? name;
     sites.push({
       declarationModule,
-      package: ownerBoundary(boundary.root, imported.getFilePath()),
+      package: ownerOf(imported.getFilePath()),
       sourceModule: relative(file.getFilePath()),
       symbolKey: `${declarationModule}#${symbolName}`,
       symbolName,

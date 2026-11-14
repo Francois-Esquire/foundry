@@ -1,7 +1,6 @@
-import type { Boundary } from "./boundary";
+import type { Boundary, SourceOwner } from "./boundary-model";
 import { renameAliases } from "./churn";
 import type { AnalysisConfig } from "./config";
-import { ANALYSIS_CONFIG } from "./config";
 import type { CommitChange, GitHistory } from "./git-history";
 import {
   eligibleCommits,
@@ -16,11 +15,6 @@ import type {
   PackageCombination,
   WorkspaceModuleGraph,
 } from "./types";
-
-// Change radius: how much of the current architecture moves in one commit.
-// Per target-touching commit: current eligible files, owning packages, and
-// the static package edges with both ends touched. Raw counts and
-// distributions only — no radius label, no score, no coupling strength.
 
 export interface ChangeRadiusSource {
   boundary: Boundary;
@@ -55,16 +49,11 @@ function lineTotals(
   };
 }
 
-/**
- * Radius of every window commit touching the target, measured over the whole
- * repository: a modules commit that also changes marbles and artifacts has package
- * radius 3. Oversized commits (shared history policy) are listed in metadata
- * but kept out of distributions.
- */
 export function analyzeChangeRadius(
   history: GitHistory,
   source: ChangeRadiusSource,
-  config: AnalysisConfig = ANALYSIS_CONFIG
+  config: AnalysisConfig,
+  sourceOwner: SourceOwner
 ): ChangeRadiusReport {
   if (!history.available) {
     return { available: false, reason: history.reason };
@@ -72,7 +61,7 @@ export function analyzeChangeRadius(
   const { boundary, graph } = source;
   const policy = config.changeRadius;
   const { windowDays } = config.churn;
-  const ownerOf = ownerResolver(graph, boundary.root);
+  const ownerOf = ownerResolver(graph, boundary.root, sourceOwner);
   const packageEdges = packageEdgesOf(graph);
   const inTarget = (file: string) =>
     boundary.relPath === "" ||
@@ -80,7 +69,6 @@ export function analyzeChangeRadius(
     file.startsWith(`${boundary.relPath}/`);
   const targetPackage = boundary.packageName ?? boundary.relPath;
 
-  // Same rename map eligibleCommits uses, so line totals join the same files.
   const aliases = renameAliases(history.commits);
   const aliasOf = (file: string) => aliases.get(file) ?? file;
 

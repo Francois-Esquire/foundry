@@ -7,7 +7,6 @@ import { DatasetReplacedError, datasetReader } from "../../lib/dataset";
 import { COLLECTION_MANIFEST } from "../../lib/dataset-layout";
 import type { DatasetRef } from "./types";
 
-/** Where the viewer finds its dataset, relative to the page; the server mounts the output here. */
 const DATA_ROOT = "./data/";
 
 function fetchTransport(root: string, signal?: AbortSignal): DatasetTransport {
@@ -31,15 +30,9 @@ function fetchTransport(root: string, signal?: AbortSignal): DatasetTransport {
   };
 }
 
-/** What the viewer says when a read after load finds a later scan's dataset. */
 export const REPLACED_MESSAGE =
   "A later scan replaced this dataset. Reload to see it.";
 
-/**
- * A read after load, pinned to the dataset the map was laid out from: a
- * dataset a later scan replaced fails with `REPLACED_MESSAGE`, which tells
- * the reader what to do; any other failure as it is.
- */
 export async function pinnedRead<T>(read: () => Promise<T>): Promise<T> {
   try {
     return await read();
@@ -51,10 +44,6 @@ export async function pinnedRead<T>(read: () => Promise<T>): Promise<T> {
   }
 }
 
-/**
- * A reader of a dataset the viewer was served with: the one at the data
- * root, or, given `dataset`, that workspace's, pinned to its `generatedAt`.
- */
 export function viewerDataset({
   dataset,
   signal,
@@ -63,18 +52,14 @@ export function viewerDataset({
   dataset?: DatasetRef;
   signal?: AbortSignal;
 } = {}): DatasetReader {
-  return datasetReader(fetchTransport(dataset?.root ?? "", signal), {
+  const transport =
+    dataset?.transport ?? fetchTransport(dataset?.root ?? "", signal);
+  return datasetReader(transport, {
     ...options,
     ...(dataset && { pin: dataset.generatedAt }),
   });
 }
 
-/**
- * Whether the data root serves a collection rather than one workspace,
- * asked when it holds no `manifest.json`: one `HEAD` of the collection
- * manifest (5.3), so nothing the viewer refuses is read. A `503` (a
- * workspace's dataset being swapped) is a collection's too.
- */
 export async function servesCollection(signal?: AbortSignal): Promise<boolean> {
   const response = await fetch(`${DATA_ROOT}${COLLECTION_MANIFEST}`, {
     cache: "no-store",

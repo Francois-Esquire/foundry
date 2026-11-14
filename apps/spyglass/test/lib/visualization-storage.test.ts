@@ -9,7 +9,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { datasetReader } from "../../src/lib/dataset";
-import { fileTransport } from "../../src/lib/dataset-files";
+import {
+  fileTransport,
+  previousVisualization,
+} from "../../src/lib/dataset-files";
 import type { DatasetManifest } from "../../src/lib/semantics-types";
 import { readVisualizationInput } from "../../src/lib/visualization/read";
 import { readPreparedVisualization } from "../../src/lib/visualization/schema";
@@ -184,7 +187,6 @@ describe("prepared visualization reader", () => {
     ).toThrow("invalid or duplicate references");
     const member = { direct: true, distance: 1, territoryId: "a", weight: 1 };
     for (const internalFoundations of [
-      // A dangling supplier.
       [
         {
           id: "workspace:missing",
@@ -193,7 +195,7 @@ describe("prepared visualization reader", () => {
           supplierId: "missing",
         },
       ],
-      // A supplier relying on itself.
+
       [
         {
           id: "workspace:a",
@@ -202,7 +204,7 @@ describe("prepared visualization reader", () => {
           supplierId: "a",
         },
       ],
-      // An id outside its own namespace.
+
       [
         {
           id: "dependency:a",
@@ -340,9 +342,9 @@ it("prepares after lenses, preserves matching bytes, repairs prior cache, and in
   }
   const run = () =>
     writeVisualization({
-      dir: draft,
       draft: manifest,
-      previous,
+      previous: previousVisualization(previous),
+      read: fileTransport(draft),
       write: (path, value) => save(draft, path, value),
     });
   await run();

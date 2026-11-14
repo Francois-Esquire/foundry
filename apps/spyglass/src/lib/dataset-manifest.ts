@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename } from "#path";
 import {
   ANALYSIS_POLICY_VERSION,
   WORKSPACE_INTELLIGENCE_POLICY_VERSION,
@@ -21,28 +21,27 @@ import type { WorkspaceProjectionContext } from "./workspace-projection-types";
 import { WORKSPACE_PROJECTION_SCHEMA_VERSION } from "./workspace-projection-types";
 import { WORKSPACE_SCHEMA_VERSION } from "./workspace-types";
 
-/** The package report schema every report in the dataset has. */
 const SURFACE_REPORT_SCHEMA_VERSION: SurfaceReport["schemaVersion"] = 35;
 
-/** Everything the manifest records about one generation, as `generateSemantics` holds it. */
 export interface DatasetManifestInput {
   command: string;
   concepts: SemanticsConceptIndex;
   concurrency: number;
   context: WorkspaceProjectionContext;
-  /** Whether workspace derivation ran, or every assembled report was reused. */
+
   derived: boolean;
   discovery: DeclaredDiscovery;
-  /** Every file written so far; the manifest counts the reused ones. */
+
   files: readonly { reused: boolean }[];
   finishedAt: Date;
-  inputs: SemanticsGenerationInputs;
+
+  inputs?: SemanticsGenerationInputs;
   mode: SemanticsGenerationMode;
   modules: readonly SemanticsModuleRecord[];
   packages: SemanticsManifestPackage[];
-  /** Package-local reports analyzed in this generation. */
+
   packagesAnalyzed: number;
-  /** Package-local reports taken from the cache. */
+
   packagesReused: number;
   partial: boolean;
   phases: SemanticsPhaseTiming[];
@@ -51,10 +50,6 @@ export interface DatasetManifestInput {
   workspaceName: string | undefined;
 }
 
-/**
- * Builds the draft manifest read by lenses and the published manifest. The
- * latter includes the finished time, files, and phases recorded in between.
- */
 export function datasetManifest(input: DatasetManifestInput): DatasetManifest {
   const { context, discovery, files, finishedAt, packages, startedAt } = input;
   const { workspace } = context;
@@ -88,7 +83,7 @@ export function datasetManifest(input: DatasetManifestInput): DatasetManifest {
       concurrency: input.concurrency,
       derived: input.derived,
       finishedAt: finishedAt.toISOString(),
-      inputs: input.inputs,
+      ...(input.inputs !== undefined && { inputs: input.inputs }),
       mode: input.mode,
       packageFailures: failures,
       packagesAnalyzed: input.packagesAnalyzed,

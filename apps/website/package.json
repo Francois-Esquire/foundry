@@ -22,9 +22,11 @@
   },
   "devDependencies": {
     "@astrojs/check": "0.9.10",
+    "@foundry.sh/spyglass": "workspace:*",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.2.7",
     "@types/three": "^0.185.4",
+    "@vgpu/wgsl": "0.6.0",
     "astro": "7.3.2",
     "typescript": "^6.0.3"
   }
