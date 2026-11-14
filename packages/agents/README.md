@@ -116,7 +116,7 @@ interface SessionStream extends AsyncIterable<SessionEvent> {
   readonly text: Promise<string>;
   readonly usage: Promise<SessionUsage>;
   readonly message: Promise<SessionMessage>;
-  readonly outcome: Promise<"complete" | "awaiting-approval">;
+  readonly outcome: Promise<"complete" | "awaiting-approval" | "failed">;
   readonly output: Promise<…>; // parsed by the turn's `output`, if any
   readonly partialOutputStream: AsyncIterable<…>;
   readonly result: Promise<StreamTextResult<…> | undefined>; // undefined for a CLI harness
@@ -234,8 +234,8 @@ type SessionPart =
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
   | { type: "image"; url: string; mediaType?: string }
-  | { type: "tool_call"; toolCallId: string; name: string; input: unknown; providerOptions?: …; provenance?: ToolProvenance }
-  | { type: "tool_result"; toolCallId: string; output: unknown; isError?: boolean }
+  | { type: "tool_call"; toolCallId: string; name: string; input?: unknown; providerOptions?: …; provenance?: ToolProvenance }
+  | { type: "tool_result"; toolCallId: string; output?: unknown; isError?: boolean }
   | { type: "error"; message: string }
   | { type: "tool_approval_request"; approvalId: string; capability: Capability; … }
   | { type: "tool_approval_response"; approvalId: string; approved: boolean; … }
@@ -340,10 +340,16 @@ A tool output with no JSON form fails the turn with an error that names the
 tool. A reply the session cannot keep, because `Sessions` refuses it or the
 store's commit rejects, fails the turn the same way. The reply is reported
 with status `error` and an error part saying why, `onError` hears it, no
-`finish` is emitted, and a requested `output` rejects. `outcome` says only
-whether an approval checkpoint is pending, so it resolves `complete` here, as
-it does for every failed turn: read the message's status to know the reply
-failed.
+`finish` is emitted, a requested `output` rejects, and `outcome` resolves
+`failed`, even for a reply that held a pending approval. A turn whose reply
+was kept with status `error` (a stream error, a tool output with no JSON
+form) resolves `complete`: the reply is in the history, and its status says
+it failed.
+
+`Sessions` reads what a caller hands it once, when it is called: a caller
+changing a message, a patch or a summary afterwards changes nothing it
+writes. Every store does the same with a write: it takes its own copy when
+`commit` is called, before it waits for its turn.
 
 ### Storage
 
@@ -390,16 +396,21 @@ lookup of a session's last position, which reads one entry. Neither scans
 other sessions or sorts.
 
 Reads take `parts` and `metadata` as JSON text and `summarized` as an
-integer, and one decoder turns a row back into a record, without Zod. It
-refuses a row the store would not have written: JSON that does not parse,
-parts or metadata that are not a message (a part of no known type, a field
-its type requires left out, a field of the wrong type), a `summarized` that
-is not 0, 1 or NULL, or a column of the wrong type. The error names the
-scope, session, message and field. One such row rejects its session's whole
+integer, and one decoder turns a row back into the record it holds, without
+Zod. It then runs the checks every write runs, so anything the store writes
+reads back, and anything it reads back can be written again. It refuses a
+row the store would not have written: JSON that does not parse, parts or
+metadata that are not a message (a part of no known type, a field its type
+requires left out, a field of the wrong type or outside its enum), a JSON
+number that parsed to an infinity or `-0`, a role or status outside its
+enum, an integer column beyond the safe integers, a `summarized` that is
+not 0, 1 or NULL, or a column of the wrong type. The error names the scope,
+session, message and field. One such row rejects its session's whole
 `listMessages`.
 
 Each `commit` is one transaction, and a throwing `onCommit` rolls it back.
-`onCommit` receives the write as given: every session and message put, whole,
+`onCommit` receives the store's own copy of the write, taken when `commit` was
+called: exactly what the store wrote, every session and message put, whole,
 in order. It does not learn which put filed a record and which replaced one,
 what a replaced record held, or which session a moved message left; the store
 has written by the time the hook runs.
@@ -425,6 +436,14 @@ not open the same file with a second SQLite library in the process either
 process, so the two libraries do not see each other's locks. Connection
 settings such as WAL and the busy timeout are the host's.
 
+A defect of `@libsql/client` 0.18.0, which the store cannot work around: a
+client whose `BEGIN` fails with `SQLITE_BUSY` keeps the failed statement
+open, and its next transaction fails at `COMMIT` with "SQL statements in
+progress". In rollback-journal mode the file can stay blocked even for a
+fresh client; in WAL mode a fresh client works. The store cannot reset a
+client it was handed. So a host should put the database in WAL mode, and
+replace its client after a `SQLITE_BUSY`.
+
 Storage limits of the SQLite store, not rules of the package. `commit`
 refuses, before writing anything and through a transaction's view as well,
 a write holding a value SQLite or JSON would not give back as it was. It
@@ -446,12 +465,16 @@ or `putMessages[2].parts[1].output.items[3]`:
   Marbles' JSON session store accepts the left-out form, and its tests
   write such a record (`apps/marbles/test/sessions.test.ts`).
 - A property holding `undefined`, at the top of a record or inside `parts`
-  or `metadata`.
+  or `metadata`; a field a record requires left out; a field it does not
+  have, which no column would keep.
+- A role, a message status or a session status outside its enum.
 - In `parts` or `metadata`: NaN, an infinity, `-0`, `undefined` or a hole
   in an array, a `bigint`, a function, a symbol, a value that contains
   itself, or an object that is not plain (a `Date`, a `Map`, a class
   instance). JSON would change each of these, or refuse it.
-- Parts or metadata the decoder would not read back as a message.
+- Parts or metadata that are not a message, by the shape check `Sessions`
+  uses: every part and capability variant, every required field, every
+  field's type and enum, every count's bounds.
 
 `Sessions` never hands a store any of these but the text and integer cases:
 it writes messages in their JSON form. These refusals are the last line of
