@@ -55,6 +55,16 @@ function content(owner: ArtifactId, blobs: readonly BlobId[] = []): Content {
   };
 }
 
+/**
+ * A blob whose inline bytes, `[1, 2]`, sit over a `SharedArrayBuffer`,
+ * which `structuredClone` keeps shared on Node.
+ */
+function sharedBlob(): Blob & { readonly bytes: Uint8Array } {
+  const bytes = new Uint8Array(new SharedArrayBuffer(2));
+  bytes.set([1, 2]);
+  return { byteLength: 2, bytes, createdAt: AT, digest: DIGEST, id: blobId() };
+}
+
 function inlineBlob(digest = DIGEST): Blob {
   return {
     byteLength: 1,
@@ -996,6 +1006,46 @@ export function describeArtifactStore(
       await running;
 
       expect(await listing).toEqual({ artifacts: [second], total: 3 });
+    });
+
+    it("keeps a blob's bytes as they were at the call, even over shared memory", async () => {
+      const store = await fresh();
+      const outer = sharedBlob();
+      const landing = store.commit({ putBlobs: [outer] });
+      outer.bytes[0] = 9;
+      await landing;
+
+      const inner = sharedBlob();
+      await requireTransaction(store)(async (view) => {
+        const committed = view.commit({ putBlobs: [inner] });
+        inner.bytes[0] = 9;
+        await committed;
+        expect((await view.getBlob(inner.id))?.bytes).toEqual(
+          new Uint8Array([1, 2])
+        );
+      });
+
+      for (const id of [outer.id, inner.id]) {
+        const stored = await store.getBlob(id);
+        expect(stored?.bytes).toEqual(new Uint8Array([1, 2]));
+        expect(stored?.bytes?.buffer).not.toBeInstanceOf(SharedArrayBuffer);
+      }
+    });
+
+    it("hands out bytes that share no memory with what it holds", async () => {
+      const store = await fresh();
+      const blob = sharedBlob();
+      await store.commit({ putBlobs: [blob] });
+
+      const [found] = await store.findBlobs(blob.digest);
+      found?.bytes?.fill(7);
+      (await store.getBlob(blob.id))?.bytes?.fill(8);
+      await requireTransaction(store)(async (view) => {
+        (await view.getBlob(blob.id))?.bytes?.fill(6);
+      });
+      expect((await store.getBlob(blob.id))?.bytes).toEqual(
+        new Uint8Array([1, 2])
+      );
     });
 
     it("queues a plain commit behind a running transaction", async () => {

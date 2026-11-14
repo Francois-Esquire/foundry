@@ -16,6 +16,7 @@ import type {
   BlobListing,
   BlobReferences,
 } from "./index";
+import { ownedRecords, ownedWrite } from "./owned";
 
 export interface InMemoryArtifactStoreOptions {
   /** Starting records; cloned, so the caller keeps ownership. */
@@ -39,14 +40,14 @@ export class InMemoryArtifactStore implements ArtifactStore {
 
   constructor(options: InMemoryArtifactStoreOptions = {}) {
     this.#records = Records.from(
-      structuredClone(
+      ownedRecords(
         options.records ?? { artifacts: [], blobs: [], contents: [] }
       )
     );
   }
 
   /**
-   * Takes the write as it stands now: one `structuredClone` of it, made
+   * Takes the write as it stands now: one owned copy of it (`ownedWrite`), made
    * before the commit waits its turn, so a caller changing the write later
    * changes nothing. A write the clone refuses rejects whole.
    */
@@ -296,7 +297,7 @@ function owned(
 ): Promise<void> {
   let copy: ArtifactStoreWrite;
   try {
-    copy = structuredClone(write);
+    copy = ownedWrite(write);
   } catch (error) {
     return Promise.reject(error);
   }

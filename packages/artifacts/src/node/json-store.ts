@@ -16,6 +16,7 @@ import type {
   BlobReferences,
 } from "../store";
 import { InMemoryArtifactStore } from "../store/memory";
+import { ownedWrite } from "../store/owned";
 
 const FORMAT_VERSION = 1;
 const DEFAULT_LOCK_TIMEOUT_MS = 10_000;
@@ -64,12 +65,12 @@ export class JsonArtifactStore implements ArtifactStore {
 
   /**
    * Takes the write as it stands now, as the memory store does: one
-   * `structuredClone`, made before the commit waits for the lock.
+   * owned copy (`ownedWrite`), made before the commit waits for the lock.
    */
   commit(write: ArtifactStoreWrite): Promise<void> {
     let copy: ArtifactStoreWrite;
     try {
-      copy = structuredClone(write);
+      copy = ownedWrite(write);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -102,7 +103,7 @@ export class JsonArtifactStore implements ArtifactStore {
           let copy: ArtifactStoreWrite;
           try {
             // Taken now: the staged records may still be loading.
-            copy = structuredClone(write);
+            copy = ownedWrite(write);
           } catch (error) {
             return Promise.reject(error);
           }

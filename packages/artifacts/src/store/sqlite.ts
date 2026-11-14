@@ -28,6 +28,7 @@ import type {
   BlobListing,
   BlobReferences,
 } from "./index";
+import { ownedWrite } from "./owned";
 import {
   artifactBlobChunks,
   artifactBlobs,
@@ -174,7 +175,8 @@ export class SqliteArtifactStore implements ArtifactStore {
    * One database transaction: the deletes, then the puts, then `onCommit`.
    *
    * The store takes the write as it stands when `commit` is called: one
-   * `structuredClone` of the whole write, as the memory store takes it, and
+   * owned copy of the whole write (`ownedWrite`: a `structuredClone`, with
+   * inline bytes in a buffer of their own), as the memory store takes it, and
    * that copy alone is checked, made into every row, and handed to
    * `onCommit`. Nothing the caller still holds is read again, so changing it
    * later changes nothing, and no getter or `toJSON` of the caller's runs
@@ -188,7 +190,7 @@ export class SqliteArtifactStore implements ArtifactStore {
   commit(write: ArtifactStoreWrite): Promise<void> {
     let owned: ArtifactStoreWrite;
     try {
-      owned = structuredClone(write);
+      owned = ownedWrite(write);
     } catch (error) {
       return Promise.reject(error);
     }
