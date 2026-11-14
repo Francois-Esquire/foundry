@@ -61,11 +61,16 @@ Five buckets, each importing only what sits below it:
   facets.
 - `src/database/` is the Marbles database: one SQLite file at the state
   root, `<state>/marbles.db`, that every process on the machine opens at
-  once. `open.ts` opens it (WAL, busy timeout, foreign keys) and migrates
-  it; `client.ts` makes everything this process does on the file take
-  turns, since the native driver blocks the thread while it waits for a
-  lock; `migrate.ts` applies the committed migrations in `migrations/`
-  in one write transaction. `schema.ts` composes every table, Marbles'
+  once. `open.ts` has one way in per role: `initializeDatabase`, the
+  Marbles process's alone, creates it (WAL, busy timeout, foreign keys)
+  and migrates it; `writeDatabase` writes only to a file that is there and
+  current; `readDatabase` reads through a connection that cannot write or
+  create and leaves no side file behind. `client.ts` makes everything this
+  process does on the file take turns, keyed by its canonical path, since
+  the native driver blocks the thread while it waits for a lock;
+  `migrate.ts` applies the committed migrations in `migrations/` in one
+  write transaction, and refuses an applied history that is not an exact
+  prefix of the shipped one. `schema.ts` composes every table, Marbles'
   own (`tables.ts`) and each domain package's `@foundry/<pkg>/store/tables`,
   one `export *` line per package; `bun run db:generate` writes the next
   migration from it, and a test fails when one is missing. Marbles' own

@@ -15,7 +15,7 @@ import {
 import type { Args, ArgsOf, Command, Flags } from "~/args";
 import { parseArgs, UsageError } from "~/args";
 import type { Triggers } from "~/create";
-import { openExistingDatabase } from "~/database/open";
+import { writeDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { layout, stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
@@ -378,18 +378,12 @@ async function detachWorkspace(
   const { config, workspace } = opened;
   const where = `${workspace.root} (${workspace.id})`;
   const forget = async (): Promise<void> => {
-    const handle = await openExistingDatabase(stateDatabase(args.state));
-    if (handle === undefined) {
-      return;
-    }
-    try {
-      const registry = new WorkspaceRegistry({ database: handle.database });
+    await writeDatabase(stateDatabase(args.state), async (database) => {
+      const registry = new WorkspaceRegistry({ database });
       if ((await registry.read(workspace.id))?.hosted === true) {
         await registry.touch(workspace, config, { hosted: false });
       }
-    } finally {
-      handle.close();
-    }
+    });
   };
   const client = await joinProcess(args);
   if (client === undefined) {

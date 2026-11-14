@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MarblesDatabase } from "~/database/open";
-import { openDatabase } from "~/database/open";
+import { initializeDatabase } from "~/database/open";
 import { transaction } from "~/database/transaction";
 import { recordedWorkspaces, WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
@@ -21,7 +21,7 @@ describe("WorkspaceRegistry", () => {
 
   beforeEach(async () => {
     state = scratch("marbles-state-");
-    opened = await openDatabase(stateDatabase(state));
+    opened = await initializeDatabase(stateDatabase(state));
     registry = new WorkspaceRegistry({ database: opened.database });
   });
 
@@ -88,7 +88,7 @@ describe("WorkspaceRegistry", () => {
     const workspace = workspaceState(state, scratch("marbles-ws-"));
     await registry.touch(workspace, null);
     opened.close();
-    opened = await openDatabase(stateDatabase(state));
+    opened = await initializeDatabase(stateDatabase(state));
     const reopened = new WorkspaceRegistry({ database: opened.database });
     expect((await reopened.read(workspace.id))?.root).toBe(workspace.root);
   });

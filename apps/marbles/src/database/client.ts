@@ -1,3 +1,6 @@
+import { lstatSync, readlinkSync, realpathSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+
 import type {
   Client,
   InArgs,
@@ -17,9 +20,12 @@ import type {
  * for it without blocking. Other processes still meet the busy timeout.
  *
  * One queue serves every client this process opens on the same file, since
- * SQLite's locks are per file, not per client. The wrapped client must have
- * one connection (`concurrency: 1`), so the pragmas set when it opens hold
- * for everything that runs on it.
+ * SQLite's locks are per file, not per client or per path: `file` must be
+ * the canonical path (`canonicalFile`), so a link to the database shares
+ * its queue. The queue is dropped once its last client has closed and no
+ * turn is pending. The wrapped client must have one connection
+ * (`concurrency: 1`), so the pragmas set when it opens hold for everything
+ * that runs on it.
  *
  * A turn that is not given within `wait` ms is refused, as SQLite refuses a
  * lock after its busy timeout. That is also how code that uses the database
@@ -31,7 +37,8 @@ export function serialClient(
   wait: number
 ): Client {
   const queue = queueFor(file);
-  const turn = () => queue.next(wait, file);
+  let closed = false;
+  const turn = () => queue.next(wait);
   async function inTurn<T>(work: () => Promise<T>): Promise<T> {
     const release = await turn();
     try {
@@ -43,7 +50,16 @@ export function serialClient(
   return {
     batch: (stmts: Array<InStatement | [string, InArgs?]>, mode) =>
       inTurn(() => client.batch(stmts, mode)),
-    close: () => client.close(),
+    close() {
+      try {
+        client.close();
+      } finally {
+        if (!closed) {
+          closed = true;
+          queue.leave();
+        }
+      }
+    },
     get closed() {
       return client.closed;
     },
@@ -70,6 +86,41 @@ export function serialClient(
       }
     },
   };
+}
+
+/** More links than this between a path and its file is a loop. */
+const MAX_LINKS = 40;
+
+/**
+ * The path every process-wide lock on `file` is keyed by: the file with
+ * every link resolved, so two paths to one database give one key. Before
+ * the file exists, its existing parent resolved with the file's name.
+ *
+ * The file itself is never opened, not even by `realpath`, which on macOS
+ * opens what it resolves: closing any descriptor to a SQLite database drops
+ * every POSIX lock this process holds on it, including those of the
+ * connections still open. Links to the file are followed with `readlink`
+ * instead, and only its directory goes through `realpath`.
+ */
+export function canonicalFile(file: string): string {
+  let path = resolve(file);
+  for (let links = 0; ; links += 1) {
+    if (!lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      break;
+    }
+    if (links === MAX_LINKS) {
+      throw new Error(
+        `too many links resolving the Marbles database at ${file}`
+      );
+    }
+    path = resolve(dirname(path), readlinkSync(path));
+  }
+  return join(realpathSync(dirname(path)), basename(path));
+}
+
+/** The files this process has a queue for: some client is open, or a turn is pending. */
+export function queuedFiles(): readonly string[] {
+  return [...queues.keys()];
 }
 
 /** The transaction, giving its turn back once it commits, rolls back, or closes. */
@@ -105,25 +156,49 @@ function heldUntilSettled(
 }
 
 interface Queue {
+  /** One more client closed: the queue goes once none is open and no turn is pending. */
+  leave(): void;
   /** Resolves with the function that gives the turn back; call it once. */
-  next(wait: number, file: string): Promise<() => void>;
+  next(wait: number): Promise<() => void>;
 }
 
-const queues = new Map<string, Queue>();
+const queues = new Map<string, Queue & { join(): void }>();
 
+/** The queue for `file`, joined by one more client. */
 function queueFor(file: string): Queue {
   let queue = queues.get(file);
   if (queue === undefined) {
-    queue = fifo();
+    const created = fifo(file, () => {
+      if (queues.get(file) === created) {
+        queues.delete(file);
+      }
+    });
+    queue = created;
     queues.set(file, queue);
   }
+  queue.join();
   return queue;
 }
 
-function fifo(): Queue {
+function fifo(file: string, idle: () => void): Queue & { join(): void } {
   let tail: Promise<void> = Promise.resolve();
+  let clients = 0;
+  let pending = 0;
+  const settle = () => {
+    if (clients === 0 && pending === 0) {
+      idle();
+    }
+  };
   return {
-    next(wait, file) {
+    join() {
+      clients += 1;
+    },
+    leave() {
+      clients -= 1;
+      settle();
+    },
+    next(wait) {
+      pending += 1;
       const { promise: held, resolve: done } = Promise.withResolvers<void>();
       const ready = tail;
       tail = ready.then(() => held);
@@ -131,14 +206,16 @@ function fifo(): Queue {
       const release = () => {
         if (!released) {
           released = true;
+          pending -= 1;
           done();
+          settle();
         }
       };
-      return new Promise((resolve, reject) => {
+      return new Promise((give, refuse) => {
         let refused = false;
         const timer = setTimeout(() => {
           refused = true;
-          reject(
+          refuse(
             new Error(
               `the Marbles database at ${file} stayed busy for ${String(wait)} ms in this process; a transaction may be waiting on itself`
             )
@@ -151,7 +228,7 @@ function fifo(): Queue {
           if (refused) {
             release();
           } else {
-            resolve(release);
+            give(release);
           }
         });
       });

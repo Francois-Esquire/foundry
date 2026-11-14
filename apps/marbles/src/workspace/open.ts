@@ -7,7 +7,7 @@ import { expectHost, setHost } from "~/authoring/runtime";
 import { initializeUsage } from "~/authoring/usage";
 import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
-import { openExistingDatabase, withDatabase } from "~/database/open";
+import { readDatabase, writeDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
@@ -149,28 +149,20 @@ export async function recordedWorkspace(
   id: string
 ): Promise<OpenedWorkspace | undefined> {
   const state = resolve(args.state);
-  const handle = await openExistingDatabase(stateDatabase(state));
-  if (handle === undefined) {
+  const record = await readDatabase(stateDatabase(state), (database) =>
+    new WorkspaceRegistry({ database }).read(id)
+  );
+  // A linked `<state>/<id>` would put what is written there somewhere else.
+  if (record === undefined || !insideState(state, id)) {
     return;
   }
-  try {
-    const record = await new WorkspaceRegistry({
-      database: handle.database,
-    }).read(id);
-    // A linked `<state>/<id>` would put what is written there somewhere else.
-    if (record === undefined || !insideState(state, id)) {
-      return;
-    }
-    const workspace = workspaceAt(state, id, record.root);
-    return {
-      config: record.config,
-      configPath: record.config ?? resolve(workspace.root, DEFAULT_SOURCE),
-      environment: { machine: environmentSnapshot(), workspace: {} },
-      workspace,
-    };
-  } finally {
-    handle.close();
-  }
+  const workspace = workspaceAt(state, id, record.root);
+  return {
+    config: record.config,
+    configPath: record.config ?? resolve(workspace.root, DEFAULT_SOURCE),
+    environment: { machine: environmentSnapshot(), workspace: {} },
+    workspace,
+  };
 }
 
 export interface OpenWorkspaceOptions {
@@ -280,7 +272,9 @@ export async function touchWorkspace(
   { config, workspace }: OpenedWorkspace
 ): Promise<void> {
   if (engine.state !== undefined) {
-    await withDatabase(stateDatabase(args.state), (database) =>
+    // The Marbles process makes the database; a program hosting the
+    // workspace itself on a machine where it never ran records nothing.
+    await writeDatabase(stateDatabase(args.state), (database) =>
       new WorkspaceRegistry({ database }).touch(workspace, config)
     );
   }

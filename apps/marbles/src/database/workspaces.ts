@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { asc, eq } from "drizzle-orm";
 
 import type { StoreDatabase } from "~/database/open";
-import { openExistingDatabase } from "~/database/open";
+import { readDatabase } from "~/database/open";
 import { marblesWorkspaces } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { Workspace, WorkspaceRecord } from "~/lib/state/workspace";
@@ -78,23 +78,15 @@ export class WorkspaceRegistry {
 
 /**
  * Every workspace recorded under the state root, by id, leaving out any
- * whose `<state>/<id>` is a link. A state root without a database has none
- * and is left without one.
+ * whose `<state>/<id>` is a link. Read only: a state root without a
+ * database has none and is left without one.
  */
 export async function recordedWorkspaces(
   state: string
 ): Promise<readonly WorkspaceRecord[]> {
   const root = resolve(state);
-  const opened = await openExistingDatabase(stateDatabase(root));
-  if (opened === undefined) {
-    return [];
-  }
-  try {
-    const records = await new WorkspaceRegistry({
-      database: opened.database,
-    }).list();
-    return records.filter((record) => insideState(root, record.id));
-  } finally {
-    opened.close();
-  }
+  const records = await readDatabase(stateDatabase(root), (database) =>
+    new WorkspaceRegistry({ database }).list()
+  );
+  return (records ?? []).filter((record) => insideState(root, record.id));
 }

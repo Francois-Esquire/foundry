@@ -105,11 +105,16 @@ A workspace is recorded in the database when it is attached to the Marbles
 process (`run`, `roll`, the dashboard, or the MCP server), which sets
 `hosted: true`, and by a program that hosts it itself; `list`, `status`,
 `sessions`, `watch`, and anything under `--dry-run` leave an empty state
-root empty. Opening the database creates it if need be and applies the
-migrations this Marbles ships; a database migrated by a newer Marbles is
-refused. The daemon, its workers, and the CLI open it at once: a writer
-waits up to five seconds for another process's write to finish. `hosted` goes back to `false` when `marbles detach` or a client of the
-process detaches the workspace.
+root empty. Only the Marbles process creates the database and applies the
+migrations its Marbles ships. Its workers and the CLI write only to a
+database that is there and current. `status`, the MCP server, and every
+other reader open it read-only: they never create, migrate, or switch its
+journal mode, and leave no file behind that was not there. A database whose
+migrations are behind or ahead of the reading Marbles, or differ from the
+ones it ships, is refused with an error that says which. The daemon, its
+workers, and the CLI hold it at once: a writer waits up to five seconds for
+another process's write to finish. `hosted` goes back to `false` when
+`marbles detach` or a client of the process detaches the workspace.
 
 ### Run output
 

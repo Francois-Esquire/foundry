@@ -1,10 +1,15 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
+  appendFileSync,
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,15 +18,22 @@ import { createClient } from "@libsql/client";
 import { count, sql } from "drizzle-orm";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 import { describe, expect, it } from "vitest";
+import { queuedFiles } from "~/database/client";
 import { MIGRATIONS } from "~/database/migrate";
 import type { StoreDatabase } from "~/database/open";
-import { openDatabase } from "~/database/open";
+import {
+  initializeDatabase,
+  readDatabase,
+  writeDatabase,
+} from "~/database/open";
 import { marblesWorkspaces } from "~/database/tables";
 import { transaction } from "~/database/transaction";
 
 const SRC = resolve("src");
 const NEWER = /migrated by a newer Marbles/;
 const WAITING_ON_ITSELF = /waiting on itself/;
+const DIFFERS_AT_FIRST =
+  /differs from this Marbles at migration 1: .* ships 0000_init/;
 
 function scratch(): string {
   return mkdtempSync(join(tmpdir(), "marbles-db-"));
@@ -65,7 +77,7 @@ describe("the Marbles database", () => {
 
   it("creates, configures and migrates a database in an empty directory", async () => {
     const file = join(scratch(), "nested", "marbles.db");
-    const opened = await openDatabase(file);
+    const opened = await initializeDatabase(file);
     try {
       expect(existsSync(file)).toBe(true);
       expect(await pragma(opened.database, "journal_mode")).toBe("wal");
@@ -80,11 +92,11 @@ describe("the Marbles database", () => {
 
   it("reopens an existing database with its rows, and applies nothing twice", async () => {
     const file = join(scratch(), "marbles.db");
-    const first = await openDatabase(file);
+    const first = await initializeDatabase(file);
     await first.database.insert(marblesWorkspaces).values(workspaceRow("a"));
     first.close();
 
-    const again = await openDatabase(file);
+    const again = await initializeDatabase(file);
     try {
       expect(await rows(again.database)).toBe(1);
       expect(await applied(again.database)).toBe(journalEntries());
@@ -96,7 +108,7 @@ describe("the Marbles database", () => {
 
   it("opens a migrated database while another connection is writing", async () => {
     const file = join(scratch(), "marbles.db");
-    (await openDatabase(file)).close();
+    (await initializeDatabase(file)).close();
     // A writer this process's queue does not know of, as another process is.
     const writer = createClient({ url: `file:${file}` });
     const held = await writer.transaction("write");
@@ -106,7 +118,7 @@ describe("the Marbles database", () => {
       );
       // Up to date, so opening only reads: it neither waits for the lock
       // nor sees the uncommitted row.
-      const reader = await openDatabase(file, { busyTimeout: 50 });
+      const reader = await initializeDatabase(file, { busyTimeout: 50 });
       try {
         expect(await rows(reader.database)).toBe(0);
       } finally {
@@ -123,7 +135,7 @@ describe("the Marbles database", () => {
     const folder = join(dir, "migrations");
     cpSync(MIGRATIONS, folder, { recursive: true });
     const file = join(dir, "marbles.db");
-    (await openDatabase(file, { migrations: folder })).close();
+    (await initializeDatabase(file, { migrations: folder })).close();
 
     const journal = JSON.parse(
       readFileSync(join(folder, "meta", "_journal.json"), "utf8")
@@ -145,7 +157,7 @@ describe("the Marbles database", () => {
       join(folder, "9999_probe.sql"),
       "CREATE TABLE `marbles_probe` (`id` text PRIMARY KEY NOT NULL);"
     );
-    const migrated = await openDatabase(file, { migrations: folder });
+    const migrated = await initializeDatabase(file, { migrations: folder });
     try {
       expect(await applied(migrated.database)).toBe(journalEntries() + 1);
       await migrated.database.run(sql`INSERT INTO marbles_probe VALUES ('x')`);
@@ -153,13 +165,152 @@ describe("the Marbles database", () => {
       migrated.close();
     }
     // The Marbles that shipped without that migration refuses the file.
-    await expect(openDatabase(file)).rejects.toThrow(NEWER);
+    await expect(initializeDatabase(file)).rejects.toThrow(NEWER);
+  });
+
+  it("refuses a database whose applied history is not the one shipped", async () => {
+    const dir = scratch();
+    const file = join(dir, "marbles.db");
+    (await initializeDatabase(file)).close();
+    // The same migration, its SQL edited since it was applied.
+    const edited = join(dir, "edited");
+    cpSync(MIGRATIONS, edited, { recursive: true });
+    const [first] = readdirSync(edited).filter((name) => name.endsWith(".sql"));
+    if (first === undefined) {
+      throw new Error("no migrations are committed");
+    }
+    appendFileSync(join(edited, first), "\n-- edited\n");
+    await expect(
+      initializeDatabase(file, { migrations: edited })
+    ).rejects.toThrow(DIFFERS_AT_FIRST);
+    // The same SQL, generated at another time: a history that diverged.
+    const moved = join(dir, "moved");
+    cpSync(MIGRATIONS, moved, { recursive: true });
+    const journal = JSON.parse(
+      readFileSync(join(moved, "meta", "_journal.json"), "utf8")
+    ) as { entries: { when: number }[] };
+    for (const entry of journal.entries) {
+      entry.when += 1;
+    }
+    writeFileSync(
+      join(moved, "meta", "_journal.json"),
+      JSON.stringify(journal)
+    );
+    await expect(
+      initializeDatabase(file, { migrations: moved })
+    ).rejects.toThrow(DIFFERS_AT_FIRST);
+  });
+
+  it("gives every path to one database one queue", async () => {
+    const dir = scratch();
+    const real = join(dir, "real");
+    mkdirSync(real);
+    const linkedDir = join(dir, "linked");
+    symlinkSync(real, linkedDir);
+    // Not there yet: the queue is keyed by the parent, links resolved.
+    const a = await initializeDatabase(join(linkedDir, "marbles.db"), {
+      busyTimeout: 300,
+    });
+    const linkedFile = join(dir, "marbles.db");
+    symlinkSync(join(real, "marbles.db"), linkedFile);
+    const b = await initializeDatabase(join(real, "marbles.db"), {
+      busyTimeout: 300,
+    });
+    const c = await initializeDatabase(linkedFile, { busyTimeout: 300 });
+    try {
+      const pause = () => new Promise((settle) => setTimeout(settle, 20));
+      const write = (database: StoreDatabase, id: string) =>
+        database.transaction(async (tx) => {
+          await tx.insert(marblesWorkspaces).values(workspaceRow(`${id}-1`));
+          await pause();
+          await tx.insert(marblesWorkspaces).values(workspaceRow(`${id}-2`));
+        });
+      await Promise.all([
+        write(a.database, "a"),
+        write(b.database, "b"),
+        write(c.database, "c"),
+      ]);
+      expect(await rows(a.database)).toBe(6);
+      expect(
+        queuedFiles().filter((file) => file.startsWith(realpathSync(dir)))
+      ).toHaveLength(1);
+    } finally {
+      a.close();
+      b.close();
+      c.close();
+    }
+  });
+
+  it("keeps its locks while other handles in this process come and go", async () => {
+    const dir = scratch();
+    const file = join(dir, "marbles.db");
+    const linked = join(dir, "linked.db");
+    const holder = await initializeDatabase(file);
+    try {
+      await holder.database.insert(marblesWorkspaces).values(workspaceRow("a"));
+      symlinkSync(file, linked);
+      const wal = statSync(`${file}-wal`).ino;
+      // Every way in, by its path and through a link: none may close a
+      // descriptor to the file, which would drop the holder's locks.
+      (await initializeDatabase(linked)).close();
+      await readDatabase(linked, rows);
+      await writeDatabase(file, rows);
+      // Another process writes and, finding no lock held, would take the
+      // WAL away as it leaves; the holder would then write into nothing.
+      const other = join(dir, "other.ts");
+      writeFileSync(
+        other,
+        `import { writeDatabase } from ${JSON.stringify(join(SRC, "database/open.ts"))};
+import { marblesWorkspaces } from ${JSON.stringify(join(SRC, "database/tables.ts"))};
+await writeDatabase(${JSON.stringify(file)}, (db) => db.insert(marblesWorkspaces).values({ firstSeen: "x", id: "b", lastSeen: "x", root: "/r" }));
+Bun.gc(true);
+`
+      );
+      const left = spawnSync("bun", [other], { encoding: "utf8" });
+      expect(left.status, left.stderr).toBe(0);
+      expect(statSync(`${file}-wal`).ino).toBe(wal);
+      await holder.database.insert(marblesWorkspaces).values(workspaceRow("c"));
+      expect(await readDatabase(file, rows)).toBe(3);
+    } finally {
+      holder.close();
+    }
+  });
+
+  it("keeps a file's queue only while a handle is open or a turn is pending", async () => {
+    const file = join(scratch(), "marbles.db");
+    const queued = () => queuedFiles().filter((path) => path.endsWith(file));
+    const a = await initializeDatabase(file);
+    const b = await initializeDatabase(file);
+    expect(queued()).toHaveLength(1);
+    a.close();
+    a.close();
+    // Closing one handle twice lets go of one, not of the other's too.
+    expect(queued()).toHaveLength(1);
+    const gate = Promise.withResolvers<void>();
+    const held = b.database.transaction(() => gate.promise);
+    await new Promise((settle) => setTimeout(settle, 20));
+    b.close();
+    // Its transaction still holds a turn.
+    expect(queued()).toHaveLength(1);
+    gate.resolve();
+    await held.catch(() => undefined);
+    expect(queued()).toEqual([]);
+    // A failed open lets go of its queue too.
+    const newer = join(scratch(), "marbles.db");
+    const folder = join(scratch(), "migrations");
+    cpSync(MIGRATIONS, folder, { recursive: true });
+    (await initializeDatabase(newer, { migrations: folder })).close();
+    writeFileSync(join(folder, "meta", "_journal.json"), '{"entries":[]}');
+    await expect(
+      initializeDatabase(newer, { migrations: folder })
+    ).rejects.toThrow(NEWER);
+    expect(queuedFiles().filter((path) => path.endsWith(newer))).toEqual([]);
   });
 
   it("lets two handles in one process overlap their transactions", async () => {
     const file = join(scratch(), "marbles.db");
-    const a = await openDatabase(file, { busyTimeout: 1000 });
-    const b = await openDatabase(file, { busyTimeout: 1000 });
+    const a = await initializeDatabase(file, { busyTimeout: 1000 });
+    const b = await initializeDatabase(file, { busyTimeout: 1000 });
     try {
       const pause = () => new Promise((settle) => setTimeout(settle, 20));
       const write = (database: StoreDatabase, id: string) =>
@@ -204,7 +355,7 @@ describe("the Marbles database", () => {
         });
       }
     }
-    const opened = await openDatabase(join(scratch(), "marbles.db"));
+    const opened = await initializeDatabase(join(scratch(), "marbles.db"));
     try {
       await new PackageStore({ database: opened.database }).commit(["a"]);
       await expect(
@@ -228,7 +379,7 @@ describe("the Marbles database", () => {
 
   it("refuses, rather than hangs, a transaction that waits on itself", async () => {
     const file = join(scratch(), "marbles.db");
-    const opened = await openDatabase(file, { busyTimeout: 200 });
+    const opened = await initializeDatabase(file, { busyTimeout: 200 });
     try {
       await expect(
         opened.database.transaction(async () => {
@@ -257,14 +408,14 @@ describe("the Marbles database", () => {
     writeFileSync(
       script,
       `import { existsSync } from "node:fs";
-import { openDatabase } from ${JSON.stringify(join(SRC, "database/open.ts"))};
+import { initializeDatabase } from ${JSON.stringify(join(SRC, "database/open.ts"))};
 import { marblesWorkspaces } from ${JSON.stringify(join(SRC, "database/tables.ts"))};
 const [name] = process.argv.slice(2);
 process.stdout.write("ready\\n");
 while (!existsSync(${JSON.stringify(go)})) {
   await new Promise((settle) => setTimeout(settle, 5));
 }
-const opened = await openDatabase(${JSON.stringify(file)});
+const opened = await initializeDatabase(${JSON.stringify(file)});
 const now = new Date().toISOString();
 const row = (id) => ({ firstSeen: now, id, lastSeen: now, root: "/r" });
 for (let i = 0; i < ${String(transactions)}; i += 1) {
@@ -311,7 +462,7 @@ opened.close();
     for (const exit of await Promise.all(exits)) {
       expect(exit.code, exit.stderr).toBe(0);
     }
-    const opened = await openDatabase(file);
+    const opened = await initializeDatabase(file);
     try {
       expect(await rows(opened.database)).toBe(writers * transactions * 2);
       expect(await applied(opened.database)).toBe(journalEntries());

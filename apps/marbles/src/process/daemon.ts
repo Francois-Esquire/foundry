@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { lockHolder } from "@foundry/lib/file-lock";
 import type { MarblesDatabase } from "~/database/open";
-import { openDatabase } from "~/database/open";
+import { initializeDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type { Layout } from "~/layout";
 import type { WorkspaceSummary } from "~/model/connection";
@@ -177,7 +177,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   });
   let database: MarblesDatabase;
   try {
-    database = await openDatabase(layout.database);
+    database = await initializeDatabase(layout.database);
   } catch (error) {
     claim.release();
     throw error;
