@@ -1,12 +1,12 @@
 import { usage } from "@foundry/usage";
 
 /**
- * Marbles adds the signed-in default accounts (`anthropic` for Claude Code,
- * `openai` for Codex) to the shared `usage` before any step can run, so a
- * step queries them without initializing anything. Initializing only looks
- * for each login; it asks no provider for limits. A failure is reported and
- * leaves Marbles running, without the accounts it could not add; the next
- * start tries again.
+ * Marbles adds the default accounts (`anthropic` for Claude Code, `openai`
+ * for Codex) that are signed in or have history to the shared `usage` before
+ * any step can run, so a step queries them without initializing anything.
+ * Initializing only looks for each login or history, and asks no provider
+ * for limits. A failure is reported and leaves Marbles running, without the
+ * accounts it could not add; the next start tries again.
  */
 
 let initialized: Promise<void> | undefined;

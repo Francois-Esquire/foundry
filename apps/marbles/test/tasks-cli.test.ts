@@ -6,11 +6,13 @@ import {
   readdir,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { workspaceState } from "~/lib/state/workspace";
 import { cliArgs } from "./helpers/cli";
 
 // The host loads sources through a Bun plugin; vitest runs under Node, and
@@ -217,6 +219,18 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     expect(usage.stdout).toBe("");
     expect(usage.stderr).toMatch(USAGE_REFUSAL);
     expect(usage.stderr).toContain("tasks change --input");
+  });
+
+  it("refuses the tasks when the workspace's state links out of the state root", async () => {
+    const state = join(root, "state");
+    const outside = join(root, "outside");
+    await mkdir(state);
+    await mkdir(outside);
+    await symlink(outside, workspaceState(state, root).dir);
+    const refused = marbles("tasks", "create", "Outside");
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain("is not a directory inside");
+    expect(await readdir(outside)).toEqual([]);
   });
 
   it("gives up the workspace's tasks when the engine is disposed", async () => {

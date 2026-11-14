@@ -124,6 +124,47 @@ describe("Tasks", () => {
     expect((await tasks.complete(task.id)).status).toBe("completed");
   });
 
+  test("update sets metadata keys over the stored ones and null removes a key", async () => {
+    const tasks = new Tasks({ clock });
+    const task = await tasks.create({
+      metadata: { kept: 1, nested: { a: 1, b: 2 }, removed: "x", stored: null },
+      title: "metadata",
+    });
+
+    const updated = await tasks.update(task.id, {
+      metadata: { added: true, missing: null, nested: { c: 3 }, removed: null },
+    });
+    expect(updated.metadata).toEqual({
+      added: true,
+      kept: 1,
+      nested: { c: 3 },
+      stored: null,
+    });
+
+    const unchanged = await tasks.update(task.id, { metadata: {} });
+    expect(unchanged.metadata).toEqual(updated.metadata);
+    expect(unchanged.updatedAt > updated.updatedAt).toBe(true);
+  });
+
+  test("create and update refuse a __proto__ metadata key and store a copy", async () => {
+    const tasks = new Tasks({ clock });
+    const proto = JSON.parse('{"nested":{"__proto__":{"ok":1}}}');
+    await expect(
+      tasks.create({ metadata: proto, title: "proto" })
+    ).rejects.toThrow('"__proto__" is not allowed as a metadata key');
+    const metadata = { keep: { n: 1 } };
+    const task = await tasks.create({ metadata, title: "kept" });
+    await expect(
+      tasks.update(task.id, { metadata: proto })
+    ).rejects.toMatchObject({ code: "invalid_operation" });
+    await expect(
+      tasks.update(task.id, { metadata: { n: Number.NaN } })
+    ).rejects.toThrow("metadata:");
+
+    metadata.keep.n = 2;
+    expect((await tasks.get(task.id))?.metadata).toEqual({ keep: { n: 1 } });
+  });
+
   test("a stale token refuses the write", async () => {
     const tasks = new Tasks({ clock });
     const task = await tasks.create({ title: "token" });

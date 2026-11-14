@@ -24,6 +24,11 @@ export interface CreateTaskInput {
 
 export interface UpdateTaskInput {
   readonly description?: string | null;
+  /**
+   * Sets each top-level key over the stored metadata; a key whose value is
+   * `null` is removed, and a key left out is kept. A nested value replaces
+   * the stored value for its key whole.
+   */
   readonly metadata?: JsonObject;
   /** Replaces every tag; `[]` clears them and omission keeps them. */
   readonly tags?: readonly string[];
@@ -98,7 +103,53 @@ export const MAX_OPERATIONS_PER_CHANGE = 100;
 
 const taskStatusSchema = z.enum(TASK_STATUSES);
 const nonEmpty = z.string().min(1);
-export const taskMetadataSchema = z.record(z.string(), z.json());
+/**
+ * A JSON object, read once into a fresh copy. A `__proto__` key is refused
+ * at any depth, since Zod would drop it. So is a getter: the check and the
+ * copy would each read it, and could see different values.
+ * On update, a `null` value removes its key; see `UpdateTaskInput`.
+ */
+export const taskMetadataSchema = z.preprocess(
+  (value, context) => {
+    const problem = unsafeProperty(value, []);
+    if (problem !== undefined) {
+      context.addIssue({ code: "custom", ...problem });
+    }
+    return value;
+  },
+  z.record(z.string(), z.json())
+) as z.ZodType<JsonObject, JsonObject>;
+
+/** Where and why `value` cannot be read as plain JSON without losing a key. */
+function unsafeProperty(
+  value: unknown,
+  path: readonly (number | string)[]
+):
+  | { readonly message: string; readonly path: (number | string)[] }
+  | undefined {
+  if (typeof value !== "object" || value === null) {
+    return;
+  }
+  const array = Array.isArray(value);
+  for (const [key, property] of Object.entries(
+    Object.getOwnPropertyDescriptors(value)
+  )) {
+    const at = [...path, array ? Number(key) : key];
+    if (key === "__proto__" && !array) {
+      return {
+        message: '"__proto__" is not allowed as a metadata key',
+        path: at,
+      };
+    }
+    if (!("value" in property)) {
+      return { message: "A getter is not JSON data", path: at };
+    }
+    const problem = unsafeProperty(property.value, at);
+    if (problem !== undefined) {
+      return problem;
+    }
+  }
+}
 const tagsSchema = z.array(z.string()).readonly();
 
 export const taskRefSchema: z.ZodType<TaskRef, TaskRef> = z.union([

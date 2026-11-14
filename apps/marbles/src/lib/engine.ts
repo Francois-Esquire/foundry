@@ -11,6 +11,8 @@ import { Config } from "@foundry/lib/config";
 import type { ModelManager } from "@foundry/models";
 import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
+import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
+import { holdModelsDev } from "@foundry/models/catalog/models-dev-source";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import type { TaskStore } from "@foundry/tasks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
@@ -55,7 +57,7 @@ import { createLog, type LogLevel, type LogOrigin } from "~/lib/log";
 import { AgentsManager } from "~/lib/managers/agents";
 import { ArtifactsManager } from "~/lib/managers/artifacts";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
-import { globalSkillsDir, skillResolver } from "~/lib/managers/skills";
+import { skillResolver } from "~/lib/managers/skills";
 import type { Catalogue, GitOptions } from "~/lib/managers/workspaces";
 import { WorkspacesManager } from "~/lib/managers/workspaces";
 import type { ProviderConfiguration } from "~/lib/providers/configuration";
@@ -140,7 +142,7 @@ export interface EngineOptions {
    * scanning it, and the root workspace stays unread until a step needs it.
    */
   readonly git?: GitOptions;
-  /** The user's home, for skills shared across workspaces; the OS home by default. */
+  /** The user's home, whose skill folders `skills.load()` reads; the OS home by default. */
   readonly home?: string;
   /**
    * Where definitions' own `log(...)` lines go, with where each came from:
@@ -309,6 +311,8 @@ export class Engine {
   #stopping: Promise<void> | undefined;
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
+  /** The models.dev load the usage ledger prices from: held while running and online. */
+  #prices: ModelsDevHold | undefined;
 
   /**
    * Where an engine over `state` cuts worktrees by default: inside the state
@@ -326,7 +330,27 @@ export class Engine {
     const askable = options.askable ?? false;
     const { containers } = options;
     this.models = models;
-    this.airplane = airplaneMode(models);
+    // Started now, so list prices are there by the first turn; nothing
+    // waits for it. Airplane Mode gives it up, and leaving it holds it again.
+    this.#prices = holdModelsDev();
+    const airplane = airplaneMode(models);
+    this.airplane = {
+      dispose: () => airplane.dispose(),
+      get enabled() {
+        return airplane.enabled;
+      },
+      set: (enabled) => {
+        airplane.set(enabled);
+        this.providers?.setOffline(enabled);
+        if (enabled) {
+          this.#releasePrices();
+        } else if (!this.#disposing) {
+          this.#prices ??= holdModelsDev();
+          // Back online, the servers are asked for their models again.
+          this.#listModels();
+        }
+      },
+    };
     this.providers = options.providers;
     this.#unwatch =
       options.providers?.watch((problem) => print(`[providers] ${problem}`)) ??
@@ -458,7 +482,7 @@ export class Engine {
       requireProviders: () => options.providers?.require(),
       root,
       sessions,
-      skills: skillResolver({ global: globalSkillsDir(home), workspace: root }),
+      skills: skillResolver({ home, workspace: root }),
       usage: { ledger: this.usage, workspaceId },
       warn: (message) => print(`[agents] ${message}`),
     });
@@ -669,6 +693,8 @@ export class Engine {
     const askable = this.#askable;
     const feed = this.#publisher;
     const print = this.#print;
+    // Before anything runs, so a listed model can be named from the first turn.
+    await this.#listModels();
     const config = new Config();
     contributeQueueConfig(config, {
       concurrency: ORCHESTRATOR_CONCURRENCY,
@@ -1148,6 +1174,32 @@ export class Engine {
   }
 
   /**
+   * Ask the providers that list their models for them, and reload. Never
+   * rejects: a problem is printed, and the set loaded before is kept.
+   */
+  async #listModels(): Promise<void> {
+    try {
+      // `configured` reads the files too, so it is inside the guard.
+      if (!this.providers?.configured) {
+        return;
+      }
+      for (const problem of await this.providers.refresh()) {
+        this.#print(`[providers] ${problem}`);
+      }
+    } catch (error) {
+      this.#print(
+        `[providers] ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /** Give up the models.dev load; one still fetching is aborted when no other engine holds it. */
+  #releasePrices(): void {
+    this.#prices?.release();
+    this.#prices = undefined;
+  }
+
+  /**
    * Stop execution and close what this engine was handed: the workspace system,
    * the containers if a sandbox ever opened them, and the models. The models
    * go last and always: a provider may hold a child process. Its cancelling
@@ -1185,6 +1237,7 @@ export class Engine {
     await close(() => this.sandboxes.close());
     this.#unwatch();
     this.airplane.dispose();
+    this.#releasePrices();
     await close(async () => {
       await this.providers?.dispose();
     });

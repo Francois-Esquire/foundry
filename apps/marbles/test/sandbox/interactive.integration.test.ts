@@ -34,6 +34,14 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
                   apiKey: process.env.AI_GATEWAY_API_KEY,
                   baseURL: "https://ai-gateway.vercel.sh/v1",
                 },
+                // The model this test names; the gateway supplies none of its own.
+                models: [
+                  {
+                    id: "openai/gpt-5-mini",
+                    kind: "text",
+                    modelId: "openai/gpt-5-mini",
+                  },
+                ],
               }),
             ]
           : [],

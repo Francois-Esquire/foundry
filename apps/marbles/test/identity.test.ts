@@ -211,6 +211,19 @@ export const ids = [reviewer.id, writer.id];
   expect(module.ids).toEqual(["reviewer", "docs-writer"]);
 });
 
+test("a factory keeps its agents' ids by naming them", async () => {
+  const dir = configDir();
+  const module = await load(
+    dir,
+    `
+const reviewer = (who: string) =>
+  agent({ name: \`review-\${who}\`, prompt: \`Review what \${who} wrote.\` });
+export const ids = [reviewer("codex").id, reviewer("claude").id];
+`
+  );
+  expect(module.ids).toEqual(["review-codex", "review-claude"]);
+});
+
 test("a nameless agent outside a const is known by what it is, so reordering keeps its id", async () => {
   const dir = configDir();
   const make = (first: string, second: string) => `

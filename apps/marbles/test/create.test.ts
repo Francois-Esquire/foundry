@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -11,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Provider } from "@foundry/models";
 import { agent, step } from "@foundry.sh/marbles";
+import { Output } from "ai";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
@@ -22,6 +24,8 @@ import { testInstances } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";
 
 const NOT_A_REPOSITORY = /not a git repository/;
+const ECHOED_EXEC = /^\[exec\] .*git status$/;
+const ECHOED_TURN = /^\[paid\/chosen\] /;
 
 afterEach(() => {
   catalog.reset();
@@ -65,6 +69,8 @@ it("exposes the config directory and dry-run git through the engine's workspaces
     expect(lines.some((line) => line.includes("git worktree remove"))).toBe(
       true
     );
+    // The git is echoed, but the directory cut for the worktree was real.
+    expect(existsSync(seen)).toBe(false);
   } finally {
     await scope.settle();
     await engine.dispose();
@@ -336,4 +342,67 @@ it("echoes a programmatic set under dry, so a supplied provider is never called"
     await rm(stateRoot, { force: true, recursive: true });
   }
   expect(dispose).toHaveBeenCalledTimes(1);
+});
+
+it("answers every dry-run command and model turn with the same fixed reply", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "create-dry-replies-"));
+  const real: Provider = {
+    available: true,
+    defaults: { text: "chosen" },
+    id: "paid",
+    languageModel: () => {
+      throw new Error("the real provider was called");
+    },
+    models: [{ id: "chosen", kind: "text", modelId: "chosen" }],
+    offline: false,
+  };
+  const lines: string[] = [];
+  step("on-host").do(({ exec }) => exec(["git", "status"]));
+  step("in-sandbox").do(async ({ sandboxes }) => {
+    const box = await sandboxes.start({ image: "docker.io/oven/bun:1-slim" });
+    return box.exec(["make", "test"]);
+  });
+  const engine = createEngine({
+    catalog,
+    dry: true,
+    print: (line) => lines.push(line),
+    providers: [real],
+    root: process.cwd(),
+    stateRoot,
+    workspaceId: "ws",
+  });
+  try {
+    await engine.start();
+    // A command prints and succeeds with no output, on the host or in a sandbox.
+    await expect(engine.run("on-host", {})).resolves.toEqual({
+      exitCode: 0,
+      stderr: "",
+      stdout: "",
+    });
+    await expect(engine.run("in-sandbox", {})).resolves.toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      stdout: "",
+    });
+    expect(lines).toContainEqual(expect.stringMatching(ECHOED_EXEC));
+    expect(lines).toContain("[sandbox] make test");
+    // A turn echoes its prompt, and structured output is the schema's first choice.
+    const session = await engine.agents.session({
+      id: "reviewer",
+      kind: "agent",
+      prompt: "Review.",
+    });
+    const text = await session.generate("Look.");
+    expect(text.text).toMatch(ECHOED_TURN);
+    expect(text.text).toContain("Look.");
+    const verdict = await session.generate("Decide.", {
+      output: Output.object({
+        schema: z.object({ verdict: z.enum(["approve", "reject"]) }),
+      }),
+    });
+    expect(verdict.output).toEqual({ verdict: "approve" });
+  } finally {
+    await engine.dispose();
+    await rm(stateRoot, { force: true, recursive: true });
+  }
 });

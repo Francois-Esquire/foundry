@@ -25,7 +25,7 @@ describe("taskChangeSchema", () => {
         {
           expectedUpdatedAt: "2026-10-29T00:00:00.000Z",
           kind: "task.update",
-          patch: { description: null },
+          patch: { description: null, metadata: { gone: null, n: 2 } },
           task: { id: "tk-1" },
         },
         { kind: "task.set_status", status: "completed", task: { id: "tk-1" } },
@@ -87,5 +87,62 @@ describe("taskChangeSchema", () => {
     for (const change of rejected) {
       expect(taskChangeSchema.safeParse(change).success).toBe(false);
     }
+  });
+
+  test("refuses metadata that would not survive as plain JSON", () => {
+    const update = (metadata: unknown) => ({
+      operations: [
+        { kind: "task.update", patch: { metadata }, task: { id: "t" } },
+      ],
+    });
+    // A quoted `__proto__` in an object literal sets the prototype; parsed
+    // JSON defines the key.
+    const proto = JSON.parse('{"__proto__":{"owner":"alice"}}');
+    const nested = JSON.parse('{"nested":{"list":[{"__proto__":1}]}}');
+    let reads = 0;
+    const getter = {
+      get late() {
+        reads += 1;
+        return reads === 1 ? 1 : Number.NaN;
+      },
+    };
+    const refusals: [unknown, string][] = [
+      [proto, '"__proto__" is not allowed as a metadata key'],
+      [nested, '"__proto__" is not allowed as a metadata key'],
+      [getter, "A getter is not JSON data"],
+      [{ list: new Array(2) }, "Invalid input"],
+      [{ n: Number.NaN }, "Invalid input"],
+      [[], "expected record"],
+    ];
+    for (const [metadata, message] of refusals) {
+      const parsed = taskChangeSchema.safeParse(update(metadata));
+      expect(parsed.error?.issues[0]?.message).toContain(message);
+    }
+    expect(
+      taskChangeSchema.safeParse(update(nested)).error?.issues[0]?.path
+    ).toEqual([
+      "operations",
+      0,
+      "patch",
+      "metadata",
+      "nested",
+      "list",
+      0,
+      "__proto__",
+    ]);
+  });
+
+  test("reads metadata into a copy, so the input can change afterwards", () => {
+    const metadata = { nested: { list: [1] } };
+    const parsed = taskChangeSchema.parse({
+      operations: [
+        { kind: "task.update", patch: { metadata }, task: { id: "t" } },
+      ],
+    });
+    const [operation] = parsed.operations;
+    const copy =
+      operation?.kind === "task.update" ? operation.patch.metadata : {};
+    metadata.nested.list.push(2);
+    expect(copy).toEqual({ nested: { list: [1] } });
   });
 });

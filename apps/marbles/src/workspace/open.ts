@@ -11,10 +11,19 @@ import type { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
-import { workspaceState } from "~/lib/state/workspace";
+import {
+  readWorkspace,
+  recordedState,
+  workspaceState,
+} from "~/lib/state/workspace";
 import type { WorkspaceEnvironment } from "~/workspace/env";
 import { loadEnvironment } from "~/workspace/env";
-import { resolveSource, sourceFiles, sourceRoot } from "~/workspace/source";
+import {
+  DEFAULT_SOURCE,
+  resolveSource,
+  sourceFiles,
+  sourceRoot,
+} from "~/workspace/source";
 
 /**
  * Marbles as a host of the engine: find the authoring source, load it, place
@@ -123,6 +132,28 @@ export function findWorkspace(args: HostOptions): OpenedWorkspace {
     machine: environmentSnapshot(),
     workspace: {},
   });
+}
+
+/**
+ * A workspace recorded under the state root, by its id, found without
+ * executing anything. Its checkout need not exist: stored state is all a
+ * task command reads. Undefined when no readable record has that id.
+ */
+export function recordedWorkspace(
+  args: HostOptions,
+  id: string
+): OpenedWorkspace | undefined {
+  const workspace = recordedState(resolve(args.state), id);
+  if (workspace === undefined) {
+    return;
+  }
+  const config = readWorkspace(workspace.dir)?.config ?? null;
+  return {
+    config,
+    configPath: config ?? resolve(workspace.root, DEFAULT_SOURCE),
+    environment: { machine: environmentSnapshot(), workspace: {} },
+    workspace,
+  };
 }
 
 export interface OpenWorkspaceOptions {

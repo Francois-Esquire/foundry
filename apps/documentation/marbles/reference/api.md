@@ -34,7 +34,7 @@ import {
 
 | Factory | Declaration | Purpose |
 | --- | --- | --- |
-| `agent` | `agent({ name?, prompt, model?, provider?, settings?, skills?, mcp? })` or `agent(async (route) => ({ prompt, … }))` | Who does model work, with defaults; a function builds the definition as each session opens. |
+| `agent` | `agent({ name?, prompt, model?, provider?, settings?, skills?, mcp? })` or `agent(async (route, input) => ({ prompt, … }))` | Who does model work, with defaults; a function builds the definition as each session opens. |
 | `workspace` | `workspace({ path })` | Another directory to work on. The current workspace is implicit. |
 | `sandbox` | `sandbox({ image, mount?, target?, … })` or `sandbox({ files, image?, … })` | An isolated place to run commands. |
 | `artifact` | `artifact({ name, type })` | A named output; each write adds a version. |
@@ -84,6 +84,57 @@ and a digest of its prompt. Two agents with one id and different prompts
 fail at load with `already declared … with a different prompt`; the same
 agent declared twice is fine, on any route.
 
+An agent made inside a factory function has no `const` of its own. Pass
+`name` so each agent the factory makes keeps its id:
+
+```ts
+const reviewer = (who: string) =>
+  agent({ name: `review-${who}`, prompt: `Review the work ${who} did.` });
+
+const codexReview = reviewer("codex"); // id "review-codex"
+const claudeReview = reviewer("claude"); // id "review-claude"
+```
+
+Without `name`, each agent's id is a digest of its prompt, which moves when
+the prompt changes.
+
+### Agent inputs
+
+An agent declared with a function takes an input as its second parameter.
+`extend({ input })` sets it, and the extended agent keeps the same id:
+
+```ts
+const reviewer = agent(async (route, input?: { implementer: string }) => ({
+  prompt: `Review the change ${input?.implementer ?? "someone"} made. Do not edit.`,
+}));
+
+step("review")
+  .input(z.object({ implementer: z.string() }))
+  .do(async ({ input }) => {
+    const ofImplementer = reviewer.extend({
+      input: { implementer: input.implementer },
+    });
+    const reply = await ofImplementer.generate("Review.");
+    return reply.text;
+  });
+```
+
+The input is `undefined` until `extend` sets one. It must be JSON, and
+`null` is an input too. `extend` keeps a frozen copy, so changing the object
+afterwards changes nothing, and the function cannot change it either. A
+later `extend` with an `input` replaces it, `input: undefined` clears it,
+and an `extend` without one keeps it. `session.ref.input` holds the input a
+session opened with. When it opened with none, `input` is absent and
+`session.ref.noInput` is `true`. A replayed step, or `{ session: ref }` with
+that ref, gives the function the same input again; an agent with a
+different input fails the opening, including for a session that opened
+with none. A ref with only an `id` keeps no input, so the agent's own is
+used. A definition object that continues the session keeps the input, or
+that there was none, in the ref it returns. A ref with both `input` and
+`noInput` fails the opening. An MCP agent dispatch that continues a session
+gives the function the input that session kept.
+A definition object has no function, so its `extend` takes no input.
+
 ### Workspace settings
 
 A workspace declaration selects a directory. It creates no dashboard entry
@@ -114,8 +165,14 @@ A declared artifact keeps its identity across runs; each
 
 ### Skills
 
-`skills.load()` is the global set under `~/.foundry/skills`
-plus the workspace's `skills/` folder; `skills.none()` starts empty.
+`skills.load()` reads six folders. In the home directory it reads
+`~/.agents/skills`, `~/.claude/skills`, and `~/.foundry/skills`. In the
+workspace it reads `.agents/skills`, `.claude/skills`, and `skills/`. Each
+skill is a folder directly under one of them that holds a `SKILL.md`; a
+symlinked folder counts. When two folders hold a skill with the same name,
+the workspace copy wins over the home copy. Within the home or the
+workspace, `skills/` or `.foundry/skills` wins over `.claude/skills`, which
+wins over `.agents/skills`. `skills.none()` starts empty.
 `.add(glob)` appends every folder matching the glob that holds a
 `SKILL.md`, and `.add(skill)` appends a skill defined in code with
 `defineSkill({ manifest, files? })`, exported from `@foundry.sh/marbles`.
@@ -145,7 +202,7 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
 
 | Instance | Operations | Context equivalent |
 | --- | --- | --- |
-| `agent` | `generate(input, turn?)`, `stream(input, turn?)`; `extend({ model?, provider?, settings? })` | `agents.session(def)`, one turn |
+| `agent` | `generate(input, turn?)`, `stream(input, turn?)`; `extend({ model?, provider?, settings?, input? })` | `agents.session(def)`, one turn |
 | `step`, `workflow` | `run(input?)` | Direct execution within the current process; no separate dashboard run. |
 | `workspace` | `root`, `files()`, `git` | `workspaces.load(def)` |
 | `sandbox` | `exec`, `close`, and the container's `commands`, `filesystem`, `processes`, `shell`, `ports`, `services`, `volumes`; started by the first call | `sandboxes.start(def)` |
@@ -644,6 +701,12 @@ exports these types:
 | Execution | `Context`, `Ask`, `Approval`, `Report`, `Stream`, `Run`, `Log`, `LogLevel` |
 | Triggers | `Schedule`, `ScheduleBuilder`, `MonitorBuilder`, `CalendarSlot`, `Weekday`, `Trigger`, `MonitorContext`, `MonitorHandler`, `Change`, `FileChange`, `HttpChange` |
 | Usage | `Snapshot`, `Identity`, `Limit`, `Window`, `SpendCap`, `Balance`, `CreditBalance`, `Headroom`, `Money`, `Credits`, `Duration`, `Span`, `Consumption`, `SessionConsumption`, `Quantities`, `Charge`, `QueryOptions`, `QueryAllOptions`, `DurationText` |
+
+The main entry also exports `prompts` and `ref`, with `PromptError` and
+the `Prompt` class beside them: a tag per harness (`prompts.claude`,
+`prompts.codex`, `prompts.pi`) that writes each reference in that harness's
+notation. They are not in `0.0.3` and ship in the next release. See
+[Prompts](/prompts).
 
 The main entry also exports `tasks`, the workspace's backlog, with the
 `Tasks` class, `MemoryTaskStore`, and `TaskError` beside it. A module imports

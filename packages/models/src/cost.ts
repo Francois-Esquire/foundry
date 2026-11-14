@@ -98,3 +98,39 @@ export function costFromUsage(
     total: input + output + reasoning + cacheRead + cacheWrite,
   };
 }
+
+/**
+ * Where `@foundry/models` marks a Claude Code call that resumed no session:
+ * `providerMetadata.foundry.claudeCodeFresh` is `true`. The Claude Code
+ * provider sets it only when the model's settings name no `resume`,
+ * `continue`, `sessionId` or `extraArgs` (default settings included) and no
+ * earlier call ran on the same model instance, which would otherwise resume
+ * the session that call captured.
+ */
+export const CLAUDE_CODE_FRESH = { field: "claudeCodeFresh", key: "foundry" };
+
+/**
+ * What Claude Code reported a call cost, in USD, when the call resumed no
+ * session, else `undefined`. The figure is the CLI's `total_cost_usd`, which
+ * `ai-sdk-provider-claude-code` carries as `costUsd`. It is a running total
+ * for the CLI session, so only a call that resumed nothing has a figure of
+ * its own. The CLI computes it from its own price table on any login, so it
+ * is an estimate, not a bill.
+ */
+export function claudeCodeCallCost(
+  metadata: Readonly<Record<string, unknown>> | undefined
+): number | undefined {
+  const field = (key: string, name: string): unknown => {
+    const entry = metadata?.[key];
+    return typeof entry === "object" && entry !== null
+      ? (entry as Record<string, unknown>)[name]
+      : undefined;
+  };
+  if (field(CLAUDE_CODE_FRESH.key, CLAUDE_CODE_FRESH.field) !== true) {
+    return;
+  }
+  const cost = field("claude-code", "costUsd");
+  return typeof cost === "number" && Number.isFinite(cost) && cost >= 0
+    ? cost
+    : undefined;
+}
