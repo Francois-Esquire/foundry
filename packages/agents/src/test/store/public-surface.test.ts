@@ -147,7 +147,9 @@ describe("@foundry/agents public paths", () => {
     expect(Object.keys(await import("../../store/memory"))).toEqual([
       "InMemorySessionStore",
     ]);
-  });
+    // Loading the store modules, Drizzle among them, takes about half a
+    // second alone and more beside the rest of the suite.
+  }, 30_000);
 });
 
 describe("@foundry/agents SQLite dependencies", () => {
