@@ -11,12 +11,6 @@ import type { GitHubRepositoryRequest } from "../../src/lib/github-request";
 import type { FakeRepository } from "./helpers/github-fake";
 import { deferred, fakeGitHub, fakeSha } from "./helpers/github-fake";
 
-// The public GitHub loader against a deterministic fake of GitHub's REST
-// API and raw host: exact requests and their credentials mode, commit
-// pinning, scope and truncation handling, explicit omissions, every
-// refusal before allocation where the listing allows it, integrity against
-// the listing, rate limits, and abort through every await.
-
 const OLD = "1111111111111111111111111111111111111111";
 const NEW = "2222222222222222222222222222222222222222";
 const SECRET = "export const apiKey = 'SOURCE-SECRET-123';\n";
@@ -83,6 +77,8 @@ async function failure(
   throw new Error("loaded");
 }
 
+const JSON_TYPE = { "content-type": "application/json" };
+
 const rawUrls = (urls: string[]) =>
   urls.filter((url) => url.startsWith("https://raw.githubusercontent.com/"));
 
@@ -136,7 +132,6 @@ describe("loadGitHubRepository: resolution and listing", () => {
     const headers = github.requests[1]?.init?.headers as Record<string, string>;
     expect(headers.accept).toBe("application/vnd.github.v3.sha");
     for (const { init, url } of github.requests) {
-      // API calls are Octokit's: no cookie-bearing mode, no authorization.
       expect(init?.credentials ?? "same-origin").not.toBe("include");
       expect(Object.keys(init?.headers ?? {})).not.toContain("authorization");
       if (url.startsWith("https://raw.githubusercontent.com/")) {
@@ -392,6 +387,14 @@ describe("loadGitHubRepository: refusals before download", () => {
       }),
     ],
     [
+      "empty tree path",
+      "/git/trees/",
+      JSON.stringify({
+        tree: [{ mode: "100644", path: "", sha: OLD, size: 1, type: "blob" }],
+        truncated: false,
+      }),
+    ],
+    [
       "duplicate tree path",
       "/git/trees/",
       JSON.stringify({
@@ -404,8 +407,10 @@ describe("loadGitHubRepository: refusals before download", () => {
     ],
   ])("refuses a malformed %s", async (_label, path, body) => {
     const { github, load } = setup();
+
+    const headers = path === "/git/trees/" ? JSON_TYPE : undefined;
     github.hook((url) =>
-      url.pathname.includes(path) ? new Response(body) : undefined
+      url.pathname.includes(path) ? new Response(body, { headers }) : undefined
     );
     expect((await failure(load())).code).toBe("malformed-response");
     expect(rawUrls(github.urls())).toEqual([]);
@@ -460,6 +465,11 @@ describe("loadGitHubRepository: refusals before download", () => {
     ],
     ["a traversal path", { "../escape.ts": "x" }, "unsafe-path"],
     ["a backslash path", { "src\\evil.ts": "x" }, "unsafe-path"],
+
+    ["an absolute path", { "/abs.ts": "x" }, "malformed-response"],
+    ["a drive path", { "C:/drive.ts": "x" }, "unsafe-path"],
+    ["a NUL path", { "src/a\0.ts": "x" }, "unsafe-path"],
+    ["a backslash ancestor", { "evil\\dir/index.ts": "x" }, "unsafe-path"],
   ])("refuses %s before any download", async (_label, files, code) => {
     const { github, load } = setup({
       commits: { [OLD]: { "package.json": "{}", ...files } },
@@ -467,6 +477,101 @@ describe("loadGitHubRepository: refusals before download", () => {
       refs: { main: OLD },
     });
     expect((await failure(load())).code).toBe(code);
+    expect(rawUrls(github.urls())).toEqual([]);
+  });
+
+  it("omits an unselected file whose name Git allows but a file map does not", async () => {
+    const { github, load } = setup({
+      commits: {
+        [OLD]: {
+          "docs/example\\name.md": "x",
+          "package.json": "{}",
+          "src/index.ts": "export {};\n",
+        },
+      },
+      defaultBranch: "main",
+      refs: { main: OLD },
+    });
+    const loaded = await load();
+    expect(Object.keys(loaded.files).sort()).toEqual([
+      "package.json",
+      "src/index.ts",
+    ]);
+    expect(loaded.acquisition.omissions.notAnalysisInput).toBe(1);
+    expect(rawUrls(github.urls()).join("\n")).not.toContain("example");
+  });
+});
+
+describe("loadGitHubRepository: generated directories", () => {
+  const generated = Object.fromEntries(
+    Array.from({ length: 5000 }, (_, n) => [`dist/chunk-${n}.js`, "x"])
+  );
+
+  it("omits generated JavaScript, not TypeScript or JSON, before charging the file budget", async () => {
+    const { github, load } = setup({
+      commits: {
+        [OLD]: {
+          ...generated,
+          "build/tsconfig.base.json": "{}",
+          "coverage/lcov-report/sorter.js": "x",
+          "dist/index.d.ts": "export {};\n",
+          "dist/package.json": "{}",
+          "package.json": "{}",
+          "packages/build/src/index.ts": "export {};\n",
+          "src/env.d.ts": "declare const x: 1;\n",
+          "src/index.ts": "export {};\n",
+        },
+      },
+      defaultBranch: "main",
+      refs: { main: OLD },
+    });
+    const loaded = await load();
+    expect(Object.keys(loaded.files).sort()).toEqual([
+      "build/tsconfig.base.json",
+      "dist/index.d.ts",
+      "dist/package.json",
+      "package.json",
+      "packages/build/src/index.ts",
+      "src/env.d.ts",
+      "src/index.ts",
+    ]);
+    expect(loaded.acquisition.omissions.notAnalysisInput).toBe(5001);
+    expect(rawUrls(github.urls())).toHaveLength(7);
+  });
+
+  it("reads generated JavaScript when asked to", async () => {
+    const { load } = setup({
+      commits: {
+        [OLD]: {
+          "build/helper.js": "export const x = 1;\n",
+          "package.json": "{}",
+          "src/index.ts": "export {};\n",
+        },
+      },
+      defaultBranch: "main",
+      refs: { main: OLD },
+    });
+    const loaded = await load({}, { readGeneratedJavaScript: true });
+    expect(Object.keys(loaded.files).sort()).toEqual([
+      "build/helper.js",
+      "package.json",
+      "src/index.ts",
+    ]);
+    expect(loaded.acquisition.omissions.notAnalysisInput).toBe(0);
+  });
+
+  it("still refuses more source files than the file limit", async () => {
+    const sources = Object.fromEntries(
+      Array.from({ length: 5001 }, (_, n) => [`src/f-${n}.ts`, "x"])
+    );
+    const { github, load } = setup({
+      commits: { [OLD]: { ...generated, ...sources } },
+      defaultBranch: "main",
+      refs: { main: OLD },
+    });
+    const error = await failure(load());
+    expect(error.code).toBe("limit-exceeded");
+    expect(error.message).toContain("5001 analysis inputs");
     expect(rawUrls(github.urls())).toEqual([]);
   });
 });
@@ -550,7 +655,6 @@ describe("loadGitHubRepository: downloads", () => {
   });
 
   it("matches Git's own blob framing", () => {
-    // `printf 'hello\n' | git hash-object --stdin`
     expect(gitBlobSha(new TextEncoder().encode("hello\n"))).toBe(
       "ce013625030ba8dba906f756967f9e9ca394464a"
     );

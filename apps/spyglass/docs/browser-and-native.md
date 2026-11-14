@@ -58,8 +58,8 @@ volume from the supplied map and clears it afterward, including on failure.
 Cruises are serialized. Absolute imports, package resolution, and config
 references cannot fall through to the host filesystem.
 
-The same isolated cruise engine serves file-map analysis in Bun. A normal
-native checkout scan still uses the real filesystem. The adapter is confined to
+The same isolated cruise engine serves file-map analysis in Bun, which only
+the tests use. A normal native checkout scan still uses the real filesystem. The adapter is confined to
 the engine build, so it does not weaken the viewer's guard against Node builtin
 imports. dependency-cruiser is pinned to the tested version because parts of
 the adapter depend on its internal module layout.
@@ -100,10 +100,15 @@ The current provisional acquisition guardrails are:
 
 These are bounds, not a claim that repositories at the maximum have been
 tested. Oversized individual files, symlinks, submodules, `node_modules`, binary
-content, and non-UTF-8 content are omitted and recorded. Unsafe or colliding
-paths are rejected. The loader selects analysis inputs rather than every asset
-in a repository. A directory scope excludes files outside that scope, including
-potential dependencies.
+content, and non-UTF-8 content are omitted and recorded. The loader selects
+analysis inputs rather than every asset in a repository. Unless a scan names a
+tsconfig, JavaScript modules below generated directories (`dist`, `build`,
+`coverage` and the others native analysis skips) are not fetched and do not use
+the file budget; they are counted with the files not selected for analysis.
+TypeScript and JSON there are still read. A selected
+path that cannot be placed safely, or that collides with another, rejects the
+scan; an unselected file is only counted. A directory scope excludes files
+outside that scope, including potential dependencies.
 
 Downloaded bytes must match the size and Git blob SHA-1 from GitHub's listing.
 That establishes consistency with the listing, not independent authenticity.
@@ -191,8 +196,8 @@ Native preservation and browser acceptance answer different questions:
 - Graph acceptance compared dependency-cruiser in the browser and native
   runtime, including workspace aliases, multiple import forms, unresolved
   imports, and files outside the TypeScript program.
-- The final browser acceptance run covered 17 cases against the built foundry.sh
-  output, with Workers disabled. Fifteen used mocked GitHub responses; two used
+- The final browser acceptance run covered 18 cases against the built foundry.sh
+  output, with Workers disabled. Sixteen used mocked GitHub responses; two used
   the pinned public repositories above. The cases cover viewer navigation,
   official-origin and pinned-commit requests, lazy loading, errors, cancellation,
   replacement, retry, reset, and keeping the current map.
@@ -204,21 +209,39 @@ dependency types, executable workspace configuration, history, and internals.
 
 ## Run and verify locally
 
-From the repository root, build the website and its Spyglass dependency:
+The scan page is one page of the foundry.sh Astro site
+(`apps/website/src/pages/spyglass/scan.astro`). It renders Spyglass's React
+scan page (`src/web/scan/scan-page.tsx`) in the browser only, outside the
+site's layout, with the existing viewer. The site's build needs only
+Spyglass's browser analysis asset, not the native package:
+
+```text
+@foundry/website#build
+  └─ @foundry.sh/spyglass#build:analysis   scripts/build-analysis.ts → dist/analysis
+@foundry.sh/spyglass#build                 scripts/build.ts → dist/lib, dist/web (packed)
+@foundry.sh/spyglass#test
+  ├─ build
+  ├─ build:analysis
+  └─ build:test-engine                     scripts/build-test-engine.ts → dist/engine
+```
+
+From the repository root, build the site:
 
 ```sh
 bun run build --filter=@foundry/website
 ```
 
-Then run `bun run preview` in `apps/website` and open
-`/spyglass/scan/` on the printed address; `bun run dev` there serves the same
-route from Spyglass's `dist/scan`. For scan-page development with hot reload:
+Then run `bun run preview` in `apps/website` and open `/spyglass/scan/` on
+the printed address. For development, build the asset once, then run the
+site's development server, which reloads the page's source:
 
 ```sh
-bun run --cwd=apps/spyglass dev:scan
+bun run turbo run build:analysis --filter=@foundry.sh/spyglass
+bun run --cwd=apps/website dev
 ```
 
-The separate browser suite builds and tests the website's actual output:
+Rebuild the asset after changing analysis code. The separate browser suite
+builds and tests the website's actual output:
 
 ```sh
 bun run turbo run test:browser --filter=@foundry.sh/spyglass
@@ -231,22 +254,25 @@ commands.
 
 ## Build and acceptance setup
 
-`build` also writes the browser scan page to `dist/scan` (`vite.config.ts`
-in `scan` mode), which the foundry.sh website's build (`apps/website`)
-copies into its output at `/spyglass/scan/`: the page itself, and beside
-it `analysis/spyglass-analysis.js`, one self-contained module holding the
-GitHub loader, TypeScript, ts-morph and dependency-cruiser, which the page
-loads by URL on its first scan. Neither is in the published package. `bun run
---cwd=apps/spyglass dev:scan` builds that module and serves the page with hot
-reload.
+`build:analysis` writes `dist/analysis/spyglass-analysis.js`, one
+self-contained module holding the GitHub loader, TypeScript, ts-morph and
+dependency-cruiser. The page imports it with Vite's `?url` suffix
+(`src/web/scan/load-analysis.ts`), so the site's build copies it as a hashed
+file under `/_astro/` and the page loads it by that URL on its first scan.
+The site's client build runs Spyglass's Node-builtin guard
+(`scripts/no-node-builtins.ts`) and its `.wgsl` loader. Neither the asset nor
+the page is in the published package, and `build` never builds them.
 
-`bun run turbo run test:browser --filter=@foundry.sh/spyglass` builds
-Spyglass and the website, then runs the scan page's acceptance suite in
-Chromium through `playwright-core`, with Workers disabled, against the
-website's built output at `/spyglass/scan/`: one file against a mocked
-GitHub, and one that scans pinned public repositories on GitHub. The second
-needs the network and spends about 3 of GitHub's 60 unauthenticated API
-requests an hour per scan, so neither runs in `test`. If Chromium is
-missing, install
-the matching browser with `bunx --no-install playwright-core install chromium` from
+`build:test-engine` writes `dist/engine`, the isolated cruise engine that
+`#file-map-cruise-engine` names under Bun. Only the default `test` task
+loads it.
+
+`bun run turbo run test:browser --filter=@foundry.sh/spyglass` builds the
+website, then runs the scan page's acceptance suite in Chromium through
+`playwright-core`, with Workers disabled, against the website's built output
+at `/spyglass/scan/`: one file against a mocked GitHub, and one that scans
+pinned public repositories on GitHub. The second needs the network and
+spends about 3 of GitHub's 60 unauthenticated API requests an hour per scan,
+so neither runs in `test`. If Chromium is missing, install the matching
+browser with `bunx --no-install playwright-core install chromium` from
 `apps/spyglass`.

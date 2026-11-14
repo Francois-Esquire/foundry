@@ -16,22 +16,12 @@ import type {
   SurfaceSymbol,
 } from "./types";
 
-// Native reads for fold planning, and the planner's native entry. The reads
-// themselves are `fold-inputs.ts` over a reader; the planning, over
-// `FoldInputs`, is `fold-planning.ts`.
-
 const NATIVE_FOLD_READER: FoldReader = {
   ...nativeRepositoryReader,
   entries: nativeDirectoryEntries,
   readConfigText: (file) => ts.sys.readFile(file),
 };
 
-/**
- * Read the fold planner's inputs natively: each source package's walk and
- * configuration files, each destination name's boundary and its manifest,
- * tsconfig and `src` entries, and the root's workspace patterns. Reads that
- * throw are kept as errors for planning to raise.
- */
 export function readFoldInputs(
   root: string,
   sources: readonly Boundary[],
@@ -46,11 +36,6 @@ export function readFoldInputs(
   );
 }
 
-/**
- * Fold plans for a boundary. Planning reads only `prepared` when it is
- * given; without it, exactly this fold's source and destination are read
- * natively first, once a fold opportunity is known to exist.
- */
 export function buildFoldPlans(
   boundary: Boundary,
   symbols: SurfaceSymbol[],

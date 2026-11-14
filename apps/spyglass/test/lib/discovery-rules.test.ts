@@ -9,11 +9,6 @@ import { discoverSemanticsUnits } from "../../src/lib/semantics-discover";
 import { DEFAULT_CONFIGURATION } from "../../src/lib/spyglass-config";
 import { fileMapDisk } from "./helpers/file-map";
 
-// Discovery and the dependency inventory are one set of rules over a
-// reader: the native modules answer them from disk, file-map preparation
-// from the recorded map. Each case writes the same bytes to disk and
-// compares the native answer, or the native error, with the map's.
-
 const ROOT = "/spyglass-file-map";
 const NOW = new Date("2026-11-07T00:00:00Z");
 const disk = fileMapDisk("discovery-rules-");
@@ -23,7 +18,6 @@ const json = (value: unknown) => JSON.stringify(value);
 const source = "export const value = 1;\n";
 const SYNTAX_ERROR = /^SyntaxError: /;
 
-/** Native discovery, inventory with its graph and workspace name of `files` on disk. */
 function native(files: Record<string, string>, exclude: string[] = []) {
   const root = disk.materialize(files);
   const discovery = discoverSemanticsUnits(root, {
@@ -56,7 +50,6 @@ async function fromMap(files: Record<string, string>, exclude: string[] = []) {
   };
 }
 
-/** The error `pending` rejects with, as `thrown` describes it. */
 async function rejected(pending: Promise<unknown>): Promise<string> {
   try {
     await pending;
@@ -68,7 +61,6 @@ async function rejected(pending: Promise<unknown>): Promise<string> {
   return "no error";
 }
 
-/** The error `run` throws, as its constructor name and message. */
 function thrown(run: () => unknown): string {
   try {
     run();
@@ -80,7 +72,6 @@ function thrown(run: () => unknown): string {
   throw new Error("expected an error");
 }
 
-/** A workspace with a unit for every directory verdict discovery gives. */
 const WORKSPACE: Record<string, string> = {
   ".gitignore": "packages/ignored/\n",
   "package.json": json({
@@ -231,8 +222,7 @@ describe("discovery over a file map", () => {
     expect(discovery.skipped).toEqual([
       { path: "packages/ignored", reason: "gitignored" },
     ]);
-    // Native workspace aliases read every member's manifest when the
-    // shared program is created; so does the map's program.
+
     const nativeError = thrown(() => createProject(root));
     expect(nativeError).toMatch(SYNTAX_ERROR);
     expect(await rejected(fromMap(files))).toBe(nativeError);
@@ -277,8 +267,7 @@ describe("dependency graph over a file map", () => {
     "packages/lib/src/index.ts": source,
     ...(lock !== undefined && { "bun.lock": lock }),
   });
-  // A Bun text lockfile, with comments-free JSONC trailing commas, a nested
-  // install, a stale range and a scoped nested locator.
+
   const LOCK = `{
   "lockfileVersion": 1,
   "workspaces": {

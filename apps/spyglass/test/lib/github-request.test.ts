@@ -5,10 +5,6 @@ import {
   RepositoryInputError,
 } from "../../src/lib/github-request";
 
-// Public GitHub input normalization: only https://github.com repository
-// URLs; a /tree/ URL splits into ref and scope only when that is
-// unambiguous; nothing a person pasted is ever echoed in a refusal.
-
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 
 const problems = (input: GitHubRepositoryInput): readonly string[] => {

@@ -5,26 +5,10 @@ import type { FileMapCruiseInput } from "./file-map-cruise";
 import { cruiseEntries } from "./module-cruise";
 import type { CruisedModule } from "./module-graph";
 
-// The isolated file-map cruise engine. It runs only inside a bundle
-// `scripts/build.ts` builds with `browser-cruise-adapter.ts`, where
-// `node:fs` is a memfs volume private to the bundle: dist/engine, which Bun
-// loads (`file-map-cruise.ts`), and the browser analysis asset, which
-// inlines this module through the `spyglass-browser` condition. Each cruise writes the map
-// into the empty volume, cruises it with the native options
-// (`module-cruise.ts`) and clears the volume, so a relative escape, an
-// absolute import, a package lookup, a path alias or an `extends` can only
-// ever find the map's own files. Cruises run one at a time, each from an
-// empty volume, so concurrent callers never see each other's maps. The
-// cruiser's TypeScript stays an import in dist/engine and is bundled into
-// the browser asset.
-// Unbundled, `node:fs` is the real file system, so the engine refuses to run.
-
-/** The bundle's handle on its private volume; absent on any real `node:fs`. */
 interface IsolatedVolume {
   reset(): void;
 }
 
-/** TypeScript's internal directory matcher, which `ts.sys` also uses. */
 type MatchFiles = (
   path: string,
   extensions: readonly string[] | undefined,
@@ -40,7 +24,6 @@ type MatchFiles = (
   realpath: (path: string) => string
 ) => string[];
 
-/** The `code` of an error for an explicit tsconfig the cruise refuses. */
 export const TSCONFIG_REFUSED = "spyglass-tsconfig-refused";
 
 function isolatedVolume(): IsolatedVolume {
@@ -55,7 +38,6 @@ function isolatedVolume(): IsolatedVolume {
 }
 
 function refused(diagnostics: readonly ts.Diagnostic[], root: string): Error {
-  // As dependency-cruiser's extract-ts-config, which refuses natively.
   const message = ts.formatDiagnostics(diagnostics, {
     getCanonicalFileName: (name) => name,
     getCurrentDirectory: () => root,
@@ -79,11 +61,6 @@ function entries(path: string) {
   return { directories: directories.sort(), files: files.sort() };
 }
 
-/**
- * The explicit tsconfig as dependency-cruiser's extract-ts-config parses it
- * natively, through the volume: errors refuse the cruise, `extends` and
- * `include` see only the map.
- */
 function parsedTsconfig(file: string, root: string): ts.ParsedCommandLine {
   const { config, error } = ts.readConfigFile(file, readFile);
   if (error !== undefined) {
@@ -137,7 +114,6 @@ async function cruiseIsolated(
     let tsconfigFile: string;
     let transpileTsConfig: unknown;
     if (input.tsconfig === undefined) {
-      // As `synthesizeTsconfig`: beside the root, so never cruised.
       const compilerOptions = { baseUrl: root, paths: input.aliases };
       tsconfigFile = `${root}.spyglass-tsconfig.json`;
       fs.writeFileSync(tsconfigFile, JSON.stringify({ compilerOptions }));
@@ -159,7 +135,6 @@ async function cruiseIsolated(
 
 let queue: Promise<unknown> = Promise.resolve();
 
-/** Cruise a file map in the empty private volume, after any running cruise. */
 export function cruiseFileMap(
   input: FileMapCruiseInput
 ): Promise<CruisedModule[]> {

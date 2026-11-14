@@ -19,10 +19,6 @@ import {
   sep,
 } from "../../src/lib/path-posix";
 
-// `#path` resolves to path-native.ts everywhere except a browser build with
-// the `spyglass-browser` condition, which selects path-posix.ts. Native must
-// be Node's own functions; the browser module must match Node's POSIX ones.
-
 const SEGMENTS = [
   "",
   ".",

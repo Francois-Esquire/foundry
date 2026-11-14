@@ -27,16 +27,8 @@ import Spyglass from "../ui/spyglass-view";
 import { AnalysisSummary, gapLine } from "./analysis-summary";
 import { loadAnalysis } from "./load-analysis";
 
-// The scan page: a public GitHub repository, downloaded and analysed in this
-// page with no server, then shown in the existing viewer through the
-// dataset's own in-memory transport. One scanner owns at most one running
-// scan; starting another replaces it, and a replaced, cancelled or reset
-// scan can never report progress or publish (the scanner rejects it, and
-// each run checks it is still the page's latest before touching state).
-// The form stays usable while a scan runs, so a corrected URL simply
-// replaces it; a URL the form refuses replaces nothing. Starting a scan drops the result on screen, as the scanner drops its
-// published dataset: the map never shows a result the page no longer holds.
-// Analysis runs on the main thread between yields; no Worker is used.
+import "../ui/spyglass.css";
+import "./scan.css";
 
 interface Fields {
   dir: string;
@@ -84,7 +76,6 @@ function rememberFields(fields: Fields): void {
 const optional = (value: string) =>
   value.trim() === "" ? undefined : value.trim();
 
-/** What one progress step says on screen. */
 function stepLabel(progress: FileMapScanProgress): string {
   switch (progress.phase) {
     case "resolve":
@@ -107,7 +98,6 @@ function stepLabel(progress: FileMapScanProgress): string {
 const isAbort = (error: unknown) =>
   error instanceof Error && error.name === "AbortError";
 
-/** A failure as a title and the reasons a person can act on. */
 function describeFailure(error: unknown): {
   problems: string[];
   title: string;
@@ -153,7 +143,7 @@ function ScanForm({
   onCancel?: () => void;
   onChange: (fields: Fields) => void;
   onSubmit: () => void;
-  /** Why the entered repository is not supported, if it is not. */
+
   problems: readonly string[];
 }) {
   const submit = useCallback(
@@ -269,7 +259,7 @@ function ResultPanel({
   );
 }
 
-export function ScanApp() {
+export function ScanPage() {
   const [fields, setFields] = useState(() =>
     fieldsFromQuery(window.location.search)
   );
@@ -282,7 +272,7 @@ export function ScanApp() {
     setInputProblems([]);
   }, []);
   const scanner = useRef<FileMapScanner | undefined>(undefined);
-  /** The latest run; an earlier one never touches state again. */
+
   const latest = useRef(0);
 
   useEffect(
@@ -305,25 +295,23 @@ export function ScanApp() {
           scope: optional(fields.dir),
         }),
       };
-      // Checked before the engine loads, so a bad URL costs no download.
+
       parseGitHubRepositoryInput(input);
     } catch (error) {
-      // Shown with the form; a map on screen, or a running scan, is kept:
-      // a refused URL replaces nothing, so the running scan stays the latest.
       setInputProblems(describeFailure(error).problems);
       setStatus((previous) =>
         previous.kind === "failed" ? { kind: "idle" } : previous
       );
       return;
     }
-    // Only an accepted URL replaces the running scan.
+
     latest.current += 1;
     const run = latest.current;
     const current = () => latest.current === run;
     setInputProblems([]);
     setChoosing(false);
     rememberFields(fields);
-    // The scanner drops its published dataset as the scan starts; so does the page.
+
     scanner.current?.reset();
     setStatus({
       kind: "running",
@@ -359,11 +347,17 @@ export function ScanApp() {
       if (analysis === undefined) {
         throw new Error("The scanned dataset has no analysis metadata.");
       }
+
       const read = loadLateReadings(data);
+      read.catch((error: unknown) => {
+        if (current()) {
+          setStatus({ kind: "failed", ...describeFailure(error) });
+        }
+      });
       const late = Promise.all([read, afterFirstFrame()]).then(
         ([readings]) => readings
       );
-      // A URL refused while this scan ran no longer describes the form's result.
+
       setInputProblems([]);
       const { downloadMs, listMs, resolveMs } = scan.acquisitionTiming;
       const acquireMs = downloadMs + listMs + resolveMs;

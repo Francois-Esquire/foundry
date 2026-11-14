@@ -34,21 +34,11 @@ import type { PreparedVisualization } from "./visualization/types";
 import type { WorkspaceGraphProjection } from "./workspace-projection-types";
 import type { WorkspaceReport } from "./workspace-types";
 
-/**
- * Reads one dataset file by its dataset-relative path: its parsed JSON, or
- * `undefined` when the dataset has no such file. Throws on any other failure.
- * `fetch` serves the viewer and the file system serves Node.
- */
 export type DatasetTransport = (path: string) => Promise<unknown>;
 
 export type PackageReport = SurfaceReport;
 
 export interface DatasetReaderOptions {
-  /**
-   * The manifest's `generatedAt` the caller already holds. A manifest saved
-   * at another time means a later scan replaced the dataset, and the read
-   * fails with `DatasetReplacedError`.
-   */
   pin?: string;
 }
 
@@ -57,27 +47,14 @@ interface DatasetHistory {
   manifest: HistoryManifest;
 }
 
-/**
- * One read of one dataset. The manifest is read once, checked against the
- * schema version (and the pin, when given), and kept, so one reader is one
- * read: create one per read to see a later scan. History's manifest is found
- * by its fixed path; its entities file is named by the history manifest.
- * `packageReport`, `internals`, and `lens` read the manifest plus one file,
- * never a shard.
- */
 export interface DatasetReader {
-  /**
-   * What an analysis outside a native scan could and could not see, saved
-   * with its dataset, verified against the manifest it was saved with;
-   * `undefined` for a native scan's dataset, which has none.
-   */
   analysis(): Promise<DatasetAnalysis | undefined>;
   dependencyGraph(): Promise<WorkspaceGraphProjection>;
   dependencyInventory(): Promise<DependencyInventory | undefined>;
-  /** `undefined` when the scan did not include history. */
+
   history(): Promise<DatasetHistory | undefined>;
   internals(name: string): Promise<PackageInternals>;
-  /** One lens's output, at the schema version this Spyglass reads. */
+
   lens<I extends LensId>(id: I): Promise<LensOutputs[I]>;
   manifest(): Promise<DatasetManifest>;
   moduleEdgeShards(): Promise<SemanticsModuleEdgeShard[]>;

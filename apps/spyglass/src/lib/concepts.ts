@@ -24,7 +24,7 @@ import { classifyReference } from "./usage";
 export interface ConceptInventorySource {
   boundary: Boundary;
   project: Project;
-  /** Surface facts for the same inventory, matched by id. */
+
   surface: SurfaceSymbol[];
   symbols: CollectedSymbol[];
 }
@@ -34,7 +34,6 @@ interface ConceptSeedState {
   seed: ConceptSeed;
 }
 
-/** One package's seeds keyed by declaration node, ready for the evidence sweep. */
 export interface ConceptSeedGroup {
   boundary: Boundary;
   byNode: Map<ts.Node, ConceptSeedState>;
@@ -82,7 +81,6 @@ function isSeedKind(
   return (seedKinds as string[]).includes(kind);
 }
 
-/** Nearest top-level statement of the file containing `node`. */
 function topLevelOwner(node: Node): Node | undefined {
   const statement = node.getFirstAncestor((ancestor) =>
     Node.isSourceFile(ancestor.getParent())
@@ -99,7 +97,6 @@ function topLevelOwner(node: Node): Node | undefined {
   return statement;
 }
 
-/** The target's seeds with their declaration evidence; no workspace has been read yet. */
 export function prepareConceptSeeds(
   source: Omit<ConceptInventorySource, "project">,
   config: AnalysisConfig,
@@ -155,12 +152,6 @@ export function prepareConceptSeeds(
   return { boundary, byNode: seedByNode, states: seeds };
 }
 
-/**
- * One pass over every workspace file attaching relationship evidence to the
- * seeds of every group at once. A reference resolves per group to the first
- * of its symbol's declarations that group seeds, exactly as a single-group
- * sweep would; groups never see each other's evidence.
- */
 export function sweepConceptEvidence(
   project: Project,
   root: string,
@@ -364,7 +355,6 @@ function seedsOfDeclaration(
   }
 }
 
-/** The inventory report from swept seeds; `surface` supplies package-public flags for representations. */
 export function buildConceptInventory(
   group: ConceptSeedGroup,
   surface: SurfaceSymbol[]

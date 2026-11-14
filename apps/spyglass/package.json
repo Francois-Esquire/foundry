@@ -41,10 +41,11 @@
   ],
   "scripts": {
     "build": "bun scripts/build.ts",
+    "build:analysis": "bun scripts/build-analysis.ts",
+    "build:test-engine": "bun scripts/build-test-engine.ts",
     "clean": "rm -rf dist .cache .turbo coverage",
     "dev": "bun scripts/dev.ts",
     "dev:package": "bun scripts/dev.ts --package",
-    "dev:scan": "bun scripts/dev-scan.ts",
     "prepack": "bun run build",
     "start": "bun src/cli/spyglass.ts",
     "test": "bun ../../node_modules/vitest/vitest.mjs run",

@@ -1,29 +1,47 @@
 {
   "extends": ["//"],
   "tasks": {
+    "build": {
+      "outputs": ["dist/lib/**", "dist/web/**"]
+    },
+
+    "build:analysis": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/lib/package.json",
+        "$TURBO_ROOT$/packages/lib/src/**",
+        "$TURBO_ROOT$/tooling/typescript/base.json"
+      ],
+      "outputs": ["dist/analysis/**"]
+    },
+
+    "build:test-engine": {
+      "outputs": ["dist/engine/**"]
+    },
     "dev:package": {
       "cache": false,
       "persistent": true
     },
     "test": {
+      "dependsOn": ["build", "build:analysis", "build:test-engine"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/documentation/spyglass/reference/cli.md"
       ]
     },
     "test:coverage": {
+      "dependsOn": ["build", "build:analysis", "build:test-engine"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/documentation/spyglass/reference/cli.md"
       ]
     },
-    "dev:scan": {
-      "cache": false,
-      "persistent": true
+    "test:watch": {
+      "dependsOn": ["build", "build:analysis", "build:test-engine"]
     },
     "test:browser": {
       "cache": false,
-      "dependsOn": ["build", "@foundry/website#build"]
+      "dependsOn": ["@foundry/website#build"]
     }
   }
 }

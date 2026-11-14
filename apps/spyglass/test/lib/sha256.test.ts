@@ -3,9 +3,6 @@ import { describe, expect, it } from "vitest";
 import { sha256Hex } from "../../src/lib/sha256";
 import { hash16 } from "../../src/lib/short-hash";
 
-// Plan fingerprints hash UTF-8 text with a synchronous, runtime-independent
-// SHA-256. It must give exactly what node:crypto gave before, for any text.
-
 const HEX_DIGEST = /^[0-9a-f]{64}$/;
 const ONE_MIB = 1_048_576;
 
@@ -50,9 +47,6 @@ describe("sha256Hex", () => {
   });
 });
 
-// Rule, readiness and codemod fingerprints, workspace facts and
-// responsibility-group ids hash with sha256Hex too, so the dataset
-// assembly needs no node:crypto. The short form keeps its native digest.
 describe("hash16", () => {
   it.each([
     ["a rule list", [{ id: "rule:a", kind: "forbid" }]],

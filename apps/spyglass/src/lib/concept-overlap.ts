@@ -38,11 +38,10 @@ export interface ConceptOverlapSource {
   changeCoupling: ChangeCouplingReport;
   conceptInventory: ConceptInventoryReport;
   project: Project;
-  /** Target symbol inventory with declaration nodes; seeds are matched by id. */
+
   symbols: CollectedSymbol[];
 }
 
-/** Everything the gate needs about one pair; produced by extraction, or by tests. */
 export interface OverlapFacts {
   assignability?: ConceptAssignability;
   conversions: ConceptConversion[];
@@ -99,11 +98,6 @@ function jaccard(shared: number, left: number, right: number): number {
   return union === 0 ? 0 : shared / union;
 }
 
-/**
- * Decide whether the facts about one pair make an overlap candidate, and
- * describe it. Pure policy: dimensions count distinct evidence dimensions,
- * name alone never qualifies, history alone never qualifies.
- */
 export function assessOverlap(
   facts: OverlapFacts,
   config: AnalysisConfig = ANALYSIS_CONFIG
@@ -123,8 +117,7 @@ export function assessOverlap(
   }
 
   const { structure } = facts;
-  // Base Error properties are shared by every error; only own properties
-  // say anything about the pair.
+
   const meaningfulShared =
     structure === undefined
       ? 0
@@ -197,8 +190,7 @@ export function assessOverlap(
   }
 
   const shapes: ConceptOverlapShape[] = [];
-  // Mutual assignability of `{ status }` with `{ status }` is not equivalence
-  // of ideas; the shape has to carry enough own properties to mean something.
+
   const { nearEquivalent, projectionLike } = collectNearEquivalent(
     meaningfulShared,
     policy,
@@ -266,8 +258,7 @@ function collectNearEquivalent(
   if (nearEquivalent) {
     shapes.push("near-equivalent");
   }
-  // Subset share is over type-compatible shared properties: the smaller
-  // shape must exist inside the larger one, not merely reuse its names.
+
   const smaller =
     structure === undefined
       ? 0
@@ -374,13 +365,12 @@ export function sortCandidates(
 }
 
 interface Declaration {
-  /** Identity with `inTarget` false; the per-target pass sets it. */
   identity: ConceptIdentity;
   keyTokens: string[];
   node: Node;
-  /** Targets this declaration seeds; empty for every other workspace declaration. */
+
   seedOf: string[];
-  /** Property names read from syntax; drives the index without the checker. */
+
   syntaxProperties: string[];
 }
 
@@ -400,14 +390,6 @@ function seedKindOf(node: Node): ConceptSeedKind | undefined {
   return undefined;
 }
 
-/**
- * A property keyed by a unique symbol is named `__@name@<symbol id>` by the
- * checker, and the id is an allocation counter of the program that resolved
- * it — different for every program, meaningless to a reader. Only the name
- * is a fact about the type. Applied to the report only: matching and
- * lookups keep the checker's name, since the id is what tells two unique
- * symbols with the same name apart.
- */
 function stablePropertyName(name: string): string {
   return name.replace(stablePropertyNamePattern, "$1");
 }
@@ -466,12 +448,6 @@ function unwrap(type: Type, wrappers: Set<string>): Type {
   return current;
 }
 
-/**
- * The workspace half of overlap analysis, built once and shared by every
- * target: every type-like declaration with its name-token and property
- * indexes, every converter signature, and the shape/assignability caches.
- * `seedTargets` names which declarations seed which targets.
- */
 export interface ConceptOverlapIndex {
   assignable: (from: Type, to: Type) => boolean;
   byFile: Map<string, Declaration[]>;
@@ -482,7 +458,7 @@ export interface ConceptOverlapIndex {
   nameIndex: Map<string, Declaration[]>;
   propertyIndex: Map<string, Declaration[]>;
   root: string;
-  /** Memoized per declaration; a shape does not depend on the target asking. */
+
   shapeOf: (declaration: Declaration) => ConceptShape | undefined;
   typeOf: (declaration: Declaration) => Type;
 }
@@ -639,8 +615,7 @@ export function buildConceptOverlapIndex(
       objectLike(typeOf(declaration))
     ) {
       const type = typeOf(declaration);
-      // The checker lists properties in resolution order, which depends on
-      // what was resolved before; name order is the same on every program.
+
       const properties = type
         .getProperties()
         .map((property) => {
@@ -923,8 +898,6 @@ export function analyzeConceptOverlapFromIndex(
         .map((item) => item.symbolId)
     );
 
-  // Two implementations of one contract share its shape by construction;
-  // such siblings are the contract's family, not an overlap between concepts.
   const familiesOfMember = new Map<string, Set<string>>();
   for (const family of source.conceptInventory.families) {
     for (const member of familyMembers(family)) {
@@ -995,8 +968,7 @@ export function analyzeConceptOverlapFromIndex(
   const compare = (left: Declaration, right: Declaration): OverlapFacts => {
     const leftShape = shapeOf(left);
     const rightShape = shapeOf(right);
-    // A signature taking a contract and returning an entity is an accessor,
-    // not a representation change; conversions need data shapes on both sides.
+
     const conversions =
       dataLike(leftShape) && dataLike(rightShape)
         ? [
@@ -1037,8 +1009,6 @@ export function analyzeConceptOverlapFromIndex(
     const leftFamily = familyById.get(left.identity.id);
     const rightFamily = familyById.get(right.identity.id);
     if (leftFamily !== undefined && rightFamily !== undefined) {
-      // The converter itself references both sides; it is conversion evidence,
-      // not an independent shared consumer.
       const exclude = new Set([
         left.identity.id,
         right.identity.id,

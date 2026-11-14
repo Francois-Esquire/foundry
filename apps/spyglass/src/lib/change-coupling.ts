@@ -22,26 +22,11 @@ import type {
   WorkspaceModuleGraph,
 } from "./types";
 
-// Change coupling: pairs of current files (and their owning packages) that
-// repeatedly appear in the same commits, with the static graph's answer for
-// each pair — the direct edge, and whether any path connects them at all.
-// Pairs are generated from commit membership, never from an all-files scan.
-// Evidence only: support, both conditionals, Jaccard.
-
 export interface ChangeCouplingSource {
   boundary: Boundary;
   graph: WorkspaceModuleGraph;
 }
 
-/**
- * Files in one commit above which it is left out of pairing, as an oversized
- * commit is. The oversized rule counts only code files (at most 40), and
- * config riders such as manifests, tsconfigs and dotfiles ride along
- * uncounted; this caps the total, so one commit adds at most
- * 200 · 199 / 2 = 19,900 pairs rather than growing with the square of an
- * unbounded file list. A proposed value, well above any commit that passes
- * the oversized rule on its code files alone with a normal set of riders.
- */
 const MAX_PAIRED_FILES_PER_COMMIT = 200;
 
 interface PairSupport {
@@ -53,7 +38,6 @@ class PairTable {
   readonly commits = new Map<string, number>();
   readonly pairs = new Map<string, PairSupport>();
 
-  /** `nodes` must be unique and sorted. */
   record(nodes: string[], timestamp: string): void {
     for (const node of nodes) {
       this.commits.set(node, (this.commits.get(node) ?? 0) + 1);
@@ -236,14 +220,6 @@ function fileSummaries(
   );
 }
 
-/**
- * Build coupling from the already-collected history. Commits are limited to
- * the churn window, the shared oversized rule, and a cap on files per
- * commit (`MAX_PAIRED_FILES_PER_COMMIT`); both file and package
- * pairs are counted once per commit. Reported pairs touch the target on at
- * least one side; commit counts are repository-wide over the same
- * considered commits.
- */
 export function analyzeChangeCoupling(
   history: GitHistory,
   source: ChangeCouplingSource,

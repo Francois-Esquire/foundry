@@ -51,20 +51,20 @@ export interface ConceptOwnershipSource
 
 export interface OwnershipFacts {
   anchor?: { reason?: string };
-  /** Target profile signals; the seed package is always the target. */
+
   architectureSignals: string[];
   behavior: ConceptBehaviorDistribution;
   concept: ConceptIdentity;
-  /** Interface seed with at least one method member: implementations are expected. */
+
   contractLike: boolean;
   conversions: { package: string; count: number }[];
-  /** Absent when history is unavailable. */
+
   evolution?: ConceptEvolutionEvidence[];
   overlap: ConceptOwnershipOverlapContext[];
-  /** V7.1 presence rows: seed, representations, implementations, references. */
+
   packages: ConceptPackagePresence[];
   referenceTotal: number;
-  /** The same representations by declaring-file kind; sums to the presence rows. */
+
   representationKinds: ConceptRepresentationKinds[];
   representationTotal: number;
 }
@@ -96,7 +96,6 @@ function share(part: number, total: number): number {
   return total === 0 ? 0 : part / total;
 }
 
-/** Largest by `value`; ties go to `prefer` when present, else lexically first. */
 function leader<T extends { package: string }>(
   rows: T[],
   value: (row: T) => number,
@@ -120,11 +119,6 @@ function leader<T extends { package: string }>(
   return best;
 }
 
-/**
- * Centers, tensions, and alignment from per-package facts. Each role has
- * its own gate; nothing is combined into a score. Insufficient families
- * get candidates and evidence but no centers.
- */
 export function assessOwnership(
   facts: OwnershipFacts,
   config: AnalysisConfig = ANALYSIS_CONFIG
@@ -150,9 +144,7 @@ export function assessOwnership(
     ...facts.behavior.byPackage.map((row) => row.package),
     ...facts.conversions.map((row) => row.package),
   ]);
-  // Centers read only the configured file kinds (source by default), so a
-  // test helper or story-only type never moves one; every kind stays in
-  // the raw counts and participation.
+
   const sum = (
     counts: Partial<Record<ChurnFileKind, number>>,
     kinds: ChurnFileKind[]
@@ -516,8 +508,7 @@ function assessOwnershipEntries3(
         value: share(usage.references, facts.referenceTotal),
       });
     }
-    // The anchor is intent; questioning it takes several dimensions
-    // converging on one other package, not one tension.
+
     assessOwnershipEntries3Entries(facts, tensions, policy, seed);
   }
 }
@@ -866,11 +857,6 @@ interface BehaviorTally {
   methods: number;
 }
 
-/**
- * Executable symbols explicitly attached to the family, by package. Only
- * files holding representations are opened, through a memoized top-level
- * index on the existing project; no new project and no reference search.
- */
 function behaviorOf(
   family: ConceptFamily,
   indexFor: (relFile: string) => TopLevelIndex
@@ -1299,7 +1285,7 @@ function evolutionOfEntriesPairSide(
     }
     const partner = side === pair.left ? pair.right : pair.left;
     const sideRow = row(own);
-    // A same-package pair adds one to the package, whichever side is read.
+
     if (side === pair.right && own === packageByFile.get(pair.left)) {
       continue;
     }
@@ -1325,7 +1311,6 @@ function evolutionOfEntriesPairSide(
   }
 }
 
-/** Seed plus distinct representations by package and declaring-file kind; mirrors V7.1 members. */
 function representationKindsOf(
   family: ConceptFamily
 ): ConceptRepresentationKinds[] {
@@ -1350,10 +1335,6 @@ function representationKindsOf(
     .sort((a, b) => a.package.localeCompare(b.package));
 }
 
-/**
- * Where each family's centers sit. Composes V7.0–V7.2 and V6 output; the
- * only new work is behavior attribution over representation files.
- */
 export function analyzeConceptOwnership(
   source: ConceptOwnershipSource,
   config: AnalysisConfig,

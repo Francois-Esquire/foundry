@@ -9,15 +9,13 @@ import type {
 } from "./semantics-types";
 import { DATASET_SCHEMA_VERSION } from "./semantics-types";
 
-/** Compute module geography and index data without publishing a dataset. */
 export function computeModuleDataset(
   byPackage: ReadonlyMap<string, SemanticsModuleRecord[]>,
   edgeShards: readonly SemanticsModuleEdgeShard[]
 ): { index: SemanticsModuleIndex; shards: SemanticsModuleShard[] } {
   const shardPackages = [...byPackage.keys()].sort();
   const shards: SemanticsModuleShard[] = [];
-  // Each file's import edges in and out, from the edges just written:
-  // every indexed module has them, observed gravity or not.
+
   const fanIn = new Map<string, number>();
   const fanOut = new Map<string, number>();
   for (const edge of edgeShards.flatMap((shard) => shard.edges)) {

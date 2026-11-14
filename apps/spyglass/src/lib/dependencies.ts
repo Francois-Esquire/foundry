@@ -16,15 +16,6 @@ import { cruiseEntries } from "./module-cruise";
 import type { CrossBoundaryEdges, CruisedModule } from "./module-graph";
 import { normalizeEdges } from "./module-graph";
 
-// The native dependency-cruiser pass over a workspace: entries, aliases and
-// tsconfig read from disk, then the shared `cruiseEntries`. Slicing its
-// modules at a boundary is computation in `module-graph.ts`.
-
-/**
- * The tsconfig-paths resolution plugin only reads a tsconfig from disk, so
- * when no tsconfig is supplied the workspace source aliases are written to a
- * temporary one.
- */
 function synthesizeTsconfig(root: string): {
   file: string;
   compilerOptions: { baseUrl: string; paths: Record<string, string[]> };
@@ -52,11 +43,6 @@ export async function collectCrossBoundaryEdges(
   });
 }
 
-/**
- * One dependency-cruiser pass over every workspace entry. The raw module
- * list is boundary-free; `normalizeEdges` slices it for any boundary, so a
- * workspace derivation cruises once and slices per package.
- */
 export async function cruiseWorkspace(
   root: string,
   tsconfig?: string | undefined

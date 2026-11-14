@@ -49,76 +49,54 @@ import {
 } from "./workspace-projection-views";
 import type { WorkspaceReport } from "./workspace-types";
 
-// Dataset assembly: every dataset artifact computed from the analysis
-// results, written through a caller's sink in the order a scan has always
-// written them, ending with the manifest. Shared by the native scan, whose
-// sink is the unpublished directory (hardlink reuse, atomic swap, cache and
-// state stay in `semantics.ts`), and the in-memory dataset
-// (`in-memory-dataset.ts`). Nothing here reads a file system, Git or
-// network: discovery, the dependency inventory, the inputs fingerprint and
-// the previous visualization are supplied as data, and internals, which
-// read native sources, are a caller hook. No analysis logic lives here;
-// every number is copied from a canonical model.
-
-/** One discovered unit and what analysis made of it. */
 export interface DatasetAssemblyOutcome {
   error?: string;
   local?: PackageLocalReport;
-  /** The assembled report; absent when the unit failed. */
+
   report?: SurfaceReport;
   unit: SemanticsWorkspaceUnit;
 }
 
-/** Where assembled artifacts go, and how later phases read them back. */
 export interface DatasetArtifactSink {
-  /** Every artifact written so far; the manifest counts the reused ones. */
   readonly files: readonly { reused: boolean }[];
-  /** Reads an artifact already written, as parsed JSON; `undefined` when absent. */
+
   read: DatasetTransport;
   write(file: string, value: unknown): void;
 }
 
-/** Runs one named phase; the native scan reports and times it. */
 type DatasetAssemblyPhase = <T>(
   name: SemanticsPhase,
   run: () => Promise<T> | T
 ) => Promise<T>;
 
 export interface DatasetAssemblyInput {
-  /** Recorded in the manifest's generation provenance. */
   command: string;
   concurrency: number;
-  /** Whether workspace derivation ran, or every assembled report was reused. */
+
   derived: boolean;
   discovery: DeclaredDiscovery;
-  /** The inputs fingerprint; absent when the caller cannot compute one. */
+
   inputs?: SemanticsGenerationInputs;
-  /** Writes each complete package's internals; absent, the dataset has none. */
+
   internals?: (
     outcomes: readonly DatasetAssemblyOutcome[],
     write: (id: string, internals: unknown) => void
   ) => void;
-  /**
-   * The workspace's dependency inventory with its resolved graph, before
-   * usage enrichment. Called once, inside the write phase.
-   */
+
   inventory: () => DependencyInventory;
   mode: SemanticsGenerationMode;
-  /** The clock read for `finishedAt` of each manifest draft. Default: `new Date()`. */
+
   now?: () => Date;
-  /** In discovery order, one per unit. */
+
   outcomes: readonly DatasetAssemblyOutcome[];
   packagesAnalyzed: number;
   packagesReused: number;
   phase: DatasetAssemblyPhase;
-  /** The phase timings so far; the manifest records them as they grow. */
+
   phases: SemanticsPhaseTiming[];
-  /**
-   * Reads the previous dataset's visualization, whose geometry is reused
-   * when unchanged; called once, when the visualization phase starts.
-   */
+
   previousVisualization?: () => Promise<PreparedVisualization | undefined>;
-  /** The workspace root; the manifest records its last segment. */
+
   root: string;
   settings: LensSettings;
   startedAt: Date;
@@ -127,19 +105,13 @@ export interface DatasetAssemblyInput {
 
 export interface DatasetAssembly {
   concepts: SemanticsConceptIndex;
-  /** The manifest, already written through the sink as its last artifact. */
+
   manifest: DatasetManifest;
   modules: readonly SemanticsModuleRecord[];
   packages: SemanticsManifestPackage[];
   workspace: WorkspaceReport;
 }
 
-/**
- * Computes and writes every artifact of one dataset from its analysis
- * results: the package reports, workspace report, projections, module and
- * concept indexes, dependency inventory, optional internals, lenses,
- * visualization and finally the manifest.
- */
 export async function assembleDataset(
   input: DatasetAssemblyInput,
   sink: DatasetArtifactSink
@@ -279,8 +251,7 @@ export async function assembleDataset(
 
   const failures = packages.filter((p) => p.status === "failed").length;
   const partial = failures > 0 || !workspace.ingestion.coverage.complete;
-  // Read when called: the draft the lenses run against and the published
-  // manifest differ only in the files and phases written in between.
+
   const manifestAt = (finishedAt: Date): DatasetManifest =>
     datasetManifest({
       command: input.command,
@@ -328,7 +299,6 @@ export async function assembleDataset(
 
 export type ConceptRole = keyof SemanticsModuleRecord["concepts"];
 
-/** Concept ids per role per module file, read from the canonical package reports. */
 export function moduleConceptRoles(
   reports: SurfaceReport[]
 ): Map<string, Record<ConceptRole, Set<string>>> {
@@ -530,12 +500,6 @@ function buildConceptIndex(workspace: WorkspaceReport): SemanticsConceptIndex {
   };
 }
 
-/**
- * Directed module edges grouped by the package owning the source module.
- * Intra-package edges come from each package report's own measurement;
- * cross-package edges from the merged workspace graph, so both perspectives
- * of a boundary collapse to one edge.
- */
 function buildModuleEdgeShards(
   workspace: WorkspaceReport,
   reports: SurfaceReport[]

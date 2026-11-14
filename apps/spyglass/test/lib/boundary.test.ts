@@ -15,12 +15,12 @@ import {
   findRepoRoot,
   ownerBoundary,
   packagePathAliases,
-  snapshotDirectoryOwnership,
   workspaceDeclaration,
   workspacePatterns,
 } from "../../src/lib/boundary";
 import { normalizeWorkspacePath } from "../../src/lib/boundary-manifest";
 import { ownerFromDirectories } from "../../src/lib/boundary-model";
+import { snapshotDirectoryOwnership } from "./helpers/directory-ownership";
 
 const tempRoots: string[] = [];
 
@@ -74,11 +74,6 @@ describe("ownerBoundary", () => {
 });
 
 describe("ownerFromDirectories", () => {
-  /**
-   * One tree read as a standalone root and as a workspace root. Every case
-   * is checked against `ownerBoundary`: the snapshot gives the same owner,
-   * or throws where it cannot know it.
-   */
   function ownershipTree(rootManifest: Record<string, unknown>): string {
     const root = fixture({
       "broken/b.ts": "",
@@ -134,7 +129,7 @@ describe("ownerFromDirectories", () => {
     expect(compare(root, "top.ts")).toEqual(same("<root>"));
     expect(compare(root, "plain/a.ts")).toEqual(same("<root>"));
     expect(compare(root, "lib/inner/deep/a.ts")).toEqual(same("inner"));
-    // Without workspaces a fixture manifest is a boundary of its own.
+
     expect(compare(root, "packages/a/test/fixtures/fx/x.ts")).toEqual(
       same("fx")
     );
@@ -142,7 +137,7 @@ describe("ownerFromDirectories", () => {
       same("packages/unnamed")
     );
     expect(compare(root, "empty-name/e.ts")).toEqual(same(""));
-    // A directory absent at preparation holds no manifest.
+
     expect(compare(root, "lib/inner/later/made.ts")).toEqual(same("inner"));
     expect(compare(root, "missing/made.ts")).toEqual(same("<root>"));
     expect(compare(root, join(dirname(root), "elsewhere.ts"))).toEqual(
@@ -157,12 +152,12 @@ describe("ownerFromDirectories", () => {
     expect(compare(root, "packages/a/test/fixtures/fx/x.ts")).toEqual(
       same("@x/a")
     );
-    // A member directory without a manifest is no boundary.
+
     expect(compare(root, "packages/bare/src/x.ts")).toEqual(same("<root>"));
     expect(compare(root, "packages/unnamed/u.ts")).toEqual(
       same("packages/unnamed")
     );
-    // A manifest outside the patterns is not a boundary.
+
     expect(compare(root, "lib/inner/deep/a.ts")).toEqual(same("<root>"));
   });
 
@@ -178,7 +173,7 @@ describe("ownerFromDirectories", () => {
         error: `No prepared directory ownership for ${join(root, file)}: ${join(root, dir)} was not walked`,
       });
       const viaLink = compare(root, "linked/src/x.ts");
-      // The link's realpath is the member directory either way.
+
       expect(viaLink.native).toEqual({ owner: "@x/a" });
       expect(viaLink.prepared).toEqual(notWalked("linked/src/x.ts", "linked"));
       const installed = compare(root, "node_modules/dep/index.d.ts");
@@ -189,7 +184,6 @@ describe("ownerFromDirectories", () => {
         notWalked("node_modules/dep/index.d.ts", "node_modules")
       );
 
-      // The native string-prefix walk reads a sibling's manifests.
       const siblingFile = `${root}-sib/pkg/x.ts`;
       const sibling = compare(root, siblingFile);
       expect(sibling.native).toEqual({
@@ -327,8 +321,7 @@ describe("packagePathAliases", () => {
       "@fixture/conditions": [join(preferred, "c.ts")],
       "@fixture/conditions/other": [join(preferred, "d.ts")],
     });
-    // Forty nested `import` conditions with no TypeScript target: visiting
-    // each twice would take 2^40 steps.
+
     let conditions: unknown = "./index.js";
     for (let depth = 0; depth < 40; depth += 1) {
       conditions = { default: "./index.js", import: conditions };

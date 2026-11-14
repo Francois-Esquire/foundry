@@ -40,13 +40,6 @@ import { DEFAULT_CONFIGURATION } from "../../src/lib/spyglass-config";
 import type { SurfaceReport } from "../../src/lib/types";
 import { deriveWorkspaceSurface } from "../../src/lib/workspace-derive";
 
-// The in-memory dataset runs the native scan's assembly into an artifact
-// collection it owns and is read through the existing `datasetReader`. The
-// semantics fixture is analyzed once, in process, by a native scan whose
-// local reports and assembled reports are captured; the same results,
-// discovery and inventory then assemble in memory and are compared with
-// the published dataset, artifact by artifact.
-
 const now = new Date("2027-01-01T00:00:00Z");
 const settings = {
   domains: DEFAULT_CONFIGURATION.domains,
@@ -152,7 +145,6 @@ describe("assembleInMemoryDataset", () => {
         file
       ).toBe(canonicalSemanticsText(file, JSON.parse(saved)));
       if (file !== DATASET_FILES.manifest) {
-        // Same results, same assembly: the bytes a native scan publishes.
         expect(text, file).toBe(saved);
       }
     }
@@ -195,7 +187,7 @@ describe("assembleInMemoryDataset", () => {
       JSON.parse(readFileSync(join(output, "lenses/file-roles.json"), "utf8"))
     );
     expect((await reader.visualization())?.islands.length).toBeGreaterThan(0);
-    // No history directory is assembled, as a scan without --history has none.
+
     expect(await reader.history()).toBeUndefined();
     await expect(reader.internals("@s/a")).rejects.toThrow(
       "The dataset was saved without internals for @s/a."
@@ -281,7 +273,6 @@ describe("assembleInMemoryDataset", () => {
       expect(third.paths).not.toContain("review-mutated.json");
       expect(third.manifest.files.projections.boundaries).toBe(boundaries);
     } finally {
-      // Keep a failing regression check from poisoning subsequent tests.
       Reflect.set(DATASET_FILES, "workspace", workspace);
       Reflect.set(DATASET_FILES.projections, "boundaries", boundaries);
     }
@@ -316,7 +307,6 @@ describe("assembleInMemoryDataset", () => {
   });
 });
 
-/** Valid file-map capabilities whose paths are placed under `at`. */
 function capabilitiesAt(at: string): FileMapCapabilities {
   return {
     configuration: {
@@ -347,7 +337,6 @@ function capabilitiesAt(at: string): FileMapCapabilities {
 describe("assembleInMemoryDataset with analysis metadata", () => {
   const CONTRADICTS = "The analysis metadata contradicts the assembly inputs:";
 
-  /** Rejects before assembly starts: no phase runs and no dataset results. */
   async function refused(
     overrides: Partial<InMemoryDatasetInput<FileMapCapabilities>>
   ): Promise<string> {
@@ -402,8 +391,6 @@ describe("assembleInMemoryDataset with analysis metadata", () => {
   });
 
   it("refuses an origin root other than the assembly root", async () => {
-    // Same last segment and the same root in the capabilities: only the
-    // assembly root itself disagrees.
     const moved = `/elsewhere/${root.split("/").at(-1)}`;
     expect(
       await refused({

@@ -13,7 +13,6 @@ import { dirname, join, relative } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 import { cruiseWorkspace } from "../../src/lib/dependencies";
-import { analyzeFileMap } from "../../src/lib/file-map-analysis";
 import type { RepositoryFileMapInput } from "../../src/lib/file-map-preparation";
 import {
   FileMapInputError,
@@ -26,14 +25,8 @@ import { analyzePreparedPackageLocal } from "../../src/lib/package-local-analysi
 import { createProject } from "../../src/lib/project";
 import { discoverSemanticsUnits } from "../../src/lib/semantics-discover";
 import { DEFAULT_CONFIGURATION } from "../../src/lib/spyglass-config";
-import { analyzePreparedWorkspace } from "../../src/lib/workspace-analysis";
-import { prepareWorkspaceDerivation } from "../../src/lib/workspace-derive";
-
-// The internal file-map proof entry. Its input is a recorded file map, so
-// these tests check the contract (malformed paths and configuration are
-// refused or diagnosed, configuration is data, types come only from the map
-// and the bundled libraries, history is unavailable) and compare the result
-// with native preparation of the same bytes written to disk.
+import { deriveWorkspaceSurface } from "../../src/lib/workspace-derive";
+import { analyzeFileMap } from "./helpers/file-map-analysis";
 
 const ROOT = "/spyglass-file-map";
 const NOW = new Date("2026-11-07T00:00:00Z");
@@ -86,7 +79,6 @@ const withoutRuntime = (value: unknown): unknown =>
     )
   );
 
-/** Native preparation of the same bytes on disk, with the proof's type policy. */
 async function nativeDerivation(
   input: RepositoryFileMapInput,
   root: string,
@@ -101,17 +93,16 @@ async function nativeDerivation(
   if (project.getCompilerOptions().types === undefined) {
     project.compilerOptions.set({ types: [] });
   }
-  const prepared = await prepareWorkspaceDerivation(locals, {
+  const derivation = await deriveWorkspaceSurface(locals, {
     now: input.now,
     profile: input.profile ?? "full",
     project,
     root,
     ...extra,
   });
-  return { derivation: analyzePreparedWorkspace(locals, prepared), locals };
+  return { derivation, locals };
 }
 
-/** A small typed workspace: a supplied declaration, a workspace alias, a tsconfig alias and an ignored import. */
 const TYPED: RepositoryFileMapInput = {
   declarations: {
     "node_modules/typed-dep/index.d.ts":
@@ -294,7 +285,7 @@ describe("configuration is data", () => {
       configModules: ["packages/a/vite.config.ts"],
       executed: false,
     });
-    // Tooling configuration is not a semantic source, natively or here.
+
     expect(result.locals[0]?.sources.map((source) => source.path)).toEqual([
       "packages/a/src/index.ts",
     ]);
@@ -363,18 +354,14 @@ describe("types and resolution from the map only", () => {
       typesOptionSource: "policy-empty",
       unresolvedPackages: [],
     });
-    // The program merges the workspace aliases into the tsconfig's paths,
-    // so types resolve; the native cruise given a tsconfig does not, so the
-    // graph keeps @t/shared unresolved, as a native scan of these bytes does.
+
     expect(capabilities.moduleGraph.unresolved).toEqual([
       { from: "packages/app/src/index.ts", specifier: "@t/shared" },
     ]);
     const app = prepared.prepared.moduleGraph.modules.find(
       (mod) => mod.source === "packages/app/src/index.ts"
     );
-    // The declaration target matches EXCLUDE_PATTERNS (`.d.ts`), so only
-    // workspace targets remain; the ignored module stays a target for
-    // `normalizeEdges` to drop.
+
     expect(
       app?.dependencies
         .filter((dep) => !dep.couldNotResolve)
@@ -383,7 +370,7 @@ describe("types and resolution from the map only", () => {
     expect(
       prepared.prepared.moduleGraph.ignored.get("packages/app/ignored/gen.ts")
     ).toBe(true);
-    // Only the map and the bundled libraries: nothing from this checkout.
+
     const programFiles = prepared.prepared.project
       .getProgram()
       .compilerObject.getSourceFiles()
@@ -419,8 +406,6 @@ describe("types and resolution from the map only", () => {
   });
 
   it("reports a package a supplied declaration imports but the map lacks", async () => {
-    // Under skipLibCheck nothing diagnoses foo's missing import: `Foo`
-    // silently becomes `any` in the source unless the gap is reported.
     const result = await analyzeFileMap({
       ...minimal({
         "packages/a/src/uses-foo.ts":
@@ -472,8 +457,6 @@ describe("types and resolution from the map only", () => {
   );
 
   it("diagnoses no relative import a wildcard ambient module covers", async () => {
-    // TypeScript resolves `./theme.css` through `declare module "*.css"`; a
-    // reference the map lacks beside it is still diagnosed.
     const result = await analyzeFileMap({
       ...minimal({
         "packages/a/src/uses-foo.ts":
@@ -575,9 +558,7 @@ describe("types and resolution from the map only", () => {
         'export type { T as T3 } from "./d";',
         'export const lazy = () => import("./e");',
         'export type Q = import("./f").T;',
-        // dependency-cruiser keys a file's dependencies by specifier,
-        // module system and type-only: the second "./a" import collapses
-        // into the first, a value import of "./a" does not.
+
         'import type { T as T5 } from "./a";',
         'import { v as v2 } from "./a";',
         'export { v as v3 } from "./g";',
@@ -590,7 +571,7 @@ describe("types and resolution from the map only", () => {
       modules.find((mod) => mod.source === "packages/a/src/u.ts");
     const u = sourceOf(result.prepared.moduleGraph.modules);
     expect(u).toEqual(sourceOf(await cruiseWorkspace(materialize(input))));
-    // Spot checks of the classification `normalizeEdges` reads.
+
     expect(
       u?.dependencies
         .filter((dep) => dep.dependencyTypes.includes("type-only"))
@@ -642,8 +623,7 @@ describe("history, roots and native parity", () => {
     const input = { files: record(fixture), now: NOW, root: ROOT };
     const root = materialize(input);
     const fileMap = await analyzeFileMap({ ...input, root });
-    // Discovery's units, as a scan analyzes them: docs-only has no
-    // TypeScript sources and loose has no manifest.
+
     expect(fileMap.prepared.targets).toEqual([
       "apps/a",
       "packages/b",
@@ -666,8 +646,6 @@ describe("history, roots and native parity", () => {
   }, 120_000);
 
   it("defers a package source's owner error to package-local analysis, as natively", async () => {
-    // The source's owner lookup meets a nested manifest that does not parse
-    // and is no workspace member; this package's analysis never asks it.
     const input: RepositoryFileMapInput = {
       files: {
         "package.json": JSON.stringify({
@@ -713,8 +691,7 @@ describe("history, roots and native parity", () => {
     expect(withoutRuntime(fileMap.derivation)).toEqual(
       withoutRuntime(native.derivation)
     );
-    // Both cruise with the tsconfig alone, which does not hold the workspace
-    // aliases the program merges: index.ts's @t/shared import is no edge.
+
     expect(
       fileMap.derivation.packages["packages/app"]?.dependencies.outgoing.map(
         (dep) => [
@@ -755,7 +732,7 @@ describe("the module graph is the native cruise of the same bytes", () => {
     "packages/a/src/legacy.js": "module.exports = 3;\n",
     "packages/ab/src/legacy.js": "module.exports = 3;\n",
   };
-  /** Every import form the cruise reads, over a workspace alias and a tsconfig path. */
+
   const forms = {
     ...TYPED.files,
     "packages/app/src/forms.ts": [

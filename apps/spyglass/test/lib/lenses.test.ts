@@ -83,7 +83,6 @@ describe("the package-sizes lens", () => {
   });
 });
 
-/** One module's role evidence, as the primitive conventions save it. */
 function evidence(
   module: string,
   {
@@ -106,7 +105,6 @@ function evidence(
 
 type SourcePackage = FileRolesSource["packages"][number];
 
-/** A package of `modules`, each with fan-in 0, unless the overrides say otherwise. */
 function rolesPackage(
   id: string,
   root: string,
@@ -357,7 +355,6 @@ describe("the responsibility-groups lens", () => {
     );
   });
 
-  /** One package whose responsibilities `a` and `b` join, anchored on `a`, whose modules have `fanIn`. */
   const joined = (fanIn: Record<string, number>) => ({
     id: "@s/b",
     responsibilities: {
@@ -438,7 +435,7 @@ describe("the responsibility-groups lens", () => {
               anchor: "a",
               anchorModule: "packages/b/src/x.ts",
               anchorWeight: 2 * Math.log1p(20) + 2 * Math.log1p(1),
-              // SHA-256 of "a\nb", first 12 hex digits.
+
               id: "responsibility-group:7e18f737311b",
               label: "a",
               modules: [
@@ -759,7 +756,6 @@ describe("writeLenses", () => {
     },
   };
 
-  /** An unpublished tree, and the draft manifest that names its files. */
   function unpublished(): DatasetManifest {
     dir = mkdtempSync(join(tmpdir(), "spyglass-lenses-"));
     const files: Record<string, unknown> = {
@@ -838,7 +834,6 @@ describe("writeLenses", () => {
     } as unknown as DatasetManifest;
   }
 
-  /** Runs `lenses` over a fresh tree, writing into it, and returns what each wrote. */
   async function run(
     lenses: readonly AnyLens[] | undefined,
     settings: LensSettings = { domains: [], rules: [] }
@@ -865,12 +860,10 @@ describe("writeLenses", () => {
     settings?: readonly (keyof LensSettings)[];
   }
 
-  /** A lens over `read`, under the registered id, as a test needs one. */
   function probe<Source>(
     read: (reader: LensReader, settings: unknown) => Promise<Source>,
     { derive = (source) => source, ...rest }: Probe<Source> = {}
   ): AnyLens {
-    // A probe writes whatever the test reads, which no lens output type names.
     return {
       derive,
       id: "package-sizes",
@@ -1026,9 +1019,9 @@ describe("writeLenses", () => {
           packages: [{ groups: [], id: "@s/a", independent: ["only"] }],
         },
       ],
-      // After the placement lens it reads; no domain is declared.
+
       ["lenses/domains.json", { domains: [], placements: [] }],
-      // No rule is declared, so the rules lens reads nothing.
+
       [
         "lenses/rules.json",
         { missing: [], rules: [], unmatched: [], violations: [] },

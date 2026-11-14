@@ -17,12 +17,6 @@ import {
 import type { PreparedPackageSource } from "../../src/lib/package-local-analysis";
 import { analyzePreparedPackageLocal } from "../../src/lib/package-local-analysis";
 
-// Package-local analysis over prepared sources. Preparation reads the disk;
-// analysis must not. Relocating every prepared path below a root that does
-// not exist makes any remaining manifest, tsconfig, source or ownership read
-// lose its input, so an identical report shows the analysis used only the
-// prepared values.
-
 const fixture = join(import.meta.dirname, "fixtures", "semantics");
 const virtualRoot = "/spyglass-virtual-prepared-root";
 const tempRoots: string[] = [];
@@ -33,7 +27,6 @@ afterAll(() => {
   }
 });
 
-/** A workspace whose package imports itself through its name and both tsconfig alias sources. */
 function selfAliasWorkspace(): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "package-prepared-")));
   tempRoots.push(root);
@@ -71,11 +64,6 @@ function selfAliasWorkspace(): string {
   return root;
 }
 
-/**
- * A declared package whose one source sits below a nested `package.json`
- * that does not parse and is no workspace member: that source's owner
- * lookup throws.
- */
 function brokenOwnerWorkspace(source: string): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "package-owner-")));
   tempRoots.push(root);
@@ -100,7 +88,6 @@ function brokenOwnerWorkspace(source: string): string {
   return root;
 }
 
-/** What `run` threw, told apart from returning even when it threw `undefined`. */
 function thrownBy(run: () => unknown): { value: unknown } | undefined {
   try {
     run();
@@ -144,7 +131,6 @@ describe("prepared package-local analysis", () => {
     const prepared = preparePackageLocalSource(options);
     const native = analyzePackageLocal(options);
 
-    // The facts a residual read at the virtual root would lose.
     expect(native.package.entrypoints).toEqual([
       { entrypoint: "@s/b", file: "packages/b/src/index.ts" },
     ]);
@@ -168,7 +154,7 @@ describe("prepared package-local analysis", () => {
   it("keeps the declared public surface off disk", () => {
     const options = { root: fixture, target: "tooling/c" };
     const native = analyzePackageLocal(options);
-    // Without its entrypoints every module export would count as public.
+
     expect(
       native.symbols.some((symbol) => symbol.exported && !symbol.packagePublic)
     ).toBe(true);

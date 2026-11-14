@@ -4,21 +4,7 @@ import type { Boundary, BoundaryEntrypoint } from "./boundary-model";
 import { ROOT_OWNER, toPosix } from "./boundary-model";
 import type { SemanticsDeclarationSource } from "./semantics-types";
 
-// Manifest and workspace-pattern rules over a repository reader: which
-// directories are workspace packages, what a manifest declares as entry
-// points and aliases, and which boundary a manifest directory names.
-// `boundary.ts` answers the reader from the native file system;
-// `file-map-preparation.ts` answers it from a recorded file map. Manifests and
-// workspace files are parsed as data; nothing here executes repository code.
-
-/**
- * The file-system questions the manifest rules ask, in the native spelling:
- * `exists` and `isDirectory` follow symbolic links, `childDirectories` lists
- * entries that are directories themselves (as `Dirent.isDirectory()`, so not
- * links to directories), and `readFile` throws for a missing file.
- */
 export interface RepositoryReader {
-  /** Absolute paths of the directories directly below `dir`. */
   childDirectories(dir: string): string[];
   exists(path: string): boolean;
   isDirectory(path: string): boolean;
@@ -48,15 +34,9 @@ function readPackageJson(
   return JSON.parse(reader.readFile(file)) as PackageJson;
 }
 
-/** The package patterns a workspace's package manager reads, and where they came from. */
 export interface WorkspaceDeclaration {
-  /** The patterns as the file lists them. */
   readonly declared: readonly string[];
-  /**
-   * The patterns the analyses expand, each through `normalizeWorkspacePath`:
-   * negations dropped, and patterns that resolve to the workspace root or
-   * escape it ignored.
-   */
+
   readonly patterns: readonly string[];
   readonly source: SemanticsDeclarationSource;
 }
@@ -64,12 +44,6 @@ export interface WorkspaceDeclaration {
 const PNPM_WORKSPACE_FILE = "pnpm-workspace.yaml";
 const LEADING_DOT_SLASHES = /^(?:\.\/)+/;
 
-/**
- * A workspace-relative POSIX path in its one spelling: a leading `./` and
- * trailing slashes removed. Undefined for a path that is empty, the root
- * itself (`.`), absolute, or not plain, with a backslash or an empty, `.`,
- * or `..` segment.
- */
 export function normalizeWorkspacePath(path: string): string | undefined {
   const normalized = withoutTrailingSlashes(
     path.replace(LEADING_DOT_SLASHES, "")
@@ -86,11 +60,7 @@ export function normalizeWorkspacePath(path: string): string | undefined {
   return plain ? normalized : undefined;
 }
 
-/**
- * `path` without its trailing slashes, found by one backward scan: an
- * unanchored `/\/+$/` retries at every slash of a run that does not end the
- * string, which grows with the square of the run.
- */
+// Scan backward to avoid quadratic retries on slash-heavy paths.
 function withoutTrailingSlashes(path: string): string {
   let end = path.length;
   while (end > 0 && path[end - 1] === "/") {
@@ -106,12 +76,6 @@ function readOptional(
   return reader.exists(file) ? reader.readFile(file) : undefined;
 }
 
-/**
- * The workspace declaration: `pnpm-workspace.yaml#packages` when that file
- * lists packages, else `package.json#workspaces`, as an array or as
- * `{ "packages": [] }`. Undefined when neither declares a list. Read afresh
- * on every call. `**` is not expanded (see `expandPattern`).
- */
 export function workspaceDeclaration(
   reader: RepositoryReader,
   root: string
@@ -179,7 +143,6 @@ function declarationOf(
   };
 }
 
-/** The declaration's patterns, ready to expand; empty when the workspace declares none. */
 export function workspacePatterns(
   reader: RepositoryReader,
   root: string
@@ -187,7 +150,6 @@ export function workspacePatterns(
   return workspaceDeclaration(reader, root)?.patterns ?? [];
 }
 
-/** Walk up from `start` to the nearest directory with a workspace declaration. */
 export function findRepoRoot(reader: RepositoryReader, start: string): string {
   let dir = resolve(start);
   for (;;) {
@@ -256,8 +218,7 @@ function pickTsTarget(value: unknown): string | undefined {
     return undefined;
   }
   const conditions = value as Record<string, unknown>;
-  // A set, so `import` and `default` lead without being visited again in
-  // their own place: each condition once, or nested conditions repeat.
+
   for (const key of new Set([
     "import",
     "default",
@@ -274,7 +235,6 @@ function pickTsTarget(value: unknown): string | undefined {
   return undefined;
 }
 
-/** Declared entry targets (subpath → package-relative TS source), first declaration wins. */
 function packageEntryTargets(
   reader: RepositoryReader,
   pkg: PackageJson,
@@ -336,12 +296,6 @@ function packageEntryTargetsEntries(
   }
 }
 
-/**
- * Path aliases mapping each workspace package's declared entry points to its
- * TypeScript sources. TypeScript's own resolution follows the "types"
- * condition into built d.ts output, which would disconnect consumers from the
- * source declarations we analyze — these aliases force source resolution.
- */
 export function workspacePathAliases(
   reader: RepositoryReader,
   root: string
@@ -359,7 +313,6 @@ export function workspacePathAliases(
   return aliases;
 }
 
-/** The aliases one package's manifest declares for itself. */
 export function packagePathAliases(
   reader: RepositoryReader,
   dir: string
@@ -377,11 +330,6 @@ export function packagePathAliases(
   return aliases;
 }
 
-/**
- * The boundary package's declared entrypoints resolved to TypeScript sources.
- * Wildcard subpaths are not enumerable and are omitted — callers must check
- * `boundary.exportSubpaths` for wildcards separately.
- */
 export function boundaryEntrypoints(
   reader: RepositoryReader,
   boundary: Boundary
@@ -459,7 +407,6 @@ export function resolveBoundary(
   };
 }
 
-/** Realpaths of the root's workspace package directories; null when the root declares none. */
 export function workspaceMemberDirs(
   reader: RepositoryReader,
   root: string
@@ -476,13 +423,6 @@ export function workspaceMemberDirs(
   return dirs;
 }
 
-/**
- * The boundary name a manifest directory gives the files below it, or
- * undefined when its manifest does not make it a boundary: no manifest, or,
- * when the root declares workspaces (`members` not null), a directory whose
- * realpath is not a workspace package directory. A manifest that does not
- * parse throws, as reading it does.
- */
 export function manifestOwnerAt(
   reader: RepositoryReader,
   root: string,
@@ -496,15 +436,6 @@ export function manifestOwnerAt(
   return undefined;
 }
 
-/**
- * Name of the workspace boundary owning `filePath`: the nearest ancestor
- * workspace package's name (or its root-relative path when unnamed). A
- * manifest outside the root's workspace patterns (a skill nested in a
- * plugin, say) is not a boundary: its files belong to the enclosing
- * workspace package, the same package whose local analysis owns them. When
- * the root declares no workspaces (`members` null), the nearest manifest
- * owns the file. `cache` keeps each visited directory's answer.
- */
 export function ownerByManifests(
   reader: RepositoryReader,
   root: string,

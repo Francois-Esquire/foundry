@@ -7,35 +7,20 @@ import {
 } from "../../src/lib/dataset-analysis";
 import { DATASET_ANALYSIS_FILE } from "../../src/lib/dataset-layout";
 import { fileMapDataset } from "../../src/lib/file-map-dataset";
+import { prepareFileMap } from "../../src/lib/file-map-preparation";
 import type { FileMapScanProgress } from "../../src/lib/file-map-scanner";
 import {
   createFileMapScanner,
   FileMapScanAbortedError,
 } from "../../src/lib/file-map-scanner";
-import { RepositoryAcquisitionError } from "../../src/lib/github-loader";
+import {
+  loadGitHubRepository,
+  RepositoryAcquisitionError,
+} from "../../src/lib/github-loader";
 import { RepositoryInputError } from "../../src/lib/github-request";
 import { scanGitHubRepository } from "../../src/lib/repository-scan";
 import type { FakeRepository } from "./helpers/github-fake";
 import { deferred, fakeGitHub } from "./helpers/github-fake";
-
-// A public GitHub revision through the loader and the existing file-map
-// scanner to a dataset read by the existing reader: the repository's
-// coordinates and the loader's omissions are saved as analysis metadata
-// version 2, survive a reload, and agree with the manifest; version 1
-// file-map metadata is unchanged; the scanner's replacement, reset and
-// stale-result rules hold across network awaits.
-
-/** A module graph as recovery-era versions 1 and 2 recorded it. */
-const RECORDED_GRAPH = {
-  edgeKinds: ["import"],
-  modulesOutsideProgram: [],
-  nativeSource: "dependency-cruiser",
-  source: "typescript-program",
-  unresolved: [
-    { from: "packages/a/src/index.ts", kind: "import", specifier: "x" },
-  ],
-  unsupportedEdgeKinds: [],
-};
 
 const SHA = "3333333333333333333333333333333333333333";
 const NOW = new Date("2026-11-07T00:00:00Z");
@@ -62,6 +47,23 @@ const WORKSPACE: FakeRepository = {
       }),
       "packages/b/src/index.ts":
         'import { a } from "@demo/a";\nexport const b = () => a();\n',
+    },
+  },
+  defaultBranch: "main",
+  refs: { main: SHA },
+};
+
+const ALLOW_JS: FakeRepository = {
+  commits: {
+    [SHA]: {
+      "build/helper.js":
+        'import { foreign } from "missing-library";\nexport const value = { a: 1, foreign };\n',
+      "package.json": JSON.stringify({ name: "demo" }),
+      "src/index.ts":
+        'import { value } from "../build/helper.js";\nexport const result = value;\n',
+      "tsconfig.json": JSON.stringify({
+        compilerOptions: { allowJs: true, checkJs: true, noEmit: true },
+      }),
     },
   },
   defaultBranch: "main",
@@ -200,6 +202,69 @@ describe("scanGitHubRepository", () => {
       },
       root: "/github/octo/demo/packages/b",
     });
+  });
+
+  it("saves omitted paths a file map could not place, and reloads them", async () => {
+    const commit = WORKSPACE.commits[SHA] ?? {};
+    const github = fakeGitHub({
+      "octo/demo": {
+        ...WORKSPACE,
+        commits: {
+          [SHA]: {
+            ...commit,
+            "docs/a\\b.md": "x",
+            "packages/a/src/odd\\link.ts": { kind: "symlink", target: "x" },
+          },
+        },
+      },
+    });
+    const { dataset } = await scanGitHubRepository(
+      createFileMapScanner(),
+      { now: NOW, url: URL },
+      { fetch: github.fetch }
+    );
+    const texts = Object.fromEntries(
+      dataset.paths.map((path) => [path, dataset.text(path) ?? ""])
+    );
+    const analysis = await datasetReader(reloaded(texts)).analysis();
+    if (analysis?.origin.kind !== "github-repository") {
+      throw new Error("expected a repository origin");
+    }
+    expect(analysis.origin.acquisition.omissions).toMatchObject({
+      notAnalysisInput: 2,
+      symlinks: ["packages/a/src/link.ts", "packages/a/src/odd\\link.ts"],
+    });
+  });
+
+  it("reads generated JavaScript that an explicit allowJs tsconfig compiles", async () => {
+    const github = fakeGitHub({ "octo/demo": ALLOW_JS });
+    const { dataset } = await scanGitHubRepository(
+      createFileMapScanner(),
+      { now: NOW, tsconfig: "tsconfig.json", url: URL },
+      { fetch: github.fetch }
+    );
+    expect(github.urls().some((url) => url.endsWith("/build/helper.js"))).toBe(
+      true
+    );
+    const analysis = await dataset.reader().analysis();
+    expect(analysis?.capabilities.types.unresolvedPackages).toEqual([
+      "missing-library",
+    ]);
+
+    const loaded = await loadGitHubRepository(
+      { owner: "octo", ref: null, repo: "demo", scope: null },
+      { fetch: github.fetch, readGeneratedJavaScript: true }
+    );
+    const { prepared } = await prepareFileMap({
+      files: loaded.files,
+      now: NOW,
+      root: loaded.root,
+      tsconfig: "tsconfig.json",
+    });
+    const result = prepared.project
+      .getSourceFileOrThrow(`${loaded.root}/src/index.ts`)
+      .getVariableDeclarationOrThrow("result");
+    expect(result.getType().getText()).toBe("{ a: number; foreign: any; }");
   });
 
   it("refuses an unsupported input before touching the scanner", async () => {
@@ -345,8 +410,8 @@ describe("scanGitHubRepository", () => {
   });
 });
 
-describe("analysis metadata versions", () => {
-  it("still writes and reads a plain file map as version 1", async () => {
+describe("analysis metadata", () => {
+  it("writes and reads a plain file map's origin", async () => {
     const files = Object.fromEntries(
       Object.entries(WORKSPACE.commits[SHA] ?? {}).filter(
         ([, entry]) => typeof entry === "string"
@@ -363,7 +428,7 @@ describe("analysis metadata versions", () => {
     expect((await dataset.reader().analysis())?.schemaVersion).toBe(3);
   });
 
-  const v2 = async (): Promise<{
+  const saved = async (): Promise<{
     analysis: DatasetAnalysis;
     texts: Record<string, string>;
   }> => {
@@ -383,7 +448,7 @@ describe("analysis metadata versions", () => {
   };
 
   const edited = async (edit: (analysis: Record<string, any>) => void) => {
-    const { analysis, texts } = await v2();
+    const { analysis, texts } = await saved();
     const copy = structuredClone(analysis) as Record<string, any>;
     edit(copy);
     return datasetReader(
@@ -399,28 +464,9 @@ describe("analysis metadata versions", () => {
       },
     ],
     [
-      "a cruised graph under the recorded-graph version 2",
+      "an earlier version",
       (a: Record<string, any>) => {
         a.schemaVersion = 2;
-      },
-    ],
-    [
-      "a file-map origin under version 2",
-      (a: Record<string, any>) => {
-        a.schemaVersion = 2;
-        a.capabilities.moduleGraph = RECORDED_GRAPH;
-        a.origin = {
-          command: a.origin.command,
-          kind: "file-map",
-          root: a.origin.root,
-        };
-      },
-    ],
-    [
-      "a repository origin under version 1",
-      (a: Record<string, any>) => {
-        a.schemaVersion = 1;
-        a.capabilities.moduleGraph = RECORDED_GRAPH;
       },
     ],
     [
@@ -481,25 +527,24 @@ describe("analysis metadata versions", () => {
     await expect(edited(edit)).rejects.toThrow(text);
   });
 
-  it("reloads a version 2 repository graph as it was recorded, still checked", async () => {
-    const legacy = (a: Record<string, any>) => {
-      a.schemaVersion = 2;
-      a.capabilities.moduleGraph = RECORDED_GRAPH;
+  it("reads saved version 3 omissions as they were written", async () => {
+    const omissions = {
+      binary: [],
+      nodeModules: [],
+      notAnalysisInput: 1,
+      notUtf8: [],
+      submodules: [],
+      symlinks: ["packages/a/src/link.ts"],
+      tooLarge: [],
     };
-    const { analysis } = await v2();
-    const expected = structuredClone(analysis) as Record<string, any>;
-    legacy(expected);
-    expect(await edited(legacy)).toEqual(expected);
-    await expect(
-      edited((a) => {
-        legacy(a);
-        a.origin.repository.repo = "other";
-      })
-    ).rejects.toThrow("the root of its repository and scope");
+    const analysis = await edited((a) => {
+      a.origin.acquisition.omissions = omissions;
+    });
+    expect(analysis?.origin).toMatchObject({ acquisition: { omissions } });
   });
 
   it("checks repository coordinates in the shared problem list", async () => {
-    const { analysis } = await v2();
+    const { analysis } = await saved();
     const parsed = verifyDatasetAnalysis(analysis);
     expect(
       datasetAnalysisProblems(parsed, {

@@ -1,4 +1,5 @@
 import { assembleSurfaceReport } from "./assemble";
+import type { AnalysisConfig } from "./config";
 import type {
   DatasetAnalysisOrigin,
   FileMapCapabilities,
@@ -6,7 +7,7 @@ import type {
 } from "./dataset-analysis";
 import type { DatasetAssemblyOutcome } from "./dataset-assembly";
 import { requireDeclared } from "./discovery-rules";
-import type { FileMapAnalysisInput } from "./file-map-analysis";
+import type { RepositoryFileMapInput } from "./file-map-preparation";
 import {
   analyzeFileMapWorkspace,
   prepareFileMap,
@@ -18,65 +19,25 @@ import { analyzePreparedPackageLocal } from "./package-local-analysis";
 import type { PackageLocalReport } from "./package-local-types";
 import type { SemanticsPhase } from "./semantics-types";
 
-// INTERNAL composition: a recorded repository file map to an in-memory
-// dataset read through the existing `datasetReader`. It prepares the map
-// (native discovery's rules and the dependency inventory over the map),
-// analyzes each package, derives the workspace, assembles each unit's
-// report as the native derive stage does, and runs the scan's shared
-// artifact assembly into a collection this result owns. No repository file
-// system, Git, network, Worker or server is involved, and no repository
-// code runs; the cruise reads the map from the isolated engine's private
-// in-memory volume (`file-map-cruise.ts`). Not a public export.
-//
-// The call is asynchronous and cooperative on the caller's own thread: it
-// yields one macrotask between steps (after preparation, after each
-// package, after derivation and before each assembly phase), checks the
-// signal before and after every yield, and reports each step's start and
-// end. The steps themselves are synchronous compiler and analysis calls and
-// cannot be interrupted: an abort is observed at the next boundary, so the
-// longest wait is the longest step, normally preparation (the program and
-// its module graph) or one package's analysis. On abort the call rejects
-// with the signal's reason and keeps nothing: the project, prepared inputs,
-// reports and artifacts are referenced only by this call.
-//
-// What a native scan has and this does not, each explicit on the result
-// and saved with the dataset (`reader().analysis()`): no inputs fingerprint
-// (`provenance.inputsFingerprint: "unrecorded"`), no internals
-// (`provenance.internals: "not-assembled"`; the reader raises its existing
-// error), no Git history (the reports carry `not-git-repository`) and only
-// the map's supplied declarations for types (`capabilities.types`). The
-// module graph is the native cruise over the map (`capabilities.moduleGraph`).
-// A unit whose local analysis throws fails the whole call instead of
-// publishing a partial dataset.
-
-export interface FileMapDatasetInput extends FileMapAnalysisInput {
-  /** Recorded as the manifest's generation command. Default: `fileMapDataset`. */
+export interface FileMapDatasetInput extends RepositoryFileMapInput {
   readonly command?: string;
-  /**
-   * Where a loader obtained the map, saved as the dataset's origin instead
-   * of a plain file map. The map's
-   * `root` must be the one the repository and scope give.
-   */
+  readonly config?: AnalysisConfig;
+
   readonly repository?: Pick<
     GitHubRepositoryAnalysisOrigin,
     "acquisition" | "repository"
   >;
-  /**
-   * The workspace's declared domains and rules, as data: configuration
-   * modules are never run. Default: none, as for a workspace that declares
-   * nothing.
-   */
+
   readonly settings?: LensSettings;
 }
 
-/** One step of a file-map scan, reported when it starts and when it ends. */
 export type FileMapDatasetProgress =
   | { phase: "prepare"; stage: "start" | "end" }
   | {
       phase: "analyze";
-      /** Zero-based, in discovery order. */
+
       index: number;
-      /** The unit's repository-relative directory. */
+
       package: string;
       stage: "start" | "end";
       total: number;
@@ -85,40 +46,26 @@ export type FileMapDatasetProgress =
   | { phase: "assemble"; stage: "start"; step: SemanticsPhase };
 
 export interface FileMapDatasetOptions {
-  /**
-   * The wall clock read once before preparation, for the manifest's
-   * `startedAt`, and at assembly's end, for `finishedAt`. Default:
-   * `new Date()`.
-   */
   readonly clock?: () => Date;
-  /** Called synchronously at each step boundary. */
+
   readonly onProgress?: (progress: FileMapDatasetProgress) => void;
-  /** Checked before and after every yield; an abort rejects with its reason. */
+
   readonly signal?: AbortSignal;
-  /** Yields to the event loop between steps. Default: one `setTimeout(0)` macrotask. */
+
   readonly yieldTask?: () => Promise<void>;
 }
 
 export interface FileMapDataset extends InMemoryDataset<FileMapCapabilities> {
-  /**
-   * Wall-clock milliseconds of the preparation phases, the analysis steps
-   * (`localAnalysisMs`, `workspaceAnalysisMs`, their sum with preparation
-   * in `totalMs`), `assemblyMs`, and `scanMs` for the whole call, yields
-   * included.
-   */
   timing: Record<string, number>;
 }
 
-/** The message a native scan records when derivation gives a unit no report. */
 const NO_DERIVED_REPORT = "Derivation produced no report.";
 
-/** One macrotask, so rendering, input and other tasks can run in between. */
 const macrotask = (): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, 0);
   });
 
-/** The saved origin: the loaded repository when there is one, else the file map. */
 function originOf(
   input: FileMapDatasetInput,
   command: string
@@ -134,7 +81,6 @@ function originOf(
       };
 }
 
-/** A phase every file-map preparation and workspace analysis records. */
 function phaseMs(timing: Record<string, number>, phase: string): number {
   const ms = timing[phase];
   if (ms === undefined) {
@@ -143,12 +89,6 @@ function phaseMs(timing: Record<string, number>, phase: string): number {
   return ms;
 }
 
-/**
- * Builds a complete in-memory dataset from a recorded file map. Rejects
- * with `FileMapInputError` for an unacceptable map, the native discovery
- * error for a map with no workspace declaration or standalone package, and
- * the signal's reason once the signal aborts.
- */
 export async function fileMapDataset(
   input: FileMapDatasetInput,
   options: FileMapDatasetOptions = {}
@@ -156,7 +96,7 @@ export async function fileMapDataset(
   const { onProgress, signal } = options;
   const clock = options.clock ?? (() => new Date());
   const yieldTask = options.yieldTask ?? macrotask;
-  /** Boundary between steps: check, yield, check again. */
+
   const boundary = async (): Promise<void> => {
     signal?.throwIfAborted();
     await yieldTask();

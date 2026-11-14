@@ -14,14 +14,7 @@ import type {
 } from "./semantics-types";
 import { SEMANTICS_DECLARED_DEPENDENCY_KINDS } from "./semantics-types";
 
-// Workspace discovery over a reader and gitignore answers.
-// `semantics-discover.ts` answers them natively; `file-map-preparation.ts`
-// from a recorded file map. Manifests and workspace files are parsed as
-// data; no repository code runs.
-
-/** Discovery's reads beyond the manifest rules': the entries of one directory. */
 export interface DiscoveryReader extends RepositoryReader {
-  /** The entries directly below `dir`; links are not directories. */
   entries(dir: string): { directory: boolean; name: string }[];
 }
 
@@ -70,12 +63,6 @@ function packageName(manifest: PackageManifest): string | undefined {
     : undefined;
 }
 
-/**
- * The name a skipped unit's `package.json` gives, so that a collection
- * counts the package as its workspace's. A skipped unit's manifest may be
- * anything, generated or ignored, so one that is missing or does not parse
- * gives no name rather than failing discovery.
- */
 function skippedName(
   reader: DiscoveryReader,
   root: string,
@@ -92,7 +79,6 @@ function skippedName(
   }
 }
 
-/** The dependencies a `package.json` declares; a kind it lacks is omitted, and ranges stay as written. */
 function declaredDependencies(
   manifest: PackageManifest
 ): SemanticsDeclaredDependencies {
@@ -110,10 +96,6 @@ function declaredDependencies(
   return declared;
 }
 
-/**
- * The discovery, narrowed to a declared workspace or standalone package.
- * History can also record checkpoints with neither, as empty discoveries.
- */
 export function requireDeclared(
   root: string,
   discovery: SemanticsDiscovery
@@ -127,11 +109,6 @@ export function requireDeclared(
   return { ...discovery, declarationSource };
 }
 
-/**
- * The workspace root manifest's `name`, which a dataset records as its
- * workspace name; undefined without a root manifest or a string name. A
- * root manifest that does not parse raises its `SyntaxError`.
- */
 export function workspaceRootName(
   reader: RepositoryReader,
   root: string
@@ -144,12 +121,6 @@ export function workspaceRootName(
   return typeof parsed.name === "string" ? parsed.name : undefined;
 }
 
-/**
- * Every directory the workspace declaration's package patterns match is a
- * unit; it becomes an analyzable package when it has a named manifest and
- * TypeScript sources. Without a declaration, inspect the root package
- * itself. A directory two patterns match is inspected once, for the first.
- */
 export function discoverUnitsWith(
   reader: DiscoveryReader,
   ignorer: Ignorer,
@@ -179,8 +150,7 @@ export function discoverUnitsWith(
       inspect(inspection, rel);
     }
   }
-  // A standalone package is its own analysis root. Workspace declarations
-  // retain precedence, so their root manifest never becomes another unit.
+
   if (declaration === undefined) {
     inspect(inspection, "");
   }
@@ -209,11 +179,6 @@ export function discoverUnitsWith(
   };
 }
 
-/**
- * The workspace-relative directories one pattern matches, sorted. Patterns
- * that resolve to the root or escape it never get here: the declaration
- * ignores them.
- */
 function matchedDirectories(
   reader: DiscoveryReader,
   root: string,
@@ -227,7 +192,7 @@ function matchedDirectories(
 
 interface Inspection {
   excluded: Set<string>;
-  /** Exclusions some pattern matched, whether or not the unit was reached. */
+
   excludedSeen: Set<string>;
   ignorer: Ignorer;
   reader: DiscoveryReader;

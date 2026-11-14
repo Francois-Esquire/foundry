@@ -6,6 +6,7 @@ import { routeGitHub } from "./helpers/github-route";
 import {
   alert,
   expectOnlyOfficialOrigins,
+  isEngine,
   launchChromium,
   openScanPage,
   resultPanel,
@@ -16,18 +17,11 @@ import {
   statuses,
 } from "./helpers/scan-page";
 
-// The built scan page in real Chromium, with Workers disabled, against a
-// deterministic GitHub answered through the browser's own request routing:
-// lifecycle (progress, cancel, replacement, retry, reset, reload) and every
-// refusal a person can meet, at no cost to GitHub's rate limit. The live
-// suite beside this one scans real repositories.
-
 const COMMIT = "1111111111111111111111111111111111111111";
 const COUNT = /\d+ of \d+/;
 const API = /^https:\/\/api\.github\.com\//;
 const ANALYSIS_STEP = /Preparing|Analysing|Deriving|Assembling/;
 
-/** A small Bun-style workspace: two packages, one importing the other. */
 const workspace = (name: string): FakeRepository => ({
   commits: {
     [COMMIT]: {
@@ -66,7 +60,6 @@ beforeAll(async () => {
   browser = await launchChromium();
 });
 
-// Each page draws the map continuously; one open at a time keeps timing honest.
 afterEach(async () => {
   await Promise.all(opened.splice(0).map(({ context }) => context.close()));
 });
@@ -109,8 +102,8 @@ describe("scan page (mocked GitHub, real Chromium, no Worker)", () => {
     expect(details).toContain(COMMIT);
     expect(details).toContain("default branch (main)");
     expect(details).toContain("History unavailable");
-    expect(details).toContain("1 files outside the analysis inputs");
-    // The viewer mounted over the in-memory dataset and draws.
+    expect(details).toContain("1 files not selected for analysis");
+
     await expect.poll(() => page.locator("canvas").count()).toBeGreaterThan(0);
     await page.getByRole("button", { exact: true, name: "Legend" }).click();
     await expect.poll(() => page.getByRole("dialog").isVisible()).toBe(true);
@@ -129,11 +122,15 @@ describe("scan page (mocked GitHub, real Chromium, no Worker)", () => {
       ])
     );
     expectOnlyOfficialOrigins(requests, site.origin);
-    // The engine is the one asset beside the page, loaded once by URL.
-    expect(requests.filter((url) => url.includes("/analysis/"))).toEqual([
-      `${site.origin}${SCAN_PATH}analysis/spyglass-analysis.js`,
-    ]);
-    // Three API calls, then raw files at the resolved commit only.
+
+    const [engine, ...again] = requests.filter(isEngine);
+    expect(engine).toBeDefined();
+    expect(again).toEqual([]);
+    expect(new URL(engine ?? "").origin).toBe(site.origin);
+    const served = await page.request.get(engine ?? "");
+    expect(served.status()).toBe(200);
+    expect(served.headers()["content-type"]).toContain("javascript");
+
     const api = requests.filter((url) =>
       url.startsWith("https://api.github.com/")
     );
@@ -155,7 +152,7 @@ describe("scan page (mocked GitHub, real Chromium, no Worker)", () => {
       .poll(() => alert(page).textContent())
       .toContain("only public repositories on github.com are supported");
     expect(githubRequests(requests)).toEqual([]);
-    expect(requests.some((url) => url.includes("/analysis/"))).toBe(false);
+    expect(requests.some(isEngine)).toBe(false);
   });
 
   it("names a ref that does not exist", async () => {
@@ -184,7 +181,7 @@ describe("scan page (mocked GitHub, real Chromium, no Worker)", () => {
 
   it("reports GitHub's rate limit with its reset, and a retry succeeds once it lifts", async () => {
     const { github, page } = await open();
-    // Lifted below, before the retry.
+
     const limit = new Set(["rate"]);
     github.hook(() =>
       limit.has("rate")
@@ -270,8 +267,7 @@ describe("scan page (mocked GitHub, real Chromium, no Worker)", () => {
 
   it("cancels during analysis, between analysis steps", async () => {
     const { page } = await open();
-    // Pressed from inside the page the moment analysis is reported, since
-    // analysis holds the main thread between its steps.
+
     await page.evaluate(() => {
       const observer = new MutationObserver(() => {
         const line =
@@ -328,7 +324,7 @@ describe("scan page (mocked GitHub, real Chromium, no Worker)", () => {
       await expect
         .poll(() => alert(page).textContent())
         .toContain("That repository URL is not supported");
-      // The running scan is still the page's, and still cancellable.
+
       expect(await page.getByRole("status").textContent()).toContain(
         "Downloading files from GitHub"
       );
@@ -340,7 +336,7 @@ describe("scan page (mocked GitHub, real Chromium, no Worker)", () => {
         .poll(() => resultPanel(page).isVisible(), { timeout: 60_000 })
         .toBe(true);
       expect(await resultPanel(page).textContent()).toContain("octo/demo");
-      // The refusal described a URL the page dropped; it goes with the result.
+
       expect(await alert(page).count()).toBe(0);
       await page.getByRole("button", { name: "New scan" }).click();
       expect(await alert(page).count()).toBe(0);
@@ -410,14 +406,14 @@ describe("scan page (mocked GitHub, real Chromium, no Worker)", () => {
     await page.getByRole("button", { name: "New scan" }).click();
     await page.getByRole("button", { name: "Keep this map" }).click();
     expect(await resultPanel(page).textContent()).toContain("octo/demo");
-    // A mistyped URL is refused in the form; the map stays.
+
     await page.getByRole("button", { name: "New scan" }).click();
     await scan(page, { repo: "https://github.com/octo" });
     await expect
       .poll(() => alert(page).textContent())
       .toContain("That repository URL is not supported");
     expect(await page.locator("canvas").count()).toBeGreaterThan(0);
-    // A second scan from the map replaces it with the new result.
+
     await scan(page, { ref: "main", repo: "https://github.com/octo/other" });
     await expect
       .poll(() => resultPanel(page).textContent(), { timeout: 60_000 })
@@ -437,27 +433,27 @@ describe("scan page (mocked GitHub, real Chromium, no Worker)", () => {
   });
 
   it("is served at its route with noindex, linked from neither the home page nor the sitemap", async () => {
-    const { page, requests } = await open();
+    const { errors, page, requests } = await open();
     await page.goto(`${site.origin}/`);
     expect(await page.locator(`a[href="${SCAN_PATH}"]`).count()).toBe(0);
     const sitemap = await page.request.get(`${site.origin}/sitemap.xml`);
     expect(await sitemap.text()).not.toContain(SCAN_PATH);
-    expect(requests.some((url) => url.includes("/analysis/"))).toBe(false);
+    expect(requests.some(isEngine)).toBe(false);
     expect(githubRequests(requests)).toEqual([]);
+    const loaded = requests.length;
     await page.goto(`${site.origin}${SCAN_PATH}`);
     expect(
       await page.locator('meta[name="robots"]').getAttribute("content")
     ).toBe("noindex");
     expect(await page.title()).toBe("Spyglass: scan a repository");
     await page.getByLabel("Public GitHub repository").waitFor();
-    // The page's own files only, all under the route; no engine yet.
-    const own = requests.filter(
-      (url) =>
-        new URL(url).origin === site.origin &&
-        new URL(url).pathname.startsWith(SCAN_PATH)
-    );
+
+    const own = requests.slice(loaded);
     expect(own.length).toBeGreaterThan(0);
-    expect(requests.some((url) => url.includes("/analysis/"))).toBe(false);
+    expectOnlyOfficialOrigins(own, site.origin);
+    expect(own).toContain(`${site.origin}/favicon.svg`);
+    expect(requests.some(isEngine)).toBe(false);
     expect(githubRequests(requests)).toEqual([]);
+    expect(errors).toEqual([]);
   });
 });

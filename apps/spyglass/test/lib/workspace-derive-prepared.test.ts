@@ -10,39 +10,19 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  ownerBoundary,
-  snapshotDirectoryOwnership,
-} from "../../src/lib/boundary";
+import { ownerBoundary } from "../../src/lib/boundary";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import type { PackageLocalReport } from "../../src/lib/package-local-types";
 import { createProject } from "../../src/lib/project";
 import type { AnalysisProfile } from "../../src/lib/types";
-import type { PreparedWorkspaceDerivation } from "../../src/lib/workspace-analysis";
-import { analyzePreparedWorkspace } from "../../src/lib/workspace-analysis";
+import type { PreparedWorkspaceInputs } from "../../src/lib/workspace-analysis";
 import {
   deriveWorkspaceSurface,
-  prepareWorkspaceDerivation,
+  prepareWorkspaceInputs,
 } from "../../src/lib/workspace-derive";
 import type { WorkspaceSurfaceDerivation } from "../../src/lib/workspace-derive-types";
-
-// Workspace derivation over prepared native inputs. Preparation resolves
-// boundaries and entrypoints, builds the shared program, cruises the module
-// graph, answers its gitignore and ownership questions, reads Git history
-// and reads fold planning's inputs. Analysis must take those answers from
-// the prepared value alone.
-// The module-level lookup caches would hide a disk read after preparation,
-// so the native functions are intercepted instead: once preparation is
-// done, any call to a blocked one is recorded and fails the test, even
-// where a caller catches its error.
-//
-// The fixture runs in place, so its Git history comes from the enclosing
-// checkout; that is what exercises the history owner lookups.
-//
-// By default the shared project is not prepared source: it is a native
-// ts-morph program on the real file system that keeps tsconfig settings and
-// installed dependency types. The typed workspace below checks that both
-// still shape the derived facts.
+import { snapshotDirectoryOwnership } from "./helpers/directory-ownership";
+import { analyzePrepared } from "./helpers/prepared-workspace";
 
 const guard = vi.hoisted(() => {
   const blocked = new Set<string>();
@@ -68,7 +48,6 @@ const guard = vi.hoisted(() => {
   };
 });
 
-/** Directories read through `node:fs` `readdirSync` by project modules. */
 const listed = vi.hoisted(() => [] as string[]);
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -91,10 +70,6 @@ vi.mock("../../src/lib/boundary", async (importOriginal) => {
     ),
     ownerBoundary: guard.wrap("ownerBoundary", original.ownerBoundary),
     resolveBoundary: guard.wrap("resolveBoundary", original.resolveBoundary),
-    snapshotDirectoryOwnership: guard.wrap(
-      "snapshotDirectoryOwnership",
-      original.snapshotDirectoryOwnership
-    ),
     workspacePatterns: guard.wrap(
       "workspacePatterns",
       original.workspacePatterns
@@ -137,7 +112,6 @@ vi.mock("../../src/lib/project", async (importOriginal) => {
   };
 });
 
-/** Every native lookup the prepared value replaces. */
 const ALL_PREPARED = [
   "boundaryEntrypoints",
   "collectGitHistory",
@@ -146,7 +120,6 @@ const ALL_PREPARED = [
   "cruiseWorkspace",
   "ownerBoundary",
   "resolveBoundary",
-  "snapshotDirectoryOwnership",
   "workspacePatterns",
 ];
 
@@ -167,7 +140,6 @@ afterAll(() => {
   }
 });
 
-/** The derivation without its timing or the recentering run times. */
 function comparable(derivation: WorkspaceSurfaceDerivation): string {
   return JSON.stringify({ ...derivation, timing: undefined }, (key, value) =>
     key === "runtimeMs" ? undefined : value
@@ -188,24 +160,13 @@ function localsOf(
   );
 }
 
-/**
- * Native preparation tabled owners without walking the root's directories:
- * no directory snapshot was read or prepared.
- */
-function expectNoDirectoryCensus(prepared: PreparedWorkspaceDerivation): void {
+function expectNoDirectoryCensus(prepared: PreparedWorkspaceInputs): void {
   expect(prepared.directories).toBeUndefined();
-  expect(guard.calls.map((call) => call.name)).not.toContain(
-    "snapshotDirectoryOwnership"
-  );
   expect(prepared.owners.size).toBeGreaterThan(0);
 }
 
-/** Analyze with the named native lookups blocked, collecting any attempt. */
-function analyzeBlocked(
-  blocked: readonly string[],
-  run: () => WorkspaceSurfaceDerivation
-): WorkspaceSurfaceDerivation {
-  for (const name of blocked) {
+function withoutNative<T>(run: () => T): T {
+  for (const name of ALL_PREPARED) {
     guard.blocked.add(name);
   }
   try {
@@ -214,6 +175,12 @@ function analyzeBlocked(
     guard.blocked.clear();
   }
 }
+
+const analyzeBlocked = (
+  locals: readonly PackageLocalReport[],
+  prepared: PreparedWorkspaceInputs
+): WorkspaceSurfaceDerivation =>
+  analyzePrepared(locals, prepared, withoutNative);
 
 function git(dir: string, args: string[], date: string): void {
   execFileSync("git", args, {
@@ -240,12 +207,6 @@ function commit(dir: string, date: string): void {
   );
 }
 
-/**
- * Two packages with Git history. `@t/shared` extends an interface declared
- * only in an installed dependency's types; `@t/app` imports it through the
- * package name, through a root tsconfig path alias and imports a gitignored
- * generated file that itself consumes `@t/shared`. No dependency is installed by a package manager.
- */
 function typedWorkspace(): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "workspace-prepared-")));
   tempRoots.push(root);
@@ -352,19 +313,6 @@ function typedWorkspace(): string {
   return root;
 }
 
-/**
- * Consumers of `@t/shared` that only the compiler discovers, lazily, while
- * analysis resolves `@t/app`'s imports: each is excluded from the project
- * glob and the cruise (a `*.config.ts`, a test fixture, a declaration file)
- * and is created after the last commit, so it is neither a project source,
- * a cruised path nor a Git-tracked file when preparation tables owners.
- * Their native owners differ: a nested fixture manifest outside the
- * workspace patterns folds into `@t/app`, an unanalyzed workspace member
- * owns its own file, an unnamed member is named by its path, and a file
- * directly below the root belongs to `<root>`. One is imported relatively
- * through an in-root symbolic link, which TypeScript does not realpath, so
- * the program spells it through the link.
- */
 const LATE_CONSUMERS: Record<string, string> = {
   "late.config.ts": "<root>",
   "packages/app/app.config.ts": "@t/app",
@@ -459,15 +407,13 @@ describe("prepared workspace derivation", () => {
     "reproduces the %s fixture derivation without native lookups",
     async (profile) => {
       const locals = localsOf(fixture, fixtureTargets);
-      const prepared = await prepareWorkspaceDerivation(locals, {
+      const prepared = await prepareWorkspaceInputs(locals, {
         now,
         profile,
         root: fixture,
       });
       expectNoDirectoryCensus(prepared);
-      const derived = analyzeBlocked(ALL_PREPARED, () =>
-        analyzePreparedWorkspace(locals, prepared)
-      );
+      const derived = analyzeBlocked(locals, prepared);
       expect(guard.attempts).toEqual([]);
       const native = await deriveWorkspaceSurface(locals, {
         now,
@@ -484,7 +430,7 @@ describe("prepared workspace derivation", () => {
     const targets = ["packages/app", "packages/shared"];
     const locals = localsOf(root, targets, "tsconfig.json");
     guard.calls.length = 0;
-    const prepared = await prepareWorkspaceDerivation(locals, {
+    const prepared = await prepareWorkspaceInputs(locals, {
       now,
       root,
       tsconfig: "tsconfig.json",
@@ -500,17 +446,13 @@ describe("prepared workspace derivation", () => {
       ["cruiseWorkspace", root, "tsconfig.json"],
     ]);
 
-    // The installed declaration is not enumerated by preparation: the
-    // program loads it from disk when analysis first type-checks.
     expect(
       prepared.moduleGraph.ignored.get("packages/app/ignored/gen.ts")
     ).toBe(true);
     expect(prepared.history.available).toBe(true);
     expectNoDirectoryCensus(prepared);
 
-    const derived = analyzeBlocked(ALL_PREPARED, () =>
-      analyzePreparedWorkspace(locals, prepared)
-    );
+    const derived = analyzeBlocked(locals, prepared);
     expect(guard.attempts).toEqual([]);
     const native = await deriveWorkspaceSurface(locals, {
       now,
@@ -520,20 +462,19 @@ describe("prepared workspace derivation", () => {
     expect(comparable(derived)).toBe(comparable(native));
 
     const shared = derived.packages["packages/shared"];
-    // Gadget gains id and size only through the installed Widget type.
+
     expect(
       shared?.conceptOverlap.candidates.flatMap((candidate) =>
         candidate.conversions.map((conversion) => conversion.function)
       )
     ).toEqual(["recordOf"]);
-    // recordOf is imported only through the root tsconfig's path alias.
+
     expect(shared?.usage).toMatchObject({
       "packages/shared/src/index.ts#recordOf": {
         consumerModules: ["packages/app/src/alias.ts"],
       },
     });
-    // A gitignored generated consumer is still loaded by the program and
-    // keeps the owner the native lookup gives it.
+
     expect(shared?.usage).toMatchObject({
       "packages/shared/src/index.ts#unusedShared": {
         consumerModuleUsage: expect.arrayContaining([
@@ -554,7 +495,7 @@ describe("prepared workspace derivation", () => {
     const targets = ["packages/app", "packages/shared"];
     const locals = localsOf(root, targets);
     guard.calls.length = 0;
-    const prepared = await prepareWorkspaceDerivation(locals, { now, root });
+    const prepared = await prepareWorkspaceInputs(locals, { now, root });
     expectNoDirectoryCensus(prepared);
     const sources = new Set(
       prepared.project
@@ -566,8 +507,7 @@ describe("prepared workspace derivation", () => {
     );
     for (const [file, owner] of Object.entries(LATE_CONSUMERS)) {
       const absolute = join(root, file);
-      // Not a project source, cruised path or tracked file: preparation
-      // owns it because the program loads it.
+
       expect(sources.has(absolute)).toBe(false);
       expect(prepared.moduleGraph.ignored.has(file)).toBe(false);
       expect(tracked.has(file)).toBe(false);
@@ -575,9 +515,7 @@ describe("prepared workspace derivation", () => {
       expect(prepared.owners.get(absolute)).toBe(owner);
     }
 
-    const derived = analyzeBlocked(ALL_PREPARED, () =>
-      analyzePreparedWorkspace(locals, prepared)
-    );
+    const derived = analyzeBlocked(locals, prepared);
     expect(guard.attempts).toEqual([]);
     const owners = Object.fromEntries(
       Object.values(derived.packages)
@@ -591,7 +529,7 @@ describe("prepared workspace derivation", () => {
         )
     );
     expect(owners).toEqual(LATE_CONSUMERS);
-    // The linked spelling is tabled as the program spells it.
+
     expect(prepared.owners.get(join(root, LINKED_CONSUMER))).toBe("@t/app");
   });
 
@@ -600,7 +538,7 @@ describe("prepared workspace derivation", () => {
     const locals = localsOf(root, ["packages/app", "packages/shared"]);
     const project = createProject(root, "tsconfig.json");
     guard.calls.length = 0;
-    const prepared = await prepareWorkspaceDerivation(locals, {
+    const prepared = await prepareWorkspaceInputs(locals, {
       now,
       project,
       root,
@@ -608,7 +546,7 @@ describe("prepared workspace derivation", () => {
     });
     expect(prepared.project).toBe(project);
     expect(guard.calls.map((call) => call.name)).not.toContain("createProject");
-    const supplied = analyzePreparedWorkspace(locals, prepared);
+    const supplied = analyzePrepared(locals, prepared);
     const created = await deriveWorkspaceSurface(locals, {
       now,
       root,
@@ -619,7 +557,7 @@ describe("prepared workspace derivation", () => {
 
   it("fails on an uncovered owner, gitignore verdict or boundary", async () => {
     const locals = localsOf(fixture, fixtureTargets);
-    const prepared = await prepareWorkspaceDerivation(locals, {
+    const prepared = await prepareWorkspaceInputs(locals, {
       now,
       root: fixture,
     });
@@ -628,37 +566,29 @@ describe("prepared workspace derivation", () => {
     expect(prepared.owners.has(consumer)).toBe(true);
     expect(prepared.moduleGraph.ignored.has("apps/a/src/index.ts")).toBe(true);
 
-    // Native preparation prepares no directory verdicts, so a file analysis
-    // asks about without a tabled owner fails rather than guessing.
     const owners = new Map(prepared.owners);
     owners.delete(consumer);
-    expect(() =>
-      analyzePreparedWorkspace(locals, { ...prepared, owners })
-    ).toThrow(`No prepared owner for ${consumer}`);
+    expect(() => analyzePrepared(locals, { ...prepared, owners })).toThrow(
+      `No prepared owner for ${consumer}`
+    );
 
-    // A deferred lookup error is raised, as itself, where analysis asks.
     const deferred = new SyntaxError("deferred manifest error");
     expect(() =>
-      analyzePreparedWorkspace(locals, {
+      analyzePrepared(locals, {
         ...prepared,
         ownerErrors: new Map([[consumer, deferred]]),
         owners,
       })
     ).toThrow(deferred);
 
-    // Supplied directory verdicts (file-map preparation's fallback) answer
-    // an untabled file, refuse one below an unwalked directory and must be
-    // for the prepared root.
     const directories = snapshotDirectoryOwnership(realFixture);
     expect(
-      comparable(
-        analyzePreparedWorkspace(locals, { ...prepared, directories, owners })
-      )
-    ).toBe(comparable(analyzePreparedWorkspace(locals, prepared)));
+      comparable(analyzePrepared(locals, { ...prepared, directories, owners }))
+    ).toBe(comparable(analyzePrepared(locals, prepared)));
     const unwalked = new Set(directories.unwalked);
     unwalked.add(join(realFixture, "apps/a/src"));
     expect(() =>
-      analyzePreparedWorkspace(locals, {
+      analyzePrepared(locals, {
         ...prepared,
         directories: { ...directories, unwalked },
         owners,
@@ -667,7 +597,7 @@ describe("prepared workspace derivation", () => {
       `No prepared directory ownership for ${consumer}: ${join(realFixture, "apps/a/src")} was not walked`
     );
     expect(() =>
-      analyzePreparedWorkspace(locals, {
+      analyzePrepared(locals, {
         ...prepared,
         directories: { ...directories, root: dirname(realFixture) },
       })
@@ -678,14 +608,14 @@ describe("prepared workspace derivation", () => {
     const ignored = new Map(prepared.moduleGraph.ignored);
     ignored.delete("apps/a/src/index.ts");
     expect(() =>
-      analyzePreparedWorkspace(locals, {
+      analyzePrepared(locals, {
         ...prepared,
         moduleGraph: { ...prepared.moduleGraph, ignored },
       })
     ).toThrow("No prepared gitignore verdict for apps/a/src/index.ts");
 
     expect(() =>
-      analyzePreparedWorkspace(locals, {
+      analyzePrepared(locals, {
         ...prepared,
         packages: prepared.packages.slice(1),
       })
@@ -696,10 +626,6 @@ describe("prepared workspace derivation", () => {
 describe("native preparation reads only the ownership analysis needs", () => {
   const BROKEN = "{ not json";
 
-  /**
-   * One analyzed member, `@t/a`, committed `at` with `extra` files beside
-   * it, in a fresh repository.
-   */
   function workspaceWith(
     extra: Record<string, string>,
     at = "2026-10-15T00:00:00Z"
@@ -726,7 +652,6 @@ describe("native preparation reads only the ownership analysis needs", () => {
     return root;
   }
 
-  /** The message the native lookup throws for the BROKEN manifest. */
   function parseMessage(): string {
     try {
       JSON.parse(BROKEN);
@@ -738,17 +663,14 @@ describe("native preparation reads only the ownership analysis needs", () => {
 
   async function deriveBlocked(root: string) {
     const locals = localsOf(root, ["packages/a"]);
-    const prepared = await prepareWorkspaceDerivation(locals, { now, root });
+    const prepared = await prepareWorkspaceInputs(locals, { now, root });
     expectNoDirectoryCensus(prepared);
-    const derived = analyzeBlocked(ALL_PREPARED, () =>
-      analyzePreparedWorkspace(locals, prepared)
-    );
+    const derived = analyzeBlocked(locals, prepared);
     expect(guard.attempts).toEqual([]);
     return { derived, prepared };
   }
 
   it("ignores a malformed manifest only an old tracked file reaches", async () => {
-    // Committed outside the history window: no eligible commit names it.
     const root = workspaceWith(
       { "examples/broken/package.json": BROKEN },
       "2015-01-01T00:00:00Z"
@@ -791,12 +713,8 @@ describe("native preparation reads only the ownership analysis needs", () => {
     const broken = join(root, "test/fixtures/broken/package.json");
     expect(() => ownerBoundary(root, broken)).toThrow(parseMessage());
     const locals = localsOf(root, ["packages/a"]);
-    const prepared = await prepareWorkspaceDerivation(locals, { now, root });
-    expect(() =>
-      analyzeBlocked(ALL_PREPARED, () =>
-        analyzePreparedWorkspace(locals, prepared)
-      )
-    ).toThrow(parseMessage());
+    const prepared = await prepareWorkspaceInputs(locals, { now, root });
+    expect(() => analyzeBlocked(locals, prepared)).toThrow(parseMessage());
     expect(guard.attempts).toEqual([]);
     await expect(deriveWorkspaceSurface(locals, { now, root })).rejects.toThrow(
       parseMessage()
@@ -823,7 +741,7 @@ describe("native preparation reads only the ownership analysis needs", () => {
     const { prepared } = await deriveBlocked(root);
     expect(prepared.history.available).toBe(true);
     expect(inSentinels()).toEqual([]);
-    // The recorder sees the walk the old preparation ran.
+
     snapshotDirectoryOwnership(root);
     expect(inSentinels()).toContain(join(root, ".worktrees/stale/deep/er"));
   });

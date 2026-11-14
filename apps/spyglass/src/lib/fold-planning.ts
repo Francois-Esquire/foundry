@@ -24,70 +24,39 @@ import { planFingerprint } from "./validate";
 const walkPattern = /\.tsx?$/;
 const walkPattern2 = /\.config\.[cm]?[jt]sx?$/;
 
-// Read-only fold planning: assembles the concrete shape of an existing
-// fold-package opportunity — what crosses the boundary, what would become
-// internal, what metadata is affected. Never decides fold eligibility
-// (that is V2 policy) and never mutates anything.
-//
-// Planning reads the repository only through `FoldInputs`: the answers the
-// native planner's reads give, taken before planning runs (`fold-plan.ts`
-// reads them). A read that throws keeps its error, which planning rethrows
-// where the native planner would have raised it, so an unused failure stays
-// harmless.
-
-/** A native read's answer, or the error the read raised. */
 export type FoldRead<T> = { readonly value: T } | { readonly error: unknown };
 
-/** The dependency sections of a manifest, as parsed and unvalidated. */
 export interface ManifestSections {
   dependencies?: unknown;
   devDependencies?: unknown;
   peerDependencies?: unknown;
 }
 
-/** What planning reads about a package being folded. */
 export interface FoldSourceInput {
-  /**
-   * Root-relative posix path of every non-directory entry the package walk
-   * reaches, sorted: below the package directory, outside `SKIP_DIRS` and
-   * gitignored paths. Classification happens during planning.
-   */
   readonly files: FoldRead<readonly string[]>;
   readonly hasManifest: boolean;
   readonly hasTsconfig: boolean;
 }
 
-/** What planning reads about a destination `resolveBoundary` resolved. */
 export interface FoldDestinationInput {
-  /** Real directory of the destination boundary. */
   readonly dir: string;
-  /** Whether `src` exists below `dir`. */
+
   readonly hasSrc: boolean;
-  /** The manifest's dependency sections; absent without a manifest. */
+
   readonly manifest?: FoldRead<ManifestSections>;
   readonly relPath: string;
-  /**
-   * Whether `src/<short name>` exists, for the short name of each prepared
-   * source package. Empty when `src` does not exist.
-   */
+
   readonly srcEntries: ReadonlyMap<string, boolean>;
-  /** `tsconfig.json`'s `references`, unvalidated; absent without the file. */
+
   readonly tsconfig?: { readonly references: unknown };
 }
 
-/**
- * Every repository answer fold planning needs for a set of source packages
- * and candidate destination names, keyed in sorted order. A destination
- * that does not resolve is `null`. Planning throws for a source or
- * destination these inputs do not cover.
- */
 export interface FoldInputs {
-  /** Destination answers by boundary name. */
   readonly destinations: ReadonlyMap<string, FoldDestinationInput | null>;
   readonly root: string;
-  /** Source answers by real package directory. */
+
   readonly sources: ReadonlyMap<string, FoldSourceInput>;
-  /** `workspacePatterns(root)`. */
+
   readonly workspacePatterns: FoldRead<readonly string[]>;
 }
 
@@ -102,7 +71,6 @@ export function shortNameOf(boundary: Boundary): string | undefined {
   return (boundary.packageName ?? boundary.relPath).split("/").pop();
 }
 
-/** The fold-package opportunity a plan is built for, if any. */
 export function foldOpportunity(
   opportunities: readonly ReductionOpportunity[]
 ): ReductionOpportunity | undefined {
@@ -132,7 +100,6 @@ function inventoryFiles(
     if (walkPattern2.test(name)) {
       files.push({ file: rel, kind: "config" });
     } else if (walkPattern.test(name) && !name.endsWith(".d.ts")) {
-      // Stories fold like source; the shared classifier decides test-ness.
       const local = relative(boundary.dir, join(boundary.root, rel));
       const kind = classifyFile(toPosix(local));
       files.push({ file: rel, kind: kind === "test" ? "test" : "source" });

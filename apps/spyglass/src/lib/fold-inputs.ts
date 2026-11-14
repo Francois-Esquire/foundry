@@ -14,15 +14,9 @@ import type {
 import { shortNameOf } from "./fold-planning";
 import type { Ignorer } from "./ignore-rules";
 
-// Fold planning's repository reads over a reader and gitignore answers.
-// `fold-plan.ts` answers them natively; `file-map-preparation.ts` from a
-// recorded file map. Manifests and tsconfig files are parsed as data.
-
-/** The fold reads beyond the manifest rules': directory entries and config text. */
 export interface FoldReader extends RepositoryReader {
-  /** The entries directly below `dir`; links are not directories. */
   entries(dir: string): { directory: boolean; name: string }[];
-  /** A tsconfig's text as the compiler reads it; undefined when absent. */
+
   readConfigText(file: string): string | undefined;
 }
 
@@ -113,7 +107,6 @@ function readDestination(
   };
 }
 
-/** tsconfig `references`, JSONC-safe; undefined when the file does not parse. */
 function tsconfigReferences(reader: FoldReader, tsconfigFile: string): unknown {
   const parsed = ts.readConfigFile(tsconfigFile, (file) =>
     reader.readConfigText(file)
@@ -122,11 +115,6 @@ function tsconfigReferences(reader: FoldReader, tsconfigFile: string): unknown {
   return config?.references;
 }
 
-/**
- * Fold inputs for a derivation with no fold opportunity, from which planning
- * reads nothing: no source, no destination, and workspace patterns that
- * were not read.
- */
 export function noFoldInputs(root: string): FoldInputs {
   return {
     destinations: new Map(),
@@ -138,12 +126,6 @@ export function noFoldInputs(root: string): FoldInputs {
   };
 }
 
-/**
- * Read the fold planner's inputs through `reader`: each source package's
- * walk and configuration files, each destination name's boundary and its
- * manifest, tsconfig and `src` entries, and the root's workspace patterns.
- * Reads that throw are kept as errors for planning to raise.
- */
 export function readFoldInputsWith(
   reader: FoldReader,
   ignorer: Ignorer,

@@ -71,68 +71,28 @@ import type {
 } from "./workspace-derive-types";
 import { WORKSPACE_SURFACE_DERIVATION_SCHEMA_VERSION } from "./workspace-derive-types";
 
-// Invariant: package-local facts describe the package; workspace-derived
-// facts describe the package's relationship to its current environment.
-//
-// This module is the derivation's computation over prepared inputs. Native
-// acquisition (the program, cruise, Git, boundaries, ownership and fold
-// reads) is `workspace-derive.ts`, which this module does not import at
-// run time; `test/lib/workspace-analysis-imports.test.ts` guards that.
-
-/** One local report's boundary, resolved before analysis. */
 interface PreparedWorkspacePackage {
   boundary: Boundary;
-  /** The manifest's entrypoints, read at preparation. */
+
   entrypoints: BoundaryEntrypoint[];
 }
 
-/**
- * The native inputs of a workspace derivation, acquired before analysis:
- * boundaries and entrypoints, source and directory ownership, the
- * dependency-cruiser module
- * graph with its gitignore verdicts, and Git history. Fold planning reads
- * only `fold`.
- */
-export interface PreparedWorkspaceDerivation {
-  /**
-   * Owner verdicts per directory, consulted for a path neither `owners` nor
-   * `ownerErrors` covers. File-map preparation supplies them; native
-   * preparation does not, because it tables every path analysis asks about
-   * (program files, cruised paths and eligible tracked files) and walking
-   * the whole root would cost far more than it saves.
-   */
+export interface PreparedWorkspaceInputs {
   directories?: DirectoryOwnership;
-  /**
-   * Fold planning's repository answers, covering every source and
-   * destination `foldRequests` can name for these inputs: here every
-   * package's walk and configuration files and every boundary name an owner
-   * lookup can return. A wrapper that runs `analyzeWorkspaceToFolds` first
-   * reads only the requested ones for `completeWorkspace` instead.
-   */
-  fold: FoldInputs;
   history: GitHistory;
   moduleGraph: {
-    /** Gitignore verdicts for every in-root relative path of `modules`. */
     ignored: ReadonlyMap<string, boolean>;
     modules: CruisedModule[];
   };
-  /** The analysis clock, shared with `history`. */
+
   now: Date;
-  /**
-   * The error the owner lookup threw for a path it could not answer, kept
-   * so analysis raises it only where it asks for that path's owner.
-   */
+
   ownerErrors: ReadonlyMap<string, unknown>;
-  /**
-   * Owner of every program file outside `node_modules` (project sources and
-   * the files the compiler discovers through them), every followed cruised
-   * path and every current tracked file outside excluded directories, keyed
-   * by absolute path. A path whose lookup threw is in `ownerErrors` instead.
-   */
+
   owners: ReadonlyMap<string, string>;
-  /** Aligned with the local reports, in their order. */
+
   packages: PreparedWorkspacePackage[];
-  /** `temporal` prepares no Git history and analysis skips references. */
+
   profile: AnalysisProfile;
   project: Project;
   root: string;
@@ -154,16 +114,10 @@ interface PackageState {
   usage: Record<string, ExternalUsage>;
 }
 
-/** A package's dependencies and reduction opportunities, which fold planning reads. */
 type PackageReductions = ReturnType<typeof buildOpportunities> & {
   dependencies: SurfaceDependencies;
 };
 
-/**
- * A derivation analyzed up to fold planning: every fact a fold plan reads
- * besides the fold inputs, so the native wrapper can read exactly the fold
- * sources and destinations `foldRequests` names before `completeWorkspace`.
- */
 export interface WorkspaceFoldStage {
   readonly config: AnalysisConfig;
   readonly overlapIndex: ReturnType<typeof buildConceptOverlapIndex>;
@@ -172,7 +126,7 @@ export interface WorkspaceFoldStage {
   readonly reductions: readonly PackageReductions[];
   readonly started: number;
   readonly states: readonly PackageState[];
-  /** Phase times so far; `normalizeMs` is counted into `cruiseMs`. */
+
   readonly timing: Pick<
     WorkspaceDerivationTiming,
     | "conceptsMs"
@@ -182,9 +136,6 @@ export interface WorkspaceFoldStage {
     | "symbolsMs"
   > & { normalizeMs: number };
 }
-
-/** A workspace derivation's prepared inputs before fold planning's are read. */
-export type PreparedWorkspaceInputs = Omit<PreparedWorkspaceDerivation, "fold">;
 
 function ratio(numerator: number, denominator: number): number {
   return denominator === 0 ? 0 : numerator / denominator;
@@ -211,7 +162,6 @@ function ownedSymbols(
   return nodesById;
 }
 
-/** `localComplexity` with `parameters.boolean` re-measured on the shared program. */
 export function patchBooleanParameters(
   complexity: LocalComplexityReport,
   counts: Record<string, number>
@@ -238,31 +188,6 @@ export function lap(): () => number {
   return () => Math.round(performance.now() - at);
 }
 
-/**
- * Workspace derivation over prepared native inputs. Boundaries, entrypoints,
- * ownership, the module graph's ownership and gitignore answers, and Git
- * history come only from `prepared`. A file without a tabled owner is owned
- * through the directory snapshot; a path that snapshot does not cover, an
- * unprepared gitignore verdict or a missing boundary throws. Fold planning
- * reads only the prepared fold inputs and throws for a destination they do
- * not cover. A native shared project still reaches the file system.
- */
-export function analyzePreparedWorkspace(
-  locals: readonly PackageLocalReport[],
-  prepared: PreparedWorkspaceDerivation,
-  config: AnalysisConfig = ANALYSIS_CONFIG
-): WorkspaceSurfaceDerivation {
-  return completeWorkspace(
-    analyzeWorkspaceToFolds(locals, prepared, config),
-    prepared.fold
-  );
-}
-
-/**
- * The fold sources and destinations a stage's plans read: each package with
- * a fold opportunity and the consumer it targets, as `buildFoldPlans` reads
- * them natively. Empty when no package has a fold opportunity.
- */
 export function foldRequests(stage: WorkspaceFoldStage): {
   destinations: string[];
   sources: Boundary[];
@@ -280,11 +205,6 @@ export function foldRequests(stage: WorkspaceFoldStage): {
   return { destinations: [...destinations], sources };
 }
 
-/**
- * Workspace derivation over prepared inputs up to fold planning: references,
- * edges, concepts, the overlap index, and each package's dependencies and
- * opportunities. Reads only `prepared`, as `analyzePreparedWorkspace` does.
- */
 export function analyzeWorkspaceToFolds(
   locals: readonly PackageLocalReport[],
   prepared: PreparedWorkspaceInputs,
@@ -392,7 +312,6 @@ export function analyzeWorkspaceToFolds(
     }));
   }
 
-  // Counted with the cruise it slices, as before preparation was separate.
   done = lap();
   for (const state of states) {
     state.edges = normalizeEdges(
@@ -425,8 +344,7 @@ export function analyzeWorkspaceToFolds(
   const conceptsMs = done();
 
   done = lap();
-  // Preserve the monolithic analyzer's last-symbol-wins behavior for duplicate
-  // IDs, regardless of symbol kind, until the overlap policy changes.
+
   const visitState = () => {
     for (const state of states) {
       const target = state.boundary.packageName ?? state.boundary.relPath;
@@ -489,11 +407,6 @@ export function analyzeWorkspaceToFolds(
   };
 }
 
-/**
- * Complete a fold stage with fold planning's inputs, which must cover every
- * source and destination `foldRequests(stage)` names; planning throws for
- * one they do not.
- */
 export function completeWorkspace(
   stage: WorkspaceFoldStage,
   fold: FoldInputs
@@ -532,7 +445,7 @@ export function completeWorkspace(
       projectMs: prepared.timing.projectMs,
       referencesMs,
       symbolsMs,
-      // The wrapper replaces this with its own elapsed time.
+
       totalMs:
         prepared.timing.projectMs +
         prepared.timing.cruiseMs +

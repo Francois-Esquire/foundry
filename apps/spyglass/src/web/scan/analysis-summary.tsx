@@ -3,12 +3,6 @@ import type {
   RepositoryAcquisitionLimitation,
 } from "../../lib/dataset-analysis";
 
-// What a browser scan could and could not see, read from the dataset's own
-// saved analysis metadata (`reader.analysis()`), never inferred: the source
-// revision, what was read and omitted, and each gap a native scan would not
-// have. Only a dataset with analysis metadata has one; a native or saved
-// dataset never reaches here.
-
 const LIMITATIONS: Record<RepositoryAcquisitionLimitation, string> = {
   "dependencies-not-installed":
     "No dependency was installed, so types from packages outside the repository are unknown.",
@@ -95,10 +89,7 @@ function Source({ analysis }: { analysis: DatasetAnalysis }) {
       </dl>
       <h3>Not read</h3>
       <ul>
-        <li>
-          {omitted.notAnalysisInput} files outside the analysis inputs (not
-          TypeScript, JavaScript, JSON or workspace manifests)
-        </li>
+        <li>{omitted.notAnalysisInput} files not selected for analysis</li>
         <Listed items={omitted.symlinks} label="Symbolic links, not followed" />
         <Listed items={omitted.submodules} label="Submodules, not fetched" />
         <Listed
@@ -122,7 +113,6 @@ function Source({ analysis }: { analysis: DatasetAnalysis }) {
   );
 }
 
-/** The analysis metadata of a browser scan, in full. */
 export function AnalysisSummary({ analysis }: { analysis: DatasetAnalysis }) {
   const { capabilities, provenance } = analysis;
   const { configuration, history, moduleGraph, types } = capabilities;
@@ -176,7 +166,6 @@ export function AnalysisSummary({ analysis }: { analysis: DatasetAnalysis }) {
   );
 }
 
-/** One line of what the scan lacks, for the result's collapsed summary. */
 export function gapLine(analysis: DatasetAnalysis): string {
   const { types, moduleGraph } = analysis.capabilities;
   const parts = ["no history", "no internals"];

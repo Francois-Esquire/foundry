@@ -48,17 +48,6 @@ import {
   WORKSPACE_SCHEMA_VERSION,
 } from "./workspace-types";
 
-// V9.0 workspace ingestion. Package reports are observations; this file
-// turns many of them into one canonical model without re-analysis. Every
-// fact is keyed by an id the package reports already carry, a second
-// observation of the same id is cross-checked rather than summed, and a
-// disagreement becomes a recorded conflict, never a silent choice.
-//
-// Pipeline: LOAD → VALIDATE → NORMALIZE → IDENTIFY → MERGE → CROSS-CHECK
-// → INDEX. Sources are processed in canonical package order and every
-// collection is sorted before output, so input order cannot leak into the
-// result.
-
 type WorkspaceValidation =
   | { ok: true; report: SurfaceReport }
   | { ok: false; kind: WorkspaceDiagnosticKind; detail: string };
@@ -86,11 +75,6 @@ const REQUIRED_SECTIONS = [
   "recenteringCandidates",
 ] as const;
 
-/**
- * Accepts a bare `SurfaceReport` or the `{ seconds, report }` envelope the
- * tuning sweep writes. Anything else is rejected with a reason; nothing is
- * reinterpreted.
- */
 function validateWorkspaceInput(
   value: unknown,
   supportedSchemas: readonly number[] = SUPPORTED_PACKAGE_SCHEMAS
@@ -183,7 +167,6 @@ function historyOf(
   };
 }
 
-/** Same window → same id, whichever report measured it. */
 function windowIdOf(history: WorkspaceReportSource["history"]): string {
   return history === undefined
     ? "no-history"
@@ -264,7 +247,6 @@ class Table<T> {
     this.ledger = ledger;
   }
 
-  /** Records an observation; `reconcile` runs only for a second observation of the same id. */
   observe(
     id: string,
     source: string,
@@ -305,12 +287,6 @@ function same(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-/**
- * Cross-checks one field of a twice-observed fact. Equal values verify it;
- * differing values become a conflict with the given resolution and the
- * existing value stands (sources are visited in canonical order, so "first"
- * is deterministic, and authority-bearing callers pass the preferred value).
- */
 function crossCheck(
   ledger: Ledger,
   entity: WorkspaceEntityKind,
@@ -358,7 +334,6 @@ function orientPair<T extends PackageChangeCoupling>(
   };
 }
 
-/** Property lists are sets whose order follows the observing target; sort them so two perspectives compare equal. */
 function normalizeStructure(
   structure: ConceptPropertyOverlap,
   reversed: boolean
@@ -479,7 +454,6 @@ function edgeId(from: string, to: string): string {
   return `${from}→${to}`;
 }
 
-/** A package mentioned by name but not (yet) analyzed: identity only. */
 function mentionPackage(t: Tables, source: string, name: string): void {
   t.packages.observe(name, source, {
     analyzed: false,
@@ -512,7 +486,7 @@ function mergePackage(t: Tables, report: SurfaceReport): string {
       unusedExternalExports: report.summary.unusedExternalExports,
     },
   };
-  // The package's own report is authoritative over a mention from elsewhere.
+
   t.packages.observe(id, id, own, (existing, incoming) =>
     incoming.analyzed ? incoming : existing
   );
@@ -629,7 +603,6 @@ function perspectiveOf(
   };
 }
 
-/** Destination-observed values win where present; they measure the destination's own surface. */
 function canonicalBoundary(
   id: string,
   from: string,
@@ -708,7 +681,6 @@ function mergeBoundaries(t: Tables, report: SurfaceReport, self: string): void {
           ? existing.perspectives.source
           : existing.perspectives.destination;
       if (other === undefined) {
-        // Same orientation twice can only come from overlapping targets.
         crossCheck(
           ledger,
           "boundary",
@@ -783,8 +755,7 @@ function mergeConceptObservation(
   incoming: Omit<WorkspaceConcept, "provenance" | "overlaps">
 ): Omit<WorkspaceConcept, "provenance" | "overlaps"> {
   const observations = [...existing.observations, ...incoming.observations];
-  // A seed observation carries the target-scoped analyses; a partner
-  // observation carries identity only.
+
   const lead = existing.analysis === "seed-report" ? existing : incoming;
   const { observations: _drop, ...facts } = lead;
   return { ...facts, observations };
@@ -969,7 +940,6 @@ function mergeConceptsFamily(
     }
     t.concepts.observe(seed.id, self, value, (existing, incoming, by) => {
       if (existing.analysis === "seed-report") {
-        // Two seed observations: the declaring package's own report leads.
         const preferred =
           incoming.package === by[1] && existing.package !== by[0]
             ? incoming
@@ -1048,7 +1018,7 @@ function mergeEvolution(
           ],
           sameWindow ? "unresolved" : "target-scoped"
         );
-        // The file's own package report leads; otherwise the first in canonical order.
+
         const lead =
           incoming.package === by[1] && existing.package !== by[0]
             ? incoming
@@ -1345,11 +1315,6 @@ const ENTITY_KINDS: WorkspaceEntityKind[] = [
   "review",
 ];
 
-/**
- * Turns package reports into one canonical `WorkspaceReport`. Pure: no
- * filesystem, no Git, no TypeScript. Accepts raw JSON values so callers can
- * feed parsed files directly; invalid inputs become diagnostics, not throws.
- */
 export function ingestWorkspaceReports(
   inputs: readonly unknown[],
   options: WorkspaceIngestOptions = {}
@@ -1357,7 +1322,6 @@ export function ingestWorkspaceReports(
   const supported = options.supportedSchemas ?? SUPPORTED_PACKAGE_SCHEMAS;
   const ledger = new Ledger();
 
-  // LOAD + VALIDATE
   const accepted: SurfaceReport[] = [];
   let rejected = 0;
   rejected = ingestWorkspaceReportsInput(
@@ -1368,8 +1332,6 @@ export function ingestWorkspaceReports(
     ledger
   );
 
-  // IDENTIFY: one report per target; identical duplicates collapse,
-  // differing duplicates make the target ambiguous and are all rejected.
   const byTarget = new Map<string, SurfaceReport[]>();
   const visitId = () => {
     for (const id of sorted(byTarget.keys())) {
@@ -1413,7 +1375,6 @@ export function ingestWorkspaceReports(
     );
   }
 
-  // NORMALIZE + MERGE + CROSS-CHECK, in canonical source order.
   const t = tables(ledger);
   const paths = reports
     .map((r) => ({ id: packageIdOf(r), path: r.target.path }))
@@ -1444,14 +1405,12 @@ export function ingestWorkspaceReports(
     }
   };
 
-  // Cross-report references.
   const findingIds = new Set(t.findings.entries.keys());
   const scenarioIds = new Set(t.scenarios.entries.keys());
   ingestWorkspaceReportsEntries(t, findingIds, ledger);
   ingestWorkspaceReportsEntries2(t, scenarioIds, ledger);
   visitEntries();
 
-  // Coverage.
   const populations = new Set(
     reports.map((r) => r.dependencyGravity.population.packages)
   );
@@ -1469,7 +1428,6 @@ export function ingestWorkspaceReports(
     );
   }
 
-  // INDEX
   const overlapsByConcept = new Map<string, string[]>();
   for (const { id, entry } of t.overlaps.sortedValues()) {
     for (const side of [entry.value.left.id, entry.value.right.id]) {
@@ -1480,8 +1438,7 @@ export function ingestWorkspaceReports(
     .sortedValues()
     .map(({ id, entry }) => ({
       ...entry.value,
-      // One row per (source, role): a partner named by several overlap
-      // candidates of one report is still one observation.
+
       observations: [
         ...new Map(
           entry.value.observations.map((o) => [`${o.source}\0${o.role}`, o])
@@ -1539,7 +1496,7 @@ export function ingestWorkspaceReports(
     canonical[kind] = tableFor[kind].entries.size;
     density[kind] = densityOf(tableFor[kind]);
   }
-  // Package mentions are identity observations, not duplicated facts.
+
   naive.package = packages.length;
 
   const conflicts = [...ledger.conflicts].sort(

@@ -12,16 +12,9 @@ import {
   FileMapScanAbortedError,
 } from "../../src/lib/file-map-scanner";
 
-// The file-map scan lifecycle and its saved analysis metadata: what the
-// analysis could not see survives serialization and a fresh reader; the
-// call yields real macrotasks between steps, observes aborts only at step
-// boundaries (a synchronous step always runs to its end), and a scanner
-// never lets a replaced or reset scan report progress or publish.
-
 const ROOT = "/spyglass-file-map-scan";
 const NOW = new Date("2026-11-07T00:00:00Z");
 
-/** Two packages; one imports a package nobody declares and a missing relative module. */
 const MAP: FileMapDatasetInput = {
   files: {
     "package.json": JSON.stringify({
@@ -71,7 +64,6 @@ const label = (progress: FileMapScanProgress): string => {
   }
 };
 
-/** Never loads; rejects with the signal's reason once it aborts. */
 function untilAborted(signal: AbortSignal): Promise<FileMapDatasetInput> {
   return new Promise((_, reject) => {
     signal.addEventListener("abort", () => reject(signal.reason), {
@@ -80,7 +72,6 @@ function untilAborted(signal: AbortSignal): Promise<FileMapDatasetInput> {
   });
 }
 
-/** A transport over serialized artifact texts only, as a saved and reloaded dataset. */
 function reloaded(texts: Record<string, string>) {
   const copy = JSON.parse(JSON.stringify(texts)) as Record<string, string>;
   return (path: string) => {
@@ -345,7 +336,7 @@ describe("createFileMapScanner", () => {
     const stale = scanner.scan(MAP, {
       yieldTask: () => {
         steps += 1;
-        // The last yield, before visualization: hold it.
+
         return steps === 9 ? held : Promise.resolve();
       },
     });
@@ -381,7 +372,7 @@ describe("createFileMapScanner", () => {
   it("keeps a scan started from an abort listener as the one current scan", async () => {
     const scanner = createFileMapScanner();
     const signals: Record<string, AbortSignal> = {};
-    /** A source that loads nothing and rejects with its signal's reason. */
+
     const pending =
       (name: string, onAbort?: () => void): FileMapSource =>
       ({ signal }) => {
@@ -392,7 +383,7 @@ describe("createFileMapScanner", () => {
         return untilAborted(signal);
       };
     let late: Promise<unknown> | undefined;
-    // A's abort listener starts C synchronously, inside B's start.
+
     const first = scanner
       .scanSource(
         pending("a", () => {
@@ -406,7 +397,7 @@ describe("createFileMapScanner", () => {
       FileMapScanAbortedError
     );
     await expect(second).rejects.toMatchObject({ end: "replaced" });
-    // C started last, so C is the running scan, and nothing aborted it.
+
     expect(scanner.running).toBe(true);
     expect(signals.c?.aborted).toBe(false);
     scanner.reset();

@@ -15,22 +15,11 @@ import type { DatasetRef, SpyglassData, Territory } from "../data/types";
 import type { LateCodex } from "../data/vocabulary";
 import { markLoad } from "../timings";
 
-/**
- * The readings a spyglass holds until `loadLateReadings` brings them: no
- * folder tree, path region or seam, and no package the proximity lens
- * covered, so Place says nothing of either rather than "none".
- */
 const unreadReadings: LateCodex = {
   nesting: { folders: [], pathRegions: [], seams: [] },
   proximity: { apart: { coChanges: [], files: [] }, close: [], labelled: [] },
 };
 
-/**
- * Fails when a later scan has replaced a frame's dataset: the manifest,
- * read again after a late read, must still be the one the layout read. A
- * pinned reader checks the manifest before it reads; this catches a scan
- * that published while the files were being read.
- */
 async function stillTheSameDataset(
   dataset: DatasetRef,
   signal?: AbortSignal
@@ -38,16 +27,8 @@ async function stillTheSameDataset(
   await viewerDataset({ dataset, signal }).manifest();
 }
 
-/** The late readings of each frame, by frame id. */
 export type LateReadings = Readonly<Record<string, LateCodex>>;
 
-/**
- * The readings nothing at overview draws, read after the layout so that the
- * first one does not wait for them: the `nesting` and `proximity` lenses,
- * for each frame from its own dataset. Pinned to it, and checked against it
- * again once read, so a later scan is refused rather than mixed in. Each
- * frame takes them as they are (`FrameReadings` fields of the same names).
- */
 export async function loadLateReadings(
   spyglass: Pick<SpyglassData, "frames">,
   signal?: AbortSignal
@@ -67,11 +48,6 @@ export async function loadLateReadings(
   return Object.fromEntries(late);
 }
 
-/**
- * Every import edge, for Trace imports: all of each frame's edge shards at
- * once, since the files that import a file can sit in any package's shard.
- * Read only when a trace asks, pinned and checked as `loadLateReadings` is.
- */
 export async function loadImports(
   spyglass: Pick<SpyglassData, "frames">,
   signal?: AbortSignal
@@ -84,7 +60,7 @@ export async function loadImports(
           signal,
         }).moduleEdgeShards();
         await stillTheSameDataset(dataset, signal);
-        // Qualified as the frame's files are (`qualifySpyglassData`).
+
         const file = (path: string) => (id ? `${id}:${path}` : path);
         return read.flatMap((shard) =>
           shard.edges.map(({ source, target }) => ({
@@ -98,21 +74,14 @@ export async function loadImports(
   return frames.flat();
 }
 
-/** The dataset at the data root, as a single workspace's server or export gives it. */
 const atDataRoot = (generatedAt: string): DatasetRef => ({
   generatedAt,
   root: "",
 });
 
-/** Why a collection's data root cannot be drawn. */
 export const COLLECTION_UNSUPPORTED =
   "This spyglass serves a collection of workspaces; the map draws one workspace at a time. Open each workspace on its own.";
 
-/**
- * The spyglass of a dataset the page holds, read through `transport` (an
- * in-memory dataset's), laid out as a single workspace's. Every later read
- * of it goes through the same transport, pinned to its `generatedAt`.
- */
 export async function loadHeldSpyglass(
   transport: DatasetTransport
 ): Promise<SpyglassData> {
@@ -128,15 +97,6 @@ export async function loadHeldSpyglass(
   return data;
 }
 
-/**
- * The spyglass the viewer was served with: a single workspace's dataset at
- * the data root, laid out as one frame. Where the data root holds no
- * `manifest.json` (only on `DatasetNotFoundError`, never on a parse error
- * or a server's failure) but serves a collection (5.3), the load fails
- * with `COLLECTION_UNSUPPORTED` without reading the collection: the Islands
- * chart is made from one workspace's map. With neither, it fails as not
- * found.
- */
 export async function loadSpyglass(
   signal?: AbortSignal
 ): Promise<SpyglassData> {
@@ -159,7 +119,6 @@ export async function loadSpyglass(
   return data;
 }
 
-/** One workspace's spyglass from its saved source, laid out with its bare ids, as one frame. */
 function layoutWorkspace(
   saved: CodexSource,
   dataset: DatasetRef
@@ -250,7 +209,7 @@ function layoutWorkspace(
     declaredDependencies,
     dependencyCoverage:
       saved.dependencyInventory?.graph?.resolution.status ?? "unavailable",
-    // Read on Trace imports (`loadImports`); no edge shard is read at load.
+
     fileEdges: [],
     foundationGroups: prepared.groups,
     foundations: prepared.foundations,

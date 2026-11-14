@@ -12,28 +12,18 @@ import { resolveCollection, workspaceState } from "./state";
 import { readPreparedVisualization } from "./visualization/schema";
 import type { PreparedVisualization } from "./visualization/types";
 
-/** A workspace's saved dataset: where its state directory keeps it, and a reader. */
 export interface SavedDataset {
-  /** One read of the dataset, its manifest already read and checked. */
   reader: DatasetReader;
   workspace: WorkspaceState;
 }
 
-/**
- * A collection's saved datasets: its workspaces, each one's output by id,
- * and its collection manifest, derived from the manifests saved when it is
- * called, so a scan of one workspace meanwhile is seen at the next call.
- * The server's mount table (`startServer`'s `collection`).
- */
 export interface SavedCollection {
-  /** Each workspace's output, by workspace id. */
   datasets: ReadonlyMap<WorkspaceId, string>;
   manifest(): Promise<CollectionManifest>;
-  /** In the collection's order. */
+
   workspaces: readonly WorkspaceState[];
 }
 
-/** Reads a dataset saved in `output` from the file system. */
 export function fileTransport(output: string): DatasetTransport {
   return async (path) => {
     let text: string;
@@ -53,12 +43,6 @@ export function fileTransport(output: string): DatasetTransport {
   };
 }
 
-/**
- * The visualization a dataset saved in `previous` holds, as a disposable
- * cache: `undefined` when there is no such dataset, it has no
- * visualization, or either is unreadable, so invalid previous output never
- * prevents a new scan from repairing it.
- */
 export async function previousVisualization(
   previous: string | undefined
 ): Promise<PreparedVisualization | undefined> {
@@ -79,11 +63,6 @@ export async function previousVisualization(
   }
 }
 
-/**
- * The dataset a scan saved for the workspace at `root`, under the state root
- * `state`. Reads and checks the manifest, so it fails at once, naming the
- * workspace and the directory, when nothing is saved; creates nothing.
- */
 export async function savedDataset(
   root: string,
   state?: string
@@ -91,19 +70,12 @@ export async function savedDataset(
   return checkedDataset(await workspaceState(root, state));
 }
 
-/**
- * The datasets scans saved for the collection of `roots`, each checked as
- * `savedDataset` checks one, in the collection's order, so the first
- * workspace with no dataset is named. Creates nothing.
- */
 export async function savedCollection(
   roots: readonly string[],
   state?: string
 ): Promise<SavedCollection> {
   const workspaces = await resolveCollection(roots, state);
   for (const workspace of workspaces) {
-    // In order, so the message names the first workspace without a dataset,
-    // or the first whose dataset cannot be read, by its root.
     await savedManifest(workspace);
   }
   return {
@@ -122,11 +94,6 @@ export async function savedCollection(
   };
 }
 
-/**
- * The workspace's saved manifest, read now. A failure names the workspace:
- * `checkedDataset`'s message when nothing is saved (the dataset deleted, or
- * caught mid-swap), and otherwise the reader's, after the workspace's root.
- */
 async function savedManifest(
   workspace: WorkspaceState
 ): Promise<DatasetManifest> {

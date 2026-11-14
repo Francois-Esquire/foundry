@@ -15,15 +15,6 @@ import type {
 } from "./semantics-types";
 import { SEMANTICS_DECLARED_DEPENDENCY_KINDS } from "./semantics-types";
 
-// The dependency inventory and its resolution against `bun.lock`, over a
-// reader. `dependency-inventory.ts` and `dependency-graph.ts` answer them
-// natively; the file-map dataset from a recorded file map. Manifests and the
-// lockfile are read as data: nothing is installed and no script runs.
-
-/**
- * Parses JSON with comments and trailing commas, as TypeScript's
- * `parseConfigFileTextToJson`; `error` is set when the text does not parse.
- */
 export type JsoncParser = (
   fileName: string,
   text: string
@@ -86,7 +77,6 @@ function readPackage(
   };
 }
 
-/** Reuse discovery's exclusions; only source-language coverage is broadened. */
 export function collectDependencyInventoryWith(
   reader: RepositoryReader,
   root: string,
@@ -219,7 +209,6 @@ function lockEntries(
   return entries;
 }
 
-/** Walk Bun's nested install locators, respecting scoped package segments. */
 function parentLocator(locator: string): string {
   const parts = locator.split("/");
   parts.pop();
@@ -314,11 +303,6 @@ function workspaceEdges(
   return edges;
 }
 
-/**
- * Read saved installation evidence without installing packages or guessing
- * versions. `parseJsonc` reads `bun.lock`'s text as JSON with comments and
- * trailing commas, as TypeScript's config parser does.
- */
 export function resolveDependencyGraphWith(
   reader: RepositoryReader,
   root: string,

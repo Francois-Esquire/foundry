@@ -16,11 +16,6 @@ import type {
   WorkspaceModuleGraph,
 } from "./types";
 
-// Change radius: how much of the current architecture moves in one commit.
-// Per target-touching commit: current eligible files, owning packages, and
-// the static package edges with both ends touched. Raw counts and
-// distributions only — no radius label, no score, no coupling strength.
-
 export interface ChangeRadiusSource {
   boundary: Boundary;
   graph: WorkspaceModuleGraph;
@@ -54,12 +49,6 @@ function lineTotals(
   };
 }
 
-/**
- * Radius of every window commit touching the target, measured over the whole
- * repository: a modules commit that also changes marbles and artifacts has package
- * radius 3. Oversized commits (shared history policy) are listed in metadata
- * but kept out of distributions.
- */
 export function analyzeChangeRadius(
   history: GitHistory,
   source: ChangeRadiusSource,
@@ -80,7 +69,6 @@ export function analyzeChangeRadius(
     file.startsWith(`${boundary.relPath}/`);
   const targetPackage = boundary.packageName ?? boundary.relPath;
 
-  // Same rename map eligibleCommits uses, so line totals join the same files.
   const aliases = renameAliases(history.commits);
   const aliasOf = (file: string) => aliases.get(file) ?? file;
 

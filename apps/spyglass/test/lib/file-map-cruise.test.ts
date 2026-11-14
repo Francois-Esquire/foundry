@@ -7,22 +7,13 @@ import { cruiseFileMap } from "../../src/lib/file-map-cruise";
 import type { CruisedModule } from "../../src/lib/module-graph";
 import { fileMapDisk } from "./helpers/file-map";
 
-// A file map is cruised by the isolated engine bundle (`dist/engine`, built
-// from `file-map-cruise-engine.ts` with `browser-cruise-adapter.ts`): the
-// bundle carries dependency-cruiser and resolves `node:fs` to a private
-// in-memory volume that holds only the map, on Bun as in a browser. Its
-// graph must equal the native cruise of the same bytes on disk, and nothing
-// outside the map may ever be read. (A headless-Chromium run of the same
-// engine, with Worker removed, is the browser acceptance; it needs a local
-// browser binary, so it lives outside the default suite.)
-
 const ENGINE = resolve(
   import.meta.dirname,
   "../../dist/engine/file-map-cruise-engine.js"
 );
 const NODE_SPECIFIER = /(?:from\s*|import\(|require\()["']node:/;
 const BARE_IMPORT = /^import\s.*?from\s*["']([^"'./][^"']*)["']/gm;
-/** Whatever precedes a TypeScript error's code: the file and position. */
+
 const LOCATION = /^.*?(error TS\d+)/s;
 const disk = fileMapDisk("spyglass-cruise-native-");
 const ROOT = "/spyglass-file-map";
@@ -79,7 +70,6 @@ const layout = {
   entries: ["packages/app", "packages/shared"],
 };
 
-/** A single-package map rooted at `ROOT`. */
 function single(
   map: Readonly<Record<string, string>>,
   tsconfig?: string
@@ -93,7 +83,6 @@ function single(
   };
 }
 
-/** Host files outside every map, which no cruise may read. */
 function hostSecrets(): string {
   const outside = disk.materialize({
     "base.json": JSON.stringify({
@@ -269,7 +258,6 @@ describe("a file-map cruise reads only the map", () => {
 });
 
 describe("an explicit tsconfig is refused as natively", () => {
-  /** A TypeScript error's code and text, without the paths that place it. */
   const normalized = (message: string, root: string) =>
     message.replaceAll(root, "<root>").replace(LOCATION, "$1");
 

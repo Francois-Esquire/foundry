@@ -20,17 +20,8 @@ import {
   listSemanticsFiles,
 } from "../../src/lib/semantics-equivalence";
 import type { DatasetManifest } from "../../src/lib/semantics-types";
-import { analyzePreparedWorkspace } from "../../src/lib/workspace-analysis";
-import { prepareWorkspaceDerivation } from "../../src/lib/workspace-derive";
+import { deriveWorkspaceSurface } from "../../src/lib/workspace-derive";
 import { fileMapDisk, recordFiles } from "./helpers/file-map";
-
-// A recorded file map becomes a complete in-memory dataset: native
-// discovery's rules and inventory over the map, `analyzeFileMap`, and the
-// scan's shared assembly. The semantics fixture is compared, artifact by
-// artifact, with a native in-process scan of the same bytes on disk under
-// the same explicit type policy (`types: []`, as the map's program). The
-// two datasets differ only where the map's root differs; nothing is
-// substituted or ignored beyond the canonicalizer's volatile fields.
 
 const ROOT = "/spyglass-file-map";
 const NOW = new Date("2026-11-07T00:00:00Z");
@@ -42,7 +33,6 @@ let nativeRoot: string;
 let nativeOutput: string;
 let dataset: FileMapDataset;
 
-/** A native scan of `root` with the file-map proof's type policy. */
 async function nativeScan(root: string): Promise<string> {
   const output = join(root, ".foundry", "semantics");
   await generateSemantics({
@@ -58,11 +48,10 @@ async function nativeScan(root: string): Promise<string> {
       if (project.getCompilerOptions().types === undefined) {
         project.compilerOptions.set({ types: [] });
       }
-      const prepared = await prepareWorkspaceDerivation(locals, {
+      const derived = await deriveWorkspaceSurface(locals, {
         ...context,
         project,
       });
-      const derived = analyzePreparedWorkspace(locals, prepared);
       return {
         reports: locals.map((local) => {
           const facts = derived.packages[local.package.path];
@@ -90,7 +79,6 @@ beforeAll(async () => {
 
 afterAll(() => disk.cleanup());
 
-/** JSON paths where two parsed values differ. */
 function changedPaths(left: unknown, right: unknown, path = ""): string[] {
   if (JSON.stringify(left) === JSON.stringify(right)) {
     return [];
@@ -118,7 +106,7 @@ describe("fileMapDataset against a native scan of the same bytes", () => {
   it("assembles the native scan's 37 artifacts, differing only by the root's last segment", () => {
     const published = listSemanticsFiles(nativeOutput).sort();
     expect(published).toHaveLength(37);
-    // The native scan's artifacts, plus only the saved analysis metadata.
+
     expect([...dataset.paths].sort()).toEqual(
       [...published, DATASET_ANALYSIS_FILE].sort()
     );
@@ -228,7 +216,7 @@ describe("fileMapDataset through the existing dataset reader", () => {
       "@s/docs-only",
       "workspace-root:",
     ]);
-    // The map has no bun.lock: resolution is unavailable, not empty.
+
     expect(inventory?.graph?.resolution.status).toBe("unavailable");
     expect(await reader.lens("file-roles")).toEqual(
       JSON.parse(
@@ -240,7 +228,7 @@ describe("fileMapDataset through the existing dataset reader", () => {
     expect((await reader.analysis())?.capabilities).toEqual(
       dataset.capabilities
     );
-    // A native scan saves no analysis metadata.
+
     expect(
       await datasetReader(fileTransport(nativeOutput)).analysis()
     ).toBeUndefined();
@@ -277,7 +265,7 @@ describe("fileMapDataset through the existing dataset reader", () => {
       "lenses",
       "visualization",
     ]);
-    // History is unavailable in each report, never zero activity.
+
     const report = await dataset.reader().packageReport("@s/b");
     expect(JSON.stringify(report)).toContain("not-git-repository");
   });
@@ -322,8 +310,6 @@ describe("fileMapDataset through the existing dataset reader", () => {
   });
 
   it("analyses a source whose name holds glob characters, as natively", async () => {
-    // A route file such as `[pkg].paths.ts` is a file, not a pattern; read
-    // as a pattern it left the workspace program and refused the dataset.
     const routed = await fileMapDataset({
       files: {
         "package.json": JSON.stringify({
@@ -367,11 +353,9 @@ describe("saved analysis metadata against the manifest it was saved with", () =>
     "The dataset's analysis metadata contradicts its manifest:";
   const AGAIN = " Build the dataset again.";
 
-  /** The saved metadata, parsed afresh for one mutation. */
   const saved = (): DatasetAnalysis =>
     JSON.parse(dataset.text(DATASET_ANALYSIS_FILE) ?? "null");
 
-  /** The dataset's own transport with the metadata, and optionally the manifest, replaced. */
   const replaced =
     (
       analysis: unknown,
@@ -387,7 +371,6 @@ describe("saved analysis metadata against the manifest it was saved with", () =>
         : value;
     };
 
-  /** The message `analysis()` rejects with. */
   const rejection = async (read: DatasetTransport): Promise<string> => {
     const error = await datasetReader(read)
       .analysis()
@@ -432,8 +415,6 @@ describe("saved analysis metadata against the manifest it was saved with", () =>
   });
 
   it("does not take the self-reported root as proof of where the map was placed", async () => {
-    // Both roots agree and end in the segment the manifest records: the
-    // metadata is consistent, which is all a reader can establish.
     const analysis = saved();
     analysis.origin.root = "/elsewhere/spyglass-file-map";
     analysis.capabilities.paths.root = "/elsewhere/spyglass-file-map";
@@ -517,35 +498,28 @@ describe("saved analysis metadata against the manifest it was saved with", () =>
     expect(await rejection(replaced(malformed))).toBe(unreadable);
   });
 
-  it("saves version 3 and reloads a version 1 graph as it was recorded", async () => {
-    expect(saved().schemaVersion).toBe(3);
+  it("refuses an earlier version's recorded program graph", async () => {
     const recorded = {
       ...saved(),
       capabilities: {
         ...saved().capabilities,
         moduleGraph: {
-          edgeKinds: ["import", "require"],
-          modulesOutsideProgram: ["packages/a/vite.config.ts"],
+          edgeKinds: ["import"],
+          modulesOutsideProgram: [],
           nativeSource: "dependency-cruiser",
           source: "typescript-program",
-          unresolved: [{ from: "a.ts", kind: "import", specifier: "x" }],
-          unsupportedEdgeKinds: ["amd-define"],
+          unresolved: [],
+          unsupportedEdgeKinds: [],
         },
       },
-      schemaVersion: 1,
     };
-    expect(await datasetReader(replaced(recorded)).analysis()).toEqual(
-      recorded
-    );
     const unreadable =
       "The dataset's analysis metadata is unreadable or uses an unsupported schema version. Build the dataset again.";
-    // A recorded graph is never relabelled as a cruise, nor the reverse.
-    expect(await rejection(replaced({ ...recorded, schemaVersion: 3 }))).toBe(
-      unreadable
-    );
-    const contradicted = structuredClone(recorded);
-    contradicted.origin.command = "different";
-    expect(await rejection(replaced(contradicted))).toContain("origin.command");
+    for (const schemaVersion of [1, 3]) {
+      expect(await rejection(replaced({ ...recorded, schemaVersion }))).toBe(
+        unreadable
+      );
+    }
   });
 
   it("propagates a failed metadata read instead of treating it as absent", async () => {
@@ -577,7 +551,7 @@ describe("saved analysis metadata against the manifest it was saved with", () =>
     expect(await rejection(fileTransport(mutated))).toBe(
       `${CONTRADICTS} origin.command "different" is not the manifest's generation.command "fileMapDataset".${AGAIN}`
     );
-    // A native scan's dataset on disk has no metadata to check.
+
     expect(
       await datasetReader(fileTransport(nativeOutput)).analysis()
     ).toBeUndefined();

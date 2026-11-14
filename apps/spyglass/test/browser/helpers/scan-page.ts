@@ -8,13 +8,12 @@ import {
 import { expect } from "vitest";
 import { serveStatic } from "./static-site";
 
-// Drives the built scan page in a real Chromium: Workers are made to throw
-// before any page script runs (so a passing scan proves the direct mode),
-// every request is recorded, and the page's status lines, long tasks and
-// errors are collected for assertions and the measurements a run logs.
-
-/** The page's path on foundry.sh. */
 export const SCAN_PATH = "/spyglass/scan/";
+
+const ENGINE_PATH = /^\/_astro\/spyglass-analysis\.[\w-]+\.js$/;
+
+export const isEngine = (url: string) =>
+  ENGINE_PATH.test(new URL(url).pathname);
 
 const INIT = `
 (() => {
@@ -51,21 +50,10 @@ const INIT = `
 })();
 `;
 
-/**
- * Chromium for the suite: the full build in its new headless mode. The
- * default headless shell has no GPU process, so WebGPU there finds no
- * adapter and the viewer cannot draw; the full build reaches the machine's
- * GPU (Metal on macOS) without extra flags.
- */
 export function launchChromium(): Promise<Browser> {
   return chromium.launch({ channel: "chromium" });
 }
 
-/**
- * Fails before any scan unless this browser gives the site a hardware
- * WebGPU adapter, so a missing GPU reads as an environment problem rather
- * than as the viewer's controls never enabling. Returns the adapter found.
- */
 export async function expectWebGpuAdapter(
   browser: Browser,
   origin: string
@@ -117,12 +105,12 @@ export async function expectWebGpuAdapter(
 
 export interface ScanPage {
   context: BrowserContext;
-  /** Uncaught errors and console errors the page raised. */
+
   errors: string[];
   page: Page;
-  /** `x-ratelimit-remaining` of the last GitHub API response seen. */
+
   rateRemaining: () => string | undefined;
-  /** Every request the page made, by URL, in order. */
+
   requests: string[];
 }
 
@@ -147,6 +135,9 @@ export async function openScanPage(
     }
   });
   page.on("response", (response) => {
+    if (new URL(response.url()).origin === origin && response.status() >= 400) {
+      errors.push(`${response.status()} ${response.url()}`);
+    }
     if (response.url().startsWith("https://api.github.com/")) {
       remaining = response.headers()["x-ratelimit-remaining"] ?? remaining;
     }
@@ -174,21 +165,18 @@ export async function scan(
   await page.getByRole("button", { exact: true, name: "Scan" }).click();
 }
 
-/** The result panel, once a scan has published. */
 export const resultPanel = (page: Page) =>
   page.getByRole("complementary", { name: "Browser scan" });
 
 export const alert = (page: Page) => page.getByRole("alert");
 
-/** The status lines the page showed, in order. */
 export const statuses = (page: Page) =>
   page.evaluate(
     () => (window as unknown as { __statuses: string[] }).__statuses
   );
 
-/** What the page measured about itself. */
 export const measurements = (page: Page) =>
-  page.evaluate(() => {
+  page.evaluate((enginePath) => {
     const own = window as unknown as {
       __longTasks: number[];
       __workerAttempts: number;
@@ -198,9 +186,9 @@ export const measurements = (page: Page) =>
     };
     const asset = performance
       .getEntriesByType("resource")
-      .find((entry) => entry.name.endsWith("/analysis/spyglass-analysis.js")) as
-      | PerformanceResourceTiming
-      | undefined;
+      .find((entry) =>
+        new RegExp(enginePath).test(new URL(entry.name).pathname)
+      ) as PerformanceResourceTiming | undefined;
     return {
       assetBytes: asset?.decodedBodySize,
       assetLoadMs: asset === undefined ? undefined : Math.round(asset.duration),
@@ -213,9 +201,8 @@ export const measurements = (page: Page) =>
       longTasks: own.__longTasks.length,
       workerAttempts: own.__workerAttempts,
     };
-  });
+  }, ENGINE_PATH.source);
 
-/** Origins of every request, with the page's own as `site`. */
 function originsOf(requests: readonly string[], site: string): string[] {
   return [
     ...new Set(
@@ -227,7 +214,9 @@ function originsOf(requests: readonly string[], site: string): string[] {
   ].sort();
 }
 
-/** Fails unless the page made no request beyond its site and GitHub's two data hosts. */
+const isPageFile = (path: string) =>
+  path === SCAN_PATH || path.startsWith("/_astro/") || path === "/favicon.svg";
+
 export function expectOnlyOfficialOrigins(
   requests: readonly string[],
   site: string
@@ -239,13 +228,12 @@ export function expectOnlyOfficialOrigins(
       "https://raw.githubusercontent.com",
     ]).toContain(origin);
   }
-  // Same-origin requests are the built site's static files only.
+
   for (const url of requests.filter((u) => new URL(u).origin === site)) {
-    expect(new URL(url).pathname.startsWith(SCAN_PATH)).toBe(true);
+    expect(isPageFile(new URL(url).pathname), url).toBe(true);
   }
 }
 
-/** foundry.sh's whole built site (apps/website/dist). */
 export function serveScanSite() {
   return serveStatic(resolve(import.meta.dirname, "../../../../website/dist"));
 }

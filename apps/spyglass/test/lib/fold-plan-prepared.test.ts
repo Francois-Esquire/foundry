@@ -13,7 +13,6 @@ import { dirname, join, relative } from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveBoundary } from "../../src/lib/boundary";
 import type { Boundary } from "../../src/lib/boundary-model";
-import { analyzeFileMap } from "../../src/lib/file-map-analysis";
 import { buildFoldPlans, readFoldInputs } from "../../src/lib/fold-plan";
 import type { FoldInputs } from "../../src/lib/fold-planning";
 import { analyzePackageLocal } from "../../src/lib/package-local";
@@ -22,38 +21,24 @@ import type {
   ReductionOpportunity,
   SurfaceDependencies,
 } from "../../src/lib/types";
-import { analyzePreparedWorkspace } from "../../src/lib/workspace-analysis";
 import {
   deriveWorkspaceSurface,
-  prepareWorkspaceDerivation,
+  prepareWorkspaceInputs,
 } from "../../src/lib/workspace-derive";
 import type { WorkspaceSurfaceDerivation } from "../../src/lib/workspace-derive-types";
-
-// Fold planning from prepared inputs. `readFoldInputs` takes the native
-// planner's repository answers up front; `buildFoldPlans` given them must
-// plan exactly as the native planner does, without any read. The native
-// lookups are intercepted rather than relied on to fail: once inputs are
-// prepared, a call to a blocked one is recorded and fails the test, even
-// where planning catches its error. The `node:fs` interception covers every
-// Spyglass source module; ts-morph, dependency-cruiser and TypeScript's
-// own `ts.sys` are external and not intercepted. The planner reached
-// `ts.sys.readFile` only behind an `existsSync` check, which is blocked.
+import { analyzeFileMap } from "./helpers/file-map-analysis";
+import { analyzePrepared } from "./helpers/prepared-workspace";
 
 const guard = vi.hoisted(() => {
   const blocked = new Set<string>();
   const attempts: string[] = [];
-  /** Each fold read: its source directories and destination names. */
+
   const foldReads: { destinations: string[]; sources: string[] }[] = [];
   return {
     attempts,
     blocked,
     foldReads,
-    /**
-     * Directory listing order. `native` is whatever the file system and
-     * runtime give: Node sorts `readdirSync` (libuv's scandir), Bun returns
-     * the file system's own order, which on ext4 is hash order. The others
-     * impose an order, so a test can hold the planner to every listing.
-     */
+
     order: "native" as "ascending" | "descending" | "native",
     wrap<A extends unknown[], R>(
       name: string,
@@ -108,10 +93,6 @@ vi.mock("../../src/lib/boundary", async (importOriginal) => {
     ),
     ownerBoundary: guard.wrap("ownerBoundary", original.ownerBoundary),
     resolveBoundary: guard.wrap("resolveBoundary", original.resolveBoundary),
-    snapshotDirectoryOwnership: guard.wrap(
-      "snapshotDirectoryOwnership",
-      original.snapshotDirectoryOwnership
-    ),
     workspacePatterns: guard.wrap(
       "workspacePatterns",
       original.workspacePatterns
@@ -169,7 +150,6 @@ vi.mock("../../src/lib/project", async (importOriginal) => {
   };
 });
 
-/** The file reads and lookups the native fold planner made. */
 const FOLD_READS = [
   "createIgnorer",
   "existsSync",
@@ -178,7 +158,7 @@ const FOLD_READS = [
   "resolveBoundary",
   "workspacePatterns",
 ];
-/** Every file system call and native lookup a Spyglass module can make. */
+
 const EVERYTHING = [
   ...FOLD_READS,
   "boundaryEntrypoints",
@@ -188,7 +168,6 @@ const EVERYTHING = [
   "lstatSync",
   "ownerBoundary",
   "realpathSync",
-  "snapshotDirectoryOwnership",
   "statSync",
 ];
 
@@ -242,16 +221,6 @@ function workspace(prefix: string, files: Record<string, string>): string {
 const consume = (specifier: string, name: string) =>
   `import { ${name} } from "${specifier}";\nexport const use = ${name}();\n`;
 
-/**
- * Two fold sources with different destinations. `@f/sat` folds into
- * `@f/host`, which already has `src/sat`, declares the dependency and
- * references it from a JSONC tsconfig. Its walk meets a gitignored
- * directory and file, a skipped `dist`, a declaration file, a test, a
- * story, a config module and a file that is not TypeScript. `@f/lone` is
- * listed explicitly in the root workspaces and folds into `@f/plain`,
- * which has `src` but no `src/lone`, declares nothing and has no tsconfig.
- */
-/** Every file below `root`, root-relative, as a file map records it. */
 function fileMapOf(root: string): Record<string, string> {
   const files: Record<string, string> = {};
   const walk = (dir: string) => {
@@ -335,7 +304,6 @@ function comparable(derivation: WorkspaceSurfaceDerivation): string {
   );
 }
 
-/** A fold opportunity into `destination`, its single consumer. */
 function foldInto(
   boundary: Boundary,
   destination: string
@@ -381,7 +349,6 @@ function foldInto(
   };
 }
 
-/** The native plan, and the same plan built from prepared inputs with every read blocked. */
 function planBothWays(
   boundary: Boundary,
   destination: string,
@@ -396,7 +363,6 @@ function planBothWays(
   return { native, prepared };
 }
 
-/** The native planner's error, and the prepared planner's, with every read blocked. */
 function errorsBothWays(
   boundary: Boundary,
   destination: string
@@ -544,9 +510,6 @@ describe("fold inputs", () => {
   });
 
   it("keeps resolveBoundary's swallowed manifest failure unresolved", () => {
-    // The package scan meets a manifest that does not parse before the
-    // destination's, so the native lookup throws and the planner treats
-    // the destination as unresolved.
     const root = workspace("fold-swallowed-", {
       "package.json": JSON.stringify({ workspaces: ["packages/*"] }),
       "packages/aaa/package.json": "{",
@@ -554,8 +517,7 @@ describe("fold inputs", () => {
       "packages/zzz/package.json": JSON.stringify({ name: "@s/zzz" }),
       "packages/zzz/src/index.ts": "export {};\n",
     });
-    // The scan's order is the code-unit order of the names, whatever order
-    // the file system lists them in, so `aaa` is always met first.
+
     for (const order of ["ascending", "descending"] as const) {
       guard.order = order;
       const source = resolveBoundary(root, "packages/src");
@@ -567,8 +529,6 @@ describe("fold inputs", () => {
   });
 
   it("keeps the in-operator test of manifest sections", () => {
-    // `in` sees inherited names, so an empty section "declares" a package
-    // named constructor, natively and from prepared sections alike.
     const root = workspace("fold-inherited-", {
       "package.json": JSON.stringify({ workspaces: ["packages/*"] }),
       "packages/ctor/package.json": JSON.stringify({ name: "constructor" }),
@@ -613,7 +573,7 @@ describe("fold inputs", () => {
     const host = resolveBoundary(root, "packages/host");
     mkdirSync(join(root, "packages/sat/src/locked"));
     chmodSync(join(root, "packages/sat/src/locked"), 0o000);
-    // Preparing both packages succeeds; only planning sat's fold fails.
+
     const inputs = readFoldInputs(root, [host, sat], ["@f/host", "@f/plain"]);
     expect("error" in (inputs.sources.get(sat.dir)?.files ?? {})).toBe(true);
     expect("value" in (inputs.sources.get(host.dir)?.files ?? {})).toBe(true);
@@ -624,8 +584,6 @@ describe("fold inputs", () => {
   });
 
   it("resolves the root boundary's empty short name as native does", () => {
-    // An unnamed root manifest makes the source's short name empty, so
-    // `src/<short name>` is `src` itself.
     const root = workspace("fold-root-name-", {
       "dest/package.json": JSON.stringify({ name: "@d/dest" }),
       "dest/src/index.ts": "export {};\n",
@@ -677,8 +635,6 @@ describe("fold inputs", () => {
 
 describe("native derivation reads only the folds it plans", () => {
   it("reads no fold input when no package has a fold opportunity", async () => {
-    // Nothing consumes `@n/solo`, so it has no primary consumer to fold into;
-    // its asset and doc trees are what a needless walk would enumerate.
     const files: Record<string, string> = {
       "package.json": JSON.stringify({
         private: true,
@@ -708,7 +664,7 @@ describe("native derivation reads only the folds it plans", () => {
     ).not.toContain("fold-package");
   });
 
-  it("reads exactly each fold's source and destination, as full preparation plans", async () => {
+  it("reads exactly each fold's source and destination", async () => {
     const root = foldWorkspace();
     const locals = FOLD_TARGETS.map((target) =>
       analyzePackageLocal({ root, target })
@@ -720,13 +676,6 @@ describe("native derivation reads only the folds it plans", () => {
         sources: ["libs/lone", "packages/sat"],
       },
     ]);
-    guard.foldReads.length = 0;
-    const prepared = await prepareWorkspaceDerivation(locals, { now, root });
-    // Full preparation reads every package for any destination.
-    expect(guard.foldReads.map((read) => read.sources)).toEqual([FOLD_TARGETS]);
-    expect(comparable(analyzePreparedWorkspace(locals, prepared))).toBe(
-      comparable(derived)
-    );
     expect(Object.keys(foldPlans(derived))).toEqual([
       "libs/lone",
       "packages/sat",
@@ -774,10 +723,10 @@ describe("prepared fold plans in a workspace derivation", () => {
       analyzePackageLocal({ root, target })
     );
     const native = await deriveWorkspaceSurface(locals, { now, root });
-    const prepared = await prepareWorkspaceDerivation(locals, { now, root });
-    // The native project reads through ts-morph, which is not intercepted.
-    const derived = blockedDuring(EVERYTHING, () =>
-      analyzePreparedWorkspace(locals, prepared)
+    const prepared = await prepareWorkspaceInputs(locals, { now, root });
+
+    const derived = analyzePrepared(locals, prepared, (run) =>
+      blockedDuring(EVERYTHING, run)
     );
     expect(guard.attempts).toEqual([]);
     expect(comparable(derived)).toBe(comparable(native));

@@ -187,7 +187,6 @@ describe("prepared visualization reader", () => {
     ).toThrow("invalid or duplicate references");
     const member = { direct: true, distance: 1, territoryId: "a", weight: 1 };
     for (const internalFoundations of [
-      // A dangling supplier.
       [
         {
           id: "workspace:missing",
@@ -196,7 +195,7 @@ describe("prepared visualization reader", () => {
           supplierId: "missing",
         },
       ],
-      // A supplier relying on itself.
+
       [
         {
           id: "workspace:a",
@@ -205,7 +204,7 @@ describe("prepared visualization reader", () => {
           supplierId: "a",
         },
       ],
-      // An id outside its own namespace.
+
       [
         {
           id: "dependency:a",

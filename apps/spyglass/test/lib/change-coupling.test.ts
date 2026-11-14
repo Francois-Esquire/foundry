@@ -11,7 +11,7 @@ import type { CommitChange, GitHistory } from "../../src/lib/git-history";
 import type { WorkspaceModuleGraph } from "../../src/lib/types";
 
 const ROOT = join(tmpdir(), "semantic-surface-coupling-fixture");
-/** The native owner lookup the analysis defaulted to before it was required. */
+
 const nativeOwner = (filePath: string) => ownerBoundary(ROOT, filePath);
 const A = "packages/a/src/a.ts";
 const B = "packages/a/src/b.ts";
@@ -75,7 +75,6 @@ function graphOf(edges: [string, string][]): WorkspaceModuleGraph {
   };
 }
 
-/** Full-history window and gates that keep 2-commit fixtures visible. */
 const config: AnalysisConfig = {
   ...ANALYSIS_CONFIG,
   changeCoupling: {
@@ -184,7 +183,7 @@ describe("change coupling", () => {
       ...Array.from({ length: 8 }, (_, i) => commit(i + 3, [A])),
       ...Array.from({ length: 8 }, (_, i) => commit(i + 11, [B])),
     ];
-    // 2 / 10 each way, Jaccard 2/18: below 0.5 / 0.5 / 0.3.
+
     expect(couplingOf(commits).filePairs).toEqual([]);
   });
 
@@ -340,7 +339,7 @@ describe("change coupling", () => {
       [A, snapshot]
     );
     expect(report.filePairs).toEqual([]);
-    // A alone still counts toward its own commit total.
+
     expect(report.history.commitsConsidered).toBe(2);
     expect(report.history.observedFilePairs).toBe(0);
   });
@@ -405,8 +404,7 @@ describe("change coupling", () => {
       commit(6, [B, C]),
       commit(7, [B, C]),
     ];
-    // A|B: 3 shared, Jaccard 3/7. A|C and B|C: 2 shared of 5 and 4 commits,
-    // Jaccard 2/7 and C's conditional 0.5 each — tie broken lexically.
+
     const order = couplingOf(commits).filePairs.map(
       (p) => `${p.left}|${p.right}`
     );

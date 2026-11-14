@@ -11,7 +11,7 @@ import type { CommitChange, GitHistory } from "../../src/lib/git-history";
 import type { WorkspaceModuleGraph } from "../../src/lib/types";
 
 const ROOT = join(tmpdir(), "semantic-surface-radius-fixture");
-/** The native owner lookup the analysis defaulted to before it was required. */
+
 const nativeOwner = (filePath: string) => ownerBoundary(ROOT, filePath);
 const A1 = "packages/a/src/a1.ts";
 const A2 = "packages/a/src/a2.ts";
@@ -264,7 +264,7 @@ describe("change radius", () => {
       packages: { max: 3, p50: 2, p90: 3, p95: 3 },
       singlePackageCommits: 2,
     });
-    // Equal support: smaller sets first, then lexical.
+
     expect(report.summary.packageCombinations).toEqual([
       { commits: 1, packages: ["@fixture/a", "@fixture/b"] },
       { commits: 1, packages: ["@fixture/a", "@fixture/c"] },

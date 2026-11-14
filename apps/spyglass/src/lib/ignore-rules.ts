@@ -3,26 +3,10 @@ import { relative } from "#path";
 
 import { toPosix } from "./boundary-model";
 
-// Gitignore answers over a reader of `.gitignore` texts. `ignore.ts` reads
-// them from disk; `file-map-preparation.ts` from a recorded file map.
-
 export interface Ignorer {
-  /**
-   * Whether git would ignore `rel`, a root-relative posix path. Pass a
-   * trailing slash to ask about a directory (`dist/`), as gitignore's
-   * directory-only patterns never match a bare name.
-   */
   ignores(rel: string): boolean;
 }
 
-/**
- * Answers gitignore questions from the `.gitignore` texts `readRules`
- * returns for each root-relative posix directory (`""` for the root), the
- * way git resolves them: every file between the root and the path is
- * consulted, the deepest matching rule wins, and an ignored directory hides
- * everything below it. Only files under the root count (no global excludes,
- * no `.git/info/exclude`), so the answer needs no repository.
- */
 export function createIgnorerFrom(
   readRules: (dir: string) => string | undefined
 ): Ignorer {
@@ -87,7 +71,6 @@ function ignoresDir(
   return verdict;
 }
 
-/** `ignores` for an absolute path under `root`. */
 export function ignoresAbsolute(
   ignorer: Ignorer,
   root: string,

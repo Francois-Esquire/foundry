@@ -18,53 +18,38 @@ import { planFingerprint } from "./validate";
 
 const normalizeStatementPattern = /\s+/g;
 
-// Read-only planning: a plan describes what would have to change for a
-// symbol to leave the package-public API and what structural effect that
-// change should have. Nothing here mutates source files.
-
 const MAX_CHAIN_DEPTH = 16;
 
-/**
- * How a package's own module binds a name from one of its entrypoints:
- * a named import (`import { X }`, `import type { X }`, `import { X as Y }`),
- * a default import, or a named re-export (`export { X } from`).
- */
 type InternalImporterForm = "import" | "default" | "reexport";
 
 interface InternalImporter {
-  /** Root-relative importing file. */
   file: string;
   form: InternalImporterForm;
-  /** The importer is a test file (`classifyFile`). */
+
   test: boolean;
 }
 
 export interface EntrypointContext {
   entrypoint: string;
-  /** Declaration node → names it is exposed under from this entrypoint. */
+
   exposedNames: Map<Node, string[]>;
   file: SourceFile;
   fileRel: string;
-  /**
-   * Exposed name → the package's other modules that bind it from this
-   * entrypoint, a default import under `default`. Re-exports from other
-   * entrypoints are routes, not importers. Not seen: `import X =
-   * require(...)` and dynamic `import()`.
-   */
+
   internalImporters: Map<string, InternalImporter[]>;
-  /** Names other boundary modules import from this entrypoint. */
+
   internallyImportedNames: Set<string>;
-  /** A boundary module namespace-imports this entrypoint. */
+
   namespaceImported: boolean;
-  /** Root-relative modules of the package that `export *` or `export * as` this entrypoint, sorted. */
+
   starReexporters: string[];
 }
 
 export interface ResolvedRoute {
   context: EntrypointContext;
-  /** The entrypoint export statement, when the route goes through one. */
+
   declaration?: ExportDeclaration;
-  /** Route is the declaration itself sitting in the entrypoint file. */
+
   direct: boolean;
   route: PublicExposureRoute;
 }
@@ -229,11 +214,6 @@ function exportsNode(file: SourceFile, node: Node): boolean {
   return nodes.has(node);
 }
 
-/**
- * Files from the entrypoint statement to the declaration, following simple
- * named re-export chains (and star hops). Falls back to
- * [entrypoint, declaration file] when the chain cannot be walked precisely.
- */
 function chainFor(
   root: string,
   context: EntrypointContext,
@@ -548,8 +528,7 @@ function planForSymbolEntries(
 ): { unsupported: boolean; hasDirect: boolean } {
   let hasDirect = initialHasDirect;
   let unsupported = initialUnsupported;
-  // Importers can follow the symbol to its own file only while that file
-  // keeps exporting it: not when the plan removes a direct declaration's.
+
   const declarationKeepsExport =
     declarationExportsName && !resolved.some((entry) => entry.direct);
   for (const entry of resolved) {
@@ -633,11 +612,6 @@ function routeFormRefusal(
   return undefined;
 }
 
-/**
- * Internal use of the whole entrypoint breaks for any route kind: a module
- * importing it as a namespace, or re-exporting all of it, relies on every
- * exposure the plan could remove.
- */
 function entrypointRefusal(
   { route, context }: ResolvedRoute,
   symbol: SurfaceSymbol
@@ -672,19 +646,11 @@ const ENTRYPOINT_IMPORT_CHANGE = (route: PublicExposureRoute) =>
   `No precise change: ${route.exportedName} is imported from the entrypoint inside the package.`;
 
 interface DeclarationExport {
-  /** The declaration's file exports the symbol under its own name. */
   declarationExportsName: boolean;
-  /** …and the plan leaves that export in place. */
+
   declarationKeepsExport: boolean;
 }
 
-/**
- * The package's own importers of the route's name, when they cannot be
- * repointed at the declaration's module. A direct declaration has nowhere
- * to repoint them; a re-export can, when every importer is a named import
- * outside the declaration file and the declaration file exports the symbol
- * under its own name. Tests alone keep their own reason.
- */
 function importerRefusal(
   { route, declaration, direct, context }: ResolvedRoute,
   symbol: SurfaceSymbol,
@@ -802,12 +768,6 @@ function importRewrites(
   }));
 }
 
-/**
- * Build one read-only internalization plan per internalize-symbol
- * opportunity. Requires the live ts-morph project — routes are resolved from
- * the entrypoint ASTs — so this runs during analysis; the resulting plans are
- * plain serializable data.
- */
 export function buildInternalizationPlans(
   project: Project,
   boundary: Boundary,
@@ -904,11 +864,6 @@ function exportsUnder(node: Node, name: string): boolean {
   return exported.get(name)?.includes(node) ?? false;
 }
 
-/**
- * Select the plan built for an internalize-symbol opportunity. Plans are
- * computed during analysis (route resolution needs the source ASTs); this is
- * the deterministic opportunity → plan lookup.
- */
 export function buildInternalizationPlan(
   report: SurfaceReport,
   opportunity: ReductionOpportunity

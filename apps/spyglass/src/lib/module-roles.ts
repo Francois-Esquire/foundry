@@ -5,9 +5,6 @@ import type { Boundary, BoundaryEntrypoint } from "./boundary-model";
 import { boundaryContains, toPosix } from "./boundary-model";
 import type { ModuleRole } from "./types";
 
-// Module roles use statement kinds and local names, without symbol resolution
-// or dependence on the file's name.
-
 function isDeclaration(statement: Node): boolean {
   return (
     Node.isFunctionDeclaration(statement) ||
@@ -39,10 +36,6 @@ function importedNames(file: SourceFile): Set<string> {
   return names;
 }
 
-/**
- * `export { Foo }` forwards when every listed local name was imported;
- * with a module specifier it is a re-export by construction.
- */
 export function roleOf(file: SourceFile, entrypoint: boolean): ModuleRole {
   const imported = importedNames(file);
   let reExports = 0;
@@ -73,7 +66,6 @@ export function roleOf(file: SourceFile, entrypoint: boolean): ModuleRole {
   };
 }
 
-/** Role of every boundary source file, keyed by root-relative posix path. */
 export function collectModuleRoles(
   project: Project,
   boundary: Boundary,

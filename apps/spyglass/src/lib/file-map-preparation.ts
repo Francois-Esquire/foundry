@@ -58,46 +58,20 @@ import {
   tableProgramOwners,
 } from "./workspace-preparation";
 
-// INTERNAL: preparing package-local and workspace-derivation inputs from a
-// recorded repository file map, with no repository file system or Git.
-// Paths are POSIX absolute below an explicit virtual root. Manifests,
-// workspace files and tsconfig files are parsed as data; no repository code
-// runs. The manifest, ownership, fold, gitignore and source rules are the
-// shared modules native preparation uses, answered from the map; the module
-// graph is native derivation's dependency-cruiser pass over the map in the
-// isolated engine's private in-memory volume (`file-map-cruise.ts`), and an
-// explicit tsconfig that pass refuses refuses the map, as natively.
-//
-// Type policy (scoped to this proof, not a release policy and not native
-// behaviour): the shared program sees only the map, the supplied
-// declarations and the compiler's bundled libraries, with `types: []`
-// unless the tsconfig declares `types`. No working-directory `@types`.
-
-/** A recorded repository: repository-relative POSIX paths to text. */
 export interface RepositoryFileMapInput {
-  /**
-   * Explicitly supplied dependency declarations below `node_modules/`:
-   * `.d.ts`, `.d.mts` or `.d.cts` files and the `package.json` files that
-   * module resolution reads. Nothing else is installed.
-   */
   readonly declarations?: Readonly<Record<string, string>>;
-  /**
-   * Workspace-relative unit directories discovery skips, as the resolved
-   * configuration's `exclude` (normalized, matched exactly). Configuration
-   * modules are never run, so a caller supplies this as data. Default: none.
-   */
+
   readonly exclude?: readonly string[];
-  /** Repository files: sources, manifests, tsconfig and `.gitignore` files. */
+
   readonly files: Readonly<Record<string, string>>;
   readonly now: Date;
   readonly profile?: AnalysisProfile;
-  /** POSIX absolute, normalized directory the paths are placed under. */
+
   readonly root: string;
-  /** Repository-relative tsconfig, as native analysis's `tsconfig` option. */
+
   readonly tsconfig?: string;
 }
 
-/** A file map rejected before preparation, with every problem found. */
 export class FileMapInputError extends Error {
   readonly problems: readonly string[];
 
@@ -110,27 +84,20 @@ export class FileMapInputError extends Error {
 
 export interface PreparedFileMap {
   capabilities: FileMapCapabilities;
-  /** Native discovery's rules over the map; its units are the `targets`. */
+
   discovery: SemanticsDiscovery;
-  /**
-   * The map's fold reads, which `analyzeFileMapWorkspace` makes only for the
-   * folds analysis plans.
-   */
+
   foldReads: { ignorer: Ignorer; reader: FoldReader };
-  /**
-   * The dependency inventory with its graph resolved against the map's
-   * `bun.lock`, by the native rules; undefined when discovery finds no
-   * workspace declaration or standalone package, where a scan stops.
-   */
+
   inventory: DependencyInventory | undefined;
-  /** Package-local inputs, aligned with `targets`. */
+
   locals: PreparedPackageSource[];
-  /** Workspace-derivation inputs; `project` is the in-memory shared program. */
+
   prepared: PreparedWorkspaceInputs;
-  /** Repository-relative directories of discovery's units, in discovery order. */
+
   targets: string[];
   timing: Record<string, number>;
-  /** The root manifest's `name`, by the rule a scan records it with. */
+
   workspaceName: string | undefined;
 }
 
@@ -140,11 +107,10 @@ const DECLARATION_FILE = /\.d\.[cm]?ts$/;
 const CONFIG_MODULE = /(^|\/)[^/]+\.config\.(ts|tsx|mts|cts|js|mjs|cjs)$/;
 const SCRIPT_MODULE = /\.(js|mjs|cjs|jsx)$/;
 const BARE_SPECIFIER = /^[^./]/;
-/** The names TypeScript tries for a `/// <reference path>` without its own extension. */
+
 const REFERENCE_EXTENSIONS = ["", ".ts", ".tsx", ".d.ts"];
 const NO_INPUTS_DIAGNOSTIC = 18_003;
 
-/** Every reason a repository-relative path is not accepted in a file map. */
 export function pathProblems(path: string): string[] {
   if (path === "") {
     return ["an empty path"];
@@ -238,7 +204,6 @@ function declarationProblems(
   ]);
 }
 
-/** Paths equal apart from case, and paths that are a file and a directory. */
 export function collisionProblems(paths: ReadonlySet<string>): string[] {
   const problems: string[] = [];
   const folded = new Map<string, string>();
@@ -293,7 +258,6 @@ function tsconfigProblems(input: RepositoryFileMapInput): string[] {
     : [`tsconfig ${JSON.stringify(input.tsconfig)} is not in the file map`];
 }
 
-/** Every problem with `input`, empty when it is acceptable. */
 export function fileMapProblems(input: RepositoryFileMapInput): string[] {
   const declarations = input.declarations ?? {};
   return [
@@ -311,7 +275,6 @@ export function fileMapProblems(input: RepositoryFileMapInput): string[] {
   ];
 }
 
-/** The map as absolute files and directories, answering the shared readers. */
 interface MappedRepository {
   directories: Set<string>;
   files: Map<string, string>;
@@ -360,8 +323,7 @@ function mapRepository(
   for (const [rel, text] of Object.entries(input.declarations ?? {})) {
     add(rel, text);
   }
-  // The native file system accepts a trailing slash (`expandPattern` asks
-  // about `<root>/apps/`), so the map answers for the normalized path.
+
   const key = (path: string) =>
     path === "/" ? path : normalize(path).replace(TRAILING_SLASHES, "");
   const entriesOf = (path: string) => {
@@ -406,11 +368,6 @@ function mapRepository(
   return { directories, files, reader };
 }
 
-/**
- * `snapshotDirectoryOwnership` over the map: the manifest verdict at every
- * directory below the root holding a `package.json`, with `node_modules`
- * and `.git` directories unwalked, as the native walk leaves them.
- */
 function mapDirectoryOwnership(
   root: string,
   repository: MappedRepository,
@@ -447,7 +404,6 @@ function mapDirectoryOwnership(
   return { root, unwalked, verdicts };
 }
 
-/** Records wall-clock phases into `timing`; each call returns the phase's milliseconds. */
 function lapper(timing: Record<string, number>) {
   let started = performance.now();
   return (phase: string): number => {
@@ -459,12 +415,6 @@ function lapper(timing: Record<string, number>) {
   };
 }
 
-/**
- * The shared program over the map: the tsconfig named by `tsconfig` (or the
- * native defaults), `types: []` unless declared, the native workspace alias
- * merge, and the workspace sources added as roots. Declarations are files
- * of the in-memory host, discovered by resolution, never roots.
- */
 function createFileMapProject(
   root: string,
   repository: MappedRepository,
@@ -493,8 +443,6 @@ function createFileMapProject(
             tsConfigFilePath: join(root, tsconfig),
           });
   } catch (error) {
-    // A tsconfig the compiler cannot read as JSON; the native project would
-    // fail the same way, so this is an input problem, not a fallback.
     throw new FileMapInputError(
       [
         `tsconfig ${JSON.stringify(tsconfig)} cannot be parsed: ${error instanceof Error ? error.message : String(error)}`,
@@ -520,8 +468,8 @@ function createFileMapProject(
       workspacePathAliases(repository.reader, root)
     )
   );
-  // Each globbed path is added as itself: `addSourceFilesAtPaths` would read
-  // a path as a pattern again, and a file named `[id].ts` would match nothing.
+  // Add each path literally so names such as [id].ts are not interpreted as globs.
+
   for (const file of globSources(
     root,
     workspaceSourceGlobs(root, workspacePatterns(repository.reader, root)),
@@ -538,7 +486,6 @@ function createFileMapProject(
   };
 }
 
-/** Whether `name` matches an ambient module name, which may hold one `*`. */
 function matchesAmbient(name: string, ambient: readonly string[]): boolean {
   return ambient.some((declared) => {
     const star = declared.indexOf("*");
@@ -555,12 +502,6 @@ function matchesAmbient(name: string, ambient: readonly string[]): boolean {
   });
 }
 
-/**
- * Whether a wildcard ambient module (`declare module "*.css"`) covers a
- * relative name. TypeScript tries pattern ambient modules for any name that
- * resolves to no file, relative ones included; an exact ambient name can
- * never be relative, so only patterns apply.
- */
 function matchesAmbientPattern(
   name: string,
   ambient: readonly string[]
@@ -571,7 +512,6 @@ function matchesAmbientPattern(
   );
 }
 
-/** The names script files declare as ambient modules (`declare module "x"`). */
 function ambientModuleNames(program: ts.Program): string[] {
   return program
     .getSourceFiles()
@@ -587,10 +527,6 @@ function ambientModuleNames(program: ts.Program): string[] {
     );
 }
 
-/**
- * The `/// <reference path>` targets of `file` the program does not hold,
- * under each name TypeScript tries for them.
- */
 function missingPathReferences(
   program: ts.Program,
   file: ts.SourceFile,
@@ -608,7 +544,6 @@ function missingPathReferences(
     );
 }
 
-/** The `/// <reference types>` names of `file` that resolve to nothing. */
 function unresolvedTypeDirectives(
   file: ts.SourceFile,
   info: ts.PreProcessedFileInfo,
@@ -624,23 +559,6 @@ function unresolvedTypeDirectives(
     );
 }
 
-/**
- * What the shared program cannot resolve, read from every program file the
- * map placed under the root: sources, in-root declarations and the supplied
- * declarations they reach (config modules, which nothing analyzes, aside).
- *
- * - `packages`: bare specifiers and type references no declaration, alias
- *   or ambient `declare module` provides.
- * - `diagnostics`: a declaration's relative import (TS2307) or
- *   `/// <reference path>` (TS6053) to a file the map lacks. Only
- *   declarations are read for these: a source's missing relative import is
- *   already an unresolved module of the graph. A relative import a wildcard
- *   ambient module covers (`declare module "*.css"`) resolves, as in
- *   TypeScript.
- *
- * A supplied declaration's own gap counts, because under `skipLibCheck`
- * nothing diagnoses it and a type that depends on it silently becomes `any`.
- */
 function unresolvedTypeReferences(
   root: string,
   project: Project
@@ -706,11 +624,6 @@ function unresolvedTypeReferences(
   };
 }
 
-/**
- * The cruise's entries and synthesized aliases, by native derivation's rules
- * over the map: each workspace pattern's directories (or the whole root)
- * and every workspace package's source aliases, root-relative.
- */
 function cruiseLayout(
   reader: FoldReader,
   root: string
@@ -769,12 +682,6 @@ function prepareLocal(
   };
 }
 
-/**
- * Derive the workspace over a prepared file map, reading from the map only
- * the fold sources and destinations analysis plans, between its phases.
- * Records `foldInputsMs` and `workspaceAnalysisMs` (the analysis without
- * the fold reads) in `timing`.
- */
 export function analyzeFileMapWorkspace(
   map: PreparedFileMap,
   locals: readonly PackageLocalReport[],
@@ -805,12 +712,6 @@ export function analyzeFileMapWorkspace(
   return derivation;
 }
 
-/**
- * Prepare a file map's package-local and workspace-derivation inputs in
- * memory. Throws `FileMapInputError` for an unacceptable map. Git history is
- * unavailable (`not-git-repository`) for the full profile and not collected
- * for the temporal one, as natively.
- */
 export async function prepareFileMap(
   input: RepositoryFileMapInput
 ): Promise<PreparedFileMap> {
@@ -834,8 +735,6 @@ export async function prepareFileMap(
   const directories = mapDirectoryOwnership(root, repository, members);
   lap("validateAndMapMs");
 
-  // Native discovery's rules decide which directories are units, so the
-  // map analyzes exactly the packages a scan would.
   const discovery = discoverUnitsWith(reader, ignorer, root, {
     exclude: [...(input.exclude ?? [])],
   });
@@ -894,7 +793,6 @@ export async function prepareFileMap(
     root,
     tsconfig,
   }).catch((error: unknown) => {
-    // Native analysis fails on this tsconfig before any graph exists.
     if (error instanceof TsconfigRefusedError) {
       throw new FileMapInputError(
         [

@@ -16,22 +16,11 @@ import type {
   WorkspaceModuleGraph,
 } from "./types";
 
-// A cruised module graph sliced at one boundary, and the dependency facts
-// derived from it. Ownership and gitignore answers arrive as lookups; the
-// cruise itself runs natively in `dependencies.ts`.
-
-/**
- * The module-graph paths left out as modules and as edge targets: generated
- * and vendored directories, test fixtures, declaration files and tooling
- * configuration. dependency-cruiser applies them to every cruise, of a
- * workspace on disk or of a file map.
- */
 export const EXCLUDE_PATTERNS = [
   "(^|/)(node_modules|dist|build|out|coverage|\\.next|\\.turbo|\\.cache|storybook-static)(/|$)",
   `(^|/)${FIXTURE_DIR}/`,
   "\\.d\\.ts$",
-  // tooling configuration (eslint.config.ts, vitest.config.ts, …) is not
-  // part of a package's source dependency surface
+
   "(^|/)[^/]+\\.config\\.(ts|tsx|mts|cts|js|mjs|cjs)$",
 ];
 
@@ -58,10 +47,6 @@ export interface CruisedModule {
   source: string;
 }
 
-/**
- * The two file-system questions `normalizeEdges` asks: whether git ignores a
- * root-relative posix path, and which boundary owns an absolute path.
- */
 export interface ModuleGraphLookups {
   ignores(rel: string): boolean;
   ownerOf: SourceOwner;
@@ -76,12 +61,9 @@ export function normalizeEdges(
   const incoming = new Map<string, IncomingEdges>();
   const outgoing = new Map<string, ModuleDependencyEdge[]>();
   const moduleOwners = new Map<string, string>();
-  // One edge object per pair, shared by the graph and the boundary lists, so
-  // a later value import of an already-seen type-only pair updates both.
+
   const graphEdges = new Map<string, ModuleDependencyEdge>();
 
-  // dependency-cruiser only takes regex excludes, so gitignored files are
-  // dropped here instead: as modules, and as edge targets.
   const { ownerOf } = lookups;
   const inRoot = (absolute: string) => {
     const rel = relative(root, absolute);
@@ -324,10 +306,7 @@ export function buildDependencies(
           a.symbolName.localeCompare(b.symbolName)
       );
       const usageNamespace =
-        accumulator?.usageNamespace ??
-        // edge-only consumers (e.g. side-effect imports) load the module
-        // unless every import proved type-only
-        (edgeEntry?.typeOnly ? "type" : "value");
+        accumulator?.usageNamespace ?? (edgeEntry?.typeOnly ? "type" : "value");
       return {
         importSites: accumulator?.importSites ?? 0,
         moduleEdges: edgeEntry?.edges ?? [],
@@ -385,10 +364,6 @@ export function buildDependencies(
   };
 }
 
-/**
- * Shape signals are classification heuristics, not quality gates — the
- * underlying percentages are always reported alongside them.
- */
 function shapeSignals(
   incoming: PackageConsumer[],
   outgoing: PackageDependency[],
@@ -446,10 +421,6 @@ interface ConsumerAccumulator {
   usageNamespace: UsageNamespace;
 }
 
-/**
- * Every absolute path `normalizeEdges` examines in a cruise: each module's
- * source and each dependency it follows (not a core module, resolved).
- */
 export function cruisedPaths(
   root: string,
   modules: readonly CruisedModule[]

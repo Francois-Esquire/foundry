@@ -9,7 +9,6 @@
         "src/lib/config-worker.ts",
         "vitest.package.config.ts",
         "src/lib/browser-analysis.ts",
-        "src/web/scan/main.tsx",
         "vitest.browser.config.ts",
         "test/browser/**/*.test.ts"
       ],
@@ -19,6 +18,7 @@
     "apps/website": {
       "ignore": ["src/components/ascii-*.{ts,tsx}"],
       "ignoreDependencies": [
+        "@foundry.sh/spyglass",
         "@react-three/fiber",
         "@react-three/postprocessing",
         "@types/three",

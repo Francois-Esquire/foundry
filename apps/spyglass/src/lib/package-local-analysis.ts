@@ -38,25 +38,6 @@ import type {
   SymbolKind,
 } from "./types";
 
-// V12.6 package-local analysis. Everything here is a function of one
-// package's own sources and manifest: the project is an in-memory file
-// system holding exactly the package-owned files, so an import of another
-// workspace package cannot resolve and nothing outside the boundary is ever
-// read. Facts that need the rest of the workspace — who uses a symbol, how
-// far a module reaches, which concepts overlap, what history says — are
-// derived once per workspace from these reports (workspace-derive.ts).
-//
-// Invariant: an unchanged package yields a byte-identical report in any
-// workspace, under any Git history, on any day.
-//
-// This module is the computation over prepared sources. Reading them from
-// disk is `package-local.ts`; from a recorded file map,
-// `file-map-preparation.ts`.
-
-/**
- * The `paths` of a tsconfig whose targets lie inside the package, resolved
- * against its `baseUrl`. The tsconfig is parsed as data from `readText`.
- */
 export function tsconfigPathsInto(
   root: string,
   tsconfig: string,
@@ -93,40 +74,20 @@ export function tsconfigPathsInto(
   return inside;
 }
 
-/**
- * One package-owned source, read before analysis, with the workspace
- * boundary owning it as `ownerBoundary` names it, or the error that lookup
- * threw.
- */
 type PreparedPackageFile = OwnerResult & {
-  /** Absolute path under the prepared root. */
   path: string;
   text: string;
 };
 
-/**
- * Everything package-local analysis reads from the file system, read up
- * front: sources in analysis order, manifest entrypoints, the compiler
- * `paths` into the package, and each file's owning boundary or the error
- * its lookup threw. Analysis of a prepared package performs no file system
- * reads.
- */
 export interface PreparedPackageSource {
   boundary: Boundary;
-  /** Package aliases, then own tsconfig `paths`, then the optional tsconfig's. */
+
   compilerPaths: Record<string, string[]>;
   entrypoints: BoundaryEntrypoint[];
   files: PreparedPackageFile[];
   root: string;
 }
 
-/**
- * A project holding exactly the package-owned sources, on an in-memory file
- * system at their real paths. Only the package's own aliases resolve — its
- * manifest entrypoints and the `paths` of its own tsconfig.json that point
- * inside it — so a self-import through the package name or a `~/` alias
- * works and every other workspace specifier stays unresolved by construction.
- */
 function createLocalProject(source: PreparedPackageSource): {
   ownerOf: SourceOwner;
   project: Project;
@@ -145,9 +106,7 @@ function createLocalProject(source: PreparedPackageSource): {
     skipFileDependencyResolution: true,
     useInMemoryFileSystem: true,
   });
-  // Keyed by the project's own path spelling; an unprepared path is a broken
-  // invariant, not a reason to look ownership up on disk. A deferred lookup
-  // error is raised as the value thrown, only for the path asked.
+
   const owners = new Map<string, OwnerResult>();
   for (const file of source.files) {
     const created = project.createSourceFile(file.path, file.text);
@@ -174,19 +133,13 @@ function isSeedKind(
 }
 
 interface BindingOccurrences {
-  /** `left.right` accesses (value or type position) per left identifier, per member. */
   members: Map<string, Map<string, number>>;
-  /** Identifier spellings per name, skipping import and export declarations. */
+
   names: Map<string, number>;
-  /** Wiring uses per name; only names with at least one. */
+
   uses: Map<string, PackageLocalBindingUses>;
 }
 
-/**
- * The wiring use of one identifier reference, read from its parent once a
- * member chain rooted at it is folded in. A member name (`obj.X`) is not a
- * reference of `X`.
- */
 function bindingUseOf(node: Node): keyof PackageLocalBindingUses | undefined {
   let head: Node = node;
   let parent = head.getParent();
@@ -275,12 +228,6 @@ function bindingOccurrences(file: SourceFile): BindingOccurrences {
   return { members, names, uses };
 }
 
-/**
- * Each module's `default` export resolved to an owned top-level declaration,
- * following ts-morph's alias resolution (`export default Foo`, `export { Foo
- * as default }`, `export { default } from`). Anonymous and expression
- * defaults yield an entry with no id.
- */
 function collectDefaultExports(
   project: Project,
   boundary: Boundary,
@@ -302,11 +249,6 @@ function collectDefaultExports(
   return defaults.sort((a, b) => a.module.localeCompare(b.module));
 }
 
-/**
- * The V7 sweep's evidence folded per concept and module: only the package's
- * own files are in the project, so this is the part of each concept's
- * structural family that lives inside the package.
- */
 function collectConceptParticipation(
   group: ConceptSeedGroup
 ): PackageLocalConceptParticipation[] {
@@ -416,7 +358,6 @@ function initializerOf(node: Node): PackageLocalInitializer {
   return "other";
 }
 
-/** The leftmost identifier of a call or member chain. */
 function rootIdentifier(node: Node): Node | undefined {
   let current: Node = node;
   for (;;) {
@@ -443,7 +384,6 @@ function rootIdentifier(node: Node): Node | undefined {
   }
 }
 
-/** The leftmost identifier of a (possibly qualified) type name or `typeof` expression name. */
 function leftmostName(node: Node): Node | undefined {
   let current: Node = node;
   while (Node.isQualifiedName(current)) {
@@ -548,12 +488,6 @@ function memberCountsEntries(
   return { methods, properties };
 }
 
-/**
- * Each collected symbol's declaration shape plus its own V7 relationships to
- * local seeds. Local identities named by an annotation, a `typeof` query, or
- * a call's root are resolved through the checker; an external callee keeps
- * the import specifier that bound it.
- */
 function collectDeclarations(
   collected: CollectedSymbol[],
   group: ConceptSeedGroup
@@ -924,7 +858,6 @@ function ratio(numerator: number, denominator: number): number {
   return denominator === 0 ? 0 : numerator / denominator;
 }
 
-/** Package-local analysis of prepared sources, without file system reads. */
 export function analyzePreparedPackageLocal(
   source: PreparedPackageSource,
   config: AnalysisConfig = ANALYSIS_CONFIG

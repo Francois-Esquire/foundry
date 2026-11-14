@@ -8,24 +8,15 @@ import { canonicalizeSemanticsArtifact } from "../src/lib/semantics-equivalence"
 import type { FakeRepository } from "./lib/helpers/github-fake";
 import { fakeGitHub } from "./lib/helpers/github-fake";
 
-// The browser analysis asset as `bun run build` writes it (dist/scan/
-// analysis): one module with no import left, whose process, require and
-// file-system shims run here as they run in a page, giving the same
-// dataset, artifact for artifact, as the sources scanning the same
-// repository. Only timings, which no two runs share, are set aside: the
-// generation record's clock fields here, and the V8 simulation clocks by
-// the documented canonical rules. The clock runs unevenly, so the two
-// scans never share a timing by chance.
-
 const ASSET = resolve(
   import.meta.dirname,
-  "../dist/scan/analysis/spyglass-analysis.js"
+  "../dist/analysis/spyglass-analysis.js"
 );
 const COMMIT = "3333333333333333333333333333333333333333";
 const NOW = new Date("2026-11-09T00:00:00.000Z");
-/** A static `import` statement, which a page would have to resolve. */
+
 const STATIC_IMPORT = /^\s*import\s[^(]/m;
-/** A re-export or import naming a bare package or Node built-in. */
+
 const BARE_FROM = /\bfrom\s*["'](?:node:)?[a-z@][^"']*["']\s*;?\s*$/m;
 
 const repository: FakeRepository = {
@@ -59,13 +50,6 @@ const repository: FakeRepository = {
   refs: { main: COMMIT },
 };
 
-/**
- * Every artifact's JSON, with wall-clock timings removed. The manifest keeps
- * its generation record, less the clock fields; every other artifact is
- * compared canonically (`canonicalizeSemanticsArtifact`), which removes only
- * the documented volatile fields: the V8 simulation `runtimeMs` of each
- * package report.
- */
 function artifacts(dataset: {
   paths: readonly string[];
   text(path: string): string | undefined;
@@ -90,7 +74,6 @@ function artifacts(dataset: {
   );
 }
 
-/** A monotonic clock whose every step is longer than the last. */
 function unevenClock() {
   let now = 0;
   let step = 0;

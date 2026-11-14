@@ -34,34 +34,27 @@ import type { ChurnFileKind, FileKind } from "./types";
 
 const targetPattern = /\.tsx?$/;
 
-// Source queries the planner asks of the shared project: who imports a
-// declaration, what a declaration needs, how a package exposes it. Every
-// function reads the AST and returns plain data; none manipulates it.
-
 type ImportSiteForm = "import" | "reexport" | "star-reexport";
 
-/** One import or re-export declaration that binds a symbol from another module. */
 export interface ImportSite {
-  /** Root-relative importing file. */
   file: string;
   fileKind: ChurnFileKind;
   form: ImportSiteForm;
   kind: PlannedImportKind;
-  /** Exported names of the symbol bound here, sorted. */
+
   names: string[];
-  /** Names the site imports beyond the symbol; a rewrite must leave them. */
+
   otherNames: string[];
   package?: string;
-  /** Root-relative file the specifier resolves to. */
+
   resolvedFile: string;
   specifier: string;
   typeOnly: boolean;
-  /** The specifier names a package, not a path. */
+
   viaPackage: boolean;
 }
 
 interface SpecifierIndex {
-  /** Resolved absolute file → declarations whose specifier resolves to it. */
   byTarget: Map<
     string,
     { file: SourceFile; declaration: ImportDeclaration | ExportDeclaration }[]
@@ -113,7 +106,6 @@ function isPackageSpecifier(specifier: string): boolean {
   return !(specifier.startsWith(".") || specifier.startsWith("/"));
 }
 
-/** Names accessed as `ns.Name` on a namespace import, restricted to `names`. */
 function namespaceUses(
   file: SourceFile,
   alias: string,
@@ -143,11 +135,6 @@ function namespaceUses(
   return [...used].sort((a, b) => a.localeCompare(b));
 }
 
-/**
- * Every import or re-export site in the project that binds `symbol` from a
- * module exporting it, directly or through re-export chains. Sites inside
- * the declaring file itself are not sites.
- */
 export function importSitesOf(
   context: OperatorPlanningContext,
   symbol: LocatedSymbol
@@ -387,7 +374,6 @@ function isTypeDeclaration(node: Node): boolean {
   return Node.isInterfaceDeclaration(node) || Node.isTypeAliasDeclaration(node);
 }
 
-/** The top-level declaration of `file` containing `node`, if any. */
 function topLevelOwner(file: SourceFile, node: Node): Node | undefined {
   if (node.getSourceFile() !== file) {
     return undefined;
@@ -422,7 +408,6 @@ interface ImportBinding {
   typeOnly: boolean;
 }
 
-/** Find the import declaration binding the node's symbol. */
 function importBindingOf(node: Node): ImportBinding | undefined {
   const declarations = node.getSymbol()?.getDeclarations() ?? [];
   for (const declaration of declarations) {
@@ -460,15 +445,10 @@ export interface MovementClosureInput {
 
 export interface MovementClosureResult {
   closure: PlannedMovementClosure;
-  /** Same-module declarations that move with the roots, in file order. */
+
   internalNodes: Node[];
 }
 
-/**
- * What the roots need to keep their meaning after a move. Same-module
- * non-exported declarations are included and references from remaining code
- * are reported as shared. Imported dependencies are classified for planning.
- */
 export function movementClosure(
   context: OperatorPlanningContext,
   input: MovementClosureInput
@@ -744,7 +724,6 @@ function movementClosureEntriesIdentifierDeclaration(
   }
 }
 
-/** Top-level declarations of `file` that are neither roots nor closure internals. */
 export function remainingDeclarations(
   file: SourceFile,
   moving: Set<Node>
@@ -752,7 +731,6 @@ export function remainingDeclarations(
   return topLevelDeclarations(file).filter((d) => !moving.has(d));
 }
 
-/** Detect side-effect imports and top-level statements outside the listed declaration kinds. */
 export function hasSideEffects(file: SourceFile): boolean {
   for (const declaration of file.getImportDeclarations()) {
     if (declaration.getImportClause() === undefined) {
@@ -799,17 +777,11 @@ function entrypointContexts(
 }
 
 export interface ExposureRoutes {
-  /**
-   * The routes whose exposed name package-internal modules import from the
-   * route's entrypoint, or whose entrypoint they import as a namespace or
-   * re-export whole.
-   */
   internalEntrypointImporters: Set<ResolvedRoute>;
   routes: ResolvedRoute[];
   unresolvedEntrypoints: string[];
 }
 
-/** How `pkg`'s declared entrypoints expose the symbol; empty when they do not. */
 export function exposureRoutes(
   context: OperatorPlanningContext,
   pkg: OperatorPlanningPackage,
@@ -849,7 +821,6 @@ export function exposureRoutes(
   };
 }
 
-/** Relative import specifier from `fromFile` to `toFile`, both root-relative, extension dropped. */
 export function relativeSpecifier(fromFile: string, toFile: string): string {
   const target = toFile.replace(targetPattern, "");
   let relative = posix.relative(posix.dirname(fromFile), target);
@@ -862,14 +833,13 @@ export function relativeSpecifier(fromFile: string, toFile: string): string {
 export interface PackageImportEdge {
   from: string;
   runtimeSites: number;
-  /** Import and re-export declarations carrying the edge. */
+
   sites: number;
   to: string;
 }
 
 const graphCache = new WeakMap<Project, PackageImportEdge[]>();
 
-/** `import type { A }` or `import { type A, type B }`: no runtime code follows the edge. */
 function typeOnlyDeclaration(
   declaration: ImportDeclaration | ExportDeclaration
 ): boolean {
@@ -889,7 +859,6 @@ function typeOnlyDeclaration(
   return named.length > 0 && named.every((n) => n.isTypeOnly());
 }
 
-/** Package edges from resolved imports and re-exports in non-declaration project files. */
 export function packageImportEdges(
   context: OperatorPlanningContext
 ): PackageImportEdge[] {
@@ -928,7 +897,6 @@ export function packageImportEdges(
   return result;
 }
 
-/** Cycles through `added` edges in the graph `edges ∪ added`, as package lists. */
 export function cyclesThrough(
   edges: { from: string; to: string }[],
   added: { from: string; to: string }[]

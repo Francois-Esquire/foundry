@@ -12,7 +12,6 @@ import {
   workspaceSourceGlobs,
 } from "./source-files";
 
-/** The shared workspace program: every workspace source, every package alias. */
 export function createProject(root: string, tsconfig?: string): Project {
   const project = tsconfig
     ? new Project({
@@ -33,12 +32,6 @@ export function createProject(root: string, tsconfig?: string): Project {
   return project;
 }
 
-/**
- * Every TypeScript source the analyzer loads for a workspace, absolute and
- * sorted: the workspace patterns minus generated directories, fixtures,
- * declaration files, tooling configuration, and gitignored paths. The V12.5
- * fingerprint enumerates through the same function, so the two can't drift.
- */
 export function workspaceSourceFiles(
   root: string,
   project: Project = new Project({ skipFileDependencyResolution: true })
@@ -51,12 +44,6 @@ export function workspaceSourceFiles(
   );
 }
 
-/**
- * The package-owned subset of `workspaceSourceFiles`: the same rules applied
- * below the boundary directory alone. This is the one definition of "package
- * semantic input" — local analysis, the local fingerprint, and the leak tests
- * all enumerate through it.
- */
 export function packageSourceFiles(
   root: string,
   boundary: Boundary,

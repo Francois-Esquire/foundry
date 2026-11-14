@@ -1,12 +1,6 @@
 import type { Page, Route } from "playwright-core";
 import type { fakeGitHub } from "../../lib/helpers/github-fake";
 
-// Answers a page's requests to GitHub's API and raw content host from the
-// deterministic fake (`test/lib/helpers/github-fake.ts`), with the CORS
-// headers GitHub sends, so a mocked scan spends no rate limit and can hold,
-// fail or replace any response. A request the route aborts reaches the
-// page as a network failure, as a blocked cross-origin response does.
-
 const GITHUB = /^https:\/\/(api\.github\.com|raw\.githubusercontent\.com)\//;
 
 const CORS = {
@@ -45,7 +39,7 @@ export async function routeGitHub(
         headers: { ...Object.fromEntries(response.headers), ...CORS },
         status: response.status,
       })
-      // The page may have gone, or aborted the request, meanwhile.
+
       .catch(() => undefined);
   });
 }

@@ -88,11 +88,6 @@ function importSiteOf(ref: Node): ImportSite | undefined {
   return undefined;
 }
 
-/**
- * When a symbol is used externally but never named in an import specifier
- * (e.g. reached via a namespace import), derive access from how the consumer
- * file imports the boundary at all.
- */
 function fileAccess(
   file: SourceFile,
   boundary: Boundary
@@ -116,12 +111,6 @@ function fileAccess(
   return access;
 }
 
-/**
- * External usage from an already-resolved reference list — every node that
- * names the symbol, in any file. The V12.6 reference index supplies the
- * list once for the whole workspace, reproducing what one
- * `findReferencesAsNodes` call per symbol returned before it.
- */
 export function usageFromReferences(
   referenceNodes: Iterable<Node>,
   boundary: Boundary,

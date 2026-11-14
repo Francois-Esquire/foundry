@@ -76,17 +76,11 @@ import type { AnalysisProfile, SurfaceReport } from "./types";
 import { CHILD_CWD, WORKER_RUNTIME, workerEntry } from "./worker-runtime";
 import type { WorkspaceDerivationTiming } from "./workspace-derive-types";
 
-// Materializes a static dataset from package-local analysis and workspace
-// derivation. Incremental builds reuse fingerprinted reports and carry
-// byte-identical artifacts forward before publishing the new tree.
-
-/** Package-local analysis of one unit; reads nothing outside the package. */
 export type SemanticsLocalAnalyzer = (
   unit: SemanticsWorkspaceUnit,
   context: { root: string }
 ) => Promise<PackageLocalReport>;
 
-/** One workspace derivation over every local report, assembled into reports in the same order. */
 export type SemanticsDeriver = (
   locals: PackageLocalReport[],
   context: { root: string; now: Date; profile?: AnalysisProfile }
@@ -113,39 +107,27 @@ export type SemanticsProgressEvent =
 
 export interface SemanticsGenerateOptions {
   analyzeLocal?: SemanticsLocalAnalyzer;
-  /** Workspace-relative or absolute cache directory; written in both modes. */
+
   cache?: string;
   command?: string;
   concurrency?: number;
-  /** The resolved configuration, which `scan` loads; never loaded here. Default: the plain defaults. */
+
   config?: SemanticsConfig;
   derive?: SemanticsDeriver;
-  /** Fingerprint and look up the cache, then stop: no analysis, no output. */
+
   dryRun?: boolean;
-  /** Stop at the first failed package, and publish nothing when any package failed. */
+
   failFast?: boolean;
-  /**
-   * Also derive each complete package's internals into the dataset. An
-   * internals crash aborts the generation, with or without `failFast`.
-   */
+
   internals?: boolean;
-  /** `full` (default) analyzes every unit; `incremental` reuses cached reports. */
+
   mode?: SemanticsGenerationMode;
-  /**
-   * Shared clock for workspace derivation. Defaults to the start of the
-   * current UTC day: history windows and `daysSinceLastChange` are measured
-   * against it, so builds within one day share every input. Package-local
-   * analysis never reads it.
-   */
+
   now?: Date;
   onProgress?: (event: SemanticsProgressEvent) => void;
-  /** Workspace-relative or absolute dataset directory. Default `.foundry/semantics`; `scan` passes the state directory's. */
+
   output?: string;
-  /**
-   * The dataset whose byte-identical artifacts are hardlinked into the new
-   * one: by default the output itself. A scan staged beside the output, as
-   * apply's is, names the published one.
-   */
+
   previous?: string;
   root: string;
 }
@@ -155,7 +137,6 @@ const DEFAULT_OUTPUT = ".foundry/semantics";
 const execFileAsync = promisify(execFile);
 const WORKER = workerEntry("semantics-worker");
 
-/** Default local analyzer: one Bun worker per unit, report written and read back as JSON. */
 export const spawnLocalAnalyzer: SemanticsLocalAnalyzer = async (
   unit,
   { root }
@@ -184,10 +165,6 @@ export const spawnLocalAnalyzer: SemanticsLocalAnalyzer = async (
   }
 };
 
-/**
- * Default deriver: one Bun worker holding the shared workspace program
- * for every unit at once, released by exit. Local reports travel by file.
- */
 export const spawnDeriver: SemanticsDeriver = async (
   locals,
   { root, now, profile }
@@ -236,11 +213,6 @@ export const spawnDeriver: SemanticsDeriver = async (
   }
 };
 
-/**
- * Writes the new tree. An artifact whose bytes equal the previous dataset's
- * is hardlinked from there (copied when the filesystem refuses), so unchanged
- * files keep their inode and mtime and the swap stays atomic.
- */
 class Writer {
   readonly files: { file: string; bytes: number; reused: boolean }[] = [];
 
@@ -498,7 +470,6 @@ const WORKSPACE_STAGES = [
   "materialization",
 ] as const;
 
-/** Under `failFast`, before anything is written: a package without a report fails the generation. */
 function failOnUnreported(outcomes: readonly UnitOutcome[]): void {
   const failed = outcomes.flatMap((o) =>
     o.report === undefined ? [`${o.unit.id} (${o.error})`] : []
@@ -622,7 +593,7 @@ export async function generateSemantics(
     const recomputeReports = plans.filter(
       (p) => p.report.invalidation.status === "recompute"
     );
-    // Derivation reads every package, so one invalidated report derives all.
+
     const visitStage = (
       currentInvalidations: SemanticsInvalidation[],
       currentRecomputeLocal: UnitPlan[],
@@ -965,8 +936,7 @@ export async function generateSemantics(
         ? 0
         : listSemanticsFiles(previous).filter((f) => !written.has(f)).length;
     replaceDirectory(tmp, output);
-    // Recorded only once the dataset is published, so an interrupted build
-    // leaves the previous record and `--explain` still names what changed.
+
     storeWorkspaceInputsMeta(cacheDir, inputs.files);
 
     const bytes = writer.files.reduce((sum, f) => sum + f.bytes, 0);

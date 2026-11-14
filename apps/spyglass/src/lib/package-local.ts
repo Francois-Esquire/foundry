@@ -17,21 +17,16 @@ import {
 import type { PackageLocalReport } from "./package-local-types";
 import { packageSourceFiles } from "./project";
 
-// V12.6 package-local analysis, native side: reading one package's sources,
-// manifest, tsconfig `paths` and owners from disk. The analysis over those
-// prepared values is `package-local-analysis.ts`.
-
 export interface AnalyzePackageLocalOptions {
   config?: AnalysisConfig;
   root?: string;
   target: string;
-  /** Optional tsconfig whose `paths` into the package are honoured. */
+
   tsconfig?: string;
 }
 
 const readText = (file: string): string => readFileSync(file, "utf8");
 
-/** Read one package's analysis input from disk. */
 export function preparePackageLocalSource(
   options: Omit<AnalyzePackageLocalOptions, "config">
 ): PreparedPackageSource {

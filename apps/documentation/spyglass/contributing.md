@@ -16,13 +16,14 @@ bun run test --filter=@foundry.sh/spyglass
 bun run --cwd=apps/spyglass test:package
 ```
 
-`build` clears `dist`, bundles the CLI, the library entry, both workers,
+`build` clears `dist/lib` and `dist/web`, bundles the CLI, the library entry, both workers,
 and the chunks they share into `dist/lib` with Bun, writes the library's
 declarations to `dist/lib/index.d.ts` with tsup, and builds the viewer into
 `dist/web` with Vite. Every built file stays in `dist/lib`: the workers are
 found beside the running file, and the viewer at `../web`. One Vitest run,
 on Bun, covers the library, the renderer, `serve`, the built CLI, its worker
-and server, and the browser loaders. `test:package` packs the tarball, installs it into a temporary
+and server, and the browser loaders; Turbo first builds the two bundles
+those tests load, `build:analysis` and `build:test-engine`. `test:package` packs the tarball, installs it into a temporary
 consumer, and drives the installed bin, the library under Bun and Node,
 and a TypeScript consumer of its declarations. The release workflow runs
 the same check before publishing.

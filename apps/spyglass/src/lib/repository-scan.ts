@@ -8,17 +8,6 @@ import { loadGitHubRepository } from "./github-loader";
 import type { GitHubRepositoryInput } from "./github-request";
 import { parseGitHubRepositoryInput } from "./github-request";
 
-// INTERNAL composition: a public GitHub repository input to an in-memory
-// dataset, through the repository loader and the existing file-map scanner.
-// The scanner owns the lifecycle (one running scan, replacement, reset and
-// stale-result rejection); this adds no state of its own. The input is
-// normalized before the scanner is touched, so an unsupported input starts
-// nothing and leaves the published result as it was. Once started, a scan
-// clears the published result, as every scan does. The loaded map is
-// analysed with the file-map policy (explicit declarations and bundled
-// libraries only), and the repository's coordinates and what the loader
-// omitted are saved with the dataset as its origin. Not a public export.
-
 export interface GitHubRepositoryScanInput
   extends GitHubRepositoryInput,
     Pick<
@@ -38,18 +27,11 @@ export interface GitHubRepositoryScanOptions
     Pick<GitHubLoadOptions, "fetch" | "limits"> {}
 
 export interface GitHubRepositoryScan {
-  /** Resolution, listing and download, in wall-clock milliseconds. */
   acquisitionTiming: LoadedGitHubRepository["timing"];
-  /** The published dataset; its `reader().analysis()` names the repository. */
+
   dataset: FileMapDataset;
 }
 
-/**
- * Scans `input`'s public GitHub revision through `scanner`. Throws
- * `RepositoryInputError` before starting for an unsupported input; rejects
- * with `RepositoryAcquisitionError` for a failed load, the scanner's abort
- * reason when replaced or reset, and analysis errors otherwise.
- */
 export async function scanGitHubRepository(
   scanner: FileMapScanner,
   input: GitHubRepositoryScanInput,
@@ -63,6 +45,7 @@ export async function scanGitHubRepository(
         ...(options.fetch !== undefined && { fetch: options.fetch }),
         ...(options.limits !== undefined && { limits: options.limits }),
         onProgress: report,
+        readGeneratedJavaScript: input.tsconfig !== undefined,
         signal,
       });
       acquisitionTiming = loaded.timing;

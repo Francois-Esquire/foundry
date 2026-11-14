@@ -2,6 +2,7 @@ import { sha1 } from "@noble/hashes/legacy.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { request as octokitRequest } from "@octokit/request";
 import { RequestError } from "@octokit/request-error";
+import { EXCLUDED_DIRS } from "./boundary-model";
 import type {
   GitHubRepositorySource,
   RepositoryAcquisition,
@@ -19,37 +20,10 @@ import {
 import { collisionProblems, pathProblems } from "./file-map-preparation";
 import type { GitHubRepositoryRequest } from "./github-request";
 
-// INTERNAL: loads one public GitHub revision into a repository file map,
-// entirely from the calling page. Only two origins are contacted, both of
-// which answer cross-origin requests from any page
-// (`Access-Control-Allow-Origin: *`):
-//
-// - GitHub's REST API, through Octokit's request client, three calls a
-//   scan: the repository (canonical names, visibility, default branch), the
-//   ref's full commit SHA (`application/vnd.github.sha`), and the recursive
-//   tree at that commit. Unauthenticated, these count against GitHub's 60
-//   requests an hour per network address, so files are never fetched
-//   through the API.
-// - raw.githubusercontent.com, one request per analysis input, a bounded
-//   number at a time, each naming the resolved commit, so a branch that
-//   moves mid-load changes nothing.
-//
-// Archives (codeload.github.com) and Git's smart HTTP protocol are not
-// readable cross-origin, and no proxy is used. Nothing is retried: a rate
-// limit or network failure is reported as it is. Each download is read
-// through the size the listing gives it and must have the listing's Git
-// blob SHA-1: consistency with GitHub's listing, not independent
-// authenticity. Symlinks, submodules, binaries, non-UTF-8 and oversized
-// files are omitted and listed, never followed. Nothing is installed or
-// run. Limits are provisional guardrails, not tested support claims.
-
-/** Provisional guardrails, not product support claims; a caller may override each. */
 export interface GitHubAcquisitionLimits extends RepositoryAcquisitionLimits {
-  /** Directory segments a scope may have, each one request when walking a truncated listing. */
   maxScopeDepth: number;
 }
 
-/** PROVISIONAL defaults, chosen as guardrails; no repository size is a tested claim. */
 export const PROVISIONAL_GITHUB_LIMITS: Readonly<GitHubAcquisitionLimits> = {
   concurrency: 6,
   maxFileBytes: 1_000_000,
@@ -64,7 +38,7 @@ export type RepositoryAcquisitionProgress =
   | { entries?: number; phase: "list"; stage: "start" | "end" }
   | {
       bytes: number;
-      /** Files downloaded so far. */
+
       done: number;
       files: number;
       phase: "download";
@@ -72,22 +46,22 @@ export type RepositoryAcquisitionProgress =
     };
 
 export interface GitHubLoadOptions {
-  /** Default: the global `fetch`. Tests inject a deterministic one. */
   readonly fetch?: typeof fetch;
   readonly limits?: Partial<GitHubAcquisitionLimits>;
   readonly onProgress?: (progress: RepositoryAcquisitionProgress) => void;
+
+  readonly readGeneratedJavaScript?: boolean;
   readonly signal?: AbortSignal;
 }
 
-/** A loaded revision: the file map's files and root, and where they came from. */
 export interface LoadedGitHubRepository {
   acquisition: RepositoryAcquisition;
-  /** Scope-relative POSIX paths to text: only the analysis inputs that loaded. */
+
   files: Record<string, string>;
   repository: GitHubRepositorySource;
-  /** `githubRepositoryRoot(owner, repo, scope)`. */
+
   root: string;
-  /** Wall-clock milliseconds of resolution, listing and download. */
+
   timing: { downloadMs: number; listMs: number; resolveMs: number };
 }
 
@@ -108,13 +82,9 @@ export type RepositoryAcquisitionErrorCode =
   | "unexpected-origin"
   | "unsafe-path";
 
-/**
- * Why a load failed. Messages name repository coordinates and paths only,
- * never file contents, headers or credentials.
- */
 export class RepositoryAcquisitionError extends Error {
   readonly code: RepositoryAcquisitionErrorCode;
-  /** For `rate-limited`: when GitHub says the limit resets, when it says so. */
+
   readonly resetAt: Date | undefined;
   readonly status: number | undefined;
 
@@ -139,13 +109,9 @@ const RAW = "https://raw.githubusercontent.com";
 const SYMLINK_MODE = "120000";
 const GITLINK_MODE = "160000";
 const SOURCE_FILE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+const JAVASCRIPT_FILE = /\.(?:js|jsx|mjs|cjs)$/;
 const NAMED_INPUTS = new Set([".gitignore", "bun.lock", "pnpm-workspace.yaml"]);
 
-/**
- * The analysis-input policy: TypeScript and JavaScript modules (the latter
- * as data, for the capabilities that list them), JSON (manifests, tsconfig
- * and what they extend), `.gitignore`, `bun.lock` and `pnpm-workspace.yaml`.
- */
 export function isAnalysisInput(path: string): boolean {
   const name = path.slice(path.lastIndexOf("/") + 1);
   return (
@@ -153,7 +119,13 @@ export function isAnalysisInput(path: string): boolean {
   );
 }
 
-/** One entry of a Git tree listing, as GitHub's API gives it. */
+function isGeneratedModule(path: string): boolean {
+  return (
+    JAVASCRIPT_FILE.test(path) &&
+    path.split("/").some((segment) => EXCLUDED_DIRS.includes(segment))
+  );
+}
+
 interface TreeEntry {
   mode?: string;
   path?: string;
@@ -174,10 +146,6 @@ interface Context {
   signal: AbortSignal | undefined;
 }
 
-/**
- * GitHub's rate-limit refusal, from a 403 or 429 that says so: no requests
- * remaining, or a `Retry-After`. A plain 403 is not one.
- */
 function rateLimited(
   status: number,
   header: (name: string) => string | null | undefined,
@@ -219,11 +187,6 @@ function networkFailure(
   );
 }
 
-/**
- * An API call through Octokit. 404 and 422 come back as `undefined` for the
- * caller to name in its own terms; a rate limit, a network failure and any
- * other status throw. The caller's abort wins over any failure.
- */
 async function api<T>(
   call: () => Promise<{ data: T }>,
   what: string,
@@ -307,7 +270,7 @@ async function resolveRevision(
   }
   const ref = request.ref ?? info.default_branch;
   const refWhat = `ref ${JSON.stringify(ref)} of github.com/${owner}/${repo}`;
-  // GitHub answers 422 for a ref that names no commit.
+
   const commit = await api(
     () =>
       context.request("GET /repos/{owner}/{repo}/commits/{ref}", {
@@ -326,7 +289,7 @@ async function resolveRevision(
       `No commit was found for ${refWhat}.`
     );
   }
-  // The SHA media type answers plain text, which Octokit's types do not model.
+
   const text: unknown = commit;
   const sha = typeof text === "string" ? text.trim() : "";
   if (!GIT_SHA.test(sha)) {
@@ -390,11 +353,6 @@ const SCOPE_MISSING = (scope: string) =>
     `The scope ${JSON.stringify(scope)} is not a directory at the resolved commit.`
   );
 
-/**
- * The scope's entries, with scope-relative paths, never from a truncated
- * listing: when the root listing is truncated, the scope's own tree is
- * found one level at a time and listed instead.
- */
 async function scopedEntries(
   resolved: Resolved,
   scope: string | null,
@@ -454,17 +412,16 @@ interface Selection {
 
 const SHOWN_PROBLEMS = 5;
 
-/** The first few problems, and how many more there are. */
 function listed(problems: readonly string[]): string {
   const shown = problems.slice(0, SHOWN_PROBLEMS).join("; ");
   const more = problems.length - SHOWN_PROBLEMS;
   return more > 0 ? `${shown}; and ${more} more` : shown;
 }
 
-/** Records one listed entry as omitted, or selects it for download. */
 function classify(
   entry: TreeEntry & { path: string; sha: string },
   limits: GitHubAcquisitionLimits,
+  selects: (path: string) => boolean,
   { omissions, selected }: Selection
 ): void {
   if (entry.type === "tree") {
@@ -476,7 +433,7 @@ function classify(
     omissions.symlinks.push(entry.path);
   } else if (entry.path.split("/").includes("node_modules")) {
     omissions.nodeModules.push(entry.path);
-  } else if (!isAnalysisInput(entry.path)) {
+  } else if (!selects(entry.path)) {
     omissions.notAnalysisInput += 1;
   } else if (entry.size === undefined) {
     throw new RepositoryAcquisitionError(
@@ -490,10 +447,10 @@ function classify(
   }
 }
 
-/** Classifies every entry before any download, refusing unsafe or colliding paths. */
 function select(
   entries: readonly TreeEntry[],
-  limits: GitHubAcquisitionLimits
+  limits: GitHubAcquisitionLimits,
+  selects: (path: string) => boolean
 ): Selection {
   const selection: Selection = {
     omissions: {
@@ -508,11 +465,11 @@ function select(
     selected: [],
   };
   const seen = new Set<string>();
-  const unsafe: string[] = [];
   for (const entry of entries) {
     const { path, sha } = entry;
     if (
       typeof path !== "string" ||
+      path === "" ||
       typeof sha !== "string" ||
       !GIT_SHA.test(sha)
     ) {
@@ -525,16 +482,17 @@ function select(
       );
     }
     seen.add(path);
-    unsafe.push(...pathProblems(path));
-    classify({ ...entry, path, sha }, limits, selection);
+    classify({ ...entry, path, sha }, limits, selects, selection);
   }
+  const { selected } = selection;
+
+  const unsafe = selected.flatMap((file) => pathProblems(file.path));
   if (unsafe.length > 0) {
     throw new RepositoryAcquisitionError(
       "unsafe-path",
       `The listing has paths that cannot be placed safely: ${listed(unsafe)}.`
     );
   }
-  const { selected } = selection;
   const collisions = collisionProblems(new Set(selected.map((f) => f.path)));
   if (collisions.length > 0) {
     throw new RepositoryAcquisitionError(
@@ -558,7 +516,6 @@ function select(
   return selection;
 }
 
-/** Git's object ID for blob `bytes`: SHA-1 over `blob {length}\0` and the bytes. */
 export function gitBlobSha(bytes: Uint8Array): string {
   return bytesToHex(
     sha1
@@ -569,7 +526,6 @@ export function gitBlobSha(bytes: Uint8Array): string {
   );
 }
 
-/** The body, read only up to `max` bytes; `undefined` when it is longer. */
 async function boundedBody(
   response: Response,
   max: number
@@ -604,7 +560,6 @@ type Downloaded =
 const encodedPath = (path: string) =>
   path.split("/").map(encodeURIComponent).join("/");
 
-/** One file from the raw host at the resolved commit, checked against the listing. */
 async function download(
   resolved: Resolved,
   scope: string | null,
@@ -674,10 +629,6 @@ async function download(
   }
 }
 
-/**
- * Downloads `selected` with at most `concurrency` requests in flight. The
- * first failure aborts the others; the caller's abort wins over any failure.
- */
 async function downloadAll(
   resolved: Resolved,
   scope: string | null,
@@ -746,10 +697,6 @@ function limitsOf(
   return limits;
 }
 
-/**
- * Loads `request`'s revision as a file map, or rejects with
- * `RepositoryAcquisitionError` (or the signal's reason once it aborts).
- */
 export async function loadGitHubRepository(
   request: GitHubRepositoryRequest,
   options: GitHubLoadOptions = {}
@@ -777,7 +724,13 @@ export async function loadGitHubRepository(
   at = performance.now();
   onProgress?.({ phase: "list", stage: "start" });
   const entries = await scopedEntries(resolved, request.scope, context);
-  const { omissions, selected } = select(entries, limits);
+  const { omissions, selected } = select(
+    entries,
+    limits,
+    options.readGeneratedJavaScript === true
+      ? isAnalysisInput
+      : (path) => isAnalysisInput(path) && !isGeneratedModule(path)
+  );
   onProgress?.({ entries: entries.length, phase: "list", stage: "end" });
   const listMs = performance.now() - at;
 

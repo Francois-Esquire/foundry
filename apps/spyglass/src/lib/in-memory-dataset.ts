@@ -33,43 +33,25 @@ import type {
 } from "./semantics-types";
 import type { PreparedVisualization } from "./visualization/types";
 
-// INTERNAL: a dataset assembled in memory from analysis results, read
-// through the existing `datasetReader`. The same assembly as a native scan
-// (`dataset-assembly.ts`) writes into an artifact collection that this
-// result owns, keyed by the dataset-relative paths a published dataset has.
-// Nothing is written to a file system and nothing is fetched; no cache,
-// state, lock, hardlink or swap exists here. Each result owns its own
-// collection, and every read parses the stored JSON text afresh, as a file
-// read would, so no reader shares or mutates another's objects. Not a
-// public export.
-
 const UNSAFE_PATH_SEGMENT = /(^|\/)\.{0,2}(\/|$)/;
 
-/**
- * Artifacts keyed by dataset-relative path, held as the JSON text a
- * published dataset would contain. Writing a path twice is an error.
- */
 export class DatasetArtifacts implements DatasetArtifactSink {
   readonly #files: { bytes: number; file: string; reused: false }[] = [];
   readonly #texts = new Map<string, string>();
 
-  /** Every artifact written, in write order; none is reused from a previous dataset. */
   get files(): readonly { bytes: number; file: string; reused: false }[] {
     return this.#files;
   }
 
-  /** The artifact at `path`, parsed afresh, or `undefined` when there is none. */
   readonly read: DatasetTransport = (path) => {
     const text = this.#texts.get(path);
     return Promise.resolve(text === undefined ? undefined : JSON.parse(text));
   };
 
-  /** Dataset-relative paths, in write order. */
   paths(): string[] {
     return [...this.#texts.keys()];
   }
 
-  /** The stored JSON text at `path`. */
   text(path: string): string | undefined {
     return this.#texts.get(path);
   }
@@ -100,50 +82,29 @@ export class DatasetArtifacts implements DatasetArtifactSink {
 }
 
 export interface InMemoryDatasetInput<C> {
-  /**
-   * Awaited before each assembly phase starts; a caller yields to the event
-   * loop, checks for cancellation and reports progress here. A rejection
-   * stops the assembly before the phase runs.
-   */
   beforePhase?: (name: SemanticsPhase) => Promise<void>;
-  /**
-   * What the analysis that produced the outcomes could and could not see,
-   * carried unchanged on the result, and saved with the dataset when
-   * `origin` is given.
-   */
+
   capabilities: C;
-  /** Recorded as the manifest's generation command. */
+
   command: string;
   discovery: DeclaredDiscovery;
-  /** The inputs fingerprint, when the caller computed one. */
+
   inputs?: SemanticsGenerationInputs;
-  /** The workspace's dependency inventory with its resolved graph, before usage enrichment. */
+
   inventory: DependencyInventory;
-  /** The clock read for the manifest's `finishedAt`. Default: `new Date()`. */
+
   now?: () => Date;
-  /**
-   * Where the analysed sources came from. When given, the capabilities,
-   * this origin and the provenance are saved at `DATASET_ANALYSIS_FILE`,
-   * checked against the analysis metadata schema and this input (its root
-   * and command; see `datasetAnalysisProblems`) before they are written,
-   * checked again against the assembled manifest, and answered by the
-   * reader's `analysis()` after a reload.
-   */
+
   origin?: DatasetAnalysisOrigin;
-  /** In discovery order, one per unit; a unit with a report has a local report. */
+
   outcomes: readonly DatasetAssemblyOutcome[];
-  /** Phases timed before assembly, such as preparation and analysis. */
+
   phases?: readonly SemanticsPhaseTiming[];
   previousVisualization?: PreparedVisualization;
-  /** The workspace root; the manifest records its last segment. */
+
   root: string;
   settings: LensSettings;
-  /**
-   * When the operation that produced the outcomes started, so the
-   * manifest's `startedAt` and `totalDurationMs` cover preparation and
-   * analysis as well as assembly. Default: read from `now` when assembly
-   * starts.
-   */
+
   startedAt?: Date;
   workspaceName: string | undefined;
 }
@@ -151,22 +112,17 @@ export interface InMemoryDatasetInput<C> {
 export interface InMemoryDataset<C> {
   capabilities: C;
   manifest: DatasetManifest;
-  /** Dataset-relative paths of every artifact, in write order. */
+
   paths: readonly string[];
   provenance: DatasetAssemblyProvenance;
-  /** A new reader of this dataset; one reader is one read, as for a saved dataset. */
+
   reader(options?: DatasetReaderOptions): DatasetReader;
-  /** The stored JSON text of one artifact, as a published file would hold it. */
+
   text(path: string): string | undefined;
-  /** Answers parsed JSON for this dataset's paths, `undefined` for any other. */
+
   transport: DatasetTransport;
 }
 
-/**
- * Assembles every artifact of a dataset from analysis results, in memory,
- * with the native scan's assembly and order: package reports, then
- * `assembleDataset`'s artifacts ending with the manifest.
- */
 export async function assembleInMemoryDataset<C>(
   input: InMemoryDatasetInput<C>
 ): Promise<InMemoryDataset<C>> {
@@ -226,7 +182,6 @@ export async function assembleInMemoryDataset<C>(
     artifacts
   );
   if (analysis !== undefined) {
-    // The saved manifest, not only the inputs, agrees with the metadata.
     verifyDatasetAnalysisCorrespondence(analysis, manifest);
   }
   const transport = artifacts.read;
@@ -241,11 +196,6 @@ export async function assembleInMemoryDataset<C>(
   };
 }
 
-/**
- * The metadata to save, checked against the metadata schema and against the
- * assembly's actual inputs (its root, command, fingerprint and the internals
- * it never assembles) before anything is written.
- */
 function analysisFor<C>(
   input: InMemoryDatasetInput<C>,
   origin: DatasetAnalysisOrigin,

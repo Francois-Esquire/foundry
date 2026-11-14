@@ -15,13 +15,6 @@ import {
   serveScanSite,
 } from "./helpers/scan-page";
 
-// The built scan page in real Chromium, Workers disabled, scanning real
-// public repositories on GitHub at pinned commits, unauthenticated: a small
-// standalone package and a multi-package workspace. Each scan spends 3 of
-// GitHub's 60 API requests an hour for this network address. The page's
-// own measurements (engine load, long tasks, heap) and a screenshot of each
-// map are written to `<tmp>/spyglass-browser-acceptance/`.
-
 const EVIDENCE = join(tmpdir(), "spyglass-browser-acceptance");
 const READ_FILES = /Read(\d+) files/;
 const TIMING = /Downloaded in [\d.]+ s, analysed in [\d.]+ s/;
@@ -78,7 +71,6 @@ describe.each(REPOSITORIES)(
         .toBe(true);
       const wallMs = Date.now() - started;
 
-      // Only the site's own files and GitHub's two data hosts; three API calls.
       expectOnlyOfficialOrigins(requests, site.origin);
       const api = requests.filter((url) =>
         url.startsWith("https://api.github.com/")
@@ -95,7 +87,6 @@ describe.each(REPOSITORIES)(
         true
       );
 
-      // The saved metadata, as the page shows it, names exactly that revision.
       const panel = resultPanel(page);
       await panel.getByText("What this scan could and could not see").click();
       const text = (await panel.textContent()) ?? "";
@@ -107,7 +98,6 @@ describe.each(REPOSITORIES)(
       expect(read).toBeGreaterThan(0);
       expect(read).toBeLessThanOrEqual(raw.length);
 
-      // The existing viewer, mounted on the dataset's own transport, navigates.
       await expect
         .poll(() => page.locator("canvas").count())
         .toBeGreaterThan(0);

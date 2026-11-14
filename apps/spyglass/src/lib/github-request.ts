@@ -1,35 +1,21 @@
 import { GIT_SHA, GITHUB_OWNER, GITHUB_REPO } from "./dataset-analysis";
 
-// INTERNAL: what a person asks to scan, normalized to public GitHub
-// coordinates before any request is made. Only `https://github.com/...`
-// URLs are accepted; a URL with credentials, a port, a query or a fragment
-// is refused, and no refusal ever repeats the URL, so a pasted token never
-// reaches a message or a log. A `tree/` URL is split into ref and scope only
-// when that is unambiguous (one segment, or a full commit SHA first); any
-// other split is refused with the explicit `ref` and `scope` fields as the
-// way out, because a branch named `feature/x` and a directory `x` look the
-// same. Nothing here touches the network.
-
-/** What a caller supplies: a repository URL, and optionally the ref and scope separately. */
 export interface GitHubRepositoryInput {
-  /** A branch, tag or commit SHA. Overrides nothing: a URL's own ref must agree. */
   readonly ref?: string;
-  /** A repository-relative directory to analyse as the root. */
+
   readonly scope?: string;
   readonly url: string;
 }
 
-/** Normalized coordinates of one request; nothing resolved yet. */
 export interface GitHubRepositoryRequest {
   readonly owner: string;
-  /** Null asks for the default branch. */
+
   readonly ref: string | null;
   readonly repo: string;
-  /** A normalized repository-relative directory, or null for the root. */
+
   readonly scope: string | null;
 }
 
-/** An input this loader does not accept, with every reason found. */
 export class RepositoryInputError extends Error {
   readonly problems: readonly string[];
 
@@ -40,11 +26,10 @@ export class RepositoryInputError extends Error {
   }
 }
 
-/** The github.com path segments after a repository that this loader understands. */
 const TREE = "tree";
 const COMMIT = "commit";
 const GIT_SUFFIX = /\.git$/;
-// Git's check-ref-format rules a browser can apply without Git.
+
 const REF_FORBIDDEN =
   /[\s~^:?*[\\]|\.\.|@\{|\/\/|^\/|\/$|^-|\.$|\.lock(\/|$)|(^|\/)\./;
 const TRAILING_SLASHES = /\/+$/;
@@ -53,7 +38,6 @@ const DELETE = 0x7f;
 const MAX_REF_LENGTH = 255;
 const MAX_SCOPE_LENGTH = 1024;
 
-/** Whether `text` has an ASCII control character, which Git refuses in refs. */
 function hasControl(text: string): boolean {
   for (let index = 0; index < text.length; index += 1) {
     const code = text.charCodeAt(index);
@@ -76,7 +60,6 @@ function refProblems(ref: string, label: string): string[] {
   return [];
 }
 
-/** A normalized repository-relative directory, or the problems with it. */
 function scopeOf(scope: string, label: string): string | string[] {
   const trimmed = scope.replace(TRAILING_SLASHES, "");
   if (
@@ -96,7 +79,6 @@ function scopeOf(scope: string, label: string): string | string[] {
   return trimmed;
 }
 
-/** Decodes one path segment, or null when it is not valid percent-encoding. */
 function decodeSegment(segment: string): string | null {
   try {
     return decodeURIComponent(segment);
@@ -108,7 +90,7 @@ function decodeSegment(segment: string): string | null {
 interface UrlParts {
   owner: string;
   repo: string;
-  /** Segments after the repository, decoded. */
+
   rest: string[];
 }
 
@@ -170,10 +152,6 @@ interface Located {
   scope: string | null;
 }
 
-/**
- * The ref and scope a URL's remaining segments name, reconciled with the
- * explicit fields. Never guesses where a ref containing `/` ends.
- */
 function locate(
   rest: string[],
   input: GitHubRepositoryInput
@@ -200,7 +178,6 @@ function locate(
   }
   const joined = tail.join("/");
   if (explicitRef !== undefined) {
-    // The caller says where the ref ends; the rest is the scope.
     if (joined === explicitRef) {
       return { ref: explicitRef, scope: null };
     }
@@ -221,10 +198,6 @@ function locate(
   ];
 }
 
-/**
- * Normalizes `input` into owner, repository, ref and scope, or throws
- * `RepositoryInputError` listing every reason it is not supported.
- */
 export function parseGitHubRepositoryInput(
   input: GitHubRepositoryInput
 ): GitHubRepositoryRequest {
