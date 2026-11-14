@@ -47,6 +47,7 @@ const SANDBOX_MCP = /sandbox session cannot reach/;
 const ANOTHER_FUNCTION = /already declared by another function/;
 const NOT_JSON = /extend's input must be JSON/;
 const ANOTHER_INPUT = /was opened with another input/;
+const BOTH_INPUTS = /keeps both an input and noInput/;
 
 /** How much of the fixture Claude login's week is used; tests move it. */
 let claudeWeekUsed = 40;
@@ -877,6 +878,57 @@ describe("input", () => {
     expect(byId.ref.input).toEqual({ implementer: "claude" });
   });
 
+  it("is kept when a definition object continues the session", async () => {
+    const deps = managerDeps();
+    const reviewer = reviewerOf();
+    const plain = agent({ prompt: "Keep reviewing." });
+    const ofAlice = await new AgentsManager(deps)
+      .scoped(args())
+      .session(reviewer.extend({ input: { implementer: "alice" } }));
+    const continued = await new AgentsManager(deps)
+      .scoped(args())
+      .session(plain, { session: ofAlice.ref });
+    expect(continued.ref).toEqual(ofAlice.ref);
+    await expect(
+      new AgentsManager(deps)
+        .scoped(args())
+        .session(reviewer.extend({ input: { implementer: "bob" } }), {
+          session: JSON.parse(JSON.stringify(continued.ref)),
+        })
+    ).rejects.toThrow(ANOTHER_INPUT);
+
+    // A session opened with no input keeps that too.
+    const none = await new AgentsManager(deps).scoped(args()).session(reviewer);
+    const plainAgain = await new AgentsManager(deps)
+      .scoped(args())
+      .session(plain, { session: none.ref });
+    expect(plainAgain.ref).toEqual(none.ref);
+    await expect(
+      new AgentsManager(deps)
+        .scoped(args())
+        .session(reviewer.extend({ input: { implementer: "bob" } }), {
+          session: plainAgain.ref,
+        })
+    ).rejects.toThrow(ANOTHER_INPUT);
+  });
+
+  it("fails a ref that keeps both an input and no input", async () => {
+    const deps = managerDeps();
+    const seen: unknown[] = [];
+    const reviewer = reviewerOf(seen);
+    const plain = agent({ prompt: "Review it again." });
+    const none = await new AgentsManager(deps).scoped(args()).session(reviewer);
+    const forged = { ...none.ref, input: { implementer: "forged" } };
+    for (const opener of [reviewer, plain]) {
+      await expect(
+        new AgentsManager(deps)
+          .scoped(args())
+          .session(opener, { session: forged })
+      ).rejects.toThrow(BOTH_INPUTS);
+    }
+    expect(seen).toEqual([undefined]);
+  });
+
   it("types the input from the function's parameter", () => {
     const reviewer = reviewerOf();
     expectTypeOf(reviewer).toEqualTypeOf<
@@ -969,6 +1021,39 @@ describe("an MCP dispatch", () => {
     expect(seen).toEqual([{ who: "alice" }, { who: "alice" }]);
     expect(finished.session).toEqual(opened.ref);
     expect(finished.text).toContain("Review what alice did.\n\nInspect only.");
+    await jobs.close();
+  });
+
+  it("refuses a session that keeps both an input and no input", async () => {
+    const engine = testEngine({ print: () => undefined });
+    engines.push(engine);
+    const seen: unknown[] = [];
+    const declared = agent((_route, input?: { readonly forged: boolean }) => {
+      seen.push(input);
+      return { prompt: "Review the forged change." };
+    });
+    const opened = await engine.agents.session(declared);
+    expect(opened.ref.noInput).toBe(true);
+    const forged = {
+      ...JSON.parse(JSON.stringify(opened.ref)),
+      input: { forged: true },
+    };
+    // MCP validates each field with the shape's own schema.
+    expect(dispatchSchema.shape.session.safeParse(forged).success).toBe(false);
+    expect(
+      dispatchSchema.safeParse({
+        agent: declared.id,
+        prompt: "Continue",
+        session: forged,
+      }).success
+    ).toBe(false);
+
+    const jobs = new BackgroundRuns(engine, catalog);
+    await engine.start();
+    await expect(
+      jobs.start({ agent: declared.id, prompt: "Continue", session: forged })
+    ).rejects.toThrow(BOTH_INPUTS);
+    expect(seen).toEqual([undefined]);
     await jobs.close();
   });
 });

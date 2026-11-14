@@ -131,9 +131,11 @@ and `mcp`. The result is an ordinary agent. `generate`, `stream`,
   a later `extend` with an `input` replaces it. The session keeps it, or
   that it had none: a replayed step, and `{ session: ref }` with that ref,
   give the function the same input again, and an agent with a different
-  input fails the opening. A ref with only an `id` keeps no input. An MCP
-  agent dispatch cannot set an input, but one that continues a session
-  gives the function the input that session kept.
+  input fails the opening. A definition object that continues the session
+  keeps that input in its ref too. A ref with only an `id` keeps no input,
+  and one with both `input` and `noInput` fails. An MCP agent dispatch
+  cannot set an input, but one that continues a session gives the function
+  the input that session kept.
 - **What `extend` changes.** Each `extend` adds to the route the function
   is given, and its `settings` merge over the settings the function
   returns, in order, as they merge for a plain agent.

@@ -182,7 +182,8 @@ export interface SessionRef {
   readonly model?: string;
   /**
    * Set when an agent declared with a function opened the session with no
-   * input, so reopening it with one fails.
+   * input, so reopening it with one fails. A ref with `input` as well
+   * fails to open.
    */
   readonly noInput?: true;
   readonly provider?: string;

@@ -31,6 +31,9 @@ export const dispatchSchema = z.object({
       noInput: z.literal(true).optional(),
       provider: z.string().optional(),
     })
+    .refine((ref) => ref.input === undefined || ref.noInput !== true, {
+      message: "a session keeps either an input or noInput, not both",
+    })
     .optional()
     .describe(
       "Continue this session: pass back the session a dispatch returned, unchanged."

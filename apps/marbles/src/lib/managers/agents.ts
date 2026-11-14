@@ -622,25 +622,45 @@ export function inputSnapshot(value: unknown): unknown {
 type KeptInput = Pick<SessionRef, "input" | "noInput">;
 
 /**
- * The input an agent declared with a function opens a session with, as
- * its ref keeps it: the one `extend` gave it, else the one the session
- * kept, else `noInput` for none. Nothing for any other agent. A kept
- * session reopened with another input, or with one when it opened with
- * none, would not be built the same, so that fails. A ref that kept
- * neither (only an id) takes the agent's.
+ * What a kept ref says of its input, unchanged. A ref that keeps both an
+ * input and `noInput` was not returned by a session, so it fails.
+ */
+function keptInput(kept: SessionRef | undefined): KeptInput {
+  if (kept === undefined) {
+    return {};
+  }
+  const hasInput = kept.input !== undefined;
+  if (hasInput && kept.noInput === true) {
+    throw new Error(
+      `session ${kept.id} keeps both an input and noInput; pass back the session ref unchanged`
+    );
+  }
+  if (hasInput) {
+    return { input: inputSnapshot(kept.input) };
+  }
+  return kept.noInput === true ? { noInput: true } : {};
+}
+
+/**
+ * The input a session opens with, as its ref keeps it. An agent declared
+ * with a function takes the one `extend` gave it, else the one the
+ * session kept, else `noInput` for none. Any other agent keeps what the
+ * session kept, so a later reopening is still held to it. A kept session
+ * reopened with another input, or with one when it opened with none,
+ * would not be built the same, so that fails. A ref that kept neither
+ * (only an id) takes the agent's.
  */
 function sessionInput(
   agent: AgentLike<Output.Output>,
   kept: SessionRef | undefined
 ): KeptInput {
+  const held = keptInput(kept);
   if (!Reflect.has(agent, AGENT_DEFINITION)) {
-    return {};
+    return held;
   }
   const given = (agent as { readonly input?: unknown }).input;
   if (given === undefined) {
-    return kept?.input === undefined
-      ? { noInput: true }
-      : { input: inputSnapshot(kept.input) };
+    return "input" in held ? held : { noInput: true };
   }
   if (
     kept?.noInput === true ||
