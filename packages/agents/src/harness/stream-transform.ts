@@ -19,7 +19,7 @@ import type {
   StreamHandlers,
 } from "../session/events";
 import { normalizeUsage } from "../session/metadata";
-import { stringifyValue } from "../session/serialize";
+import { keptValue, stringifyValue } from "../session/serialize";
 import type {
   MessageMetadata,
   MessageStatus,
@@ -190,6 +190,8 @@ export function transformStream<OUTPUT extends Output.Output = never>(
     let usageAcc: SessionUsage = emptyUsage();
     let finish: Extract<SdkStreamPart, { type: "finish" }> | undefined;
     let hasApprovalRequest = false;
+    /** The first tool output the session could not keep; it fails the turn. */
+    let unkept: Error | undefined;
 
     const append = (part: SessionPart) => {
       parts.push(part);
@@ -217,14 +219,14 @@ export function transformStream<OUTPUT extends Output.Output = never>(
     ): Promise<SessionMessage> => {
       const metadata = buildMetadata(options.model, usageAcc, startedAt);
       const assembled = assembleMessage(parts, status, metadata);
-      const parsed = await parser.complete(
+      const completed = await parser.complete(
         status === "complete" &&
           outputContext(assembled.id, options.model, finish),
         error
       );
-      if (options.output && "value" in parsed) {
-        metadata.output = parsed.value;
-      }
+      const parsed = options.output
+        ? keptParse(completed, metadata)
+        : completed;
       const committed = options.commit
         ? await options.commit(assembled).catch(() => assembled)
         : assembled;
@@ -354,11 +356,11 @@ export function transformStream<OUTPUT extends Output.Output = never>(
             });
             break;
           }
-          append({
-            output: part.output,
-            toolCallId: part.toolCallId,
-            type: "tool_result",
-          });
+          append(
+            keptToolResult(part, (error) => {
+              unkept ??= error;
+            })
+          );
           emit({
             output: part.output,
             toolCallId: part.toolCallId,
@@ -408,6 +410,11 @@ export function transformStream<OUTPUT extends Output.Output = never>(
       const stream = await source;
       for await (const part of stream) {
         consume(part);
+      }
+      // Read to the end first: the model already has the output, and a
+      // stream left half read rejects where no one listens.
+      if (unkept) {
+        throw unkept;
       }
 
       await finalize("complete");
@@ -513,6 +520,55 @@ function outputContext(
     response: { id, modelId: model?.id ?? "unknown", timestamp: new Date() },
     usage: finish?.totalUsage ?? emptyModelUsage(),
   };
+}
+
+/**
+ * A parsed output as the session keeps it: the value goes to the caller and
+ * its JSON form onto the message's metadata. One with no JSON form rejects
+ * the output and is not kept.
+ */
+function keptParse(parsed: Parsed, metadata: MessageMetadata): Parsed {
+  if (!("value" in parsed)) {
+    return parsed;
+  }
+  try {
+    metadata.output = keptValue(parsed.value);
+    return parsed;
+  } catch (cause) {
+    return {
+      error: new Error(
+        `The turn's structured output has no JSON form, so the session cannot keep it: ${toError(cause).message}`,
+        { cause }
+      ),
+    };
+  }
+}
+
+/**
+ * A tool's result as the session keeps it: its output in JSON form. An
+ * output with no JSON form is kept as an error result naming the tool, so
+ * the call still has its result, and `unkept` hears why; the turn fails.
+ */
+function keptToolResult(
+  part: { output: unknown; toolCallId: string; toolName: string },
+  unkept: (error: Error) => void
+): Extract<SessionPart, { type: "tool_result" }> {
+  const { output, toolCallId, toolName } = part;
+  try {
+    return { output: keptValue(output), toolCallId, type: "tool_result" };
+  } catch (cause) {
+    const error = new Error(
+      `Tool "${toolName}" (call ${toolCallId}) returned a value with no JSON form, so the session cannot keep it: ${toError(cause).message}`,
+      { cause }
+    );
+    unkept(error);
+    return {
+      isError: true,
+      output: error.message,
+      toolCallId,
+      type: "tool_result",
+    };
+  }
 }
 
 function assembleMessage(
