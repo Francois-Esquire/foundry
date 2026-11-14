@@ -491,6 +491,12 @@ snapshot and channel-event values they embed. Each is a Zod schema with its
 type inferred from it; `./store`, `./snapshot`, `./channels`, and `./types`
 re-export the same schemas and types. Effect stays the runtime.
 
+`RunRecordSchema` admits a Run the way the store always has and returns it
+unchanged, so fields it does not declare survive. `RunRecordShapeSchema` is
+the plain object schema of the declared fields, which a Run table derives
+from. `PersistedMetadataSchema` and `PersistedWorkflowSchema` describe the
+workflows namespaces of a Run's `metadata`; other namespaces stay open.
+
 ---
 
 ## Notes

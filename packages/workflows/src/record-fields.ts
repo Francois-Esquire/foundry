@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { isJsonValue } from "./json-value";
 
-/** Field shapes shared by the workflows record schemas and the metadata codec. */
+/** Field shapes shared by the workflows record schemas. */
 
 /** Any JavaScript number, NaN and ±Infinity included. */
 export const anyNumber = z.union([

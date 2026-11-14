@@ -360,6 +360,10 @@ export type RunTimestamps = z.infer<typeof RunTimestampsSchema>;
  * `definition` and `links` may be absent on records written before they were
  * introduced. `input`, `output`, and `metadata` are JSON-safe but stay typed
  * as `unknown`.
+ *
+ * This is the shape, not the decoder: parsed alone it drops undeclared keys,
+ * rejects an explicit `undefined`, and skips the admission rules. Decode a
+ * Run with `RunRecordSchema`.
  */
 export const RunRecordShapeSchema = z.object({
   definition: DefinitionReferenceSchema.exactOptional(),

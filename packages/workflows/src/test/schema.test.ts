@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { decodeRunRecord } from "../execution-records";
+import { createInMemoryExecutionPersistence } from "../persistence";
 import {
   ChannelEventSchema,
   ORCHESTRATOR_STORE_SNAPSHOT_VERSION,
@@ -239,6 +240,27 @@ describe("a Run is admitted unchanged", () => {
     expect(hasOwnEntry(restored?.extensions, "__proto__", entry)).toBe(true);
     expect(hasOwnEntry(restored?.tags, "__proto__", "tag")).toBe(true);
     expect(restored?.metadata).toHaveProperty("kept", 1);
+  });
+
+  test("an exported store snapshot restores with its Runs intact", () => {
+    const entry = { nested: true };
+    const stored = {
+      ...run,
+      extra: 123,
+      metadata: withProtoEntry({ kept: 1 }, entry),
+      snapshot: { ...run.snapshot, custom: 456 },
+      tags: withProtoEntry({ kept: "yes" }, "tag"),
+    };
+    const exported = createInMemoryExecutionPersistence({
+      snapshot: restore([stored]),
+    }).snapshot();
+    const [restored] = createInMemoryExecutionPersistence({
+      snapshot: JSON.parse(JSON.stringify(exported)),
+    }).snapshot().runs;
+
+    expect(restored).toMatchObject({ extra: 123, snapshot: { custom: 456 } });
+    expect(hasOwnEntry(restored?.metadata, "__proto__", entry)).toBe(true);
+    expect(hasOwnEntry(restored?.tags, "__proto__", "tag")).toBe(true);
   });
 
   test("Run containers are JSON-checked as a whole before their entries", () => {
