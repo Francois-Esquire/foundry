@@ -297,7 +297,8 @@ interface SessionStoreWrite {
 A transaction's `work` may read and commit through its `view` across any
 sessions, any number of times. A plain `commit` from outside queues behind it;
 if `work` throws, none of its commits stay; reads through `view` see its own
-commits. Values crossing the seam are detached. `InMemorySessionStore`
+commits. A call to the store itself from inside `work` is refused at once
+with a `ReentrantCallError`; use the view. Values crossing the seam are detached. `InMemorySessionStore`
 (`@foundry/agents/store/memory`)
 is the default. A persistent store proves it behaves the same by running
 the conformance suite. `open` returns fresh, empty storage as a store per
