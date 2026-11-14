@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 import type { Task, TaskId } from "../schema";
 import { SqliteTaskStore } from "../store/sqlite";
 import { Tasks } from "../tasks";
-import { startScript } from "./helpers/child-script";
+import { type ChildScript, startScript } from "./helpers/child-script";
 import { libsqlDatabases } from "./helpers/sqlite";
 import { execInAnotherProcess } from "./helpers/sqlite-process";
 
@@ -147,31 +147,33 @@ describe("a transaction against another connection to its file", () => {
     const store = new SqliteTaskStore({ database, scope: "s" });
     const a = task("a");
     await store.commit({ putTasks: [a] });
-    const writer = await startScript(WRITER, [
-      pathToFileURL(createRequire(import.meta.url).resolve("@libsql/client"))
-        .href,
-      `file:${files.path(database)}`,
-      "outside",
-    ]);
+    let writer: ChildScript | undefined;
 
     try {
       const outcome = await store.transaction(async (view) => {
-        // The other process has tried the write lock, with no busy timeout,
-        // while this transaction held it, and been refused.
+        // Started only now, while this transaction holds the write lock:
+        // the other process tries it, with no busy timeout, and is refused.
+        writer = await startScript(WRITER, [
+          pathToFileURL(
+            createRequire(import.meta.url).resolve("@libsql/client")
+          ).href,
+          `file:${files.path(database)}`,
+          "outside",
+        ]);
         const probe = await writer.line();
         const after = await view.get(a.id);
         await view.commit({ putTasks: [task("a", "inside")] });
-        return { after, probe };
+        return { after, probe, writer };
       });
 
       expect(outcome.probe).toMatch(LOCKED);
       expect(outcome.after).toEqual(a);
       // Its retry, with a busy timeout, lands after this commit.
-      expect(await writer.line()).toBe("written");
-      await writer.exited();
+      expect(await outcome.writer.line()).toBe("written");
+      await outcome.writer.exited();
       expect(await store.get(a.id)).toEqual(task("a", "outside"));
     } finally {
-      await writer.stop();
+      await writer?.stop();
     }
   });
 });
