@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { z } from "zod";
 import { taskChangeSchema } from "../operations";
+import { taskSchema } from "../schema";
 import {
   readyQuerySchema,
   taskChangeResultSchema,
@@ -8,7 +9,6 @@ import {
   taskPageSchema,
   taskQuerySchema,
   taskRelationsSchema,
-  taskSchema,
 } from "../schemas";
 import { Tasks } from "../tasks";
 

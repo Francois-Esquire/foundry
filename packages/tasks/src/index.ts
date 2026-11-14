@@ -27,6 +27,16 @@ export {
   taskChangeSchema,
   taskOperationSchema,
 } from "./operations";
+export type {
+  JsonObject,
+  Task,
+  TaskDelta,
+  TaskDependency,
+  TaskEvent,
+  TaskId,
+  TaskStatus,
+} from "./schema";
+export { TASK_STATUSES, taskSchema } from "./schema";
 export {
   depthOptionsSchema,
   readyQuerySchema,
@@ -35,26 +45,18 @@ export {
   taskPageSchema,
   taskQuerySchema,
   taskRelationsSchema,
-  taskSchema,
 } from "./schemas";
 export type { TaskSnapshot, TaskStore, TaskStoreWrite } from "./store";
 export { MemoryTaskStore } from "./store";
 export { type CreateOptions, Tasks, type TasksOptions } from "./tasks";
 export type {
   DepthOptions,
-  JsonObject,
   ReadyQuery,
   SettledStatus,
   TagQuery,
-  Task,
   TaskAvailability,
-  TaskDelta,
-  TaskDependency,
-  TaskEvent,
-  TaskId,
   TaskNode,
   TaskQuery,
   TaskRelations,
-  TaskStatus,
 } from "./types";
-export { isSettled, TASK_STATUSES, taskId } from "./types";
+export { isSettled, taskId } from "./types";
