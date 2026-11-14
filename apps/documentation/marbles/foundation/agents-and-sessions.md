@@ -127,12 +127,13 @@ and `mcp`. The result is an ordinary agent. `generate`, `stream`,
   receives as its second parameter, so one agent can vary its prompt or
   skills per call. Without one, `input` is `undefined`. It is not the
   prompt of a turn, which `generate` and `stream` take. The input must be
-  JSON and not `null`. `extend` keeps a frozen copy of it, and a later
-  `extend` with an `input` replaces it. The session keeps it, or that it had
-  none: a replayed step, and `{ session: ref }` with that ref, give the
-  function the same input again, and an agent with a different input fails
-  the opening. A ref with only an `id` keeps no input. An MCP agent dispatch
-  gives no input.
+  JSON, and `null` is an input too. `extend` keeps a frozen copy of it, and
+  a later `extend` with an `input` replaces it. The session keeps it, or
+  that it had none: a replayed step, and `{ session: ref }` with that ref,
+  give the function the same input again, and an agent with a different
+  input fails the opening. A ref with only an `id` keeps no input. An MCP
+  agent dispatch cannot set an input, but one that continues a session
+  gives the function the input that session kept.
 - **What `extend` changes.** Each `extend` adds to the route the function
   is given, and its `settings` merge over the settings the function
   returns, in order, as they merge for a plain agent.

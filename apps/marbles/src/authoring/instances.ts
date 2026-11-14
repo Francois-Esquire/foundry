@@ -307,9 +307,9 @@ async function buildRecipe(
 }
 
 /**
- * The input an extension sets, else the one before it. It must be JSON
- * other than `null`, which a session keeps for none; it is kept as a
- * frozen copy, so changing the object given does not change it.
+ * The input an extension sets, else the one before it. It must be JSON,
+ * so a session can keep it; it is kept as a frozen copy, so changing the
+ * object given does not change it.
  */
 function inputOf(
   id: string,
@@ -321,11 +321,6 @@ function inputOf(
   }
   if (changes.input === undefined) {
     return;
-  }
-  if (changes.input === null) {
-    throw new Error(
-      `agent "${id}": extend's input cannot be null; give undefined to clear it`
-    );
   }
   try {
     return inputSnapshot(changes.input);

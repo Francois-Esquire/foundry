@@ -588,6 +588,25 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
+/** Throws at the first missing index of an array, at any depth. */
+function rejectHoles(value: unknown): void {
+  if (typeof value !== "object" || value === null) {
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      if (!(index in value)) {
+        throw new Error(`an array has no item at index ${index}`);
+      }
+      rejectHoles(value[index]);
+    }
+    return;
+  }
+  for (const child of Object.values(value)) {
+    rejectHoles(child);
+  }
+}
+
 /**
  * An agent's input as a session keeps it: copied into its JSON form and
  * frozen, so neither the caller nor the agent's function can change it
@@ -595,37 +614,44 @@ function deepFreeze<T>(value: T): T {
  * as an array with holes, throws.
  */
 export function inputSnapshot(value: unknown): unknown {
+  rejectHoles(value);
   return deepFreeze(JSON.parse(canonicalizeJson(value)));
 }
 
+/** What a session ref keeps of the input its agent opened with. */
+type KeptInput = Pick<SessionRef, "input" | "noInput">;
+
 /**
- * The input an agent declared with a function opens a session with: the
- * one `extend` gave it, else the one the session kept, else `null` for
- * none, which the session keeps too. `undefined` for any other agent. A
- * kept session reopened with another input would not be built the same,
- * so that fails; a ref that kept no `input` at all (only an id, or from
- * before inputs) takes the agent's.
+ * The input an agent declared with a function opens a session with, as
+ * its ref keeps it: the one `extend` gave it, else the one the session
+ * kept, else `noInput` for none. Nothing for any other agent. A kept
+ * session reopened with another input, or with one when it opened with
+ * none, would not be built the same, so that fails. A ref that kept
+ * neither (only an id) takes the agent's.
  */
 function sessionInput(
   agent: AgentLike<Output.Output>,
   kept: SessionRef | undefined
-): unknown {
+): KeptInput {
   if (!Reflect.has(agent, AGENT_DEFINITION)) {
-    return;
+    return {};
   }
   const given = (agent as { readonly input?: unknown }).input;
   if (given === undefined) {
-    return kept?.input === undefined ? null : inputSnapshot(kept.input);
+    return kept?.input === undefined
+      ? { noInput: true }
+      : { input: inputSnapshot(kept.input) };
   }
   if (
-    kept?.input !== undefined &&
-    canonicalizeJson(kept.input) !== canonicalizeJson(given)
+    kept?.noInput === true ||
+    (kept?.input !== undefined &&
+      canonicalizeJson(kept.input) !== canonicalizeJson(given))
   ) {
     throw new Error(
       `agent "${agent.id}": session ${kept.id} was opened with another input; open a new session for this one`
     );
   }
-  return given;
+  return { input: given };
 }
 
 /**
@@ -827,7 +853,7 @@ async function openSession<OUTPUT extends Output.Output>(
   const definition = await buildDefinition(
     agent,
     recordedOn === undefined ? {} : { provider: recordedOn },
-    input === null ? undefined : input
+    input.input
   );
   site.signal().throwIfAborted();
   if (options.sandbox && definition.mcp?.length) {
@@ -856,7 +882,7 @@ async function openBuilt<OUTPUT extends Output.Output>(
   definition: AgentDefinition<OUTPUT>,
   options: SessionOptions,
   mcp: readonly McpClient[],
-  input: unknown
+  input: KeptInput
 ): Promise<Session<OUTPUT>> {
   deps.requireProviders?.();
   const pinned =
@@ -1070,7 +1096,7 @@ function retainSession<OUTPUT extends Output.Output>(
     instance,
   }: {
     readonly implementation: string | undefined;
-    readonly input: unknown;
+    readonly input: KeptInput;
     readonly instance: string | undefined;
   }
 ): Session<OUTPUT> {
@@ -1095,7 +1121,7 @@ function retainSession<OUTPUT extends Output.Output>(
   const ref: SessionRef = {
     id,
     ...(implementation === undefined ? {} : { implementation }),
-    ...(input === undefined ? {} : { input }),
+    ...input,
     ...(instance === undefined ? {} : { instance }),
     model: harness.route.id,
     provider: harness.route.provider,

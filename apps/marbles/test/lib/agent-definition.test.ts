@@ -34,6 +34,7 @@ import type {
   DeferredAgent,
 } from "~/lib/types";
 import { BackgroundRuns } from "~/workspace/background-runs";
+import { dispatchSchema } from "~/workspace/dispatch";
 import { testEngine } from "../helpers/engine";
 
 const HOUR = 3_600_000;
@@ -46,7 +47,6 @@ const SANDBOX_MCP = /sandbox session cannot reach/;
 const ANOTHER_FUNCTION = /already declared by another function/;
 const NOT_JSON = /extend's input must be JSON/;
 const ANOTHER_INPUT = /was opened with another input/;
-const NULL_INPUT = /input cannot be null/;
 
 /** How much of the fixture Claude login's week is used; tests move it. */
 let claudeWeekUsed = 40;
@@ -650,15 +650,63 @@ describe("input", () => {
     expect(() => reviewer.extend({ input: { run: () => 0 } })).toThrow(
       NOT_JSON
     );
-    // An array with holes would come back from JSON as nulls.
+    // An array with holes would not come back from JSON the same.
     expect(() => reviewer.extend({ input: { list: new Array(2) } })).toThrow(
       NOT_JSON
     );
-    // A session keeps null for "no input", so it is not an input.
-    const nullable = agent((_route, input?: { who: string } | null) => ({
-      prompt: `Review ${input?.who}.`,
+    expect(() => reviewer.extend({ input: { list: new Array(1) } })).toThrow(
+      NOT_JSON
+    );
+    expect(() => reviewer.extend({ input: { list: [new Array(1)] } })).toThrow(
+      NOT_JSON
+    );
+    const listed = agent((_route, input?: unknown[]) => ({
+      prompt: `Review ${input?.length}.`,
     }));
-    expect(() => nullable.extend({ input: null })).toThrow(NULL_INPUT);
+    expect(() => listed.extend({ input: new Array(1) })).toThrow(NOT_JSON);
+    expect(listed.extend({ input: [] }).input).toEqual([]);
+  });
+
+  it("can be null, which a session keeps apart from no input", async () => {
+    const deps = managerDeps();
+    const seen: unknown[] = [];
+    const nullable = agent((_route, input?: { who: string } | null) => {
+      seen.push(input);
+      return { prompt: `Review ${input?.who}.` };
+    });
+    const ofNull = nullable.extend({ input: null });
+    expect(ofNull.input).toBeNull();
+    const first = await new AgentsManager(deps).scoped(args()).session(ofNull);
+    expect(first.ref.input).toBeNull();
+    expect(first.ref.noInput).toBeUndefined();
+
+    // Reopened without an input, the function is given the null it kept.
+    const kept = JSON.parse(JSON.stringify(first.ref));
+    const reopened = await new AgentsManager(deps)
+      .scoped(args())
+      .session(nullable, { session: kept });
+    expect(reopened.ref).toEqual(first.ref);
+    const same = await new AgentsManager(deps)
+      .scoped(args())
+      .session(ofNull, { session: kept });
+    expect(same.ref).toEqual(first.ref);
+    expect(seen).toEqual([null, null, null]);
+    await expect(
+      new AgentsManager(deps)
+        .scoped(args())
+        .session(nullable.extend({ input: { who: "alice" } }), {
+          session: kept,
+        })
+    ).rejects.toThrow(ANOTHER_INPUT);
+
+    // A session opened with none does not take null.
+    const none = await new AgentsManager(deps).scoped(args()).session(nullable);
+    expect(none.ref.noInput).toBe(true);
+    await expect(
+      new AgentsManager(deps)
+        .scoped(args())
+        .session(ofNull, { session: JSON.parse(JSON.stringify(none.ref)) })
+    ).rejects.toThrow(ANOTHER_INPUT);
   });
 
   it("keeps a frozen copy, so changing the object given changes nothing", async () => {
@@ -693,10 +741,12 @@ describe("input", () => {
   it("keeps that a session opened with no input, so reopening it with one fails", async () => {
     const deps = managerDeps();
     const a = args();
-    const reviewer = reviewerOf();
+    const seen: unknown[] = [];
+    const reviewer = reviewerOf(seen);
     const first = await new AgentsManager(deps).scoped(a).session(reviewer);
     await first.generate("Look.");
-    expect(first.ref.input).toBeNull();
+    expect(first.ref.noInput).toBe(true);
+    expect(first.ref).not.toHaveProperty("input");
     const different = reviewer.extend({ input: { implementer: "different" } });
 
     await expect(
@@ -708,6 +758,7 @@ describe("input", () => {
       .scoped(args())
       .session(reviewer, { session: first.ref });
     expect(again.ref).toEqual(first.ref);
+    expect(seen).toEqual([undefined, undefined]);
 
     // The same in a parked run whose body now binds an input.
     const restored = new RunScope(
@@ -880,6 +931,44 @@ describe("an MCP dispatch", () => {
     expect(text).toContain("Review the change.\n\nInspect only.");
     expect(text).toContain("codex-checklist");
     expect(seen).toEqual([{ provider: "codex" }]);
+    await jobs.close();
+  });
+
+  it("gives a continued session the input it kept", async () => {
+    const engine = testEngine({
+      print: () => undefined,
+      reply: ({ prompt }) => prompt,
+    });
+    engines.push(engine);
+    const seen: unknown[] = [];
+    const declared = agent((_route, input?: { readonly who: string }) => {
+      seen.push(input);
+      return { prompt: `Review what ${input?.who ?? "someone"} did.` };
+    });
+    const opened = await engine.agents.session(
+      declared.extend({ input: { who: "alice" } })
+    );
+    const jobs = new BackgroundRuns(engine, catalog);
+    await engine.start();
+    // The ref comes back over MCP as JSON, through the dispatch schema.
+    const { session } = dispatchSchema.parse({
+      agent: declared.id,
+      prompt: "Continue",
+      session: JSON.parse(JSON.stringify(opened.ref)),
+    });
+    const started = await jobs.start({
+      agent: declared.id,
+      instructions: "Inspect only.",
+      prompt: "Continue",
+      ...(session === undefined ? {} : { session }),
+    });
+    await vi.waitFor(async () =>
+      expect((await jobs.get(started.runId)).status).toBe("completed")
+    );
+    const finished = await jobs.get(started.runId);
+    expect(seen).toEqual([{ who: "alice" }, { who: "alice" }]);
+    expect(finished.session).toEqual(opened.ref);
+    expect(finished.text).toContain("Review what alice did.\n\nInspect only.");
     await jobs.close();
   });
 });

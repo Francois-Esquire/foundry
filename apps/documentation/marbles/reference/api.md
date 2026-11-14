@@ -119,16 +119,18 @@ step("review")
   });
 ```
 
-The input is `undefined` until `extend` sets one. It must be JSON, and not
-`null`. `extend` keeps a frozen copy, so changing the object afterwards
-changes nothing, and the function cannot change it either. A later
-`extend` with an `input` replaces it, `input: undefined` clears it, and an
-`extend` without one keeps it. `session.ref.input` holds the input a session
-opened with, or `null` when it opened with none. A replayed step, or
-`{ session: ref }` with that ref, gives the function the same input again;
-an agent with a different input fails the opening, including for a session
-that opened with none. A ref with only an `id` keeps no input, so the
-agent's own is used.
+The input is `undefined` until `extend` sets one. It must be JSON, and
+`null` is an input too. `extend` keeps a frozen copy, so changing the object
+afterwards changes nothing, and the function cannot change it either. A
+later `extend` with an `input` replaces it, `input: undefined` clears it,
+and an `extend` without one keeps it. `session.ref.input` holds the input a
+session opened with. When it opened with none, `input` is absent and
+`session.ref.noInput` is `true`. A replayed step, or `{ session: ref }` with
+that ref, gives the function the same input again; an agent with a
+different input fails the opening, including for a session that opened
+with none. A ref with only an `id` keeps no input, so the agent's own is
+used. An MCP agent dispatch that continues a session gives the function the
+input that session kept.
 A definition object has no function, so its `extend` takes no input.
 
 ### Workspace settings
