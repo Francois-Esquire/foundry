@@ -122,8 +122,10 @@ it("prices nothing when models.dev cannot be read, and throws nothing", async ()
     vi.fn(() => Promise.reject(new Error("offline")))
   );
   const { catalogPrices, holdModelsDev } = await pricing();
-  await expect(holdModelsDev().loaded).resolves.toBeUndefined();
+  const hold = holdModelsDev();
+  await expect(hold.loaded).resolves.toBeUndefined();
   expect(catalogPrices(manager(ROW))("codex", "gpt-5-mini")).toBeUndefined();
+  hold.release();
 });
 
 /** A fetch that answers only when its signal aborts, as a hung server would. */

@@ -27,6 +27,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
@@ -82,8 +83,10 @@ describe("holdModelsDev", () => {
       vi.fn(() => Promise.reject(new Error("offline")))
     );
     const failed = await source();
-    await expect(failed.holdModelsDev().loaded).resolves.toBeUndefined();
+    const offline = failed.holdModelsDev();
+    await expect(offline.loaded).resolves.toBeUndefined();
     expect(failed.loadedModelsDev()).toBeUndefined();
+    offline.release();
 
     vi.resetModules();
     vi.stubGlobal(
@@ -91,10 +94,13 @@ describe("holdModelsDev", () => {
       vi.fn(async () => new Response("no", { status: 503 }))
     );
     const refused = await source();
-    await expect(refused.holdModelsDev().loaded).resolves.toBeUndefined();
+    const busy = refused.holdModelsDev();
+    await expect(busy.loaded).resolves.toBeUndefined();
+    busy.release();
   });
 
-  it("tries again on a later hold after a fetch failed, and keeps the catalog once one loads", async () => {
+  it("retries a failed fetch with a growing delay while a hold remains, and stops once one loads", async () => {
+    vi.useFakeTimers();
     const fetch = vi
       .fn(async (_url: string) => Response.json(PAYLOAD))
       .mockRejectedValueOnce(new Error("offline"))
@@ -102,19 +108,99 @@ describe("holdModelsDev", () => {
     vi.stubGlobal("fetch", fetch);
     const { holdModelsDev, loadedModelsDev } = await source();
 
-    const offline = holdModelsDev();
-    await expect(offline.loaded).resolves.toBeUndefined();
-    // Still held: a failure retries only when a later hold asks.
+    const hold = holdModelsDev();
+    await expect(hold.loaded).resolves.toBeUndefined();
+    await vi.advanceTimersByTimeAsync(29_999);
     expect(fetch).toHaveBeenCalledTimes(1);
-    await expect(holdModelsDev().loaded).resolves.toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(loadedModelsDev()).toBeUndefined();
-
-    const online = await holdModelsDev().loaded;
-    expect(online?.["openai/gpt-5-mini"]).toBeDefined();
-    expect(loadedModelsDev()).toBe(online);
-    await expect(holdModelsDev().loaded).resolves.toBe(online);
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
     expect(fetch).toHaveBeenCalledTimes(3);
+    expect(loadedModelsDev()?.["openai/gpt-5-mini"]).toBeDefined();
+
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(3_600_000);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    hold.release();
+  });
+
+  it("caps the retry delay at 10 minutes", async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn(() => Promise.reject(new Error("offline")));
+    vi.stubGlobal("fetch", fetch);
+    const { holdModelsDev } = await source();
+
+    const hold = holdModelsDev();
+    await hold.loaded;
+    // 30 s, 1, 2, 4 and 8 minutes, then 10 minutes each time.
+    for (const delay of [30, 60, 120, 240, 480, 600, 600]) {
+      await vi.advanceTimersByTimeAsync(delay * 1000);
+    }
+    expect(fetch).toHaveBeenCalledTimes(8);
+    hold.release();
+  });
+
+  it("cancels a waiting retry when the last hold is released, and a new hold tries at once", async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn(() => Promise.reject(new Error("offline")));
+    vi.stubGlobal("fetch", fetch);
+    const { holdModelsDev } = await source();
+
+    const first = holdModelsDev();
+    await first.loaded;
+    expect(vi.getTimerCount()).toBe(1);
+    first.release();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(3_600_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    const second = holdModelsDev();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await second.loaded;
+    // A new hold does not wait for the retry.
+    const third = holdModelsDev();
+    expect(fetch).toHaveBeenCalledTimes(3);
+    await third.loaded;
+    second.release();
+    third.release();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps nothing from an aborted fetch that completes after its replacement loaded", async () => {
+    const late = Promise.withResolvers<unknown>();
+    const fetch = vi
+      .fn(async (_url: string) =>
+        Response.json({
+          ...PAYLOAD,
+          providers: {
+            openai: {
+              models: { "gpt-5-mini": { cost: { input: 99, output: 2 } } },
+            },
+          },
+        })
+      )
+      .mockResolvedValueOnce({
+        json: () => late.promise,
+        ok: true,
+      } as unknown as Response);
+    vi.stubGlobal("fetch", fetch);
+    const { holdModelsDev, loadedModelsDev } = await source();
+
+    const abandoned = holdModelsDev();
+    // The response has arrived; its body is still being read.
+    await Promise.resolve();
+    abandoned.release();
+    const replacement = holdModelsDev();
+    await replacement.loaded;
+    expect(loadedModelsDev()?.["openai/gpt-5-mini"]?.cost?.input).toBe(99);
+
+    late.resolve(PAYLOAD);
+    await expect(abandoned.loaded).resolves.toBeUndefined();
+    expect(loadedModelsDev()?.["openai/gpt-5-mini"]?.cost?.input).toBe(99);
+    replacement.release();
   });
 
   it("reads FOUNDRY_MODELS_DEV_URL, and loads nothing when it is empty", async () => {

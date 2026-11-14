@@ -103,15 +103,16 @@ entry exports no provider.
 
 **models.dev at run time.** `holdModelsDev()` (`/catalog/models-dev-source`)
 starts fetching `https://models.dev/catalog.json`, or joins the fetch already
-running, and returns a hold whose `loaded` never rejects. Once loaded, the
-catalog is kept for the life of the process. A fetch that fails is not
-retried on its own; the next hold tries again. Release the hold when the
-host stops:
-when the last hold is released before the fetch finishes, it is aborted, so
-it never keeps a finished process open. Nothing waits for it: until it has
-loaded, and when it fails, a price that needs it is absent.
-`loadedModelsDev()` returns what has loaded, without fetching. `FOUNDRY_MODELS_DEV_URL` names another source; an empty value
-loads nothing. `enrichFromModelsDev(rows, catalog)` (`/catalog/models-dev`)
+running, and returns a hold whose `loaded` settles with that fetch and
+never rejects. Once loaded, the catalog is kept for the life of the process.
+A fetch that fails is tried again while any hold remains: after 30 s, then
+twice as long each time, up to 10 minutes. A new hold tries at once. Release
+the hold when the host stops. When the last hold is released, a running
+fetch is aborted and a waiting retry is cancelled, so neither keeps a
+finished process open. An aborted fetch keeps nothing. Nothing waits for
+models.dev: until it has loaded, and when it fails, a price that needs it is
+absent. `loadedModelsDev()` returns what has loaded, without fetching.
+`FOUNDRY_MODELS_DEV_URL` names another source; an empty value loads nothing. `enrichFromModelsDev(rows, catalog)` (`/catalog/models-dev`)
 fills a row's absent facts from it and never overrides what the row states.
 
 **Two ids per row, on purpose.** `id` is how callers and the picker name a
