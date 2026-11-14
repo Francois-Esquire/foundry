@@ -1,7 +1,7 @@
 import "../helpers/mock-module-source";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { worksApi } from "~/app/api/client";
 import { Shell } from "~/app/layout/shell";
@@ -18,14 +18,23 @@ function renderApp(path: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <MemoryRouter initialEntries={[path]}>
+  const router = createMemoryRouter(
+    [
+      {
+        element: (
           <Shell>
             <WorksRoutes />
           </Shell>
-        </MemoryRouter>
+        ),
+        path: "*",
+      },
+    ],
+    { initialEntries: [path] }
+  );
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <RouterProvider router={router} />
       </ThemeProvider>
     </QueryClientProvider>
   );

@@ -25,6 +25,11 @@ export interface ModuleRelease {
 
 export interface ModuleSession {
   origin: string;
+  /**
+   * The app is being stopped and started again under changed access (a
+   * network Grant change): `origin` stops serving until the next session.
+   */
+  restarting?: true;
   views: ModuleView[];
 }
 
@@ -32,6 +37,18 @@ export interface ModuleSourceRevision {
   artifactId: string;
   contentId: string;
   updatedAt: string;
+}
+
+/** Whether two bindings name the same saved revision of a Module's source. */
+export function sameRevision(
+  left: ModuleSourceRevision,
+  right: ModuleSourceRevision
+): boolean {
+  return (
+    left.artifactId === right.artifactId &&
+    left.contentId === right.contentId &&
+    left.updatedAt === right.updatedAt
+  );
 }
 
 export type ModuleBuildEvent =
@@ -55,5 +72,6 @@ export type ModuleBuildEvent =
 export type ModuleAppEvent =
   | { phase: "building"; step: string }
   | { phase: "starting" }
+  | { phase: "restarting" }
   | { phase: "failed"; message: string }
   | { phase: "ready"; app: ModuleSession };

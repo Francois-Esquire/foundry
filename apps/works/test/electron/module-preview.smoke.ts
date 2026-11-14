@@ -1,14 +1,8 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import path from "node:path";
-import { JsonArtifactStore } from "@foundry/artifacts/node";
-import { app, BrowserWindow, type WebFrameMain } from "electron";
+import type { WebFrameMain } from "electron";
 import { registerRpcTransport } from "~/main/api/transport";
-import { createModuleLibrary } from "~/main/modules/library";
-import {
-  type ModuleRuntime,
-  ModuleSessions,
-} from "~/main/modules/runtime/controller";
+import type { ModuleRuntime } from "~/main/modules/runtime/controller";
 import {
   registerModuleProtocol,
   registerModuleScheme,
@@ -17,28 +11,19 @@ import { createModuleRuntime } from "~/main/modules/runtime/runtime";
 import { openAppVault } from "~/main/vault/safe-storage";
 import { createMainWindow } from "~/main/window";
 import { registerWindowIpc } from "~/main/window-ipc";
-import { captureThemes, waitFor } from "../helpers/electron";
+import { captureThemes, runElectronSmoke, waitFor } from "../helpers/electron";
 import {
   moduleReleasePackage,
   PREVIEW_HTML,
   PREVIEW_SCRIPT,
 } from "../helpers/module-release";
 import { openLibrary, selectManagementView } from "../helpers/module-source";
+import { smokeWorks } from "../helpers/smoke-works";
 
-const [, , profilePath, mode] = process.argv;
-assert.ok(profilePath);
-const userData: string = profilePath;
-app.setPath("userData", userData);
-app.on("window-all-closed", () => undefined);
 registerModuleScheme();
 
-async function smoke() {
-  const store = new JsonArtifactStore({
-    path: path.join(userData, "modules", "artifacts.json"),
-  });
-  const library = createModuleLibrary(store);
+async function smoke(userData: string, [mode]: readonly string[]) {
   const { encoded, version } = await moduleReleasePackage();
-  await library.importPackage(encoded);
   const server = createServer((request, response) => {
     response.setHeader(
       "Content-Type",
@@ -52,18 +37,10 @@ async function smoke() {
   let starts = 0;
   let closes = 0;
   const real = mode === "runtime";
-  const backing: ModuleRuntime = real
-    ? await createModuleRuntime(userData, store)
-    : {
-        shutdown: async () => undefined,
-        async start() {
-          return {
-            close: async () => undefined,
-            origin: `http://127.0.0.1:${address.port}`,
-          };
-        },
-      };
-  const runtime: ModuleRuntime = {
+  // The preview's Program: under Microsandbox in runtime mode, otherwise
+  // the local server above; either way its starts and closes are counted.
+  const counted = (backing: ModuleRuntime): ModuleRuntime => ({
+    revoked: (input) => backing.revoked(input),
     shutdown: () => backing.shutdown(),
     async start(release, signal) {
       const handle = await backing.start(release, signal);
@@ -76,14 +53,28 @@ async function smoke() {
         origin: handle.origin,
       };
     },
-  };
-  const sessions = new ModuleSessions(library, runtime);
-  registerModuleProtocol(sessions);
-  registerRpcTransport({
-    modules: library,
-    sessions,
-    vault: await openAppVault(userData),
   });
+  const works = await smokeWorks(userData, {
+    programs: async (options) =>
+      counted(
+        real
+          ? await createModuleRuntime(options)
+          : {
+              revoked: () => undefined,
+              shutdown: async () => undefined,
+              async start() {
+                return {
+                  close: async () => undefined,
+                  origin: `http://127.0.0.1:${address.port}`,
+                };
+              },
+            }
+      ),
+  });
+  const { sessions } = works.rpc;
+  await works.rpc.modules.importPackage(encoded);
+  registerModuleProtocol(sessions);
+  registerRpcTransport({ ...works.rpc, vault: await openAppVault(userData) });
   registerWindowIpc();
   const window = createMainWindow();
   window.webContents.on("console-message", (_event, _level, message) =>
@@ -121,8 +112,10 @@ async function smoke() {
     const startedAt = Date.now();
     let frame: WebFrameMain | undefined;
     while (Date.now() - startedAt < deadline) {
+      // This smoke wires no authoring service, so the chat pane's own
+      // "unavailable" alert is expected and not a preview failure.
       const error = await evaluate(
-        'document.querySelector("[role=alert]")?.textContent'
+        'Array.from(document.querySelectorAll("[role=alert]")).find(alert => !alert.closest("[aria-label=\'Module chat\']"))?.textContent'
       );
       assert.equal(error, undefined, `Preview failed: ${error}`);
       frame = window.webContents.mainFrame.frames.find((candidate) =>
@@ -165,7 +158,9 @@ async function smoke() {
       'Array.from(document.querySelectorAll("button")).find(button => button.textContent === "Start preview").click()'
     );
     await waitFor(() => starts === 2, "Preview did not restart");
-    await evaluate("document.querySelector('a[href=\"#/\"]').click()");
+    await evaluate(
+      "document.querySelector('nav[aria-label=Main] a[aria-label=Home]').click()"
+    );
     await waitFor(() => closes === 2, "Navigation did not release the preview");
     process.stdout.write(
       `Electron module preview passed: ${real ? "Microsandbox program" : "HTTP fixture"}, assets, scripts, bridge isolation, stop, navigation\n`
@@ -174,21 +169,9 @@ async function smoke() {
     if (!window.isDestroyed()) {
       window.destroy();
     }
-    await sessions.shutdown();
+    await works.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
 
-app
-  .whenReady()
-  .then(async () => {
-    await smoke();
-    app.quit();
-  })
-  .catch((error: unknown) => {
-    process.stderr.write(`Electron module preview failed: ${String(error)}\n`);
-    for (const window of BrowserWindow.getAllWindows()) {
-      window.destroy();
-    }
-    app.exit(1);
-  });
+runElectronSmoke("module preview", smoke);

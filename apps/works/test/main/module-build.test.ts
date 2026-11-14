@@ -2,11 +2,19 @@ import { InMemoryArtifactStore } from "@foundry/artifacts";
 import { describe, expect, it, vi } from "vitest";
 import { ModuleBuilds } from "~/main/modules/builds/controller";
 import { createModuleLibrary } from "~/main/modules/library";
+import { startTestExecution } from "../helpers/execution";
 import { fakeClient, openFakeVault } from "../helpers/fake-api";
-import { buildResult, successfulBuildRuntime } from "../helpers/module-build";
+import {
+  buildResult,
+  successfulBuildRuntime,
+  TEST_BUILD_RUN,
+} from "../helpers/module-build";
+import { unrecordedSaves } from "../helpers/source-saves";
 
 async function fixture() {
-  const library = createModuleLibrary(new InMemoryArtifactStore());
+  const library = createModuleLibrary(new InMemoryArtifactStore(), {
+    saves: unrecordedSaves,
+  });
   const module = await library.create("Editable starter");
   const details = await library.details(module.id);
   if (!details?.binding) {
@@ -43,7 +51,11 @@ describe("Module authoring and builds", () => {
 
   it("publishes a build, revisions its saved source, and preserves the prior frozen release", async () => {
     const { library, module, details, expected } = await fixture();
-    const builds = new ModuleBuilds(library, successfulBuildRuntime);
+    const builds = new ModuleBuilds({
+      execution: await startTestExecution(),
+      library,
+      runtime: successfulBuildRuntime,
+    });
     const client = fakeClient(await openFakeVault(), library, { builds });
     const events = await Array.fromAsync(
       await client.modules.build({ expected, id: module.id, tag: "0.1.0" })
@@ -69,19 +81,79 @@ describe("Module authoring and builds", () => {
     await expect(
       library.publish(module.id, saved, {
         ...buildResult(details.source),
+        builtBy: TEST_BUILD_RUN,
         tag: "0.1.0",
       })
     ).rejects.toThrow("already exists");
     await builds.shutdown();
   });
 
+  it("publishes strict Manifests against Works' capability catalog and runtime support", async () => {
+    const { library, module, expected, details } = await fixture();
+    const { "foundry.module.json": legacyText = "{}" } = details.source;
+    const legacy = JSON.parse(legacyText) as Record<string, unknown>;
+    const publishWith = (manifest: object, tag: string) =>
+      library.publish(module.id, expected, {
+        ...buildResult({
+          ...details.source,
+          "foundry.module.json": JSON.stringify({
+            ...legacy,
+            format: "foundry.module-manifest/1",
+            persistence: { files: "installation" },
+            ...manifest,
+          }),
+        }),
+        builtBy: TEST_BUILD_RUN,
+        tag,
+      });
+
+    await expect(
+      publishWith({ resources: { storageBytes: 1024 } }, "0.1.0")
+    ).rejects.toThrow("cannot enforce");
+    await expect(
+      publishWith(
+        {
+          capabilities: [
+            {
+              alias: "remove",
+              capability: "works.artifacts.delete",
+              reason: "Deletes files",
+              version: 1,
+            },
+          ],
+        },
+        "0.1.0"
+      )
+    ).rejects.toThrow(
+      "Module Manifest selects unavailable capability works.artifacts.delete@1"
+    );
+    const published = await publishWith(
+      {
+        editors: [
+          { mimeTypes: ["text/markdown"], mode: "write", view: "home" },
+        ],
+      },
+      "0.1.0"
+    );
+    expect(published.version.manifest).toMatchObject({
+      editors: [{ mimeTypes: ["text/markdown"], mode: "write", view: "home" }],
+      format: "foundry.module-manifest/1",
+    });
+    expect(
+      (await library.release(module.id, published.version.contentId))?.manifest
+    ).toEqual(published.version.manifest);
+  });
+
   it("does not publish failed or incomplete builds", async () => {
     const { library, module, expected, details } = await fixture();
-    const builds = new ModuleBuilds(library, {
-      async run() {
-        throw new Error("Typecheck failed");
+    const builds = new ModuleBuilds({
+      execution: await startTestExecution(),
+      library,
+      runtime: {
+        async run() {
+          throw new Error("Typecheck failed");
+        },
       },
-      shutdown: vi.fn(async () => undefined),
     });
     const events = await Array.fromAsync(
       builds.watch(module.id, "0.1.0", expected)
@@ -92,6 +164,7 @@ describe("Module authoring and builds", () => {
     });
     await expect(
       library.publish(module.id, expected, {
+        builtBy: TEST_BUILD_RUN,
         outputs: {},
         source: details.source,
         tag: "0.1.0",
@@ -104,16 +177,19 @@ describe("Module authoring and builds", () => {
 
   it("fences publication against a source save made during compilation", async () => {
     const { library, module, expected, details } = await fixture();
-    const builds = new ModuleBuilds(library, {
-      async run(source) {
-        await library.saveSource(
-          module.id,
-          { ...source, "README.md": "newer saved source" },
-          expected
-        );
-        return buildResult(source);
+    const builds = new ModuleBuilds({
+      execution: await startTestExecution(),
+      library,
+      runtime: {
+        async run({ source }) {
+          await library.saveSource(
+            module.id,
+            { ...source, "README.md": "newer saved source" },
+            expected
+          );
+          return buildResult(source);
+        },
       },
-      shutdown: vi.fn(async () => undefined),
     });
     const events = await Array.fromAsync(
       builds.watch(module.id, "0.1.0", expected)
@@ -135,20 +211,22 @@ describe("Module authoring and builds", () => {
     const { library, module, expected } = await fixture();
     const cleaned = vi.fn();
     const entered = Promise.withResolvers<void>();
-    const shutdown = vi.fn(async () => undefined);
-    const builds = new ModuleBuilds(library, {
-      async run(source, signal) {
-        entered.resolve();
-        try {
-          await new Promise<void>((resolve) =>
-            signal.addEventListener("abort", () => resolve(), { once: true })
-          );
-          return buildResult(source);
-        } finally {
-          cleaned();
-        }
+    const builds = new ModuleBuilds({
+      execution: await startTestExecution(),
+      library,
+      runtime: {
+        async run({ signal, source }) {
+          entered.resolve();
+          try {
+            await new Promise<void>((resolve) =>
+              signal.addEventListener("abort", () => resolve(), { once: true })
+            );
+            return buildResult(source);
+          } finally {
+            cleaned();
+          }
+        },
       },
-      shutdown,
     });
     const watch = builds.watch(module.id, "0.1.0", expected);
     await entered.promise;
@@ -159,22 +237,25 @@ describe("Module authoring and builds", () => {
     expect(cleaned).toHaveBeenCalledOnce();
     expect((await library.details(module.id))?.releases).toEqual([]);
     await builds.shutdown();
-    expect(shutdown).toHaveBeenCalledOnce();
   });
 
   it("drains active compilation on app shutdown without publishing", async () => {
     const { library, module, expected } = await fixture();
     const entered = Promise.withResolvers<void>();
-    const stopped = vi.fn(async () => undefined);
-    const builds = new ModuleBuilds(library, {
-      async run(source, signal) {
-        entered.resolve();
-        await new Promise<void>((resolve) =>
-          signal.addEventListener("abort", () => resolve(), { once: true })
-        );
-        return buildResult(source);
+    const stopped = vi.fn();
+    const builds = new ModuleBuilds({
+      execution: await startTestExecution(),
+      library,
+      runtime: {
+        async run({ signal, source }) {
+          entered.resolve();
+          await new Promise<void>((resolve) =>
+            signal.addEventListener("abort", () => resolve(), { once: true })
+          );
+          stopped();
+          return buildResult(source);
+        },
       },
-      shutdown: stopped,
     });
     const stream = builds.watch(module.id, "0.1.0", expected);
     await entered.promise;

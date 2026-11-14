@@ -1,8 +1,16 @@
 import path from "node:path";
-import { BrowserWindow, nativeTheme, screen, shell } from "electron";
+import { BrowserWindow, dialog, nativeTheme, screen, shell } from "electron";
+import type { ThemeAppearance } from "~/shared/theme";
 import type { WindowMode } from "~/shared/window-bridge";
+import { QuitWindows } from "./quit";
+import { systemTheme } from "./system/theme";
 
 const SHELL_SCALE = 0.75;
+
+/** Matched to the pre-paint colours in index.html. */
+export function themeBackground(appearance: ThemeAppearance): string {
+  return appearance === "dark" ? "#0a0a0a" : "#ffffff";
+}
 
 function shellSize(): { height: number; width: number } {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
@@ -12,12 +20,18 @@ function shellSize(): { height: number; width: number } {
   };
 }
 
+/** The windows a quit closes before cleanup. */
+export const quitWindows = new QuitWindows<BrowserWindow>();
+
 export function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
     ...shellSize(),
-    // Matched to the pre-paint colour in index.html so the first frame the
-    // compositor shows is the same colour as what replaces it.
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0a0a0a" : "#ffffff",
+    // Main's theme, matched to the pre-paint colour in index.html, so the
+    // first frame the compositor shows is the colour that replaces it.
+    backgroundColor: themeBackground(
+      systemTheme.snapshot()?.effective ??
+        (nativeTheme.shouldUseDarkColors ? "dark" : "light")
+    ),
     center: true,
     frame: false,
     show: true,
@@ -35,6 +49,26 @@ export function createMainWindow(): BrowserWindow {
       shell.openExternal(url).catch(() => undefined);
     }
     return { action: "deny" };
+  });
+
+  // The renderer blocks unloading while a Module's source Draft or an open
+  // editor View holds unsaved work; ask before closing anyway. Keeping the
+  // window cancels a quit that is closing it, before any cleanup.
+  window.webContents.on("will-prevent-unload", (event) => {
+    const choice = dialog.showMessageBoxSync(window, {
+      buttons: ["Keep editing", "Close anyway"],
+      cancelId: 0,
+      defaultId: 0,
+      detail:
+        "A Module's source draft stays on this device until you save it. Changes still open in an editor are lost if you close now.",
+      message: "Works has unsaved changes.",
+      type: "warning",
+    });
+    if (choice === 1) {
+      event.preventDefault();
+    } else {
+      quitWindows.kept(window);
+    }
   });
 
   const devServerUrl = process.env.ELECTRON_RENDERER_URL;

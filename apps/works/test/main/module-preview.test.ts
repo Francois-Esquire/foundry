@@ -1,23 +1,30 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { InMemoryArtifactStore } from "@foundry/artifacts";
 import type { ModuleVersion } from "@foundry/modules/domain";
 import { createRouterClient } from "@orpc/server";
 import { describe, expect, it, vi } from "vitest";
 import { router } from "~/main/api";
 import { createModuleLibrary } from "~/main/modules/library";
+import { ModuleOffError, ModulePower } from "~/main/modules/power";
 import {
   ModuleRuntimeError,
   ModuleSessions,
 } from "~/main/modules/runtime/controller";
-import {
-  WORKS_MODULE_SETTINGS,
-  worksModuleLaunch,
-} from "~/main/modules/runtime/launch";
+import { programResources } from "~/main/modules/runtime/preflight";
+import { filesPersistence } from "~/main/modules/runtime/private-files";
 import { createModuleProxy } from "~/main/modules/runtime/proxy";
+import { PROGRAM_SETTINGS_POLICY } from "~/main/modules/settings";
+import { startTestExecution } from "../helpers/execution";
 import { openFakeVault } from "../helpers/fake-api";
 import { moduleReleasePackage } from "../helpers/module-release";
+import { unrecordedSaves } from "../helpers/source-saves";
 
 async function fixture() {
-  const library = createModuleLibrary(new InMemoryArtifactStore());
+  const library = createModuleLibrary(new InMemoryArtifactStore(), {
+    saves: unrecordedSaves,
+  });
   const { encoded } = await moduleReleasePackage();
   const imported = await library.importPackage(encoded);
   const release = (await library.details(imported.id))?.releases[0];
@@ -30,14 +37,103 @@ async function fixture() {
   }
   const close = vi.fn(async () => undefined);
   const start = vi.fn(async () => ({ close, origin: "http://127.0.0.1:3000" }));
-  const sessions = new ModuleSessions(library, {
-    shutdown: vi.fn(async () => undefined),
-    start,
+  const sessions = new ModuleSessions({
+    execution: await startTestExecution(),
+    library,
+    runtime: {
+      revoked: () => undefined,
+      shutdown: vi.fn(async () => undefined),
+      start,
+    },
   });
   return { close, library, sessions, start, version };
 }
 
 describe("Module sessions", () => {
+  it("closes a Module's open apps when it is turned off and refuses it while off", async () => {
+    const { library, version } = await fixture();
+    const close = vi.fn(async () => undefined);
+    const power: { off: boolean } = { off: false };
+    const sessions = new ModuleSessions({
+      admit: (moduleId) =>
+        power.off && moduleId === version.moduleId
+          ? Promise.reject(new ModuleOffError())
+          : Promise.resolve(),
+      execution: await startTestExecution(),
+      library,
+      runtime: {
+        revoked: () => undefined,
+        shutdown: async () => undefined,
+        start: async () => ({ close, origin: "http://127.0.0.1:3000" }),
+      },
+    });
+    const watch = sessions.watch(version.moduleId, version.contentId);
+    await watch.next();
+    const pending = watch.next();
+    power.off = true;
+    await sessions.stop(version.moduleId);
+    await expect(pending).resolves.toMatchObject({ done: true });
+    expect(close).toHaveBeenCalledTimes(1);
+    await expect(
+      sessions.watch(version.moduleId, version.contentId).next()
+    ).rejects.toThrow("This Module is off.");
+    // The preview RPC shows the refusal rather than a generic failure.
+    const client = createRouterClient(router, {
+      context: { modules: library, sessions, vault: await openFakeVault() },
+    });
+    const preview = await client.runtime.start({
+      contentId: version.contentId,
+      id: version.moduleId,
+    });
+    await expect(preview.next()).rejects.toThrow("This Module is off.");
+  });
+
+  it("starts no Program for an app still opening when its Module is turned off", async () => {
+    const { library, version } = await fixture();
+    const directory = await mkdtemp(join(tmpdir(), "works-preview-"));
+    try {
+      const execution = await startTestExecution();
+      const power = new ModulePower({
+        execution,
+        file: join(directory, "module-power.json"),
+      });
+      const reading = Promise.withResolvers<void>();
+      const held = Promise.withResolvers<void>();
+      const start = vi.fn(async () => ({
+        close: async () => undefined,
+        origin: "http://127.0.0.1:3000",
+      }));
+      const sessions = new ModuleSessions({
+        admit: (moduleId) => power.admit(moduleId),
+        execution,
+        library: {
+          release: async (moduleId, contentId) => {
+            reading.resolve();
+            await held.promise;
+            return library.release(moduleId, contentId);
+          },
+        },
+        runtime: {
+          revoked: () => undefined,
+          shutdown: async () => undefined,
+          start,
+        },
+      });
+      power.govern(sessions);
+      const opening = sessions.watch(version.moduleId, version.contentId);
+      const first = opening.next();
+      const ended = expect(first).rejects.toThrow();
+      // Admitted while on; turned off while its release is still being read.
+      await reading.promise;
+      await power.set(version.moduleId, false);
+      held.resolve();
+      await ended;
+      expect(start).not.toHaveBeenCalled();
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   it("lists retained output-only releases and closes the runtime when the iterator returns", async () => {
     const { library, version, sessions, close } = await fixture();
     expect((await library.details(version.moduleId))?.releases).toEqual([
@@ -63,13 +159,18 @@ describe("Module sessions", () => {
     const { library, version } = await fixture();
     let finish: (() => void) | undefined;
     const close = vi.fn(async () => undefined);
-    const sessions = new ModuleSessions(library, {
-      shutdown: async () => undefined,
-      start: async () => {
-        await new Promise<void>((resolve) => {
-          finish = resolve;
-        });
-        return { close, origin: "http://127.0.0.1:3000" };
+    const sessions = new ModuleSessions({
+      execution: await startTestExecution(),
+      library,
+      runtime: {
+        revoked: () => undefined,
+        shutdown: async () => undefined,
+        start: async () => {
+          await new Promise<void>((resolve) => {
+            finish = resolve;
+          });
+          return { close, origin: "http://127.0.0.1:3000" };
+        },
       },
     });
     const abort = new AbortController();
@@ -137,13 +238,7 @@ describe("Module sessions", () => {
       "/%2F%2Fexample.com/file.js",
     ]) {
       const result = await proxy(new Request(`${value?.origin}${path}`));
-      if (path.includes("example")) {
-        expect(fetcher.mock.calls.at(-1)?.[0]?.toString()).toContain(
-          "127.0.0.1"
-        );
-      } else {
-        expect(result.status).toBe(404);
-      }
+      expect(result.status).toBe(404);
     }
     await stream.return();
     expect((await proxy(new Request(`${value?.origin}/`))).status).toBe(404);
@@ -152,6 +247,7 @@ describe("Module sessions", () => {
   it("rejects external endpoints, redirects, and stale responses", async () => {
     const endpoint = {
       origin: "http://example.com",
+      signal: new AbortController().signal,
       views: [{ id: "main", path: "/" }],
     };
     const fetcher = vi.fn<typeof fetch>(async () =>
@@ -184,12 +280,17 @@ it("shutdown cancels active watches and waits for runtime cleanup", async () => 
 
 it("returns a useful startup error over the real router", async () => {
   const { library, version } = await fixture();
-  const sessions = new ModuleSessions(library, {
-    shutdown: async () => undefined,
-    start: () =>
-      Promise.reject(
-        new ModuleRuntimeError("Install the runtime before previewing")
-      ),
+  const sessions = new ModuleSessions({
+    execution: await startTestExecution(),
+    library,
+    runtime: {
+      revoked: () => undefined,
+      shutdown: async () => undefined,
+      start: () =>
+        Promise.reject(
+          new ModuleRuntimeError("Install the runtime before previewing")
+        ),
+    },
   });
   const client = createRouterClient(router, {
     context: { modules: library, sessions, vault: await openFakeVault() },
@@ -205,6 +306,10 @@ it("returns a useful startup error over the real router", async () => {
 });
 
 describe("Module launch", () => {
+  const worksModuleLaunch = (version: Pick<ModuleVersion, "manifest">) => ({
+    files: filesPersistence(version.manifest),
+    resources: programResources(version, {}),
+  });
   const MIB = 1024 * 1024;
   function strict(extra: object): Pick<ModuleVersion, "manifest"> {
     return {
@@ -242,7 +347,7 @@ describe("Module launch", () => {
   });
 
   it("refuses a release asking for more than the host ceiling instead of starting it smaller", () => {
-    const { ceiling } = WORKS_MODULE_SETTINGS.policy["resources.memoryBytes"];
+    const { ceiling } = PROGRAM_SETTINGS_POLICY["resources.memoryBytes"];
     expect(() =>
       worksModuleLaunch(strict({ resources: { memoryBytes: ceiling * 2 } }))
     ).toThrow(ModuleRuntimeError);
