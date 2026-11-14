@@ -347,7 +347,7 @@ import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 
 const store = new SqliteArtifactStore({
-  database, // a drizzle-orm/libsql database, or a transaction on one
+  database, // a drizzle-orm/libsql database, or a transaction on one (see below)
   scope: workspaceId,
   // Optional: runs in the commit's transaction, after the store's statements.
   onCommit: async (transaction, write) => {
@@ -371,10 +371,16 @@ JavaScript and matches those columns with `instr`, a plain substring test, so
 `%` and `_` match only themselves and non-ASCII text folds as in the memory
 store; SQLite's own `lower()` folds ASCII only. Ties in creation order sort and
 page by `id_order`, which orders as JavaScript compares strings by code unit;
-SQLite orders text by code point. Two filters are answered from the scope's
-rows in JavaScript instead, with the memory store's own functions: text that
-holds a lone surrogate (which matches half of a stored pair, by code unit), and
-a cursor whose time is not a valid `Date`.
+SQLite orders text by code point. Every filter is answered in SQL and bounded
+by `limit`, the inputs SQLite text cannot compare included. Text holding a lone
+surrogate, which in JavaScript matches half of a stored pair, matches
+`text_units`: the lower-cased name, type and id as UTF-16 code units in hex
+(four digits and a comma per unit, the fields joined by `|`), where `instr`
+finds a code-unit substring exactly, never starting inside a unit or crossing
+a field. Text holding NUL matches nothing, since no stored text holds one, and
+reads nothing. A cursor whose time is not a valid `Date` compares by `id_order`
+alone, as the memory store's comparison reduces to, and the order stays by
+time.
 
 Each read is one indexed query, or two in one transaction (`listArtifacts`'
 count and page, `findReferences`' two lookups); the table definitions say which
@@ -432,6 +438,14 @@ the store back, finds the write absent, and removes the files the change publish
 Only if that read fails too does it keep them, with no record naming them, until
 `recover` removes them.
 
+Each store takes a write as it stands when `commit` is called: one
+`structuredClone` of the whole write, made before the commit waits its turn or a
+lock, through a transaction's view as well. Only that copy is checked, made into
+rows and handed to `onCommit`, so a caller changing the write later changes
+nothing, and no getter or `toJSON` of the caller's runs while it is encoded (the
+copy has none). A write the clone refuses, one holding a function or a symbol,
+rejects whole with the clone's error, in every store.
+
 A storage limit of the SQLite store, not a rule of the package: `commit` refuses, before
 any statement runs, a write holding a value SQLite would not give back as written, with
 a `RangeError` naming the field (`putContents[0].tag`, say), through a transaction's view
@@ -443,15 +457,40 @@ as well:
   bound changed. A read or delete by such a key finds nothing, and the constructor
   refuses such a `scope`.
 - Inside a JSON column (metadata, a tree, chunks): `-0`, a number that is not finite,
-  `undefined`, a function, a symbol, an array hole, an object that is not plain (a
-  `Date`, a `Map`), or a cycle. JSON escapes NUL and lone surrogates, so strings keep
-  them.
+  `undefined`, an array hole, an object that is not plain (a `Date`, a `Map`), or a
+  cycle. JSON escapes NUL and lone surrogates, so strings keep them.
 - `byteLength` that is not a safe integer, or is `-0`; a time that is not a valid
   `Date`; a blob with other than one of `bytes`, `path` and `chunks`, or with a source
   key present and `undefined` (the row could only read it back absent).
 
 A row the store would not have written (a blob row with no source, or two) fails the
 read that meets it, naming the blob and the scope.
+
+A store says when a commit that resolved is there for good, as `durability`:
+`"commit"`, at once, or `"host"`, only once a transaction the store sits inside, which
+someone else owns, commits. `SqliteArtifactStore` is `"host"` over any Drizzle
+transaction passed as `database`, which it detects, and refuses `durability:
+"commit"` there; pass `durability: "host"` over a plain database on which the host
+began a transaction of its own (a raw `BEGIN`), which the store cannot see. The memory
+and JSON stores are `"commit"`.
+
+Over a `"host"` store the manager cannot know a landed change will last, so it removes
+no file the change stopped naming. Before the commit it marks each one retired
+(`BlobFiles.retire`; `blobFiles` refreshes the file's times), and a mark that fails
+fails the change. `recover` over such a store removes a file no record names only once
+`BlobFiles.abandoned` says it has gone unchanged for as long as abandoned staging
+(`STAGING_ABANDONED_AFTER_MS`, 24 hours), so a `recover` reading the host's uncommitted
+records keeps what a rollback would name again. A host rollback therefore reads every
+file the change retired; after a host commit, the retired files wait for `recover`.
+A `"host"` manager whose `BlobFiles` lacks `retire` or `abandoned` is refused at
+construction. Over a `"commit"` store, retired files go once the commit lands, and
+`recover` removes unnamed files at once: it reads committed records under the store's
+write lock.
+
+Over a `"host"` store, bindings, observers and `afterCommit` effects still run once the
+store's commit resolves, before the host's outcome is known. A bound directory that
+applied a change the host then rolled back writes nothing back into the records: it
+sees the records differ from what it applied, and applies the records again.
 
 Known limits:
 
@@ -465,9 +504,6 @@ Known limits:
   new client works. Nothing lands either way, and the manager removes what such a change
   published. A host meets this only once its busy timeout runs out; it should use WAL
   and reopen a client that has reported `SQLITE_BUSY`.
-- Over a store whose database is a host transaction, the manager removes the files a
-  change retired once its commit returns, before the host commits. A host that then
-  rolls back keeps records naming removed files.
 - Some manager calls make one query per item: `putBlob` lists every blob for each
   published file it puts, to refuse a backing path another blob holds; collecting
   unreferenced blobs reads each candidate and its references; `sweep` reads each old
