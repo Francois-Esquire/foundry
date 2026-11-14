@@ -227,6 +227,64 @@ describe("the SQLite container store", () => {
     expect(recorded?.write).toEqual({ putContainers: [row("a")] });
   });
 
+  it.each([
+    ["memory", memory],
+    ["file", files],
+  ] as const)(
+    "onCommit receives the write as it stood when commit was called, not the caller's object (%s)",
+    async (_location, databases) => {
+      const received: ContainerStoreWrite[] = [];
+      const store = createSqliteContainerStore({
+        database: await databases.open(),
+        onCommit: (_transaction, write) => {
+          received.push(write);
+          return Promise.resolve();
+        },
+        scope: "host",
+      });
+      const writeOf = (id: string) => ({ putContainers: [row(id)] });
+      const change = (write: ReturnType<typeof writeOf>) => {
+        for (const put of write.putContainers) {
+          Object.assign(put, { nativeId: "changed", status: "failed" });
+        }
+        write.putContainers.push(row("late"));
+      };
+
+      // Queued behind a transaction, then through a transaction's view.
+      const transaction = store.transaction?.bind(store);
+      if (transaction === undefined) {
+        throw new Error("the SQLite store has a transaction");
+      }
+      const held = Promise.withResolvers<void>();
+      const entered = Promise.withResolvers<void>();
+      const running = transaction(async () => {
+        entered.resolve();
+        await held.promise;
+      });
+      await entered.promise;
+      const queued = writeOf("queued");
+      const expected: ContainerStoreWrite[] = [structuredClone(queued)];
+      const landing = store.commit(queued);
+      change(queued);
+      held.resolve();
+      await Promise.all([running, landing]);
+      const viewed = writeOf("viewed");
+      expected.push(structuredClone(viewed));
+      await transaction(async (view) => {
+        const committed = view.commit(viewed);
+        change(viewed);
+        await committed;
+      });
+
+      expect(received).toStrictEqual(expected);
+      expect(received[0]).not.toBe(queued);
+      expect(received[1]).not.toBe(viewed);
+      expect(await store.list()).toStrictEqual(
+        received.flatMap((write) => write.putContainers ?? [])
+      );
+    }
+  );
+
   it("a throwing onCommit rolls back the store's statements and its own", async () => {
     const database = await withChanges();
     const store = createSqliteContainerStore({

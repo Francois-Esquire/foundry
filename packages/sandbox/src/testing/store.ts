@@ -55,6 +55,34 @@ function unreadableSecond(values: readonly [string, string]): string[] {
   return list;
 }
 
+/**
+ * A store holding row `kept`, and a write as a caller holds it: one row to
+ * put beside it and no deletes, with the rows the store should list once
+ * the write lands as it stood at the call. `scramble` changes, in place,
+ * everything the write holds, as a caller might once `commit` has
+ * returned: every field of the row it puts, a further row put, and `kept`
+ * deleted.
+ */
+async function callerWrite(target: ContainerStore) {
+  const kept = row("kept");
+  await target.commit({ putContainers: [kept] });
+  const put = row("put", { nativeId: undefined });
+  const write = { deleteContainers: [] as string[], putContainers: [put] };
+  const expected = [kept, { ...put }];
+  const scramble = () => {
+    Object.assign(put, {
+      createdAt: 2,
+      nativeId: "changed",
+      spec: '{"changed":true}',
+      status: "failed",
+      updatedAt: 2,
+    });
+    write.putContainers.push(row("late"));
+    write.deleteContainers.push(kept.id);
+  };
+  return { expected, scramble, write };
+}
+
 /** Lets every other queued callback run, so a missing exclusion would show. */
 function yieldTurn(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -208,11 +236,11 @@ export function describeContainerStore(
     it("keeps nothing from a write that fails", async () => {
       const target = await store();
       await target.commit({ putContainers: [row("kept")] });
-      // Every store reads each field of a row it keeps, so a `spec` that
-      // throws on read fails a write that also carries a delete and a valid
-      // put. The memory store has applied both to its copy by then; a store
-      // that runs statements may fail before running any, so it should also
-      // fail a commit partway through its statements in its own tests.
+      // Every store copies the whole write when commit is called, so a
+      // `spec` that throws on read fails a write that also carries a delete
+      // and a valid put, before either is applied. A store that runs
+      // statements should also fail a commit partway through its statements
+      // in its own tests.
       const unreadable = row("bad");
       Object.defineProperty(unreadable, "spec", {
         enumerable: true,
@@ -267,6 +295,56 @@ export function describeContainerStore(
       await target.commit({ putContainers: [input] });
       input.status = "failed";
       expect((await target.get("c1"))?.status).toBe("starting");
+    });
+
+    it("takes a write as it stands when commit is called, though the caller changes it at once", async () => {
+      const target = await store();
+      const { expected, scramble, write } = await callerWrite(target);
+
+      const landing = target.commit(write);
+      scramble();
+      await landing;
+
+      expect(await target.list()).toStrictEqual(expected);
+    });
+
+    it("takes a write as it stands when commit is called, though it waits behind a transaction", async ({
+      skip,
+    }) => {
+      const target = await store();
+      const transaction = transactionOf(target, skip);
+      const { expected, scramble, write } = await callerWrite(target);
+      const entered = Promise.withResolvers<void>();
+      const held = Promise.withResolvers<void>();
+      const running = transaction(async () => {
+        entered.resolve();
+        await held.promise;
+      });
+      await entered.promise;
+
+      const landing = target.commit(write);
+      scramble();
+      held.resolve();
+      await Promise.all([running, landing]);
+
+      expect(await target.list()).toStrictEqual(expected);
+    });
+
+    it("takes a write through a transaction's view as it stands when commit is called", async ({
+      skip,
+    }) => {
+      const target = await store();
+      const transaction = transactionOf(target, skip);
+      const { expected, scramble, write } = await callerWrite(target);
+
+      await transaction(async (view) => {
+        const committed = view.commit(write);
+        scramble();
+        await committed;
+        expect(await view.list()).toStrictEqual(expected);
+      });
+
+      expect(await target.list()).toStrictEqual(expected);
     });
 
     it("hands out frozen rows, detached from the rows it keeps", async () => {

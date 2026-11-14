@@ -15,6 +15,11 @@ const REENTRY =
  * its place. Each commit builds new rows and swaps them in only when it
  * succeeds.
  *
+ * A commit takes the write as it stands when it is called: one
+ * `structuredClone` of it, made before the commit waits its turn, so a
+ * caller changing the write later changes nothing; a transaction's view
+ * takes its writes the same way. A write the clone refuses rejects whole.
+ *
  * Every call takes a turn, so a commit made while a transaction runs lands
  * after it, and a call made from inside a transaction's work is refused: it
  * could only wait for itself. A transaction's commits build on its own
@@ -26,10 +31,12 @@ export function createMemoryContainerStore(): ContainerStore {
 
   return {
     commit: (write) =>
-      turns.run(() => {
-        rows = applied(rows, write);
-        return Promise.resolve();
-      }),
+      withOwnCopy(write, (copy) =>
+        turns.run(() => {
+          rows = applied(rows, copy);
+          return Promise.resolve();
+        })
+      ),
     get: (id) => turns.run(() => Promise.resolve(read(rows, id))),
     list: () => turns.run(() => Promise.resolve(readAll(rows))),
     transaction: (work) =>
@@ -41,12 +48,10 @@ export function createMemoryContainerStore(): ContainerStore {
             if (!open) {
               return Promise.reject(new Error("transaction is closed"));
             }
-            try {
-              staged = applied(staged, write);
-            } catch (error: unknown) {
-              return Promise.reject(error);
-            }
-            return Promise.resolve();
+            return withOwnCopy(write, (copy) => {
+              staged = applied(staged, copy);
+              return Promise.resolve();
+            });
           },
           get: (id) => Promise.resolve(read(staged, id)),
           list: () => Promise.resolve(readAll(staged)),
@@ -63,8 +68,25 @@ export function createMemoryContainerStore(): ContainerStore {
 }
 
 /**
- * The rows after `write`, deletes before puts, built on a copy so that a
- * write failing at any point leaves `rows` exactly as they were.
+ * `take` with the store's own copy of `write`, or a rejection when the
+ * write cannot be cloned.
+ */
+function withOwnCopy(
+  write: ContainerStoreWrite,
+  take: (copy: ContainerStoreWrite) => Promise<void>
+): Promise<void> {
+  let copy: ContainerStoreWrite;
+  try {
+    copy = structuredClone(write);
+  } catch (error: unknown) {
+    return Promise.reject(error);
+  }
+  return take(copy);
+}
+
+/**
+ * The rows after `write`, the store's own copy, deletes before puts, built
+ * on a new map so that `rows` stay exactly as they were.
  */
 function applied(rows: Rows, write: ContainerStoreWrite): Rows {
   const next = new Map(rows);
@@ -72,8 +94,7 @@ function applied(rows: Rows, write: ContainerStoreWrite): Rows {
     next.delete(id);
   }
   for (const row of write.putContainers ?? []) {
-    const kept = detached(row);
-    next.set(kept.id, kept);
+    next.set(row.id, Object.freeze(row));
   }
   return next;
 }

@@ -36,7 +36,8 @@ export interface SqliteContainerStoreOptions {
   /**
    * Runs inside the commit's transaction after the store's own statements,
    * so the host can record the change atomically with it. A throw rolls the
-   * whole commit back.
+   * whole commit back. It receives the store's own copy of the write, the
+   * one its rows were made from, not the caller's object.
    */
   readonly onCommit?: (
     transaction: ContainerTransaction,
@@ -143,25 +144,38 @@ export function createSqliteContainerStore(
   };
 
   return {
-    /** A delete of an id no row can hold does nothing. */
-    commit: (write) =>
-      turns.run(() => {
-        // Every field is read here, before any statement, so a write that
-        // cannot be read or stored is refused whole.
-        const field = unstorableField(write);
+    /**
+     * Takes the write as it stands when `commit` is called: one
+     * `structuredClone` of the whole write, as the memory store takes it,
+     * made before the commit waits its turn. That copy alone is checked,
+     * made into every row, and handed to `onCommit`, so a caller changing
+     * its write later changes nothing. A write the clone refuses rejects
+     * with the clone's error, as in the memory store. A delete of an id no
+     * row can hold does nothing.
+     */
+    commit: (write) => {
+      let owned: ContainerStoreWrite;
+      try {
+        owned = structuredClone(write);
+      } catch (error: unknown) {
+        return Promise.reject(error);
+      }
+      return turns.run(() => {
+        // The copy is checked whole before any statement, so a write that
+        // cannot be stored is refused whole.
+        const field = unstorableField(owned);
         if (field !== undefined) {
           return Promise.reject(new RangeError(`${CANNOT_STORE} ${field}`));
         }
-        const deletes = [...(write.deleteContainers ?? [])].filter(
-          storableText
-        );
-        const puts = [...(write.putContainers ?? [])];
+        const deletes = (owned.deleteContainers ?? []).filter(storableText);
+        const puts = owned.putContainers ?? [];
         return database.transaction(async (transaction) => {
           await remove(transaction, deletes);
           await put(transaction, puts);
-          await onCommit?.(transaction, write);
+          await onCommit?.(transaction, owned);
         });
-      }),
+      });
+    },
 
     /** `undefined` for an id no row can hold. */
     get: (id) =>
