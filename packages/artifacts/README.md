@@ -256,7 +256,8 @@ and the filesystem when their owner stops.
 ## Public entries
 
 Import the contract, model, errors, identifiers, artifact cursor, constants,
-`digestTree`, the manager, and the in-memory store from `@foundry/artifacts`.
+`digestTree` and the manager from `@foundry/artifacts`; the stores live on their
+own paths (see Storage).
 `fileResponse` in `@foundry/artifacts/delivery` builds a ranged HTTP `Response`
 for one stored file. Shared hashing,
 canonical JSON, and Base64 helpers live in `@foundry/lib/digest`,
@@ -318,8 +319,144 @@ failed after its write landed (a failed directory sync, say) keeps them.
 rewritten per commit under a `<path>.lock` file so several processes can share it.
 Manager reads take that lock too: they need a writable directory, create it and a
 transient lock file, can wait on another process, and can throw `FileLockTimeoutError`.
-It is interim and goes when a SQLite store lands. Pair it with `blobFiles` for bytes.
-The in-memory store does not import Node or SQLite.
+It is interim: `SqliteArtifactStore` (below) is its replacement. Pair it with
+`blobFiles` for bytes. The in-memory store does not import Node or SQLite.
+
+## Storage
+
+| Path                                  | Holds                                                         |
+| ------------------------------------- | ------------------------------------------------------------- |
+| `@foundry/artifacts/store`            | `ArtifactStore`, its write and listing types.                 |
+| `@foundry/artifacts/store/memory`     | `InMemoryArtifactStore`, the default the manager uses.        |
+| `@foundry/artifacts/store/sqlite`     | `SqliteArtifactStore`, over a host's Drizzle database.        |
+| `@foundry/artifacts/store/tables`     | The Drizzle tables it uses.                                   |
+| `@foundry/artifacts/testing/store`    | `describeArtifactStore`, the suite every store passes.        |
+| `@foundry/artifacts/node`             | `JsonArtifactStore` (interim) and `blobFiles`.                |
+
+`SqliteArtifactStore` takes the host's database and never opens one. The host
+composes the tables from `./store/tables` into its own schema and owns the
+migrations; `drizzle-orm` is an optional peer dependency, needed only on the
+two SQLite paths. Every row carries a `scope`, an opaque partition the host
+chooses (a workspace id, say), and a store reads and writes only its own. The
+store keeps records only: blob bytes stay inline in a blob record or in the
+files `blobFiles` publishes, whose names the records hold.
+
+```ts
+import { ArtifactManager } from "@foundry/artifacts";
+import { blobFiles } from "@foundry/artifacts/node";
+import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
+
+const store = new SqliteArtifactStore({
+  database, // a drizzle-orm/libsql database, or a transaction on one
+  scope: workspaceId,
+  // Optional: runs in the commit's transaction, after the store's statements.
+  onCommit: async (transaction, write) => {
+    await transaction.insert(changes).values({ write: summarize(write) });
+  },
+});
+const artifacts = new ArtifactManager({ files: blobFiles(blobRoot), store });
+```
+
+The tables are `artifacts`, `artifact_contents` and `artifact_blobs`, one row per
+record, field for field: a `Date` is integer epoch milliseconds, inline bytes are
+a blob, metadata, a Content tree and a blob's chunks are JSON text, and a blob row
+fills exactly one of `bytes`, `path` and `chunks`. Two lookup tables,
+`artifact_content_blobs` and `artifact_blob_chunks`, hold one row per blob a
+Content's tree or a blob's chunks name; the store rewrites them with each
+Content or blob it puts, and `findReferences` reads them, since JSON cannot be
+indexed. `artifacts` also keeps `name_lower`, `type_lower` and `id_lower`, each
+field lower-cased by JavaScript's `toLowerCase`, and `id_order`, the id's UTF-16
+code units as big-endian bytes. The text filter lower-cases its text in
+JavaScript and matches those columns with `instr`, a plain substring test, so
+`%` and `_` match only themselves and non-ASCII text folds as in the memory
+store; SQLite's own `lower()` folds ASCII only. Ties in creation order sort and
+page by `id_order`, which orders as JavaScript compares strings by code unit;
+SQLite orders text by code point. Two filters are answered from the scope's
+rows in JavaScript instead, with the memory store's own functions: text that
+holds a lone surrogate (which matches half of a stored pair, by code unit), and
+a cursor whose time is not a valid `Date`.
+
+Each read is one indexed query, or two in one transaction (`listArtifacts`'
+count and page, `findReferences`' two lookups); the table definitions say which
+read each index serves, and the tests check every plan. `listBlobs` and
+`listContents()` read one scope's run of an index.
+
+Each `commit` is one transaction: the deletes, then the puts, then `onCommit`. A
+throwing `onCommit` rolls it back, and a call to the store itself from the hook is
+refused. The hook receives the write as committed, which is all it can learn of the
+change: each record put, whole, as it now stands, and only the id of each record
+deleted. It has no record as it stood before, and a deleted Content or blob does not
+say which Artifact it belonged to. Deleting an Artifact lists its Contents among the
+deletes; a blob a change stopped needing is a delete of its own. The manager makes no
+commit for a change that writes nothing.
+
+`transaction(work)` runs `work` in one database transaction over a view; each commit
+through the view is a savepoint, and the view refuses calls once `work` settles. In this
+process the store's calls take turns, so one made while a transaction runs waits for it.
+Across connections, every transaction takes SQLite's write lock at its first statement:
+Drizzle's libSQL driver begins every transaction with `BEGIN IMMEDIATE` and offers no
+deferred one through the database type the store accepts. So every manager read of
+several records, every change's pre-staging check, and `recover`'s walk of the blob
+directory hold the write lock while they run. Staging bytes holds no lock: a change
+checks in one transaction, takes its bytes in outside any, then commits in another.
+
+Host requirement: the store's queue covers only its own instance. Within one process,
+the host must serialize writes per database file across every client and store on it
+(Marbles does). A second libSQL client in the same process does not wait usefully:
+libSQL waits out its busy timeout synchronously, holding up the thread the first client
+needs to commit, so it blocks for the whole timeout and then fails with `SQLITE_BUSY`.
+Do not open the same file with a second SQLite library in the process either. Connection
+settings such as WAL and the busy timeout are the host's.
+
+A commit over SQLite either lands or throws having landed nothing, `SQLITE_BUSY`
+included: libSQL rolls back a transaction whose `COMMIT` fails. The manager then reads
+the store back, finds the write absent, and removes the files the change published.
+Only if that read fails too does it keep them, with no record naming them, until
+`recover` removes them.
+
+A storage limit of the SQLite store, not a rule of the package: `commit` refuses, before
+any statement runs, a write holding a value SQLite would not give back as written, with
+a `RangeError` naming the field (`putContents[0].tag`, say), through a transaction's view
+as well:
+
+- In a plain text column (an id, a name, a type, a status or state, a digest, a tag, a
+  backing path, and each blob id a tree or chunk list names): U+0000, which libSQL reads
+  back cut short, or text that is not well-formed UTF-16 (a lone surrogate), which is
+  bound changed. A read or delete by such a key finds nothing, and the constructor
+  refuses such a `scope`.
+- Inside a JSON column (metadata, a tree, chunks): `-0`, a number that is not finite,
+  `undefined`, a function, a symbol, an array hole, an object that is not plain (a
+  `Date`, a `Map`), or a cycle. JSON escapes NUL and lone surrogates, so strings keep
+  them.
+- `byteLength` that is not a safe integer, or is `-0`; a time that is not a valid
+  `Date`; a blob with other than one of `bytes`, `path` and `chunks`, or with a source
+  key present and `undefined` (the row could only read it back absent).
+
+A row the store would not have written (a blob row with no source, or two) fails the
+read that meets it, naming the blob and the scope.
+
+Known limits:
+
+- After libSQL refuses a `BEGIN` with `SQLITE_BUSY`, that client's later commits fail
+  with "SQL statements in progress" until it is reopened: the refused statement stays
+  in progress on its connection. A host that sets a busy timeout meets this only once
+  the timeout runs out.
+- Over a store whose database is a host transaction, the manager removes the files a
+  change retired once its commit returns, before the host commits. A host that then
+  rolls back keeps records naming removed files.
+- Some manager calls make one query per item: `putBlob` lists every blob for each
+  published file it puts, to refuse a backing path another blob holds; collecting
+  unreferenced blobs reads each candidate and its references; `sweep` reads each old
+  Content's Artifact; and a listing inside a change reads each Artifact the change
+  touched. Each is a candidate for a store read of its own.
+- The lower-cased columns are written by the JavaScript runtime that commits. A runtime
+  on another Unicode version can fold a new character differently from the one that
+  wrote the row.
+
+The store takes calls in turns through `Turns` from `@foundry/lib/turns`, as the memory
+and JSON stores do, and refuses a call from inside its own transaction or hook with a
+`ReentrantCallError` saying to use the view or the transaction instead. It needs
+`AsyncLocalStorage` from `node:async_hooks`: Node, Bun or Deno.
 
 ## Development
 
