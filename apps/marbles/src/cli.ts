@@ -2,7 +2,16 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { fileURLToPath } from "node:url";
 import { TaskError } from "@foundry/tasks";
+import type { Hosted, TaskRunner } from "~/access/workspace";
+import {
+  attachToProcess,
+  hostHere,
+  joinProcess,
+  NotHostedError,
+  withTasks,
+} from "~/access/workspace";
 import type { Args, ArgsOf, Command, Flags } from "~/args";
 import { parseArgs, UsageError } from "~/args";
 import type { Triggers } from "~/create";
@@ -17,15 +26,8 @@ import { describeTrigger } from "~/lib/schedule";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { RunOutputError } from "~/lib/state/output";
 import { readWorkspace } from "~/lib/state/workspace";
-import type { WorkspaceConnection } from "~/model/connection";
-import type {
-  TaskCommand,
-  TaskCommandKind,
-  TaskCommandResult,
-} from "~/model/tasks";
-import type { MarblesClient } from "~/process/client";
+import type { TaskCommandResult } from "~/model/tasks";
 import {
-  connect,
   describeDisconnect,
   NoProcessError,
   ProcessMismatchError,
@@ -43,19 +45,10 @@ import { taskCommandText } from "~/tasks/text";
 import { watchRun } from "~/watch";
 import { createStarter } from "~/workspace/create";
 import { EnvironmentError } from "~/workspace/env";
-import type { WorkspaceHost } from "~/workspace/host";
-import { hostWorkspace, LaunchInputError } from "~/workspace/host";
+import { LaunchInputError } from "~/workspace/host";
 import type { OpenedWorkspace } from "~/workspace/open";
-import {
-  findWorkspace,
-  hostTasks,
-  hostTriggers,
-  openWorkspace,
-  workspaceEngine,
-} from "~/workspace/open";
+import { findWorkspace, hostTriggers, openWorkspace } from "~/workspace/open";
 import { setupProviders } from "~/workspace/provider-setup";
-import { resolveSource } from "~/workspace/source";
-import { runTaskCommand } from "~/workspace/tasks";
 import { STARTERS } from "~/workspace/templates";
 
 const print = (line: string) => {
@@ -77,6 +70,7 @@ const USAGE = `marbles — programmable workspace automation
   sessions                   sessions under --state: id, messages, updated, summary
   tasks <action> [--json]    read or change this workspace's tasks (below)
   watch <runId>              replay output, follow it live, and exit when the run ends
+  mcp                        serve this workspace to an MCP client over stdio; starts nothing (--dry-run hosts here)
   daemon                     run the Marbles process in the foreground
   stop                       stop the Marbles process and every workspace it hosts
   attach                     host this workspace in the Marbles process and exit; it stays hosted
@@ -142,20 +136,6 @@ type Handler<A extends Flags> =
       run(args: A, hosted: Hosted): Promise<void>;
     }
   | { readonly needs: "tasks"; run(args: A, tasks: TaskRunner): Promise<void> };
-
-/** Runs one task command on the workspace's own tasks; a refusal is a `TaskError`. */
-type TaskRunner = <K extends TaskCommandKind>(
-  command: TaskCommand<K>
-) => Promise<TaskCommandResult<K>>;
-
-type Hosted =
-  | { readonly kind: "local"; readonly host: WorkspaceHost }
-  | {
-      readonly kind: "remote";
-      readonly client: MarblesClient;
-      readonly id: string;
-      readonly workspace: WorkspaceConnection;
-    };
 
 async function createStarterModule(args: ArgsOf<"init">): Promise<void> {
   const starter = STARTERS.find((item) => item.id === args.starter);
@@ -374,7 +354,7 @@ async function attachWorkspace(args: ArgsOf<"attach">): Promise<void> {
       "attach hosts the workspace in the Marbles process; it takes no --dry-run"
     );
   }
-  await withProcess(args, (hosted) => {
+  await attachToProcess(args, (hosted) => {
     if (hosted.kind === "remote") {
       print(
         `[process] pid ${String(hosted.client.hello.pid)} hosts ${hosted.workspace.root} (${hosted.id})`
@@ -400,16 +380,8 @@ async function detachWorkspace(
       workspace.touch(config, { hosted: false });
     }
   };
-  let client: MarblesClient;
-  try {
-    client = await connect({
-      layout: layout({ artifacts: args.artifacts, state: args.state }),
-      start: false,
-    });
-  } catch (error) {
-    if (!(error instanceof NoProcessError)) {
-      throw error;
-    }
+  const client = await joinProcess(args);
+  if (client === undefined) {
     forget();
     print(`no Marbles process is running; ${where} is not hosted`);
     return;
@@ -474,6 +446,20 @@ async function watch(args: ArgsOf<"watch">): Promise<void> {
   }
 }
 
+/**
+ * The STDIO MCP server, in two processes (`mcp/relay.ts`): this one relays
+ * for the client, unless it is the server a relay started.
+ */
+async function serveMcp(args: ArgsOf<"mcp">): Promise<void> {
+  const { isServer, relay } = await import("~/mcp/relay");
+  if (!isServer()) {
+    await relay(fileURLToPath(import.meta.url), process.argv.slice(2));
+    return;
+  }
+  const { serveStdio } = await import("~/mcp/stdio");
+  await serveStdio(args);
+}
+
 const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   attach: { needs: "nothing", run: attachWorkspace },
   daemon: { needs: "nothing", run: runDaemon },
@@ -481,6 +467,7 @@ const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   help: { needs: "nothing", run: () => print(USAGE) },
   init: { needs: "nothing", run: createStarterModule },
   list: { needs: "triggers", run: listTriggers },
+  mcp: { needs: "nothing", run: serveMcp },
   roll: { needs: "connection", run: roll },
   run: { needs: "connection", run: runUntilStopped },
   sessions: { needs: "workspace", run: listSessions },
@@ -509,19 +496,12 @@ function envMode(args: { readonly command: Command }): "require" | "warn" {
   return args.command === "roll" ? "require" : "warn";
 }
 
-/** Host the workspace in this process; only `--dry-run` does. */
+/** Host the workspace in this process, and report on it; only `--dry-run` does. */
 async function withLocalHost(
   args: Flags & { readonly command: Command },
   run: (hosted: Hosted) => Promise<void>
 ): Promise<void> {
-  const host = await hostWorkspace({
-    artifacts: args.artifacts,
-    dry: args.dry,
-    env: envMode(args),
-    print,
-    source: args.config,
-    state: args.state,
-  });
+  const host = await hostHere(args, { env: envMode(args), print });
   const { engine } = host;
   try {
     printErrors(engine.automations);
@@ -533,107 +513,6 @@ async function withLocalHost(
     await printNewRuns(engine, restored);
   } finally {
     await host.close();
-  }
-}
-
-/** Attach the workspace to the Marbles process, starting one when none runs. */
-async function withProcess(
-  args: Flags,
-  run: (hosted: Hosted) => Promise<void>
-): Promise<void> {
-  const client = await connect({
-    layout: layout({ artifacts: args.artifacts, state: args.state }),
-  });
-  try {
-    const summary = await client.attach(resolveSource(args.config), {
-      root: process.cwd(),
-    });
-    await run({
-      client,
-      id: summary.id,
-      kind: "remote",
-      workspace: client.workspace(summary),
-    });
-  } finally {
-    client.close();
-  }
-}
-
-/**
- * The worker that hosts the workspace now, when a Marbles process runs and
- * has it ready. Nothing is started or attached to find out. A worker that
- * is starting is about to own the tasks, so the command is refused rather
- * than racing it for them.
- */
-async function hostingWorker(
-  args: Flags,
-  id: string
-): Promise<
-  | { readonly client: MarblesClient; readonly workspace: WorkspaceConnection }
-  | undefined
-> {
-  let client: MarblesClient;
-  try {
-    client = await connect({
-      layout: layout({ artifacts: args.artifacts, state: args.state }),
-      start: false,
-    });
-  } catch (error) {
-    if (error instanceof NoProcessError) {
-      return undefined;
-    }
-    throw error;
-  }
-  try {
-    const summary = (await client.workspaces()).find(
-      (entry) => entry.id === id
-    );
-    if (summary?.state === "ready") {
-      return { client, workspace: client.workspace(summary) };
-    }
-    if (summary?.state === "starting" || summary?.state === "reloading") {
-      throw new RecordsHeldError(
-        `the tasks of this workspace are about to be in use by Marbles process pid ${String(client.hello.pid)}, whose worker is ${summary.state}; retry once it is ready`
-      );
-    }
-  } catch (error) {
-    client.close();
-    throw error;
-  }
-  client.close();
-  return undefined;
-}
-
-/**
- * The workspace's tasks, without running its source here or starting
- * anything that would. A worker that already hosts the workspace owns
- * them, so each command goes to it. Otherwise this process opens them
- * through an engine it never starts, and gives them up when done; under
- * `--dry-run` they are in memory, and records another process owns are
- * refused, never answered from memory.
- */
-async function withTasks(
-  args: Flags,
-  work: (tasks: TaskRunner) => Promise<void>
-): Promise<void> {
-  const opened = findWorkspace(args);
-  const hosted = args.dry
-    ? undefined
-    : await hostingWorker(args, opened.workspace.id);
-  if (hosted !== undefined) {
-    try {
-      await work((command) => hosted.workspace.tasks(command));
-    } finally {
-      hosted.client.close();
-    }
-    return;
-  }
-  const engine = workspaceEngine(args, opened, { print: diagnose });
-  try {
-    const tasks = hostTasks(engine);
-    await work((command) => runTaskCommand(tasks, command));
-  } finally {
-    await engine.dispose();
   }
 }
 
@@ -657,12 +536,14 @@ async function dispatch<C extends Command>(
       return;
     }
     case "connection":
-      await (args.dry ? withLocalHost : withProcess)(args, (hosted) =>
+      await (args.dry ? withLocalHost : attachToProcess)(args, (hosted) =>
         handler.run(args, hosted)
       );
       return;
     case "tasks":
-      await withTasks(args, (tasks) => handler.run(args, tasks));
+      await withTasks(args, findWorkspace(args), diagnose, (tasks) =>
+        handler.run(args, tasks)
+      );
       return;
     default:
       throw new Error(`no handler for ${String(handler satisfies never)}`);
@@ -724,6 +605,7 @@ function actionable(error: unknown): error is Error {
     error instanceof EnvironmentError ||
     error instanceof LaunchInputError ||
     error instanceof NoProcessError ||
+    error instanceof NotHostedError ||
     error instanceof ProcessMismatchError ||
     error instanceof ProcessTimeoutError ||
     error instanceof ProcessHeldError ||

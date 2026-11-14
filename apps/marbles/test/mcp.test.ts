@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -9,8 +9,12 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
+import { layout } from "~/layout";
+import { readWorkspace, workspaceState } from "~/lib/state/workspace";
+import { daemonAlive } from "~/process/client";
 import { version } from "../package.json";
 import { stopDaemon } from "./helpers/daemon";
+import { rawMcpSession, strayLines } from "./helpers/mcp-stdio";
 import { configureProviders } from "./helpers/providers";
 
 const TOOL_NAMES = [
@@ -70,7 +74,8 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   const transport = new StdioClientTransport({
     args: [
       "--no-env-file",
-      resolve("src/mcp/stdio.ts"),
+      resolve("src/cli.ts"),
+      "mcp",
       "--source",
       source,
       "--state",
@@ -242,6 +247,137 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   }
 }, 30_000);
 
+it("keeps a dry-run model turn's log, Bun's own stdout, and a child's off the protocol stream", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-dry-"));
+  const source = join(root, "marbles.ts");
+  await writeFile(
+    source,
+    `import { agent } from "@foundry.sh/marbles";
+await Bun.write(Bun.stdout, "NATIVE_STDOUT\\n");
+Bun.spawnSync(["echo", "CHILD_STDOUT"], { stdout: "inherit" });
+console.error("SERVER_MARKER=" + String(process.env.MARBLES_MCP_SERVER));
+agent({ name: "helper", prompt: "You help." });`
+  );
+  configureProviders(join(root, "state"));
+  const session = await rawMcpSession(
+    "bun",
+    [
+      "--no-env-file",
+      resolve("src/cli.ts"),
+      "mcp",
+      "--source",
+      source,
+      "--state",
+      join(root, "state"),
+      "--dry-run",
+    ],
+    { cwd: root }
+  );
+  try {
+    const dispatched = z.object({ result: z.unknown() }).parse(
+      await session.request("tools/call", {
+        arguments: { agent: "helper", prompt: "Hello agent" },
+        name: "dispatch_agent",
+      })
+    );
+    const { runId } = runIdentity(dispatched.result);
+    await vi.waitFor(async () => {
+      const status = z.object({ result: z.unknown() }).parse(
+        await session.request("tools/call", {
+          arguments: { runId },
+          name: "get_run",
+        })
+      );
+      expect(payload(status.result)).toMatchObject({ status: "completed" });
+    });
+  } finally {
+    const ended = await session.close();
+    await rm(root, { force: true, recursive: true });
+    // The turn's model log is a diagnostic: stderr has it, stdout does not.
+    expect(ended.stderr).toContain("models.inference");
+    expect(ended.stderr).toContain("NATIVE_STDOUT");
+    expect(ended.stderr).toContain("CHILD_STDOUT");
+    // Nothing the server starts takes itself for the server.
+    expect(ended.stderr).toContain("SERVER_MARKER=undefined");
+    expect(strayLines(ended.stdout)).toEqual([]);
+  }
+}, 30_000);
+
+it("keeps stdout to protocol frames when stderr is closed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-closed-"));
+  const source = join(root, "marbles.ts");
+  await writeFile(
+    source,
+    `import { agent } from "@foundry.sh/marbles";
+process.stdout.write("NODE_STDOUT\\n");
+await Bun.write(Bun.stdout, "NATIVE_STDOUT\\n");
+Bun.spawnSync(["echo", "CHILD_STDOUT"], { stdout: "inherit" });
+agent({ name: "helper", prompt: "You help." });`
+  );
+  configureProviders(join(root, "state"));
+  const session = await rawMcpSession(
+    "sh",
+    [
+      "-c",
+      'exec "$0" "$@" 2>&-',
+      "bun",
+      "--no-env-file",
+      resolve("src/cli.ts"),
+      "mcp",
+      "--source",
+      source,
+      "--state",
+      join(root, "state"),
+      "--dry-run",
+    ],
+    { cwd: root }
+  );
+  try {
+    const listed = z
+      .object({ result: z.object({ tools: z.array(z.unknown()) }) })
+      .parse(await session.request("tools/list"));
+    expect(listed.result.tools).toHaveLength(TOOL_NAMES.length);
+  } finally {
+    const ended = await session.close();
+    await rm(root, { force: true, recursive: true });
+    expect(ended.code).toBe(0);
+    expect(strayLines(ended.stdout)).toEqual([]);
+  }
+}, 30_000);
+
+it("refuses to serve without the relay's protocol pipe", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-unrelayed-"));
+  try {
+    const result = spawnSync(
+      "bun",
+      [
+        "--no-env-file",
+        resolve("src/cli.ts"),
+        "mcp",
+        "--state",
+        join(root, "state"),
+      ],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, MARBLES_MCP_SERVER: "1" },
+        input: "",
+        // Descriptor 3 is otherwise whatever this test process passes on.
+        stdio: ["pipe", "pipe", "pipe", "ignore"],
+        timeout: 15_000,
+      }
+    );
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(
+      "marbles mcp: MARBLES_MCP_SERVER is set but descriptor 3 is not the protocol pipe"
+    );
+    expect(existsSync(join(root, "state"))).toBe(false);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+}, 20_000);
+
 it("reports a source that fails to load on stderr, never on the protocol stream", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-broken-"));
   const source = join(root, "marbles.ts");
@@ -254,7 +390,8 @@ it("reports a source that fails to load on stderr, never on the protocol stream"
       "bun",
       [
         "--no-env-file",
-        resolve("src/mcp/stdio.ts"),
+        resolve("src/cli.ts"),
+        "mcp",
         "--source",
         source,
         "--dry-run",
@@ -273,6 +410,217 @@ it("reports a source that fails to load on stderr, never on the protocol stream"
   }
 }, 20_000);
 
+it("answers from stored state with no Marbles process, and starts nothing", async () => {
+  // Short on purpose: a socket path under the state root is limited.
+  const root = await mkdtemp(join(tmpdir(), "mn-"));
+  const state = join(root, "s");
+  const source = join(root, "marbles.ts");
+  const ticked = join(root, "ticked");
+  const observed = join(root, "observed");
+  await writeFile(
+    source,
+    `import { appendFileSync } from "node:fs";
+import { observe, schedule, step, tasks } from "@foundry.sh/marbles";
+observe(tasks, () => appendFileSync(${JSON.stringify(observed)}, "x"));
+const tick = step("tick").do(() => appendFileSync(${JSON.stringify(ticked)}, "x"));
+schedule(tick).every("1s");`
+  );
+  const transport = new StdioClientTransport({
+    args: [
+      "--no-env-file",
+      resolve("src/cli.ts"),
+      "mcp",
+      "--source",
+      source,
+      "--state",
+      state,
+    ],
+    command: "bun",
+    cwd: root,
+    stderr: "pipe",
+  });
+  let diagnostics = "";
+  transport.stderr?.on("data", (chunk: Buffer) => {
+    diagnostics += chunk.toString();
+  });
+  const client = new Client({ name: "marbles-test", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    // The task tools read and write the stored backlog.
+    const created = await client.callTool({
+      arguments: {
+        operations: [
+          { input: { title: "Stored" }, key: "s", kind: "task.create" },
+        ],
+      },
+      name: "change_tasks",
+    });
+    expect(created.isError, JSON.stringify(created)).not.toBe(true);
+    const listed = await client.callTool({ arguments: {}, name: "list_tasks" });
+    expect(listed.structuredContent).toMatchObject({
+      items: [{ title: "Stored" }],
+      total: 1,
+    });
+    // Calls a client sends together each open the stored tasks in turn.
+    const together = await Promise.all([
+      client.callTool({
+        arguments: {
+          operations: [
+            { input: { title: "Together" }, key: "t", kind: "task.create" },
+          ],
+        },
+        name: "change_tasks",
+      }),
+      client.callTool({ arguments: {}, name: "list_tasks" }),
+      client.callTool({ arguments: {}, name: "ready_tasks" }),
+    ]);
+    for (const answered of together) {
+      expect(answered.isError, JSON.stringify(answered)).not.toBe(true);
+    }
+    const after = await client.callTool({ arguments: {}, name: "list_tasks" });
+    expect(after.structuredContent).toMatchObject({ total: 2 });
+    expect(
+      summarySchema
+        .array()
+        .parse(payload(await client.callTool({ name: "list_workspaces" })))
+    ).toEqual([expect.objectContaining({ config: source, state: "stopped" })]);
+    // Everything that runs, or reads a run, needs a host, and names it.
+    for (const [name, args] of [
+      ["list_config", {}],
+      ["dispatch_workflow", { name: "tick" }],
+      ["dispatch_agent", { prompt: "Hello" }],
+      ["get_run", { runId: "rn-missing" }],
+      ["cancel_run", { runId: "rn-missing" }],
+    ] as const) {
+      const refused = await client.callTool({ arguments: args, name });
+      expect(refused.isError, name).toBe(true);
+      expect(JSON.stringify(refused.content), name).toContain(
+        "`marbles attach` in its root hosts it"
+      );
+    }
+    // Long enough for a one-second schedule to have fired, had anything run it.
+    await new Promise((settle) => setTimeout(settle, 1500));
+  } catch (error) {
+    throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
+  } finally {
+    await client.close();
+  }
+  try {
+    const machine = layout({ state });
+    expect(daemonAlive(machine)).toBe(false);
+    expect(existsSync(machine.socket)).toBe(false);
+    expect(existsSync(join(state, "locks", "process"))).toBe(false);
+    const [id] = await readdir(state);
+    if (id === undefined) {
+      throw new Error("the task change left no workspace state");
+    }
+    expect(readWorkspace(join(state, id))?.hosted).not.toBe(true);
+    expect(existsSync(join(state, id, "schedules"))).toBe(false);
+    // No source ran here: no schedule ticked and no observer saw the change.
+    expect(existsSync(ticked)).toBe(false);
+    expect(existsSync(observed)).toBe(false);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+}, 60_000);
+
+it("starts without a source and serves the stored tasks of every recorded workspace", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mr-"));
+  const state = join(root, "s");
+  const here = join(root, "a");
+  const other = join(root, "b");
+  await mkdir(here);
+  await mkdir(other);
+  // B is recorded, stopped, and has a task the CLI wrote without a process.
+  const recorded = workspaceState(state, other);
+  recorded.touch(null);
+  const made = spawnSync(
+    "bun",
+    [
+      "--no-env-file",
+      resolve("src/cli.ts"),
+      "tasks",
+      "create",
+      "In B",
+      "--state",
+      state,
+    ],
+    { cwd: other, encoding: "utf8", timeout: 30_000 }
+  );
+  expect(made.status, made.stderr).toBe(0);
+  // Its checkout is gone; its stored tasks are not.
+  await rm(other, { force: true, recursive: true });
+  const transport = new StdioClientTransport({
+    args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--state", state],
+    command: "bun",
+    cwd: here,
+    stderr: "pipe",
+  });
+  let diagnostics = "";
+  transport.stderr?.on("data", (chunk: Buffer) => {
+    diagnostics += chunk.toString();
+  });
+  const client = new Client({ name: "marbles-test", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    const listed = summarySchema
+      .array()
+      .parse(payload(await client.callTool({ name: "list_workspaces" })));
+    expect(listed.map((entry) => entry.id)).toContain(recorded.id);
+    const fromB = await client.callTool({
+      arguments: { workspace: recorded.id },
+      name: "list_tasks",
+    });
+    expect(fromB.isError, JSON.stringify(fromB)).not.toBe(true);
+    expect(fromB.structuredContent).toMatchObject({
+      items: [{ title: "In B" }],
+      total: 1,
+    });
+    const intoB = await client.callTool({
+      arguments: {
+        operations: [
+          { input: { title: "Also in B" }, key: "b", kind: "task.create" },
+        ],
+        workspace: recorded.id,
+      },
+      name: "change_tasks",
+    });
+    expect(intoB.isError, JSON.stringify(intoB)).not.toBe(true);
+    // This workspace has no source, yet its tasks are stored all the same.
+    const created = await client.callTool({
+      arguments: {
+        operations: [
+          { input: { title: "In A" }, key: "a", kind: "task.create" },
+        ],
+      },
+      name: "change_tasks",
+    });
+    expect(created.isError, JSON.stringify(created)).not.toBe(true);
+    // An id names a directory listed under the state root, nothing else.
+    for (const id of ["missing", "..", `../${recorded.id}`, state]) {
+      const unknown = await client.callTool({
+        arguments: { workspace: id },
+        name: "list_tasks",
+      });
+      expect(unknown.isError, id).toBe(true);
+      expect(JSON.stringify(unknown.content), id).toContain(
+        "list_workspaces names them"
+      );
+    }
+    const config = await client.callTool({
+      arguments: {},
+      name: "list_config",
+    });
+    expect(config.isError).toBe(true);
+    expect(JSON.stringify(config.content)).toContain("no Marbles source at");
+  } catch (error) {
+    throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
+  } finally {
+    await client.close();
+    await rm(root, { force: true, recursive: true });
+  }
+}, 60_000);
+
 it("serves a workspace the Marbles process hosts, by default and by id", async () => {
   // Short on purpose: the state root holds a Unix socket, whose path is
   // limited to about a hundred bytes.
@@ -290,7 +638,8 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   const transport = new StdioClientTransport({
     args: [
       "--no-env-file",
-      resolve("src/mcp/stdio.ts"),
+      resolve("src/cli.ts"),
+      "mcp",
       "--source",
       source,
       "--state",
@@ -306,6 +655,24 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   });
   const client = new Client({ name: "marbles-test", version: "1.0.0" });
   try {
+    // The CLI starts the Marbles process and hosts the workspace; the server
+    // only joins it.
+    const attached = spawnSync(
+      "bun",
+      [
+        "--no-env-file",
+        resolve("src/cli.ts"),
+        "attach",
+        "--source",
+        source,
+        "--state",
+        state,
+      ],
+      { cwd: root, encoding: "utf8", timeout: 60_000 }
+    );
+    expect(attached.status, attached.stderr).toBe(0);
+    expect(attached.stdout).toContain("[process] pid");
+    expect(daemonAlive(layout({ state }))).toBe(true);
     await client.connect(transport);
     const listed = await client.listTools();
     expect(listed.tools.map(({ name }) => name)).toEqual(TOOL_NAMES);
@@ -377,7 +744,7 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
       expect(transport.pid).toBeNull();
     } finally {
       try {
-        // The daemon outlives the server; the test, not the server, stops it.
+        // The daemon outlives the server; the test stops it.
         await stopDaemon(state);
       } finally {
         await rm(root, { force: true, recursive: true });

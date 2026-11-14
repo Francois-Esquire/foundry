@@ -30,6 +30,7 @@ process, persists nothing, and never touches the Marbles process.
 | `roll <name-or-key> [--input <json>]` | Attach this workspace and dispatch one step, workflow, schedule, or monitor in its worker now; print the lines it logged and its result as JSON, and exit. The workspace stays hosted. |
 | `status` | Read the state root: the Marbles process (pid, version, socket) and every workspace with whether it is hosted, its worker's pid, schedules, recent runs, and session count. Reads files only: needs no running process and loads no module. |
 | `watch <runId>` | Replay saved output, follow new output, and exit when an agent or workflow run finishes. |
+| `mcp` | Serve this workspace to an MCP client over stdin and stdout; stdout carries only MCP messages. Never starts the Marbles process or attaches the workspace: task tools work without one, and dispatch tools need a process that hosts the workspace. See [the MCP server](/marbles/reference/mcp). |
 | `tasks <action> [--json]` | Read or change this workspace's tasks: `list`, `ready`, `get`, `deps`, `create`, `update`, `start`, `complete`, `cancel`, `reopen`, `move`, `depend`, `undepend`, or `change --input <json>` for one atomic batch. `marbles help` lists each action's options. A worker that already hosts the workspace answers; otherwise the command opens the tasks itself. Loads no module and never starts the Marbles process. |
 | `sessions` | List the current workspace's agent sessions: id, message count, last update, and whether a compaction summary exists. Loads no module. |
 | `daemon` | Run the Marbles process in the foreground until interrupted, for launchd, systemd, or a terminal you keep open. Refused with the holder's pid when one already runs on this state root. |
@@ -47,9 +48,9 @@ to stderr and exit 1 before importing modules or touching state.
 `roll` have the workspace's worker import them, or import them here under
 `--dry-run`; `help`, `init`, `status`, `sessions`, `tasks`, `watch`,
 `daemon`, and `stop` import nothing. Keep module scope to declarations: importing the
-file must not do work. Attaching (`run`, `roll`, the dashboard, and the
-[MCP server](/marbles/reference/mcp)) records the workspace in
-`workspace.json` with `hosted: true`; nothing is recorded under `--dry-run`.
+file must not do work. Attaching (`attach`, `run`, `roll`, and the dashboard) records the
+workspace in `workspace.json` with `hosted: true`; nothing is recorded
+under `--dry-run`. The [MCP server](/marbles/reference/mcp) never attaches.
 
 ### Watch a background run
 

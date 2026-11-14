@@ -66,7 +66,8 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
   const transport = new StdioClientTransport({
     args: [
       "--no-env-file",
-      resolve("src/mcp/stdio.ts"),
+      resolve("src/cli.ts"),
+      "mcp",
       "--source",
       source,
       "--state",
@@ -108,6 +109,14 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     }),
   ]);
   try {
+    // The CLI hosts the workspace in the Marbles process; the server only
+    // joins the worker that now owns the tasks.
+    const attached = spawnSync(
+      "bun",
+      cliArgs("attach", "--source", source, "--state", state),
+      { cwd: root, encoding: "utf8", timeout: 60_000 }
+    );
+    expect(attached.status, attached.stderr).toBe(0);
     await client.connect(transport);
     const created = await client.callTool({
       arguments: {
@@ -148,8 +157,8 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       expect(status).toContain('["From CLI","From MCP"]');
     });
 
-    // The MCP host delivers the CLI's change and its own, oldest first: one
-    // observer completes each, the other keeps failing.
+    // The worker delivers the CLI's change and the server's, oldest first:
+    // one observer completes each, the other keeps failing.
     await vi.waitFor(
       async () => {
         expect(existsSync(seen)).toBe(true);

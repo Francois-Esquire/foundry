@@ -20,9 +20,9 @@ The `ai-sdk-provider-pi` exception covers the bundled Models Pi provider.
 `@anthropic-ai/sdk` explicitly satisfies the Claude Agent SDK peer requirement.
 Pi also depends on an older SDK, so relying on peer hoisting can select an
 incompatible version in a fresh standalone install.
-`@modelcontextprotocol/sdk` also satisfies a required Claude Agent SDK peer,
-so it remains a runtime dependency even though the STDIO MCP entry runs only
-from source in this checkout.
+`@modelcontextprotocol/sdk` is a runtime dependency: `marbles mcp` serves
+MCP over STDIO with it, and it also satisfies a required Claude Agent SDK
+peer.
 The `evlog` exception covers imports in the bundled models and workflows code.
 The `@ai-sdk/mcp` exception covers the bundled agents MCP client, which
 connects the MCP servers an agent's definition names; its version follows
@@ -37,7 +37,7 @@ to the declaration bundler through the explicit mappings in `tsup.config.ts`.
 
 # Marbles source layout
 
-Four buckets, each importing only what sits below it:
+Five buckets, each importing only what sits below it:
 
 - `src/lib/` is the engine and imports nothing outside `src/lib/`: no
   authoring words, no views, no CLI. The `Engine` constructor takes the
@@ -88,13 +88,25 @@ Four buckets, each importing only what sits below it:
   (`instance.ts`). Apart from the worker it imports only `lib/`,
   `layout.ts`, `model/` and the pure discovery in `workspace/source.ts`,
   so the daemon never loads an authoring module and survives any of them.
+- `src/access/` is how a command reaches its workspace, shared by the CLI
+  and the MCP server (`workspace.ts`): through stored state, with an engine
+  it never starts; through a running instance, joining the Marbles process
+  without starting it (`NotHostedError` when no worker hosts the
+  workspace); or by starting and hosting it, which only the CLI does. It
+  imports `workspace/`, `process/`, `lib/`, `layout.ts` and `model/`, and
+  nothing from the app.
 - The app sits on top and may import anything: `src/cli.ts`, `src/args.ts`
   (which parses a command line completely, before anything loads),
   `src/dashboard/`, `src/views/`, `src/components/`, `src/mcp/`,
-  `src/status/`, `src/sessions/`. `src/mcp/stdio.ts` and the dashboard are
-  clients of the process; under `--dry-run` they host the workspace in
-  their own process through `hostWorkspace` instead, since nothing is
-  persisted.
+  `src/status/`, `src/sessions/`. The dashboard is a client of the process.
+  `src/mcp/stdio.ts` is the `marbles mcp` server, which `cli.ts` loads
+  only when that command runs. `src/mcp/relay.ts` runs it in a child
+  process whose stdout is the relay's stderr. Protocol frames go out on
+  descriptor 3, which the relay copies to its own stdout, so nothing
+  printed to stdout reaches the protocol. The server reaches the
+  workspace through `access/` and never starts the process or attaches a
+  workspace. Under `--dry-run` both host the workspace in their own process
+  through `hostWorkspace` instead, since nothing is persisted.
 
 `src/layout.ts` decides where things live: the Foundry home
 (`$FOUNDRY_HOME`, else `~/.foundry`), the Marbles state root under it, the

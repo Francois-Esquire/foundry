@@ -50,9 +50,10 @@ using the package’s `/workspace` entry.
 
 ## 3. From an MCP client
 
-The Marbles MCP server runs from a source checkout; it is not in the
-published package. An MCP client, usually an agent, starts it over STDIO
-with the source to load. This program plays that client:
+An MCP client, usually an agent, starts the Marbles MCP server with
+`marbles mcp` over STDIO and names the source. The server starts nothing,
+so the workspace must already be hosted: run `marbles attach` first. This
+program plays that client:
 
 <include>./_example/mcp-client.ts</include>
 
@@ -64,7 +65,8 @@ the same run's output until it ends.
 
 The run belongs to the Marbles process, not to the MCP connection. Closing
 the client leaves the workspace hosted, its schedules and monitors running,
-and any dispatched run going. The [MCP reference](/marbles/reference/mcp)
+and any dispatched run going. Without a process that hosts the workspace,
+`dispatch_workflow` returns an error that names `marbles attach`. The [MCP reference](/marbles/reference/mcp)
 lists every tool, including the task tools.
 
 ## What changes between them

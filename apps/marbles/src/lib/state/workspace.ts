@@ -41,12 +41,33 @@ const FILE = "workspace.json";
 export function workspaceState(state: string, root: string): Workspace {
   const canonical = realpathSync(root);
   const id = createHash("sha256").update(canonical).digest("hex").slice(0, 12);
+  return placed(state, id, canonical);
+}
+
+/**
+ * The workspace recorded under `state` as `id`, whether or not its root
+ * still exists. Only a directory listed there is read, so an id with a
+ * separator or `..` names nothing. Undefined when no readable record has
+ * that id.
+ */
+export function recordedState(
+  state: string,
+  id: string
+): Workspace | undefined {
+  if (!(existsSync(state) && readdirSync(state).includes(id))) {
+    return;
+  }
+  const record = readWorkspace(join(state, id));
+  return record?.id === id ? placed(state, id, record.root) : undefined;
+}
+
+function placed(state: string, id: string, root: string): Workspace {
   const dir = join(state, id);
   const path = join(dir, FILE);
   return {
     dir,
     id,
-    root: canonical,
+    root,
     touch(config, options = {}) {
       const now = new Date().toISOString();
       const before = readRecord(path);
@@ -56,7 +77,7 @@ export function workspaceState(state: string, root: string): Workspace {
         hosted: options.hosted ?? before?.hosted ?? false,
         id,
         lastSeen: now,
-        root: canonical,
+        root,
         version: 1,
       });
     },
