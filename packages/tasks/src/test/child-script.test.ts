@@ -28,6 +28,22 @@ describe("startScript", () => {
     }
   });
 
+  test("stop kills, after a grace period, a script that ignores SIGTERM", async () => {
+    const child = await startScript(
+      'process.on("SIGTERM", () => {}); console.log("ready"); setInterval(() => {}, 1000);',
+      []
+    );
+    try {
+      expect(await child.line()).toBe("ready");
+      const started = Date.now();
+      await child.stop(200);
+      expect(Date.now() - started).toBeLessThan(5000);
+      await expect(child.exited(1000)).rejects.toThrow("exited with null");
+    } finally {
+      await child.stop(0);
+    }
+  });
+
   test("a wait is bounded, and stop kills and reaps a script that hangs", async () => {
     const child = await startScript("setInterval(() => {}, 1000);", []);
     await expect(child.line(100)).rejects.toThrow("no line in 100 ms");

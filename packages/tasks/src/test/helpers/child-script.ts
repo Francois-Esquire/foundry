@@ -13,11 +13,15 @@ export interface ChildScript {
    * the process errors or exits first, or after `ms`.
    */
   readonly line: (ms?: number) => Promise<string>;
-  /** Kills the process if it still runs, reaps it, and removes the script. */
-  readonly stop: () => Promise<void>;
+  /**
+   * Stops the process if it still runs: `SIGTERM`, then `SIGKILL` once
+   * `graceMs` pass without it closing. Reaps it and removes the script.
+   */
+  readonly stop: (graceMs?: number) => Promise<void>;
 }
 
 const STARTUP = 10_000;
+const GRACE = 2000;
 
 /** Runs `source` as an ES module with `args`, on this process's runtime. */
 export async function startScript(
@@ -96,11 +100,24 @@ export async function startScript(
           failure,
         ])
       ),
-    stop: async () => {
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill();
+    stop: async (graceMs = GRACE) => {
+      const running = () =>
+        child.exitCode === null && child.signalCode === null;
+      let escalation: ReturnType<typeof setTimeout> | undefined;
+      if (running()) {
+        child.kill("SIGTERM");
+        // A child may handle or ignore SIGTERM; SIGKILL it cannot.
+        escalation = setTimeout(() => {
+          if (running()) {
+            child.kill("SIGKILL");
+          }
+        }, graceMs);
       }
-      await ended;
+      try {
+        await ended;
+      } finally {
+        clearTimeout(escalation);
+      }
       await rm(directory, { force: true, recursive: true });
     },
   };
