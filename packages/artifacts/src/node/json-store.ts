@@ -62,8 +62,18 @@ export class JsonArtifactStore implements ArtifactStore {
     this.#lockTimeoutMs = options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
   }
 
+  /**
+   * Takes the write as it stands now, as the memory store does: one
+   * `structuredClone`, made before the commit waits for the lock.
+   */
   commit(write: ArtifactStoreWrite): Promise<void> {
-    return this.transaction((view) => view.commit(write));
+    let copy: ArtifactStoreWrite;
+    try {
+      copy = structuredClone(write);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.transaction((view) => view.commit(copy));
   }
 
   /**
@@ -89,12 +99,19 @@ export class JsonArtifactStore implements ArtifactStore {
           : Promise.reject(new Error("Artifact store transaction has settled"));
       const view: ArtifactStore = {
         commit: (write) => {
+          let copy: ArtifactStoreWrite;
+          try {
+            // Taken now: the staged records may still be loading.
+            copy = structuredClone(write);
+          } catch (error) {
+            return Promise.reject(error);
+          }
           if (open) {
             staged ??= base
               .records()
               .then((records) => new InMemoryArtifactStore({ records }));
           }
-          return read((records) => records.commit(write));
+          return read((records) => records.commit(copy));
         },
         findBlobs: (digest) => read((records) => records.findBlobs(digest)),
         findReferences: (id) => read((records) => records.findReferences(id)),

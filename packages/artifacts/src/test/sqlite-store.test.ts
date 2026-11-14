@@ -8,6 +8,7 @@ import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, Blob, Content } from "../schema";
 import { artifactSchema, contentSchema } from "../schema";
 import type { ArtifactStoreWrite } from "../store";
+import { InMemoryArtifactStore } from "../store/memory";
 import { SqliteArtifactStore } from "../store/sqlite";
 import {
   artifactBlobChunks,
@@ -249,8 +250,6 @@ describe("SqliteArtifactStore", () => {
     ["NaN", Number.NaN],
     ["Infinity", Number.POSITIVE_INFINITY],
     ["undefined", undefined],
-    ["a function", () => undefined],
-    ["a symbol", Symbol("s")],
     ["a Date", new Date(0)],
     ["a Map", new Map()],
   ])(
@@ -277,6 +276,29 @@ describe("SqliteArtifactStore", () => {
         );
       }
       expect(await everything(store)).toEqual(before);
+    }
+  );
+
+  test.each([
+    ["a function", () => undefined],
+    ["a symbol", Symbol("s")],
+  ])(
+    "rejects, as the memory store does, a write holding %s, which structuredClone refuses",
+    async (_kind, value) => {
+      const store = await storeOn();
+      const metadata = { deep: value } as Artifact["metadata"];
+      const write = { putArtifacts: [artifactRecord("a", { metadata })] };
+      const memoryRefusal = await new InMemoryArtifactStore()
+        .commit(write)
+        .catch((error: unknown) => (error as Error).name);
+      await expect(store.commit(write)).rejects.toMatchObject({
+        name: memoryRefusal,
+      });
+      expect(await everything(store)).toEqual({
+        artifacts: [],
+        blobs: [],
+        contents: [],
+      });
     }
   );
 
@@ -1053,5 +1075,62 @@ describe("what onCommit learns of a change", () => {
       blobs: [],
       contents: [],
     });
+  });
+});
+
+describe("SqliteArtifactStore's own copy of a write", () => {
+  test("is what every row comes from, though the caller changes the write while it runs", async () => {
+    let change: () => void = () => undefined;
+    const database = await memory.open({
+      onQuery: (query) => {
+        // After the rows are made, before the lookup rows are written.
+        if (query.startsWith('delete from "artifact_content_blobs"')) {
+          change();
+        }
+      },
+    });
+    const store = new SqliteArtifactStore({ database, scope: "s" });
+    const version = contentRecord("c", "a", {
+      tree: { f: fileNode("old") },
+    });
+    const write = { putContents: [version] };
+    change = () => {
+      Object.assign(version.tree.f ?? {}, { blobId: blobId("new") });
+    };
+
+    await store.commit(write);
+
+    expect((await store.getContent(version.id))?.tree).toEqual({
+      f: fileNode("old"),
+    });
+    expect(await store.findReferences(blobId("old"))).toEqual({
+      blobIds: [],
+      contentIds: [version.id],
+    });
+    expect(await store.findReferences(blobId("new"))).toEqual({
+      blobIds: [],
+      contentIds: [],
+    });
+  });
+
+  test("is what onCommit receives, not the caller's object", async () => {
+    const received: ArtifactStoreWrite[] = [];
+    const store = new SqliteArtifactStore({
+      database: await memory.open(),
+      onCommit: (_transaction, committed) => {
+        received.push(committed);
+        return Promise.resolve();
+      },
+      scope: "s",
+    });
+    const record = artifactRecord("a");
+    const write = { putArtifacts: [record] };
+    const landing = store.commit(write);
+    Object.assign(record, { name: "changed" });
+    await landing;
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).not.toBe(write);
+    expect(received[0]?.putArtifacts).toEqual([artifactRecord("a")]);
   });
 });

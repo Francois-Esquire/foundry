@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
 import { artifactIdSchema, blobIdSchema, contentIdSchema } from "../ref";
 import type { Artifact, Blob, Content } from "../schema";
-import type { ArtifactListQuery, ArtifactStore } from "../store";
+import type {
+  ArtifactListQuery,
+  ArtifactStore,
+  ArtifactStoreWrite,
+} from "../store";
 import { isTransactional } from "./transactional";
 
 const DIGEST = "a".repeat(64);
@@ -103,6 +107,26 @@ function requireTransaction(
 
 function sorted<T extends { readonly id: string }>(rows: readonly T[]): T[] {
   return [...rows].sort((a, b) => (a.id < b.id ? -1 : 1));
+}
+
+/** Changes, in place, every value a write holds, pointing its blobs at `other`. */
+function scramble(write: ArtifactStoreWrite, other: BlobId): void {
+  for (const row of write.putArtifacts ?? []) {
+    Object.assign(row, { name: "changed" });
+    (row.metadata as { list: string[] }).list.push("changed");
+    row.createdAt.setTime(0);
+  }
+  for (const row of write.putContents ?? []) {
+    for (const node of Object.values(row.tree)) {
+      Object.assign(node, { blobId: other });
+    }
+  }
+  for (const row of write.putBlobs ?? []) {
+    if (row.chunks) {
+      Object.assign(row, { chunks: [other] });
+    }
+  }
+  (write.putArtifacts as Artifact[]).push(artifact({ name: "Added" }));
 }
 
 /**
@@ -756,6 +780,99 @@ export function describeArtifactStore(
         blobIds: [],
         contentIds: [],
       });
+    });
+
+    it("takes a write as it stands when commit is called, whatever the caller changes after", async () => {
+      const store = await fresh();
+      const transaction = requireTransaction(store);
+      const owner = artifact({ metadata: { list: ["kept"] } });
+      const [leaf, other] = [inlineBlob(), inlineBlob()];
+      const version = content(owner.id, [leaf.id]);
+      const manifest: Blob = {
+        byteLength: 1,
+        chunks: [leaf.id],
+        createdAt: AT,
+        digest: OTHER_DIGEST,
+        id: blobId(),
+      };
+      const expected = structuredClone({ manifest, owner, version });
+      const check = async (target: ArtifactStore) => {
+        expect(await target.getArtifact(owner.id)).toEqual(expected.owner);
+        expect(await target.getContent(version.id)).toEqual(expected.version);
+        expect(await target.getBlob(manifest.id)).toEqual(expected.manifest);
+        expect(await target.findReferences(leaf.id)).toEqual({
+          blobIds: [manifest.id],
+          contentIds: [version.id],
+        });
+        expect(await target.findReferences(other.id)).toEqual({
+          blobIds: [],
+          contentIds: [],
+        });
+        expect(await everyArtifact(target)).toHaveLength(1);
+      };
+      const writeOf = () => ({
+        putArtifacts: [structuredClone(owner)],
+        putBlobs: [leaf, other, structuredClone(manifest)],
+        putContents: [structuredClone(version)],
+      });
+
+      // Changed at once, while the commit waits behind a transaction.
+      const held = Promise.withResolvers<void>();
+      const entered = Promise.withResolvers<void>();
+      const running = transaction(async () => {
+        entered.resolve();
+        await held.promise;
+      });
+      await entered.promise;
+      const queued = writeOf();
+      const landing = store.commit(queued);
+      scramble(queued, other.id);
+      held.resolve();
+      await Promise.all([running, landing]);
+      await check(store);
+
+      // And through a transaction's view.
+      const second = await fresh();
+      await requireTransaction(second)(async (view) => {
+        const through = writeOf();
+        const committed = view.commit(through);
+        scramble(through, other.id);
+        await committed;
+        await check(view);
+      });
+      await check(second);
+    });
+
+    it("keeps a value as structuredClone takes it: no caller's toJSON runs, a getter's value stays", async () => {
+      const store = await fresh();
+      const hidden = { sessionId: "real" };
+      Object.defineProperty(hidden, "toJSON", {
+        enumerable: false,
+        value: () => ({ sessionId: "changed" }),
+      });
+      const inherited = Object.create({
+        toJSON: () => ({ sessionId: "changed" }),
+      }) as Record<string, unknown>;
+      inherited.sessionId = "real";
+      let reads = 0;
+      const getter = Object.defineProperty({}, "sessionId", {
+        enumerable: true,
+        get() {
+          reads += 1;
+          return reads === 1 ? "real" : "changed";
+        },
+      });
+      const records = [hidden, inherited, getter].map((metadata) =>
+        artifact({ metadata: metadata as Artifact["metadata"] })
+      );
+      await store.commit({ putArtifacts: records });
+
+      for (const record of records) {
+        expect((await store.getArtifact(record.id))?.metadata).toStrictEqual({
+          sessionId: "real",
+        });
+      }
+      expect(reads).toBe(1);
     });
 
     it("queues a plain commit behind a running transaction", async () => {

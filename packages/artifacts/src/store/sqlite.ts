@@ -72,7 +72,8 @@ export interface SqliteArtifactStoreOptions {
    * transaction's view included; `ArtifactManager` makes no commit for a
    * change that writes nothing.
    *
-   * It receives the write as committed, which is all it can learn of the
+   * It receives the store's own copy of the write, the one its rows were
+   * made from, not the caller's object. That is all it can learn of the
    * change from this store: each record put, whole, as it now stands, and
    * only the id of each record deleted. It has no record as it stood
    * before (the rows are already replaced when it runs), and a deleted
@@ -156,21 +157,36 @@ export class SqliteArtifactStore implements ArtifactStore {
 
   /**
    * One database transaction: the deletes, then the puts, then `onCommit`.
+   *
+   * The store takes the write as it stands when `commit` is called: one
+   * `structuredClone` of the whole write, as the memory store takes it, and
+   * that copy alone is checked, made into every row, and handed to
+   * `onCommit`. Nothing the caller still holds is read again, so changing it
+   * later changes nothing, and no getter or `toJSON` of the caller's runs
+   * while the rows are encoded. A write the clone refuses (one holding a
+   * function, say) rejects with the clone's error, as in the memory store.
+   *
    * Rejects, before any statement runs, a write holding a value SQLite would
    * not give back intact (see {@link unstorableField}). A delete of a key no
    * row can hold does nothing.
    */
   commit(write: ArtifactStoreWrite): Promise<void> {
+    let owned: ArtifactStoreWrite;
+    try {
+      owned = structuredClone(write);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     return this.#run(() => {
       let rows: WriteRows;
       try {
-        rows = writeRows(this.#scope, write);
+        rows = writeRows(this.#scope, owned);
       } catch (error) {
         return Promise.reject(error);
       }
       return this.#database.transaction(async (transaction) => {
         await this.#apply(transaction, rows);
-        await this.#onCommit?.(transaction, write);
+        await this.#onCommit?.(transaction, owned);
       });
     });
   }
@@ -552,10 +568,11 @@ interface WriteRows {
 }
 
 /**
- * The rows a write runs, or a throw: a `RangeError` naming the first value
- * SQLite would not give back intact, or whatever reading the write threw.
- * Every value is read here, before any statement runs. Deletes of keys no
- * row can hold are dropped. A record put twice in one list puts its last
+ * The rows the store's own copy of a write runs, or a `RangeError` naming
+ * the first value SQLite would not give back intact. The rows hold the
+ * copy's values (its trees, chunks, metadata and dates), so they and the
+ * lookup rows derived from them describe the same records. Deletes of keys
+ * no row can hold are dropped. A record put twice in one list puts its last
  * value, as the memory store's maps do.
  */
 function writeRows(scope: string, write: ArtifactStoreWrite): WriteRows {
