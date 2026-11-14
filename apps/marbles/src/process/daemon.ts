@@ -165,6 +165,27 @@ function lines(onLine: (line: string) => void): (chunk: Buffer) => void {
   };
 }
 
+/**
+ * Run `step` on every item, each whatever the others threw, and wait for
+ * all of them; then throw the first error, if any.
+ */
+async function everyOf<T>(
+  items: readonly T[],
+  step: (item: T) => unknown
+): Promise<void> {
+  const settled = await Promise.allSettled(
+    items.map(async (item) => {
+      await step(item);
+    })
+  );
+  const failed = settled.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected"
+  );
+  if (failed !== undefined) {
+    throw failed.reason;
+  }
+}
+
 export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const { layout } = options;
   const print = options.print ?? (() => undefined);
@@ -180,7 +201,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   try {
     database = await initializeDatabase(layout.database);
   } catch (error) {
-    claim.release();
+    // The open failing is what is thrown, even if releasing fails too.
+    try {
+      claim.release();
+    } catch {
+      // Reported through the error that is thrown instead.
+    }
     throw error;
   }
   // Its records leave out a workspace whose directory links out of the
@@ -863,41 +889,67 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
     }
   } catch (error) {
-    await close();
+    // The startup error is the one thrown; a cleanup that fails too is not.
+    await close().catch(() => undefined);
     throw error;
   }
 
+  /**
+   * Stop everything, in order: the workers, the clients and their sockets,
+   * the server and its socket, the database, the claim. Each step is
+   * attempted whatever an earlier one threw, so a failing step, or a
+   * `print` that throws, cannot leave the database open or the claim held;
+   * the first error is the one `close` rejects with.
+   */
   function close({ claimLost = false } = {}): Promise<void> {
     closing ??= (async () => {
       stopping = true;
       clearInterval(claimCheck);
-      print("[daemon] stopping");
       try {
-        await Promise.all(
-          [...workers.values()].map((worker) => stopWorker(worker))
-        );
+        try {
+          print("[daemon] stopping");
+        } finally {
+          await everyOf([...workers.values()], (worker) => stopWorker(worker));
+        }
       } finally {
-        for (const client of clients) {
-          client.channel.close();
+        try {
+          try {
+            await everyOf([...clients], (client) => client.channel.close());
+          } finally {
+            // `server.close` waits for every connection; a worker that would
+            // not stop, or a client that never hung up, must not hold the exit.
+            await everyOf([...sockets], (socket) => socket.destroy());
+          }
+        } finally {
+          try {
+            if (claimLost) {
+              // Whoever holds the claim now may listen at this path, and
+              // closing the server unlinks the socket by name (Bun, and
+              // libuv under Node). Leave both alone; the process exits
+              // around the listener.
+              server.unref();
+            } else {
+              try {
+                // A server that never listened answers at once, with an error.
+                await new Promise<void>((resolve) =>
+                  server.close(() => resolve())
+                );
+              } finally {
+                rmSync(layout.socket, { force: true });
+              }
+            }
+          } finally {
+            try {
+              database.close();
+            } finally {
+              try {
+                claim.release();
+              } finally {
+                resolveClosed();
+              }
+            }
+          }
         }
-        // `server.close` waits for every connection; a worker that would not
-        // stop, or a client that never hung up, must not hold the exit.
-        for (const socket of sockets) {
-          socket.destroy();
-        }
-        if (claimLost) {
-          // Whoever holds the claim now may listen at this path, and closing
-          // the server unlinks the socket by name (Bun, and libuv under
-          // Node). Leave both alone; the process exits around the listener.
-          server.unref();
-        } else {
-          // A server that never listened answers at once, with an error.
-          await new Promise<void>((resolve) => server.close(() => resolve()));
-          rmSync(layout.socket, { force: true });
-        }
-        database.close();
-        claim.release();
-        resolveClosed();
       }
     })();
     return closing;

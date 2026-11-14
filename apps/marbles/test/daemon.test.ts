@@ -690,6 +690,53 @@ export const hold = step("hold").do(async () => {
     expect(daemon.pid).toBe(process.pid);
   }, 30_000);
 
+  it("lets go of everything when it cannot listen and printing fails as well", async () => {
+    const { home, machine } = fixture();
+    homes.push(home);
+    const deaf: Layout = {
+      ...machine,
+      socket: join(home, "no-such-dir", "marbles.sock"),
+    };
+    const failure = await startDaemon({
+      layout: deaf,
+      print: () => {
+        throw new Error("print failed");
+      },
+    }).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    // What is thrown is why it could not start, not the cleanup's failure.
+    expect(failure).toBeInstanceOf(Error);
+    expect(String(failure)).not.toContain("print failed");
+    expect(readProcess(machine.state)?.alive).not.toBe(true);
+    expect(queuedFiles()).not.toContain(fileIdentity(machine.database));
+    const daemon = await daemonFor(machine);
+    expect(daemon.pid).toBe(process.pid);
+  }, 30_000);
+
+  it("lets go of everything when it is closed and printing fails", async () => {
+    const { home, machine } = fixture();
+    homes.push(home);
+    const printing: { fails: boolean } = { fails: false };
+    const daemon = await startDaemon({
+      layout: machine,
+      print: () => {
+        if (printing.fails) {
+          throw new Error("print failed");
+        }
+      },
+    });
+    printing.fails = true;
+    await expect(daemon.close()).rejects.toThrow("print failed");
+    await daemon.closed;
+    expect(readProcess(machine.state)?.alive).not.toBe(true);
+    expect(existsSync(machine.socket)).toBe(false);
+    expect(queuedFiles()).not.toContain(fileIdentity(machine.database));
+    const next = await daemonFor(machine);
+    expect(next.pid).toBe(process.pid);
+  }, 30_000);
+
   it("refuses a second daemon on the same state root, and a client with none to start", async () => {
     const { home, machine } = fixture();
     homes.push(home);
