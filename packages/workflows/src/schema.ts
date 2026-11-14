@@ -104,10 +104,11 @@ export interface WorkflowStepNodeObjectSchema
 }
 
 export const WorkflowStepNodeSchema: WorkflowStepNodeObjectSchema = z.object({
-  ...workflowStepNodeFields,
+  // Declared first: decoded nodes keep the key order they have always had.
   get children() {
     return readonlyArray(WorkflowStepNodeSchema).optional();
   },
+  ...workflowStepNodeFields,
 });
 
 /**

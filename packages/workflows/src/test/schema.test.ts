@@ -350,3 +350,33 @@ describe("record shapes stay visible for table derivation", () => {
     ]);
   });
 });
+
+describe("decoded key order", () => {
+  test("a step node decodes as children, index, key, name", () => {
+    // Input keys arrive in reverse order; the decoder sets the order.
+    const node = WorkflowStepNodeSchema.parse(
+      JSON.parse(
+        '{"name":"root","key":"root","index":0,"children":[{"name":"leaf","key":"root.leaf","index":0}]}'
+      )
+    );
+
+    expect(Object.keys(node)).toEqual(["children", "index", "key", "name"]);
+    expect(Object.keys(node.children?.[0] ?? {})).toEqual([
+      "index",
+      "key",
+      "name",
+    ]);
+    expect(
+      JSON.stringify(
+        WorkflowSnapshotSchema.parse({
+          cursor: null,
+          input: null,
+          name: "flow",
+          steps: [node],
+        }).steps
+      )
+    ).toBe(
+      '[{"children":[{"index":0,"key":"root.leaf","name":"leaf"}],"index":0,"key":"root","name":"root"}]'
+    );
+  });
+});
