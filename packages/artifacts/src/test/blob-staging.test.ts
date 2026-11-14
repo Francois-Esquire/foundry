@@ -1019,3 +1019,39 @@ describe("Ownership checks inside one transaction", () => {
     expect(await read(required(required(b).contentId))).toBe("B after");
   });
 });
+
+describe("Call order for changes named by Content", () => {
+  it("holds freeze and tag of an Artifact's Content behind its earlier stalled stream", async () => {
+    const { manager } = await storage("memory");
+    const artifacts = manager();
+    const created = await artifacts.create({
+      entries: { "f.txt": { bytes: "start" } },
+      name: "Frozen later",
+      type: "text/plain",
+    });
+    const contentId = required(created.contentId);
+    const gate = gated([], [text("streamed")]);
+    const streaming = artifacts.write({
+      artifactId: created.id,
+      changes: { put: { "f.txt": { source: gate.source } } },
+    });
+    let later: Promise<unknown> | undefined;
+    try {
+      expect(await within(gate.waiting)).toBe("resolved");
+      later = Promise.all([
+        artifacts.tag(contentId, "v1"),
+        artifacts.freeze(contentId),
+      ]);
+      expect(await within(later, 200)).toBe("pending");
+    } finally {
+      gate.release();
+    }
+    await streaming;
+    await later;
+    const content = await artifacts.getContent(contentId);
+    expect(content?.state).toBe("frozen");
+    expect(content?.tag).toBe("v1");
+    const read = await artifacts.readFile(contentId, "f.txt");
+    expect(decoded(read?.blob)).toBe("streamed");
+  });
+});

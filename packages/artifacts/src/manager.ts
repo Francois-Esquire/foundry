@@ -317,7 +317,9 @@ export class ArtifactManager implements Artifacts {
     id: ContentId,
     option?: FreezeOption & { readonly expectedUpdatedAt?: Date }
   ): Promise<Content> {
-    return this.transaction((artifacts) => artifacts.freeze(id, option));
+    return this.#inOrderOfContent(id, () =>
+      this.transaction((artifacts) => artifacts.freeze(id, option))
+    );
   }
 
   select(input: {
@@ -335,20 +337,25 @@ export class ArtifactManager implements Artifacts {
     readonly contentId: ContentId;
     readonly name?: string;
   }): Promise<ArtifactResolved> {
-    return this.#inOrder(input.id, false, () =>
+    // Ordered by the source's Artifact: a fork freezes a ready source.
+    return this.#inOrderOfContent(input.contentId, () =>
       this.transaction((artifacts) => artifacts.fork(input))
     );
   }
 
   tag(id: ContentId, tag: string | null): Promise<Content> {
-    return this.transaction((artifacts) => artifacts.tag(id, tag));
+    return this.#inOrderOfContent(id, () =>
+      this.transaction((artifacts) => artifacts.tag(id, tag))
+    );
   }
 
   setMetadata(
     id: ContentId,
     patch: Readonly<Record<string, unknown>>
   ): Promise<Content> {
-    return this.transaction((artifacts) => artifacts.setMetadata(id, patch));
+    return this.#inOrderOfContent(id, () =>
+      this.transaction((artifacts) => artifacts.setMetadata(id, patch))
+    );
   }
 
   getContent(id: ContentId): Promise<ContentResolved | null> {
@@ -373,7 +380,9 @@ export class ArtifactManager implements Artifacts {
     readonly contentId: ContentId;
     readonly replacementContentId?: ContentId;
   }): Promise<void> {
-    return this.transaction((artifacts) => artifacts.deleteContent(input));
+    return this.#inOrderOfContent(input.contentId, () =>
+      this.transaction((artifacts) => artifacts.deleteContent(input))
+    );
   }
 
   readFile(id: ContentId, path: string): Promise<FileResolved | null> {
@@ -612,6 +621,21 @@ export class ArtifactManager implements Artifacts {
       return result;
     };
     return before === undefined ? begin() : before.then(begin);
+  }
+
+  /**
+   * `#inOrder` for a change named by Content: its Artifact, read from the
+   * store, only while some stream change is pending; otherwise the change
+   * starts at once, as any change with nothing ahead of it does. A
+   * Content's Artifact never changes, so one read suffices.
+   */
+  #inOrderOfContent<T>(id: ContentId, start: () => Promise<T>): Promise<T> {
+    if (this.#ordered.size === 0 || this.#joined()) {
+      return start();
+    }
+    return this.#store
+      .getContent(id)
+      .then((content) => this.#inOrder(content?.artifactId, false, start));
   }
 
   /** `check` in this manager's turn, over one consistent view of the store. */
