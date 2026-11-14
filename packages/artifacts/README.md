@@ -276,13 +276,22 @@ none of its commits. Inside `work`, call the view: a `commit` or `transaction` o
 store itself from there rejects at once rather than waiting on itself. The manager runs
 every change, and every read of several records, through it.
 
-Known limit: a change ingests blob bytes inside that exclusion, so a slow or stalled
-blob source holds the store (and, with `JsonArtifactStore`, the cross-process file
-lock) until it finishes. A follow-up change stages the bytes before entering the
-transaction.
+`create`, `write` and `revise` take their bytes in before the change enters that
+exclusion: every input is read and hashed, and with `blobFiles` written to its staging
+area (`.staging/` under the blob root, which listing never reaches), so a slow or
+stalled source holds neither the manager's queue nor the store, nor the JSON file lock.
+Inside the transaction the change only resolves deduplication, promotes the staged files
+it keeps to published names, and commits. A change carrying a stream may commit after a
+later change that reached the store sooner; changes without one commit in call order.
+Staged files a change does not keep are discarded when it settles, and `recover` removes
+staging left by a process that is gone.
+
+Known limit: a stream is still read inside the exclusion when it is passed to a handle
+inside `transaction(work)`, or when `files` is a `BlobFiles` other than `blobFiles`
+(which has nowhere to stage). Pass streams to `create`, `write` or `revise` directly.
 
 Blob bytes commit as records: inline bytes inside the blob, or the name of an
-immutable file `blobFiles` published before the commit. When a commit fails, the
+immutable file `blobFiles` promoted or published before the commit. When a commit fails, the
 manager removes those files only once the store shows the write absent; a commit that
 failed after its write landed (a failed directory sync, say) keeps them.
 `JsonArtifactStore` from `@foundry/artifacts/node` keeps every record in one JSON file,
