@@ -42,6 +42,12 @@ vi.mock("@ai-sdk/openai-compatible", () => ({
 }));
 
 const { gatewayProvider } = await import("../gateway");
+
+/** What a server listed: the gateway supplies no models of its own. */
+const models = [
+  { id: "served/chat", kind: "text" as const, modelId: "served/chat" },
+  { id: "served/embed", kind: "embedding" as const, modelId: "served/embed" },
+];
 const { ModelManager } = await import("../manager");
 
 beforeEach(() => {
@@ -53,10 +59,10 @@ beforeEach(() => {
 describe("gatewayProvider", () => {
   it("available requires both a baseURL and an API key", () => {
     expect(
-      gatewayProvider({ config: { baseURL: "http://gw" } }).available
+      gatewayProvider({ config: { baseURL: "http://gw" }, models }).available
     ).toBe(false);
     expect(
-      gatewayProvider({ config: { apiKey: "k", baseURL: "http://gw" } })
+      gatewayProvider({ config: { apiKey: "k", baseURL: "http://gw" }, models })
         .available
     ).toBe(true);
   });
@@ -64,6 +70,7 @@ describe("gatewayProvider", () => {
   it("builds chat, embedding, and image models tagged with its id", () => {
     const provider = gatewayProvider({
       config: { apiKey: "k", baseURL: "http://gw" },
+      models,
     });
     provider.languageModel("openai/gpt-5-mini");
     provider.embeddingModel?.("openai/text-embedding-3-small");
@@ -75,21 +82,25 @@ describe("gatewayProvider", () => {
     expect(imageCalls[0]?.modelId).toBe("openai/gpt-image-1");
   });
 
-  it("through the manager, catalog defaults resolve to the real wire ids", () => {
+  it("through the manager, the first row of each kind resolves to its wire id", () => {
     const manager = new ModelManager({
       providers: [
-        gatewayProvider({ config: { apiKey: "k", baseURL: "http://gw" } }),
+        gatewayProvider({
+          config: { apiKey: "k", baseURL: "http://gw" },
+          models,
+        }),
       ],
     });
     manager.resolve("text").open();
     manager.resolve("embedding").open();
-    expect(chatCalls[0]?.modelId).toBe("openai/gpt-5-mini");
-    expect(embedCalls[0]?.modelId).toBe("openai/text-embedding-3-small");
+    expect(chatCalls[0]?.modelId).toBe("served/chat");
+    expect(embedCalls[0]?.modelId).toBe("served/embed");
   });
 
   it("url() applies queryParams and trims the trailing slash", () => {
     const provider = gatewayProvider({
       config: { apiKey: "k", baseURL: "http://gw/", queryParams: { v: "1" } },
+      models,
     });
     provider.languageModel("m");
     const url = chatCalls[0]?.options.url({ modelId: "m", path: "/chat" });
@@ -99,6 +110,7 @@ describe("gatewayProvider", () => {
   it("headers() includes Authorization + custom headers", () => {
     const provider = gatewayProvider({
       config: { apiKey: "k", baseURL: "http://gw", headers: { "x-a": "b" } },
+      models,
     });
     provider.languageModel("m");
     expect(chatCalls[0]?.options.headers()).toEqual({
@@ -109,10 +121,11 @@ describe("gatewayProvider", () => {
 
   it("is unavailable without a key, and sends the key it was given", () => {
     expect(
-      gatewayProvider({ config: { baseURL: "http://gw" } }).available
+      gatewayProvider({ config: { baseURL: "http://gw" }, models }).available
     ).toBe(false);
     const provider = gatewayProvider({
       config: { apiKey: "new", baseURL: "http://gw" },
+      models,
     });
     expect(provider.available).toBe(true);
     provider.languageModel("m");
