@@ -23,8 +23,8 @@ the task before and after the write. The handler looks for the transition into
 the `intake` tag, then reads the current task: the task may have changed since
 the event was recorded. It only marks tasks that are still open and tagged.
 
-The update preserves existing metadata and uses `updatedAt` as an optimistic
-token. If another write wins first, this update fails instead of overwriting
+The update sets the `intakeRecorded` key and keeps the task's other metadata.
+It uses `updatedAt` as an optimistic token. If another write wins first, this update fails instead of overwriting
 it. The host retries the event on a later change or restart. The marker makes
 repeated delivery harmless while it remains on the task. The observer's own
 update emits another event, but that event does not add the `intake` tag, so
@@ -61,12 +61,8 @@ person to review. For external effects, a metadata marker alone is not a
 transaction with the external system; use an idempotency strategy for that
 system too.
 
-The repository's own `.foundry/marbles/task-pipeline.ts` registers a larger
-example in `apps/marbles/examples/task-pipeline/`. It observes tagged tasks,
-refines and routes work, and tracks attempts and human decisions. Its extra
-state handles retries, changes while work runs, and restart recovery. The
-[factory floor](/marbles/use-cases/software-factory) describes how several
-such workflows can cooperate.
+The [factory floor](/marbles/use-cases/software-factory) describes how
+several such workflows can cooperate.
 
 Observers receive changes at least once, in order. Editing an observer makes
 it a new observer that can receive earlier history; stored events are not

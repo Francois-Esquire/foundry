@@ -124,6 +124,28 @@ describe("Tasks", () => {
     expect((await tasks.complete(task.id)).status).toBe("completed");
   });
 
+  test("update sets metadata keys over the stored ones and null removes a key", async () => {
+    const tasks = new Tasks({ clock });
+    const task = await tasks.create({
+      metadata: { kept: 1, nested: { a: 1, b: 2 }, removed: "x", stored: null },
+      title: "metadata",
+    });
+
+    const updated = await tasks.update(task.id, {
+      metadata: { added: true, missing: null, nested: { c: 3 }, removed: null },
+    });
+    expect(updated.metadata).toEqual({
+      added: true,
+      kept: 1,
+      nested: { c: 3 },
+      stored: null,
+    });
+
+    const unchanged = await tasks.update(task.id, { metadata: {} });
+    expect(unchanged.metadata).toEqual(updated.metadata);
+    expect(unchanged.updatedAt > updated.updatedAt).toBe(true);
+  });
+
   test("a stale token refuses the write", async () => {
     const tasks = new Tasks({ clock });
     const task = await tasks.create({ title: "token" });

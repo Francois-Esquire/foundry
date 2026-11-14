@@ -1,3 +1,4 @@
+import type { JsonValue } from "@foundry/lib/json";
 import { type AvailabilityOptions, availabilityIn } from "./availability";
 import { edgeKey } from "./edges";
 import { TaskError } from "./errors";
@@ -10,6 +11,7 @@ import type {
 } from "./operations";
 import type { TaskSnapshot, TaskStoreWrite } from "./store";
 import type {
+  JsonObject,
   Task,
   TaskDelta,
   TaskDependency,
@@ -194,7 +196,9 @@ class Batch {
       ...(patch.description === undefined
         ? {}
         : { description: patch.description }),
-      ...(patch.metadata === undefined ? {} : { metadata: patch.metadata }),
+      ...(patch.metadata === undefined
+        ? {}
+        : { metadata: mergedMetadata(current.metadata, patch.metadata) }),
       ...(patch.tags === undefined ? {} : { tags: uniqueTags(patch.tags) }),
       updatedAt: this.now(),
     });
@@ -423,6 +427,21 @@ export function changeEvent(
     return;
   }
   return { dependencies: { added, removed }, kind: "tasks.changed", tasks };
+}
+
+/**
+ * `stored` with each top-level key in `patch` set over it, and each key
+ * whose patch value is `null` removed. A nested value replaces the stored
+ * one whole.
+ */
+function mergedMetadata(stored: JsonObject, patch: JsonObject): JsonObject {
+  const merged: Record<string, JsonValue> = {};
+  for (const [key, value] of Object.entries({ ...stored, ...patch })) {
+    if (value !== null || !Object.hasOwn(patch, key)) {
+      merged[key] = value;
+    }
+  }
+  return merged;
 }
 
 /** Each tag once, where it first appears. Tags are exact strings. */

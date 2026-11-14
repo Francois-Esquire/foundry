@@ -794,6 +794,94 @@ describe("lib2 through the engine", () => {
     await engine.stop();
   });
 
+  it("records a cancelled run as cancelled when its body rejects with its own error", async () => {
+    step("wait").do(
+      ({ signal }) =>
+        new Promise((_, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new Error("aborted inside")),
+            { once: true }
+          );
+        })
+    );
+    const engine = await startEngine({ print: () => undefined, root });
+    const launched = await engine.launch("wait", {});
+    const failure = launched.result.catch((error: unknown) => error);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await engine.cancel(launched.id);
+    const reason = String(await failure);
+    expect(reason).toMatch(CANCELLED_PATTERN);
+    expect(reason).not.toContain("aborted inside");
+    expect(engine.executions.get(launched.id)?.status).toBe("cancelled");
+    await engine.stop();
+  });
+
+  it("a paused step survives a quit and resumes in the next process, in the same run", async () => {
+    const state = join(root, "state");
+    const attempts: number[] = [];
+    const define = () => {
+      step("hold").do(({ signal }) => {
+        attempts.push(attempts.length + 1);
+        if (attempts.length > 1) {
+          return Promise.resolve("done");
+        }
+        return new Promise<string>((_, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        });
+      });
+    };
+    const runStatus = async (
+      engine: { runs(): Promise<readonly { id: string; status: string }[]> },
+      id: string,
+      wanted: string
+    ) =>
+      openEntry(
+        async () =>
+          (await engine.runs())
+            .filter((run) => run.id === id && run.status === wanted)
+            .map(() => ({})) as never,
+        () => true
+      );
+
+    define();
+    const first = bindMock(() => "ok", { root });
+    const one = await startEngine({
+      ...first.instances,
+      askable: true,
+      print: () => undefined,
+      root,
+      state,
+    });
+    const launched = await one.launch<string>("hold", {});
+    launched.result.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(one.pause(launched.id, "hold")).toBe(true);
+    expect(await runStatus(one, launched.id, "suspended")).toBeDefined();
+    await one.stop({ cancel: true });
+    await first.dispose();
+
+    catalog.reset();
+    define();
+    const second = bindMock(() => "ok", { root });
+    const lines: string[] = [];
+    const two = await startEngine({
+      ...second.instances,
+      askable: true,
+      print: (line) => lines.push(line),
+      root,
+      state,
+    });
+    expect(lines).toContain(`[run] hold recovered ${launched.id}`);
+    await two.resume(launched.id, "hold");
+    expect(await runStatus(two, launched.id, "complete")).toBeDefined();
+    expect(attempts).toEqual([1, 2]);
+    await two.stop();
+    await second.dispose();
+  });
+
   it("a parallel child that asks parks the run and its sibling finishes", async () => {
     const sibling: string[] = [];
     const asks = step("asks").do(async ({ ask }) =>

@@ -145,7 +145,7 @@ export function registerTaskTools(
     {
       annotations: { destructiveHint: false, readOnlyHint: false },
       description:
-        "Apply one atomic batch of task operations: task.create (key, input, optional parent), task.update, task.set_status (open, active, completed, cancelled; requireReady refuses with not_ready unless the task is ready as the batch stands at that operation; later operations in the batch are not rechecked), task.move (parent null for root), dependency.add, dependency.remove. Refer to existing tasks by {id} and to tasks created earlier in the batch by {key}. Pass expectedUpdatedAt to refuse a change if the task moved on. Every operation applies or none does; a refusal returns {error: {code, message}}.",
+        "Apply one atomic batch of task operations: task.create (key, input, optional parent), task.update (a patch: title, description and tags replace what is stored; metadata sets each key given and a null value removes it), task.set_status (open, active, completed, cancelled; requireReady refuses with not_ready unless the task is ready as the batch stands at that operation; later operations in the batch are not rechecked), task.move (parent null for root), dependency.add, dependency.remove. Refer to existing tasks by {id} and to tasks created earlier in the batch by {key}. Pass expectedUpdatedAt to refuse a change if the task moved on. Every operation applies or none does; a refusal returns {error: {code, message}}.",
       inputSchema: changeInput,
       outputSchema: taskChangeResultSchema,
     },

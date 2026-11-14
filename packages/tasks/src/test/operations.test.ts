@@ -25,7 +25,7 @@ describe("taskChangeSchema", () => {
         {
           expectedUpdatedAt: "2026-10-29T00:00:00.000Z",
           kind: "task.update",
-          patch: { description: null },
+          patch: { description: null, metadata: { gone: null, n: 2 } },
           task: { id: "tk-1" },
         },
         { kind: "task.set_status", status: "completed", task: { id: "tk-1" } },
