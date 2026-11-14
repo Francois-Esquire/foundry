@@ -1,6 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -8,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { writeJson } from "~/lib/state/json";
 import { readStatus } from "~/status/model";
 import { seedWorkspace } from "./helpers/registry";
+import { temporaryDirectory } from "./helpers/temporary";
 
 function run(id: string, status: string, createdAt: number, pid: number) {
   return {
@@ -17,7 +17,7 @@ function run(id: string, status: string, createdAt: number, pid: number) {
 }
 
 async function layout() {
-  const state = mkdtempSync(join(tmpdir(), "marbles-status-"));
+  const state = temporaryDirectory("marbles-status-");
   const dir = join(state, "ws1");
   await seedWorkspace(state, {
     config: "/repo/one/marbles.config.ts",
@@ -40,7 +40,7 @@ async function layout() {
 
 describe("readStatus", () => {
   it("returns no workspaces for a missing or empty root, and creates nothing", async () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-status-"));
+    const state = temporaryDirectory("marbles-status-");
     expect(await readStatus(join(state, "nope"))).toEqual({
       process: null,
       root: join(state, "nope"),

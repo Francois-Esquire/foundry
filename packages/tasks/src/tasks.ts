@@ -12,19 +12,23 @@ import type {
   TaskToken,
   UpdateTaskInput,
 } from "./operations";
-import type { TaskSnapshot, TaskStore, TaskStoreWrite } from "./store";
+import type {
+  Task,
+  TaskId,
+  TaskSnapshot,
+  TaskStatus,
+  TaskStoreWrite,
+} from "./schema";
+import type { TaskStore } from "./store";
 import { MemoryTaskStore } from "./store";
 import type {
   DepthOptions,
   ReadyQuery,
   TagQuery,
-  Task,
   TaskAvailability,
-  TaskId,
   TaskNode,
   TaskQuery,
   TaskRelations,
-  TaskStatus,
 } from "./types";
 import { taskId } from "./types";
 

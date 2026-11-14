@@ -25,6 +25,11 @@
       "types": "./dist/node/watch.d.ts",
       "import": "./src/node/watch.ts",
       "default": "./src/node/watch.ts"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./src/schema.ts",
+      "default": "./src/schema.ts"
     }
   },
   "files": [
@@ -43,7 +48,8 @@
     "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
     "ignore": "^7.0.6",
-    "simple-git": "^3.36.0"
+    "simple-git": "^3.36.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@foundry/tsconfig": "workspace:*",
