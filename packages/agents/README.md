@@ -317,6 +317,123 @@ A session keeps tool outputs and structured outputs in their JSON form, the
 form every durable store writes. A tool output with no JSON form (a BigInt, a
 cycle) fails the turn with an error that names the tool.
 
+### Storage
+
+| Path                            | Holds                                                     |
+| ------------------------------- | --------------------------------------------------------- |
+| `@foundry/agents/store`         | `SessionStore` and `SessionStoreWrite`.                   |
+| `@foundry/agents/store/memory`  | `InMemorySessionStore`, the default `Sessions` uses.      |
+| `@foundry/agents/store/sqlite`  | `SqliteSessionStore`, over a host's Drizzle database.     |
+| `@foundry/agents/store/tables`  | Its Drizzle tables: `agent_sessions`, `agent_messages`.   |
+| `@foundry/agents/testing/store` | `describeSessionStore`, the suite every store passes.     |
+
+`SqliteSessionStore` takes the host's database and never opens one. The host
+composes the tables from `./store/tables` into its own schema and owns the
+migrations; `drizzle-orm` is an optional peer dependency, needed only on the
+two SQLite paths. Every row carries a `scope`, an opaque partition the host
+chooses (a workspace id, say), and a store reads and writes only its own.
+
+```ts
+import { Sessions } from "@foundry/agents/session";
+import { SqliteSessionStore } from "@foundry/agents/store/sqlite";
+
+const store = new SqliteSessionStore({
+  database, // a drizzle-orm/libsql database, or a transaction on one
+  scope: workspaceId,
+  // Optional: runs in the commit's transaction, after the store's statements.
+  onCommit: async (transaction, write) => {
+    await transaction.insert(changes).values({ write });
+  },
+});
+const sessions = new Sessions({ store });
+```
+
+Each record field is one column, as the record holds it. A message's `parts`
+and `metadata` are JSON text: no read filters or orders by anything inside
+them, and they are read back whole. The other fields are plain columns. A
+message is keyed by `(scope, id)`, since `getMessage(id)` names no session,
+so a put under another session moves the message in the same commit.
+`agent_messages.position` is a message's place in its session. The commit
+assigns it in its transaction by replaying the write's puts in order. A put
+again in the same session keeps its place. A new message, or one moved to
+another session, goes after the last message there. The index
+`(scope, session_id, position)` serves `listMessages` and the commit's
+lookup of a session's last position, which reads one entry. Neither scans
+other sessions or sorts.
+
+Each `commit` is one transaction, and a throwing `onCommit` rolls it back.
+`onCommit` receives the write as given: every session and message put, whole,
+in order. It does not learn which put filed a record and which replaced one,
+what a replaced record held, or which session a moved message left; the store
+has written by the time the hook runs.
+
+Two `Sessions` over one `SqliteSessionStore` are kept apart. In this process
+the store's calls take turns, so one made while a transaction runs waits for
+it. Across connections, each transaction takes SQLite's write lock at its
+first statement: Drizzle's libSQL driver begins every transaction with
+`BEGIN IMMEDIATE`. A write from another process then waits for as long as
+its connection's busy timeout allows, or fails with `SQLITE_BUSY`. It never
+lands between a transaction's reads and its commit.
+
+Host requirement: the store's queue covers only its own instance. Within
+one process, the host must serialize writes per database file across every
+client and store on it, a store per scope included (Marbles does). A second
+libSQL client in the same process does not wait usefully: libSQL waits out
+its busy timeout synchronously, holding up the thread the first client needs
+to commit, so it blocks for the whole timeout and then fails with
+`SQLITE_BUSY`. On a `:memory:` database a second store's call during a
+transaction fails outright, as libSQL gives it a new, empty connection. Do
+not open the same file with a second SQLite library in the process either
+(`bun:sqlite` or `node:sqlite` beside libSQL): SQLite's file locks are per
+process, so the two libraries do not see each other's locks. Connection
+settings such as WAL and the busy timeout are the host's.
+
+Storage limits of the SQLite store, not rules of the package. `commit`
+refuses, before writing anything and through a transaction's view as well,
+a write holding a value SQLite or JSON would not give back as it was. It
+rejects with a `RangeError` naming the field, such as `putMessages[0].role`
+or `putMessages[2].parts[1].output.items[3]`:
+
+- Text holding U+0000 (libSQL reads it back cut at the NUL) or not
+  well-formed UTF-16 (a lone surrogate is bound as U+FFFD on Node and as
+  nothing on Bun) in a plain-text column: an id, a session id, a role, a
+  status, a title, a parent link. JSON escapes both, so `parts` and
+  `metadata` keep them. A read by such a key finds nothing, as no row can
+  hold one, and the constructor refuses such a `scope`.
+- An integer field (`createdAt`, `updatedAt`, `recursionDepth`) that is NaN,
+  an infinity, `-0`, or beyond `Number.MAX_SAFE_INTEGER` either way.
+- A `parentSessionId` or `parentMessageId` left out. The record tells a
+  field left out from `null`, and one nullable column cannot; `Sessions`
+  always writes `null` for a root session.
+- In `parts` or `metadata`: NaN, an infinity, `-0`, `undefined` or a hole
+  in an array, a `bigint`, a function, a symbol, a value that contains
+  itself, or an object that is not plain (a `Date`, a `Map`, a class
+  instance). JSON would change each of these, or refuse it.
+
+A property holding `undefined` is stored as left out, at the top of a record
+and inside JSON alike, as JSON writes it: `{ summarized: undefined }` reads
+back as `{}`. The memory store keeps the property, so the two differ only
+under a check that tells the two apart, such as `toStrictEqual`.
+
+SQLite keeps a value of at most `SQLITE_MAX_LENGTH` bytes, 1,000,000,000 by
+default, and the store binds each message's `parts` and `metadata` as one JSON
+text value each. Before that, the runtime limits a string's length: Node to
+536,870,888 UTF-16 code units, Bun to 2,147,483,647. A commit whose value fails
+at either limit fails as a whole and leaves nothing. The tests keep a message
+of 32 MiB of text and thousands of parts whole. A commit of many messages
+is batched under SQLite's limit of 32,766 bound parameters per statement,
+inside its one transaction.
+
+Each store takes one call at a time, so a call to the store itself from
+inside its own transaction's `work`, or from `onCommit`, could only wait for
+itself. It is refused at once with a `ReentrantCallError` from
+`@foundry/lib/turns` that says to use the view, or the transaction, instead.
+`Turns` tells the two apart by asynchronous context
+(`AsyncLocalStorage`), so it does not detect wait cycles: a transaction that
+awaits a continuation registered outside it while that continuation calls
+the outer store, or two stores each called inside the other's transaction,
+still deadlock.
+
 ### Events
 
 ```typescript
