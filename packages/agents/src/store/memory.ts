@@ -8,6 +8,8 @@ export class InMemorySessionStore implements SessionStore {
   readonly #messages = new Map<string, SessionMessage[]>();
   /** Message id → the session it is filed under. */
   readonly #owners = new Map<string, string>();
+  /** Settles when the running transaction does; transactions take turns. */
+  #tail: Promise<unknown> = Promise.resolve();
 
   commit(write: SessionStoreWrite): Promise<void> {
     // Clone first so a value that cannot be cloned refuses the whole write.
@@ -45,6 +47,25 @@ export class InMemorySessionStore implements SessionStore {
   listMessages(sessionId: string): Promise<SessionMessage[]> {
     const messages = this.#messages.get(sessionId) ?? [];
     return Promise.resolve(messages.map((m) => structuredClone(m)));
+  }
+
+  /** Transactions take turns; `view` is this store without `transaction`. */
+  transaction<T>(work: (view: SessionStore) => Promise<T>): Promise<T> {
+    const view: SessionStore = {
+      commit: (write) => this.commit(write),
+      getMessage: (id) => this.getMessage(id),
+      getSession: (id) => this.getSession(id),
+      listMessages: (sessionId) => this.listMessages(sessionId),
+    };
+    const run = this.#tail.then(
+      () => work(view),
+      () => work(view)
+    );
+    this.#tail = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
   }
 
   #put(message: SessionMessage): void {

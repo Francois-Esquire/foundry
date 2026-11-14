@@ -1,4 +1,3 @@
-import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import { generateId } from "ai";
 
 import type { SessionStore } from "../store";
@@ -73,38 +72,21 @@ export interface SessionsOptions {
 }
 
 /**
- * Mutations queued per store and session. Process-wide on purpose: every
- * `Sessions` over one store takes turns, so writes to a session land in the
- * order they were made and a read-modify-write is not interleaved with
- * another from this process.
- */
-const queues = new WeakMap<SessionStore, KeyedQueue>();
-
-function queueFor(store: SessionStore): KeyedQueue {
-  let queue = queues.get(store);
-  if (!queue) {
-    queue = new KeyedQueue();
-    queues.set(store, queue);
-  }
-  return queue;
-}
-
-/**
  * Sessions and their messages: the one place that writes a session store.
  *
  * Holds every rule — a message needs its session, a session is filed once,
  * a summary folds the history before it — and builds each change as one
- * {@link SessionStore.commit}. Reads project the store. Mutations of a
- * session take turns across every `Sessions` over the same store in this
- * process; nothing orders them against another process.
+ * {@link SessionStore.commit}. Reads project the store. Mutations serialize
+ * per instance; when the store offers a `transaction`, each runs in one, so
+ * no write from another `Sessions` over the store lands between its reads
+ * and its commit.
  */
 export class Sessions {
   readonly #store: SessionStore;
-  readonly #queue: KeyedQueue;
+  #tail: Promise<unknown> = Promise.resolve();
 
   constructor(options: SessionsOptions = {}) {
     this.#store = options.store ?? new InMemorySessionStore();
-    this.#queue = queueFor(this.#store);
   }
 
   getSession(id: string): Promise<SessionRecord | null> {
@@ -124,12 +106,12 @@ export class Sessions {
   /** Creates a session; one already filed under `input.id` is returned unchanged, history kept. */
   createSession(input: CreateSessionInput = {}): Promise<SessionRecord> {
     const record = newSessionRecord(input);
-    return this.#queue.run(record.id, async () => {
-      const existing = await this.#store.getSession(record.id);
+    return this.#mutation(async (store) => {
+      const existing = await store.getSession(record.id);
       if (existing) {
         return existing;
       }
-      await this.#store.commit({ putSessions: [record] });
+      await store.commit({ putSessions: [record] });
       return record;
     });
   }
@@ -138,44 +120,40 @@ export class Sessions {
     id: string,
     patch: UpdateSessionInput
   ): Promise<SessionRecord | null> {
-    return this.#queue.run(id, async () => {
-      const current = await this.#store.getSession(id);
+    return this.#mutation(async (store) => {
+      const current = await store.getSession(id);
       if (!current) {
         return null;
       }
       const next = patchSessionRecord(current, patch);
-      await this.#store.commit({ putSessions: [next] });
+      await store.commit({ putSessions: [next] });
       return next;
     });
   }
 
   /** Appends a message to its session; rejects when the session is unknown. */
   appendMessage(input: CreateMessageInput): Promise<SessionMessage> {
-    return this.#queue.run(input.sessionId, async () => {
-      if (!(await this.#store.getSession(input.sessionId))) {
+    return this.#mutation(async (store) => {
+      if (!(await store.getSession(input.sessionId))) {
         throw new Error(`[sessions] unknown session: ${input.sessionId}`);
       }
       const message = newSessionMessage(input);
-      await this.#store.commit({ putMessages: [message] });
+      await store.commit({ putMessages: [message] });
       return message;
     });
   }
 
-  async updateMessage(
+  updateMessage(
     id: string,
     patch: UpdateMessageInput
   ): Promise<SessionMessage | null> {
-    const found = await this.#store.getMessage(id);
-    if (!found) {
-      return null;
-    }
-    return this.#queue.run(found.sessionId, async () => {
-      const current = await this.#store.getMessage(id);
+    return this.#mutation(async (store) => {
+      const current = await store.getMessage(id);
       if (!current) {
         return null;
       }
       const next = patchSessionMessage(current, patch);
-      await this.#store.commit({ putMessages: [next] });
+      await store.commit({ putMessages: [next] });
       return next;
     });
   }
@@ -189,8 +167,8 @@ export class Sessions {
    * `null` when nothing new precedes the marker.
    */
   summarize(input: SummarizeInput): Promise<SummarizeResult | null> {
-    return this.#queue.run(input.sessionId, async () => {
-      const messages = await this.#store.listMessages(input.sessionId);
+    return this.#mutation(async (store) => {
+      const messages = await store.listMessages(input.sessionId);
       const fold = foldSet(messages, input.messageId);
       if (fold.length === 0) {
         return null;
@@ -206,9 +184,29 @@ export class Sessions {
       const folded = fold.map((m) =>
         patchSessionMessage(m, { summarized: true })
       );
-      await this.#store.commit({ putMessages: [...folded, summary] });
+      await store.commit({ putMessages: [...folded, summary] });
       return { summarizedIds: fold.map((m) => m.id), summary };
     });
+  }
+
+  #mutation<T>(work: (store: SessionStore) => Promise<T>): Promise<T> {
+    return this.#serialized(() => this.#transaction(work));
+  }
+
+  #transaction<T>(work: (store: SessionStore) => Promise<T>): Promise<T> {
+    const store = this.#store;
+    return store.transaction === undefined
+      ? work(store)
+      : store.transaction(work);
+  }
+
+  #serialized<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.#tail.then(work, work);
+    this.#tail = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
   }
 }
 

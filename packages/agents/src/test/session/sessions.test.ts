@@ -8,6 +8,7 @@ import {
   Sessions,
 } from "../../session/sessions";
 import type { SessionMessage, SessionPart } from "../../session/types";
+import type { SessionStore } from "../../store";
 import { InMemorySessionStore } from "../../store/memory";
 
 const UNKNOWN_SESSION_PATTERN = /unknown session/;
@@ -203,6 +204,60 @@ describe("Sessions", () => {
     expect(session.parentSessionId).toBeNull();
     expect(session.parentMessageId).toBeNull();
     expect(session.recursionDepth).toBeUndefined();
+  });
+});
+
+describe("Sessions over one store", () => {
+  it("keeps both of two overlapping updates from two instances", async () => {
+    const store = new InMemorySessionStore();
+    const a = new Sessions({ store });
+    const b = new Sessions({ store });
+    await a.createSession({ id: "s" });
+
+    await Promise.all([
+      a.updateSession("s", { title: "renamed" }),
+      b.updateSession("s", { status: "archived" }),
+    ]);
+
+    await expect(store.getSession("s")).resolves.toMatchObject({
+      status: "archived",
+      title: "renamed",
+    });
+  });
+
+  it("files a session once when two instances create it together", async () => {
+    const store = new InMemorySessionStore();
+    const commit = vi.spyOn(store, "commit");
+
+    const [first, second] = await Promise.all([
+      new Sessions({ store }).createSession({ id: "s", title: "first" }),
+      new Sessions({ store }).createSession({ id: "s", title: "second" }),
+    ]);
+
+    expect(commit).toHaveBeenCalledOnce();
+    expect(second).toEqual(first);
+  });
+
+  it("serializes its own read-modify-writes over a store without transactions", async () => {
+    const inner = new InMemorySessionStore();
+    const store: SessionStore = {
+      commit: (write) => inner.commit(write),
+      getMessage: (id) => inner.getMessage(id),
+      getSession: (id) => inner.getSession(id),
+      listMessages: (sessionId) => inner.listMessages(sessionId),
+    };
+    const sessions = new Sessions({ store });
+    await sessions.createSession({ id: "s" });
+
+    await Promise.all([
+      sessions.updateSession("s", { title: "renamed" }),
+      sessions.updateSession("s", { status: "archived" }),
+    ]);
+
+    await expect(store.getSession("s")).resolves.toMatchObject({
+      status: "archived",
+      title: "renamed",
+    });
   });
 });
 

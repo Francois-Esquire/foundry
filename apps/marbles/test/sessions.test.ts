@@ -185,6 +185,22 @@ describe("JsonSessionStore across instances", () => {
     await expect(roll.listMessages("shared")).resolves.toEqual(seen);
   });
 
+  it("keeps both of two overlapping updates two stores make", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const dashboard = new Sessions({ store: new JsonSessionStore(dir) });
+    const roll = new Sessions({ store: new JsonSessionStore(dir) });
+    await dashboard.createSession({ id: "s" });
+
+    await Promise.all([
+      dashboard.updateSession("s", { title: "renamed" }),
+      roll.updateSession("s", { status: "archived" }),
+    ]);
+
+    await expect(
+      new JsonSessionStore(dir).getSession("s")
+    ).resolves.toMatchObject({ status: "archived", title: "renamed" });
+  });
+
   it("updates a message another store appended", async () => {
     const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
     const writer = new JsonSessionStore(dir);

@@ -37,6 +37,10 @@ import { isRecord } from "~/lib/state/json";
  * `createdAt`, so {@link JsonSessionStore.sessions} lists the most recently
  * appended first.
  *
+ * `transaction` holds one session file's turn and lock across a whole
+ * read-modify-write, so creating a missing session or updating one is a
+ * single locked unit against every other store over the directory.
+ *
  * A file that exists but does not read as a session is never overwritten:
  * reads skip it (and say so through `warn`), and commits throw until someone
  * repairs or removes it.
@@ -156,20 +160,82 @@ export class JsonSessionStore implements SessionStore {
 
   /** Merges `write` into its session's file; a write may change one session only. */
   async commit(write: SessionStoreWrite): Promise<void> {
-    const ids = new Set([
-      ...(write.putSessions ?? []).map((session) => session.id),
-      ...(write.putMessages ?? []).map((message) => message.sessionId),
-    ]);
-    if (ids.size > 1) {
-      throw new Error(
-        `[json-session-store] a write changes one session; this one changes ${[...ids].join(", ")}`
-      );
-    }
-    const [id] = ids;
+    const id = sessionOf(write);
     if (id === undefined) {
       return;
     }
-    await this.#change(id, (file) => merge(id, file, write));
+    const path = this.#path(id);
+    await queue.run(path, () =>
+      this.#locked(id, path, () => this.#write(id, write))
+    );
+  }
+
+  /**
+   * Runs `work` holding one session file's lock, so its reads and its commit
+   * are one locked unit against every other store over the directory, in
+   * any process. The lock is taken on the first session `view` touches and
+   * held until `work` settles; `view` touches that session only.
+   */
+  async transaction<T>(work: (view: SessionStore) => Promise<T>): Promise<T> {
+    const done = Promise.withResolvers<void>();
+    let held: { readonly id: string; readonly entered: Promise<void> } | null =
+      null;
+    let released: Promise<void> | undefined;
+    const enter = (id: string): Promise<void> => {
+      if (held) {
+        return held.id === id
+          ? held.entered
+          : Promise.reject(
+              new Error(
+                `[json-session-store] a transaction touches one session; this one touched ${held.id} and ${id}`
+              )
+            );
+      }
+      const path = this.#path(id);
+      const entered = Promise.withResolvers<void>();
+      released = queue.run(path, () =>
+        this.#locked(id, path, () => {
+          entered.resolve();
+          return done.promise;
+        })
+      );
+      // A lock that cannot be taken reaches `work` through `entered`.
+      released.catch((error: unknown) => entered.reject(error));
+      held = { entered: entered.promise, id };
+      return entered.promise;
+    };
+    const view: SessionStore = {
+      commit: async (write) => {
+        const id = sessionOf(write);
+        if (id !== undefined) {
+          await enter(id);
+          await this.#write(id, write);
+        }
+      },
+      getMessage: async (id) => {
+        const owner = await this.#ownerOf(id);
+        if (owner === undefined) {
+          return null;
+        }
+        await enter(owner);
+        const file = await this.#readable(owner);
+        return file?.messages.find((message) => message.id === id) ?? null;
+      },
+      getSession: async (id) => {
+        await enter(id);
+        return this.getSession(id);
+      },
+      listMessages: async (sessionId) => {
+        await enter(sessionId);
+        return this.listMessages(sessionId);
+      },
+    };
+    try {
+      return await work(view);
+    } finally {
+      done.resolve();
+      await released?.catch(() => undefined);
+    }
   }
 
   async getSession(id: string): Promise<SessionRecord | null> {
@@ -177,26 +243,35 @@ export class JsonSessionStore implements SessionStore {
   }
 
   async getMessage(id: string): Promise<SessionMessage | null> {
-    const owner = this.#owners.get(id);
-    const candidates = [
-      ...(owner === undefined ? [] : [owner]),
-      ...this.#ids().filter((sessionId) => sessionId !== owner),
-    ];
-    for (const sessionId of candidates) {
-      const read = await this.#read(sessionId);
-      const found =
-        read.kind === "session"
-          ? read.file.messages.find((message) => message.id === id)
-          : undefined;
-      if (found) {
-        return found;
-      }
+    const owner = await this.#ownerOf(id);
+    if (owner === undefined) {
+      return null;
     }
-    return null;
+    const file = await this.#readable(owner);
+    return file?.messages.find((message) => message.id === id) ?? null;
   }
 
   async listMessages(sessionId: string): Promise<SessionMessage[]> {
     return [...((await this.#readable(sessionId))?.messages ?? [])];
+  }
+
+  /** The session whose file holds message `id`: the last one seen first, then every file. */
+  async #ownerOf(id: string): Promise<string | undefined> {
+    const hint = this.#owners.get(id);
+    const candidates = [
+      ...(hint === undefined ? [] : [hint]),
+      ...this.#ids().filter((sessionId) => sessionId !== hint),
+    ];
+    for (const sessionId of candidates) {
+      const read = await this.#read(sessionId);
+      if (
+        read.kind === "session" &&
+        read.file.messages.some((message) => message.id === id)
+      ) {
+        return sessionId;
+      }
+    }
+    return undefined;
   }
 
   /** The session's file, which is always directly inside the store's directory. */
@@ -267,31 +342,27 @@ export class JsonSessionStore implements SessionStore {
   }
 
   /**
-   * Read the session's file afresh, apply `change`, and write the file it
-   * returns, taking turns with every other change to that file (see the
-   * module comment). Throws, writing nothing, when the file exists but is
-   * unreadable.
+   * Merge `write` into the session's file as it is now. The caller holds the
+   * file's turn and lock (see the module comment). Throws, writing nothing,
+   * when the file exists but is unreadable.
    */
-  #change(
-    id: string,
-    change: (file: SessionFile | undefined) => SessionFile
-  ): Promise<void> {
+  async #write(id: string, write: SessionStoreWrite): Promise<void> {
     const path = this.#path(id);
-    return queue.run(path, () =>
-      this.#locked(id, path, async () => {
-        const read = await this.#read(id);
-        if (read.kind === "unreadable") {
-          throw new Error(
-            `[json-session-store] ${path} is not a readable session (${read.reason}); repair or remove it`
-          );
-        }
-        const file = change(read.kind === "session" ? read.file : undefined);
-        await writeFileAtomic(path, JSON.stringify(file, null, 2));
-        for (const message of file.messages) {
-          this.#owners.set(message.id, id);
-        }
-      })
+    const read = await this.#read(id);
+    if (read.kind === "unreadable") {
+      throw new Error(
+        `[json-session-store] ${path} is not a readable session (${read.reason}); repair or remove it`
+      );
+    }
+    const file = merge(
+      id,
+      read.kind === "session" ? read.file : undefined,
+      write
     );
+    await writeFileAtomic(path, JSON.stringify(file, null, 2));
+    for (const message of file.messages) {
+      this.#owners.set(message.id, id);
+    }
   }
 
   async #locked<T>(
@@ -316,6 +387,20 @@ export class JsonSessionStore implements SessionStore {
       );
     }
   }
+}
+
+/** The one session `write` changes; refuses a write that changes more. */
+function sessionOf(write: SessionStoreWrite): string | undefined {
+  const ids = new Set([
+    ...(write.putSessions ?? []).map((session) => session.id),
+    ...(write.putMessages ?? []).map((message) => message.sessionId),
+  ]);
+  if (ids.size > 1) {
+    throw new Error(
+      `[json-session-store] a write changes one session; this one changes ${[...ids].join(", ")}`
+    );
+  }
+  return [...ids][0];
 }
 
 /**
