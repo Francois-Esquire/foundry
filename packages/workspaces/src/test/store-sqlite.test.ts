@@ -488,6 +488,85 @@ describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
   });
 });
 
+describe("SqliteWorkspaceStore query plans", () => {
+  /** What SQLite plans for one read, step by step, and the index it names. */
+  async function plansOf(
+    read: (store: SqliteWorkspaceStore) => Promise<unknown>
+  ) {
+    const database = await files.open();
+    const queries: string[] = [];
+    const store = new SqliteWorkspaceStore({
+      database: files.connect(database, {
+        onQuery: (query) => queries.push(query),
+      }),
+      scope: "s",
+    });
+    await read(store);
+    const reads = queries.filter((query) => query.startsWith("select"));
+    return Promise.all(
+      reads.map(async (query) => {
+        const steps = await database.all<{ detail: string }>(
+          sql.raw(`EXPLAIN QUERY PLAN ${query}`)
+        );
+        return steps.map((step) => step.detail).join("; ");
+      })
+    );
+  }
+
+  const workspaceId = "w" as WorkspaceId;
+  const entryId = "e" as WorkspaceEntryId;
+  /** `null` stands for any index led by `scope`, as a count may use. */
+  test.each([
+    [
+      "getWorkspace",
+      (store: SqliteWorkspaceStore) => store.getWorkspace(workspaceId),
+      ["sqlite_autoindex_workspaces_1"],
+    ],
+    [
+      "findWorkspaceByPath",
+      (store: SqliteWorkspaceStore) => store.findWorkspaceByPath("/p"),
+      ["workspaces_scope_source_path"],
+    ],
+    [
+      "findWorkspaceBySourceId",
+      (store: SqliteWorkspaceStore) => store.findWorkspaceBySourceId("id"),
+      ["workspaces_scope_source_id"],
+    ],
+    [
+      "listWorkspaces",
+      (store: SqliteWorkspaceStore) => store.listWorkspaces(),
+      [null, "workspaces_scope_created"],
+    ],
+    [
+      "getEntry",
+      (store: SqliteWorkspaceStore) => store.getEntry(workspaceId, entryId),
+      ["sqlite_autoindex_workspace_entries_1"],
+    ],
+    [
+      "listEntries",
+      (store: SqliteWorkspaceStore) => store.listEntries(workspaceId),
+      ["sqlite_autoindex_workspace_entries_1"],
+    ],
+  ] as const)(
+    "%s searches its index, with no scan and no sort",
+    async (_read, read, indexes) => {
+      const plans = await plansOf(read);
+
+      expect(plans).toHaveLength(indexes.length);
+      for (const [step, plan] of plans.entries()) {
+        const index = indexes[step] ?? String.raw`\S+`;
+        expect(plan).toMatch(
+          new RegExp(
+            String.raw`^SEARCH \S+ USING (COVERING )?INDEX ${index} \(scope=\?`
+          )
+        );
+        expect(plan).not.toContain("SCAN");
+        expect(plan).not.toContain("TEMP B-TREE");
+      }
+    }
+  );
+});
+
 describe("Workspace tables", () => {
   test("hold each record field for field, plus scope", () => {
     const { source, ...registration } =

@@ -35,7 +35,7 @@ export interface WorkspaceStore {
   listEntries: (workspaceId: WorkspaceId) => Promise<readonly WorkspaceEntry[]>;
   /**
    * Registrations ordered by creation time, then by id in code-point order
-   * (SQLite's order for text). The cursor is the offset of the next page;
+   * (the order of their UTF-8 bytes). The cursor is the offset of the next page;
    * anything but a nonnegative safe integer is refused with a `RangeError`.
    */
   listWorkspaces: (

@@ -481,9 +481,10 @@ type Put = readonly [
 /**
  * The refusal for the first value a write puts that SQLite would not give
  * back intact, naming it by its path, such as `putEntries[2].path`. A storage
- * limit of this store, not a rule of the domain. It reads every value the
- * write puts, so a value that throws when read throws here, before any
- * statement runs.
+ * limit of this store, not a rule of the domain. It reads every field the
+ * write puts, so a field that throws when read rejects the write before any
+ * statement runs. A value that throws only when bound (an object posing as a
+ * `Date`) fails inside the commit's transaction, which rolls back.
  */
 function refuseUnstorable(write: WorkspaceStoreWrite): RangeError | undefined {
   const field = unstorableField(write);
@@ -506,14 +507,14 @@ function unstorableField(
     ),
   ];
   for (const [name, value, kind] of puts) {
-    const reason = refusal(value, kind);
+    const reason = whyUnstorable(value, kind);
     if (reason !== undefined) {
       return { name, reason };
     }
   }
 }
 
-function refusal(value: unknown, kind: Put[2]): string | undefined {
+function whyUnstorable(value: unknown, kind: Put[2]): string | undefined {
   switch (kind) {
     case "text":
       return typeof value === "string" && !storable(value) ? TEXT : undefined;
