@@ -39,6 +39,7 @@ interface Positionals {
   readonly help: NoPositionals;
   readonly init: { readonly starter: StarterId };
   readonly list: NoPositionals;
+  readonly mcp: NoPositionals;
   readonly roll: { readonly name: string };
   readonly run: NoPositionals;
   readonly sessions: NoPositionals;
@@ -85,6 +86,7 @@ const GRAMMAR: {
     return { command: "init", starter };
   },
   list: none("list"),
+  mcp: none("mcp"),
   roll: ([name, ...rest]) => {
     if (name === undefined || rest.length > 0) {
       throw new UsageError("roll takes one workflow or schedule name");
@@ -539,16 +541,4 @@ export function parseArgs(argv: readonly string[]): Args {
   }
   const parsed = GRAMMAR[command](positionals, flags);
   return { ...flags, ...parsed };
-}
-
-/** STDIO host accepts flags only; help keeps the CLI's precedence. */
-export function parseMcpArgs(
-  argv: readonly string[]
-): Flags & { readonly help: boolean } {
-  const { flags, positional } = parseFlags(argv);
-  const help = argv.includes("--help") || argv.includes("-h");
-  if (!help && positional.length > 0) {
-    throw new UsageError("MCP accepts flags only");
-  }
-  return { ...flags, help };
 }

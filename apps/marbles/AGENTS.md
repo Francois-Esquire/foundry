@@ -20,9 +20,9 @@ The `ai-sdk-provider-pi` exception covers the bundled Models Pi provider.
 `@anthropic-ai/sdk` explicitly satisfies the Claude Agent SDK peer requirement.
 Pi also depends on an older SDK, so relying on peer hoisting can select an
 incompatible version in a fresh standalone install.
-`@modelcontextprotocol/sdk` also satisfies a required Claude Agent SDK peer,
-so it remains a runtime dependency even though the STDIO MCP entry runs only
-from source in this checkout.
+`@modelcontextprotocol/sdk` is a runtime dependency: `marbles mcp` serves
+MCP over STDIO with it, and it also satisfies a required Claude Agent SDK
+peer.
 The `evlog` exception covers imports in the bundled models and workflows code.
 The `@ai-sdk/mcp` exception covers the bundled agents MCP client, which
 connects the MCP servers an agent's definition names; its version follows
@@ -91,10 +91,11 @@ Four buckets, each importing only what sits below it:
 - The app sits on top and may import anything: `src/cli.ts`, `src/args.ts`
   (which parses a command line completely, before anything loads),
   `src/dashboard/`, `src/views/`, `src/components/`, `src/mcp/`,
-  `src/status/`, `src/sessions/`. `src/mcp/stdio.ts` and the dashboard are
-  clients of the process; under `--dry-run` they host the workspace in
-  their own process through `hostWorkspace` instead, since nothing is
-  persisted.
+  `src/status/`, `src/sessions/`. `src/mcp/stdio.ts` (`marbles mcp`, which
+  `cli.ts` loads only when that command runs, since it takes stdout over for
+  the protocol) and the dashboard are clients of the process; under
+  `--dry-run` they host the workspace in their own process through
+  `hostWorkspace` instead, since nothing is persisted.
 
 `src/layout.ts` decides where things live: the Foundry home
 (`$FOUNDRY_HOME`, else `~/.foundry`), the Marbles state root under it, the

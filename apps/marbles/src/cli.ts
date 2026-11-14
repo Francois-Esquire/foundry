@@ -77,6 +77,7 @@ const USAGE = `marbles — programmable workspace automation
   sessions                   sessions under --state: id, messages, updated, summary
   tasks <action> [--json]    read or change this workspace's tasks (below)
   watch <runId>              replay output, follow it live, and exit when the run ends
+  mcp                        serve this workspace to an MCP client over stdin and stdout
   daemon                     run the Marbles process in the foreground
   stop                       stop the Marbles process and every workspace it hosts
   attach                     host this workspace in the Marbles process and exit; it stays hosted
@@ -474,6 +475,15 @@ async function watch(args: ArgsOf<"watch">): Promise<void> {
   }
 }
 
+/**
+ * The STDIO MCP server. Loaded only now: the module takes stdout over for
+ * the protocol as it loads.
+ */
+async function serveMcp(args: ArgsOf<"mcp">): Promise<void> {
+  const { serveStdio } = await import("~/mcp/stdio");
+  await serveStdio(args);
+}
+
 const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   attach: { needs: "nothing", run: attachWorkspace },
   daemon: { needs: "nothing", run: runDaemon },
@@ -481,6 +491,7 @@ const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   help: { needs: "nothing", run: () => print(USAGE) },
   init: { needs: "nothing", run: createStarterModule },
   list: { needs: "triggers", run: listTriggers },
+  mcp: { needs: "nothing", run: serveMcp },
   roll: { needs: "connection", run: roll },
   run: { needs: "connection", run: runUntilStopped },
   sessions: { needs: "workspace", run: listSessions },

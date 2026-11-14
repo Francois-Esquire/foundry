@@ -25,6 +25,7 @@ import {
 } from "typescript";
 import { expect, test } from "vitest";
 
+import { rawMcpSession, strayLines } from "./helpers/mcp-stdio";
 import { inspectDashboard } from "./helpers/terminal";
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
@@ -365,6 +366,36 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
       expect(run(cli, ["stop", "--state", state], consumer)).toContain(
         "stopped Marbles process"
       );
+    }
+    // The installed bin serves MCP over STDIO, and stdout carries only frames.
+    const mcpState = mkdtempSync(join(tmpdir(), "mp-"));
+    try {
+      const session = await rawMcpSession(
+        cli,
+        [
+          "mcp",
+          "--source",
+          join(consumer, "marbles.config.ts"),
+          "--state",
+          mcpState,
+        ],
+        { cwd: consumer }
+      );
+      const listed = await session.request("tools/list");
+      const ended = await session.close();
+      expect(ended.code, ended.stderr).toBe(0);
+      expect(listed).toMatchObject({
+        result: {
+          tools: expect.arrayContaining([
+            expect.objectContaining({ name: "dispatch_workflow" }),
+            expect.objectContaining({ name: "list_tasks" }),
+          ]),
+        },
+      });
+      expect(strayLines(ended.stdout)).toEqual([]);
+    } finally {
+      run(cli, ["stop", "--state", mcpState], consumer);
+      rmSync(mcpState, { force: true, recursive: true });
     }
     writeFileSync(join(standalone, "workspace-marker.txt"), "workspace root");
     const authoring = join(standalone, ".foundry", "marbles");

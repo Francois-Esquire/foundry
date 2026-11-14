@@ -252,6 +252,11 @@ export class Worktree extends Git {
     this.branch = branch;
   }
 
+  /**
+   * Remove the checkout, then the directory `worktree()` cut for it. Git
+   * removes that directory itself; a runner that only echoes the command
+   * would leave it behind.
+   */
   async remove(): Promise<void> {
     await this.run(this.repository, [
       "worktree",
@@ -259,6 +264,7 @@ export class Worktree extends Git {
       "--force",
       this.root,
     ]);
+    await rm(this.root, { force: true, recursive: true });
   }
 }
 

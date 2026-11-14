@@ -447,6 +447,32 @@ describe("WithGit", () => {
     ]);
   });
 
+  it("removes the directory it cut, even when the runner only pretends", async () => {
+    const root = await makeRepository({ "README.md": "hello" });
+    const home = await mkdtemp(join(tmpdir(), "worktree-home-"));
+    const runs: string[][] = [];
+    const echoed = Git.at(root, {
+      run: (_cwd, args) => {
+        runs.push([...args]);
+        return Promise.resolve("");
+      },
+    });
+    try {
+      const cut = await echoed.withWorktree({ base: "HEAD", home }, (tree) =>
+        Promise.resolve(tree.root)
+      );
+
+      expect(runs.map((args) => args.slice(0, 2))).toEqual([
+        ["worktree", "add"],
+        ["worktree", "remove"],
+      ]);
+      expect(await readdir(home)).toEqual([]);
+      expect(cut.startsWith(await realpath(home))).toBe(true);
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
   it("composes by hand over the directory layer", async () => {
     const root = await realpath(await makeRepository({ "README.md": "hello" }));
     const store = new MemoryWorkspaceStore();

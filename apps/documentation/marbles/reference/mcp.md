@@ -11,26 +11,24 @@ hosted workspaces, inspect a loaded configuration, dispatch work, read its
 status, cancel it, and read or change the workspace's tasks. Both workflow
 and agent launches return a `runId` without waiting for completion.
 
-## Start from a source checkout
+## Start the server
 
-This first iteration runs directly from Bun source. It has no packaged MCP
-executable or build step. Install the checkout's dependencies with
-`bun install --frozen-lockfile`, then configure your MCP client to launch:
+`marbles mcp` starts the server. Configure your MCP client to launch it:
 
 ```json
 {
   "mcpServers": {
     "marbles": {
-      "command": "bun",
-      "args": [
-        "/absolute/path/to/foundry/apps/marbles/src/mcp/stdio.ts",
-        "--source",
-        "/absolute/path/to/project/.foundry/marbles"
-      ]
+      "command": "marbles",
+      "args": ["mcp", "--source", "/absolute/path/to/project/.foundry/marbles"]
     }
   }
 }
 ```
+
+From a Foundry checkout, without a build, use `bun` as the command and
+`--no-env-file`, `/absolute/path/to/foundry/apps/marbles/src/cli.ts` and
+`mcp` as the first arguments.
 
 The example uses the common `mcpServers` configuration shape. Adapt the
 client configuration as needed, keeping the same command and arguments.

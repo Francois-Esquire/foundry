@@ -81,10 +81,8 @@ bun run marbles -- roll adversarial-review --input '{"base":"main","specFile":"d
 ## Through MCP
 
 Shared project MCP entries are not installed. To connect a chosen MCP host,
-use `bun --no-env-file` with absolute paths to `apps/marbles/src/mcp/stdio.ts`, followed
-by `--source` and the absolute path to `.foundry/marbles`. This is source-checkout
-configuration, not a published server. Host loading and cwd behavior still
-need verification.
+launch `marbles mcp` with `--source` and the absolute path to
+`.foundry/marbles`. Host loading and cwd behavior still need verification.
 
 Normal startup joins or starts the machine-level Marbles daemon and can
 replace one running another version. Attaching the workspace loads its source,

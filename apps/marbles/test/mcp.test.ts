@@ -11,6 +11,7 @@ import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { version } from "../package.json";
 import { stopDaemon } from "./helpers/daemon";
+import { rawMcpSession, strayLines } from "./helpers/mcp-stdio";
 import { configureProviders } from "./helpers/providers";
 
 const TOOL_NAMES = [
@@ -70,7 +71,8 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   const transport = new StdioClientTransport({
     args: [
       "--no-env-file",
-      resolve("src/mcp/stdio.ts"),
+      resolve("src/cli.ts"),
+      "mcp",
       "--source",
       source,
       "--state",
@@ -242,6 +244,55 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   }
 }, 30_000);
 
+it("keeps a dry-run model turn's log off the protocol stream", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-dry-"));
+  const source = join(root, "marbles.ts");
+  await writeFile(
+    source,
+    `import { agent } from "@foundry.sh/marbles";
+agent({ name: "helper", prompt: "You help." });`
+  );
+  configureProviders(join(root, "state"));
+  const session = await rawMcpSession(
+    "bun",
+    [
+      "--no-env-file",
+      resolve("src/cli.ts"),
+      "mcp",
+      "--source",
+      source,
+      "--state",
+      join(root, "state"),
+      "--dry-run",
+    ],
+    { cwd: root }
+  );
+  try {
+    const dispatched = z.object({ result: z.unknown() }).parse(
+      await session.request("tools/call", {
+        arguments: { agent: "helper", prompt: "Hello agent" },
+        name: "dispatch_agent",
+      })
+    );
+    const { runId } = runIdentity(dispatched.result);
+    await vi.waitFor(async () => {
+      const status = z.object({ result: z.unknown() }).parse(
+        await session.request("tools/call", {
+          arguments: { runId },
+          name: "get_run",
+        })
+      );
+      expect(payload(status.result)).toMatchObject({ status: "completed" });
+    });
+  } finally {
+    const ended = await session.close();
+    await rm(root, { force: true, recursive: true });
+    // The turn's model log is a diagnostic: stderr has it, stdout does not.
+    expect(ended.stderr).toContain("models.inference");
+    expect(strayLines(ended.stdout)).toEqual([]);
+  }
+}, 30_000);
+
 it("reports a source that fails to load on stderr, never on the protocol stream", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-broken-"));
   const source = join(root, "marbles.ts");
@@ -254,7 +305,8 @@ it("reports a source that fails to load on stderr, never on the protocol stream"
       "bun",
       [
         "--no-env-file",
-        resolve("src/mcp/stdio.ts"),
+        resolve("src/cli.ts"),
+        "mcp",
         "--source",
         source,
         "--dry-run",
@@ -290,7 +342,8 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   const transport = new StdioClientTransport({
     args: [
       "--no-env-file",
-      resolve("src/mcp/stdio.ts"),
+      resolve("src/cli.ts"),
+      "mcp",
       "--source",
       source,
       "--state",

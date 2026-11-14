@@ -104,26 +104,23 @@ the skills and MCP servers for its route. See
 See the [MCP reference](../documentation/marbles/reference/mcp.md) for setup, tools,
 arguments, and the launch-and-watch flow.
 
-From this checkout, an MCP client can launch the Bun source directly. No
-build is needed. Set `cwd` to the project whose Marbles modules you want
-to load:
+`marbles mcp` serves MCP over stdin and stdout. Set `cwd` to the project
+whose Marbles modules you want to load:
 
 ```json
 {
   "mcpServers": {
     "marbles": {
-      "command": "bun",
-      "args": [
-        "--no-env-file",
-        "/absolute/path/to/foundry/apps/marbles/src/mcp/stdio.ts",
-        "--source",
-        "/absolute/path/to/project/.foundry/marbles"
-      ],
+      "command": "marbles",
+      "args": ["mcp", "--source", "/absolute/path/to/project/.foundry/marbles"],
       "cwd": "/absolute/path/to/project"
     }
   }
 }
 ```
+
+From this checkout, without a build, run `bun --no-env-file
+/absolute/path/to/foundry/apps/marbles/src/cli.ts mcp` with the same flags.
 
 `--source` accepts a file or directory and defaults to `.foundry/marbles`
 under `cwd`. The server attaches that workspace to the Marbles process, one

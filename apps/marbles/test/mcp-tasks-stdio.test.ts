@@ -66,7 +66,8 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
   const transport = new StdioClientTransport({
     args: [
       "--no-env-file",
-      resolve("src/mcp/stdio.ts"),
+      resolve("src/cli.ts"),
+      "mcp",
       "--source",
       source,
       "--state",

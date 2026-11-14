@@ -1,26 +1,28 @@
-#!/usr/bin/env bun
 import { Console } from "node:console";
 import { Writable } from "node:stream";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Flags } from "~/args";
-import { parseMcpArgs } from "~/args";
 import { layout } from "~/layout";
 import { createMcpServer, type McpServerOptions } from "~/mcp/server";
 import type { WorkspaceSummary } from "~/model/connection";
 import { connect } from "~/process/client";
-import { envFilesLoaded } from "~/process/runtime";
 import { hostWorkspace } from "~/workspace/host";
 import { resolveSource } from "~/workspace/source";
 
 // Imported source and workflow bodies may print. Only the transport writes
-// to the original stdout; everything else goes to stderr.
+// to the original stdout; everything else goes to stderr. The CLI loads this
+// module only for `marbles mcp`, after its own imports.
 const protocolWrite = process.stdout.write.bind(process.stdout);
 const protocolOutput = new Writable({
   write(chunk, encoding, callback) {
     protocolWrite(chunk, encoding, callback);
   },
 });
-process.stdout.write = process.stderr.write.bind(process.stderr);
+const diagnosticWrite = process.stderr.write.bind(process.stderr);
+process.stdout.write = diagnosticWrite;
+// evlog binds stdout's write when it loads, before this redirect, and
+// pretty-prints model turns there. It reads this slot first on every write.
+Object.assign(globalThis, { __evlogNativeStdoutWrite: diagnosticWrite });
 Object.assign(
   globalThis.console,
   new Console({
@@ -164,22 +166,7 @@ function report(error: unknown): void {
   process.exitCode = 1;
 }
 
-let args: ReturnType<typeof parseMcpArgs> | undefined;
-const refusal = envFilesLoaded();
-if (refusal === undefined) {
-  try {
-    args = parseMcpArgs(process.argv.slice(2));
-  } catch (error) {
-    report(error);
-  }
-} else {
-  print(`marbles: ${refusal}`);
-  process.exitCode = 1;
-}
-if (args?.help) {
-  print(
-    "bun --no-env-file src/mcp/stdio.ts [--source <file-or-directory>] [--state <directory>] [--artifacts <directory>] [--dry-run]"
-  );
-} else if (args !== undefined) {
-  await serve(args).catch(report);
+/** `marbles mcp`: serve MCP over STDIO until the client leaves. */
+export async function serveStdio(flags: Flags): Promise<void> {
+  await serve(flags).catch(report);
 }

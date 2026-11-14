@@ -50,9 +50,9 @@ using the package’s `/workspace` entry.
 
 ## 3. From an MCP client
 
-The Marbles MCP server runs from a source checkout; it is not in the
-published package. An MCP client, usually an agent, starts it over STDIO
-with the source to load. This program plays that client:
+An MCP client, usually an agent, starts the Marbles MCP server with
+`marbles mcp` over STDIO and names the source to load. This program plays
+that client:
 
 <include>./_example/mcp-client.ts</include>
 
