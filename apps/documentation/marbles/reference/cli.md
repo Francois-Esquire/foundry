@@ -179,7 +179,8 @@ row states, when a server or the configuration gave one, else at the
 models.dev list price for it, and keeps that price with the turn; `~` marks
 an estimate. Marbles fetches models.dev when an engine starts and when
 Airplane Mode turns off, keeps it once it loads, and never waits for it. A
-fetch that fails is tried again the next time.
+fetch that fails is tried again while the engine runs and Airplane Mode is off:
+after 30 s, then twice as long each time, up to 10 minutes.
 
 Claude Code reports `total_cost_usd`, a running total for its CLI session.
 Marbles records it only for a turn that made one model call and resumed no
