@@ -160,7 +160,7 @@ export async function withRunningWorkspace<T>(
 ): Promise<T> {
   if (args.dry) {
     throw new NotHostedError(
-      `--dry-run joins no Marbles process, so nothing hosts workspace ${id}; without --dry-run, ${ATTACH_HINT}. A dry run of a workflow goes through \`marbles roll --dry-run\`.`
+      `--dry-run joins no Marbles process, so no worker is reached for workspace ${id}; without --dry-run, ${ATTACH_HINT}. A dry run of a workflow goes through \`marbles roll --dry-run\`.`
     );
   }
   const client = await joinProcess(args);
@@ -207,7 +207,7 @@ export type Hosted =
 /** Host the workspace in this process; only `--dry-run` does. */
 export function hostHere(
   args: HostOptions,
-  options: Pick<HostWorkspaceOptions, "askable" | "env" | "print">
+  options: Pick<HostWorkspaceOptions, "env" | "print">
 ): Promise<WorkspaceHost> {
   return hostWorkspace({
     ...options,
