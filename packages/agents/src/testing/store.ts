@@ -96,6 +96,23 @@ export function describeSessionStore(
       await expect(store.getMessage("b1")).resolves.toStrictEqual(kept);
     });
 
+    it("moves a message put again under another session", async () => {
+      const storage = await open();
+      const store = storage("a");
+      await store.commit({
+        putMessages: [message("m1", "a", 1), message("m2", "a", 2)],
+        putSessions: [session("a"), session("b")],
+      });
+      const moved = message("m1", "b", 1);
+      await store.commit({ putMessages: [moved] });
+
+      for (const reader of [store, storage("a")]) {
+        await expect(ids(reader, "a")).resolves.toEqual(["m2"]);
+        await expect(ids(reader, "b")).resolves.toEqual(["m1"]);
+        await expect(reader.getMessage("m1")).resolves.toStrictEqual(moved);
+      }
+    });
+
     it("keeps each session's messages apart", async () => {
       const store = await fresh();
       await store.commit({
@@ -350,6 +367,53 @@ export function describeSessionStore(
       await expect(store.getMessage("a2")).resolves.toBeNull();
       await expect(store.getMessage("b2")).resolves.toBeNull();
       await expect(store.getMessage("c1")).resolves.toBeNull();
+    });
+
+    it("keeps both of two overlapping commits through one view", async (context) => {
+      const storage = await open();
+      const store = storage("a");
+      if (store.transaction === undefined) {
+        context.skip();
+        return;
+      }
+      await store.commit({ putSessions: [session("s")] });
+
+      const seen = await store.transaction(async (view) => {
+        await Promise.all([
+          view.commit({ putMessages: [message("m1", "s", 1)] }),
+          view.commit({ putMessages: [message("m2", "s", 2)] }),
+        ]);
+        return ids(view, "s");
+      });
+
+      expect(seen).toEqual(["m1", "m2"]);
+      await expect(ids(store, "s")).resolves.toEqual(["m1", "m2"]);
+      await expect(ids(storage("a"), "s")).resolves.toEqual(["m1", "m2"]);
+    });
+
+    it("takes a view's commit after one it refused", async (context) => {
+      const store = await fresh();
+      if (store.transaction === undefined) {
+        context.skip();
+        return;
+      }
+      await store.commit({ putSessions: [session("s")] });
+      const unstorable = message("m1", "s", 1);
+      Object.defineProperty(unstorable.parts[0], "text", {
+        enumerable: true,
+        get: () => {
+          throw new Error("unstorable");
+        },
+      });
+
+      await store.transaction(async (view) => {
+        await expect(
+          view.commit({ putMessages: [unstorable] })
+        ).rejects.toThrow("unstorable");
+        await view.commit({ putMessages: [message("m2", "s", 2)] });
+      });
+
+      await expect(ids(store, "s")).resolves.toEqual(["m2"]);
     });
 
     it("refuses at once a call to the store from inside its own transaction", async (context) => {

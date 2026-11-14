@@ -373,55 +373,111 @@ interface StagedFile extends SessionFile {
 /**
  * The files as one commit or transaction leaves them, staged in memory over
  * what is on disk. Reads see the staged files first. A commit stages every
- * file it changes or none.
+ * file it changes or none. Its calls take turns, so overlapping commits
+ * through one view build on each other, and one refused leaves the next
+ * free to run.
  */
 class Draft implements SessionStore {
   readonly #files: FileSource;
   readonly #staged = new Map<string, StagedFile>();
+  readonly #turns = new Turns(
+    "A JsonSessionStore transaction view was called from inside one of its own calls"
+  );
 
   constructor(files: FileSource) {
     this.#files = files;
   }
 
-  async commit(write: SessionStoreWrite): Promise<void> {
-    const next = new Map<string, StagedFile>();
-    for (const [id, change] of bySession(write)) {
-      const file = merge(id, await this.#base(id), change);
-      // Encoding now refuses a value that cannot be written before anything is staged.
-      const text = JSON.stringify(file, null, 2);
-      next.set(id, { ...(JSON.parse(text) as SessionFile), text });
-    }
-    for (const [id, file] of next) {
-      this.#staged.set(id, file);
-    }
-  }
-
-  async getMessage(id: string): Promise<SessionMessage | null> {
-    for (const file of this.#staged.values()) {
-      const found = file.messages.find((message) => message.id === id);
-      if (found) {
-        return structuredClone(found);
+  commit(write: SessionStoreWrite): Promise<void> {
+    return this.#turns.run(async () => {
+      const next = new Map<string, SessionFile | undefined>();
+      const fileOf = async (id: string) => {
+        if (!next.has(id)) {
+          next.set(id, await this.#base(id));
+        }
+        return next.get(id);
+      };
+      for (const session of write.putSessions ?? []) {
+        const file = await fileOf(session.id);
+        next.set(session.id, { messages: file?.messages ?? [], session });
       }
-    }
-    const owner = await this.#files.find(id);
-    if (owner === undefined || this.#staged.has(owner)) {
-      return null;
-    }
-    const file = await this.#readable(owner);
-    return file?.messages.find((message) => message.id === id) ?? null;
+      for (const message of write.putMessages ?? []) {
+        const owner = await this.#ownerOf(message.id, next);
+        if (owner !== undefined && owner !== message.sessionId) {
+          const former = await fileOf(owner);
+          if (former) {
+            next.set(owner, withoutMessage(former, message.id));
+          }
+        }
+        const file = await fileOf(message.sessionId);
+        if (!file) {
+          throw new Error(
+            `[json-session-store] no session ${message.sessionId} to file its messages under`
+          );
+        }
+        next.set(message.sessionId, withMessage(file, message));
+      }
+      // Encoding every file first refuses a value that cannot be written before anything is staged.
+      const staged = [...next].flatMap(([id, file]): [string, StagedFile][] =>
+        file ? [[id, encoded(file)]] : []
+      );
+      for (const [id, file] of staged) {
+        this.#staged.set(id, file);
+      }
+    });
   }
 
-  async getSession(id: string): Promise<SessionRecord | null> {
-    return (await this.#readable(id))?.session ?? null;
+  getMessage(id: string): Promise<SessionMessage | null> {
+    return this.#turns.run(async () => {
+      const owner = await this.#ownerOf(id, new Map());
+      const file =
+        owner === undefined ? undefined : await this.#readable(owner);
+      return file?.messages.find((message) => message.id === id) ?? null;
+    });
   }
 
-  async listMessages(sessionId: string): Promise<SessionMessage[]> {
-    return [...((await this.#readable(sessionId))?.messages ?? [])];
+  getSession(id: string): Promise<SessionRecord | null> {
+    return this.#turns.run(
+      async () => (await this.#readable(id))?.session ?? null
+    );
+  }
+
+  listMessages(sessionId: string): Promise<SessionMessage[]> {
+    return this.#turns.run(async () => [
+      ...((await this.#readable(sessionId))?.messages ?? []),
+    ]);
   }
 
   /** The staged files, in the order they were first changed. */
   changed(): ReadonlyMap<string, StagedFile> {
     return this.#staged;
+  }
+
+  /**
+   * The session whose file holds message `id`, as this draft sees it:
+   * `next` (a commit in progress) first, then the staged files, then the
+   * files on disk that neither holds.
+   */
+  async #ownerOf(
+    id: string,
+    next: ReadonlyMap<string, SessionFile | undefined>
+  ): Promise<string | undefined> {
+    const holds = (file: SessionFile | undefined) =>
+      file?.messages.some((message) => message.id === id) === true;
+    for (const [sessionId, file] of next) {
+      if (holds(file)) {
+        return sessionId;
+      }
+    }
+    for (const [sessionId, file] of this.#staged) {
+      if (!next.has(sessionId) && holds(file)) {
+        return sessionId;
+      }
+    }
+    const onDisk = await this.#files.find(id);
+    return onDisk === undefined || next.has(onDisk) || this.#staged.has(onDisk)
+      ? undefined
+      : onDisk;
   }
 
   /** A session as this draft holds it: staged, else on disk; unreadable reads as absent. */
@@ -437,11 +493,11 @@ class Draft implements SessionStore {
     return read.kind === "session" ? read.file : undefined;
   }
 
-  /** What a commit merges into: the staged file, else the one on disk. */
+  /** What a commit builds on: the staged file, else the one on disk. */
   async #base(id: string): Promise<SessionFile | undefined> {
     const staged = this.#staged.get(id);
     if (staged) {
-      return staged;
+      return { messages: staged.messages, session: staged.session };
     }
     const path = this.#files.path(id);
     const read = await this.#files.read(id);
@@ -454,46 +510,28 @@ class Draft implements SessionStore {
   }
 }
 
-/** `write` split into the part each session's file takes, in the order sessions appear. */
-function bySession(write: SessionStoreWrite): Map<string, SessionStoreWrite> {
-  const changes = new Map<
-    string,
-    { putMessages: SessionMessage[]; putSessions: SessionRecord[] }
-  >();
-  const changeOf = (id: string) => {
-    const change = changes.get(id) ?? { putMessages: [], putSessions: [] };
-    changes.set(id, change);
-    return change;
+/** `file` holding `message`: a known id keeps its place, a new one goes last. */
+function withMessage(file: SessionFile, message: SessionMessage): SessionFile {
+  const index = file.messages.findIndex((known) => known.id === message.id);
+  return {
+    messages:
+      index === -1
+        ? [...file.messages, message]
+        : file.messages.map((known, at) => (at === index ? message : known)),
+    session: file.session,
   };
-  for (const session of write.putSessions ?? []) {
-    changeOf(session.id).putSessions.push(session);
-  }
-  for (const message of write.putMessages ?? []) {
-    changeOf(message.sessionId).putMessages.push(message);
-  }
-  return changes;
 }
 
-/** `file` with `write` merged in by id: a put replaces what it names, and a new message goes last. */
-function merge(
-  id: string,
-  file: SessionFile | undefined,
-  write: SessionStoreWrite
-): SessionFile {
-  const session = write.putSessions?.at(-1) ?? file?.session;
-  if (!session) {
-    throw new Error(
-      `[json-session-store] no session ${id} to file its messages under`
-    );
-  }
-  const messages = [...(file?.messages ?? [])];
-  for (const message of write.putMessages ?? []) {
-    const index = messages.findIndex((known) => known.id === message.id);
-    if (index === -1) {
-      messages.push(message);
-    } else {
-      messages[index] = message;
-    }
-  }
-  return { messages, session };
+/** `file` without message `id`. */
+function withoutMessage(file: SessionFile, id: string): SessionFile {
+  return {
+    messages: file.messages.filter((message) => message.id !== id),
+    session: file.session,
+  };
+}
+
+/** `file` as staged: detached, with the text it will be written as. */
+function encoded(file: SessionFile): StagedFile {
+  const text = JSON.stringify(file, null, 2);
+  return { ...(JSON.parse(text) as SessionFile), text };
 }
