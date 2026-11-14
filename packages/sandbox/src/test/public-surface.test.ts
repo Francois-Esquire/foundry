@@ -55,6 +55,7 @@ it("resolves source and built declarations for the public leaf modules", () => {
     "errors",
     "path",
     "constants",
+    "schema",
     "container/store",
     "container/constants",
     "container/constraints",
