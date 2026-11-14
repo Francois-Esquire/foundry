@@ -1,11 +1,4 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { globToRegExp } from "@foundry/lib/glob";
 import { WorkspaceSystem } from "@foundry/workspaces";
@@ -37,6 +30,7 @@ import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 import { declared, startEngine, testEngine } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";
 import { monitorContext } from "./helpers/monitor";
+import { temporaryDirectory } from "./helpers/temporary";
 
 const SHA_256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 const SHA_256_HEX_PATTERN_2 = /^[0-9a-f]{64}$/;
@@ -126,7 +120,7 @@ describe("files detector", () => {
   const spec: MonitorSpec = { glob: "**/*.md", kind: "files" };
 
   it("reports everything added on the first tick, then only what moved", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
+    const root = temporaryDirectory("marbles-mon-");
     mkdirSync(join(root, "sub"));
     writeFileSync(join(root, "a.md"), "one\n");
     writeFileSync(join(root, "sub", "b.md"), "two\n");
@@ -168,8 +162,8 @@ describe("files detector", () => {
   });
 
   it("round-trips its state through monitors/<name>.json", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
-    const state = mkdtempSync(join(tmpdir(), "marbles-mon-state-"));
+    const root = temporaryDirectory("marbles-mon-");
+    const state = temporaryDirectory("marbles-mon-state-");
     writeFileSync(join(root, "a.md"), "one\n");
 
     const first = recorder();
@@ -190,7 +184,7 @@ describe("files detector", () => {
   });
 
   it("ignores directories and links matching the file glob", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
+    const root = temporaryDirectory("marbles-mon-");
     try {
       mkdirSync(join(root, "empty.md"));
       writeFileSync(join(root, "a.md"), "one\n");
@@ -222,7 +216,7 @@ describe("files detector", () => {
   });
 
   it("runs as the registered step with an empty poll input", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
+    const root = temporaryDirectory("marbles-mon-");
     writeFileSync(join(root, "guide.md"), "one\n");
     const { changes, contexts, handler } = recorder();
     monitor("**/*.md").do(handler);
@@ -244,7 +238,7 @@ describe("files detector", () => {
   });
 
   it("asks the tick to start a locked node the handler returns", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
+    const root = temporaryDirectory("marbles-mon-");
     writeFileSync(join(root, "guide.md"), "one\n");
     const ship = step("ship")
       .input(z.object({ task: z.string() }))
@@ -263,8 +257,8 @@ describe("files detector", () => {
   });
 
   it("hands a launch out again every tick until the tick that started it acknowledges", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
-    const state = mkdtempSync(join(tmpdir(), "marbles-mon-state-"));
+    const root = temporaryDirectory("marbles-mon-");
+    const state = temporaryDirectory("marbles-mon-state-");
     writeFileSync(join(root, "guide.md"), "one\n");
     const ship = step("ship")
       .input(z.object({ task: z.string() }))
@@ -294,8 +288,8 @@ describe("files detector", () => {
   });
 
   it("a tick starts the launch once, and a target that fails is not started again", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
-    const state = mkdtempSync(join(tmpdir(), "marbles-mon-state-"));
+    const root = temporaryDirectory("marbles-mon-");
+    const state = temporaryDirectory("marbles-mon-state-");
     writeFileSync(join(root, "guide.md"), "one\n");
     let attempts = 0;
     const ship = step("ship")
@@ -333,8 +327,8 @@ describe("files detector", () => {
   });
 
   it("a pending launch whose target is gone fails one tick, not every tick", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
-    const state = mkdtempSync(join(tmpdir(), "marbles-mon-state-"));
+    const root = temporaryDirectory("marbles-mon-");
+    const state = temporaryDirectory("marbles-mon-state-");
     writeFileSync(join(root, "guide.md"), "one\n");
     monitor("**/*.md").do(() => undefined);
     hostIn(root, state);
@@ -365,8 +359,8 @@ describe("files detector", () => {
   });
 
   it("a launch whose start fails for now stays pending and goes out next tick", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
-    const state = mkdtempSync(join(tmpdir(), "marbles-mon-state-"));
+    const root = temporaryDirectory("marbles-mon-");
+    const state = temporaryDirectory("marbles-mon-state-");
     writeFileSync(join(root, "guide.md"), "one\n");
     let setups = 0;
     const bodies: string[] = [];
@@ -411,7 +405,7 @@ describe("files detector", () => {
   });
 
   it("refuses a tree with children from the handler", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
+    const root = temporaryDirectory("marbles-mon-");
     writeFileSync(join(root, "guide.md"), "one\n");
     const a = step("a").do(() => 1);
     const b = step("b")

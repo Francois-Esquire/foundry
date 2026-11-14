@@ -1,5 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Tasks } from "@foundry/tasks";
 import type { TaskEvent } from "@foundry.sh/marbles";
@@ -11,6 +10,7 @@ import type { Engine } from "~/lib/engine";
 import { TASKS } from "~/lib/events/source";
 import { current } from "~/lib/run-scope";
 import { testEngine } from "./helpers/engine";
+import { temporaryDirectory } from "./helpers/temporary";
 
 const NOT_A_SOURCE = /not something Marbles emits/;
 const DISPOSED = /host that held these tasks was disposed/;
@@ -49,7 +49,7 @@ describe("tasks", () => {
     observe(tasks, (payload) => {
       seen.push(payload);
     });
-    const state = mkdtempSync(join(tmpdir(), "marbles-tasks-"));
+    const state = temporaryDirectory("marbles-tasks-");
     const engine = host(state);
     await engine.start();
 
@@ -68,7 +68,7 @@ describe("tasks", () => {
     expectHost();
     await expect(tasks.list()).rejects.toThrow(LOADING);
 
-    const nextState = mkdtempSync(join(tmpdir(), "marbles-tasks-"));
+    const nextState = temporaryDirectory("marbles-tasks-");
     const next = host(nextState);
     await next.start();
     expect((await tasks.list()).items).toEqual([]);
@@ -103,7 +103,7 @@ describe("tasks", () => {
         asked.run().catch(() => undefined);
       }
     });
-    const state = mkdtempSync(join(tmpdir(), "marbles-tasks-"));
+    const state = temporaryDirectory("marbles-tasks-");
     const first = host(state, true);
     await first.start();
     // The start's own pass has no items and no I/O; once it is over, the
@@ -156,7 +156,7 @@ describe("tasks", () => {
     const builder = step("engine-builder").do(async ({ run }) => {
       inner = testEngine({
         print: () => undefined,
-        state: mkdtempSync(join(tmpdir(), "marbles-inner-")),
+        state: temporaryDirectory("marbles-inner-"),
       });
       engines.push(inner);
       inner.observe(TASKS, () => {
@@ -165,7 +165,7 @@ describe("tasks", () => {
       await inner.start();
       return run.id;
     });
-    const outer = host(mkdtempSync(join(tmpdir(), "marbles-tasks-")));
+    const outer = host(temporaryDirectory("marbles-tasks-"));
     await outer.start();
     const builderRun = await builder.run();
     if (inner === undefined) {
