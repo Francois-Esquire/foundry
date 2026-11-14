@@ -2,6 +2,7 @@ export type {
   Blob,
   BlobFiles,
   BlobSource,
+  BlobStagingArea,
   ContentTree,
   StoredFile,
 } from "./blob";

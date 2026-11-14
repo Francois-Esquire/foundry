@@ -1,31 +1,40 @@
-import { readdir, rename, rm } from "node:fs/promises";
+import { readdir, rename, rm, stat, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import {
   hasErrorCode,
   syncDirectory,
   writeFileAtomic,
 } from "@foundry/lib/atomic-file";
-import { processAlive } from "@foundry/lib/file-lock";
 
 import type { BlobStagingArea } from "../blob";
 
 /** Inside the blob root, so promotion is a rename on one filesystem. */
 const STAGING_DIRECTORY = ".staging";
 const STAGED_NAME = /^[a-f0-9-]+$/;
-const OWNER_NAME = /^(\d+)-[a-f0-9-]+$/;
+const OWNER_NAME = /^[a-f0-9-]+$/;
 
-/** The owners this process runs, so a restart that reuses the pid still abandons the old one's. */
+/**
+ * How long an owner's directory may go unchanged before another owner
+ * treats it as abandoned. An owner refreshes it each time it stages a file.
+ */
+export const STAGING_ABANDONED_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/** The owners this process runs: never abandoned, however old. */
 const liveOwners = new Set<string>();
 
 /**
  * Staging for one `blobFiles` root. Each instance writes under its own
- * `.staging/<pid>-<uuid>` directory, which `list`, `read` and `remove` never
- * reach. A directory is abandoned once its owner is gone: its process has
- * exited, or it carries this process's pid but no owner this process runs
- * (a restart that reused the pid, as pid 1 in a container does).
+ * `.staging/<uuid>` directory, which `list`, `read` and `remove` never reach.
+ *
+ * Ownership is judged by age, not by process: processes sharing a root may
+ * not share a pid namespace. A directory this process does not own is
+ * abandoned once it has gone `STAGING_ABANDONED_AFTER_MS` without changing.
+ * So a single chunk that takes longer than that to arrive can have its
+ * staging swept by another owner; its promotion then fails and the change
+ * rejects, with nothing published and no record written.
  */
 export function stagingArea(ready: () => Promise<string>): BlobStagingArea {
-  const owner = `${String(process.pid)}-${crypto.randomUUID()}`;
+  const owner = crypto.randomUUID();
   liveOwners.add(owner);
   /** Swept once, before this instance first stages, so crashes do not wait on `recover`. */
   let swept: Promise<void> | undefined;
@@ -48,8 +57,13 @@ export function stagingArea(ready: () => Promise<string>): BlobStagingArea {
       }
       throw error;
     }
+    const cutoff = Date.now() - STAGING_ABANDONED_AFTER_MS;
     for (const name of owners) {
-      if (isAbandoned(name)) {
+      if (
+        OWNER_NAME.test(name) &&
+        !liveOwners.has(name) &&
+        (await changedAt(join(root, name))) < cutoff
+      ) {
         await rm(join(root, name), { force: true, recursive: true });
       }
     }
@@ -61,11 +75,18 @@ export function stagingArea(ready: () => Promise<string>): BlobStagingArea {
     },
     async promote(staged) {
       const base = await ready();
-      const published = crypto.randomUUID();
-      await rename(await stagedPath(staged), join(base, published));
-      // The rename survives a crash before the records name the file.
-      await syncDirectory(base);
-      return published;
+      const name = crypto.randomUUID();
+      const published = join(base, name);
+      await rename(await stagedPath(staged), published);
+      try {
+        // The rename survives a crash before the records name the file.
+        await syncDirectory(base);
+      } catch (error) {
+        // Not durably published: no record may name it.
+        await rm(published, { force: true }).catch(() => undefined);
+        throw error;
+      }
+      return name;
     },
     async stage(bytes) {
       swept ??= abandon().catch((error: unknown) => {
@@ -73,22 +94,35 @@ export function stagingArea(ready: () => Promise<string>): BlobStagingArea {
       });
       await swept;
       const staged = crypto.randomUUID();
-      await writeFileAtomic(await stagedPath(staged), bytes, {
-        createDirectory: true,
-        fsync: true,
-        mode: 0o400,
-      });
+      const path = await stagedPath(staged);
+      try {
+        await writeFileAtomic(path, bytes, {
+          createDirectory: true,
+          fsync: true,
+          mode: 0o400,
+        });
+        // Refreshed as each file is staged, so a live owner never looks abandoned.
+        const now = new Date();
+        await utimes(await ownDirectory(), now, now);
+      } catch (error) {
+        // The write may have landed before a later step (the directory sync)
+        // failed; nothing tracks this name yet, so it goes here.
+        await rm(path, { force: true }).catch(() => undefined);
+        throw error;
+      }
       return staged;
     },
   };
 }
 
-function isAbandoned(name: string): boolean {
-  const match = OWNER_NAME.exec(name);
-  if (!match) {
-    // Not one this package wrote: left for a person to look at.
-    return false;
+/** When the directory last changed, or now if it is already gone. */
+async function changedAt(path: string): Promise<number> {
+  try {
+    return (await stat(path)).mtimeMs;
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return Date.now();
+    }
+    throw error;
   }
-  const pid = Number(match[1]);
-  return pid === process.pid ? !liveOwners.has(name) : !processAlive(pid);
 }

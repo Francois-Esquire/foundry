@@ -2,7 +2,6 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
 import type { BlobFiles, BlobStagingArea } from "./blob";
-import { stagingOf } from "./blob";
 import { CHUNK_BYTES } from "./constants";
 import { FileTooLargeError, InvalidArtifactInputError } from "./errors";
 import type { EntryInput, EntryInputs, FileInput } from "./substrate";
@@ -68,7 +67,7 @@ export class BlobStaging {
 
   constructor(limits: StagingLimits) {
     this.#files = limits.files;
-    this.#area = stagingOf(limits.files);
+    this.#area = limits.files?.staging;
     this.#maxFileBytes = limits.maxFileBytes;
   }
 
@@ -249,7 +248,7 @@ export class BlobStaging {
 export async function abandonStaging(
   files: BlobFiles | undefined
 ): Promise<void> {
-  await stagingOf(files)?.abandon();
+  await files?.staging?.abandon();
 }
 
 export function checkSize(path: string, size: number, max: number): void {

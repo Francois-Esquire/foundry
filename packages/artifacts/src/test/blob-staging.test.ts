@@ -1,5 +1,11 @@
-import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { lockHolder } from "@foundry/lib/file-lock";
@@ -14,6 +20,7 @@ import {
 } from "../errors";
 import { ArtifactManager } from "../manager";
 import { blobFiles, JsonArtifactStore } from "../node";
+import { STAGING_ABANDONED_AFTER_MS } from "../node/staging";
 import { artifactIdSchema, contentIdSchema } from "../ref";
 import type { ArtifactStore } from "../store";
 import { InMemoryArtifactStore } from "../store/memory";
@@ -76,6 +83,24 @@ async function within(promise: Promise<unknown>, ms = 1000): Promise<string> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+const HOUR = 60 * 60 * 1000;
+
+/** Sets a path's modification time `ms` into the past. */
+async function age(path: string, ms: number): Promise<void> {
+  const then = new Date(Date.now() - ms);
+  await utimes(path, then, then);
+}
+
+/** Staging of an owner outside this process, holding one file, last changed `ms` ago. */
+async function ownerDirectory(blobs: string, ms: number): Promise<string> {
+  const owner = crypto.randomUUID();
+  const directory = join(blobs, ".staging", owner);
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, crypto.randomUUID()), "staged elsewhere");
+  await age(directory, ms);
+  return owner;
 }
 
 /** Every file waiting in a blob root's staging area. */
@@ -397,27 +422,20 @@ describe.each(["memory", "json"] as const)(
       });
     });
 
-    it("recover removes staging whose owner is gone and keeps a live owner's", async () => {
-      const { blobs, manager, settled } = await storage(kind);
+    it("recover removes staging left unchanged past the age, and keeps fresh and live staging", async () => {
+      const { blobs, manager, store } = await storage(kind);
       const artifacts = manager();
       await artifacts.create({
         entries: { "kept.txt": { bytes: "kept" } },
         name: "Kept",
         type: "text/plain",
       });
-      // A process that exited, and a restart that was handed this pid again.
-      const exited = spawnSync(process.execPath, ["-e", ""]).pid;
-      const abandoned = [
-        `${String(exited)}-${crypto.randomUUID()}`,
-        `${String(process.pid)}-${crypto.randomUUID()}`,
-      ];
-      for (const owner of abandoned) {
-        await mkdir(join(blobs, ".staging", owner), { recursive: true });
-        await writeFile(
-          join(blobs, ".staging", owner, crypto.randomUUID()),
-          "left by a crash"
-        );
-      }
+      const old = await ownerDirectory(
+        blobs,
+        STAGING_ABANDONED_AFTER_MS + HOUR
+      );
+      // Another process's staging, written a moment ago.
+      const fresh = await ownerDirectory(blobs, 0);
       // A crash after promotion, before the commit: a file no record names.
       await writeFile(
         join(blobs, crypto.randomUUID()),
@@ -432,17 +450,30 @@ describe.each(["memory", "json"] as const)(
       });
       try {
         expect(await within(gate.waiting)).toBe("resolved");
+        // The live change's staging: the directory holding its staged chunk.
+        const own = required(
+          (await stagedFiles(blobs))
+            .map((path) => path.split("/")[0])
+            .find((name) => name !== fresh)
+        );
+        // Older than the age, but its owner runs in this process.
+        await age(
+          join(blobs, ".staging", own),
+          STAGING_ABANDONED_AFTER_MS + HOUR
+        );
         await artifacts.recover();
-        expect(await stagedFiles(blobs)).toHaveLength(1);
         const owners = await readdir(join(blobs, ".staging"));
-        for (const owner of abandoned) {
-          expect(owners).not.toContain(owner);
-        }
+        expect(owners).not.toContain(old);
+        expect(owners).toEqual(expect.arrayContaining([fresh, own]));
+        expect(await stagedFiles(blobs)).toHaveLength(2);
       } finally {
         gate.release();
       }
       await staging;
-      await settled();
+      expect(await stagedFiles(blobs)).toEqual([
+        expect.stringMatching(new RegExp(`^${fresh}`)),
+      ]);
+      expect(await publishedFiles(blobs)).toEqual(await referencedFiles(store));
       expect((await artifacts.list()).total).toBe(2);
     });
   }
@@ -742,19 +773,18 @@ describe("Staged blob bytes without files, and refusals ahead of them", () => {
   });
 });
 
-describe("Staging a crashed process left", () => {
-  it("is removed when an instance first stages, without recover", async () => {
+describe("Staging another owner left", () => {
+  it("is removed past the age when an instance first stages, without recover", async () => {
     const { blobs, manager } = await storage("memory");
-    const exited = spawnSync(process.execPath, ["-e", ""]).pid;
-    const owner = `${String(exited)}-${crypto.randomUUID()}`;
-    await mkdir(join(blobs, ".staging", owner), { recursive: true });
-    await writeFile(join(blobs, ".staging", owner, crypto.randomUUID()), "x");
+    const old = await ownerDirectory(blobs, STAGING_ABANDONED_AFTER_MS + HOUR);
+    const fresh = await ownerDirectory(blobs, 0);
     await manager().create({
       entries: { "f.txt": { bytes: "fresh" } },
       name: "Fresh",
       type: "text/plain",
     });
-    expect(await readdir(join(blobs, ".staging"))).not.toContain(owner);
-    expect(await stagedFiles(blobs)).toEqual([]);
+    const owners = await readdir(join(blobs, ".staging"));
+    expect(owners).not.toContain(old);
+    expect(owners).toContain(fresh);
   });
 });

@@ -4,7 +4,6 @@ import { join, resolve } from "node:path";
 import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 
 import type { BlobFiles } from "../blob";
-import { blobStaging } from "../blob";
 import { stagingArea } from "./staging";
 
 /**
@@ -29,7 +28,7 @@ export function blobFiles(root: string): BlobFiles {
     }
     return path;
   }
-  const files: BlobFiles = {
+  return {
     async *list() {
       for (const entry of await readdir(await ready(), {
         withFileTypes: true,
@@ -87,7 +86,6 @@ export function blobFiles(root: string): BlobFiles {
         }
       }
     },
+    staging: stagingArea(ready),
   };
-  // Staging is the package's own capability, kept off the `BlobFiles` a host implements.
-  return Object.assign(files, { [blobStaging]: stagingArea(ready) });
 }
