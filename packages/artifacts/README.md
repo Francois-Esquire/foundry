@@ -277,19 +277,35 @@ store itself from there rejects at once rather than waiting on itself. The manag
 every change, and every read of several records, through it.
 
 `create`, `write` and `revise` take their bytes in before the change enters that
-exclusion: every input is read and hashed, and with `blobFiles` written to its staging
-area (`.staging/` under the blob root, which listing never reaches), so a slow or
-stalled source holds neither the manager's queue nor the store, nor the JSON file lock.
-Inside the transaction the change only resolves deduplication, promotes the staged files
-it keeps to published names, and commits. A change carrying a stream may commit after a
-later change that reached the store sooner; changes without one commit in call order.
-Staged files a change does not keep are discarded when it settles. Staging left by a
-process that is gone is removed the first time a `blobFiles` instance stages, and by
-`recover`.
+exclusion when `files` offers staging (`BlobFiles.staging`, an optional capability that
+`blobFiles` implements): every input is read, hashed and written to the staging area
+(`.staging/` under the blob root, which listing never reaches), so a slow or stalled
+source holds neither the manager's queue nor the store, nor the JSON file lock. A
+`BlobFiles` without `staging` keeps publishing the bytes inside the change. Before any
+byte is staged, the change is checked against a consistent view that includes every
+change this manager queued before it: names, ids, paths, blob references, fences, and
+which objects an in-place write would rewrite. Inside the transaction the change checks
+again, refuses with `StaleContentError` if a fence or the ownership of an object it would
+rewrite changed meanwhile, resolves deduplication, promotes the staged files it keeps to
+published names, and commits. Staging stops as soon as the bytes taken in exceed the tree
+limit, and one manager reads at most eight streams ahead at once.
 
-Known limit: a stream is still read inside the exclusion when it is passed to a handle
-inside `transaction(work)`, or when `files` is a `BlobFiles` other than `blobFiles`
-(which has nowhere to stage). Pass streams to `create`, `write` or `revise` directly.
+Changes one manager makes to the same Artifact commit in call order: a later change to
+an Artifact waits for an earlier stream change to it to settle. A stalled stream
+therefore delays later changes to that Artifact only; other Artifacts, reads and other
+managers go on. Order across managers is not promised, nor for changes named only by
+Content or made inside `transaction(work)`.
+
+Staged files a change does not keep are discarded when it settles. Each `blobFiles`
+instance stages under its own directory and refreshes it whenever it stages a file; a
+directory no owner in this process holds is abandoned once it has gone 24 hours
+unchanged, and removed the first time an instance stages and by `recover`. A single
+chunk that takes longer than that to arrive can have its staging removed; its promotion
+then fails and the change rejects, with nothing published.
+
+Known limits: a stream is still read inside the exclusion when it is passed to a handle
+inside `transaction(work)`, or when `files` has no `staging`. Pass streams to `create`,
+`write` or `revise` directly.
 
 Blob bytes commit as records: inline bytes inside the blob, or the name of an
 immutable file `blobFiles` promoted or published before the commit. When a commit fails, the
