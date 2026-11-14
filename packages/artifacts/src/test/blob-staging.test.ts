@@ -9,13 +9,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { lockHolder } from "@foundry/lib/file-lock";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BlobFiles } from "../blob";
 import { MAX_STAGING_STREAMS } from "../blob-staging";
 import { CHUNK_BYTES } from "../constants";
 import {
   ArtifactNotFoundError,
+  ContentNotFoundError,
+  ContentStateError,
   FileTooLargeError,
   InvalidArtifactInputError,
   StaleContentError,
@@ -1087,3 +1089,142 @@ describe.each(["memory", "json"] as const)(
     });
   }
 );
+
+describe.each(["memory", "json"] as const)(
+  "%s store: Content-named changes reserve their place",
+  (kind) => {
+    it("keeps a freeze ahead of a later write to its Artifact", async () => {
+      const { manager } = await storage(kind);
+      const artifacts = manager();
+      const created = await artifacts.create({
+        entries: { "f.txt": { bytes: "start" } },
+        name: "Reserved",
+        type: "text/plain",
+      });
+      const contentId = required(created.contentId);
+      const gate = gated([], [text("streamed")]);
+      const streaming = artifacts.write({
+        artifactId: created.id,
+        changes: { put: { "f.txt": { source: gate.source } } },
+      });
+      let freezing: Promise<unknown> | undefined;
+      let later: Promise<unknown> | undefined;
+      try {
+        expect(await within(gate.waiting)).toBe("resolved");
+        freezing = artifacts.freeze(contentId);
+        later = artifacts.write({
+          artifactId: created.id,
+          changes: { put: { "f.txt": { bytes: "later" } } },
+        });
+        later.catch(() => undefined);
+      } finally {
+        gate.release();
+      }
+      await streaming;
+      await freezing;
+      await expect(later).rejects.toBeInstanceOf(ContentStateError);
+      const content = await artifacts.getContent(contentId);
+      expect(content?.state).toBe("frozen");
+      expect(
+        decoded((await artifacts.readFile(contentId, "f.txt"))?.blob)
+      ).toBe("streamed");
+    });
+  }
+);
+
+/** A memory store whose next outer `getContent` fails, once. */
+class FailingLookups extends InMemoryArtifactStore {
+  failNext: boolean;
+
+  constructor() {
+    super();
+    this.failNext = false;
+  }
+
+  override getContent(id: ContentId): Promise<Content | null> {
+    if (this.failNext) {
+      this.failNext = false;
+      return Promise.reject(new Error("lookup failed"));
+    }
+    return super.getContent(id);
+  }
+}
+
+describe("A Content-named change's reservation", () => {
+  async function pending(store: ArtifactStore) {
+    const artifacts = new ArtifactManager({ store });
+    const [streamed, other] = await Promise.all(
+      ["Streamed", "Other"].map((name) =>
+        artifacts.create({
+          entries: { "f.txt": { bytes: name } },
+          name,
+          type: "text/plain",
+        })
+      )
+    );
+    const gate = gated([], [text("streamed")]);
+    const streaming = artifacts.write({
+      artifactId: required(streamed).id,
+      changes: { put: { "f.txt": { source: gate.source } } },
+    });
+    await gate.waiting;
+    return {
+      artifacts,
+      gate,
+      other: required(other),
+      streamed: required(streamed),
+      streaming,
+    };
+  }
+
+  it("is released when its lookup fails, so later changes proceed", async () => {
+    const store = new FailingLookups();
+    const { artifacts, gate, other, streamed, streaming } =
+      await pending(store);
+    try {
+      store.failNext = true;
+      await expect(
+        artifacts.tag(required(streamed.contentId), "v1")
+      ).rejects.toThrow("lookup failed");
+      expect(
+        await within(artifacts.rename(other.id, "renamed while stalled"))
+      ).toBe("resolved");
+    } finally {
+      gate.release();
+    }
+    await streaming;
+    expect(await within(artifacts.rename(streamed.id, "after"))).toBe(
+      "resolved"
+    );
+  });
+
+  it("is released when its lookup finds no Content, so later changes proceed", async () => {
+    const { artifacts, gate, other, streaming } = await pending(
+      new InMemoryArtifactStore()
+    );
+    try {
+      await expect(
+        artifacts.tag(contentIdSchema.parse(crypto.randomUUID()), "v1")
+      ).rejects.toBeInstanceOf(ContentNotFoundError);
+      expect(
+        await within(artifacts.rename(other.id, "renamed while stalled"))
+      ).toBe("resolved");
+    } finally {
+      gate.release();
+    }
+    await streaming;
+  });
+
+  it("is not taken, and nothing is read for it, when no stream is pending", async () => {
+    const store = new InMemoryArtifactStore();
+    const artifacts = new ArtifactManager({ store });
+    const created = await artifacts.create({
+      entries: { "f.txt": { bytes: "x" } },
+      name: "Idle",
+      type: "text/plain",
+    });
+    const reads = vi.spyOn(store, "getContent");
+    await artifacts.freeze(required(created.contentId));
+    expect(reads).not.toHaveBeenCalled();
+  });
+});

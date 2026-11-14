@@ -106,6 +106,10 @@ export class ArtifactManager implements Artifacts {
   readonly #scope = new AsyncLocalStorage<TransactionScope>();
   #tail: Promise<unknown> = Promise.resolve();
   readonly #stagingTurns = new StagingTurns();
+  /** Content-named changes still looking up their Artifact, in call order. */
+  #lookups = 0;
+  /** Settles once every Content-named change called so far has taken its place. */
+  #looked: Promise<void> = Promise.resolve();
   /** Per Artifact, the latest change whose place in call order is not yet secured. */
   readonly #ordered = new Map<ArtifactId, Promise<void>>();
 
@@ -609,6 +613,20 @@ export class ArtifactManager implements Artifacts {
     streams: boolean,
     start: (settled: () => void) => Promise<T>
   ): Promise<T> {
+    if (this.#lookups === 0 || this.#joined()) {
+      return this.#register(id, streams, start);
+    }
+    // Behind every Content-named change called earlier, once each has
+    // taken its place in its Artifact's order.
+    return this.#looked.then(() => this.#register(id, streams, start));
+  }
+
+  /** `#inOrder` once no earlier Content-named change is still looking up its Artifact. */
+  #register<T>(
+    id: ArtifactId | undefined,
+    streams: boolean,
+    start: (settled: () => void) => Promise<T>
+  ): Promise<T> {
     const unheld = () => undefined;
     if (id === undefined || this.#joined()) {
       return start(unheld);
@@ -638,18 +656,45 @@ export class ArtifactManager implements Artifacts {
   }
 
   /**
-   * `#inOrder` for a change named by Content: its Artifact, read from the
-   * store, only while some stream change is pending; otherwise the change
-   * starts at once, as any change with nothing ahead of it does. A
-   * Content's Artifact never changes, so one read suffices.
+   * `#inOrder` for a change named by Content. With no stream change pending
+   * and no lookup under way, it starts at once and reads nothing. Otherwise
+   * it reserves its place at call time: changes called after it, of any
+   * kind, wait (outside the queue) until it has read its Content's Artifact
+   * from the store and taken its place in that Artifact's order. A lookup
+   * that fails, or finds no Content, gives the place up, and the change
+   * rejects as it would have. A Content's Artifact never changes, so one
+   * read suffices.
    */
   #inOrderOfContent<T>(id: ContentId, start: () => Promise<T>): Promise<T> {
-    if (this.#ordered.size === 0 || this.#joined()) {
+    if (this.#joined() || (this.#ordered.size === 0 && this.#lookups === 0)) {
       return start();
     }
-    return this.#store
-      .getContent(id)
-      .then((content) => this.#inOrder(content?.artifactId, false, start));
+    const earlier = this.#looked;
+    let placed!: () => void;
+    const place = new Promise<void>((resolve) => {
+      placed = resolve;
+    });
+    this.#lookups += 1;
+    this.#looked = earlier.then(() => place);
+    const release = () => {
+      this.#lookups -= 1;
+      placed();
+    };
+    return earlier
+      .then(() => this.#store.getContent(id))
+      .then(
+        (content) => {
+          // Registered before the place is released, so changes waiting on
+          // it find this change ahead of them.
+          const result = this.#register(content?.artifactId, false, start);
+          release();
+          return result;
+        },
+        (error: unknown) => {
+          release();
+          throw error;
+        }
+      );
   }
 
   /** `check` in this manager's turn, over one consistent view of the store. */
