@@ -51,6 +51,22 @@ describe("record schemas", () => {
     }
   });
 
+  test("a write leaves a key out; it never sets one to undefined", () => {
+    expect(taskStoreWriteSchema.parse({})).toEqual({});
+    for (const key of [
+      "deleteDependencies",
+      "deleteTasks",
+      "event",
+      "putDependencies",
+      "putTasks",
+    ]) {
+      expect(
+        taskStoreWriteSchema.safeParse({ [key]: undefined }).success,
+        key
+      ).toBe(false);
+    }
+  });
+
   test("a snapshot parses strictly, unchanged", async () => {
     const store = await history();
     const snapshot = await store.snapshot();
