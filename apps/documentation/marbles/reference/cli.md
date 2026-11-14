@@ -179,12 +179,23 @@ row states, when a server or the configuration gave one, else at the
 models.dev list price for it, and keeps that price with the turn; `~` marks
 an estimate. Marbles fetches models.dev when an engine starts and when
 Airplane Mode turns off, keeps it once it loads, and never waits for it. A
-fetch that fails is tried again the next time. Claude Code's own `total_cost_usd` is
-not recorded: it is a running total for the session, and whether a resumed
-call includes earlier turns depends on the Claude Code version. A turn
-without a price is counted as unpriced, never as zero, and a run with no
-recorded turns shows "no usage recorded". A step's total includes its
-descendants' turns once.
+fetch that fails is tried again the next time.
+
+Claude Code reports `total_cost_usd`, a running total for its CLI session.
+Marbles records it only for a turn that made one model call and resumed no
+session: in practice the first turn of a Claude Code session on this
+machine, when the provider's settings name no `resume`, `continue` or
+`sessionId`. Every later turn resumes the session, so its figure may
+include earlier turns; that turn is priced from its tokens like any other,
+or its cost stays unknown. A turn in a sandbox never gets the figure. The
+CLI computes it from its own price table, so it is stored as Claude Code's
+own figure and shown as an estimate (`~`). On an API key it estimates what
+the API bills. On a subscription nothing is billed per token, so it is what
+the work would cost at API prices.
+
+A turn without a price is counted as unpriced, never as zero, and a run
+with no recorded turns shows "no usage recorded". A step's total includes
+its descendants' turns once.
 
 A committed turn whose usage was not saved is found again in its session
 transcript: its tokens count, its cost is unknown, and the total says "not

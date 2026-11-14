@@ -1,7 +1,15 @@
-import type { ClaudeCodeProviderSettings } from "ai-sdk-provider-claude-code";
-
+import type {
+  LanguageModelV4,
+  LanguageModelV4StreamPart,
+  SharedV4ProviderMetadata,
+} from "@ai-sdk/provider";
+import { wrapLanguageModel } from "ai";
+import type {
+  ClaudeCodeProviderSettings,
+  ClaudeCodeSettings,
+} from "ai-sdk-provider-claude-code";
 import { createClaudeCode } from "ai-sdk-provider-claude-code";
-
+import { CLAUDE_CODE_FRESH } from "./cost";
 import { liveEnvironmentOverlay } from "./environment";
 import type { Provider } from "./provider";
 import { vendorClient } from "./provider";
@@ -80,16 +88,108 @@ export function claudeCodeProvider(
           `Claude Code maxTurns must be an integer between 1 and ${CLAUDE_CODE_MAX_TURNS}`
         );
       }
-      return vendor.client.languageModel(modelId, {
-        env: liveEnvironmentOverlay(options.env, undefined),
-        ...(opts?.workingDirectory ? { cwd: opts.workingDirectory } : {}),
-        ...(limit === undefined ? {} : { maxTurns: limit }),
-      });
+      return markFreshCalls(
+        vendor.client.languageModel(modelId, {
+          env: liveEnvironmentOverlay(options.env, undefined),
+          ...(opts?.workingDirectory ? { cwd: opts.workingDirectory } : {}),
+          ...(limit === undefined ? {} : { maxTurns: limit }),
+        })
+      );
     },
     models: options.models ?? CLAUDE_CODE_DEFAULT_MODELS,
     offline: false,
     turnLimit: "native",
   };
+}
+
+/**
+ * Whether a call with these settings resumes nothing it was told to: no
+ * `resume`, `continue` or `sessionId`, in the settings or their
+ * `sdkOptions` overlay. Settings it cannot read prove nothing.
+ */
+function resumesNothing(settings: ClaudeCodeSettings | undefined): boolean {
+  if (!settings) {
+    return false;
+  }
+  const sdk = settings.sdkOptions;
+  return (
+    settings.resume === undefined &&
+    sdk?.resume === undefined &&
+    (sdk?.continue ?? settings.continue) !== true &&
+    settings.sessionId === undefined &&
+    sdk?.sessionId === undefined
+  );
+}
+
+function marked(
+  metadata: SharedV4ProviderMetadata | undefined
+): SharedV4ProviderMetadata {
+  return {
+    ...metadata,
+    [CLAUDE_CODE_FRESH.key]: {
+      ...metadata?.[CLAUDE_CODE_FRESH.key],
+      [CLAUDE_CODE_FRESH.field]: true,
+    },
+  };
+}
+
+/**
+ * Mark the call that resumed no session (see `CLAUDE_CODE_FRESH`). The
+ * settings are the instance's own, default settings merged in. Only the
+ * first call on an instance can be fresh: once a call has started, the
+ * instance resumes the session the CLI opened for it. Every other call is
+ * passed through unmarked.
+ */
+function markFreshCalls(model: LanguageModelV4): LanguageModelV4 {
+  let started = false;
+  const fresh = () => {
+    const first = !started;
+    started = true;
+    return (
+      first &&
+      resumesNothing((model as { settings?: ClaudeCodeSettings }).settings)
+    );
+  };
+  return wrapLanguageModel({
+    middleware: {
+      specificationVersion: "v4",
+      async wrapGenerate({ doGenerate }) {
+        const own = fresh();
+        const result = await doGenerate();
+        return own
+          ? { ...result, providerMetadata: marked(result.providerMetadata) }
+          : result;
+      },
+      async wrapStream({ doStream }) {
+        const own = fresh();
+        const result = await doStream();
+        if (!own) {
+          return result;
+        }
+        return {
+          ...result,
+          stream: result.stream.pipeThrough(
+            new TransformStream<
+              LanguageModelV4StreamPart,
+              LanguageModelV4StreamPart
+            >({
+              transform(part, controller) {
+                controller.enqueue(
+                  part.type === "finish"
+                    ? {
+                        ...part,
+                        providerMetadata: marked(part.providerMetadata),
+                      }
+                    : part
+                );
+              },
+            })
+          ),
+        };
+      },
+    },
+    model,
+  });
 }
 
 /** The environment comes only from `env`; config that would set or bypass it is refused. */

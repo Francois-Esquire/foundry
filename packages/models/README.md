@@ -148,6 +148,16 @@ Pure leaves a renderer can import without the Node-only runtime:
 usage)` prices a turn with cache and tiered rates. Use these subpaths for browser
 code; the root entry also imports registry and observability code.
 
+`claudeCodeCallCost(providerMetadata)` returns what Claude Code reported a
+call cost (its `total_cost_usd`), only for a call that resumed no session.
+That figure is a running total for the CLI session, so only such a call has
+a figure of its own. The Claude Code provider marks that call in
+`providerMetadata.foundry.claudeCodeFresh`. It marks a call only when the
+model's settings, default settings included, name no `resume`, `continue`
+or `sessionId`, and no earlier call ran on the same model instance, since
+the instance resumes the session its first call opened. The CLI computes
+the figure from its own price table on any login, so it is an estimate.
+
 ## Observability · errors
 
 `beginTurnObservation()` opens one wide event per turn; `observeAgentTurn` is
