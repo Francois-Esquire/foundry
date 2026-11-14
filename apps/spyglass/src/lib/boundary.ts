@@ -36,12 +36,21 @@ import type {
 // answers with native reads; the boundary values and the lookups that read
 // nothing are `boundary-model.ts`.
 
-/** The manifest rules' questions, answered by the native file system. */
+/**
+ * The manifest rules' questions, answered by the native file system.
+ * `childDirectories` lists in code-unit order of the names, as the file-map
+ * reader does: Node's `readdirSync` sorts, but Bun's returns the file
+ * system's own order (hash order on ext4), and a name lookup that stops at
+ * the first match, or meets a malformed manifest on the way, must not
+ * depend on which runtime or file system listed the directory.
+ */
 export const nativeRepositoryReader: RepositoryReader = {
   childDirectories: (dir) =>
     readdirSync(dir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
-      .map((entry) => join(dir, entry.name)),
+      .map((entry) => entry.name)
+      .sort((a, b) => (a < b ? -1 : Number(a > b)))
+      .map((name) => join(dir, name)),
   exists: existsSync,
   isDirectory: (path) => existsSync(path) && statSync(path).isDirectory(),
   readFile: (path) => readFileSync(path, "utf8"),

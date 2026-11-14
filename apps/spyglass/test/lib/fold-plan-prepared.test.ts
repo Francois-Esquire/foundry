@@ -42,6 +42,13 @@ const guard = vi.hoisted(() => {
   return {
     attempts,
     blocked,
+    /**
+     * Directory listing order. `native` is whatever the file system and
+     * runtime give: Node sorts `readdirSync` (libuv's scandir), Bun returns
+     * the file system's own order, which on ext4 is hash order. The others
+     * impose an order, so a test can hold the planner to every listing.
+     */
+    order: "native" as "ascending" | "descending" | "native",
     wrap<A extends unknown[], R>(
       name: string,
       fn: (...args: A) => R
@@ -63,7 +70,22 @@ vi.mock("node:fs", async (importOriginal) => {
     ...original,
     existsSync: guard.wrap("existsSync", original.existsSync),
     lstatSync: guard.wrap("lstatSync", original.lstatSync),
-    readdirSync: guard.wrap("readdirSync", original.readdirSync),
+    readdirSync: guard.wrap("readdirSync", ((...args: unknown[]) => {
+      const entries = (original.readdirSync as (...a: unknown[]) => unknown[])(
+        ...args
+      );
+      if (guard.order === "native") {
+        return entries;
+      }
+      const name = (entry: unknown) =>
+        typeof entry === "string"
+          ? entry
+          : String((entry as { name: unknown }).name);
+      const ascending = [...entries].sort((a, b) =>
+        name(a) < name(b) ? -1 : Number(name(a) > name(b))
+      );
+      return guard.order === "ascending" ? ascending : ascending.reverse();
+    }) as typeof original.readdirSync),
     readFileSync: guard.wrap("readFileSync", original.readFileSync),
     realpathSync: guard.wrap("realpathSync", original.realpathSync),
     statSync: guard.wrap("statSync", original.statSync),
@@ -155,6 +177,7 @@ const tempRoots: string[] = [];
 beforeEach(() => {
   guard.blocked.clear();
   guard.attempts.length = 0;
+  guard.order = "native";
 });
 
 afterAll(() => {
@@ -492,11 +515,16 @@ describe("fold inputs", () => {
       "packages/zzz/package.json": JSON.stringify({ name: "@s/zzz" }),
       "packages/zzz/src/index.ts": "export {};\n",
     });
-    const source = resolveBoundary(root, "packages/src");
-    const { native, prepared } = planBothWays(source, "@s/zzz");
-    expect(prepared).toEqual(native);
-    expect(prepared[0]?.destination.resolution).toBe("unresolved");
-    expect(prepared[0]?.status).toBe("unsupported");
+    // The scan's order is the code-unit order of the names, whatever order
+    // the file system lists them in, so `aaa` is always met first.
+    for (const order of ["ascending", "descending"] as const) {
+      guard.order = order;
+      const source = resolveBoundary(root, "packages/src");
+      const { native, prepared } = planBothWays(source, "@s/zzz");
+      expect(prepared).toEqual(native);
+      expect(prepared[0]?.destination.resolution).toBe("unresolved");
+      expect(prepared[0]?.status).toBe("unsupported");
+    }
   });
 
   it("keeps the in-operator test of manifest sections", () => {

@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type * as BrowserAnalysis from "../src/lib/browser-analysis";
 import { createFileMapScanner } from "../src/lib/file-map-scanner";
 import { scanGitHubRepository } from "../src/lib/repository-scan";
+import { canonicalizeSemanticsArtifact } from "../src/lib/semantics-equivalence";
 import type { FakeRepository } from "./lib/helpers/github-fake";
 import { fakeGitHub } from "./lib/helpers/github-fake";
 
@@ -11,7 +12,10 @@ import { fakeGitHub } from "./lib/helpers/github-fake";
 // analysis): one module with no import left, whose process, require and
 // file-system shims run here as they run in a page, giving the same
 // dataset, artifact for artifact, as the sources scanning the same
-// repository. Only timings, which no two runs share, are set aside.
+// repository. Only timings, which no two runs share, are set aside: the
+// generation record's clock fields here, and the V8 simulation clocks by
+// the documented canonical rules. The clock runs unevenly, so the two
+// scans never share a timing by chance.
 
 const ASSET = resolve(
   import.meta.dirname,
@@ -55,7 +59,13 @@ const repository: FakeRepository = {
   refs: { main: COMMIT },
 };
 
-/** Every artifact's JSON, with wall-clock timings removed. */
+/**
+ * Every artifact's JSON, with wall-clock timings removed. The manifest keeps
+ * its generation record, less the clock fields; every other artifact is
+ * compared canonically (`canonicalizeSemanticsArtifact`), which removes only
+ * the documented volatile fields: the V8 simulation `runtimeMs` of each
+ * package report.
+ */
 function artifacts(dataset: {
   paths: readonly string[];
   text(path: string): string | undefined;
@@ -68,12 +78,32 @@ function artifacts(dataset: {
       ? undefined
       : value;
   return Object.fromEntries(
-    dataset.paths.map((path) => [
-      path,
-      JSON.parse(dataset.text(path) ?? "null", timeless),
-    ])
+    dataset.paths.map((path) => {
+      const value: unknown = JSON.parse(dataset.text(path) ?? "null", timeless);
+      return [
+        path,
+        path === "manifest.json"
+          ? value
+          : canonicalizeSemanticsArtifact(path, value),
+      ];
+    })
   );
 }
+
+/** A monotonic clock whose every step is longer than the last. */
+function unevenClock() {
+  let now = 0;
+  let step = 0;
+  return vi.spyOn(performance, "now").mockImplementation(() => {
+    step += 1;
+    now += step * 0.37;
+    return now;
+  });
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("the built browser analysis asset", () => {
   it("is one module with no import left for a page to resolve", () => {
@@ -85,6 +115,7 @@ describe("the built browser analysis asset", () => {
 
   it("scans as the sources do, with its own shims, running no repository code", async () => {
     const asset = (await import(ASSET)) as typeof BrowserAnalysis;
+    unevenClock();
     const run = (
       scanner: ReturnType<typeof createFileMapScanner>,
       scan: typeof scanGitHubRepository
