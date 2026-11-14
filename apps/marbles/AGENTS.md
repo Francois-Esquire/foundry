@@ -48,8 +48,10 @@ Five buckets, each importing only what sits below it:
   connects them itself. It owns its run scopes and its trigger state; no
   module global holds either. The workspace's tasks reach it through
   `records` (`lib/events/records.ts`): the host hands in the database's
-  (`database/tasks.ts`), and without one they are in memory, whatever
-  `state` is. Each manager has the plain operation as a
+  (`database/tasks.ts`), and without one the `lib/` class keeps them in
+  memory, whatever `state` is. The class the package publishes is
+  `entries/engine.ts`, a tier above `lib/` and `database/`: given `state`
+  and no `records`, it opens the database's (`database/managed.ts`). Each manager has the plain operation as a
   method, usable on the engine directly, and `scoped(frame)` for the view a
   step body gets, which adds replay, cancellation, and cleanup on top; new
   manager behavior goes in the plain method. The engine owns its registry
@@ -94,7 +96,9 @@ Five buckets, each importing only what sits below it:
   each change they commit (`marbles_task_changes`), written by the store's
   `onCommit` hook on the transaction it is handed, so a change and its row
   commit together. That hook is the seam for anything else that records
-  task changes. A task command with no worker opens the database per
+  task changes. Every writer handle goes through `guard.ts`, which
+  refuses a transaction once another Marbles has migrated the file past
+  this one. A task command with no worker opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
   A store takes `{ database }` (`StoreDatabase`, the type a package store
   declares too), the database or one of its transactions; a package store
@@ -175,8 +179,10 @@ engine API goes on `@foundry.sh/marbles/lib`, not there. That entry exports
 `Engine`, types, a few constants, and the package classes the constructor's
 instances are built from; do not add loose functions to it. Public entries:
 `@foundry.sh/marbles` (`authoring/index.ts`), `@foundry.sh/marbles/prebuilt`,
-`@foundry.sh/marbles/lib` (`lib/index.ts`),
-`@foundry.sh/marbles/engine` (`lib/embedded.ts`),
+`@foundry.sh/marbles/lib` (`entries/lib.ts`: `lib/index.ts` with the
+published `Engine`),
+`@foundry.sh/marbles/engine` (`entries/engine.ts`: `lib/embedded.ts` with
+the published `Engine`),
 `@foundry.sh/marbles/statuses` (`lib/execution-statuses.ts`),
 `@foundry.sh/marbles/workspace`
 (`workspace/index.ts`: host one workspace programmatically), and

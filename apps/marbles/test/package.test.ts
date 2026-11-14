@@ -247,7 +247,12 @@ console.log(String(review), "|", String(prompts.codex\`Use \${ref.skill("review"
     writeFileSync(
       join(consumer, "embedded.ts"),
       `
+import { Tasks } from "@foundry.sh/marbles";
 import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager } from "@foundry.sh/marbles/engine";
+import { openWorkspaceRecords, type WorkspaceRecords } from "@foundry.sh/marbles/workspace";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 const engine = new Engine({
   artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
   containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
@@ -270,6 +275,38 @@ const value = await engine.run<number>("host-save", { n: 1 });
 const [recorded] = engine.executions.list();
 await engine.dispose();
 console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.observations.length);
+// Given a state dir, the engine keeps its tasks across a dispose, in the
+// Marbles database it opens there; a host may hand in its own records.
+const state = mkdtempSync(join(tmpdir(), "marbles-embedded-"));
+const persisted = () => new Engine({
+  artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+  containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
+  models: new ModelManager(),
+  root: ".",
+  sessions: new InMemorySessionStore(),
+  state,
+  workspaceId: "embedded",
+});
+const writer = persisted();
+const created = await new Tasks({ store: writer.taskStore }).create({ title: "Kept across a dispose" });
+await writer.dispose();
+const reader = persisted();
+const kept = await new Tasks({ store: reader.taskStore }).get(created.id);
+await reader.dispose();
+const stateRoot = mkdtempSync(join(tmpdir(), "marbles-records-"));
+const records: WorkspaceRecords = openWorkspaceRecords({ state: stateRoot, workspaceId: "own" });
+const own = new Engine({
+  artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+  containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
+  models: new ModelManager(),
+  records,
+  root: ".",
+  sessions: new InMemorySessionStore(),
+  workspaceId: "own",
+});
+await new Tasks({ store: own.taskStore }).create({ title: "In the host's records" });
+await own.dispose();
+console.log("persisted", kept?.title, existsSync(join(state, "marbles.db")), existsSync(join(stateRoot, "marbles.db")));
 `
     );
     // Loading the engine entry loads no CLI SDK: they sit behind dynamic imports.
@@ -306,9 +343,9 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
     expect(run("bun", ["host.ts"], consumer)).toContain(
       "Hello host sees files packed-workflow,host-inventory"
     );
-    expect(run("bun", ["embedded.ts"], consumer)).toContain(
-      "embedded 2 system complete 1"
-    );
+    const embedded = run("bun", ["embedded.ts"], consumer);
+    expect(embedded).toContain("embedded 2 system complete 1");
+    expect(embedded).toContain("persisted Kept across a dispose true true");
     const cli = join(consumer, "node_modules/.bin/marbles");
     for (const command of [[], ["run"]]) {
       const terminal = await inspectDashboard(cli, consumer, command);

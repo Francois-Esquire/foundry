@@ -23,6 +23,12 @@ export type { Containers } from "@foundry/sandbox/container/containers";
 
 export type { EngineOptions } from "./engine";
 export { Engine, RunEndedError } from "./engine";
+export type {
+  PendingQuery,
+  StreamItem,
+  WorkspaceRecords,
+} from "./events/records";
+export { MemoryWorkspaceRecords } from "./events/records";
 export type { ExecutionStatus } from "./execution-statuses";
 export {
   EXECUTION_STATUSES,
