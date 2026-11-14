@@ -75,6 +75,7 @@ it("lets an exited process's queued run in again only once the start has succeed
   const unreadable: WorkspaceRecords = {
     close: () => memory.close(),
     deliver: (id, hash) => memory.deliver(id, hash),
+    latest: () => Promise.reject(new Error("the records cannot be read")),
     pending: () => Promise.reject(new Error("the records cannot be read")),
     taskStore: memory.taskStore,
     watch: (listener) => memory.watch(listener),

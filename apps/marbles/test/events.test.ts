@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import type { TaskEvent } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import { sql } from "drizzle-orm";
@@ -15,6 +16,7 @@ import {
 } from "vitest";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import type { Engine } from "~/lib/engine";
+import { DELIVERY_POLL_MS } from "~/lib/events/delivery";
 import type { Handler } from "~/lib/events/source";
 import { TASKS } from "~/lib/events/source";
 import { testEngine } from "./helpers/engine";
@@ -393,7 +395,7 @@ describe("observing tasks", () => {
     const records = machine.records(state);
     const tasks = new Tasks({ store: records.taskStore });
     await tasks.create({ title: "Shared" });
-    const [item] = await records.pending();
+    const [item] = await records.pending({ handlers: ["a", "b"] });
     if (item === undefined) {
       throw new Error("no change recorded");
     }
@@ -407,7 +409,7 @@ describe("observing tasks", () => {
     await records.close();
 
     const reopened = machine.records(state);
-    const items = await reopened.pending();
+    const items = await machine.changes(state);
     expect(
       items.find((entry) => entry.id === item.id)?.delivered.toSorted()
     ).toEqual(["a", "b"]);
@@ -445,7 +447,7 @@ describe("observing tasks", () => {
     const reopened = machine.records(state);
     const [kept] = (await reopened.taskStore.snapshot()).tasks;
     expect(kept?.metadata).toEqual({ nested: { owner: "alice" } });
-    const items = await reopened.pending();
+    const items = await reopened.pending({ handlers: ["new"] });
     expect(items).toHaveLength(1);
     expect(JSON.stringify(items[0]?.payload)).toContain(
       '"metadata":{"nested":{"owner":"alice"}}'
@@ -675,7 +677,7 @@ describe("observing tasks", () => {
     const reopened = machine.records(state);
     const { tasks } = await reopened.taskStore.snapshot();
     expect(tasks.map((task) => task.title)).toEqual(["Later"]);
-    const payloads = (await reopened.pending()).map(
+    const payloads = (await reopened.pending({ handlers: ["new"] })).map(
       (item) => item.payload as TaskEvent
     );
     expect(
@@ -784,5 +786,101 @@ describe("delivery lifecycle", () => {
     await new Tasks({ store: other.taskStore }).create({ title: "Written" });
     expect(await storedTitles(state)).toEqual(["Written"]);
     expect(existsSync(join(state, "tasks.json"))).toBe(false);
+  });
+});
+
+describe("delivery across processes", () => {
+  it("delivers a change recorded through other records without any change made here", async () => {
+    const state = stateDir();
+    const seen: TaskEvent[] = [];
+    const owner = engineWith(state, [
+      (payload) => {
+        seen.push(payload);
+      },
+    ]);
+    await owner.start();
+    // Let the start's own pass end, so only noticing the change can deliver it.
+    await new Promise((settle) => setTimeout(settle, 200));
+    // Another process's records, on the same workspace in the same database.
+    const elsewhere = machine.records(state);
+    try {
+      await new Tasks({ store: elsewhere.taskStore }).create({
+        title: "From elsewhere",
+      });
+      await vi.waitFor(() => expect(titles(seen)).toEqual(["From elsewhere"]), {
+        timeout: DELIVERY_POLL_MS * 5,
+      });
+    } finally {
+      await elsewhere.close();
+    }
+  });
+
+  it("takes delivery over once the deliverer stops, and delivers what was written meanwhile", async () => {
+    const state = stateDir();
+    const first = engineWith(state, [() => undefined]);
+    await first.start();
+    const seen: TaskEvent[] = [];
+    const lines: string[] = [];
+    const survivor = engineWith(
+      state,
+      [
+        (payload) => {
+          seen.push(payload);
+        },
+      ],
+      (line) => lines.push(line)
+    );
+    await survivor.start();
+    expect(lines.some((line) => line.includes("not delivering here"))).toBe(
+      true
+    );
+    await shutDown(first);
+    await new Tasks({ store: survivor.taskStore }).create({ title: "Later" });
+    await vi.waitFor(() => expect(titles(seen)).toEqual(["Later"]), {
+      timeout: DELIVERY_POLL_MS * 5,
+    });
+  });
+
+  it("takes delivery over from a process that exited holding it", async () => {
+    const state = stateDir();
+    const script = join(state, "holder.ts");
+    writeFileSync(
+      script,
+      `import { acquireLock } from ${JSON.stringify(resolvePath("src/lib/state/locks.ts"))};
+const claim = acquireLock(${JSON.stringify(state)}, "tasks");
+if (!("release" in claim)) throw new Error("not claimed");
+process.stdout.write("held\\n");
+setInterval(() => undefined, 1000);
+`
+    );
+    const holder = spawn("bun", [script], { cwd: resolvePath(".") });
+    await new Promise<void>((ready, failed) => {
+      holder.stdout?.on("data", (chunk: Buffer) => {
+        if (chunk.toString().includes("held")) {
+          ready();
+        }
+      });
+      holder.once("exit", (code) => failed(new Error(`exited ${code}`)));
+    });
+    const seen: TaskEvent[] = [];
+    const survivor = engineWith(state, [
+      (payload) => {
+        seen.push(payload);
+      },
+    ]);
+    try {
+      await survivor.start();
+      await new Tasks({ store: survivor.taskStore }).create({
+        title: "Waiting",
+      });
+      await new Promise((settle) => setTimeout(settle, DELIVERY_POLL_MS * 2));
+      expect(seen).toEqual([]);
+    } finally {
+      holder.kill("SIGKILL");
+    }
+    await new Promise((settle) => holder.once("exit", settle));
+    await vi.waitFor(() => expect(titles(seen)).toEqual(["Waiting"]), {
+      timeout: DELIVERY_POLL_MS * 5,
+    });
   });
 });

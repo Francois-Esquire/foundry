@@ -21,8 +21,18 @@ export interface WorkspaceRecords {
   close(): Promise<void>;
   /** Record that the handler with `hash` completed the change `id`, beside every hash already there. */
   deliver(id: string, hash: string): Promise<void>;
-  /** Every recorded change, oldest first, detached. */
-  pending(): Promise<readonly StreamItem[]>;
+  /**
+   * The position of the newest recorded change, 0 before the first: a
+   * cheap read for noticing a change another process recorded.
+   */
+  latest(): Promise<number>;
+  /**
+   * The recorded changes after `query.after` that a handler in
+   * `query.handlers` has not completed, oldest first, at most
+   * `query.limit`, detached. A handler with no completion yet (one declared
+   * later) is handed the whole history this way.
+   */
+  pending(query: PendingQuery): Promise<readonly StreamItem[]>;
   /** The tasks, through the `@foundry/tasks` store seam. */
   readonly taskStore: TaskStore;
   /**
@@ -33,12 +43,27 @@ export interface WorkspaceRecords {
   watch(listener: () => void): () => void;
 }
 
+/** Which recorded changes `pending` reads. */
+export interface PendingQuery {
+  /** Only changes after this position; from the first when omitted. */
+  readonly after?: number;
+  /** The hashes of the handlers that are to complete each change. */
+  readonly handlers: readonly string[];
+  /** At most this many; `PENDING_BATCH` when omitted. */
+  readonly limit?: number;
+}
+
+/** How many changes one `pending` read returns by default. */
+export const PENDING_BATCH = 100;
+
 /** A recorded change as delivery reads it: detached, with its source resolved. */
 export interface StreamItem {
-  /** Hashes of the handlers that completed it. */
+  /** Hashes of the handlers, among those asked about, that completed it. */
   readonly delivered: readonly string[];
   readonly id: string;
   readonly payload: unknown;
+  /** Its place among the workspace's changes, in the order they were committed. */
+  readonly position: number;
   readonly source: symbol;
 }
 
@@ -164,15 +189,32 @@ export class MemoryWorkspaceRecords implements WorkspaceRecords {
     });
   }
 
-  pending(): Promise<readonly StreamItem[]> {
+  latest(): Promise<number> {
+    return this.#gate.run(() => Promise.resolve(this.#changes.length));
+  }
+
+  pending(query: PendingQuery): Promise<readonly StreamItem[]> {
+    const after = query.after ?? 0;
+    const limit = query.limit ?? PENDING_BATCH;
     return this.#gate.run(() =>
       Promise.resolve(
-        this.#changes.map((change) => ({
-          delivered: [...change.delivered],
-          id: change.id,
-          payload: structuredClone(change.payload),
-          source: TASKS,
-        }))
+        this.#changes
+          .map((change, index) => ({ change, position: index + 1 }))
+          .filter(
+            ({ change, position }) =>
+              position > after &&
+              query.handlers.some((hash) => !change.delivered.includes(hash))
+          )
+          .slice(0, limit)
+          .map(({ change, position }) => ({
+            delivered: change.delivered.filter((hash) =>
+              query.handlers.includes(hash)
+            ),
+            id: change.id,
+            payload: structuredClone(change.payload),
+            position,
+            source: TASKS,
+          }))
       )
     );
   }

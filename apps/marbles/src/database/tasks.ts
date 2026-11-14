@@ -3,7 +3,7 @@ import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import type { TaskTransaction } from "@foundry/tasks/store/sqlite";
 import { SqliteTaskStore } from "@foundry/tasks/store/sqlite";
-import { and, asc, eq, max } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, max, sql } from "drizzle-orm";
 import { busyError } from "~/database/client";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
@@ -14,8 +14,16 @@ import {
 import type { HostDatabaseOptions } from "~/database/workspaces";
 import { writeAsHost } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
-import type { StreamItem, WorkspaceRecords } from "~/lib/events/records";
-import { EmitListeners, RecordsGate } from "~/lib/events/records";
+import type {
+  PendingQuery,
+  StreamItem,
+  WorkspaceRecords,
+} from "~/lib/events/records";
+import {
+  EmitListeners,
+  PENDING_BATCH,
+  RecordsGate,
+} from "~/lib/events/records";
 import { TASKS } from "~/lib/events/source";
 
 /**
@@ -121,40 +129,30 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     );
   }
 
-  /** Both tables as of one moment: the two reads share one transaction. */
-  pending(): Promise<readonly StreamItem[]> {
-    return this.#call(() =>
-      this.#database.transaction(async (transaction) => {
-        const changes = await transaction
-          .select({
-            id: marblesTaskChanges.id,
-            payload: marblesTaskChanges.payload,
-          })
-          .from(marblesTaskChanges)
-          .where(eq(marblesTaskChanges.scope, this.#scope))
-          .orderBy(asc(marblesTaskChanges.position));
-        const deliveries = await transaction
-          .select({
-            changeId: marblesTaskChangeDeliveries.changeId,
-            handler: marblesTaskChangeDeliveries.handler,
-          })
-          .from(marblesTaskChangeDeliveries)
-          .where(eq(marblesTaskChangeDeliveries.scope, this.#scope));
-        const delivered = new Map<string, string[]>();
-        for (const { changeId, handler } of deliveries) {
-          delivered.set(changeId, [
-            ...(delivered.get(changeId) ?? []),
-            handler,
-          ]);
-        }
-        return changes.map(({ id, payload }) => ({
-          delivered: delivered.get(id) ?? [],
-          id,
-          payload,
-          source: TASKS,
-        }));
-      })
-    );
+  latest(): Promise<number> {
+    return this.#call(async () => {
+      const [last] = await this.#database
+        .select({ position: max(marblesTaskChanges.position) })
+        .from(marblesTaskChanges)
+        .where(eq(marblesTaskChanges.scope, this.#scope));
+      return last?.position ?? 0;
+    });
+  }
+
+  pending(query: PendingQuery): Promise<readonly StreamItem[]> {
+    if (query.handlers.length === 0) {
+      return this.#call(() => Promise.resolve([]));
+    }
+    return this.#call(async () => {
+      const rows = await pendingChanges(this.#database, this.#scope, query);
+      return rows.map((row) => ({
+        delivered: JSON.parse(row.delivered) as string[],
+        id: row.id,
+        payload: row.payload,
+        position: row.position,
+        source: TASKS,
+      }));
+    });
   }
 
   watch(listener: () => void): () => void {
@@ -171,6 +169,48 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
       }
     });
   }
+}
+
+/**
+ * The query `pending` runs: one statement, so it reads one state without a
+ * transaction, and holds no lock another writer waits for. It walks the
+ * workspace's changes by position from `query.after` (the
+ * `marbles_task_changes_scope_position` index), keeps those that fewer of
+ * `query.handlers` completed than there are handlers (the deliveries'
+ * primary key, scope first, answers each count), and stops at
+ * `query.limit`. A change every handler completed is passed over, so a
+ * pass reads only what is left to deliver, however long the history is.
+ */
+export function pendingChanges(
+  database: StoreDatabase,
+  scope: string,
+  query: PendingQuery
+) {
+  const handlers = [...new Set(query.handlers)];
+  const changes = marblesTaskChanges;
+  const deliveries = marblesTaskChangeDeliveries;
+  const completedBy = and(
+    eq(deliveries.scope, changes.scope),
+    eq(deliveries.changeId, changes.id),
+    inArray(deliveries.handler, handlers)
+  );
+  return database
+    .select({
+      delivered: sql<string>`(SELECT json_group_array(${deliveries.handler}) FROM ${deliveries} WHERE ${completedBy})`,
+      id: changes.id,
+      payload: changes.payload,
+      position: changes.position,
+    })
+    .from(changes)
+    .where(
+      and(
+        eq(changes.scope, scope),
+        gt(changes.position, query.after ?? 0),
+        sql`(SELECT count(*) FROM ${deliveries} WHERE ${completedBy}) < ${handlers.length}`
+      )
+    )
+    .orderBy(asc(changes.position))
+    .limit(query.limit ?? PENDING_BATCH);
 }
 
 /**

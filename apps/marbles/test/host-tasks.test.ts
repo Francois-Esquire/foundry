@@ -17,7 +17,10 @@ import { join, resolve } from "node:path";
 import { tasks } from "@foundry/tasks/store/tables";
 import { afterEach, expect, it, vi } from "vitest";
 import { readDatabase } from "~/database/open";
-import { marblesTaskChanges } from "~/database/tables";
+import {
+  marblesTaskChangeDeliveries,
+  marblesTaskChanges,
+} from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { layout, stateDatabase } from "~/layout";
 import { connect } from "~/process/client";
@@ -128,16 +131,17 @@ async function stored(state: string): Promise<{
       .select({ title: tasks.title })
       .from(tasks)
       .orderBy(tasks.position);
-    const delivered = await Promise.all(
-      changes.map(async (change) => {
-        const [item] = (
-          await new DatabaseWorkspaceRecords({
-            database,
-            scope: change.scope,
-          }).pending()
-        ).filter((pending) => pending.id === change.id);
-        return item?.delivered ?? [];
-      })
+    const completions = await database
+      .select()
+      .from(marblesTaskChangeDeliveries);
+    const delivered = changes.map((change) =>
+      completions
+        .filter(
+          (completion) =>
+            completion.scope === change.scope &&
+            completion.changeId === change.id
+        )
+        .map((completion) => completion.handler)
     );
     return { delivered, titles: titles.map((row) => row.title) };
   });
@@ -287,7 +291,7 @@ process.stdout.write(JSON.stringify({ refused }) + "\\n");
     const records = new DatabaseWorkspaceRecords({ database, scope: "shared" });
     const { tasks: all } = await records.taskStore.snapshot();
     return {
-      changes: (await records.pending()).length,
+      changes: await records.latest(),
       count: all.find((task) => task.title === "counter")?.metadata.count,
       tasks: all.length,
     };
