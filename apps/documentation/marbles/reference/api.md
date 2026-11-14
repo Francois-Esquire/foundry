@@ -674,6 +674,11 @@ step("triage").do(async () => {
 });
 ```
 
+A run is linked to each task changed through `tasks` while one of its step
+bodies runs.
+A host reads the links as `changedTasks` on the run's record; see
+[runs of a task](/marbles/reference/engine#runs-of-a-task).
+
 `observe(tasks, handler)` calls `handler` with each change the workspace's
 tasks commit: one `tasks.changed` payload per write, holding each task it
 put or removed with its record `before` and `after`, and the dependency

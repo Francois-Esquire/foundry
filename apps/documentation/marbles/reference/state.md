@@ -40,7 +40,8 @@ root is the registry of every workspace this machine has run, and each
   runs/<runId>.json       one run: its record, frames, jobs, queue row, suspensions,
                           the owning pid, and what the run recorded (below)
   executions/<runId>.json the Execution Run record: queue, status, revision,
-                          correlation, progress, owner pid; observations once settled
+                          correlation, progress, changed task ids, owner pid;
+                          observations once settled
   observations/<runId>.jsonl observations appended while the run is unsettled
   retention/gaps.json     per scope, how many settled runs retention removed and
                           the latest settled time among them
