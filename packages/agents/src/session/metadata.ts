@@ -3,33 +3,16 @@ import type { LanguageModelUsage } from "ai";
 import type { MessageMetadata, SessionUsage } from "./types";
 
 /**
- * The loosely-typed metadata blob a store hands back before normalization —
- * structurally what any backend persists for a message (model id/provider,
- * token usage, timing). Deliberately tolerant of `null` and unknown extra
- * fields so a concrete store's row type assigns to it without a cast.
+ * The metadata blob a store hands back before normalization: every
+ * {@link MessageMetadata} field, each also allowed to be `null`, so a concrete
+ * store's row type assigns to it without a cast.
  */
-export interface RawMessageMetadata {
-  harnessEnvironment?: { harness: string; id: string } | null;
-  model?: { id: string; provider?: string; harness?: string } | null;
-  notification?: { taskId: string; kind: "status" | "completion" } | null;
-  output?: unknown;
-  timing?: {
-    startedAt: number;
-    completedAt: number;
-    durationMs: number;
-  } | null;
-  usage?: RawUsage | null;
-}
+export type RawMessageMetadata = {
+  [Field in keyof MessageMetadata]?: MessageMetadata[Field] | null;
+};
 
-/** The token-usage shape a store reads back, before it's narrowed to {@link SessionUsage}. */
-export interface RawUsage {
-  cachedInputTokens?: number;
-  cacheWriteTokens?: number;
-  inputTokens: number;
-  outputTokens: number;
-  reasoningTokens?: number;
-  totalTokens: number;
-}
+/** The token usage a store reads back. */
+export type RawUsage = SessionUsage;
 
 /**
  * Project a store's raw metadata blob onto the canonical {@link MessageMetadata},
