@@ -585,3 +585,17 @@ it("asks no gateway the workspace's order leaves out", async () => {
     await configured.dispose();
   }
 });
+
+it("asks no plugin for its models once disposed", async () => {
+  configureOnly("slow", "other");
+  let calls = 0;
+  const { configuration: configured } = configuration([
+    lister(() => {
+      calls += 1;
+      return Promise.reject(new Error("refused"));
+    }),
+  ]);
+  await configured.dispose();
+  expect(await configured.refresh()).toEqual([]);
+  expect(calls).toBe(0);
+});

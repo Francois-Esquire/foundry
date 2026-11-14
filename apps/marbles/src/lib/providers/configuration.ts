@@ -1001,14 +1001,18 @@ export class ProviderConfiguration {
   }
 
   /**
-   * Ask each enabled entry of both files whose plugin lists its models, at
-   * once, each bounded by {@link LIST_TIMEOUT_MS}, with why each failure
-   * did. A failed list keeps the last good one; with none, the failure is
-   * the entry's problem. A file that cannot be read lists nothing; `load`
-   * reports it.
+   * Ask each entry the effective set could use whose plugin lists its
+   * models, at once, each bounded by {@link LIST_TIMEOUT_MS}, with why each
+   * failure did. A failed list keeps the last good one; with none, the
+   * failure is the entry's problem. A file that cannot be read lists
+   * nothing; `load` reports it. Offline or disposed, nothing is asked.
    */
   async #listAll(): Promise<readonly string[]> {
-    if (this.#online.signal.aborted || this.#options.fixed !== undefined) {
+    if (
+      this.#lists.signal.aborted ||
+      this.#online.signal.aborted ||
+      this.#options.fixed !== undefined
+    ) {
       return [];
     }
     let files: (ProvidersFile | undefined)[];
@@ -1158,15 +1162,17 @@ function effectiveOrder(
 
 /** `promise`, or a rejection with the signal's reason once it aborts, whichever comes first. */
 function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) {
-    return Promise.reject(signal.reason);
-  }
   return new Promise((resolve, reject) => {
     const abort = () => reject(signal.reason);
-    signal.addEventListener("abort", abort, { once: true });
+    // Handled even when it loses, so a late rejection is never unhandled.
     promise.then(resolve, reject).finally(() => {
       signal.removeEventListener("abort", abort);
     });
+    if (signal.aborted) {
+      abort();
+    } else {
+      signal.addEventListener("abort", abort, { once: true });
+    }
   });
 }
 
