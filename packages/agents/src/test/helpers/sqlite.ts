@@ -29,6 +29,8 @@ export interface LibsqlDatabases {
   readonly open: (options?: {
     readonly onQuery?: OnQuery;
   }) => Promise<LibSQLDatabase>;
+  /** The file `database` lives in. */
+  readonly path: (database: LibSQLDatabase) => string;
   /** Closes `database`'s connection and connects to the same database again. */
   readonly reopen: (database: LibSQLDatabase) => Promise<LibSQLDatabase>;
 }
@@ -107,6 +109,9 @@ export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
       const database = connect(await url(), undefined, options.onQuery);
       await createTables(database, [agentSessions, agentMessages]);
       return database;
+    },
+    path(database) {
+      return fileOf(database).url.slice("file:".length);
     },
     reopen(database) {
       const connection = fileOf(database);

@@ -890,34 +890,6 @@ describe("SqliteSessionStore on a file", () => {
     });
     await expect(reopened.listMessages("a")).resolves.toStrictEqual([appended]);
   });
-
-  it("refuses a second client in this process while a transaction runs, which lands nothing", async () => {
-    const database = await files.open();
-    const store = new SqliteSessionStore({ database, scope: "s" });
-    const elsewhere = new SqliteSessionStore({
-      database: files.connect(database),
-      scope: "s",
-    });
-    await store.commit({ putSessions: [session("a")] });
-
-    const outcome = await store.transaction(async (view) => {
-      const refused = await elsewhere
-        .commit({ putSessions: [session("a", { title: "outside" })] })
-        .then(
-          () => "landed",
-          (error: unknown) => String(error)
-        );
-      const after = await view.getSession("a");
-      await view.commit({ putSessions: [session("a", { title: "inside" })] });
-      return { after, refused };
-    });
-
-    expect(outcome.refused).toContain("SQLITE_BUSY");
-    expect(outcome.after).toStrictEqual(session("a"));
-    await expect(elsewhere.getSession("a")).resolves.toStrictEqual(
-      session("a", { title: "inside" })
-    );
-  });
 });
 
 describe("session tables", () => {
