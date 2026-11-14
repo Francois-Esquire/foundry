@@ -632,6 +632,45 @@ export const hold = step("hold").do(async () => {
     }
   }, 60_000);
 
+  it("refuses to host a workspace whose state links out of the state root", async () => {
+    const { home, machine, root, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, greeter("greet"));
+    mkdirSync(machine.state, { recursive: true });
+    const outside = join(home, "outside");
+    mkdirSync(outside);
+    symlinkSync(outside, machine.workspace(root).dir);
+    await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    try {
+      await expect(client.attach(source)).rejects.toThrow(
+        "links out of the state root"
+      );
+      expect(await client.workspaces()).toEqual([]);
+      expect(readdirSync(outside)).toEqual([]);
+    } finally {
+      client.close();
+    }
+  }, 30_000);
+
+  it("lets two overlapping detaches of one workspace both succeed", async () => {
+    const { home, machine, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, greeter("greet"));
+    await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    try {
+      const summary = await client.attach(source);
+      await Promise.all([client.detach(summary.id), client.detach(summary.id)]);
+      expect(await client.workspaces()).toEqual([]);
+      expect((await readWorkspace(machine.state, summary.id))?.hosted).toBe(
+        false
+      );
+    } finally {
+      client.close();
+    }
+  }, 60_000);
+
   it("lets go of everything it took when it cannot listen", async () => {
     const { home, machine } = fixture();
     homes.push(home);

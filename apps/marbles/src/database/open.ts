@@ -40,6 +40,14 @@ export interface OpenDatabaseOptions {
   readonly migrations?: string;
 }
 
+/**
+ * A database a reader cannot read without writing to it: one left with a
+ * WAL file to recover, or one that kept changing under an immutable read.
+ */
+export class UnreadableDatabaseError extends Error {
+  override readonly name = "UnreadableDatabaseError";
+}
+
 const BUSY_TIMEOUT_MS = 5000;
 /** How many times a read starts again because the file changed under it. */
 const READ_ATTEMPTS = 3;
@@ -151,7 +159,7 @@ export async function readDatabase<T>(
     }
     const wal = existsSync(`${path}-wal`);
     if (wal && !existsSync(`${path}-shm`)) {
-      throw new Error(
+      throw new UnreadableDatabaseError(
         `the Marbles database at ${path} was not closed cleanly; start the Marbles process to recover it`
       );
     }
@@ -174,7 +182,7 @@ export async function readDatabase<T>(
       return value;
     }
   }
-  throw new Error(
+  throw new UnreadableDatabaseError(
     `the Marbles database at ${path} kept changing while it was read; try again`
   );
 }

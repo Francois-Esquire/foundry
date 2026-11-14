@@ -15,7 +15,8 @@ import {
 import type { Args, ArgsOf, Command, Flags } from "~/args";
 import { parseArgs, UsageError } from "~/args";
 import type { Triggers } from "~/create";
-import { writeDatabase } from "~/database/open";
+import { IncompatibleDatabaseError } from "~/database/migrate";
+import { UnreadableDatabaseError, writeDatabase } from "~/database/open";
 import { transaction } from "~/database/transaction";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { layout, stateDatabase } from "~/layout";
@@ -616,6 +617,7 @@ function actionable(error: unknown): error is Error {
     error instanceof UsageError ||
     error instanceof ConfigurationError ||
     error instanceof EnvironmentError ||
+    error instanceof IncompatibleDatabaseError ||
     error instanceof LaunchInputError ||
     error instanceof NoProcessError ||
     error instanceof NotHostedError ||
@@ -625,7 +627,8 @@ function actionable(error: unknown): error is Error {
     error instanceof RecordsHeldError ||
     error instanceof RemoteError ||
     error instanceof RunEndedError ||
-    error instanceof RunOutputError
+    error instanceof RunOutputError ||
+    error instanceof UnreadableDatabaseError
   );
 }
 

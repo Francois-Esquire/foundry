@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -18,12 +18,17 @@ import {
   writeDatabase,
 } from "~/database/open";
 import { marblesWorkspaces } from "~/database/tables";
+import { stateDatabase } from "~/layout";
+import { workspaceState } from "~/lib/state/workspace";
+import { cliArgs } from "./helpers/cli";
+import { readWorkspace, touchWorkspace } from "./helpers/registry";
 
 const SRC = resolve("src");
 const OLDER = /is older than this Marbles: it lacks 9999_probe/;
 const NEWER = /migrated by a newer Marbles/;
 const READONLY = /readonly|read-only/i;
 const UNCLEAN = /not closed cleanly/;
+const STACK_FRAME = /^\s+at /m;
 
 const children: ChildProcess[] = [];
 
@@ -171,6 +176,31 @@ describe("reading the Marbles database", () => {
     expect(snapshot(dir)).toEqual(before);
   });
 
+  it("reads one whose process was killed holding it, leaving the main file as it was", async () => {
+    const dir = join(scratch(), "state");
+    const file = join(dir, "marbles.db");
+    const holder = await processWith(scratch(), file, "a", "hold");
+    holder.kill("SIGKILL");
+    await exited(holder);
+    // Killed, it left its side files, and its committed row in the WAL.
+    expect(readdirSync(dir).sort()).toEqual([
+      "marbles.db",
+      "marbles.db-shm",
+      "marbles.db-wal",
+    ]);
+    const main = readFileSync(file);
+    const wal = readFileSync(`${file}-wal`);
+    expect(await readDatabase(file, ids)).toEqual(["a"]);
+    expect(readdirSync(dir).sort()).toEqual([
+      "marbles.db",
+      "marbles.db-shm",
+      "marbles.db-wal",
+    ]);
+    // The shared-memory index may be rebuilt; the data files are not touched.
+    expect(readFileSync(file).equals(main)).toBe(true);
+    expect(readFileSync(`${file}-wal`).equals(wal)).toBe(true);
+  });
+
   it("cannot write through the connection it reads with", async () => {
     const dir = join(scratch(), "state");
     const file = join(dir, "marbles.db");
@@ -270,4 +300,45 @@ describe("writing to the Marbles database outside the Marbles process", () => {
       opened.close();
     }
   });
+});
+
+describe("the CLI on the Marbles database", () => {
+  function marbles(cwd: string, ...args: string[]) {
+    return spawnSync("bun", ["--no-env-file", ...cliArgs(...args)], {
+      cwd,
+      encoding: "utf8",
+      timeout: 60_000,
+    });
+  }
+
+  it("says in one line that a database is newer, and leaves it alone", async () => {
+    const work = scratch();
+    const state = join(scratch(), "state");
+    await exited(
+      await processWith(
+        work,
+        stateDatabase(state),
+        "a",
+        "exit",
+        withProbeMigration(work)
+      )
+    );
+    const before = snapshot(state);
+    const status = marbles(work, "status", "--state", state);
+    expect(status.status).toBe(1);
+    expect(status.stderr).toMatch(NEWER);
+    expect(status.stderr).not.toMatch(STACK_FRAME);
+    expect(snapshot(state)).toEqual(before);
+  }, 60_000);
+
+  it("clears a hosted record when it detaches with no Marbles process running", async () => {
+    const root = scratch();
+    const state = join(scratch(), "state");
+    const workspace = workspaceState(state, root);
+    await touchWorkspace(state, workspace, null, { hosted: true });
+    const detached = marbles(root, "detach", "--state", state);
+    expect(detached.status, detached.stderr).toBe(0);
+    expect(detached.stdout).toContain("no Marbles process is running");
+    expect((await readWorkspace(state, workspace.id))?.hosted).toBe(false);
+  }, 60_000);
 });

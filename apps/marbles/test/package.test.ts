@@ -375,6 +375,10 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
         "stopped Marbles process"
       );
     }
+    // With no process holding it, the database still reads, read-only.
+    expect(run(cli, ["status", "--state", state], consumer)).toContain(
+      consumer
+    );
     // The installed bin serves MCP over STDIO, stdout carries only frames,
     // and serving starts no Marbles process.
     const mcpState = mkdtempSync(join(tmpdir(), "mp-"));

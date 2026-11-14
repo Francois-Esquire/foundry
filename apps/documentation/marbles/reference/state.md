@@ -103,7 +103,10 @@ own format. Version 1 run files still load. The persisted `config` field keeps
 its existing spelling and records the authoring folder or single-module path.
 A workspace is recorded in the database when it is attached to the Marbles
 process (`run`, `roll`, the dashboard, or the MCP server), which sets
-`hosted: true`, and by a program that hosts it itself; `list`, `status`,
+`hosted: true`, and by a program that hosts it itself once the Marbles
+process has made the database (a program hosting it on a machine where the
+process never ran records nothing, and one facing a database that is not
+current fails to start); `list`, `status`,
 `sessions`, `watch`, and anything under `--dry-run` leave an empty state
 root empty. Only the Marbles process creates the database and applies the
 migrations its Marbles ships. Its workers and the CLI write only to a

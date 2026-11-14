@@ -9,6 +9,7 @@ import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type { Layout } from "~/layout";
+import { insideState } from "~/lib/state/workspace";
 import type { WorkspaceSummary } from "~/model/connection";
 import { Channel, socketTransport } from "~/process/channel";
 import type { ProcessInstance } from "~/process/instance";
@@ -560,6 +561,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       // Checked again in the turn: a shutdown that began while this attach
       // waited has already stopped every worker it would see.
       refuseWhileStopping();
+      // Its runs, claim and sessions would be written through the link.
+      if (!insideState(layout.state, workspace.id)) {
+        throw new Error(
+          `the state of workspace ${workspace.id} at ${workspace.dir} links out of the state root; it is not hosted`
+        );
+      }
       const running = workers.get(workspace.id);
       if (running && running.wanted === "running") {
         return reuse(running, configPath, setup);
@@ -626,14 +633,19 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     const { id } = worker.summary;
     await stopWorker(worker);
     await inTurn(id, async () => {
-      const replaced = () => {
-        if (workers.get(id) !== worker) {
+      // Gone: a detach that overlapped this one has already dropped it.
+      const detached = () => {
+        const listed = workers.get(id);
+        if (listed !== undefined && listed !== worker) {
           throw new Error(
             `workspace ${id} was attached again while it was being detached; it stays hosted`
           );
         }
+        return listed === undefined;
       };
-      replaced();
+      if (detached()) {
+        return;
+      }
       // The record first: a write that fails leaves the worker listed, so
       // the detach can be retried, rather than hosted again at the next boot.
       await registry.touch(
@@ -641,8 +653,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         worker.summary.config,
         { hosted: false }
       );
-      replaced();
-      workers.delete(id);
+      if (!detached()) {
+        workers.delete(id);
+      }
     });
   }
 
