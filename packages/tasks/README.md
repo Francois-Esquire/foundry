@@ -207,8 +207,10 @@ const tasks = new Tasks({ store });
 Each `commit` is one transaction, and a throwing `onCommit` rolls it back.
 `onCommit` uses the `transaction` it is given; a call to the store itself
 from the hook is refused (see below). `snapshot()` reads both tables in one
-database transaction, so it is one state; on libSQL that transaction holds
-the write lock while it reads, as every Drizzle transaction there does.
+database transaction, so it is one state. On libSQL that transaction holds
+the write lock while it reads: Drizzle's libSQL driver begins every
+transaction with `BEGIN IMMEDIATE` and offers no deferred (read-only)
+transaction through the database type the store accepts.
 
 Two `Tasks` over one `SqliteTaskStore` are kept apart (see `transaction`
 below). In this process the store's calls take turns, so one made while a
@@ -285,6 +287,22 @@ The stores tell the two apart by asynchronous context, with
 `AsyncLocalStorage` from `node:async_hooks`. The package therefore needs a
 runtime that provides it: Node, Bun, Deno, or a worker runtime with Node
 compatibility, not a plain browser.
+
+`Turns` detects re-entry by asynchronous ancestry: a call refused is one
+made from work that descends from the running turn. It does not detect wait
+cycles, so two cases still deadlock:
+
+- A transaction that awaits a continuation registered outside it (a promise
+  chain set up before the transaction began) while that continuation calls
+  the outer store. The call descends from the outside caller, not from the
+  turn, so it queues behind the transaction that is waiting for it.
+- Two independent stores each taken inside the other's work in opposite
+  order: store A's transaction calls store B while store B's transaction
+  calls store A. Each call is independent of the other store's turn, so
+  both queue and neither turn ends.
+
+Use the view inside `work`, and do not hold one store's transaction while
+waiting on another's.
 
 ## Correlation with workflows
 
