@@ -226,8 +226,10 @@ that interruption rather than waiting indefinitely.
 Diagnostics and the worker's status lines go to stderr; stdout carries MCP
 messages only. The server runs in a child process whose stdout is stderr,
 so whatever source modules and the processes they start print to stdout
-goes to stderr too. The server exits when stdin closes or it receives
-SIGINT or SIGTERM; a Marbles process that hosts the workspace keeps
+goes to stderr too. The server exits when stdin closes, when the
+`marbles mcp` process that started it exits, or when it receives SIGINT or
+SIGTERM. Shutdown takes a few seconds at most. Work that does not stop in
+time is cut off, and the server is killed if it still runs. A Marbles process that hosts the workspace keeps
 hosting it, and several MCP clients can use one process at once. Use `--state` to select a
 separate state root (each root has its own process), or `--dry-run` to host
 the workspace in the server's own process with in-memory state, echo

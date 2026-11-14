@@ -47,17 +47,25 @@ export function workspaceState(state: string, root: string): Workspace {
 /**
  * The workspace recorded under `state` as `id`, whether or not its root
  * still exists. Only a directory listed there is read, so an id with a
- * separator or `..` names nothing. Undefined when no readable record has
- * that id.
+ * separator or `..` names nothing, and a symlink, which could point
+ * anywhere, is no directory. Undefined when no readable record has that id.
  */
 export function recordedState(
   state: string,
   id: string
 ): Workspace | undefined {
-  if (!(existsSync(state) && readdirSync(state).includes(id))) {
+  if (!existsSync(state)) {
     return;
   }
-  const record = readWorkspace(join(state, id));
+  const listed = readdirSync(state, { withFileTypes: true }).some(
+    (entry) => entry.name === id && entry.isDirectory()
+  );
+  const dir = join(state, id);
+  // A real directory, and the same one once every link above it resolves.
+  if (!listed || realpathSync(dir) !== join(realpathSync(state), id)) {
+    return;
+  }
+  const record = readWorkspace(dir);
   return record?.id === id ? placed(state, id, record.root) : undefined;
 }
 

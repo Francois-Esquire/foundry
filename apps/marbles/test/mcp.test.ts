@@ -1,6 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -550,6 +557,14 @@ it("starts without a source and serves the stored tasks of every recorded worksp
   expect(made.status, made.stderr).toBe(0);
   // Its checkout is gone; its stored tasks are not.
   await rm(other, { force: true, recursive: true });
+  // A symlinked entry points out of the state root, at a matching record.
+  const outside = join(root, "outside");
+  await mkdir(outside);
+  await writeFile(
+    join(outside, "workspace.json"),
+    JSON.stringify({ id: "abc", root: outside })
+  );
+  await symlink(outside, join(state, "abc"));
   const transport = new StdioClientTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--state", state],
     command: "bun",
@@ -607,6 +622,21 @@ it("starts without a source and serves the stored tasks of every recorded worksp
         "list_workspaces names them"
       );
     }
+    const linked = await client.callTool({
+      arguments: {
+        operations: [
+          { input: { title: "Outside" }, key: "o", kind: "task.create" },
+        ],
+        workspace: "abc",
+      },
+      name: "change_tasks",
+    });
+    expect(linked.isError).toBe(true);
+    expect(JSON.stringify(linked.content)).toContain(
+      "list_workspaces names them"
+    );
+    expect(await readdir(outside)).toEqual(["workspace.json"]);
+    expect(listed.map((entry) => entry.id)).not.toContain("abc");
     const config = await client.callTool({
       arguments: {},
       name: "list_config",

@@ -15,14 +15,19 @@ const responseSchema = z.looseObject({
  */
 export interface RawMcpSession {
   /** End stdin and wait for the server to exit. */
-  close(): Promise<{
-    readonly code: number | null;
-    readonly stderr: string;
-    readonly stdout: string;
-  }>;
+  close(): Promise<Ended>;
+  /** Wait for the server to exit, leaving stdin open. */
+  ended(): Promise<Ended>;
   notify(method: string, params?: unknown): void;
+  readonly pid: number;
   request(method: string, params?: unknown): Promise<unknown>;
   readonly stderr: () => string;
+}
+
+interface Ended {
+  readonly code: number | null;
+  readonly stderr: string;
+  readonly stdout: string;
 }
 
 /**
@@ -41,6 +46,10 @@ export async function rawMcpSession(
     env: inherited,
     stdio: ["pipe", "pipe", "pipe"],
   });
+  const { pid } = child;
+  if (pid === undefined) {
+    throw new Error(`could not start ${command}`);
+  }
   let stdout = "";
   let stderr = "";
   let buffered = "";
@@ -70,14 +79,18 @@ export async function rawMcpSession(
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
   };
   const session: RawMcpSession = {
-    async close() {
+    close() {
       child.stdin.end();
+      return session.ended();
+    },
+    async ended() {
       const code = await exited;
       return { code, stderr, stdout };
     },
     notify(method, params = {}) {
       write({ method, params });
     },
+    pid,
     request(method, params = {}) {
       next += 1;
       const id = next;
