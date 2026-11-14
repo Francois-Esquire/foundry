@@ -87,27 +87,6 @@ result promise, and stop/dispose the engine on shutdown. A persisted engine
 writes the [run output journal](/marbles/reference/state#run-output) while
 work runs; that output is separate from the run's recovery snapshot.
 
-## Runs of a task
-
-A run is linked to each workspace task changed through `tasks` or
-`engine.taskStore` while one of its step bodies runs. Its Execution Run
-record lists their ids in `changedTasks`, each once, in the order first
-changed. A child definition the body calls counts for the run. So does a
-host task the body launches, since it runs in the body's frame; the host
-task's own run is not linked. A write from an `observe` handler, or from
-anything else outside a run, links nothing. A write that changes only
-dependency edges, or that is refused, links nothing either. Ask for the
-runs of a task with a filter:
-
-```ts
-const runs = engine.executions
-  .list()
-  .filter((run) => run.changedTasks?.includes(taskId));
-```
-
-The link lasts as long as the run is retained. `engine.runs()` holds each
-workflow run's `output` under the same id.
-
 ## Use resources directly
 
 This excerpt assumes the `engine` above and configured model and

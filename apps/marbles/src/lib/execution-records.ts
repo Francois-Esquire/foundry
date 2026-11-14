@@ -354,17 +354,6 @@ export class ExecutionRecords {
     this.changeRecord(id, { progress: value });
   }
 
-  /** Add task ids to what a known, unsettled run changed; each is kept once. */
-  changedTasks(id: string, taskIds: readonly string[]): void {
-    const known = this.#records.get(id)?.changedTasks ?? [];
-    const added = [...new Set(taskIds)].filter(
-      (taskId) => !known.includes(taskId)
-    );
-    if (added.length > 0) {
-      this.changeRecord(id, { changedTasks: [...known, ...added] });
-    }
-  }
-
   /**
    * Record or replace an observation by id, appended to the run's log. True
    * once it is durably recorded; false for an unknown or settled run, or a

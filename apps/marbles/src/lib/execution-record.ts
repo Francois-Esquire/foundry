@@ -76,12 +76,6 @@ export type ExecutionObservation =
 
 /** A run's durable record. A new object, with a higher `revision`, at each change. */
 export interface ExecutionRun {
-  /**
-   * The ids of the workspace tasks changed through the engine's
-   * `taskStore` while its step bodies ran, each once, in the order first
-   * changed. Absent until one is.
-   */
-  readonly changedTasks?: readonly string[];
   /** Host identifiers the run belongs to, such as `moduleId` or `agentSessionId`. */
   readonly correlation: Readonly<Record<string, string>>;
   /** Why it failed or was interrupted. */
@@ -205,12 +199,6 @@ export function now(): string {
   return new Date().toISOString();
 }
 
-function isStrings(value: unknown): boolean {
-  return (
-    Array.isArray(value) && value.every((item) => typeof item === "string")
-  );
-}
-
 function optionalString(value: unknown): boolean {
   return value === undefined || typeof value === "string";
 }
@@ -276,7 +264,6 @@ export function parseRun(
     typeof value.owner.pid === "number" &&
     typeof value.timestamps.queuedAt === "string" &&
     isRecord(value.correlation) &&
-    (value.changedTasks === undefined || isStrings(value.changedTasks)) &&
     (value.observations === undefined || Array.isArray(value.observations));
   if (!valid) {
     return undefined;

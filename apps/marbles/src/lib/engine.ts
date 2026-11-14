@@ -12,7 +12,7 @@ import type { ModelManager } from "@foundry/models";
 import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
 import type { Containers } from "@foundry/sandbox/container/containers";
-import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
+import type { TaskStore } from "@foundry/tasks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { contributeQueueConfig } from "@foundry/workflows/config";
 import type { BaseContext } from "@foundry/workflows/executable";
@@ -62,12 +62,7 @@ import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
 import type { ReadonlyRunScopes } from "~/lib/run-scope";
-import {
-  current as ambientRun,
-  PAUSE_KIND,
-  RunScopes,
-  workingDirectory,
-} from "~/lib/run-scope";
+import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
@@ -278,9 +273,7 @@ export class Engine {
    * This workspace's tasks, for a `Tasks` to be built over. Each commit
    * stores the change it emits in the same write. Read or written, it is
    * owned by this process until `dispose`; another engine over the same
-   * state dir is refused it meanwhile. A commit made inside one of this
-   * engine's step bodies adds the tasks it changed to that run's
-   * `changedTasks`.
+   * state dir is refused it meanwhile.
    */
   readonly taskStore: TaskStore;
   readonly workspaceId: string;
@@ -397,9 +390,7 @@ export class Engine {
       emitted: () => this.#delivery.wake(),
     });
     this.#delivery = new Delivery(this.#records, print);
-    this.taskStore = linkingRuns(this.#records.taskStore, (runId, taskIds) =>
-      this.#executions.changedTasks(runId, taskIds)
-    );
+    this.taskStore = this.#records.taskStore;
     const catalogue =
       options.workspaces ??
       new WorkspaceSystem().extend(
@@ -1202,39 +1193,4 @@ export class Engine {
       throw new AggregateError(errors, "Failed to dispose the engine");
     }
   }
-}
-
-/**
- * `store`, telling `link` which tasks each commit changed when it was made
- * in a step body's frame: the run is that frame's, including for a host
- * task the body launched, which runs in it. A commit outside any run, such
- * as an observe handler's, links nothing, and so does one that changed only
- * dependency edges or was refused.
- */
-function linkingRuns(
-  store: TaskStore,
-  link: (runId: string, taskIds: readonly string[]) => void
-): TaskStore {
-  const linked =
-    (target: TaskStore) =>
-    async (write: TaskStoreWrite): Promise<void> => {
-      const runId = ambientRun.getStore()?.scope.id;
-      await target.commit(write);
-      const taskIds = write.event?.tasks.map((delta) => delta.id) ?? [];
-      if (runId !== undefined && taskIds.length > 0) {
-        link(runId, taskIds);
-      }
-    };
-  const transaction = store.transaction?.bind(store);
-  return {
-    commit: linked(store),
-    get: (id) => store.get(id),
-    snapshot: () => store.snapshot(),
-    ...(transaction === undefined
-      ? {}
-      : {
-          transaction: (work) =>
-            transaction((view) => work({ ...view, commit: linked(view) })),
-        }),
-  };
 }
