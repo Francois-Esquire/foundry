@@ -4,7 +4,8 @@ The backlog. A Task says what there is to do, `ready()` says what is next,
 and a settled status says what is done. Execution lives in
 [workflows](../workflows/README.md); a Job correlates to a task by id only.
 
-Database-free, plain TypeScript. Dependencies and a parent reference shape
+Plain TypeScript, in memory by default, with a SQLite store for hosts that
+keep their own database. Dependencies and a parent reference shape
 the graph, availability is derived from it, and every mutation is one atomic
 batch in a command language that code, a CLI, and agent tools all share.
 
@@ -165,9 +166,46 @@ not a refusal, and throws a plain `RangeError`.
 
 `TaskStore` on `@foundry/tasks/store` is the seam: `snapshot()`, `get(id)`,
 and `commit(write)` where a write puts and deletes tasks and edges all or
-nothing. The store enforces nothing; every rule is checked before a write
-reaches it, and values crossing the seam are detached. `MemoryTaskStore` is
-the default.
+nothing, deletes first. The store enforces nothing; every rule is checked
+before a write reaches it, and values crossing the seam are detached. Reads
+list records in the order first put.
+
+| Path                          | Holds                                                     |
+| ----------------------------- | --------------------------------------------------------- |
+| `@foundry/tasks/store`        | `TaskStore` and the write and snapshot types.             |
+| `@foundry/tasks/store/memory` | `MemoryTaskStore`, the default `Tasks` uses.              |
+| `@foundry/tasks/store/sqlite` | `SqliteTaskStore`, over a host's Drizzle database.        |
+| `@foundry/tasks/store/tables` | The Drizzle tables it uses: `tasks`, `task_dependencies`. |
+| `@foundry/tasks/testing`      | `describeTaskStore`, the suite every store passes.        |
+
+`SqliteTaskStore` takes the host's database and never opens one. The host
+composes the tables from `./store/tables` into its own schema and owns the
+migrations; `drizzle-orm` is an optional peer dependency, needed only on the
+two SQLite paths. Every row carries a `scope`, an opaque partition the host
+chooses (Marbles uses the workspace id), and a store reads and writes only
+its own:
+
+```ts
+import { Tasks } from "@foundry/tasks";
+import { SqliteTaskStore } from "@foundry/tasks/store/sqlite";
+
+const store = new SqliteTaskStore({
+  database, // a drizzle-orm/libsql database, or a transaction on one
+  scope: workspaceId,
+  // Optional: runs in the commit's transaction, after the store's statements.
+  onCommit: async (transaction, write) => {
+    await transaction.insert(changes).values({ event: write.event });
+  },
+});
+const tasks = new Tasks({ store });
+```
+
+Each `commit` is one transaction, and a throwing `onCommit` rolls it back.
+`snapshot()` is two reads outside a transaction, so on a database with more
+than one connection another commit can land between them. The store has no
+`transaction(work)`, so two `Tasks` over it are not excluded from each
+other. libSQL reads text back only up to its first NUL character, so ids,
+titles, and descriptions containing `\u0000` do not survive it.
 
 `@foundry/tasks/schema` defines every record that crosses the seam as a Zod
 schema: the task, the dependency edge, the snapshot, the write, and the
@@ -192,7 +230,8 @@ that now exists and did not, or the reverse. A task an operation only named,
 such as a parent or a dependency target, is not in it; an edge added and
 removed in one batch is in neither list; a batch that changes nothing has no
 event. `remove` carries the removed record and every edge it dropped.
-`MemoryTaskStore` ignores events.
+`MemoryTaskStore` ignores events; `SqliteTaskStore` hands each write,
+event included, to `onCommit`.
 
 A store may also offer `transaction(work)`: `Tasks` then runs each
 read-modify-write as `work(view)`, reading and committing through `view`,
