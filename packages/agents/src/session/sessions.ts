@@ -134,7 +134,8 @@ export class Sessions {
 
   /**
    * Appends a message to its session and stamps the session's `updatedAt`
-   * with the message's `createdAt`; rejects when the session is unknown.
+   * with the message's `createdAt`, unless it is already later; rejects
+   * when the session is unknown.
    */
   appendMessage(input: CreateMessageInput): Promise<SessionMessage> {
     return this.#mutation(async (store) => {
@@ -223,12 +224,15 @@ export class Sessions {
   }
 }
 
-/** `session` as of `message` landing in it. */
+/** `session` as of `message` landing in it; a clock that stepped back never moves it backwards. */
 function touched(
   session: SessionRecord,
   message: SessionMessage
 ): SessionRecord {
-  return { ...session, updatedAt: message.createdAt };
+  return {
+    ...session,
+    updatedAt: Math.max(session.updatedAt, message.createdAt),
+  };
 }
 
 /** Real messages before `messageId` (exclusive): non-summarized, non-summary. */

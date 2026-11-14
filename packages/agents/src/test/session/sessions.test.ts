@@ -247,6 +247,34 @@ describe("Sessions rules", () => {
   });
 });
 
+describe("Sessions stamps against a clock that steps back", () => {
+  it("never moves a session's updatedAt backwards", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const sessions = new Sessions();
+      vi.setSystemTime(1000);
+      await sessions.createSession({ id: "s" });
+      vi.setSystemTime(2000);
+      await sessions.appendMessage({
+        parts: text("m1"),
+        role: "user",
+        sessionId: "s",
+      });
+      vi.setSystemTime(1000);
+      const late = await sessions.appendMessage({
+        parts: text("m2"),
+        role: "user",
+        sessionId: "s",
+      });
+
+      expect(late.createdAt).toBe(1000);
+      expect((await sessions.getSession("s"))?.updatedAt).toBe(2000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("Sessions over one store", () => {
   it("keeps both of two overlapping updates from two instances", async () => {
     const store = new InMemorySessionStore();
