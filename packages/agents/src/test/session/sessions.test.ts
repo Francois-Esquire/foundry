@@ -676,7 +676,7 @@ describe.each(sessionStoreKinds())("over %s", (_kind, open) => {
           },
           parts: [],
         },
-        "metadata.usage.inputTokens holds null, not a number",
+        "metadata.usage.inputTokens holds null, not an integer of at least 0",
       ],
       [
         "a text part whose text is undefined",

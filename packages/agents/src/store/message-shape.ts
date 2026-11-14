@@ -1,13 +1,15 @@
 /**
  * The structure a kept message's `parts` and `metadata` must have, checked
  * without Zod, field by field, as `@foundry/agents/schema` defines it: each
- * part's variant, the fields it requires and the type of every field it has,
- * and the type of each `metadata` field. Enum values inside a part are not
- * checked; a field the schema does not name is allowed, as JSON keeps it.
+ * part's variant, each capability's variant, the fields each requires, the
+ * type of every field, the values of every enum, the bounds of every count
+ * and the length of every record id. A field the schema does not name is
+ * allowed where the schema strips it, and refused inside a capability,
+ * which the schema keeps strict. A test holds every check to the schema,
+ * field by field and value by value.
  *
- * `Sessions` checks every message it writes after putting it in its JSON
- * form, so no store is handed a message another store could not read back;
- * the SQLite store checks again before writing and when reading a row.
+ * `Sessions` checks the parts and metadata a caller supplies, and the SQLite
+ * store checks every message it writes and every row it reads.
  */
 
 /** Where a value is wrong, below the field checked, and how. */
@@ -22,6 +24,8 @@ type Check = (value: unknown, at: string) => ShapeFault | undefined;
 interface Fields {
   readonly optional?: Readonly<Record<string, Check>>;
   readonly required?: Readonly<Record<string, Check>>;
+  /** Refuse a field neither list names, as a strict schema does. */
+  readonly strict?: boolean;
 }
 
 /** The first fault in a message's `parts`, or none. */
@@ -41,6 +45,9 @@ function describe(value: unknown): string {
   if (Array.isArray(value)) {
     return "an array";
   }
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    return String(value);
+  }
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value) ?? String(value);
   }
@@ -54,14 +61,41 @@ function fault(path: string, value: unknown, wanted: string): ShapeFault {
 const string: Check = (value, at) =>
   typeof value === "string" ? undefined : fault(at, value, "a string");
 
-const number: Check = (value, at) =>
-  typeof value === "number" ? undefined : fault(at, value, "a number");
+/** A record id: a nonempty string. */
+const recordId: Check = (value, at) =>
+  typeof value === "string" && value.length > 0
+    ? undefined
+    : fault(at, value, "a nonempty string");
 
 const boolean: Check = (value, at) =>
   typeof value === "boolean" ? undefined : fault(at, value, "a boolean");
 
+/** A safe integer at least `least`, or any safe integer. */
+function integer(least?: number): Check {
+  const wanted =
+    least === undefined
+      ? "an integer"
+      : `an integer of at least ${String(least)}`;
+  return (value, at) =>
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    (least === undefined || value >= least)
+      ? undefined
+      : fault(at, value, wanted);
+}
+
+/** A token or item count, or epoch milliseconds. */
+const count = integer(0);
+
 /** Any JSON value. */
 const anything: Check = () => undefined;
+
+function oneOf(values: readonly string[]): Check {
+  return (value, at) =>
+    typeof value === "string" && values.includes(value)
+      ? undefined
+      : fault(at, value, `one of ${values.join(", ")}`);
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -72,8 +106,8 @@ function list(item: Check): Check {
     if (!Array.isArray(value)) {
       return fault(at, value, "an array");
     }
-    for (const [index, element] of value.entries()) {
-      const found = item(element, `${at}[${index}]`);
+    for (let index = 0; index < value.length; index += 1) {
+      const found = item(value[index], `${at}[${index}]`);
       if (found !== undefined) {
         return found;
       }
@@ -96,18 +130,46 @@ function record(item: Check): Check {
 }
 
 function object(fields: Fields): Check {
+  return (value, at) =>
+    isObject(value)
+      ? fieldsFault(value, at, fields, [])
+      : fault(at, value, "an object");
+}
+
+/**
+ * An object whose `discriminator` names its variant in `variants`; `what`
+ * names the discriminator's values in a refusal.
+ */
+function variant(
+  discriminator: string,
+  variants: Readonly<Record<string, Fields>>,
+  what: string,
+  wanted: string
+): Check {
   return (value, at) => {
     if (!isObject(value)) {
-      return fault(at, value, "an object");
+      return fault(at, value, wanted);
     }
-    return fieldsFault(value, at, fields);
+    const tag = value[discriminator];
+    const fields =
+      typeof tag === "string" && Object.hasOwn(variants, tag)
+        ? variants[tag]
+        : undefined;
+    if (fields === undefined) {
+      return {
+        path: `${at}.${discriminator}`,
+        reason: `holds ${describe(tag)}, which is no ${what}`,
+      };
+    }
+    return fieldsFault(value, at, fields, [discriminator]);
   };
 }
 
 function fieldsFault(
   value: Record<string, unknown>,
   at: string,
-  { optional = {}, required = {} }: Fields
+  { optional = {}, required = {}, strict = false }: Fields,
+  known: readonly string[]
 ): ShapeFault | undefined {
   for (const [key, check] of Object.entries(required)) {
     if (!Object.hasOwn(value, key)) {
@@ -126,13 +188,69 @@ function fieldsFault(
       }
     }
   }
+  if (strict) {
+    const extra = Object.keys(value).find(
+      (key) =>
+        !(
+          known.includes(key) ||
+          Object.hasOwn(required, key) ||
+          Object.hasOwn(optional, key)
+        )
+    );
+    if (extra !== undefined) {
+      return { path: `${at}.${extra}`, reason: "is no field of it" };
+    }
+  }
 }
 
 const providerOptions = record(record(anything));
 
+const TOOL_SOURCES = [
+  "declared",
+  "builtin",
+  "skill",
+  "mcp",
+  "mesh",
+  "module",
+  "harness",
+] as const;
+
+/** Each capability variant's fields, `kind` aside; the schema keeps each strict. */
+const CAPABILITY_FIELDS: Readonly<Record<string, Fields>> = {
+  "domain.command": {
+    required: {
+      command: object({
+        required: { id: string, version: count },
+        strict: true,
+      }),
+      domain: string,
+      effect: oneOf(["read", "compute", "write"]),
+      target: object({
+        required: { projectId: string, scope: string },
+        strict: true,
+      }),
+    },
+    strict: true,
+  },
+  "fs.read": { required: { projectId: string, root: string }, strict: true },
+  "mcp.tool": { required: { serverId: string, tool: string }, strict: true },
+  "tool.call": {
+    required: { source: oneOf(TOOL_SOURCES), tool: string },
+    strict: true,
+  },
+  "web.fetch": { required: { domain: string }, strict: true },
+};
+
+const capability = variant(
+  "kind",
+  CAPABILITY_FIELDS,
+  "capability kind",
+  "a capability"
+);
+
 const harnessActivityEvent = object({
   optional: {
-    actions: list(string),
+    actions: list(oneOf(["stop"])),
     nativeId: string,
     parentId: string,
     summary: string,
@@ -140,12 +258,19 @@ const harnessActivityEvent = object({
   required: {
     agentId: string,
     harness: string,
-    id: string,
-    kind: string,
-    lifetime: string,
-    revision: number,
-    sessionId: string,
-    status: string,
+    id: recordId,
+    kind: oneOf(["subagent", "task", "watch", "schedule"]),
+    lifetime: oneOf(["session", "sandbox"]),
+    revision: integer(1),
+    sessionId: recordId,
+    status: oneOf([
+      "running",
+      "waiting",
+      "complete",
+      "failed",
+      "cancelled",
+      "unknown",
+    ]),
     title: string,
   },
 });
@@ -156,27 +281,29 @@ const harnessToolEvent = object({
     agentId: string,
     harness: string,
     inputSummary: string,
-    outcome: string,
-    sessionId: string,
+    outcome: oneOf(["started", "ran", "refused", "failed"]),
+    sessionId: recordId,
     toolCallId: string,
     toolName: string,
   },
 });
 
-const capability = object({ required: { kind: string } });
-
 const provenance = object({
   optional: {
-    agentGeneration: number,
+    agentGeneration: count,
     agentId: string,
     capability,
     nativeId: string,
     parentToolCallId: string,
     serverId: string,
-    sessionId: string,
+    sessionId: recordId,
     skillName: string,
   },
-  required: { effectLocation: string, invocationId: string, source: string },
+  required: {
+    effectLocation: oneOf(["runtime", "host", "executor"]),
+    invocationId: string,
+    source: oneOf([...TOOL_SOURCES, "external"]),
+  },
 });
 
 /**
@@ -188,11 +315,11 @@ const PART_FIELDS: Readonly<Record<string, Fields>> = {
   error: { required: { message: string } },
   harness_activity: { required: { event: harnessActivityEvent } },
   harness_question: {
-    optional: { activityId: string, answerCount: number },
+    optional: { activityId: string, answerCount: count },
     required: {
       harness: string,
-      outcome: string,
-      questionCount: number,
+      outcome: oneOf(["requested", "answered", "declined", "interrupted"]),
+      questionCount: count,
       toolCallId: string,
     },
   },
@@ -204,9 +331,9 @@ const PART_FIELDS: Readonly<Record<string, Fields>> = {
   tool_approval_request: {
     optional: {
       activityId: string,
-      agentGeneration: number,
+      agentGeneration: count,
       agentId: string,
-      approvalMode: string,
+      approvalMode: oneOf(["live", "deferred"]),
       input: anything,
       signature: string,
     },
@@ -218,7 +345,7 @@ const PART_FIELDS: Readonly<Record<string, Fields>> = {
     },
   },
   tool_approval_response: {
-    optional: { reason: string, scope: string },
+    optional: { reason: string, scope: oneOf(["once", "always"]) },
     required: { approvalId: string, approved: boolean },
   },
   tool_call: {
@@ -231,23 +358,7 @@ const PART_FIELDS: Readonly<Record<string, Fields>> = {
   },
 };
 
-function part(value: unknown, at: string): ShapeFault | undefined {
-  if (!isObject(value)) {
-    return fault(at, value, "a part");
-  }
-  const { type } = value;
-  const fields =
-    typeof type === "string" && Object.hasOwn(PART_FIELDS, type)
-      ? PART_FIELDS[type]
-      : undefined;
-  if (fields === undefined) {
-    return {
-      path: `${at}.type`,
-      reason: `holds ${describe(type)}, which is no part type`,
-    };
-  }
-  return fieldsFault(value, at, fields);
-}
+const part = variant("type", PART_FIELDS, "part type", "a part");
 
 const METADATA_FIELDS: Fields = {
   optional: {
@@ -256,51 +367,54 @@ const METADATA_FIELDS: Fields = {
       optional: { harness: string, provider: string },
       required: { id: string },
     }),
-    notification: object({ required: { kind: string, taskId: string } }),
+    notification: object({
+      required: { kind: oneOf(["status", "completion"]), taskId: string },
+    }),
     output: anything,
     providerOptions,
     timing: object({
-      required: { completedAt: number, durationMs: number, startedAt: number },
+      required: { completedAt: count, durationMs: integer(), startedAt: count },
     }),
     usage: object({
       optional: {
-        cachedInputTokens: number,
-        cacheWriteTokens: number,
-        reasoningTokens: number,
+        cachedInputTokens: count,
+        cacheWriteTokens: count,
+        reasoningTokens: count,
       },
-      required: {
-        inputTokens: number,
-        outputTokens: number,
-        totalTokens: number,
-      },
+      required: { inputTokens: count, outputTokens: count, totalTokens: count },
     }),
   },
 };
 
 const METADATA = object(METADATA_FIELDS);
 
-/**
- * The field names each check knows, required and optional, by part type and
- * for `metadata`, so a test can hold them to `@foundry/agents/schema`.
- */
-export function shapeFieldNames(): {
-  readonly metadata: FieldNames;
-  readonly parts: Readonly<Record<string, FieldNames>>;
-} {
-  return {
-    metadata: fieldNames(METADATA_FIELDS),
-    parts: Object.fromEntries(
-      Object.entries(PART_FIELDS).map(([type, fields]) => [
-        type,
-        fieldNames(fields),
-      ])
-    ),
-  };
-}
-
 interface FieldNames {
   readonly optional: readonly string[];
   readonly required: readonly string[];
+}
+
+/**
+ * The field names each check knows, required and optional, by part type,
+ * by capability kind and for `metadata`, so a test can hold them to
+ * `@foundry/agents/schema`.
+ */
+export function shapeFieldNames(): {
+  readonly capabilities: Readonly<Record<string, FieldNames>>;
+  readonly metadata: FieldNames;
+  readonly parts: Readonly<Record<string, FieldNames>>;
+} {
+  const byVariant = (variants: Readonly<Record<string, Fields>>) =>
+    Object.fromEntries(
+      Object.entries(variants).map(([name, fields]) => [
+        name,
+        fieldNames(fields),
+      ])
+    );
+  return {
+    capabilities: byVariant(CAPABILITY_FIELDS),
+    metadata: fieldNames(METADATA_FIELDS),
+    parts: byVariant(PART_FIELDS),
+  };
 }
 
 function fieldNames({ optional = {}, required = {} }: Fields): FieldNames {
