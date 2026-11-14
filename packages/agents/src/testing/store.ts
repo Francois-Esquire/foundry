@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { SessionMessage, SessionRecord } from "../schema";
+import type { SessionMessage, SessionPart, SessionRecord } from "../schema";
 import type { SessionStore } from "../store";
 
 /**
@@ -111,6 +111,108 @@ export function describeSessionStore(
         await expect(ids(reader, "b")).resolves.toEqual(["m1"]);
         await expect(reader.getMessage("m1")).resolves.toStrictEqual(moved);
       }
+    });
+
+    it("moves a message to the end of its new session, and the next one follows it", async () => {
+      const store = await fresh();
+      await store.commit({
+        putMessages: [
+          message("a1", "a", 1),
+          message("a2", "a", 2),
+          message("b1", "b", 1),
+          message("b2", "b", 2),
+        ],
+        putSessions: [session("a"), session("b")],
+      });
+      await store.commit({ putMessages: [message("a1", "b", 1)] });
+      await store.commit({
+        putMessages: [message("b3", "b", 3), message("a3", "a", 3)],
+      });
+
+      await expect(ids(store, "a")).resolves.toEqual(["a2", "a3"]);
+      await expect(ids(store, "b")).resolves.toEqual(["b1", "b2", "a1", "b3"]);
+    });
+
+    it("places a message put more than once in one write as its puts, in order, leave it", async () => {
+      const store = await fresh();
+      await store.commit({
+        putMessages: [message("m1", "a", 1), message("m2", "a", 2)],
+        putSessions: [session("a"), session("b"), session("n")],
+      });
+      const last = message("m1", "a", 1, { status: "error" });
+      await store.commit({
+        putMessages: [
+          message("m1", "b", 1),
+          message("n1", "a", 3),
+          last,
+          message("n2", "n", 1),
+          message("n2", "n", 1, { status: "streaming" }),
+        ],
+      });
+
+      await expect(ids(store, "a")).resolves.toEqual(["m2", "n1", "m1"]);
+      await expect(ids(store, "b")).resolves.toEqual([]);
+      await expect(store.getMessage("m1")).resolves.toStrictEqual(last);
+      await expect(store.listMessages("n")).resolves.toStrictEqual([
+        message("n2", "n", 1, { status: "streaming" }),
+      ]);
+    });
+
+    it("keeps the last of a session put more than once in one write", async () => {
+      const store = await fresh();
+      await store.commit({
+        putSessions: [
+          session("s", { title: "first" }),
+          session("s", { title: "last" }),
+        ],
+      });
+
+      await expect(store.getSession("s")).resolves.toStrictEqual(
+        session("s", { title: "last" })
+      );
+    });
+
+    it("reads every field back as written, a field left out still left out", async () => {
+      const store = await fresh();
+      const root = session("root");
+      const child = session("child", {
+        parentMessageId: "full",
+        parentSessionId: "root",
+        recursionDepth: 0,
+        status: "error",
+        title: "",
+      });
+      const full = message("full", "root", 2, {
+        metadata: FULL_METADATA,
+        parts: EVERY_PART,
+        role: "assistant",
+        status: "streaming",
+        summarized: false,
+        updatedAt: 3,
+      });
+      const bare = message("bare", "root", 4, { parts: [], role: "summary" });
+      const folded = message("folded", "root", 5, {
+        role: "tool",
+        summarized: true,
+      });
+      await store.commit({
+        putMessages: [full, bare, folded],
+        putSessions: [root, child],
+      });
+
+      await expect(store.getSession("root")).resolves.toStrictEqual(root);
+      await expect(store.getSession("child")).resolves.toStrictEqual(child);
+      await expect(store.listMessages("root")).resolves.toStrictEqual([
+        full,
+        bare,
+        folded,
+      ]);
+      await expect(store.getMessage("full")).resolves.toStrictEqual(full);
+      const read = await store.getMessage("bare");
+      expect(read !== null && "metadata" in read).toBe(false);
+      expect(read !== null && "summarized" in read).toBe(false);
+      const parent = await store.getSession("root");
+      expect(parent !== null && "recursionDepth" in parent).toBe(false);
     });
 
     it("keeps each session's messages apart", async () => {
@@ -533,6 +635,112 @@ export function describeSessionStore(
     });
   });
 }
+
+/** Metadata with every field set, nested values included. */
+const FULL_METADATA: SessionMessage["metadata"] = {
+  harnessEnvironment: { harness: "codex", id: "env-1" },
+  model: { harness: "codex", id: "model", provider: "openai" },
+  notification: { kind: "completion", taskId: "task-1" },
+  output: { empty: {}, list: [1, -2.5, "three", null, true, { deep: [[]] }] },
+  providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+  timing: { completedAt: 20, durationMs: -5, startedAt: 25 },
+  usage: {
+    cachedInputTokens: 1,
+    cacheWriteTokens: 2,
+    inputTokens: 3,
+    outputTokens: 4,
+    reasoningTokens: 5,
+    totalTokens: 7,
+  },
+};
+
+/** One part of every type, with each optional field set somewhere. */
+const EVERY_PART: SessionPart[] = [
+  { text: "plain, then \u00e9 and \u{1F600}", type: "text" },
+  { text: "", type: "reasoning" },
+  { mediaType: "image/png", type: "image", url: "data:image/png;base64,AA==" },
+  { type: "image", url: "https://example.test/a.png" },
+  {
+    input: { nested: { list: [1, "two", null] }, text: "in" },
+    name: "read",
+    provenance: {
+      agentGeneration: 1,
+      agentId: "agent",
+      effectLocation: "host",
+      invocationId: "inv",
+      source: "builtin",
+    },
+    providerOptions: { google: { thoughtSignature: "sig" } },
+    toolCallId: "call-1",
+    type: "tool_call",
+  },
+  { input: null, name: "noop", toolCallId: "call-2", type: "tool_call" },
+  {
+    isError: true,
+    output: ["out", 2],
+    toolCallId: "call-1",
+    type: "tool_result",
+  },
+  { output: "plain", toolCallId: "call-2", type: "tool_result" },
+  { message: "failed", type: "error" },
+  {
+    approvalId: "ap-1",
+    approvalMode: "deferred",
+    capability: { kind: "tool.call", source: "builtin", tool: "read" },
+    input: { path: "/a" },
+    name: "read",
+    toolCallId: "call-1",
+    type: "tool_approval_request",
+  },
+  {
+    approvalId: "ap-1",
+    approved: false,
+    reason: "no",
+    scope: "once",
+    type: "tool_approval_response",
+  },
+  {
+    harness: "codex",
+    nativeSessionId: "native",
+    type: "harness_session",
+  },
+  {
+    activityId: "act",
+    answerCount: 1,
+    harness: "codex",
+    outcome: "answered",
+    questionCount: 2,
+    toolCallId: "call-3",
+    type: "harness_question",
+  },
+  {
+    event: {
+      agentId: "agent",
+      harness: "codex",
+      inputSummary: "ls",
+      outcome: "ran",
+      sessionId: "root",
+      toolCallId: "call-4",
+      toolName: "shell",
+    },
+    type: "harness_tool",
+  },
+  {
+    event: {
+      actions: ["stop"],
+      agentId: "agent",
+      harness: "codex",
+      id: "act",
+      kind: "subagent",
+      lifetime: "session",
+      revision: 1,
+      sessionId: "root",
+      status: "running",
+      title: "child",
+    },
+    type: "harness_activity",
+  },
+];
 
 /** What a store's refusal of a call from inside its own transaction says. */
 const REFUSAL = /refused: .*use the view/;
