@@ -3,22 +3,29 @@
  * blobs Content trees reference. Each schema is the single definition of its
  * record; the record types are inferred from it.
  *
- * Nothing parses through these today. Invariants that span records or fields
- * (a pointer naming the Artifact's own Content, a blob's inline bytes matching
- * its `byteLength`) stay with the store and `validateBlob`.
+ * Nothing parses through these today; `validateBlob` checks a blob's fields
+ * with the components below. Invariants that span records or fields (a
+ * pointer naming the Artifact's own Content, a blob's inline bytes matching
+ * its `byteLength`, a tree entry's parent directory) stay with the store,
+ * `validateBlob` and Core's `validateStorageTree`.
  */
 
 import type { FileNode, StorageNode } from "@foundry/core/storage";
+import { isStoragePath } from "@foundry/core/storage";
+import { canonicalizeJson } from "@foundry/lib/json";
 import { z } from "zod";
 
 import { ARTIFACT_STATUSES, CONTENT_STATES } from "./constants";
 import { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ref";
 
 /** A SHA-256 hex digest, as `digestTree` and blob hashing produce it. */
-const sha256DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
+export const sha256DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
+/** A length in bytes. */
+export const byteCountSchema = z.int().nonnegative();
 /** Matches the manager's non-empty check: whitespace alone is empty. */
 const nonBlankSchema = z.string().regex(/\S/);
-const byteCountSchema = z.int().nonnegative();
+/** Non-empty and free of NUL, as a filesystem path or link target must be. */
+const nulFreeSchema = z.string().regex(/^[^\0]+$/);
 
 export const artifactLifecycleStatusSchema = z.enum(ARTIFACT_STATUSES);
 export type ArtifactLifecycleStatus = z.infer<
@@ -30,27 +37,48 @@ export type ContentState = z.infer<typeof contentStateSchema>;
 
 // ── Metadata ──
 // Open JSON objects: the named keys carry meaning to the package, and any
-// other key is kept as written.
+// other key is kept as written. Values follow `assertJsonMetadata`: plain
+// JSON that `canonicalizeJson` accepts.
+
+function isCanonicalJson(value: unknown): boolean {
+  try {
+    canonicalizeJson(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const JSON_METADATA = "Metadata must be plain JSON";
 
 export const artifactMetadataSchema = z
   .looseObject({ sessionId: z.string().optional() })
+  .refine(isCanonicalJson, JSON_METADATA)
   .readonly();
 export type ArtifactMetadata = z.infer<typeof artifactMetadataSchema>;
+
+const failureFields = { code: z.string(), message: z.string() };
+
+/**
+ * Why Content failed. Typed by the keys the package reads; any other key a
+ * host stores alongside them is kept as written.
+ */
+const contentFailureSchema: z.ZodType<
+  Readonly<z.output<z.ZodObject<typeof failureFields>>>
+> = z.looseObject(failureFields).readonly();
 
 export const contentMetadataSchema = z
   .looseObject({
     entries: z.record(z.string(), z.string()).readonly().optional(),
     entry: z.string().optional(),
-    failure: z
-      .object({ code: z.string(), message: z.string() })
-      .readonly()
-      .optional(),
+    failure: contentFailureSchema.optional(),
     from: z.string().optional(),
     messageId: z.string().optional(),
     runId: z.string().optional(),
     sessionId: z.string().optional(),
     thumbnail: z.string().optional(),
   })
+  .refine(isCanonicalJson, JSON_METADATA)
   .readonly();
 export type ContentMetadata = z.infer<typeof contentMetadataSchema>;
 
@@ -71,7 +99,7 @@ export type StoredFile = z.infer<typeof storedFileSchema>;
 const structuralNodeSchema = z
   .discriminatedUnion("type", [
     z.strictObject({ type: z.literal("directory") }),
-    z.strictObject({ target: z.string(), type: z.literal("symlink") }),
+    z.strictObject({ target: nulFreeSchema, type: z.literal("symlink") }),
     z.strictObject({ type: z.literal("socket") }),
     z.strictObject({ type: z.literal("device") }),
     z.strictObject({ type: z.literal("pipe") }),
@@ -80,7 +108,10 @@ const structuralNodeSchema = z
 
 /** Keys are root-relative storage paths, as in Core's `StorageTree`. */
 export const contentTreeSchema = z
-  .record(z.string(), z.union([storedFileSchema, structuralNodeSchema]))
+  .record(
+    z.string().refine(isStoragePath, "Invalid storage path"),
+    z.union([storedFileSchema, structuralNodeSchema])
+  )
   .readonly();
 export type ContentTree = z.infer<typeof contentTreeSchema>;
 
@@ -95,15 +126,17 @@ const bytesSourceSchema = z.strictObject({
   path: z.never().optional(),
 });
 /** A store-owned, immutable backing file. */
+export const blobPathSchema = nulFreeSchema;
 const pathSourceSchema = z.strictObject({
   bytes: z.never().optional(),
   chunks: z.never().optional(),
-  path: z.string().regex(/^[^\0]+$/),
+  path: blobPathSchema,
 });
 /** Immutable leaf blobs of at most `CHUNK_BYTES` each. */
+export const blobChunksSchema = z.array(blobIdSchema).min(1).readonly();
 const chunksSourceSchema = z.strictObject({
   bytes: z.never().optional(),
-  chunks: z.array(blobIdSchema).min(1).readonly(),
+  chunks: blobChunksSchema,
   path: z.never().optional(),
 });
 
