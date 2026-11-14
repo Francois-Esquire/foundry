@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.0.4](https://github.com/Francois-Esquire/foundry/compare/marbles-v0.0.3...marbles-v0.0.4) (2026-11-14)
+
+
+### Features
+
+* **marbles:** add durable embedded execution and host tasks ([#55](https://github.com/Francois-Esquire/foundry/issues/55)) ([79ea35b](https://github.com/Francois-Esquire/foundry/commit/79ea35b42b1cd2ac52e05e398deeea99c9d3dc6f))
+* **marbles:** export prompts, ship marbles mcp, and read prices and skills from direct sources ([#65](https://github.com/Francois-Esquire/foundry/issues/65)) ([b51ad17](https://github.com/Francois-Esquire/foundry/commit/b51ad1713369b7676cb694d3050b31cd151f428c))
+* **modules:** centralize the reusable Module library ([#53](https://github.com/Francois-Esquire/foundry/issues/53)) ([3e5548c](https://github.com/Francois-Esquire/foundry/commit/3e5548c300f576caaf01fcdc34b08389cf01a498))
+* **sandbox:** define container store records as Zod schemas ([#68](https://github.com/Francois-Esquire/foundry/issues/68)) ([8e35495](https://github.com/Francois-Esquire/foundry/commit/8e354958b820a8b598dfca111bda3b84cac39443))
+* **workspaces:** define persisted records as Zod schemas ([#71](https://github.com/Francois-Esquire/foundry/issues/71)) ([859a3e3](https://github.com/Francois-Esquire/foundry/commit/859a3e33941d8b874a5635584b4abf85f08c4c11))
+
 ## [0.0.3](https://github.com/Francois-Esquire/foundry/compare/marbles-v0.0.2...marbles-v0.0.3) (2026-11-08)
 
 
