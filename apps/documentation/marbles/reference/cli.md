@@ -50,7 +50,7 @@ to stderr and exit 1 before importing modules or touching state.
 `--dry-run`; `help`, `init`, `status`, `sessions`, `tasks`, `watch`,
 `mcp`, `daemon`, and `stop` import nothing. Keep module scope to declarations: importing the
 file must not do work. Attaching (`attach`, `run`, `roll`, and the dashboard) records the
-workspace in `workspace.json` with `hosted: true`; nothing is recorded
+workspace in the Marbles database with `hosted: true`; nothing is recorded
 under `--dry-run`. The [MCP server](/marbles/reference/mcp) never attaches.
 
 ### Watch a background run

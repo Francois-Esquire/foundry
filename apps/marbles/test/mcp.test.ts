@@ -17,11 +17,16 @@ import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { layout } from "~/layout";
-import { readWorkspace, workspaceState } from "~/lib/state/workspace";
+import { workspaceState } from "~/lib/state/workspace";
 import { daemonAlive } from "~/process/client";
 import { version } from "../package.json";
 import { stopDaemon } from "./helpers/daemon";
 import { rawMcpSession, serverPreload, strayLines } from "./helpers/mcp-stdio";
+import {
+  readWorkspace,
+  seedWorkspace,
+  touchWorkspace,
+} from "./helpers/registry";
 
 const TOOL_NAMES = [
   "list_workspaces",
@@ -604,11 +609,13 @@ schedule(tick).every("1s");`
     expect(daemonAlive(machine)).toBe(false);
     expect(existsSync(machine.socket)).toBe(false);
     expect(existsSync(join(state, "locks", "process"))).toBe(false);
-    const [id] = await readdir(state);
+    const [id] = (await readdir(state, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
     if (id === undefined) {
       throw new Error("the task change left no workspace state");
     }
-    expect(readWorkspace(join(state, id))?.hosted).not.toBe(true);
+    expect((await readWorkspace(state, id))?.hosted).not.toBe(true);
     expect(existsSync(join(state, id, "schedules"))).toBe(false);
     // No source ran here: no schedule ticked and no observer saw the change.
     expect(existsSync(ticked)).toBe(false);
@@ -627,7 +634,7 @@ it("starts without a source and serves the stored tasks of every recorded worksp
   await mkdir(other);
   // B is recorded, stopped, and has a task the CLI wrote without a process.
   const recorded = workspaceState(state, other);
-  recorded.touch(null);
+  await touchWorkspace(state, recorded, null);
   const made = spawnSync(
     "bun",
     [
@@ -644,13 +651,18 @@ it("starts without a source and serves the stored tasks of every recorded worksp
   expect(made.status, made.stderr).toBe(0);
   // Its checkout is gone; its stored tasks are not.
   await rm(other, { force: true, recursive: true });
-  // A symlinked entry points out of the state root, at a matching record.
+  // A recorded workspace whose directory is a link out of the state root.
   const outside = join(root, "outside");
   await mkdir(outside);
-  await writeFile(
-    join(outside, "workspace.json"),
-    JSON.stringify({ id: "abc", root: outside })
-  );
+  const now = new Date().toISOString();
+  await seedWorkspace(state, {
+    config: null,
+    firstSeen: now,
+    hosted: false,
+    id: "abc",
+    lastSeen: now,
+    root: outside,
+  });
   await symlink(outside, join(state, "abc"));
   const transport = new StdioClientTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--state", state],
@@ -722,7 +734,7 @@ it("starts without a source and serves the stored tasks of every recorded worksp
     expect(JSON.stringify(linked.content)).toContain(
       "list_workspaces names them"
     );
-    expect(await readdir(outside)).toEqual(["workspace.json"]);
+    expect(await readdir(outside)).toEqual([]);
     expect(listed.map((entry) => entry.id)).not.toContain("abc");
     const config = await client.callTool({
       arguments: {},

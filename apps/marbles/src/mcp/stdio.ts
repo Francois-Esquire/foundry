@@ -8,7 +8,7 @@ import {
   withTasks,
 } from "~/access/workspace";
 import type { Flags } from "~/args";
-import { listWorkspaces } from "~/lib/state/workspace";
+import { recordedWorkspaces } from "~/database/workspaces";
 import { onRelayGone, protocolOutput, SHUTDOWN_GRACE_MS } from "~/mcp/relay";
 import { createMcpServer, type McpServerOptions } from "~/mcp/server";
 import type { WorkspaceSummary } from "~/model/connection";
@@ -83,7 +83,7 @@ function serveWorkspace(flags: Flags): Served {
     turn = next.catch(() => undefined);
     return next;
   };
-  const recorded = (id: string): OpenedWorkspace => {
+  const recorded = async (id: string): Promise<OpenedWorkspace> => {
     if (id === own.id) {
       return opened;
     }
@@ -92,7 +92,7 @@ function serveWorkspace(flags: Flags): Served {
         `only workspace "${own.id}" is available under --dry-run`
       );
     }
-    const found = recordedWorkspace(flags, id);
+    const found = await recordedWorkspace(flags, id);
     if (found === undefined) {
       throw new Error(
         `no workspace "${id}" is recorded under ${resolve(flags.state)}; list_workspaces names them`
@@ -127,14 +127,13 @@ function serveWorkspace(flags: Flags): Served {
     id: own.id,
     // A call already holding the tasks finishes before the server exits.
     release: () => turn.then(() => memory?.release()),
-    tasks: (command, id = own.id) => {
-      const target = recorded(id);
-      return inTurn(async () =>
-        memory === undefined
+    tasks: (command, id = own.id) =>
+      inTurn(async () => {
+        const target = await recorded(id);
+        return memory === undefined
           ? withTasks(flags, target, print, (run) => run(command))
-          : (await memory.open())(command)
-      );
-    },
+          : (await memory.open())(command);
+      }),
     async workspaces() {
       if (flags.dry) {
         return [ownSummary];
@@ -142,7 +141,7 @@ function serveWorkspace(flags: Flags): Served {
       const client = await joinProcess(flags);
       let listed: readonly WorkspaceSummary[];
       if (client === undefined) {
-        listed = listWorkspaces(resolve(flags.state)).map(
+        listed = (await recordedWorkspaces(flags.state)).map(
           ({ config, id, root }) => ({ config, id, root, state: "stopped" })
         );
       } else {

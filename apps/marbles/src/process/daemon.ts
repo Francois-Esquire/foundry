@@ -5,8 +5,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { lockHolder } from "@foundry/lib/file-lock";
+import type { MarblesDatabase } from "~/database/open";
+import { openDatabase } from "~/database/open";
+import { WorkspaceRegistry } from "~/database/workspaces";
 import type { Layout } from "~/layout";
-import { listWorkspaces } from "~/lib/state/workspace";
 import type { WorkspaceSummary } from "~/model/connection";
 import { Channel, socketTransport } from "~/process/channel";
 import type { ProcessInstance } from "~/process/instance";
@@ -173,6 +175,14 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     socket: layout.socket,
     version,
   });
+  let database: MarblesDatabase;
+  try {
+    database = await openDatabase(layout.database);
+  } catch (error) {
+    claim.release();
+    throw error;
+  }
+  const registry = new WorkspaceRegistry({ database: database.database });
   const workers = new Map<string, Worker>();
   const clients = new Set<Client>();
   /** Every open connection, clients and workers alike: closing destroys them. */
@@ -508,7 +518,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (existing && existing.wanted === "running") {
       return reuse(existing, configPath, setup);
     }
-    workspace.touch(found ? configPath : null, { hosted: true });
+    // Recorded before the worker starts, so whoever waits for it to be
+    // ready finds the record; a write that fails fails the attach.
+    const recorded = registry.touch(workspace, found ? configPath : null, {
+      hosted: true,
+    });
     const worker: Worker = {
       exited: Promise.resolve(),
       ready: pendingReady(),
@@ -524,21 +538,31 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       wanted: "running",
     };
     workers.set(workspace.id, worker);
-    if (existing) {
-      // A worker being detached holds the workspace's claim until it exits,
-      // and would refuse its replacement: that one starts once it has.
-      (existing.stopping ?? existing.exited)
-        .then(() => startWaited(worker))
-        .catch(() => undefined);
-    } else {
-      start(worker).catch(() => undefined);
-    }
+    // A worker being detached holds the workspace's claim until it exits,
+    // and would refuse its replacement: that one starts once it has.
+    Promise.all([recorded, existing && (existing.stopping ?? existing.exited)])
+      .then(
+        () => startWaited(worker),
+        (error: unknown) => unrecorded(worker, error)
+      )
+      .catch(() => undefined);
     return worker;
   }
 
+  /** The record a worker waited for could not be written: it never starts. */
+  function unrecorded(worker: Worker, error: unknown): void {
+    const why = `the workspace could not be recorded: ${error instanceof Error ? error.message : String(error)}`;
+    print(`[${worker.summary.id}] ${why}`);
+    if (workers.get(worker.summary.id) === worker) {
+      workers.delete(worker.summary.id);
+    }
+    setState(worker, "failed", why);
+    worker.ready.reject(new Error(why));
+  }
+
   /**
-   * Start a worker that waited for its predecessor to exit, unless meanwhile
-   * it was stopped, replaced, or spawned by a reload.
+   * Start a worker that waited for its record, and for its predecessor to
+   * exit, unless meanwhile it was stopped, replaced, or spawned by a reload.
    */
   function startWaited(worker: Worker): Promise<unknown> {
     const current = workers.get(worker.summary.id) === worker;
@@ -568,9 +592,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     // The record first: a write that fails leaves the worker listed, so the
     // detach can be retried, rather than hosted again at the next boot.
-    layout.workspace(worker.summary.root).touch(worker.summary.config, {
-      hosted: false,
-    });
+    await registry.touch(
+      layout.workspace(worker.summary.root),
+      worker.summary.config,
+      { hosted: false }
+    );
     workers.delete(id);
   }
 
@@ -744,7 +770,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   chmodSync(layout.socket, 0o600);
   print(`[daemon] pid ${String(process.pid)} · ${layout.socket}`);
 
-  for (const record of listWorkspaces(layout.state)) {
+  for (const record of await registry.list()) {
     if (
       record.hosted &&
       record.config !== null &&
@@ -796,6 +822,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
           await new Promise<void>((resolve) => server.close(() => resolve()));
           rmSync(layout.socket, { force: true });
         }
+        database.close();
         claim.release();
         resolveClosed();
       }

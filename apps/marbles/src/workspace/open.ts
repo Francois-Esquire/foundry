@@ -7,13 +7,16 @@ import { expectHost, setHost } from "~/authoring/runtime";
 import { initializeUsage } from "~/authoring/usage";
 import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
+import { openExistingDatabase, withDatabase } from "~/database/open";
+import { WorkspaceRegistry } from "~/database/workspaces";
+import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
 import {
-  readWorkspace,
-  recordedState,
+  insideState,
+  workspaceAt,
   workspaceState,
 } from "~/lib/state/workspace";
 import type { WorkspaceEnvironment } from "~/workspace/env";
@@ -137,23 +140,37 @@ export function findWorkspace(args: HostOptions): OpenedWorkspace {
 /**
  * A workspace recorded under the state root, by its id, found without
  * executing anything. Its checkout need not exist: stored state is all a
- * task command reads. Undefined when no readable record has that id.
+ * task command reads. Undefined when nothing has that id, or when
+ * `<state>/<id>` is a link; a state root without a database is left
+ * without one.
  */
-export function recordedWorkspace(
+export async function recordedWorkspace(
   args: HostOptions,
   id: string
-): OpenedWorkspace | undefined {
-  const workspace = recordedState(resolve(args.state), id);
-  if (workspace === undefined) {
+): Promise<OpenedWorkspace | undefined> {
+  const state = resolve(args.state);
+  const handle = await openExistingDatabase(stateDatabase(state));
+  if (handle === undefined) {
     return;
   }
-  const config = readWorkspace(workspace.dir)?.config ?? null;
-  return {
-    config,
-    configPath: config ?? resolve(workspace.root, DEFAULT_SOURCE),
-    environment: { machine: environmentSnapshot(), workspace: {} },
-    workspace,
-  };
+  try {
+    const record = await new WorkspaceRegistry({
+      database: handle.database,
+    }).read(id);
+    // A linked `<state>/<id>` would put what is written there somewhere else.
+    if (record === undefined || !insideState(state, id)) {
+      return;
+    }
+    const workspace = workspaceAt(state, id, record.root);
+    return {
+      config: record.config,
+      configPath: record.config ?? resolve(workspace.root, DEFAULT_SOURCE),
+      environment: { machine: environmentSnapshot(), workspace: {} },
+      workspace,
+    };
+  } finally {
+    handle.close();
+  }
 }
 
 export interface OpenWorkspaceOptions {
@@ -257,12 +274,15 @@ export function hostTriggers(
  * writes it: a listing, and anything under `--dry-run`, leaves the state root
  * as it found it.
  */
-export function touchWorkspace(
+export async function touchWorkspace(
   engine: Engine,
+  args: Pick<HostOptions, "state">,
   { config, workspace }: OpenedWorkspace
-): void {
+): Promise<void> {
   if (engine.state !== undefined) {
-    workspace.touch(config);
+    await withDatabase(stateDatabase(args.state), (database) =>
+      new WorkspaceRegistry({ database }).touch(workspace, config)
+    );
   }
 }
 

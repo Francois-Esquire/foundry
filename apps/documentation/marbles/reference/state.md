@@ -16,9 +16,9 @@ The default state root is `~/.foundry/marbles`; `FOUNDRY_HOME` moves the
 whole home, and `--state` moves the root alone. The root holds the files of
 the Marbles process, the one daemon for this machine, and one directory per
 workspace: the project root above `.foundry/marbles`, named by the first
-twelve hex digits of the SHA-256 of its canonical path. Listing the state
-root is the registry of every workspace this machine has run, and each
-`workspace.json` says whether the process hosts it.
+twelve hex digits of the SHA-256 of its canonical path. The Marbles
+database, `marbles.db` at the state root, is the registry of every
+workspace this machine has run, and says which of them the process hosts.
 
 ```text
 ~/.foundry/marbles/
@@ -27,6 +27,9 @@ root is the registry of every workspace this machine has run, and each
   process.json            what it is: pid, host "daemon", socket, artifacts dir,
                           the Marbles version it runs (`marbles`), start time
   marbles.sock            the Unix socket it answers on, owner-only (mode 0600)
+  marbles.db              the Marbles database (SQLite, WAL mode, with its
+                          -wal and -shm files): every workspace's id, root,
+                          config, firstSeen, lastSeen, and whether it is hosted
   daemon.log              stdout and stderr of a process a client started;
                           `marbles daemon` prints to its own terminal instead
   settings.json           global dashboard preferences (the theme), shared by
@@ -36,7 +39,6 @@ root is the registry of every workspace this machine has run, and each
 
 ```text
 ~/.foundry/marbles/<workspace-id>/
-  workspace.json          id, root, config, firstSeen, lastSeen, hosted
   runs/<runId>.json       one run: its record, frames, jobs, queue row, suspensions,
                           the owning pid, and what the run recorded (below)
   executions/<runId>.json the Execution Run record: queue, status, revision,
@@ -99,11 +101,14 @@ append-only. Lock files are created in place
 Marbles-owned records are `version: 1`. Session files use the session store's
 own format. Version 1 run files still load. The persisted `config` field keeps
 its existing spelling and records the authoring folder or single-module path.
-`workspace.json` is written when the workspace is attached to the Marbles
+A workspace is recorded in the database when it is attached to the Marbles
 process (`run`, `roll`, the dashboard, or the MCP server), which sets
 `hosted: true`, and by a program that hosts it itself; `list`, `status`,
 `sessions`, `watch`, and anything under `--dry-run` leave an empty state
-root empty. `hosted` goes back to `false` when `marbles detach` or a client of the
+root empty. Opening the database creates it if need be and applies the
+migrations this Marbles ships; a database migrated by a newer Marbles is
+refused. The daemon, its workers, and the CLI open it at once: a writer
+waits up to five seconds for another process's write to finish. `hosted` goes back to `false` when `marbles detach` or a client of the
 process detaches the workspace.
 
 ### Run output

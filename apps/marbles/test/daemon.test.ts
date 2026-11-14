@@ -13,7 +13,6 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Layout, layout } from "~/layout";
-import { readWorkspace } from "~/lib/state/workspace";
 import type {
   DispatchOptions,
   WorkspaceState,
@@ -28,6 +27,7 @@ import {
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { ProcessHeldError, readProcess } from "~/process/instance";
 import { RemoteError } from "~/process/protocol";
+import { readWorkspace } from "./helpers/registry";
 
 /**
  * The daemon runs here, under the test runner; the workers it spawns run
@@ -116,7 +116,7 @@ describe("the Marbles process", () => {
       id: machine.workspace(root).id,
       state: "ready",
     });
-    expect(readWorkspace(join(machine.state, summary.id))).toMatchObject({
+    expect(await readWorkspace(machine.state, summary.id)).toMatchObject({
       config: source,
       hosted: true,
     });
@@ -160,7 +160,9 @@ describe("the Marbles process", () => {
 
     await client.detach(summary.id);
     expect(await client.workspaces()).toEqual([]);
-    expect(readWorkspace(join(machine.state, summary.id))?.hosted).toBe(false);
+    expect((await readWorkspace(machine.state, summary.id))?.hosted).toBe(
+      false
+    );
     expect(readProcess(join(machine.state, summary.id))?.alive).not.toBe(true);
     await expect(workspace.describe()).rejects.toThrow(RemoteError);
     client.close();
@@ -528,7 +530,7 @@ export const hold = step("hold").do(async () => {
     expect(await client.workspaces()).toEqual([
       expect.objectContaining({ id: summary.id, state: "ready" }),
     ]);
-    expect(readWorkspace(join(machine.state, summary.id))?.hosted).toBe(true);
+    expect((await readWorkspace(machine.state, summary.id))?.hosted).toBe(true);
     client.close();
   }, 60_000);
 

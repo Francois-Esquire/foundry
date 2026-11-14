@@ -5,7 +5,6 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -18,11 +17,7 @@ import { runSchedules, tick } from "~/lib/schedule";
 import { acquireLock } from "~/lib/state/locks";
 import type { StateStore } from "~/lib/state/store";
 import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
-import {
-  listWorkspaces,
-  recordedState,
-  workspaceState,
-} from "~/lib/state/workspace";
+import { workspaceState } from "~/lib/state/workspace";
 import type { Schedule } from "~/lib/triggers";
 import { testEngine } from "./helpers/engine";
 
@@ -137,7 +132,7 @@ describe("run files", () => {
 });
 
 describe("workspace", () => {
-  it("derives one id per root and upserts workspace.json", () => {
+  it("derives one id per root, and its directory under the state root", () => {
     const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
     const a = mkdtempSync(join(tmpdir(), "marbles-ws-a-"));
     const b = mkdtempSync(join(tmpdir(), "marbles-ws-b-"));
@@ -147,41 +142,6 @@ describe("workspace", () => {
     expect(workspaceState(state, b).id).not.toBe(first.id);
     expect(first.id).toMatch(SHORT_HEX_ID_PATTERN);
     expect(first.dir).toBe(join(state, first.id));
-
-    first.touch(join(a, "marbles.config.ts"));
-    const seen = readJson(join(first.dir, "workspace.json"));
-    expect(seen).toMatchObject({
-      config: join(a, "marbles.config.ts"),
-      id: first.id,
-      root: first.root,
-    });
-    expect(seen).toHaveProperty("firstSeen");
-    expect(seen).toHaveProperty("lastSeen");
-
-    first.touch(null);
-    expect(readJson(join(first.dir, "workspace.json"))).toMatchObject({
-      config: null,
-      firstSeen: seen.firstSeen,
-    });
-  });
-
-  it("finds a recorded workspace only in a real directory under the state root", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
-    const root = mkdtempSync(join(tmpdir(), "marbles-ws-"));
-    const recorded = workspaceState(state, root);
-    recorded.touch(null);
-    expect(recordedState(state, recorded.id)?.dir).toBe(recorded.dir);
-    // A symlinked entry whose target carries a matching record is not one.
-    const outside = mkdtempSync(join(tmpdir(), "marbles-outside-"));
-    writeFileSync(
-      join(outside, "workspace.json"),
-      JSON.stringify({ id: "abc", root: outside })
-    );
-    symlinkSync(outside, join(state, "abc"));
-    expect(recordedState(state, "abc")).toBeUndefined();
-    expect(listWorkspaces(state).map((record) => record.id)).toEqual([
-      recorded.id,
-    ]);
   });
 });
 
