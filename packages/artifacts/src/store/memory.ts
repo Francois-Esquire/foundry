@@ -1,3 +1,5 @@
+import { Turns } from "@foundry/lib/turns";
+
 import {
   compareCreated,
   isAfterCursor,
@@ -19,15 +21,20 @@ export interface InMemoryArtifactStoreOptions {
   readonly records?: ArtifactRecords;
 }
 
+/** Why a call from inside the store's own transaction is refused. */
+const REENTRY =
+  "InMemoryArtifactStore was called from inside its own transaction; use the view passed to the transaction's work instead";
+
 /**
  * The default store: plain maps in this process. Commits and transactions
- * take turns, so a commit never lands inside a running transaction. A
- * transaction commits to a staged copy, swapped in only when its work
+ * take turns, so a commit never lands inside a running transaction, and a
+ * commit or transaction made from inside a transaction's work is refused.
+ * A transaction commits to a staged copy, swapped in only when its work
  * succeeds.
  */
 export class InMemoryArtifactStore implements ArtifactStore {
   #records: Records;
-  #tail: Promise<unknown> = Promise.resolve();
+  readonly #turns = new Turns(REENTRY);
 
   constructor(options: InMemoryArtifactStoreOptions = {}) {
     this.#records = Records.from(
@@ -38,11 +45,11 @@ export class InMemoryArtifactStore implements ArtifactStore {
   }
 
   commit(write: ArtifactStoreWrite): Promise<void> {
-    return this.#turn(() => this.#records.apply(write));
+    return this.#turns.run(() => this.#records.apply(write));
   }
 
   transaction<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T> {
-    return this.#turn(async () => {
+    return this.#turns.run(async () => {
       let staged: Records | undefined;
       let open = true;
       /** The records the view reads, rejecting once the transaction settled. */
@@ -114,16 +121,6 @@ export class InMemoryArtifactStore implements ArtifactStore {
   /** A clone of every record. */
   records(): Promise<ArtifactRecords> {
     return this.#records.all();
-  }
-
-  /** Runs `work` after every commit and transaction queued before it. */
-  #turn<T>(work: () => Promise<T>): Promise<T> {
-    const run = this.#tail.then(work, work);
-    this.#tail = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
   }
 }
 

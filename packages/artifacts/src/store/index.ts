@@ -78,8 +78,10 @@ export interface ArtifactStore {
    * other write lands between its reads and its commit, from any
    * `ArtifactManager` over the store: a plain `commit` waits until `work`
    * settles. `work` reads and commits through `view` only, and its reads see
-   * its own commits. If `work` throws, none of its commits stay. Without it,
-   * changes are serialized per `ArtifactManager` and no further.
+   * its own commits: a `commit` or `transaction` on the store itself from
+   * inside `work` rejects at once with an error saying to use the view. If
+   * `work` throws, none of its commits stay. Without it, changes are
+   * serialized per `ArtifactManager` and no further.
    *
    * A `commit` (or a transaction) rejects when its write did not land. One
    * that rejects after the write landed (a durability failure reported once

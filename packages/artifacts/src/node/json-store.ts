@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
 import { acquireFileLock } from "@foundry/lib/file-lock";
+import { Turns } from "@foundry/lib/turns";
 
 import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, ArtifactRecords, Blob, Content } from "../schema";
@@ -18,6 +19,9 @@ import { InMemoryArtifactStore } from "../store/memory";
 
 const FORMAT_VERSION = 1;
 const DEFAULT_LOCK_TIMEOUT_MS = 10_000;
+/** Why a call from inside the store's own transaction is refused. */
+const REENTRY =
+  "JsonArtifactStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
 export interface JsonArtifactStoreOptions {
   /** How long a write waits for another process's lock before failing. */
@@ -46,7 +50,7 @@ export class JsonArtifactStore implements ArtifactStore {
   readonly #lockTimeoutMs: number;
   #memory: InMemoryArtifactStore | undefined;
   #version: string | undefined;
-  #writes: Promise<unknown> = Promise.resolve();
+  readonly #turns = new Turns(REENTRY);
 
   constructor(options: JsonArtifactStoreOptions) {
     this.#path = options.path;
@@ -144,9 +148,12 @@ export class JsonArtifactStore implements ArtifactStore {
     return (await this.#current()).listContents(artifactId);
   }
 
-  /** One writer at a time: in this process by turns, across processes by the lock file. */
+  /**
+   * One writer at a time: in this process by turns, across processes by the
+   * lock file. A call from inside the running turn is refused at once.
+   */
   #locked<T>(work: () => Promise<T>): Promise<T> {
-    const run = this.#writes.then(async () => {
+    return this.#turns.run(async () => {
       await mkdir(dirname(this.#path), { recursive: true });
       const release = await acquireFileLock(`${this.#path}.lock`, {
         breakStale: true,
@@ -158,8 +165,6 @@ export class JsonArtifactStore implements ArtifactStore {
         await release();
       }
     });
-    this.#writes = run.catch(() => undefined);
-    return run;
   }
 
   /**

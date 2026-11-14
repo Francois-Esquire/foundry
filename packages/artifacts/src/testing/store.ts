@@ -61,6 +61,36 @@ function inlineBlob(digest = DIGEST): Blob {
   };
 }
 
+/** What a store's refusal of a call from inside its own transaction says. */
+const REFUSAL = /refused: .*use the view/;
+
+/**
+ * How `promise` settled, as `refused: <message>` or `resolved`, or
+ * `still pending` after `ms`: a hang becomes a failed assertion, not a
+ * stalled suite.
+ */
+async function settlesWithin(
+  promise: Promise<unknown>,
+  ms: number
+): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<string>((resolve) => {
+    timer = setTimeout(() => resolve("still pending"), ms);
+  });
+  try {
+    return await Promise.race([
+      promise.then(
+        () => "resolved",
+        (error: unknown) =>
+          `refused: ${error instanceof Error ? error.message : String(error)}`
+      ),
+      timeout,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** The store's `transaction`, bound; every Artifact store offers one. */
 function requireTransaction(
   store: ArtifactStore
@@ -436,6 +466,64 @@ export function describeArtifactStore(
         "First",
         "Second",
       ]);
+    });
+
+    it("refuses a call to the outer store from inside its own transaction, at once", async () => {
+      const store = fresh();
+      const transaction = requireTransaction(store);
+      const inner = artifact({ name: "Inner" });
+      const calls: Record<string, () => Promise<unknown>> = {
+        commit: () => store.commit({ putArtifacts: [artifact()] }),
+        transaction: () => transaction(() => Promise.resolve()),
+      };
+      const ended = Promise.withResolvers<void>();
+      let later: Promise<unknown> = Promise.resolve();
+
+      const refusals = await transaction(async (view) => {
+        const outcomes: Record<string, string> = {};
+        for (const [method, call] of Object.entries(calls)) {
+          outcomes[method] = await settlesWithin(call(), 1000);
+        }
+        // Scheduled from inside, but run once the transaction has ended.
+        later = ended.promise.then(() =>
+          store.commit({ putArtifacts: [artifact({ name: "Later" })] })
+        );
+        await view.commit({ putArtifacts: [inner] });
+        return outcomes;
+      });
+      ended.resolve();
+
+      expect(refusals).toEqual({
+        commit: expect.stringMatching(REFUSAL),
+        transaction: expect.stringMatching(REFUSAL),
+      });
+      await later;
+      await store.commit({ putArtifacts: [artifact({ name: "After" })] });
+      expect(
+        (await everyArtifact(store)).map((row) => row.name).sort()
+      ).toEqual(["After", "Inner", "Later"]);
+    });
+
+    it("queues an independent caller behind a transaction it runs alongside", async () => {
+      const store = fresh();
+      const transaction = requireTransaction(store);
+      const read = Promise.withResolvers<void>();
+      const proceed = Promise.withResolvers<void>();
+      const running = transaction(async (view) => {
+        const before = await everyArtifact(view);
+        read.resolve();
+        await proceed.promise;
+        return { after: await everyArtifact(view), before };
+      });
+      await read.promise;
+      const outside = store.commit({ putArtifacts: [artifact()] });
+      const nested = transaction(() => Promise.resolve("queued"));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      proceed.resolve();
+      expect(await running).toEqual({ after: [], before: [] });
+      await outside;
+      expect(await nested).toBe("queued");
+      expect(await everyArtifact(store)).toHaveLength(1);
     });
 
     it("rejects a view used after its transaction settled", async () => {
