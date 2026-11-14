@@ -143,7 +143,10 @@ describe("a transaction against another connection to its file", () => {
   });
 
   test("another process's write is held off, then lands after it commits", async () => {
-    const database = await files.open();
+    // A busy timeout, as a host sets one: the other process holds a shared
+    // lock now and then while it waits for the write lock, and a commit
+    // without one would fail with SQLITE_BUSY in that moment.
+    const database = files.connect(await files.open(), { busyTimeout: 5000 });
     const store = new SqliteTaskStore({ database, scope: "s" });
     const a = task("a");
     await store.commit({ putTasks: [a] });
