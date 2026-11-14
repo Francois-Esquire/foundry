@@ -85,8 +85,8 @@ that does not resolve prevents startup, and no trigger loop runs.
 
 Every tool but `list_workspaces` takes an optional `workspace`: an id from
 `list_workspaces`, defaulting to the server's own workspace. The task
-tools reach any workspace recorded under the state root; an id with no
-record is a tool error. The other tools reach a workspace only through the
+tools reach any workspace recorded under the state root, even one whose
+checkout is gone; an id with no record is a tool error. The other tools reach a workspace only through the
 worker that hosts it: an id that is not hosted is a tool error, and a call
 to a workspace whose worker is not `ready` fails with its state. Under `--dry-run` only the server's own
 workspace exists.

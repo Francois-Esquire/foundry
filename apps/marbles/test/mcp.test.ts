@@ -470,6 +470,8 @@ it("starts without a source and serves the stored tasks of every recorded worksp
     { cwd: other, encoding: "utf8", timeout: 30_000 }
   );
   expect(made.status, made.stderr).toBe(0);
+  // Its checkout is gone; its stored tasks are not.
+  await rm(other, { force: true, recursive: true });
   const transport = new StdioClientTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--state", state],
     command: "bun",
@@ -496,6 +498,16 @@ it("starts without a source and serves the stored tasks of every recorded worksp
       items: [{ title: "In B" }],
       total: 1,
     });
+    const intoB = await client.callTool({
+      arguments: {
+        operations: [
+          { input: { title: "Also in B" }, key: "b", kind: "task.create" },
+        ],
+        workspace: recorded.id,
+      },
+      name: "change_tasks",
+    });
+    expect(intoB.isError, JSON.stringify(intoB)).not.toBe(true);
     // This workspace has no source, yet its tasks are stored all the same.
     const created = await client.callTool({
       arguments: {
@@ -506,11 +518,17 @@ it("starts without a source and serves the stored tasks of every recorded worksp
       name: "change_tasks",
     });
     expect(created.isError, JSON.stringify(created)).not.toBe(true);
-    const unknown = await client.callTool({
-      arguments: { workspace: "missing" },
-      name: "list_tasks",
-    });
-    expect(unknown.isError).toBe(true);
+    // An id names a directory listed under the state root, nothing else.
+    for (const id of ["missing", "..", `../${recorded.id}`, state]) {
+      const unknown = await client.callTool({
+        arguments: { workspace: id },
+        name: "list_tasks",
+      });
+      expect(unknown.isError, id).toBe(true);
+      expect(JSON.stringify(unknown.content), id).toContain(
+        "list_workspaces names them"
+      );
+    }
     const config = await client.callTool({
       arguments: {},
       name: "list_config",

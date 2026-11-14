@@ -128,7 +128,8 @@ drives the Marbles process when one runs. Outside `--dry-run` it never
 starts the process, never attaches the workspace, and runs none of its
 source; under `--dry-run` it hosts the workspace in its own process. The task tools
 work without a process, and without a source, for this workspace and any
-workspace recorded under the state root: a worker that hosts the workspace
+workspace recorded under the state root, even one whose checkout is gone:
+a worker that hosts the workspace
 answers, or the server opens the stored tasks for the call. `list_config`, the dispatch
 tools, `get_run`, and `cancel_run` need a worker that hosts the workspace,
 and return an error that names `marbles attach` without one. That worker

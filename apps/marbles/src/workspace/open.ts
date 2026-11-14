@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Tasks } from "@foundry/tasks";
 import { plugin } from "bun";
@@ -12,7 +11,11 @@ import type { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
-import { readWorkspace, workspaceState } from "~/lib/state/workspace";
+import {
+  readWorkspace,
+  recordedState,
+  workspaceState,
+} from "~/lib/state/workspace";
 import type { WorkspaceEnvironment } from "~/workspace/env";
 import { loadEnvironment } from "~/workspace/env";
 import {
@@ -133,23 +136,23 @@ export function findWorkspace(args: HostOptions): OpenedWorkspace {
 
 /**
  * A workspace recorded under the state root, by its id, found without
- * executing anything. Undefined when no readable record has that id, or
- * its root is gone.
+ * executing anything. Its checkout need not exist: stored state is all a
+ * task command reads. Undefined when no readable record has that id.
  */
 export function recordedWorkspace(
   args: HostOptions,
   id: string
 ): OpenedWorkspace | undefined {
-  const state = resolve(args.state);
-  const record = readWorkspace(join(state, id));
-  if (record?.id !== id || !existsSync(record.root)) {
+  const workspace = recordedState(resolve(args.state), id);
+  if (workspace === undefined) {
     return;
   }
+  const config = readWorkspace(workspace.dir)?.config ?? null;
   return {
-    config: record.config,
-    configPath: record.config ?? resolve(record.root, DEFAULT_SOURCE),
+    config,
+    configPath: config ?? resolve(workspace.root, DEFAULT_SOURCE),
     environment: { machine: environmentSnapshot(), workspace: {} },
-    workspace: workspaceState(state, record.root),
+    workspace,
   };
 }
 
