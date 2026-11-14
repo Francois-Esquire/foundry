@@ -169,6 +169,11 @@ nothing. The store enforces nothing; every rule is checked before a write
 reaches it, and values crossing the seam are detached. `MemoryTaskStore` is
 the default.
 
+`@foundry/tasks/schema` defines every record that crosses the seam as a Zod
+schema: the task, the dependency edge, the snapshot, the write, and the
+event. Each record type is inferred from its schema. Nothing parses them on
+the way into or out of a store.
+
 Every write that changes something carries `event`, a `TaskEvent`, so a
 store that records changes keeps it in the same atomic write:
 
