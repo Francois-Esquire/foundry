@@ -119,12 +119,16 @@ step("review")
   });
 ```
 
-The input is `undefined` until `extend` sets one. It must be JSON. A later
+The input is `undefined` until `extend` sets one. It must be JSON, and not
+`null`. `extend` keeps a frozen copy, so changing the object afterwards
+changes nothing, and the function cannot change it either. A later
 `extend` with an `input` replaces it, `input: undefined` clears it, and an
 `extend` without one keeps it. `session.ref.input` holds the input a session
-opened with. A replayed step, or `{ session: ref }` with that ref, gives the
-function the same input again; an agent with a different input fails the
-opening. A ref with only an `id` keeps no input, so the agent's own is used.
+opened with, or `null` when it opened with none. A replayed step, or
+`{ session: ref }` with that ref, gives the function the same input again;
+an agent with a different input fails the opening, including for a session
+that opened with none. A ref with only an `id` keeps no input, so the
+agent's own is used.
 A definition object has no function, so its `extend` takes no input.
 
 ### Workspace settings

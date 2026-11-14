@@ -578,10 +578,33 @@ export async function buildDefinition<OUTPUT extends Output.Output>(
   return agent as AgentDefinition<OUTPUT>;
 }
 
+function deepFreeze<T>(value: T): T {
+  if (typeof value === "object" && value !== null) {
+    for (const child of Object.values(value)) {
+      deepFreeze(child);
+    }
+    Object.freeze(value);
+  }
+  return value;
+}
+
+/**
+ * An agent's input as a session keeps it: copied into its JSON form and
+ * frozen, so neither the caller nor the agent's function can change it
+ * after it is recorded. Anything JSON would not carry back unchanged, such
+ * as an array with holes, throws.
+ */
+export function inputSnapshot(value: unknown): unknown {
+  return deepFreeze(JSON.parse(canonicalizeJson(value)));
+}
+
 /**
  * The input an agent declared with a function opens a session with: the
- * one `extend` gave it, else the one the session kept. A kept session
- * reopened with another input would not be built the same, so that fails.
+ * one `extend` gave it, else the one the session kept, else `null` for
+ * none, which the session keeps too. `undefined` for any other agent. A
+ * kept session reopened with another input would not be built the same,
+ * so that fails; a ref that kept no `input` at all (only an id, or from
+ * before inputs) takes the agent's.
  */
 function sessionInput(
   agent: AgentLike<Output.Output>,
@@ -592,7 +615,7 @@ function sessionInput(
   }
   const given = (agent as { readonly input?: unknown }).input;
   if (given === undefined) {
-    return kept?.input;
+    return kept?.input === undefined ? null : inputSnapshot(kept.input);
   }
   if (
     kept?.input !== undefined &&
@@ -804,7 +827,7 @@ async function openSession<OUTPUT extends Output.Output>(
   const definition = await buildDefinition(
     agent,
     recordedOn === undefined ? {} : { provider: recordedOn },
-    input
+    input === null ? undefined : input
   );
   site.signal().throwIfAborted();
   if (options.sandbox && definition.mcp?.length) {

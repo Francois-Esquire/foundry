@@ -46,6 +46,7 @@ const SANDBOX_MCP = /sandbox session cannot reach/;
 const ANOTHER_FUNCTION = /already declared by another function/;
 const NOT_JSON = /extend's input must be JSON/;
 const ANOTHER_INPUT = /was opened with another input/;
+const NULL_INPUT = /input cannot be null/;
 
 /** How much of the fixture Claude login's week is used; tests move it. */
 let claudeWeekUsed = 40;
@@ -649,6 +650,84 @@ describe("input", () => {
     expect(() => reviewer.extend({ input: { run: () => 0 } })).toThrow(
       NOT_JSON
     );
+    // An array with holes would come back from JSON as nulls.
+    expect(() => reviewer.extend({ input: { list: new Array(2) } })).toThrow(
+      NOT_JSON
+    );
+    // A session keeps null for "no input", so it is not an input.
+    const nullable = agent((_route, input?: { who: string } | null) => ({
+      prompt: `Review ${input?.who}.`,
+    }));
+    expect(() => nullable.extend({ input: null })).toThrow(NULL_INPUT);
+  });
+
+  it("keeps a frozen copy, so changing the object given changes nothing", async () => {
+    const deps = managerDeps();
+    const seen: unknown[] = [];
+    const reviewer = reviewerOf(seen);
+    const given = { implementer: "codex" };
+    const ofCodex = reviewer.extend({ input: given });
+    const first = await new AgentsManager(deps).scoped(args()).session(ofCodex);
+    await first.generate("Look.");
+    given.implementer = "claude";
+
+    expect(ofCodex.input).toEqual({ implementer: "codex" });
+    expect(first.ref.input).toEqual({ implementer: "codex" });
+    expect(Object.isFrozen(ofCodex.input)).toBe(true);
+    expect(Object.isFrozen(first.ref.input)).toBe(true);
+    expect(Object.isFrozen(seen[0])).toBe(true);
+    await expect(
+      new AgentsManager(deps)
+        .scoped(args())
+        .session(reviewer.extend({ input: given }), { session: first.ref })
+    ).rejects.toThrow(ANOTHER_INPUT);
+
+    // An input read back from a ref is frozen for the function too.
+    const reopened = await new AgentsManager(deps)
+      .scoped(args())
+      .session(reviewer, { session: JSON.parse(JSON.stringify(first.ref)) });
+    expect(reopened.ref.input).toEqual({ implementer: "codex" });
+    expect(Object.isFrozen(seen.at(-1))).toBe(true);
+  });
+
+  it("keeps that a session opened with no input, so reopening it with one fails", async () => {
+    const deps = managerDeps();
+    const a = args();
+    const reviewer = reviewerOf();
+    const first = await new AgentsManager(deps).scoped(a).session(reviewer);
+    await first.generate("Look.");
+    expect(first.ref.input).toBeNull();
+    const different = reviewer.extend({ input: { implementer: "different" } });
+
+    await expect(
+      new AgentsManager(deps)
+        .scoped(args())
+        .session(different, { session: first.ref })
+    ).rejects.toThrow(ANOTHER_INPUT);
+    const again = await new AgentsManager(deps)
+      .scoped(args())
+      .session(reviewer, { session: first.ref });
+    expect(again.ref).toEqual(first.ref);
+
+    // The same in a parked run whose body now binds an input.
+    const restored = new RunScope(
+      a.scope.id,
+      a.scope.cwd,
+      {},
+      {
+        ledger: JSON.parse(JSON.stringify(a.scope.ledger)),
+        session: a.scope.session,
+      }
+    );
+    await expect(
+      new AgentsManager(deps)
+        .scoped({
+          frame: restored.frame(["root", "review"]),
+          scope: restored,
+          write: () => 0,
+        })
+        .session(different)
+    ).rejects.toThrow(ANOTHER_INPUT);
   });
 
   it("is kept with the session, so a parked run gives the function the same input", async () => {

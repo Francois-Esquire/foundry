@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
 import type { TurnOptions } from "@foundry/agents/harness";
 import type { SessionInput, SessionStream } from "@foundry/agents/session";
-import { canonicalizeJson } from "@foundry/lib/json";
 import type { Git } from "@foundry/workspaces/git";
 import type { Output } from "ai";
 
@@ -10,6 +9,7 @@ import type { AnyDefinition } from "~/lib/definition";
 import { AGENT_DEFINITION, SANDBOX_HANDLE } from "~/lib/handles";
 import { deferredStream } from "~/lib/managers/agent-turns";
 import type { AgentTurns } from "~/lib/managers/agents";
+import { inputSnapshot } from "~/lib/managers/agents";
 import { WORKSPACE_METHODS } from "~/lib/managers/workspaces";
 import { current } from "~/lib/run-scope";
 import type {
@@ -306,7 +306,11 @@ async function buildRecipe(
   };
 }
 
-/** The input an extension sets, else the one before it; it must be JSON. */
+/**
+ * The input an extension sets, else the one before it. It must be JSON
+ * other than `null`, which a session keeps for none; it is kept as a
+ * frozen copy, so changing the object given does not change it.
+ */
 function inputOf(
   id: string,
   changes: { readonly input?: unknown },
@@ -315,17 +319,22 @@ function inputOf(
   if (!Object.hasOwn(changes, "input")) {
     return prior;
   }
-  if (changes.input !== undefined) {
-    try {
-      canonicalizeJson(changes.input);
-    } catch (error) {
-      throw new Error(
-        `agent "${id}": extend's input must be JSON, so a session can keep it (${error instanceof Error ? error.message : String(error)})`,
-        { cause: error }
-      );
-    }
+  if (changes.input === undefined) {
+    return;
   }
-  return changes.input;
+  if (changes.input === null) {
+    throw new Error(
+      `agent "${id}": extend's input cannot be null; give undefined to clear it`
+    );
+  }
+  try {
+    return inputSnapshot(changes.input);
+  } catch (error) {
+    throw new Error(
+      `agent "${id}": extend's input must be JSON, so a session can keep it (${error instanceof Error ? error.message : String(error)})`,
+      { cause: error }
+    );
+  }
 }
 
 /**

@@ -168,8 +168,10 @@ export interface SessionRef {
   /** The plugin that built the provider when the session was filed; absent on older refs. */
   readonly implementation?: string;
   /**
-   * The input `extend` gave an agent declared with a function, as JSON.
-   * Reopening the session gives its function this input again.
+   * The input `extend` gave an agent declared with a function, as JSON,
+   * and `null` when it gave none. Reopening the session gives its function
+   * this input again, and fails for an agent with another one. Absent, the
+   * ref kept no input, and the agent's own is used.
    */
   readonly input?: unknown;
   /**
