@@ -54,9 +54,15 @@ export const createOpenAI = (machine: OpenAIMachine = {}) => {
         ? { home: codexHomeOf(options.home), kind: "login" }
         : { key: options.apiKey, kind: "api-key" };
     },
-    // Presence only: Codex writes `auth.json` when it signs in.
-    detect: async () =>
-      (await exists(join(codexHomeOf(), "auth.json"))) ? {} : undefined,
+    // Presence only: Codex writes `auth.json` when it signs in, and its
+    // history under `sessions` whatever it signs in with.
+    detect: async () => {
+      const codexHome = codexHomeOf();
+      return (await exists(join(codexHome, "auth.json"))) ||
+        (await exists(join(codexHome, "sessions")))
+        ? {}
+        : undefined;
+    },
     history: async (credential, since) => {
       if (credential.kind === "api-key") {
         return;

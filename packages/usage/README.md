@@ -46,8 +46,9 @@ claude.details?.anthropic?.extraUsage;
 - **`usage.initialize()`** can be called at any time, any number of times.
   For each registered provider whose id is not yet a name, it asks for the
   default account (the machine's default Claude Code or Codex login) and
-  adds it when it looks signed in. It asks no provider for limits, and an
-  API key in the environment is never a default account. It returns the
+  adds it when it looks signed in or has history. It asks no provider for
+  limits, and an API key in the environment is never a default account. It
+  starts loading the list prices consumption is priced at. It returns the
   default accounts now added, whoever added them: each `Account` named after
   its provider.
 - **`usage.query(name, options?)`** reads one account; an unknown name
@@ -218,16 +219,18 @@ window, is found in `limits` by its `model`.
 Limits and consumption are separate reads, and one failing never hides the
 other. A limits read that fails sets `failed`, with no limits and no
 `identity`; a history read that fails sets `consumptionFailed`. A signed-out
-login, a client that does not answer in time (Claude Code 10 s to start and
-5 s to report, Codex 5 s in all), and a signed-in login that reports no
-limits all fail. Two names that reach one account get a snapshot each, with
-the same `identity.id`.
+login has no limits, so its snapshot has none and no `failed`: it shows what
+consumption its history has, or nothing. A client that does not answer in
+time (Claude Code 10 s to start and 5 s to report, Codex 5 s in all), and a
+signed-in login that reports no limits, both fail. Two names that reach one
+account get a snapshot each, with the same `identity.id`.
 
 Consumption comes from the history each client already writes under its
 config directory, so work done outside Foundry counts too. A login's work
-runs on an allowance, so its charges are `notional`: list prices from the
-models.dev snapshot bundled in `@foundry/models`. A model it does not list
-exactly, and work at a fast or priority tier, has no charge. An API key has
+runs on an allowance, so its charges are `notional`: list prices from
+models.dev, which `@foundry/models` fetches once per process. A history read
+waits for that fetch to settle. When models.dev cannot be read, a model it
+does not list exactly, and work at a fast or priority tier, have no charge. An API key has
 no local history, so its `consumption` is absent.
 
 ## Writing a provider
@@ -322,7 +325,8 @@ adds `headroom`, `resetsIn` and `exhausted`.
 For consumption, the kit has `consumptionOf(works, since, price, basis)`,
 which groups `Work` (one response: `at`, `model`, `quantities`, `session`,
 `standardSpeed`) per session and model, pricing each piece on its own;
-`listPrices(vendor)`, list prices from the bundled models.dev snapshot; and
+`listPrices(vendor)`, list prices from models.dev, which a provider's
+`history` runs after loading; and
 `quantities(counts)`, which drops zero counts.
 
 What only one provider reports goes in `details`, translated, never the raw
@@ -355,10 +359,10 @@ never stands in for a login. An API key has no limits to read, so it is
 file each time it starts, keeping a few rotating backups under
 `<configDir>/backups/`; this package writes nothing itself.
 
-| Provider | Options | Default account | Looks signed in when |
+| Provider | Options | Default account | Looks signed in, or used, when |
 |---|---|---|---|
-| `anthropic` | `{ configDir? }` or `{ apiKey }`; an empty or unset `apiKey` throws | `CLAUDE_CONFIG_DIR`, else `~/.claude` | `.credentials.json` is in it, or its account file is there (`~/.claude.json` for `~/.claude`, `<dir>/.claude.json` otherwise) |
-| `openai` | `{ home? }` or `{ apiKey }`; an empty or unset `apiKey` throws | `CODEX_HOME`, else `~/.codex` | `auth.json` is in it |
+| `anthropic` | `{ configDir? }` or `{ apiKey }`; an empty or unset `apiKey` throws | `CLAUDE_CONFIG_DIR`, else `~/.claude` | `.credentials.json` is in it, or its account file is there (`~/.claude.json` for `~/.claude`, `<dir>/.claude.json` otherwise), or its `projects` history is |
+| `openai` | `{ home? }` or `{ apiKey }`; an empty or unset `apiKey` throws | `CODEX_HOME`, else `~/.codex` | `auth.json` or its `sessions` history is in it |
 
 ### Anthropic
 

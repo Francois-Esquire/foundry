@@ -60,14 +60,18 @@ export const createAnthropic = (machine: AnthropicMachine = {}) => {
       configDir === homeDir ? {} : { CLAUDE_CONFIG_DIR: configDir }
     );
 
-  /** Presence only: the credentials file, or the account file a login writes. */
-  const looksSignedIn = async (configDir: string) =>
+  /**
+   * Presence only: the credentials file, the account file a login writes, or
+   * the history Claude Code keeps, which an API key's sessions write too.
+   */
+  const looksUsed = async (configDir: string) =>
     (await exists(join(configDir, ".credentials.json"))) ||
-    exists(
+    (await exists(
       configDir === homeDir
         ? join(home, ".claude.json")
         : join(configDir, ".claude.json")
-    );
+    )) ||
+    exists(join(configDir, "projects"));
 
   const configDirOf = (configDir?: string) =>
     expandHome(configDir ?? (env.CLAUDE_CONFIG_DIR?.trim() || homeDir), home);
@@ -81,7 +85,7 @@ export const createAnthropic = (machine: AnthropicMachine = {}) => {
         ? { configDir: configDirOf(options.configDir), kind: "login" }
         : { key: options.apiKey, kind: "api-key" };
     },
-    detect: async () => ((await looksSignedIn(configDirOf())) ? {} : undefined),
+    detect: async () => ((await looksUsed(configDirOf())) ? {} : undefined),
     history: async (credential, since) => {
       if (credential.kind === "api-key") {
         return;

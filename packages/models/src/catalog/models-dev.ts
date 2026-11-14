@@ -13,9 +13,8 @@
  * and it is community data: treat it as a good default, never as authority over
  * a rate the provider itself reported.
  *
- * Pure leaf, like its sibling adapters — it imports only `../types`, and takes
- * the catalog as an argument rather than loading the snapshot. See
- * `./models-dev-snapshot` for the bound convenience.
+ * Pure leaf, like its sibling adapters: it imports only `../types`, and takes
+ * the catalog as an argument. `./models-dev-source` loads it at run time.
  */
 
 import type {
@@ -27,7 +26,7 @@ import type {
 } from "../types";
 
 /** Rates in USD per 1M tokens — already per-million upstream, unlike the wire
- *  formats `fromGateway`/`fromVercelRest` read, which are per-token. */
+ *  format `fromVercelRest` reads, which is per-token. */
 interface ModelsDevCost {
   cache_read?: number;
   cache_write?: number;
@@ -53,6 +52,91 @@ interface ModelsDevModel {
 
 /** Keyed `author/model`, e.g. `anthropic/claude-opus-4-7`. */
 export type ModelsDevCatalog = Record<string, ModelsDevModel>;
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * The vendor's own list price, or nothing. Most models.dev providers are
+ * aggregators re-listing a model at their own markup, so the price comes from
+ * the provider whose id is the model's author. Open-weights models are
+ * skipped: many hosts serve them at different prices.
+ */
+function firstPartyCost(
+  key: string,
+  model: Record<string, unknown>,
+  providers: Record<string, unknown>
+): ModelsDevCost | undefined {
+  if (model.open_weights === true) {
+    return;
+  }
+  const slash = key.indexOf("/");
+  if (slash === -1) {
+    return;
+  }
+  // Provider maps are keyed by the bare model name, not the path-style id.
+  const provider = providers[key.slice(0, slash)];
+  const models = isObject(provider) ? provider.models : undefined;
+  const entry = isObject(models) ? models[key.slice(slash + 1)] : undefined;
+  const cost = isObject(entry) ? entry.cost : undefined;
+  return isObject(cost) &&
+    typeof cost.input === "number" &&
+    typeof cost.output === "number"
+    ? (cost as unknown as ModelsDevCost)
+    : undefined;
+}
+
+/** The fields a catalog row can use, each kept only when it has the right type. */
+function pruned(
+  key: string,
+  model: Record<string, unknown>,
+  providers: Record<string, unknown>
+): ModelsDevModel {
+  const { limit, modalities } = model;
+  const cost = firstPartyCost(key, model, providers);
+  return {
+    ...(typeof model.name === "string" ? { name: model.name } : {}),
+    ...(model.attachment === true ? { attachment: true } : {}),
+    ...(model.reasoning === true ? { reasoning: true } : {}),
+    ...(model.tool_call === true ? { tool_call: true } : {}),
+    ...(isObject(modalities) && Array.isArray(modalities.input)
+      ? { modalities: modalities as ModelsDevModel["modalities"] }
+      : {}),
+    ...(isObject(limit)
+      ? {
+          limit: {
+            ...(typeof limit.context === "number"
+              ? { context: limit.context }
+              : {}),
+            ...(typeof limit.output === "number"
+              ? { output: limit.output }
+              : {}),
+          },
+        }
+      : {}),
+    ...(cost ? { cost } : {}),
+  };
+}
+
+/**
+ * The catalog in a `https://models.dev/catalog.json` payload, or `undefined`
+ * when the payload has no `models` map.
+ */
+export function modelsDevCatalog(
+  payload: unknown
+): ModelsDevCatalog | undefined {
+  if (!(isObject(payload) && isObject(payload.models))) {
+    return;
+  }
+  const providers = isObject(payload.providers) ? payload.providers : {};
+  const catalog: ModelsDevCatalog = {};
+  for (const [key, model] of Object.entries(payload.models)) {
+    if (isObject(model)) {
+      catalog[key] = pruned(key, model, providers);
+    }
+  }
+  return catalog;
+}
 
 export interface ModelsDevIdOptions {
   /** Route decorations to strip from the front of an id, e.g. `["azure-"]`. */
@@ -281,8 +365,7 @@ function mergeCapabilities(
   model: ModelsDevModel
 ): ModelCapabilities | undefined {
   // Per key, and only where the provider said nothing. An explicit `false`
-  // survives — `fromGateway` distinguishes stated-false from silent precisely
-  // so a community flag can never contradict a provider that spoke.
+  // survives, so a community flag can never contradict a provider that spoke.
   const merged: ModelCapabilities = {
     ...existing,
     ...(existing?.functionCalling === undefined && model.tool_call === true

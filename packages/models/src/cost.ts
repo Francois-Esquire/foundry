@@ -98,3 +98,23 @@ export function costFromUsage(
     total: input + output + reasoning + cacheRead + cacheWrite,
   };
 }
+
+/**
+ * The cost Claude Code reported for one model call: the CLI's
+ * `total_cost_usd`, which `ai-sdk-provider-claude-code` puts on the call's
+ * provider metadata as `costUsd`. The CLI computes it from its own price
+ * table on any login, so it is an estimate, not a bill. On a call that
+ * resumed a session it includes that session's earlier spend.
+ */
+export function claudeCodeCostUsd(
+  metadata: Readonly<Record<string, unknown>> | undefined
+): number | undefined {
+  const entry = metadata?.["claude-code"];
+  const cost =
+    typeof entry === "object" && entry !== null
+      ? (entry as { costUsd?: unknown }).costUsd
+      : undefined;
+  return typeof cost === "number" && Number.isFinite(cost) && cost >= 0
+    ? cost
+    : undefined;
+}

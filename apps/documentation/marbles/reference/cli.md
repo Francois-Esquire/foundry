@@ -175,7 +175,15 @@ Marbles shows Catalog; focusing Runs shows Overview.
 
 Usage is recorded once per agent turn inside a run, from the token counts the
 harness reports. A cost is estimated at the catalog's list price when the
-model has one and keeps that price with the turn; `~` marks an estimate. A
+model has one, else at the models.dev list price for it, which Marbles
+fetches once when the workspace opens, and keeps that price with the turn;
+`~` marks an estimate. The first turn of a Claude Code session that runs in
+this process records the cost Claude Code reports, its `total_cost_usd`,
+as `reported`. Claude Code computes that figure from its own price table on
+any login, so it is an estimate too, not a bill, and on a subscription it is
+not what the plan charges. It shows without `~`. A later turn resumes the
+session, and the CLI's figure then includes the earlier turns, so it is not
+recorded; that turn is priced like any other. A
 turn without a price is counted as unpriced, never as zero, and a run with no
 recorded turns shows "no usage recorded". A step's total includes its
 descendants' turns once.
@@ -327,3 +335,11 @@ architecture, verify its SHA-256, and use Marbles' permission-controlled coding
 tools. Supply a session API key or sign in with Pi on the host for the selected
 `provider/model`; the host resolves the current key, and only that key enters
 the guest environment. Refresh credentials remain on the host.
+
+An OpenAI-compatible gateway is configured with the `gateway` plugin:
+`{ "id": "gw", "plugin": "gateway", "enabled": true, "settings": { "baseURL": "https://gateway.example/v1", "apiKey": "GATEWAY_API_KEY" } }`.
+`apiKey` names the environment variable that holds the key, never the key
+itself, and the instance is available once that variable is set. Any other
+setting is an error. Its catalog is `openai/gpt-5-mini` and
+`openai/text-embedding-3-small`. A streamed turn asks the gateway for usage,
+so it records its tokens.

@@ -1,4 +1,5 @@
 import type { Consumption } from "./consumption";
+import { pricesLoaded } from "./consumption";
 import type { Duration } from "./limit";
 import {
   accountWide,
@@ -23,7 +24,7 @@ export interface Account<C = unknown> {
 
 /** What `usage` needs of a provider: its id and its default account. */
 export interface Provider {
-  /** The default account, named after the provider, when it looks signed in. */
+  /** The default account, named after the provider, when it looks signed in or has history. */
   defaultAccount(): Promise<Account | undefined>;
   readonly id: string;
 }
@@ -48,9 +49,10 @@ export interface Usage {
   /** Adds an account, registers its provider if needed, and returns its name. Throws if the name is used. */
   add(account: Account): string;
   /**
-   * Adds each registered provider's default account that looks signed in,
-   * under the provider's id, unless that name is taken. Asks for no limits.
-   * Returns every default account now added, whoever added it.
+   * Adds each registered provider's default account that looks signed in or
+   * has history, under the provider's id, unless that name is taken. Asks for no limits,
+   * and starts loading the list prices consumption is priced at. Returns
+   * every default account now added, whoever added it.
    */
   initialize(): Promise<readonly Account[]>;
   query(name: string, options?: QueryOptions): Promise<Snapshot>;
@@ -152,6 +154,8 @@ export const createUsage = (): Usage => {
   return {
     add,
     initialize: async () => {
+      // Started now so the list prices are there when history is first read.
+      pricesLoaded().catch(() => undefined);
       const free = [...providers.values()].filter(
         ({ id }) => !accounts.has(id)
       );

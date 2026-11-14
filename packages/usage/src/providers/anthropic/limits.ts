@@ -126,7 +126,7 @@ const unsupported = (why: string): Reading => ({
 /**
  * What the account rules out before usage is read. Only Anthropic's own API
  * has plan limits; an API key wins over a login; a signed-out CLI has no
- * token and no account.
+ * token and no account, so it has no limits to read.
  */
 const refusal = (account: Record<string, unknown>): Reading | undefined => {
   const apiProvider = text(account.apiProvider);
@@ -142,9 +142,7 @@ const refusal = (account: Record<string, unknown>): Reading | undefined => {
     );
   }
   if (text(account.tokenSource) === "none" && !text(account.email)) {
-    throw new Error(
-      "Claude Code is not signed in here. Run `claude auth login` with this config dir."
-    );
+    return { limits: [] };
   }
 };
 

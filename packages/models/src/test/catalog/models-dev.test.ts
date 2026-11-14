@@ -5,8 +5,8 @@ import {
   enrichFromModelsDev,
   indexModelsDev,
   matchModelsDevId,
+  modelsDevCatalog,
 } from "../../catalog/models-dev";
-import { MODELS_DEV } from "../../catalog/models-dev-snapshot";
 import { costFromUsage } from "../../cost";
 import type { ProviderModelDefinition } from "../../types";
 
@@ -157,7 +157,7 @@ describe("enrichFromModelsDev — what it fills", () => {
   });
 
   it("reads rates as already-per-1M, unlike the per-token wire formats", () => {
-    // fromGateway and fromVercelRest both multiply by 1e6; doing that here
+    // fromVercelRest multiplies by 1e6; doing that here
     // would price a turn a million times over.
     const [out] = enrich([row({ modelId: "claude-opus-4-7" })]);
     expect(out?.costs?.input).toBe(5);
@@ -277,26 +277,88 @@ describe("enrichFromModelsDev — what it refuses to touch", () => {
   });
 });
 
-describe("the bundled snapshot", () => {
-  it("is present, plausibly sized, and pruned", () => {
-    const keys = Object.keys(MODELS_DEV);
-    expect(keys.length).toBeGreaterThan(200);
-    for (const key of keys) {
-      // Every entry is `author/model` — the matcher's whole index depends on it.
+/**
+ * A trimmed `https://models.dev/catalog.json` payload: model facts under
+ * `models`, and each first-party price under `providers.<author>.models`.
+ */
+const PAYLOAD = {
+  models: {
+    "anthropic/claude-opus-5-5": {
+      attachment: true,
+      benchmarks: [{ name: "SWE-Bench Pro", score: 70 }],
+      family: "claude-opus",
+      id: "anthropic/claude-opus-5-5",
+      limit: { context: 1_000_000, output: 128_000 },
+      modalities: { input: ["text", "image", "pdf"], output: ["text"] },
+      name: "Claude Opus 5.5",
+      open_weights: false,
+      reasoning: true,
+      tool_call: true,
+    },
+    "microsoft/phi-4-mini": {
+      limit: { context: 128_000, output: 4096 },
+      name: "Phi-4-mini",
+      open_weights: true,
+    },
+  },
+  providers: {
+    anthropic: {
+      id: "anthropic",
+      models: {
+        "claude-opus-5-5": {
+          cost: { cache_read: 0.2, cache_write: 5, input: 4, output: 20 },
+        },
+      },
+    },
+    microsoft: {
+      id: "microsoft",
+      models: { "phi-4-mini": { cost: { input: 0.1, output: 0.2 } } },
+    },
+  },
+};
+
+describe("modelsDevCatalog", () => {
+  it("keeps each model's facts and its author's own price", () => {
+    const catalog = modelsDevCatalog(PAYLOAD);
+    expect(catalog?.["anthropic/claude-opus-5-5"]).toEqual({
+      attachment: true,
+      cost: { cache_read: 0.2, cache_write: 5, input: 4, output: 20 },
+      limit: { context: 1_000_000, output: 128_000 },
+      modalities: { input: ["text", "image", "pdf"], output: ["text"] },
+      name: "Claude Opus 5.5",
+      reasoning: true,
+      tool_call: true,
+    });
+    for (const key of Object.keys(catalog ?? {})) {
+      // Every entry is `author/model`: the matcher's whole index depends on it.
       expect(key).toMatch(ASSERTION_PATTERN);
-      // Benchmarks dominate the upstream payload and are dropped by the sync
-      // script; their return would mean the prune list went stale.
-      expect(MODELS_DEV[key]).not.toHaveProperty("benchmarks");
     }
   });
 
-  it("carries usable facts for models we actually route to", () => {
-    const opus = MODELS_DEV["anthropic/claude-opus-4-7"];
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: generated catalog data can omit an indexed model at runtime.
-    if (opus === undefined) {
-      throw new Error("the bundled catalog must include Claude Opus 4.7");
-    }
-    expect(opus.limit?.context).toBeGreaterThan(0);
-    expect(opus.cost?.input).toBeGreaterThan(0);
+  it("prices no open-weights model: its hosts each set their own price", () => {
+    const catalog = modelsDevCatalog(PAYLOAD);
+    expect(catalog?.["microsoft/phi-4-mini"]).toEqual({
+      limit: { context: 128_000, output: 4096 },
+      name: "Phi-4-mini",
+    });
+  });
+
+  it("reads nothing from a payload without a models map", () => {
+    expect(modelsDevCatalog(null)).toBeUndefined();
+    expect(modelsDevCatalog({ models: [] })).toBeUndefined();
+  });
+
+  it("prices a turn once enriched", () => {
+    const catalog = modelsDevCatalog(PAYLOAD) ?? {};
+    const [out] = enrichFromModelsDev(
+      [row({ modelId: "claude-opus-5-5", vendor: "anthropic" })],
+      catalog
+    );
+    expect(out?.costs).toEqual({
+      cachedInput: 0.2,
+      cacheWrite: 5,
+      input: 4,
+      output: 20,
+    });
   });
 });

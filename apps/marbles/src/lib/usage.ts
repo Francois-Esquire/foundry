@@ -1,11 +1,20 @@
 import type {
+  LanguageModelV4Middleware,
+  LanguageModelV4StreamPart,
+} from "@ai-sdk/provider";
+import type { AgentModel } from "@foundry/agents/harness";
+import type {
   MessageMetadata,
   SessionMessage,
   SessionUsage,
 } from "@foundry/agents/session";
 import type { ModelCosts, ModelManager } from "@foundry/models";
 import { costFromUsage } from "@foundry/models";
+import { enrichFromModelsDev } from "@foundry/models/catalog/models-dev";
+import { loadedModelsDev } from "@foundry/models/catalog/models-dev-source";
+import { claudeCodeCostUsd } from "@foundry/models/cost";
 
+import { wrapLanguageModel } from "ai";
 import { isRecord } from "~/lib/state/json";
 import type { HeldLock, Lock } from "~/lib/state/locks";
 import type { StateStore } from "~/lib/state/store";
@@ -46,9 +55,9 @@ export interface UsageTokens {
 
 /** The list price a turn was estimated at, kept with the fact so later price changes do not rewrite it. */
 export interface PriceBasis {
-  /** USD per million tokens, copied from the catalog when the turn finished. */
+  /** USD per million tokens, copied from the catalog or models.dev when the turn finished. */
   readonly rates: ModelCosts;
-  /** Which catalog row: `@foundry/models <provider>/<model>`. */
+  /** Which price: `@foundry/models <provider>/<model>` for a catalog row, `models.dev <provider>/<model>` for a models.dev rate. */
   readonly reference: string;
 }
 
@@ -131,16 +140,31 @@ export type PriceLookup = (
   model: string
 ) => PriceBasis | undefined;
 
-/** List prices from the routes the engine's models registered; pricing stays in `@foundry/models`. */
+/**
+ * List prices from the routes the engine's models registered, else the
+ * models.dev rate for the row's model once models.dev has loaded (the host
+ * starts that load). Pricing stays in `@foundry/models`.
+ */
 export function catalogPrices(models: ModelManager): PriceLookup {
   return (provider, model) => {
     const row = models.providers
       .find((entry) => entry.id === provider)
       ?.models.find((entry) => entry.id === model || entry.modelId === model);
-    return row?.costs
+    if (row?.costs) {
+      return {
+        rates: structuredClone(row.costs),
+        reference: `@foundry/models ${provider}/${model}`,
+      };
+    }
+    const catalog = loadedModelsDev();
+    if (!(row && catalog)) {
+      return;
+    }
+    const [listed] = enrichFromModelsDev([row], catalog);
+    return listed?.costs
       ? {
-          rates: structuredClone(row.costs),
-          reference: `@foundry/models ${provider}/${model}`,
+          rates: structuredClone(listed.costs),
+          reference: `models.dev ${provider}/${model}`,
         }
       : undefined;
   };
@@ -164,11 +188,98 @@ function tokensOf(usage: SessionUsage): UsageTokens | undefined {
   };
 }
 
+/** A turn's cost as the harness itself reported it, in USD. */
+export interface ReportedCost {
+  readonly amount: number;
+  /** Which figure: the harness and its field. */
+  readonly reference: string;
+}
+
+const CLAUDE_CODE_REPORTED =
+  "claude-code total_cost_usd, the CLI's own estimate";
+
+/** Meters what a session's model reports its calls cost. */
+export interface CostMeter {
+  /** What the turn since the last take reported, when that figure is the turn's own. */
+  take(): ReportedCost | undefined;
+  /** The session's model, metered; it keeps the model's route and limits. */
+  wrap(model: AgentModel): AgentModel;
+}
+
+/**
+ * A meter for one session's model instance. Claude Code's figure covers
+ * only its own call when the call resumed nothing, and a later call on the
+ * same instance resumes the session, so its figure includes earlier spend.
+ * So only the first turn counts, and only when it made exactly one call:
+ * that is the first call on a fresh instance. Every other turn reports none.
+ */
+export function costMeter(): CostMeter {
+  let calls = 0;
+  let taken = 0;
+  let first: number | undefined;
+  const middleware: LanguageModelV4Middleware = {
+    specificationVersion: "v4",
+    async wrapGenerate({ doGenerate }) {
+      calls += 1;
+      const call = calls;
+      const result = await doGenerate();
+      if (call === 1) {
+        first = claudeCodeCostUsd(result.providerMetadata);
+      }
+      return result;
+    },
+    async wrapStream({ doStream }) {
+      calls += 1;
+      const call = calls;
+      const result = await doStream();
+      return {
+        ...result,
+        stream: result.stream.pipeThrough(
+          new TransformStream<
+            LanguageModelV4StreamPart,
+            LanguageModelV4StreamPart
+          >({
+            transform(part, controller) {
+              if (call === 1 && part.type === "finish") {
+                first = claudeCodeCostUsd(part.providerMetadata);
+              }
+              controller.enqueue(part);
+            },
+          })
+        ),
+      };
+    },
+  };
+  return {
+    take: () => {
+      const own = taken === 0 && calls === 1 ? first : undefined;
+      taken = calls;
+      return own === undefined
+        ? undefined
+        : { amount: own, reference: CLAUDE_CODE_REPORTED };
+    },
+    wrap: (model) =>
+      Object.assign(wrapLanguageModel({ middleware, model }), {
+        ...(model.limits ? { limits: model.limits } : {}),
+        ...(model.route ? { route: model.route } : {}),
+      }),
+  };
+}
+
 function costOf(
   tokens: UsageTokens | undefined,
   route: { readonly model?: string; readonly provider?: string },
-  price: PriceLookup
+  price: PriceLookup,
+  reported: ReportedCost | undefined
 ): UsageCost {
+  if (reported) {
+    return {
+      amount: reported.amount,
+      currency: "USD",
+      kind: "reported",
+      reference: reported.reference,
+    };
+  }
   if (!tokens) {
     return { kind: "unknown", reason: "the harness reported no token usage" };
   }
@@ -219,10 +330,15 @@ function scopeOf(
     : { scope: "direct" };
 }
 
-/** One committed turn as a fact, priced from the catalog when it lists the model. */
+/**
+ * One committed turn as a fact: at the cost the harness reported, else
+ * priced from the catalog or models.dev when either lists the model.
+ */
 export function usageFact(
   turn: {
     readonly message: SessionMessage;
+    /** What the harness reported this turn cost, when that figure is the turn's own. */
+    readonly reported?: ReportedCost;
     readonly route: {
       readonly implementation?: string;
       readonly model?: string;
@@ -247,7 +363,7 @@ export function usageFact(
   return {
     agentId: source.agentId,
     completedAt: timing?.completedAt ?? message.updatedAt,
-    cost: costOf(tokens, route, price),
+    cost: costOf(tokens, route, price, turn.reported),
     ...(timing ? { durationMs: timing.durationMs } : {}),
     ...(turn.route.implementation === undefined
       ? {}

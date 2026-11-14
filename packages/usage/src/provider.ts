@@ -4,6 +4,7 @@
  */
 
 import type { Consumption } from "./consumption";
+import { pricesLoaded } from "./consumption";
 import type { Reading } from "./snapshot";
 import type { Account, Provider } from "./usage";
 
@@ -11,9 +12,12 @@ import type { Account, Provider } from "./usage";
 interface ProviderDefinition<Id extends string, O extends object, C> {
   /** Routing data from the caller's options (without `name`), such as an absolute config dir. */
   credential(options: O): C;
-  /** The default account's options when it looks signed in; presence only, no limits. */
+  /** The default account's options when it looks signed in or has history; presence only, no limits. */
   detect?(): Promise<NoInfer<O> | undefined>;
-  /** Throw to report `consumptionFailed`. Absent: no consumption. */
+  /**
+   * Throw to report `consumptionFailed`. Absent: no consumption. Runs once
+   * the list prices `listPrices` reads have loaded, or could not be.
+   */
   history?(credential: C, since: Date): Promise<Consumption | undefined>;
   readonly id: Id;
   /** Throw to report `failed`. */
@@ -44,7 +48,13 @@ export const defineProvider = <Id extends string, O extends object, C>(
     const credential = definition.credential(rest as O);
     return {
       credential,
-      history: async (since) => definition.history?.(credential, since),
+      history: async (since) => {
+        if (!definition.history) {
+          return;
+        }
+        await pricesLoaded();
+        return definition.history(credential, since);
+      },
       limits: () => definition.limits(credential),
       name,
       provider,

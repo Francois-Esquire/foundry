@@ -44,7 +44,9 @@ export function gatewayProvider(options: GatewayProviderOptions): Provider {
     ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
     ...config.headers,
   });
-  const settings = () => ({ headers, provider: id, url });
+  // Without `includeUsage` a streamed chat turn asks for no usage chunk, so
+  // it reports no tokens.
+  const settings = () => ({ headers, includeUsage: true, provider: id, url });
 
   return {
     // A base URL alone is not usable: hosts resolve a localhost default even

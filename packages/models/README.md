@@ -97,9 +97,17 @@ entry exports no provider.
 | `/local/remote` | `forkLocalWorker`: the worker process and its IPC transport |
 | `/local/remote/provider` | `RemoteLocalProvider`: the local surface over that transport |
 | `/live`, `/live/node` | Live interactions, browser and Node |
-| `/catalog/*` | Catalog adapters and the bundled models.dev snapshot |
+| `/catalog/*` | Catalog adapters, and models.dev read at run time |
 | `/embeddings/*` | Chunking, embedding, and ranking |
 | `/model-option`, `/cost` | Pure leaves; see below |
+
+**models.dev at run time.** `loadModelsDev()` (`/catalog/models-dev-source`)
+fetches `https://models.dev/catalog.json` once per process and keeps it.
+It never rejects: when the fetch fails there is no catalog, and a price that
+needs it is absent. `loadedModelsDev()` returns what has loaded, without
+fetching. `FOUNDRY_MODELS_DEV_URL` names another source; an empty value
+loads nothing. `enrichFromModelsDev(rows, catalog)` (`/catalog/models-dev`)
+fills a row's absent facts from it and never overrides what the row states.
 
 **Two ids per row, on purpose.** `id` is how callers and the picker name a
 model; `modelId` is what goes on the wire. They coincide for cloud rows and

@@ -280,7 +280,9 @@ export const vercelPlugin: ProviderPlugin<z.infer<typeof VERCEL>> = {
   settings: VERCEL,
 };
 
-const GATEWAY = z.object({
+/** Strict: a key it does not know is an error, never dropped. */
+const GATEWAY = z.strictObject({
+  /** The environment variable holding the gateway's key. */
   apiKey: z.string().optional(),
   baseURL: z.string(),
 });
