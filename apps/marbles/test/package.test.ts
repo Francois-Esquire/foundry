@@ -370,6 +370,14 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
       // The daemon recorded the workspace in the database it opened.
       expect(readdirSync(state)).toContain("marbles.db");
       expect(status).toContain(consumer);
+      // A task made through the worker that hosts the workspace.
+      expect(
+        run(
+          cli,
+          ["tasks", "create", "Through the worker", "--state", state],
+          consumer
+        )
+      ).toContain("Through the worker");
     } finally {
       expect(run(cli, ["stop", "--state", state], consumer)).toContain(
         "stopped Marbles process"
@@ -379,6 +387,24 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
     expect(run(cli, ["status", "--state", state], consumer)).toContain(
       consumer
     );
+    const listedTasks = (args: string[]) =>
+      (
+        JSON.parse(run(cli, ["tasks", "list", "--json", ...args], consumer))
+          .items as { title: string }[]
+      ).map((task) => task.title);
+    expect(listedTasks(["--state", state])).toEqual(["Through the worker"]);
+    // With no Marbles process and no database yet, a task change makes and
+    // migrates it from the installed migrations; a listing reads it back.
+    const taskState = mkdtempSync(join(tmpdir(), "mt-"));
+    try {
+      expect(
+        run(cli, ["tasks", "create", "Packed", "--state", taskState], consumer)
+      ).toContain("Packed");
+      expect(readdirSync(taskState)).toContain("marbles.db");
+      expect(listedTasks(["--state", taskState])).toEqual(["Packed"]);
+    } finally {
+      rmSync(taskState, { force: true, recursive: true });
+    }
     // The installed bin serves MCP over STDIO, stdout carries only frames,
     // and serving starts no Marbles process.
     const mcpState = mkdtempSync(join(tmpdir(), "mp-"));
