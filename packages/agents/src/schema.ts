@@ -148,7 +148,8 @@ export const sessionPartSchema = z.discriminatedUnion("type", [
     url: z.string(),
   }),
   z.object({
-    input: z.unknown(),
+    /** Left out when the call had none: JSON, every store's form, has no `undefined`. */
+    input: z.unknown().optional(),
     name: z.string(),
     provenance: toolProvenanceSchema.optional(),
     /**
@@ -162,7 +163,8 @@ export const sessionPartSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     isError: z.boolean().optional(),
-    output: z.unknown(),
+    /** Left out when the tool returned nothing, as JSON leaves `undefined` out. */
+    output: z.unknown().optional(),
     toolCallId: z.string(),
     type: z.literal("tool_result"),
   }),
@@ -184,7 +186,8 @@ export const sessionPartSchema = z.discriminatedUnion("type", [
      */
     approvalMode: z.enum(["live", "deferred"]).optional(),
     capability: capabilitySchema,
-    input: z.unknown(),
+    /** Left out when the call had none, as JSON leaves `undefined` out. */
+    input: z.unknown().optional(),
     name: z.string(),
     signature: z.string().optional(),
     toolCallId: z.string(),
