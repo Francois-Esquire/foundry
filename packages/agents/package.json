@@ -50,7 +50,7 @@
       "types": "./src/schema.ts",
       "import": "./src/schema.ts"
     },
-    "./testing": {
+    "./testing/store": {
       "types": "./src/testing/store.ts",
       "import": "./src/testing/store.ts"
     }
