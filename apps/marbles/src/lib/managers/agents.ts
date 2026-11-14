@@ -32,14 +32,8 @@ import type { HarnessActivities } from "~/lib/sandbox/activities";
 import type { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { SandboxSessionOptions } from "~/lib/sandbox/session";
 import { createSandboxSession } from "~/lib/sandbox/session";
-import type {
-  CostMeter,
-  RecordedUsageFact,
-  ReportedCost,
-  TurnSource,
-  UsageLedger,
-} from "~/lib/usage";
-import { catalogPrices, costMeter, lostFact, usageFact } from "~/lib/usage";
+import type { RecordedUsageFact, TurnSource, UsageLedger } from "~/lib/usage";
+import { catalogPrices, lostFact, usageFact } from "~/lib/usage";
 import type { ManagerArgs } from "../bindings";
 import { AGENT_DEFINITION, SANDBOX_HANDLE } from "../handles";
 import type { LiveSession } from "../run-scope";
@@ -190,8 +184,7 @@ interface SessionSite extends Omit<SessionTurnSite, "consumed"> {
   readonly consume?: (
     message: SessionMessage,
     usage: SessionUsage | undefined,
-    route: SessionRef,
-    reported?: ReportedCost
+    route: SessionRef
   ) => void;
   /** The working directory when neither the call nor a worktree names one: the run's root, or the workspace root. */
   readonly cwd: string;
@@ -240,16 +233,15 @@ function consumer(
     return;
   }
   const price = catalogPrices(deps.models);
-  return (message, counted, route, reported) => {
+  return (message, reported, route) => {
     let fact: RecordedUsageFact;
     try {
       fact = usageFact(
         {
           message,
-          ...(reported ? { reported } : {}),
           route,
           source,
-          ...(counted ? { usage: counted } : {}),
+          ...(reported ? { usage: reported } : {}),
           workspaceId: usage.workspaceId,
         },
         price
@@ -855,9 +847,6 @@ async function openBuilt<OUTPUT extends Output.Output>(
     site,
     skills: await deps.skills(definition.skills),
   };
-  // Only a model in this process can be metered for the cost it reports.
-  const meter =
-    site.consume && !(options.sandbox && !deps.dry) ? costMeter() : undefined;
   const harness =
     options.sandbox && !deps.dry
       ? await openSandboxSession(
@@ -865,7 +854,7 @@ async function openBuilt<OUTPUT extends Output.Output>(
           { ...opening, options },
           await startedSandbox(options.sandbox)
         )
-      : await openLocalSession(deps, opening, meter);
+      : await openLocalSession(deps, opening);
   return retainSession(
     harness,
     id,
@@ -874,7 +863,7 @@ async function openBuilt<OUTPUT extends Output.Output>(
       ...definition.settings,
       ...(limit?.kind === "steps" ? { stopWhen: limit.stopWhen } : {}),
     },
-    { ...stamp, meter }
+    stamp
   );
 }
 
@@ -975,15 +964,13 @@ async function openLocalSession(
     route,
     site,
     skills,
-  }: Opening,
-  meter: CostMeter | undefined
+  }: Opening
 ): Promise<SessionHarness> {
   const { modelId, provider } = route;
-  const opened = heldText(resolution, site, {
+  const model = heldText(resolution, site, {
     ...(limit?.kind === "native" ? { nativeMaxTurns: limit.turns } : {}),
     workingDirectory: options.cwd ?? workingDirectory(site.cwd),
   });
-  const model = meter ? meter.wrap(opened) : opened;
   const spec: AgentSpec = {
     id: definition.id,
     ...(mcp.length === 0 ? {} : { mcp: mcp.map((client) => client.id) }),
@@ -1020,12 +1007,9 @@ function retainSession<OUTPUT extends Output.Output>(
   {
     implementation,
     instance,
-    meter,
   }: {
     readonly implementation: string | undefined;
     readonly instance: string | undefined;
-    /** What the session's model reports each turn cost, when it is metered. */
-    readonly meter: CostMeter | undefined;
   }
 ): Session<OUTPUT> {
   const close =
@@ -1061,10 +1045,7 @@ function retainSession<OUTPUT extends Output.Output>(
     {
       ...site,
       ...(consume
-        ? {
-            consumed: (message, usage) =>
-              consume(message, usage, ref, meter?.take()),
-          }
+        ? { consumed: (message, usage) => consume(message, usage, ref) }
         : {}),
       track: (tracked) => {
         live = tracked;

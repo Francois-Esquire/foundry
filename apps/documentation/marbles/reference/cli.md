@@ -174,18 +174,14 @@ Each tab except Settings shows its count, capped at 99+. Focusing Triggers or
 Marbles shows Catalog; focusing Runs shows Overview.
 
 Usage is recorded once per agent turn inside a run, from the token counts the
-harness reports. A cost is estimated at the catalog's list price when the
-model has one, else at the models.dev list price for it, which Marbles
-fetches once while an engine runs and not in Airplane Mode, and keeps that
-price with the turn;
-`~` marks an estimate. The first turn of a Claude Code session that runs in
-this process records the cost Claude Code reports, its `total_cost_usd`,
-as `reported`. Claude Code computes that figure from its own price table on
-any login, so it is an estimate too, not a bill, and on a subscription it is
-not what the plan charges. It shows without `~`. A later turn resumes the
-session, and the CLI's figure then includes the earlier turns, so it is not
-recorded; that turn is priced like any other. A
-turn without a price is counted as unpriced, never as zero, and a run with no
+harness reports. A cost is estimated at the list price the model's catalog
+row states, when a server or the configuration gave one, else at the
+models.dev list price for it, and keeps that price with the turn; `~` marks
+an estimate. Marbles fetches models.dev once while an engine runs, not in
+Airplane Mode, and never waits for it. Claude Code's own `total_cost_usd` is
+not recorded: it is a running total for the session, and whether a resumed
+call includes earlier turns depends on the Claude Code version. A turn
+without a price is counted as unpriced, never as zero, and a run with no
 recorded turns shows "no usage recorded". A step's total includes its
 descendants' turns once.
 

@@ -1,8 +1,6 @@
 import type { SessionMessage } from "@foundry/agents/session";
 import type { Provider, ProviderModelDefinition } from "@foundry/models";
 import { ModelManager } from "@foundry/models";
-import { simulateReadableStream } from "ai";
-import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 /** A trimmed models.dev payload: gpt-5-mini's facts, and OpenAI's own price for it. */
@@ -123,96 +121,6 @@ it("prices nothing when models.dev cannot be read, and throws nothing", async ()
   const { catalogPrices, holdModelsDev } = await pricing();
   await expect(holdModelsDev().loaded).resolves.toBeUndefined();
   expect(catalogPrices(manager(ROW))("codex", "gpt-5-mini")).toBeUndefined();
-});
-
-/** A Claude Code-shaped model: each call reports what the CLI says it cost. */
-function claudeCode(costs: readonly number[]): ModelManager {
-  let call = 0;
-  const provider: Provider = {
-    available: true,
-    id: "claude-code",
-    languageModel: () =>
-      new MockLanguageModelV4({
-        doStream: () => {
-          const costUsd = costs[call] ?? 0;
-          call += 1;
-          return Promise.resolve({
-            stream: simulateReadableStream({
-              chunks: [
-                { id: "t", type: "text-start" },
-                { delta: "ok", id: "t", type: "text-delta" },
-                { id: "t", type: "text-end" },
-                {
-                  finishReason: { raw: undefined, unified: "stop" },
-                  providerMetadata: { "claude-code": { costUsd } },
-                  type: "finish",
-                  usage: {
-                    inputTokens: {
-                      cacheRead: 0,
-                      cacheWrite: 0,
-                      noCache: 10,
-                      total: 10,
-                    },
-                    outputTokens: { reasoning: 0, text: 2, total: 2 },
-                  },
-                },
-              ],
-            }),
-          });
-        },
-      }),
-    models: [
-      {
-        capabilities: { functionCalling: true },
-        id: "sonnet",
-        kind: "text",
-        modelId: "sonnet",
-        vendor: "anthropic",
-      },
-    ],
-    offline: false,
-  };
-  return new ModelManager({ providers: [provider] });
-}
-
-it("records the cost Claude Code reports for a session's first call, and none for a call that resumed it", async () => {
-  vi.stubEnv("FOUNDRY_MODELS_DEV_URL", "");
-  vi.resetModules();
-  const { catalog } = await import("~/authoring/catalog");
-  const { agent } = await import("~/authoring/resources");
-  const { step } = await import("~/authoring/builder");
-  const { startEngine } = await import("./helpers/engine");
-  const reviewer = agent({ name: "reviewer", prompt: "Review." });
-  step("review").do(async ({ agents }) => {
-    const session = await agents.session(reviewer);
-    await session.generate("first");
-    // The CLI's figure here would include the first call's spend.
-    await session.generate("second");
-    return "done";
-  });
-  const engine = await startEngine({
-    models: claudeCode([0.12, 0.3]),
-    print: () => undefined,
-  });
-  try {
-    await (await engine.launch("review", {})).result;
-    const costs = engine.usage
-      .read()
-      .facts.toSorted((a, b) => a.completedAt - b.completedAt)
-      .map((fact) => fact.cost);
-    expect(costs).toEqual([
-      {
-        amount: 0.12,
-        currency: "USD",
-        kind: "reported",
-        reference: "claude-code total_cost_usd, the CLI's own estimate",
-      },
-      { kind: "unknown", reason: "no list price for claude-code/sonnet" },
-    ]);
-  } finally {
-    await engine.dispose();
-    catalog.reset();
-  }
 });
 
 /** A fetch that answers only when its signal aborts, as a hung server would. */

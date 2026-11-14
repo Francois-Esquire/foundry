@@ -1,9 +1,4 @@
 import type {
-  LanguageModelV4Middleware,
-  LanguageModelV4StreamPart,
-} from "@ai-sdk/provider";
-import type { AgentModel } from "@foundry/agents/harness";
-import type {
   MessageMetadata,
   SessionMessage,
   SessionUsage,
@@ -12,9 +7,7 @@ import type { ModelCosts, ModelManager } from "@foundry/models";
 import { costFromUsage } from "@foundry/models";
 import { enrichFromModelsDev } from "@foundry/models/catalog/models-dev";
 import { loadedModelsDev } from "@foundry/models/catalog/models-dev-source";
-import { claudeCodeCostUsd } from "@foundry/models/cost";
 
-import { wrapLanguageModel } from "ai";
 import { isRecord } from "~/lib/state/json";
 import type { HeldLock, Lock } from "~/lib/state/locks";
 import type { StateStore } from "~/lib/state/store";
@@ -141,9 +134,10 @@ export type PriceLookup = (
 ) => PriceBasis | undefined;
 
 /**
- * List prices from the routes the engine's models registered, else the
- * models.dev rate for the row's model once models.dev has loaded (the host
- * starts that load). Pricing stays in `@foundry/models`.
+ * List prices a route's own catalog row states (one a server reported or a
+ * caller supplied), else the models.dev rate for the row's model once
+ * models.dev has loaded (the engine holds that load). Pricing stays in
+ * `@foundry/models`.
  */
 export function catalogPrices(models: ModelManager): PriceLookup {
   return (provider, model) => {
@@ -188,98 +182,11 @@ function tokensOf(usage: SessionUsage): UsageTokens | undefined {
   };
 }
 
-/** A turn's cost as the harness itself reported it, in USD. */
-export interface ReportedCost {
-  readonly amount: number;
-  /** Which figure: the harness and its field. */
-  readonly reference: string;
-}
-
-const CLAUDE_CODE_REPORTED =
-  "claude-code total_cost_usd, the CLI's own estimate";
-
-/** Meters what a session's model reports its calls cost. */
-export interface CostMeter {
-  /** What the turn since the last take reported, when that figure is the turn's own. */
-  take(): ReportedCost | undefined;
-  /** The session's model, metered; it keeps the model's route and limits. */
-  wrap(model: AgentModel): AgentModel;
-}
-
-/**
- * A meter for one session's model instance. Claude Code's figure covers
- * only its own call when the call resumed nothing, and a later call on the
- * same instance resumes the session, so its figure includes earlier spend.
- * So only the first turn counts, and only when it made exactly one call:
- * that is the first call on a fresh instance. Every other turn reports none.
- */
-export function costMeter(): CostMeter {
-  let calls = 0;
-  let taken = 0;
-  let first: number | undefined;
-  const middleware: LanguageModelV4Middleware = {
-    specificationVersion: "v4",
-    async wrapGenerate({ doGenerate }) {
-      calls += 1;
-      const call = calls;
-      const result = await doGenerate();
-      if (call === 1) {
-        first = claudeCodeCostUsd(result.providerMetadata);
-      }
-      return result;
-    },
-    async wrapStream({ doStream }) {
-      calls += 1;
-      const call = calls;
-      const result = await doStream();
-      return {
-        ...result,
-        stream: result.stream.pipeThrough(
-          new TransformStream<
-            LanguageModelV4StreamPart,
-            LanguageModelV4StreamPart
-          >({
-            transform(part, controller) {
-              if (call === 1 && part.type === "finish") {
-                first = claudeCodeCostUsd(part.providerMetadata);
-              }
-              controller.enqueue(part);
-            },
-          })
-        ),
-      };
-    },
-  };
-  return {
-    take: () => {
-      const own = taken === 0 && calls === 1 ? first : undefined;
-      taken = calls;
-      return own === undefined
-        ? undefined
-        : { amount: own, reference: CLAUDE_CODE_REPORTED };
-    },
-    wrap: (model) =>
-      Object.assign(wrapLanguageModel({ middleware, model }), {
-        ...(model.limits ? { limits: model.limits } : {}),
-        ...(model.route ? { route: model.route } : {}),
-      }),
-  };
-}
-
 function costOf(
   tokens: UsageTokens | undefined,
   route: { readonly model?: string; readonly provider?: string },
-  price: PriceLookup,
-  reported: ReportedCost | undefined
+  price: PriceLookup
 ): UsageCost {
-  if (reported) {
-    return {
-      amount: reported.amount,
-      currency: "USD",
-      kind: "reported",
-      reference: reported.reference,
-    };
-  }
   if (!tokens) {
     return { kind: "unknown", reason: "the harness reported no token usage" };
   }
@@ -330,15 +237,10 @@ function scopeOf(
     : { scope: "direct" };
 }
 
-/**
- * One committed turn as a fact: at the cost the harness reported, else
- * priced from the catalog or models.dev when either lists the model.
- */
+/** One committed turn as a fact, priced from the catalog or models.dev when either lists the model. */
 export function usageFact(
   turn: {
     readonly message: SessionMessage;
-    /** What the harness reported this turn cost, when that figure is the turn's own. */
-    readonly reported?: ReportedCost;
     readonly route: {
       readonly implementation?: string;
       readonly model?: string;
@@ -363,7 +265,7 @@ export function usageFact(
   return {
     agentId: source.agentId,
     completedAt: timing?.completedAt ?? message.updatedAt,
-    cost: costOf(tokens, route, price, turn.reported),
+    cost: costOf(tokens, route, price),
     ...(timing ? { durationMs: timing.durationMs } : {}),
     ...(turn.route.implementation === undefined
       ? {}
