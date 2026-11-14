@@ -164,7 +164,10 @@ export class Sessions {
       if (!current) {
         return null;
       }
-      const next = keptMessage(patchSessionMessage(current, patch));
+      const next = keptMessage(patchSessionMessage(current, patch), {
+        metadata: patch.metadata !== undefined,
+        parts: patch.parts !== undefined,
+      });
       await store.commit({ putMessages: [next] });
       return next;
     });
@@ -198,7 +201,10 @@ export class Sessions {
         })
       );
       const folded = fold.map((m) =>
-        keptMessage(patchSessionMessage(m, { summarized: true }))
+        keptMessage(patchSessionMessage(m, { summarized: true }), {
+          metadata: false,
+          parts: false,
+        })
       );
       await store.commit({
         putMessages: [...folded, summary],
@@ -253,10 +259,19 @@ function keptSession(record: SessionRecord): SessionRecord {
  * back, the same values: a field holding `undefined` is left out, and
  * `parts` and `metadata` are put in their JSON form (see {@link keptValue}).
  * Rejects, naming the path, a message with a value that has no JSON form
- * (a `bigint`, a cycle) or whose JSON form is not a message (a part that
- * became `null`, a token count that became `null` from NaN).
+ * (a `bigint`, a cycle). It also rejects `parts` or `metadata` the caller
+ * supplied whose JSON form is no message (a part that became `null`, a
+ * token count that became `null` from NaN); `supplied` says which. What a
+ * store already holds is not checked again, so a message filed before the
+ * check, or by another writer, can still be folded or have its status set.
  */
-function keptMessage(message: SessionMessage): SessionMessage {
+function keptMessage(
+  message: SessionMessage,
+  supplied: { readonly metadata: boolean; readonly parts: boolean } = {
+    metadata: true,
+    parts: true,
+  }
+): SessionMessage {
   const { metadata, parts, ...fields } = withoutUndefined(message);
   const refuse = (why: string, cause?: unknown) =>
     new TypeError(`[sessions] cannot keep message ${message.id}: ${why}`, {
@@ -274,7 +289,9 @@ function keptMessage(message: SessionMessage): SessionMessage {
   } catch (cause) {
     throw refuse(cause instanceof Error ? cause.message : String(cause), cause);
   }
-  const fault = partsFault(kept.parts) ?? metadataFault(kept.metadata);
+  const fault =
+    (supplied.parts ? partsFault(kept.parts) : undefined) ??
+    (supplied.metadata ? metadataFault(kept.metadata) : undefined);
   if (fault !== undefined) {
     throw refuse(`${fault.path} ${fault.reason}`);
   }

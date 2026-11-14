@@ -818,3 +818,57 @@ describe("Sessions over a store holding a field set to undefined", () => {
     }
   });
 });
+
+describe("Sessions over a store holding a message it would not write now", () => {
+  it("folds it and sets its status, and refuses only new parts that are no message", async () => {
+    // A part of a type the vocabulary no longer has, written by another writer.
+    const legacy = {
+      createdAt: 1,
+      id: "old",
+      parts: [{ note: "kept", type: "legacy_note" }],
+      role: "user",
+      sessionId: "s",
+      status: "complete",
+      updatedAt: 1,
+    } as unknown as SessionMessage;
+    const store = new InMemorySessionStore();
+    await store.commit({
+      putMessages: [legacy],
+      putSessions: [
+        {
+          createdAt: 1,
+          id: "s",
+          parentMessageId: null,
+          parentSessionId: null,
+          status: "active",
+          title: null,
+          updatedAt: 1,
+        },
+      ],
+    });
+    const sessions = new Sessions({ store });
+    const marker = await sessions.appendMessage({
+      parts: text("now"),
+      role: "user",
+      sessionId: "s",
+    });
+
+    await expect(
+      sessions.updateMessage("old", { status: "error" })
+    ).resolves.toMatchObject({ parts: legacy.parts, status: "error" });
+    await expect(
+      sessions.summarize({
+        messageId: marker.id,
+        sessionId: "s",
+        summary: { parts: text("S") },
+      })
+    ).resolves.toMatchObject({ summarizedIds: ["old"] });
+    await expect(
+      sessions.updateMessage("old", {
+        parts: [{ type: "legacy_note" }] as unknown as SessionPart[],
+      })
+    ).rejects.toThrow(
+      'parts[0].type holds "legacy_note", which is no part type'
+    );
+  });
+});
