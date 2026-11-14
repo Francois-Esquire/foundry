@@ -283,8 +283,9 @@ stalled source holds neither the manager's queue nor the store, nor the JSON fil
 Inside the transaction the change only resolves deduplication, promotes the staged files
 it keeps to published names, and commits. A change carrying a stream may commit after a
 later change that reached the store sooner; changes without one commit in call order.
-Staged files a change does not keep are discarded when it settles, and `recover` removes
-staging left by a process that is gone.
+Staged files a change does not keep are discarded when it settles. Staging left by a
+process that is gone is removed the first time a `blobFiles` instance stages, and by
+`recover`.
 
 Known limit: a stream is still read inside the exclusion when it is passed to a handle
 inside `transaction(work)`, or when `files` is a `BlobFiles` other than `blobFiles`
