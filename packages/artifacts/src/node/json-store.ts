@@ -65,23 +65,28 @@ export class JsonArtifactStore implements ArtifactStore {
   transaction<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T> {
     return this.#locked(async () => {
       const base = await this.#current();
-      let staged: InMemoryArtifactStore | undefined;
+      /**
+       * The staged copy every commit applies to, made once: created before
+       * the first commit yields, so concurrent commits share it.
+       */
+      let staged: Promise<InMemoryArtifactStore> | undefined;
       let open = true;
       /** The records the view reads, rejecting once the transaction settled. */
       const read = <R>(
         take: (records: InMemoryArtifactStore) => Promise<R>
       ): Promise<R> =>
         open
-          ? take(staged ?? base)
+          ? (staged ?? Promise.resolve(base)).then(take)
           : Promise.reject(new Error("Artifact store transaction has settled"));
       const view: ArtifactStore = {
-        commit: (write) =>
-          read(async () => {
-            staged ??= new InMemoryArtifactStore({
-              records: await base.records(),
-            });
-            await staged.commit(write);
-          }),
+        commit: (write) => {
+          if (open) {
+            staged ??= base
+              .records()
+              .then((records) => new InMemoryArtifactStore({ records }));
+          }
+          return read((records) => records.commit(write));
+        },
         findBlobs: (digest) => read((records) => records.findBlobs(digest)),
         findReferences: (id) => read((records) => records.findReferences(id)),
         getArtifact: (id) => read((records) => records.getArtifact(id)),
@@ -98,7 +103,7 @@ export class JsonArtifactStore implements ArtifactStore {
         // Settled before saving, so a late commit cannot slip into the save.
         open = false;
         if (staged) {
-          await this.#save(staged);
+          await this.#save(await staged);
         }
         return result;
       } finally {
@@ -167,9 +172,12 @@ export class JsonArtifactStore implements ArtifactStore {
       fsync: true,
       mode: 0o600,
     });
-    this.#memory = next;
     // Unknown, the next read compares against the file and reloads it.
-    this.#version = await fileVersion(this.#path).catch(() => undefined);
+    const version = await fileVersion(this.#path).catch(() => undefined);
+    // Set together, after the await, so a reload running meanwhile cannot
+    // pair its older records with this version.
+    this.#memory = next;
+    this.#version = version;
   }
 
   /** The in-memory records, reloaded when another writer replaced the file. */

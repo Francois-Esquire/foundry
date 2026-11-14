@@ -415,6 +415,29 @@ export function describeArtifactStore(
       expect(await store.getBlob(blob.id)).toBeNull();
     });
 
+    it("keeps every commit made concurrently through one view", async () => {
+      const storage = open();
+      const store = storage("conformance");
+      const transaction = requireTransaction(store);
+      const first = artifact({ name: "First" });
+      const second = artifact({ name: "Second" });
+      const named = (rows: readonly Artifact[]) =>
+        rows.map((row) => row.name).sort();
+      await transaction(async (view) => {
+        await Promise.all([
+          view.commit({ putArtifacts: [first] }),
+          view.commit({ putArtifacts: [second] }),
+        ]);
+        expect(named(await everyArtifact(view))).toEqual(["First", "Second"]);
+      });
+      expect(named(await everyArtifact(store))).toEqual(["First", "Second"]);
+      // Opened again over the same storage: what was saved, not what is cached.
+      expect(named(await everyArtifact(storage("conformance")))).toEqual([
+        "First",
+        "Second",
+      ]);
+    });
+
     it("rejects a view used after its transaction settled", async () => {
       const store = fresh();
       const transaction = requireTransaction(store);
