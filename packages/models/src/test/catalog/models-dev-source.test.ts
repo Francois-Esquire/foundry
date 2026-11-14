@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 describe("holdModelsDev", () => {
-  it("fetches models.dev once per process and keeps the catalog", async () => {
+  it("fetches models.dev once per process when it loads, and keeps the catalog", async () => {
     const fetch = vi.fn(async (_url: string) => Response.json(PAYLOAD));
     vi.stubGlobal("fetch", fetch);
     const { holdModelsDev, loadedModelsDev } = await source();
@@ -92,6 +92,29 @@ describe("holdModelsDev", () => {
     );
     const refused = await source();
     await expect(refused.holdModelsDev().loaded).resolves.toBeUndefined();
+  });
+
+  it("tries again on a later hold after a fetch failed, and keeps the catalog once one loads", async () => {
+    const fetch = vi
+      .fn(async (_url: string) => Response.json(PAYLOAD))
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(new Response("busy", { status: 503 }));
+    vi.stubGlobal("fetch", fetch);
+    const { holdModelsDev, loadedModelsDev } = await source();
+
+    const offline = holdModelsDev();
+    await expect(offline.loaded).resolves.toBeUndefined();
+    // Still held: a failure retries only when a later hold asks.
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await expect(holdModelsDev().loaded).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(loadedModelsDev()).toBeUndefined();
+
+    const online = await holdModelsDev().loaded;
+    expect(online?.["openai/gpt-5-mini"]).toBeDefined();
+    expect(loadedModelsDev()).toBe(online);
+    await expect(holdModelsDev().loaded).resolves.toBe(online);
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 
   it("reads FOUNDRY_MODELS_DEV_URL, and loads nothing when it is empty", async () => {

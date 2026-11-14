@@ -177,8 +177,9 @@ Usage is recorded once per agent turn inside a run, from the token counts the
 harness reports. A cost is estimated at the list price the model's catalog
 row states, when a server or the configuration gave one, else at the
 models.dev list price for it, and keeps that price with the turn; `~` marks
-an estimate. Marbles fetches models.dev once while an engine runs, not in
-Airplane Mode, and never waits for it. Claude Code's own `total_cost_usd` is
+an estimate. Marbles fetches models.dev when an engine starts and when
+Airplane Mode turns off, keeps it once it loads, and never waits for it. A
+fetch that fails is tried again the next time. Claude Code's own `total_cost_usd` is
 not recorded: it is a running total for the session, and whether a resumed
 call includes earlier turns depends on the Claude Code version. A turn
 without a price is counted as unpriced, never as zero, and a run with no

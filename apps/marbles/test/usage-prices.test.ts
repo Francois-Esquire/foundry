@@ -166,3 +166,27 @@ it("Airplane Mode gives up the load, and leaving it starts the load again", asyn
   }
   expect(signal(1)?.aborted).toBe(true);
 });
+
+it("an engine that started offline is priced after Airplane Mode is turned on and off", async () => {
+  const fetch = vi
+    .fn(async () => Response.json(PAYLOAD))
+    .mockRejectedValueOnce(new Error("offline"));
+  vi.stubGlobal("fetch", fetch);
+  vi.resetModules();
+  const { testEngine } = await import("./helpers/engine");
+  const { loadedModelsDev } = await import(
+    "@foundry/models/catalog/models-dev-source"
+  );
+  const engine = testEngine();
+  try {
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    expect(loadedModelsDev()).toBeUndefined();
+    engine.airplane.set(true);
+    engine.airplane.set(false);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(loadedModelsDev()).toBeDefined());
+  } finally {
+    await engine.dispose();
+  }
+});

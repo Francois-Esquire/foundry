@@ -1,12 +1,16 @@
 /**
  * models.dev, read at run time. Nothing is bundled: a host holds the load
- * while it runs, the catalog is fetched once, and it is kept for the life
- * of the process. Nothing waits for it: until it is there, and when it could
- * not be read, a price that depends on it is simply absent.
+ * while it runs, and once the catalog has loaded it is kept for the life of
+ * the process and never fetched again. Nothing waits for it: until it is
+ * there, and when it could not be read, a price that depends on it is
+ * simply absent.
  *
- * When the last hold is released before the fetch finishes, the fetch is
- * aborted, so a host that has finished is never held open by it; a later
- * hold starts it again. A catalog already loaded stays usable.
+ * A fetch that fails is not retried on its own; the next hold tries again,
+ * so a host that started offline is priced once a later hold finds the
+ * network. Holds come from a host starting and from Airplane Mode turning
+ * off, and each try is bounded by a timeout, so a dead network is never
+ * hammered. When the last hold is released before the fetch finishes, the
+ * fetch is aborted, so a host that has finished is never held open by it.
  *
  * `FOUNDRY_MODELS_DEV_URL` names another source, such as a mirror. Set it to
  * an empty value to load nothing.
@@ -32,9 +36,8 @@ interface Pending {
   readonly loaded: Promise<ModelsDevCatalog | undefined>;
 }
 
+/** Set once a fetch returned a catalog: it is never fetched again. */
 let loaded: ModelsDevCatalog | undefined;
-/** Set once a fetch completed, with or without a catalog: it is not tried again. */
-let settled = false;
 let pending: Pending | undefined;
 
 async function fetchCatalog(
@@ -47,10 +50,10 @@ async function fetchCatalog(
   const catalog = response?.ok
     ? modelsDevCatalog(await response.json().catch(() => undefined))
     : undefined;
-  // An aborted fetch was given up, not tried: a later hold tries again.
-  if (!signal.aborted) {
+  // Only a catalog is kept. A failed or aborted fetch leaves nothing, and
+  // a later hold tries again.
+  if (catalog) {
     loaded = catalog;
-    settled = true;
   }
   return catalog;
 }
@@ -70,12 +73,13 @@ function start(url: string): Pending {
 }
 
 /**
- * Hold the models.dev load: starts it unless it already ran or is running,
- * and joins it otherwise. Release the hold when the host stops.
+ * Hold the models.dev load: starts it unless the catalog has loaded or a
+ * fetch is running, and joins a running one. Release the hold when the host
+ * stops.
  */
 export function holdModelsDev(): ModelsDevHold {
   const url = process.env.FOUNDRY_MODELS_DEV_URL ?? SOURCE;
-  if (settled || !url) {
+  if (loaded || !url) {
     return { loaded: Promise.resolve(loaded), release: () => undefined };
   }
   pending ??= start(url);

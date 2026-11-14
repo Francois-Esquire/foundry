@@ -103,8 +103,10 @@ entry exports no provider.
 
 **models.dev at run time.** `holdModelsDev()` (`/catalog/models-dev-source`)
 starts fetching `https://models.dev/catalog.json`, or joins the fetch already
-running, and returns a hold whose `loaded` never rejects. The catalog is
-kept for the life of the process. Release the hold when the host stops:
+running, and returns a hold whose `loaded` never rejects. Once loaded, the
+catalog is kept for the life of the process. A fetch that fails is not
+retried on its own; the next hold tries again. Release the hold when the
+host stops:
 when the last hold is released before the fetch finishes, it is aborted, so
 it never keeps a finished process open. Nothing waits for it: until it has
 loaded, and when it fails, a price that needs it is absent.
