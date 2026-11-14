@@ -1,15 +1,17 @@
-import { KeyedQueue } from "@foundry/lib/keyed-queue";
+import { Turns } from "@foundry/lib/turns";
 
 import type { SessionMessage, SessionRecord } from "../schema";
 import type { SessionStore, SessionStoreWrite } from "./index";
 
-/** The one key of a store's turns: the whole store takes them. */
-const STORE = "store";
+/** Why a call from inside the store's own transaction is refused. */
+const REENTRY =
+  "InMemorySessionStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
 /**
  * The default store: sessions and their messages in plain maps in this
- * process. Commits and transactions take turns, so a commit made while a
- * transaction runs lands after it.
+ * process. Every call takes a turn, so a commit made while a transaction
+ * runs lands after it, and a call made from inside a transaction's work is
+ * refused.
  */
 export class InMemorySessionStore implements SessionStore {
   readonly #sessions = new Map<string, SessionRecord>();
@@ -17,10 +19,10 @@ export class InMemorySessionStore implements SessionStore {
   readonly #messages = new Map<string, readonly SessionMessage[]>();
   /** Message id → the session it is filed under. */
   readonly #owners = new Map<string, string>();
-  readonly #turns = new KeyedQueue();
+  readonly #turns = new Turns(REENTRY);
 
   commit(write: SessionStoreWrite): Promise<void> {
-    return this.#turns.run(STORE, () => {
+    return this.#turns.run(() => {
       this.#apply(write);
       return Promise.resolve();
     });
@@ -31,7 +33,7 @@ export class InMemorySessionStore implements SessionStore {
    * succeeds, so a throw after a commit through `view` leaves nothing.
    */
   transaction<T>(work: (view: SessionStore) => Promise<T>): Promise<T> {
-    return this.#turns.run(STORE, async () => {
+    return this.#turns.run(async () => {
       const draft = this.#draft();
       const result = await work(draft);
       this.#adopt(draft);
@@ -40,22 +42,28 @@ export class InMemorySessionStore implements SessionStore {
   }
 
   getMessage(id: string): Promise<SessionMessage | null> {
-    const owner = this.#owners.get(id);
-    const message =
-      owner === undefined
-        ? undefined
-        : this.#messages.get(owner)?.find((m) => m.id === id);
-    return Promise.resolve(message ? structuredClone(message) : null);
+    return this.#turns.run(() => {
+      const owner = this.#owners.get(id);
+      const message =
+        owner === undefined
+          ? undefined
+          : this.#messages.get(owner)?.find((m) => m.id === id);
+      return Promise.resolve(message ? structuredClone(message) : null);
+    });
   }
 
   getSession(id: string): Promise<SessionRecord | null> {
-    const session = this.#sessions.get(id);
-    return Promise.resolve(session ? structuredClone(session) : null);
+    return this.#turns.run(() => {
+      const session = this.#sessions.get(id);
+      return Promise.resolve(session ? structuredClone(session) : null);
+    });
   }
 
   listMessages(sessionId: string): Promise<SessionMessage[]> {
-    const messages = this.#messages.get(sessionId) ?? [];
-    return Promise.resolve(messages.map((m) => structuredClone(m)));
+    return this.#turns.run(() => {
+      const messages = this.#messages.get(sessionId) ?? [];
+      return Promise.resolve(messages.map((m) => structuredClone(m)));
+    });
   }
 
   /** A store holding what this one holds; records and lists are never changed in place. */

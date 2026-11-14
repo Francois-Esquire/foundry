@@ -352,6 +352,51 @@ export function describeSessionStore(
       await expect(store.getMessage("c1")).resolves.toBeNull();
     });
 
+    it("refuses at once a call to the store from inside its own transaction", async (context) => {
+      const store = await fresh();
+      const { transaction } = store;
+      if (transaction === undefined) {
+        context.skip();
+        return;
+      }
+      await store.commit({ putSessions: [session("s")] });
+      const calls: Record<string, () => Promise<unknown>> = {
+        commit: () => store.commit({ putSessions: [session("x")] }),
+        getMessage: () => store.getMessage("m"),
+        getSession: () => store.getSession("s"),
+        listMessages: () => store.listMessages("s"),
+        transaction: () =>
+          transaction.call(store, () => Promise.resolve(undefined)),
+      };
+      const ended = Promise.withResolvers<void>();
+      let later: Promise<unknown> = Promise.resolve();
+
+      const outcomes = await store.transaction?.(async (view) => {
+        const settled: Record<string, string> = {};
+        for (const [method, call] of Object.entries(calls)) {
+          settled[method] = await settlesWithin(call(), 1000);
+        }
+        // Scheduled from inside, but run once the transaction has ended.
+        later = ended.promise.then(() =>
+          store.commit({ putSessions: [session("later")] })
+        );
+        await view.commit({ putSessions: [session("inside")] });
+        return settled;
+      });
+      ended.resolve();
+
+      expect(Object.keys(outcomes ?? {})).toEqual(Object.keys(calls));
+      for (const outcome of Object.values(outcomes ?? {})) {
+        expect(outcome).toMatch(REFUSAL);
+      }
+      await later;
+      await store.commit({ putSessions: [session("after")] });
+      for (const id of ["inside", "later", "after"]) {
+        await expect(store.getSession(id)).resolves.toStrictEqual(session(id));
+      }
+      await expect(store.getSession("x")).resolves.toBeNull();
+    });
+
     it("lands an outside commit only after a running transaction ends", async (context) => {
       const storage = await open();
       const store = storage("a");
@@ -382,9 +427,6 @@ export function describeSessionStore(
       await new Promise((resolve) => setTimeout(resolve, 20));
 
       expect(landed).toBe(false);
-      await expect(storage("a").getSession("s")).resolves.toMatchObject({
-        title: "0",
-      });
       release.resolve();
       await Promise.all([running, plain]);
       await expect(storage("a").getSession("s")).resolves.toMatchObject({
@@ -426,6 +468,36 @@ export function describeSessionStore(
       });
     });
   });
+}
+
+/** What a store's refusal of a call from inside its own transaction says. */
+const REFUSAL = /refused: .*use the view/;
+
+/**
+ * How `promise` settled, as `refused: <message>` or `resolved`, or `still
+ * pending` after `ms`: a hang becomes a failed assertion, not a stalled
+ * suite.
+ */
+async function settlesWithin(
+  promise: Promise<unknown>,
+  ms: number
+): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const pending = new Promise<string>((resolve) => {
+    timer = setTimeout(() => resolve("still pending"), ms);
+  });
+  try {
+    return await Promise.race([
+      promise.then(
+        () => "resolved",
+        (error: unknown) =>
+          `refused: ${error instanceof Error ? error.message : String(error)}`
+      ),
+      pending,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function session(

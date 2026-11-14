@@ -15,7 +15,7 @@ import {
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 import { FileLockTimeoutError, withFileLock } from "@foundry/lib/file-lock";
-import { KeyedQueue } from "@foundry/lib/keyed-queue";
+import { Turns } from "@foundry/lib/turns";
 import { z } from "zod";
 import { isRecord } from "~/lib/state/json";
 
@@ -28,9 +28,11 @@ import { isRecord } from "~/lib/state/json";
  * `roll`) wrote is seen, and a commit here does not overwrite what it
  * appended: a write is merged by id into each file as read.
  *
- * Every commit and every transaction holds the directory's turn: queued
- * within this process across store instances, and across processes under
- * `<dir>/.lock`, which holds the writer's pid. The store attempts to replace
+ * Every call takes the directory's turn within this process, across store
+ * instances, so a call from inside a transaction's work to any store over
+ * the directory is refused rather than left waiting for itself. Every
+ * commit and transaction also holds `<dir>/.lock` across processes, which
+ * holds the writer's pid. The store attempts to replace
  * a stale lock. A transaction stages its commits in memory and writes
  * nothing until `work` returns, so a `work` that throws leaves the files as
  * they were.
@@ -95,12 +97,25 @@ const LOCK_WAIT_MS = 10_000;
 /** The directory's lock; not a session file, since it lacks the suffix. */
 const LOCK = ".lock";
 
+/** Why a call from inside a transaction over the directory is refused. */
+const REENTRY =
+  "JsonSessionStore was called from inside its own transaction; use the view passed to the transaction's work instead";
+
 /**
- * Commits and transactions queued per directory. Process-wide on purpose: two stores over
- * one directory must still take turns, and the file lock they also take is
- * not reentrant, so it cannot order writers within one process.
+ * Each directory's turns. Process-wide on purpose: two stores over one
+ * directory must still take turns, and the file lock they also take is not
+ * reentrant, so it cannot order writers within one process.
  */
-const queue = new KeyedQueue();
+const turnsByDirectory = new Map<string, Turns>();
+
+function turnsFor(dir: string): Turns {
+  let turns = turnsByDirectory.get(dir);
+  if (!turns) {
+    turns = new Turns(REENTRY);
+    turnsByDirectory.set(dir, turns);
+  }
+  return turns;
+}
 
 type Read =
   | { readonly kind: "missing" }
@@ -110,11 +125,13 @@ type Read =
 export class JsonSessionStore implements SessionStore {
   readonly #dir: string;
   readonly #warn: (line: string) => void;
+  readonly #turns: Turns;
   /** Message id → its session, as last seen here. A hint: always checked against the file. */
   readonly #owners = new Map<string, string>();
 
   constructor(dir: string, options: JsonSessionStoreOptions = {}) {
     this.#dir = resolve(dir);
+    this.#turns = turnsFor(this.#dir);
     this.#warn = options.warn ?? (() => undefined);
     mkdirSync(this.#dir, { recursive: true });
   }
@@ -184,21 +201,27 @@ export class JsonSessionStore implements SessionStore {
     });
   }
 
-  async getSession(id: string): Promise<SessionRecord | null> {
-    return (await this.#readable(id))?.session ?? null;
+  getSession(id: string): Promise<SessionRecord | null> {
+    return this.#turns.run(
+      async () => (await this.#readable(id))?.session ?? null
+    );
   }
 
-  async getMessage(id: string): Promise<SessionMessage | null> {
-    const owner = await this.#ownerOf(id);
-    if (owner === undefined) {
-      return null;
-    }
-    const file = await this.#readable(owner);
-    return file?.messages.find((message) => message.id === id) ?? null;
+  getMessage(id: string): Promise<SessionMessage | null> {
+    return this.#turns.run(async () => {
+      const owner = await this.#ownerOf(id);
+      if (owner === undefined) {
+        return null;
+      }
+      const file = await this.#readable(owner);
+      return file?.messages.find((message) => message.id === id) ?? null;
+    });
   }
 
-  async listMessages(sessionId: string): Promise<SessionMessage[]> {
-    return [...((await this.#readable(sessionId))?.messages ?? [])];
+  listMessages(sessionId: string): Promise<SessionMessage[]> {
+    return this.#turns.run(async () => [
+      ...((await this.#readable(sessionId))?.messages ?? []),
+    ]);
   }
 
   /** The session whose file holds message `id`: the last one seen first, then every file. */
@@ -314,7 +337,7 @@ export class JsonSessionStore implements SessionStore {
   async #exclusive<T>(operation: () => Promise<T>): Promise<T> {
     const lock = join(this.#dir, LOCK);
     try {
-      return await queue.run(this.#dir, () =>
+      return await this.#turns.run(() =>
         withFileLock(lock, operation, {
           breakStale: true,
           waitMs: LOCK_WAIT_MS,
