@@ -249,7 +249,7 @@ function part(value: unknown, at: string): ShapeFault | undefined {
   return fieldsFault(value, at, fields);
 }
 
-const METADATA = object({
+const METADATA_FIELDS: Fields = {
   optional: {
     harnessEnvironment: object({ required: { harness: string, id: string } }),
     model: object({
@@ -275,4 +275,37 @@ const METADATA = object({
       },
     }),
   },
-});
+};
+
+const METADATA = object(METADATA_FIELDS);
+
+/**
+ * The field names each check knows, required and optional, by part type and
+ * for `metadata`, so a test can hold them to `@foundry/agents/schema`.
+ */
+export function shapeFieldNames(): {
+  readonly metadata: FieldNames;
+  readonly parts: Readonly<Record<string, FieldNames>>;
+} {
+  return {
+    metadata: fieldNames(METADATA_FIELDS),
+    parts: Object.fromEntries(
+      Object.entries(PART_FIELDS).map(([type, fields]) => [
+        type,
+        fieldNames(fields),
+      ])
+    ),
+  };
+}
+
+interface FieldNames {
+  readonly optional: readonly string[];
+  readonly required: readonly string[];
+}
+
+function fieldNames({ optional = {}, required = {} }: Fields): FieldNames {
+  return {
+    optional: Object.keys(optional).sort(),
+    required: Object.keys(required).sort(),
+  };
+}
