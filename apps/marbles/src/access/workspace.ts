@@ -26,7 +26,7 @@ import { runTaskCommand } from "~/workspace/tasks";
  *   the workspace, joined without starting anything.
  * - Start and host: attach the workspace to the Marbles process, starting
  *   one when none runs, or host it in this process under `--dry-run`. Only
- *   the CLI starts anything.
+ *   the CLI starts or hosts anything.
  */
 
 /** Runs one task command on a workspace's own tasks; a refusal is a `TaskError`. */
@@ -150,13 +150,19 @@ export async function withTasks<T>(
 /**
  * Run `work` against the worker that hosts workspace `id` and has it ready.
  * Nothing is started or attached: without such a worker this rejects with a
- * `NotHostedError` that names the command that hosts it.
+ * `NotHostedError` that names the command that hosts it. `--dry-run` joins
+ * no process, so it always rejects.
  */
 export async function withRunningWorkspace<T>(
   args: HostOptions,
   id: string,
   work: (workspace: WorkspaceConnection) => Promise<T>
 ): Promise<T> {
+  if (args.dry) {
+    throw new NotHostedError(
+      `--dry-run joins no Marbles process, so no worker is reached for workspace ${id}; without --dry-run, ${ATTACH_HINT}. A dry run of a workflow goes through \`marbles roll --dry-run\`.`
+    );
+  }
   const client = await joinProcess(args);
   if (client === undefined) {
     throw new NotHostedError(
@@ -201,7 +207,7 @@ export type Hosted =
 /** Host the workspace in this process; only `--dry-run` does. */
 export function hostHere(
   args: HostOptions,
-  options: Pick<HostWorkspaceOptions, "askable" | "env" | "print">
+  options: Pick<HostWorkspaceOptions, "env" | "print">
 ): Promise<WorkspaceHost> {
   return hostWorkspace({
     ...options,

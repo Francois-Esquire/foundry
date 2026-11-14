@@ -109,8 +109,10 @@ Five buckets, each importing only what sits below it:
   shutdown deadline passes. The relay kills a server that outlives a later
   one, counted from a signal it passes on or the end of stdin. The server reaches the
   workspace through `access/` and never starts the process or attaches a
-  workspace. Under `--dry-run` both host the workspace in their own process
-  through `hostWorkspace` instead, since nothing is persisted.
+  workspace. Under `--dry-run` the CLI hosts the workspace in its own
+  process through `hostWorkspace`, since nothing is persisted. The MCP
+  server hosts nothing even then: it keeps the tasks in memory and joins
+  no process.
 
 `src/layout.ts` decides where things live: the Foundry home
 (`$FOUNDRY_HOME`, else `~/.foundry`), the Marbles state root under it, the

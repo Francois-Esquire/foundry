@@ -1,9 +1,9 @@
 import { resolve } from "node:path";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
-  hostHere,
   joinProcess,
   NotHostedError,
+  type TaskRunner,
   withRunningWorkspace,
   withTasks,
 } from "~/access/workspace";
@@ -12,7 +12,6 @@ import { listWorkspaces } from "~/lib/state/workspace";
 import { onRelayGone, protocolOutput, SHUTDOWN_GRACE_MS } from "~/mcp/relay";
 import { createMcpServer, type McpServerOptions } from "~/mcp/server";
 import type { WorkspaceSummary } from "~/model/connection";
-import type { WorkspaceHost } from "~/workspace/host";
 import type { OpenedWorkspace } from "~/workspace/open";
 import { findWorkspace, recordedWorkspace } from "~/workspace/open";
 import { resolveSource } from "~/workspace/source";
@@ -26,47 +25,56 @@ interface Served extends McpServerOptions {
   readonly release: () => Promise<void>;
 }
 
-/** Nothing loaded at the source; said as it is, not as a load failure. */
-class MissingSourceError extends Error {
-  override readonly name = "MissingSourceError";
-}
-
-/** Under `--dry-run` nothing persists, so the workspace is hosted here. */
-async function serveInProcess(flags: Flags): Promise<Served> {
-  const host = await hostHere(flags, { askable: false, env: "require", print });
-  if (host.config === null) {
-    await host.close();
-    throw new MissingSourceError(`no Marbles source at "${host.configPath}"`);
-  }
-  const only = (id: string): WorkspaceHost => {
-    if (id !== host.id) {
-      throw new Error(
-        `only workspace "${host.id}" is available under --dry-run`
-      );
-    }
-    return host;
-  };
+/**
+ * Under `--dry-run` the tasks are in memory, so the session keeps one
+ * engine over them: opened by the first task call, given up at release.
+ * It is the same stored-task access as without `--dry-run`, held longer.
+ * An open that fails is tried again by the next call.
+ */
+function sessionTasks(flags: Flags, opened: OpenedWorkspace) {
+  let runner: Promise<TaskRunner> | undefined;
+  let session: Promise<void> = Promise.resolve();
+  let letGo = (): void => undefined;
   return {
-    hosted: (id, work) => work(only(id)),
-    id: host.id,
-    release: () => host.close(),
-    tasks: (command, id = host.id) => only(id).tasks(command),
-    workspaces: () =>
-      Promise.resolve([
-        { config: host.config, id: host.id, root: host.root, state: "ready" },
-      ]),
+    open(): Promise<TaskRunner> {
+      runner ??= new Promise<TaskRunner>((ready, fail) => {
+        const done = new Promise<void>((end) => {
+          letGo = end;
+        });
+        let held = false;
+        session = withTasks(flags, opened, print, (run) => {
+          held = true;
+          ready(run);
+          return done;
+        }).catch((error: unknown) => {
+          if (held) {
+            throw error;
+          }
+          runner = undefined;
+          fail(error);
+        });
+      });
+      return runner;
+    },
+    release(): Promise<void> {
+      letGo();
+      return session;
+    },
   };
 }
 
 /**
  * Answer from stored state and the running Marbles process, joined per
- * call and never started. No source is needed: tasks work for any recorded
+ * call and never started. No source is loaded: tasks work for any recorded
  * workspace either way, and everything that runs or reads a run needs a
- * worker that hosts the workspace.
+ * worker that hosts the workspace. Under `--dry-run` only this server's
+ * own workspace is addressable, its tasks are in memory, and no Marbles
+ * process is joined, so nothing that runs or reads a run is served.
  */
-function serveFromState(flags: Flags): Served {
+function serveWorkspace(flags: Flags): Served {
   const opened = findWorkspace(flags);
   const own = opened.workspace;
+  const memory = flags.dry ? sessionTasks(flags, opened) : undefined;
   // Each stored-state call holds the tasks until it ends, so calls a client
   // sends together take turns rather than refuse each other.
   let turn: Promise<unknown> = Promise.resolve();
@@ -76,13 +84,27 @@ function serveFromState(flags: Flags): Served {
     return next;
   };
   const recorded = (id: string): OpenedWorkspace => {
-    const found = id === own.id ? opened : recordedWorkspace(flags, id);
+    if (id === own.id) {
+      return opened;
+    }
+    if (flags.dry) {
+      throw new Error(
+        `only workspace "${own.id}" is available under --dry-run`
+      );
+    }
+    const found = recordedWorkspace(flags, id);
     if (found === undefined) {
       throw new Error(
         `no workspace "${id}" is recorded under ${resolve(flags.state)}; list_workspaces names them`
       );
     }
     return found;
+  };
+  const ownSummary: WorkspaceSummary = {
+    config: opened.config,
+    id: own.id,
+    root: own.root,
+    state: "stopped",
   };
   return {
     async hosted(id, work) {
@@ -104,14 +126,19 @@ function serveFromState(flags: Flags): Served {
     },
     id: own.id,
     // A call already holding the tasks finishes before the server exits.
-    release: () => turn.then(() => undefined),
+    release: () => turn.then(() => memory?.release()),
     tasks: (command, id = own.id) => {
       const target = recorded(id);
-      return inTurn(() =>
-        withTasks(flags, target, print, (run) => run(command))
+      return inTurn(async () =>
+        memory === undefined
+          ? withTasks(flags, target, print, (run) => run(command))
+          : (await memory.open())(command)
       );
     },
     async workspaces() {
+      if (flags.dry) {
+        return [ownSummary];
+      }
       const client = await joinProcess(flags);
       let listed: readonly WorkspaceSummary[];
       if (client === undefined) {
@@ -128,15 +155,7 @@ function serveFromState(flags: Flags): Served {
       // This server's own workspace is always there to address.
       return listed.some((entry) => entry.id === own.id)
         ? listed
-        : [
-            {
-              config: opened.config,
-              id: own.id,
-              root: own.root,
-              state: "stopped",
-            },
-            ...listed,
-          ];
+        : [ownSummary, ...listed];
     },
   };
 }
@@ -147,11 +166,8 @@ async function serve(flags: Flags): Promise<void> {
   const configPath = resolveSource(flags.config);
   let served: Served;
   try {
-    served = flags.dry ? await serveInProcess(flags) : serveFromState(flags);
+    served = serveWorkspace(flags);
   } catch (error) {
-    if (error instanceof MissingSourceError) {
-      throw error;
-    }
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
       `could not open the workspace for "${configPath}": ${reason}`,
@@ -206,8 +222,7 @@ async function serve(flags: Flags): Promise<void> {
 
 /**
  * A server that cannot start says why on stderr and exits non-zero; the
- * protocol stream stays empty. A source failure keeps its stack, which
- * points into the module that threw.
+ * protocol stream stays empty. A failure's cause keeps its stack.
  */
 function report(error: unknown): void {
   print(
