@@ -230,7 +230,7 @@ goes to stderr too. The server exits when stdin closes, when the
 `marbles mcp` process that started it exits, or when it receives SIGINT or
 SIGTERM. Shutdown takes a few seconds at most. Work that does not stop in
 time is cut off, and the server is killed if it still runs. If the
-`marbles mcp` process is itself killed while source code blocks the
+`marbles mcp` process gets SIGKILL while source code blocks the
 server's event loop, the server runs until that code returns. A Marbles process that hosts the workspace keeps
 hosting it, and several MCP clients can use one process at once. Use `--state` to select a
 separate state root (each root has its own process), or `--dry-run` to host
