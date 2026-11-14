@@ -1,9 +1,10 @@
 /**
  * The builtin `tasks` under a real host, in real processes: source loaded
  * through `openWorkspace` (a Bun plugin, so each scenario runs in its own
- * `bun` process), the engine built by `hostEngine`, and the records owned by
- * one OS process at a time. The last scenario hosts the workspace the way
- * the Marbles process does, in a worker it spawns and reloads.
+ * `bun` process), the engine built by `hostEngine` over the Marbles
+ * database a host opens, and the tasks shared by every OS process on it.
+ * The last scenario hosts the workspace the way the Marbles process does,
+ * in a worker it spawns and reloads.
  */
 
 import type { ChildProcess } from "node:child_process";
@@ -13,16 +14,18 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { tasks } from "@foundry/tasks/store/tables";
 import { afterEach, expect, it, vi } from "vitest";
-import { layout } from "~/layout";
-import { WorkspaceRecords } from "~/lib/events/records";
+import { readDatabase } from "~/database/open";
+import { marblesTaskChanges } from "~/database/tables";
+import { DatabaseWorkspaceRecords } from "~/database/tasks";
+import { layout, stateDatabase } from "~/layout";
 import { connect } from "~/process/client";
 import type { Daemon } from "~/process/daemon";
 import { startDaemon } from "~/process/daemon";
 import { readProcess } from "~/process/instance";
 
 const SRC = resolve("src");
-const IN_USE_BY = /in use by pid (\d+)/;
 
 const roots: string[] = [];
 const children: ChildProcess[] = [];
@@ -83,12 +86,15 @@ async function inHost(
   await writeFile(
     script,
     `import { hostEngine, openWorkspace } from ${JSON.stringify(join(SRC, "workspace/open.ts"))};
+import { openHostDatabase } from ${JSON.stringify(join(SRC, "database/workspaces.ts"))};
 import { tasks } from ${JSON.stringify(join(SRC, "authoring/tasks.ts"))};
 const report = {};
 const open = async (source, state, dry = false) => {
   const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: source, dry, state };
   const opened = await openWorkspace(args, { print: () => undefined });
-  const engine = await hostEngine(args, opened, { print: () => undefined });
+  // As \`hostWorkspace\` does: one handle, opened under the state root's rule.
+  const database = dry ? undefined : await openHostDatabase(state);
+  const engine = await hostEngine(args, opened, { database, print: () => undefined });
   await engine.start();
   return { engine, opened };
 };
@@ -108,14 +114,37 @@ process.exit(0);
   return JSON.parse(line);
 }
 
-function workspaceFile(state: string): string {
-  const [id] = readdirSync(state).filter((entry) =>
-    existsSync(join(state, entry, "tasks.json"))
-  );
-  if (id === undefined) {
-    throw new Error(`no tasks.json under ${state}`);
+/** Every workspace's task titles and recorded changes under `state`, read as a reader does. */
+async function stored(state: string): Promise<{
+  readonly delivered: readonly (readonly string[])[];
+  readonly titles: readonly string[];
+}> {
+  const read = await readDatabase(stateDatabase(state), async (database) => {
+    const changes = await database
+      .select({ id: marblesTaskChanges.id, scope: marblesTaskChanges.scope })
+      .from(marblesTaskChanges)
+      .orderBy(marblesTaskChanges.position);
+    const titles = await database
+      .select({ title: tasks.title })
+      .from(tasks)
+      .orderBy(tasks.position);
+    const delivered = await Promise.all(
+      changes.map(async (change) => {
+        const [item] = (
+          await new DatabaseWorkspaceRecords({
+            database,
+            scope: change.scope,
+          }).pending()
+        ).filter((pending) => pending.id === change.id);
+        return item?.delivered ?? [];
+      })
+    );
+    return { delivered, titles: titles.map((row) => row.title) };
+  });
+  if (read === undefined) {
+    throw new Error(`no Marbles database under ${state}`);
   }
-  return join(state, id, "tasks.json");
+  return read;
 }
 
 it("binds tasks to the loaded workspace, recovers its pending changes in the next process, and refuses access unbound", async () => {
@@ -137,14 +166,9 @@ report.afterDispose = await attempt(tasks.create({ title: "late" }));`,
   expect(first.load).toMatch("not available while its source loads");
   expect(first.listed).toEqual(["hosted"]);
   expect(first.afterDispose).toMatch("was disposed");
-  const file = workspaceFile(state);
-  const written = JSON.parse(readFileSync(file, "utf8"));
-  expect(written.tasks.map((task: { title: string }) => task.title)).toEqual([
-    "hosted",
-  ]);
-  expect(
-    written.items.map((item: { delivered: string[] }) => item.delivered)
-  ).toEqual([[]]);
+  const written = await stored(state);
+  expect(written.titles).toEqual(["hosted"]);
+  expect(written.delivered).toEqual([[]]);
 
   // A new process loads the same source: the task is there, and the pending
   // change is delivered to the same handler.
@@ -161,10 +185,7 @@ await engine.dispose();`
   expect(readFileSync(join(root, "first", "seen.log"), "utf8")).toBe(
     "hosted\n"
   );
-  const delivered = JSON.parse(readFileSync(file, "utf8"));
-  expect(
-    delivered.items.map((item: { delivered: string[] }) => item.delivered)
-  ).toEqual([[expect.any(String)]]);
+  expect((await stored(state)).delivered).toEqual([[expect.any(String)]]);
 }, 120_000);
 
 it("rebinds to another workspace's engine in the same process", async () => {
@@ -204,50 +225,80 @@ await engine.dispose();`
     ? readdirSync(state, { recursive: true }).map(String)
     : [];
   expect(files.filter((file) => file.endsWith("tasks.json"))).toEqual([]);
+  expect(files.filter((file) => file.includes("marbles.db"))).toEqual([]);
   expect(files.filter((file) => file.includes("locks"))).toEqual([]);
 }, 120_000);
 
-it("refuses a second OS process the records, until the owner exits", async () => {
+it("loses no update when two OS processes change one workspace's tasks at once", async () => {
   const root = await scratch();
-  const dir = join(root, "state");
-  const script = join(root, "owner.ts");
+  const state = join(root, "state");
+  const rounds = 15;
+  const seeded = await inHost(
+    root,
+    `import { changeTasks } from ${JSON.stringify(join(SRC, "database/tasks.ts"))};
+report.id = (await changeTasks(${JSON.stringify(state)}, "shared", (tasks) => tasks.create({ metadata: { count: 0 }, title: "counter" }))).id;`
+  );
+  // Each process adds one to the count, \`rounds\` times, the way a command
+  // with no worker does: its own opening per change, read then written
+  // against the token it read. A refused token is read again.
+  const counter = join(root, "counter.ts");
   await writeFile(
-    script,
-    `import { WorkspaceRecords } from ${JSON.stringify(join(SRC, "lib/events/records.ts"))};
-const records = new WorkspaceRecords({ dir: ${JSON.stringify(dir)} });
-await records.taskStore.commit({ putTasks: [] });
-process.stdout.write("ready\\n");
-setInterval(() => undefined, 1000);
+    counter,
+    `import { changeTasks } from ${JSON.stringify(join(SRC, "database/tasks.ts"))};
+const [name] = process.argv.slice(2);
+let refused = 0;
+for (let round = 0; round < ${String(rounds)}; round += 1) {
+  for (;;) {
+    try {
+      await changeTasks(${JSON.stringify(state)}, "shared", async (tasks) => {
+        const task = await tasks.get(${JSON.stringify(seeded.id)});
+        await tasks.update(task.id, { metadata: { count: task.metadata.count + 1 } }, { expectedUpdatedAt: task.updatedAt });
+        await tasks.create({ title: name + "-" + String(round) });
+      });
+      break;
+    } catch (error) {
+      if (error?.name !== "TaskError") throw error;
+      refused += 1;
+    }
+  }
+}
+process.stdout.write(JSON.stringify({ refused }) + "\\n");
 `
   );
-  const owner = spawn("bun", [script], { cwd: resolve(".") });
-  children.push(owner);
-  await new Promise<void>((ready, failed) => {
-    owner.stdout?.on("data", (chunk: Buffer) => {
-      if (chunk.toString().includes("ready")) {
-        ready();
-      }
+  const run = (name: string) =>
+    new Promise<string>((done, failed) => {
+      const child = spawn("bun", [counter, name], { cwd: resolve(".") });
+      children.push(child);
+      let output = "";
+      let errors = "";
+      child.stdout?.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+      child.stderr?.on("data", (chunk: Buffer) => {
+        errors += chunk.toString();
+      });
+      child.once("exit", (code) =>
+        code === 0 ? done(output) : failed(new Error(`${name}: ${errors}`))
+      );
     });
-    owner.once("exit", (code) => failed(new Error(`owner exited ${code}`)));
-  });
+  await Promise.all([run("a"), run("b")]);
 
-  const contender = new WorkspaceRecords({ dir });
-  const refusal = await contender.taskStore.snapshot().then(
-    () => "accepted",
-    (error: Error) => error.message
-  );
-  expect(refusal).toMatch(IN_USE_BY);
-  expect(IN_USE_BY.exec(refusal)?.[1]).toBe(String(owner.pid));
-
-  // The owner dies without releasing; its lock is stale and is taken over.
-  owner.kill("SIGKILL");
-  await new Promise((done) => owner.once("exit", done));
-  await expect(contender.taskStore.snapshot()).resolves.toEqual({
-    dependencies: [],
-    tasks: [],
+  const after = await readDatabase(stateDatabase(state), async (database) => {
+    const records = new DatabaseWorkspaceRecords({ database, scope: "shared" });
+    const { tasks: all } = await records.taskStore.snapshot();
+    return {
+      changes: (await records.pending()).length,
+      count: all.find((task) => task.title === "counter")?.metadata.count,
+      tasks: all.length,
+    };
   });
-  await contender.close();
-}, 60_000);
+  // Every increment landed once, and every change recorded its own row.
+  expect(after).toEqual({
+    changes: 1 + 2 * 2 * rounds,
+    count: 2 * rounds,
+    tasks: 1 + 2 * rounds,
+  });
+}, 120_000);
 
 /**
  * A source for a worker: `observe` appends each payload's titles to
@@ -302,19 +353,17 @@ it("binds tasks to the workspace a worker hosts, and hands its records to the wo
         timeout: 30_000,
       }
     );
-    const file = join(machine.state, summary.id, "tasks.json");
     await vi.waitFor(
-      () => {
-        const written = JSON.parse(readFileSync(file, "utf8"));
-        expect(
-          written.items.map((item: { delivered: string[] }) => item.delivered)
-        ).toEqual([[expect.any(String)]]);
+      async () => {
+        expect((await stored(machine.state)).delivered).toEqual([
+          [expect.any(String)],
+        ]);
       },
       { interval: 100, timeout: 30_000 }
     );
 
-    // The worker that held the records exits before its replacement claims
-    // them: the fresh one reads the same tasks and redelivers nothing.
+    // The worker that delivered exits before its replacement claims
+    // delivery: the fresh one reads the same tasks and redelivers nothing.
     await writeFile(source, workerSource(root, 2));
     await vi.waitFor(
       () => {

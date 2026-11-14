@@ -20,6 +20,7 @@ import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
+import type { WorkspaceRecords } from "~/lib/events/records";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { echoInstance } from "~/lib/models/echo";
@@ -58,6 +59,12 @@ export interface CreateEngineOptions {
   readonly print: (line: string) => void;
   /** A complete, ordered provider set that supersedes the stored configuration. */
   readonly providers?: readonly Provider[];
+  /**
+   * This workspace's tasks and their recorded changes, in the Marbles
+   * database. Under `dry` the engine gets none and keeps them in memory, as
+   * it does when this is omitted.
+   */
+  readonly records?: WorkspaceRecords;
   /** The workspace root: the config's directory, or the cwd without one. */
   readonly root: string;
   /**
@@ -239,6 +246,9 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...(options.log ? { log: options.log } : {}),
     ...modelsFor(options),
     print,
+    ...(dry || options.records === undefined
+      ? {}
+      : { records: options.records }),
     root,
     sessions: sessionsFor(state, print),
     state,

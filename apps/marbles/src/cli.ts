@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { ReentrantCallError } from "@foundry/lib/turns";
 import { TaskError } from "@foundry/tasks";
 import type { Hosted, TaskRunner } from "~/access/workspace";
 import {
@@ -10,18 +11,20 @@ import {
   hostHere,
   joinProcess,
   NotHostedError,
+  RecordsHeldError,
   withTasks,
 } from "~/access/workspace";
 import type { Args, ArgsOf, Command, Flags } from "~/args";
 import { parseArgs, UsageError } from "~/args";
 import type { Triggers } from "~/create";
+import { DatabaseBusyError } from "~/database/client";
 import { IncompatibleDatabaseError } from "~/database/migrate";
 import { UnreadableDatabaseError, writeDatabase } from "~/database/open";
+import { TaskStorageError } from "~/database/tasks";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { layout, stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import { RunEndedError } from "~/lib/engine";
-import { RecordsHeldError } from "~/lib/events/records";
 import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
 import { ConfigurationError } from "~/lib/providers/store";
@@ -249,15 +252,12 @@ async function runTasks(
   try {
     result = await tasks(args.task);
   } catch (error) {
-    // A refusal, or tasks another process owns, is the person's to act on:
-    // one line, a refusal with its stable code.
-    if (error instanceof TaskError) {
-      diagnose(`marbles: ${error.message} (${error.code})`);
-    } else if (error instanceof RecordsHeldError) {
-      diagnose(`marbles: ${error.message}`);
-    } else {
+    // A refusal is the person's to act on: one line, with its stable code.
+    // Anything else they can act on is one line too (`actionable`).
+    if (!(error instanceof TaskError)) {
       throw error;
     }
+    diagnose(`marbles: ${error.message} (${error.code})`);
     process.exitCode = 1;
     return;
   }
@@ -548,7 +548,7 @@ async function dispatch<C extends Command>(
       );
       return;
     case "tasks":
-      await withTasks(args, findWorkspace(args), diagnose, (tasks) =>
+      await withTasks(args, findWorkspace(args), (tasks) =>
         handler.run(args, tasks)
       );
       return;
@@ -609,6 +609,7 @@ function actionable(error: unknown): error is Error {
   return (
     error instanceof UsageError ||
     error instanceof ConfigurationError ||
+    error instanceof DatabaseBusyError ||
     error instanceof EnvironmentError ||
     error instanceof IncompatibleDatabaseError ||
     error instanceof LaunchInputError ||
@@ -618,9 +619,11 @@ function actionable(error: unknown): error is Error {
     error instanceof ProcessTimeoutError ||
     error instanceof ProcessHeldError ||
     error instanceof RecordsHeldError ||
+    error instanceof ReentrantCallError ||
     error instanceof RemoteError ||
     error instanceof RunEndedError ||
     error instanceof RunOutputError ||
+    error instanceof TaskStorageError ||
     error instanceof UnreadableDatabaseError
   );
 }

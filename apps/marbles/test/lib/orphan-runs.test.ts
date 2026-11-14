@@ -5,13 +5,15 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
+import type { WorkspaceRecords } from "~/lib/events/records";
+import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import { TASKS } from "~/lib/events/source";
 import type { ExecutionRun } from "~/lib/executions";
 import { JsonStateStore } from "~/lib/state/store";
@@ -69,13 +71,19 @@ function leftBehind(run: Partial<ExecutionRun> & { id: string }): void {
 it("lets an exited process's queued run in again only once the start has succeeded", async () => {
   leftBehind({ id: "rn-queued", input: {} });
   // Delivery cannot read its tasks, so the start fails after the run store loaded.
-  mkdirSync(state, { recursive: true });
-  writeFileSync(join(state, "tasks.json"), "{not json");
+  const memory = new MemoryWorkspaceRecords();
+  const unreadable: WorkspaceRecords = {
+    close: () => memory.close(),
+    deliver: (id, hash) => memory.deliver(id, hash),
+    pending: () => Promise.reject(new Error("the records cannot be read")),
+    taskStore: memory.taskStore,
+    watch: (listener) => memory.watch(listener),
+  };
   const dead = new JsonStateStore(state).read("executions", "rn-queued") as
     | ExecutionRun
     | undefined;
   let started = 0;
-  const engine = engineWith({ recoverQueued: true });
+  const engine = engineWith({ records: unreadable, recoverQueued: true });
   engine.task({
     name: "save",
     queue: "system",

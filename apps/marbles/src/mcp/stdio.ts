@@ -42,7 +42,7 @@ function sessionTasks(flags: Flags, opened: OpenedWorkspace) {
           letGo = end;
         });
         let held = false;
-        session = withTasks(flags, opened, print, (run) => {
+        session = withTasks(flags, opened, (run) => {
           held = true;
           ready(run);
           return done;
@@ -131,7 +131,7 @@ function serveWorkspace(flags: Flags): Served {
       inTurn(async () => {
         const target = await recorded(id);
         return memory === undefined
-          ? withTasks(flags, target, print, (run) => run(command))
+          ? withTasks(flags, target, (run) => run(command))
           : (await memory.open())(command);
       }),
     async workspaces() {

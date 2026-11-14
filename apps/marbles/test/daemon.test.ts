@@ -4,7 +4,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
-  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -16,8 +15,10 @@ import { join } from "node:path";
 import { processAlive } from "@foundry/lib/file-lock";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fileIdentity, queuedFiles } from "~/database/client";
+import { readDatabase } from "~/database/open";
+import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { WorkspaceRegistry } from "~/database/workspaces";
-import { type Layout, layout } from "~/layout";
+import { type Layout, layout, stateDatabase } from "~/layout";
 import type {
   DispatchOptions,
   WorkspaceState,
@@ -89,6 +90,17 @@ async function daemonFor(machine: Layout, lines: string[] = []) {
   });
   daemons.push(daemon);
   return daemon;
+}
+
+/** A workspace's tasks and recorded changes in the Marbles database, read as a reader does. */
+async function storedTasks(machine: Layout, id: string) {
+  return await readDatabase(stateDatabase(machine.state), async (database) => {
+    const records = new DatabaseWorkspaceRecords({ database, scope: id });
+    return {
+      changes: await records.pending(),
+      snapshot: await records.taskStore.snapshot(),
+    };
+  });
 }
 
 afterEach(async () => {
@@ -323,6 +335,44 @@ describe("the Marbles process", () => {
     again.close();
   }, 60_000);
 
+  it("keeps a workspace's tasks across a restart of the Marbles process", async () => {
+    const { home, machine, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, greeter("greet"));
+    const first = await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    const summary = await client.attach(source);
+    await client.workspace(summary).tasks({
+      change: {
+        operations: [
+          { input: { title: "Survives" }, key: "t", kind: "task.create" },
+        ],
+      },
+      kind: "change",
+    });
+    client.close();
+    await first.close();
+
+    await daemonFor(machine);
+    const again = await connect({ layout: machine, start: false });
+    try {
+      await vi.waitFor(
+        async () => {
+          expect(await again.workspaces()).toEqual([
+            expect.objectContaining({ id: summary.id, state: "ready" }),
+          ]);
+        },
+        { interval: 250, timeout: 30_000 }
+      );
+      const listed = await again
+        .workspace(summary)
+        .tasks({ kind: "list", query: {} });
+      expect(listed.items.map((node) => node.title)).toEqual(["Survives"]);
+    } finally {
+      again.close();
+    }
+  }, 60_000);
+
   it("hosts again at boot only the recorded workspaces kept under the state root", async () => {
     const { home, machine } = fixture();
     homes.push(home);
@@ -474,8 +524,8 @@ export const hold = step("hold").do(async () => {
       if (!task) {
         throw new Error("task creation returned no task");
       }
-      const records = join(machine.state, summary.id, "tasks.json");
-      const before = readFileSync(records, "utf8");
+      const before = await storedTasks(machine, summary.id);
+      expect(before?.snapshot.tasks).toHaveLength(1);
       const running = workspace.roll("hold").catch((error: unknown) => error);
       await vi.waitFor(() => expect(existsSync(held)).toBe(true), {
         timeout: 15_000,
@@ -508,11 +558,11 @@ export const hold = step("hold").do(async () => {
           kind: "change",
         })
       ).rejects.toThrow("the Marbles process is stopping");
-      expect(readFileSync(records, "utf8")).toBe(before);
+      expect(await storedTasks(machine, summary.id)).toEqual(before);
       writeFileSync(release, "release");
       expect(await running).not.toBeInstanceOf(Error);
       await daemon.closed;
-      expect(readFileSync(records, "utf8")).toBe(before);
+      expect(await storedTasks(machine, summary.id)).toEqual(before);
     } finally {
       writeFileSync(release, "release");
       client.close();

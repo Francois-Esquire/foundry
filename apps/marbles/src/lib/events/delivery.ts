@@ -1,9 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import type { WorkspaceRecords } from "~/lib/events/records";
-import { RecordsHeldError } from "~/lib/events/records";
 import type { Handler, Source } from "~/lib/events/source";
 import { current } from "~/lib/run-scope";
+import type { Lock } from "~/lib/state/locks";
+import { acquireLock } from "~/lib/state/locks";
 
 /**
  * Hands each stored item to every observer of its source that has not
@@ -39,6 +40,11 @@ import { current } from "~/lib/run-scope";
  * cost is the usual one of ordered delivery: an item a handler keeps failing
  * on holds back that handler's later items until it completes it.
  *
+ * One process delivers a workspace's changes at a time: the one holding
+ * `<state>/locks/tasks` from a successful start until `stop` (the lock
+ * keeps the name it had when it also guarded the tasks' file). Any number
+ * of processes read and write the tasks themselves.
+ *
  * A pass never runs inside a run. A write inside a step body wakes delivery
  * as its turn ends, and a pass started there would otherwise inherit that
  * step's frame: a definition a handler calls would join the writer's run
@@ -58,19 +64,32 @@ interface Observer {
 
 const HASH_LENGTH = 32;
 
+/** The lock at a workspace's state dir that makes its holder the one delivering there. */
+const DELIVERY_LOCK = "tasks";
+
+export interface DeliveryOptions {
+  readonly print: (line: string) => void;
+  readonly records: WorkspaceRecords;
+  /** The workspace state dir, where delivery is claimed; without one, nothing is claimed. */
+  readonly state?: string;
+}
+
 export class Delivery {
   readonly #observers: Observer[] = [];
   readonly #records: WorkspaceRecords;
   readonly #print: (line: string) => void;
+  readonly #state: string | undefined;
+  #lock: Lock | undefined;
   #phase: "new" | "running" | "stopped" = "new";
   #pass: Promise<void> | undefined;
   #wakes = 0;
   /** Runs a pass in the context this delivery was built in; see above. */
   readonly #built = AsyncLocalStorage.snapshot();
 
-  constructor(records: WorkspaceRecords, print: (line: string) => void) {
-    this.#records = records;
-    this.#print = print;
+  constructor(options: DeliveryOptions) {
+    this.#records = options.records;
+    this.#print = options.print;
+    this.#state = options.state;
   }
 
   /** Follow `source` with `handler`, from the next start or the next pass. */
@@ -92,22 +111,30 @@ export class Delivery {
   }
 
   /**
-   * Own the records, so a problem with them surfaces here. Without observers
-   * nothing is read. Records another process owns are left to it; records
-   * that cannot be read fail the start.
+   * Claim delivery, and read the records, so a problem with them surfaces
+   * here. Without observers nothing is claimed or read. Delivery another
+   * process has claimed is left to it; records that cannot be read fail the
+   * start.
    */
   async start(): Promise<void> {
     if (this.#phase !== "new" || this.#observers.length === 0) {
       return;
     }
-    try {
-      await this.#records.open();
-    } catch (error) {
-      if (!(error instanceof RecordsHeldError)) {
-        throw error;
+    if (this.#state !== undefined) {
+      const claim = acquireLock(this.#state, DELIVERY_LOCK);
+      if (!("release" in claim)) {
+        this.#print(
+          `[observe] not delivering here: the changes of this workspace (${this.#state}) are delivered by ${claim.holder}`
+        );
+        return;
       }
-      this.#print(`[observe] not delivering here: ${error.message}`);
-      return;
+      this.#lock = claim;
+    }
+    try {
+      await this.#records.pending();
+    } catch (error) {
+      this.#release();
+      throw error;
     }
     this.#phase = "running";
   }
@@ -128,10 +155,19 @@ export class Delivery {
     );
   }
 
-  /** Start no handler again; wait for the one running. */
+  /** Start no handler again; wait for the one running, then give up the claim. */
   async stop(): Promise<void> {
     this.#phase = "stopped";
-    await this.#pass;
+    try {
+      await this.#pass;
+    } finally {
+      this.#release();
+    }
+  }
+
+  #release(): void {
+    this.#lock?.release();
+    this.#lock = undefined;
   }
 
   async #run(): Promise<void> {

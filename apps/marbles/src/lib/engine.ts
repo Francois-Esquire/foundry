@@ -33,7 +33,8 @@ import { harnessOf } from "~/lib/cli-harnesses";
 import { commandRunner } from "~/lib/command";
 import type { AnyDefinition } from "~/lib/definition";
 import { Delivery } from "~/lib/events/delivery";
-import { WorkspaceRecords } from "~/lib/events/records";
+import type { WorkspaceRecords } from "~/lib/events/records";
+import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Handler, Source } from "~/lib/events/source";
 import type {
   ExecutionRun,
@@ -108,9 +109,10 @@ import { UsageEvidence } from "~/lib/usage-evidence";
  * scope gets the ledger it recorded, and its question stays open on the
  * feed.
  *
- * The workspace's tasks are kept here too, with the items their changes
- * emit, in `<state>/tasks.json` or in memory; `observe` says who receives
- * those items, and delivery runs from a successful `start` until `stop`.
+ * The workspace's tasks are reached here too, with the changes they
+ * record, through the `records` the host hands in, or in memory; `observe`
+ * says who receives those changes, and delivery runs from a successful
+ * `start` until `stop`.
  */
 
 export interface EngineOptions {
@@ -163,6 +165,13 @@ export interface EngineOptions {
    * is given here. Change them live with `executions.configure`.
    */
   readonly queues?: Readonly<Record<string, QueueSettings>>;
+  /**
+   * This workspace's tasks and the changes they record, which delivery
+   * hands to observers. Marbles hands in the workspace's rows in its
+   * database. In memory when omitted, whatever `state` is: nothing in them
+   * outlives the engine.
+   */
+  readonly records?: WorkspaceRecords;
   /**
    * Whether queued runs a process that has exited left behind are let in
    * again at start, in their original order, when their definition or task
@@ -273,9 +282,8 @@ export class Engine {
   readonly usage: UsageLedger;
   /**
    * This workspace's tasks, for a `Tasks` to be built over. Each commit
-   * stores the change it emits in the same write. Read or written, it is
-   * owned by this process until `dispose`; another engine over the same
-   * state dir is refused it meanwhile.
+   * records the change it makes in the same write. Refused once the engine
+   * is disposed.
    */
   readonly taskStore: TaskStore;
   readonly workspaceId: string;
@@ -311,6 +319,7 @@ export class Engine {
   #stopping: Promise<void> | undefined;
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
+  readonly #unwatchRecords: () => void;
   /** The models.dev load the usage ledger prices from: held while running and online. */
   #prices: ModelsDevHold | undefined;
 
@@ -409,11 +418,13 @@ export class Engine {
         has: (name) => this.#registered(name),
       },
     });
-    this.#records = new WorkspaceRecords({
-      ...(state === undefined ? {} : { dir: state }),
-      emitted: () => this.#delivery.wake(),
+    this.#records = options.records ?? new MemoryWorkspaceRecords();
+    this.#delivery = new Delivery({
+      print,
+      records: this.#records,
+      ...(state === undefined ? {} : { state }),
     });
-    this.#delivery = new Delivery(this.#records, print);
+    this.#unwatchRecords = this.#records.watch(() => this.#delivery.wake());
     this.taskStore = this.#records.taskStore;
     const catalogue =
       options.workspaces ??
@@ -1231,6 +1242,7 @@ export class Engine {
       await close(() => this.#scopes.settle(scope.id));
     }
     // No handler or step is left to write a task: give up the records.
+    this.#unwatchRecords();
     await close(() => this.#records.close());
     await close(() => this.interactions.close());
     await close(() => this.workspaces.close());

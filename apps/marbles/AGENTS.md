@@ -46,7 +46,10 @@ Five buckets, each importing only what sits below it:
   option when omitted, and a `StateStore`, a `JsonStateStore` over `state`
   or in memory without one) and builds the managers and everything that
   connects them itself. It owns its run scopes and its trigger state; no
-  module global holds either. Each manager has the plain operation as a
+  module global holds either. The workspace's tasks reach it through
+  `records` (`lib/events/records.ts`): the host hands in the database's
+  (`database/tasks.ts`), and without one they are in memory, whatever
+  `state` is. Each manager has the plain operation as a
   method, usable on the engine directly, and `scoped(frame)` for the view a
   step body gets, which adds replay, cancellation, and cleanup on top; new
   manager behavior goes in the plain method. The engine owns its registry
@@ -63,10 +66,12 @@ Five buckets, each importing only what sits below it:
   root, `<state>/marbles.db`, that every process on the machine opens at
   once. `open.ts` has one way in per role: `initializeDatabase`, for
   whoever holds the state root's process lock (the Marbles process for its
-  lifetime, a program hosting a workspace itself only while it records it,
-  through `recordWorkspace`), creates it (WAL, busy timeout, foreign keys)
-  and migrates it; `writeDatabase` writes only to a file that is there and
-  current; `readDatabase` reads through a read-only connection and never
+  lifetime, any other writer of a workspace's state only while it makes
+  the database current, through `openHostDatabase` and `writeAsHost` in
+  `workspaces.ts`), creates it (WAL, busy timeout, foreign keys) and
+  migrates it; `openDatabase` (a handle kept open, as a host keeps one) and
+  `writeDatabase` (one piece of work) write only to a file that is there
+  and current; `readDatabase` reads through a read-only connection and never
   creates the database file, migrates it, or changes its content. It
   makes no side file either, but for one narrow race, described on
   `readDatabase`, that can leave an empty WAL file, which holds nothing
@@ -84,7 +89,13 @@ Five buckets, each importing only what sits below it:
   migration from it, and a test fails when one is missing. Marbles' own
   stores sit beside the tables (`workspaces.ts`, the workspace registry,
   which leaves out any workspace whose `<state>/<id>` is a link, for every
-  reader alike).
+  reader alike), and `tasks.ts`, a workspace's tasks: the package's
+  `SqliteTaskStore` scoped by the workspace id, and Marbles' record of
+  each change they commit (`marbles_task_changes`), written by the store's
+  `onCommit` hook on the transaction it is handed, so a change and its row
+  commit together. That hook is the seam for anything else that records
+  task changes. A task command with no worker opens the database per
+  command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
   A store takes `{ database }` (`StoreDatabase`, the type a package store
   declares too), the database or one of its transactions; a package store
   also takes `scope`, which is the workspace id. `transaction.ts` runs
@@ -107,7 +118,10 @@ Five buckets, each importing only what sits below it:
   watching (`watch.ts`), starter templates and creation, background agent
   dispatch, the task commands the CLI and MCP share (`tasks.ts`), and
   `hostWorkspace()` in `host.ts`, which ties them into the
-  `WorkspaceConnection` every host is written against. It imports `lib/`,
+  `WorkspaceConnection` every host is written against. A host opens one
+  writer handle on the database (`openHostDatabase`) before it builds the
+  engine, keeps it until the engine is disposed, and records the workspace
+  through it once the engine has started; under `--dry-run` it opens none. It imports `lib/`,
   `authoring/`, `database/`, `layout.ts` and `model/`; never views, `args`, or
   `process/`. The catalog, the authoring host slot, `process.env` and the
   module cache are per-process, so one process hosts one workspace.
@@ -122,12 +136,12 @@ Five buckets, each importing only what sits below it:
   `workspace/source.ts`,
   so the daemon never loads an authoring module and survives any of them.
 - `src/access/` is how a command reaches its workspace, shared by the CLI
-  and the MCP server (`workspace.ts`): through stored state, with an engine
-  it never starts; through a running instance, joining the Marbles process
+  and the MCP server (`workspace.ts`): through stored state, its rows in
+  the database opened for each command (in memory under `--dry-run`); through a running instance, joining the Marbles process
   without starting it (`NotHostedError` when no worker hosts the
   workspace); or by starting and hosting it, which only the CLI does. It
-  imports `workspace/`, `process/`, `lib/`, `layout.ts` and `model/`, and
-  nothing from the app.
+  imports `workspace/`, `process/`, `database/`, `lib/`, `layout.ts` and
+  `model/`, and nothing from the app.
 - The app sits on top and may import anything: `src/cli.ts`, `src/args.ts`
   (which parses a command line completely, before anything loads),
   `src/dashboard/`, `src/views/`, `src/components/`, `src/mcp/`,

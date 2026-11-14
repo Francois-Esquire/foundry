@@ -1,31 +1,58 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Tasks } from "@foundry/tasks";
 import type { TaskEvent } from "@foundry.sh/marbles";
 import { observe, step, tasks } from "@foundry.sh/marbles";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { catalog } from "~/authoring/catalog";
 import { expectHost, setHost } from "~/authoring/runtime";
 import type { Engine } from "~/lib/engine";
 import { TASKS } from "~/lib/events/source";
 import { current } from "~/lib/run-scope";
 import { testEngine } from "./helpers/engine";
+import type { TestMachine } from "./helpers/records";
+import { testMachine } from "./helpers/records";
 
 const NOT_A_SOURCE = /not something Marbles emits/;
 const DISPOSED = /host that held these tasks was disposed/;
 const LOADING = /not available while its source loads/;
 
 const engines: Engine[] = [];
+let machine: TestMachine;
+
+beforeAll(async () => {
+  machine = await testMachine();
+});
+
+afterAll(() => {
+  machine.close();
+});
 
 afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
   catalog.reset();
 });
 
-/** A host engine over its own state dir, with what the catalog declared. */
+/**
+ * A host engine over its own state dir, its tasks in the machine's
+ * database, with what the catalog declared.
+ */
 function host(state: string, askable = false): Engine {
-  const engine = testEngine({ askable, print: () => undefined, state });
+  const engine = testEngine({
+    askable,
+    print: () => undefined,
+    records: machine.records(state),
+    state,
+  });
   engines.push(engine);
   setHost(engine);
   return engine;
@@ -49,17 +76,24 @@ describe("tasks", () => {
     observe(tasks, (payload) => {
       seen.push(payload);
     });
-    const state = mkdtempSync(join(tmpdir(), "marbles-tasks-"));
+    const state = machine.workspace();
     const engine = host(state);
     await engine.start();
 
     const task = await tasks.create({ tags: ["review"], title: "Hosted" });
     await vi.waitFor(() => expect(seen).toHaveLength(1));
     expect(seen[0]?.tasks[0]?.after).toEqual(task);
-    const written = JSON.parse(readFileSync(join(state, "tasks.json"), "utf8"));
-    expect(written.tasks.map((item: { id: string }) => item.id)).toEqual([
-      task.id,
-    ]);
+    const stored = async (dir: string) => {
+      const records = machine.records(dir);
+      try {
+        return (await records.taskStore.snapshot()).tasks.map(
+          (item) => item.id
+        );
+      } finally {
+        await records.close();
+      }
+    };
+    expect(await stored(state)).toEqual([task.id]);
 
     await engine.dispose();
     await expect(tasks.create({ title: "Late" })).rejects.toThrow(DISPOSED);
@@ -68,7 +102,7 @@ describe("tasks", () => {
     expectHost();
     await expect(tasks.list()).rejects.toThrow(LOADING);
 
-    const nextState = mkdtempSync(join(tmpdir(), "marbles-tasks-"));
+    const nextState = machine.workspace();
     const next = host(nextState);
     await next.start();
     expect((await tasks.list()).items).toEqual([]);
@@ -76,10 +110,7 @@ describe("tasks", () => {
     expect((await tasks.list()).items.map((item) => item.id)).toEqual([
       moved.id,
     ]);
-    const first = JSON.parse(readFileSync(join(state, "tasks.json"), "utf8"));
-    expect(first.tasks.map((item: { id: string }) => item.id)).toEqual([
-      task.id,
-    ]);
+    expect(await stored(state)).toEqual([task.id]);
   });
 
   it("a handler's call starts its own run, even when a step's write woke delivery; a call in a step body still joins that step's run", async () => {
