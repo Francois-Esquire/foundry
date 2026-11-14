@@ -322,7 +322,6 @@ describe("reconciliation", () => {
       getWorkspace: (workspaceId) => store.getWorkspace(workspaceId),
       listEntries: (workspaceId) => store.listEntries(workspaceId),
       listWorkspaces: (input) => store.listWorkspaces(input),
-      removeWorkspace: (workspaceId) => store.removeWorkspace(workspaceId),
     };
     const system = directorySystem({ store: holding });
 
@@ -414,7 +413,6 @@ describe("reconciliation", () => {
         return reads === 2 ? [...rows, phantom] : rows;
       },
       listWorkspaces: (input) => store.listWorkspaces(input),
-      removeWorkspace: (workspaceId) => store.removeWorkspace(workspaceId),
     };
 
     const failure = await directorySystem({ store: refusing })

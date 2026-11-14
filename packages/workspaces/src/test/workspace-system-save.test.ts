@@ -498,7 +498,6 @@ describe("catalog observation after write", () => {
           ? Promise.resolve([])
           : inner.listEntries(workspaceId),
       listWorkspaces: (input) => inner.listWorkspaces(input),
-      removeWorkspace: (workspaceId) => inner.removeWorkspace(workspaceId),
     };
     return {
       arm: (next: "commit" | "missing-row") => {

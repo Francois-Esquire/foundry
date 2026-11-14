@@ -515,15 +515,11 @@ describe("WithGit", () => {
     const system = directorySystem({ store }).extend(gitLayer());
     const added = await system.load({ path: root });
     const writes: string[] = [];
-    for (const method of ["commit", "removeWorkspace"] as const) {
-      const original = store[method].bind(store);
-      (store as unknown as Record<string, unknown>)[method] = (
-        ...args: unknown[]
-      ) => {
-        writes.push(method);
-        return (original as (...a: unknown[]) => unknown)(...args);
-      };
-    }
+    const commit = store.commit.bind(store);
+    store.commit = (change) => {
+      writes.push("commit");
+      return commit(change);
+    };
 
     await added.git?.status();
     expect(writes).toEqual([]);

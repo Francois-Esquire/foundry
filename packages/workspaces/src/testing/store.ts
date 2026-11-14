@@ -69,7 +69,10 @@ export function describeWorkspaceStore(
       expect(await store.getEntry(first.id, secondReadme.id)).toBeNull();
       expect(await store.listEntries(second.id)).toEqual([secondReadme]);
 
-      await store.removeWorkspace(first.id);
+      await store.commit({
+        deleteEntries: [firstReadme.id],
+        removeWorkspace: first.id,
+      });
       expect(await store.getWorkspace(first.id)).toBeNull();
       expect(await store.listEntries(first.id)).toEqual([]);
       expect(await store.listEntries(second.id)).toEqual([secondReadme]);
@@ -140,7 +143,9 @@ export function describeWorkspaceStore(
       const absent = newWorkspaceId();
       expect(await store.getWorkspace(absent)).toBeNull();
       expect(await store.listEntries(absent)).toEqual([]);
-      await expect(store.removeWorkspace(absent)).resolves.toBeUndefined();
+      await expect(
+        store.commit({ deleteEntries: [], removeWorkspace: absent })
+      ).resolves.toBeUndefined();
     });
   });
 }

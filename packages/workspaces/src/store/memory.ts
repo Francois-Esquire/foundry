@@ -18,21 +18,36 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
   >();
 
   commit(write: WorkspaceStoreWrite): Promise<void> {
-    const entries = new Map(this.entries.get(write.workspace.id));
+    // Clone first so a value that cannot be cloned refuses the whole write.
+    const workspace =
+      write.workspace === undefined ? null : structuredClone(write.workspace);
+    const workspaceId =
+      write.workspace === undefined
+        ? write.removeWorkspace
+        : write.workspace.id;
+    const puts = (write.putEntries ?? []).map(
+      (entry): [WorkspaceEntryId, WorkspaceEntry] => [
+        entry.id,
+        structuredClone(entry),
+      ]
+    );
+    const entries = new Map(this.entries.get(workspaceId));
     for (const id of write.deleteEntries ?? []) {
       entries.delete(id);
     }
-    for (const entry of write.putEntries ?? []) {
-      entries.set(entry.id, copyEntry(entry));
+    for (const [id, entry] of puts) {
+      entries.set(id, entry);
     }
-    this.workspaces.set(write.workspace.id, copyWorkspace(write.workspace));
-    this.entries.set(write.workspace.id, entries);
-    return Promise.resolve();
-  }
-
-  removeWorkspace(workspaceId: WorkspaceId): Promise<void> {
-    this.workspaces.delete(workspaceId);
-    this.entries.delete(workspaceId);
+    if (workspace) {
+      this.workspaces.set(workspaceId, workspace);
+    } else {
+      this.workspaces.delete(workspaceId);
+    }
+    if (entries.size > 0) {
+      this.entries.set(workspaceId, entries);
+    } else {
+      this.entries.delete(workspaceId);
+    }
     return Promise.resolve();
   }
 
@@ -40,7 +55,7 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
     workspaceId: WorkspaceId
   ): Promise<WorkspaceRegistration | null> {
     const workspace = this.workspaces.get(workspaceId);
-    return Promise.resolve(workspace ? copyWorkspace(workspace) : null);
+    return Promise.resolve(workspace ? structuredClone(workspace) : null);
   }
 
   findWorkspaceByPath(path: string): Promise<WorkspaceRegistration | null> {
@@ -61,7 +76,10 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
       pageLimit(input.limit),
       input.cursor ?? 0
     );
-    return Promise.resolve({ ...page, items: page.items.map(copyWorkspace) });
+    return Promise.resolve({
+      ...page,
+      items: page.items.map((workspace) => structuredClone(workspace)),
+    });
   }
 
   getEntry(
@@ -69,13 +87,15 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
     entryId: WorkspaceEntryId
   ): Promise<WorkspaceEntry | null> {
     const entry = this.entries.get(workspaceId)?.get(entryId);
-    return Promise.resolve(entry ? copyEntry(entry) : null);
+    return Promise.resolve(entry ? structuredClone(entry) : null);
   }
 
   listEntries(workspaceId: WorkspaceId): Promise<readonly WorkspaceEntry[]> {
     const entries = [...(this.entries.get(workspaceId)?.values() ?? [])];
     return Promise.resolve(
-      entries.sort(byCodeUnit((entry) => entry.path)).map(copyEntry)
+      entries
+        .sort(byCodeUnit((entry) => entry.path))
+        .map((entry) => structuredClone(entry))
     );
   }
 
@@ -83,7 +103,7 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
     matches: (workspace: WorkspaceRegistration) => boolean
   ): Promise<WorkspaceRegistration | null> {
     const found = this.ordered().find(matches);
-    return Promise.resolve(found ? copyWorkspace(found) : null);
+    return Promise.resolve(found ? structuredClone(found) : null);
   }
 
   private ordered(): WorkspaceRegistration[] {
@@ -99,24 +119,4 @@ function byCreatedAtThenId(
 ): number {
   const byTime = a.createdAt.getTime() - b.createdAt.getTime();
   return byTime === 0 ? byId(a, b) : byTime;
-}
-
-function copyWorkspace(
-  workspace: WorkspaceRegistration
-): WorkspaceRegistration {
-  return {
-    ...workspace,
-    createdAt: new Date(workspace.createdAt),
-    lastReconciledAt: new Date(workspace.lastReconciledAt),
-    source: { ...workspace.source },
-    updatedAt: new Date(workspace.updatedAt),
-  };
-}
-
-function copyEntry(entry: WorkspaceEntry): WorkspaceEntry {
-  return {
-    ...entry,
-    createdAt: new Date(entry.createdAt),
-    updatedAt: new Date(entry.updatedAt),
-  };
 }

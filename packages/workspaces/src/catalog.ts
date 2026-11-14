@@ -199,7 +199,10 @@ export class WorkspaceCatalog {
         return { kind: "not-found" };
       }
       const entries = await this.store.listEntries(workspaceId);
-      await this.store.removeWorkspace(workspaceId);
+      await this.store.commit({
+        deleteEntries: entries.map((entry) => entry.id),
+        removeWorkspace: workspaceId,
+      });
       this.publish(entries.map((entry) => ({ action: "delete", entry })));
       return { kind: "removed" };
     });

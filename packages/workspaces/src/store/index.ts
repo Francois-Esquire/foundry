@@ -37,13 +37,29 @@ export interface WorkspaceStore {
   listWorkspaces: (
     input?: PageInput<number>
   ) => Promise<Page<WorkspaceRegistration, number>>;
-  /** Deletes one registration and every entry it owns, all or nothing. */
-  removeWorkspace: (workspaceId: WorkspaceId) => Promise<void>;
 }
 
-/** One atomic write: a registration and its entry changes. */
-export interface WorkspaceStoreWrite {
+/**
+ * One atomic write to one Workspace: a save or a removal. Entry deletes apply
+ * before entry puts.
+ */
+export type WorkspaceStoreWrite = WorkspaceRemoval | WorkspaceSave;
+
+/** A registration as it now stands, and the entry changes beside it. */
+export interface WorkspaceSave {
   readonly deleteEntries?: readonly WorkspaceEntryId[];
   readonly putEntries?: readonly WorkspaceEntry[];
+  readonly removeWorkspace?: never;
   readonly workspace: WorkspaceRegistration;
+}
+
+/**
+ * Deletes a registration and the entries it names. The store deletes only
+ * what the write names; the catalog names every entry the Workspace owns.
+ */
+export interface WorkspaceRemoval {
+  readonly deleteEntries: readonly WorkspaceEntryId[];
+  readonly putEntries?: never;
+  readonly removeWorkspace: WorkspaceId;
+  readonly workspace?: never;
 }
