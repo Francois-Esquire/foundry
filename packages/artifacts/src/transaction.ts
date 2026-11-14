@@ -54,13 +54,11 @@ import type {
 /** What one operation changed, settled by the manager after commit or rollback. */
 export interface OperationEffects extends BlobEffects {
   readonly changed: Set<ArtifactId>;
-  committed: boolean;
 }
 
 export function operationEffects(): OperationEffects {
   return {
     changed: new Set(),
-    committed: false,
     published: new Set(),
     released: new Set(),
     retired: new Set(),

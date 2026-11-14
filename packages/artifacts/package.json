@@ -32,6 +32,11 @@
       "default": "./src/store/memory.ts"
     },
     "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./src/testing/index.ts",
+      "default": "./src/testing/index.ts"
+    },
+    "./testing/store": {
       "types": "./dist/testing/store.d.ts",
       "import": "./src/testing/store.ts",
       "default": "./src/testing/store.ts"

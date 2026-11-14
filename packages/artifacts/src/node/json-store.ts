@@ -7,6 +7,8 @@ import { acquireFileLock } from "@foundry/lib/file-lock";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, ArtifactRecords, Blob, Content } from "../schema";
 import type {
+  ArtifactListing,
+  ArtifactListQuery,
   ArtifactStore,
   ArtifactStoreWrite,
   BlobListing,
@@ -31,7 +33,8 @@ export interface JsonArtifactStoreOptions {
  *
  * Several processes may share the file. A commit or transaction holds
  * `<path>.lock`, reloads the file, and replaces it by temp-and-rename, so it
- * never commits against stale records. Reads reload when the file changed.
+ * never commits against stale records. Reads outside a transaction reload
+ * when the file changed.
  * The whole file is rewritten per commit, which suits a local feed's scale
  * rather than a large catalogue.
  *
@@ -51,24 +54,41 @@ export class JsonArtifactStore implements ArtifactStore {
   }
 
   commit(write: ArtifactStoreWrite): Promise<void> {
-    return this.#locked(() => this.#commit(write));
+    return this.transaction((view) => view.commit(write));
   }
 
-  /** `work` runs holding the lock; its view reads and commits without taking it again. */
+  /**
+   * `work` runs holding the lock, over the records as they are then. Its
+   * commits stage in memory, read back through `view`, and are saved as one
+   * file replacement once `work` succeeds.
+   */
   transaction<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T> {
-    return this.#locked(() =>
-      work({
-        commit: (write) => this.#commit(write),
-        findBlobs: (digest) => this.findBlobs(digest),
-        findReferences: (id) => this.findReferences(id),
-        getArtifact: (id) => this.getArtifact(id),
-        getBlob: (id) => this.getBlob(id),
-        getContent: (id) => this.getContent(id),
-        listArtifacts: () => this.listArtifacts(),
-        listBlobs: () => this.listBlobs(),
-        listContents: (artifactId) => this.listContents(artifactId),
-      })
-    );
+    return this.#locked(async () => {
+      const base = await this.#current();
+      let staged: InMemoryArtifactStore | undefined;
+      const current = () => staged ?? base;
+      const view: ArtifactStore = {
+        commit: async (write) => {
+          staged ??= new InMemoryArtifactStore({
+            records: await base.records(),
+          });
+          await staged.commit(write);
+        },
+        findBlobs: (digest) => current().findBlobs(digest),
+        findReferences: (id) => current().findReferences(id),
+        getArtifact: (id) => current().getArtifact(id),
+        getBlob: (id) => current().getBlob(id),
+        getContent: (id) => current().getContent(id),
+        listArtifacts: (query) => current().listArtifacts(query),
+        listBlobs: () => current().listBlobs(),
+        listContents: (artifactId) => current().listContents(artifactId),
+      };
+      const result = await work(view);
+      if (staged) {
+        await this.#save(staged);
+      }
+      return result;
+    });
   }
 
   async findBlobs(digest: string): Promise<readonly Blob[]> {
@@ -91,8 +111,8 @@ export class JsonArtifactStore implements ArtifactStore {
     return (await this.#current()).getContent(id);
   }
 
-  async listArtifacts(): Promise<readonly Artifact[]> {
-    return (await this.#current()).listArtifacts();
+  async listArtifacts(query: ArtifactListQuery): Promise<ArtifactListing> {
+    return (await this.#current()).listArtifacts(query);
   }
 
   async listBlobs(): Promise<readonly BlobListing[]> {
@@ -121,18 +141,19 @@ export class JsonArtifactStore implements ArtifactStore {
     return run;
   }
 
-  /** Applies `write` to the current records and saves them; held under the lock. */
-  async #commit(write: ArtifactStoreWrite): Promise<void> {
-    const next = new InMemoryArtifactStore({
-      records: await (await this.#current()).records(),
-    });
-    await next.commit(write);
+  /**
+   * Replaces the records file with `next`; held under the lock. The write
+   * lands at the rename. A failure after it (syncing the directory) still
+   * rejects, and the next read reloads the file it left.
+   */
+  async #save(next: InMemoryArtifactStore): Promise<void> {
     await writeFileAtomic(this.#path, encodeRecords(await next.records()), {
       fsync: true,
       mode: 0o600,
     });
     this.#memory = next;
-    this.#version = await fileVersion(this.#path);
+    // Unknown, the next read compares against the file and reloads it.
+    this.#version = await fileVersion(this.#path).catch(() => undefined);
   }
 
   /** The in-memory records, reloaded when another writer replaced the file. */

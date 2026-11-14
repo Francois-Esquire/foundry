@@ -1,11 +1,16 @@
 import type { Page } from "@foundry/core/pagination";
-import { byCodeUnit } from "@foundry/lib/ordering";
 import { pageFromRows, pageLimit } from "@foundry/lib/pagination";
 
 import type { Blob } from "./blob";
 import { validateBlob } from "./blob";
-import type { ArtifactCursor } from "./listing";
-import { artifactCursor, normalizeArtifactQuery } from "./listing";
+import type { ArtifactCursor, ArtifactFilter } from "./listing";
+import {
+  artifactCursor,
+  compareCreated,
+  isAfterCursor,
+  matchesArtifactFilter,
+  normalizeArtifactQuery,
+} from "./listing";
 import type { ArtifactId, BlobId, ContentId } from "./ref";
 import type { ArtifactStore, ArtifactStoreWrite, BlobListing } from "./store";
 import type {
@@ -84,38 +89,59 @@ export class ArtifactChange {
     return this.#get(this.#artifacts, id, () => this.#store.getArtifact(id));
   }
 
+  /**
+   * The store's page with this change laid over it. The store is asked for
+   * as many more rows as this change touches, so the page stays full after
+   * the touched rows give way to their pending versions.
+   */
   async listArtifacts(
     input: ListArtifactsInput
   ): Promise<Page<Artifact, ArtifactCursor>> {
     this.#assertActive();
-    const query = normalizeArtifactQuery(input.query)?.toLowerCase();
-    const matches = merged(await this.#store.listArtifacts(), this.#artifacts)
-      .filter(
-        (row) =>
-          ((input.includeArchived ?? false) || row.status !== "archived") &&
-          (input.type === undefined || row.type === input.type) &&
-          (query === undefined ||
-            [row.name, row.type, row.id].some((value) =>
-              value.toLowerCase().includes(query)
-            ))
-      )
-      .sort(compareCreated);
-    const { cursor } = input;
-    const rows = matches
-      .filter(
-        (row) =>
-          cursor === undefined ||
-          row.createdAt.getTime() > cursor.createdAt.getTime() ||
-          (row.createdAt.getTime() === cursor.createdAt.getTime() &&
-            row.id > cursor.id)
-      )
-      .slice(0, pageLimit(input.limit) + 1);
-    return pageFromRows(
-      rows,
-      pageLimit(input.limit),
-      matches.length,
-      artifactCursor
+    const limit = pageLimit(input.limit);
+    const text = normalizeArtifactQuery(input.query);
+    const filter: ArtifactFilter = {
+      ...(input.includeArchived === undefined
+        ? {}
+        : { includeArchived: input.includeArchived }),
+      ...(text === undefined ? {} : { text }),
+      ...(input.type === undefined ? {} : { type: input.type }),
+    };
+    const touched = [...this.#artifacts.keys()];
+    const stored = await this.#store.listArtifacts({
+      ...filter,
+      ...(input.cursor === undefined ? {} : { after: input.cursor }),
+      limit: limit + 1 + touched.length,
+    });
+    if (touched.length === 0) {
+      return pageFromRows(
+        stored.artifacts,
+        limit,
+        stored.total,
+        artifactCursor
+      );
+    }
+    const pending = kept(this.#artifacts).filter((artifact) =>
+      matchesArtifactFilter(artifact, filter)
     );
+    let total = stored.total + pending.length;
+    for (const id of touched) {
+      const before = await this.#store.getArtifact(id);
+      if (before && matchesArtifactFilter(before, filter)) {
+        total -= 1;
+      }
+    }
+    const rows = [
+      ...stored.artifacts.filter(
+        (artifact) => !this.#artifacts.has(artifact.id)
+      ),
+      ...pending
+        .filter((artifact) => isAfterCursor(artifact, input.cursor))
+        .map((artifact) => structuredClone(artifact)),
+    ]
+      .sort(compareCreated)
+      .slice(0, limit + 1);
+    return pageFromRows(rows, limit, total, artifactCursor);
   }
 
   async putArtifact(artifact: Artifact): Promise<void> {
@@ -316,13 +342,4 @@ function namesBlob(content: Content, id: BlobId, skip?: string): boolean {
     ([path, node]) =>
       node.type === "file" && node.blobId === id && path !== skip
   );
-}
-
-const compareIds = byCodeUnit((value: { id: string }) => value.id);
-
-function compareCreated(
-  a: { createdAt: Date; id: string },
-  b: { createdAt: Date; id: string }
-): number {
-  return a.createdAt.getTime() - b.createdAt.getTime() || compareIds(a, b);
 }

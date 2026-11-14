@@ -145,8 +145,9 @@ describe("ArtifactManager blob objects", () => {
     for await (const part of required(tail).body) {
       expect([...part]).toEqual([...last]);
     }
-    // Locating reads the manifest; the tail pulls only its own chunk.
-    expect(reads).toHaveBeenCalledTimes(2);
+    // Locating reads through a transaction's view; the tail then pulls only
+    // its own chunk from the store.
+    expect(reads).toHaveBeenCalledTimes(1);
     await artifacts.delete(fork.id);
     expect(await store.listBlobs()).toEqual([]);
   });

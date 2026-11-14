@@ -17,6 +17,7 @@ import {
   StaleContentError,
 } from "../index";
 import type { ArtifactStore } from "../store";
+import { isTransactional } from "./transactional";
 
 const text = (value: string, mime = "text/html") => ({ bytes: value, mime });
 function contentOf(artifact: ArtifactResolved): Content {
@@ -32,6 +33,71 @@ function file(content: Content): StoredFile {
   }
   return entry;
 }
+
+type StoreRead = Exclude<keyof ArtifactStore, "commit" | "transaction">;
+
+/**
+ * `store`, and its transaction views, with a pause: once armed, the next
+ * call to `read` returns its result only after `release`.
+ */
+function pausable(store: ArtifactStore) {
+  let armed:
+    | {
+        readonly read: StoreRead;
+        readonly reached: () => void;
+        readonly held: Promise<void>;
+      }
+    | undefined;
+  async function gate<T>(read: StoreRead, value: Promise<T>): Promise<T> {
+    const result = await value;
+    const pause = armed;
+    if (pause?.read === read) {
+      armed = undefined;
+      pause.reached();
+      await pause.held;
+    }
+    return result;
+  }
+  function wrap(target: ArtifactStore): ArtifactStore {
+    return {
+      commit: (write) => target.commit(write),
+      findBlobs: (digest) => gate("findBlobs", target.findBlobs(digest)),
+      findReferences: (id) => gate("findReferences", target.findReferences(id)),
+      getArtifact: (id) => gate("getArtifact", target.getArtifact(id)),
+      getBlob: (id) => gate("getBlob", target.getBlob(id)),
+      getContent: (id) => gate("getContent", target.getContent(id)),
+      listArtifacts: (query) =>
+        gate("listArtifacts", target.listArtifacts(query)),
+      listBlobs: () => gate("listBlobs", target.listBlobs()),
+      listContents: (artifactId) =>
+        gate("listContents", target.listContents(artifactId)),
+      ...(isTransactional(target)
+        ? {
+            transaction: (work) =>
+              target.transaction((view) => work(wrap(view))),
+          }
+        : {}),
+    };
+  }
+  return {
+    /** Arms the pause; resolves `reached` once a call to `read` has its result. */
+    pause(read: StoreRead) {
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let reached!: () => void;
+      const arrived = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      armed = { held, reached, read };
+      return { reached: arrived, release };
+    },
+    store: wrap(store),
+  };
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 /**
  * Registers the manager's behaviour over a store: rules, sharing, fences,
@@ -603,6 +669,66 @@ function file(content: Content): StoredFile {
         })
       ).rejects.toThrow("rolled back");
       expect(ran).toBe(false);
+    });
+
+    /** Two managers over one pausable store, and an Artifact holding `file.txt`. */
+    async function sharedStore() {
+      const shared = pausable(createStore());
+      const reader = new ArtifactManager({ store: shared.store });
+      const writer = new ArtifactManager({ store: shared.store });
+      const created = await writer.create({
+        entries: { "file.txt": text("kept", "text/plain") },
+        name: "Shared",
+        type: "text/plain",
+      });
+      return { created, reader, shared, writer };
+    }
+
+    test("gets one state while another manager deletes the Artifact", async () => {
+      const { created, reader, shared, writer } = await sharedStore();
+      const paused = shared.pause("getArtifact");
+      const read = reader.get(created.id);
+      await paused.reached;
+      const deleted = writer.delete(created.id);
+      await settle();
+      paused.release();
+      expect((await read)?.content?.id).toBe(created.contentId);
+      expect(await deleted).toBe(true);
+      expect(await reader.get(created.id)).toBeNull();
+    });
+
+    test("lists one state while another manager deletes a listed Artifact", async () => {
+      const { created, reader, shared, writer } = await sharedStore();
+      const paused = shared.pause("listArtifacts");
+      const read = reader.list();
+      await paused.reached;
+      const deleted = writer.delete(created.id);
+      await settle();
+      paused.release();
+      const page = await read;
+      expect(page.items.map((item) => item.content?.id)).toEqual([
+        created.contentId,
+      ]);
+      expect(await deleted).toBe(true);
+      expect((await reader.list()).items).toEqual([]);
+    });
+
+    test("reads a file from one state while another manager rewrites it", async () => {
+      const { created, reader, shared, writer } = await sharedStore();
+      const contentId = contentOf(created).id;
+      const paused = shared.pause("getContent");
+      const read = reader.readFile(contentId, "file.txt");
+      await paused.reached;
+      const written = writer.write({
+        artifactId: created.id,
+        changes: { put: { "file.txt": text("replaced", "text/plain") } },
+      });
+      await settle();
+      paused.release();
+      expect(new TextDecoder().decode((await read)?.blob)).toBe("kept");
+      await written;
+      const after = await reader.readFile(contentId, "file.txt");
+      expect(new TextDecoder().decode(after?.blob)).toBe("replaced");
     });
   });
 }

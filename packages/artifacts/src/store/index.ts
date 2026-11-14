@@ -1,5 +1,8 @@
+import type { ArtifactCursor, ArtifactFilter } from "../listing";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, Blob, Content } from "../schema";
+
+export type { ArtifactCursor, ArtifactFilter } from "../listing";
 
 /** A blob as a listing names it: its id and backing file, never its bytes. */
 export type BlobListing = Pick<Blob, "id" | "path">;
@@ -9,6 +12,25 @@ export interface BlobReferences {
   readonly blobIds: readonly BlobId[];
   readonly contentIds: readonly ContentId[];
 }
+
+/** A page of Artifacts in creation order, and how many match in all. */
+export interface ArtifactListQuery extends ArtifactFilter {
+  /** Only Artifacts after this one in creation order. */
+  readonly after?: ArtifactCursor;
+  /** At most this many, a positive integer. */
+  readonly limit: number;
+}
+
+export interface ArtifactListing {
+  /** The first `limit` matches after `after`, oldest first, then by id. */
+  readonly artifacts: readonly Artifact[];
+  /** Every match of the filter, `after` and `limit` aside. */
+  readonly total: number;
+}
+
+/** A store that offers `transaction`, as every Artifact store does. */
+export type TransactionalArtifactStore = ArtifactStore &
+  Required<Pick<ArtifactStore, "transaction">>;
 
 /**
  * One atomic write. Deletes apply before puts. The package never lists one
@@ -42,17 +64,27 @@ export interface ArtifactStore {
   getArtifact(id: ArtifactId): Promise<Artifact | null>;
   getBlob(id: BlobId): Promise<Blob | null>;
   getContent(id: ContentId): Promise<Content | null>;
-  /** Every Artifact, in no particular order. */
-  listArtifacts(): Promise<readonly Artifact[]>;
+  /**
+   * The Artifacts matching the filter in creation order: oldest `createdAt`
+   * first, then by id in code-unit order.
+   */
+  listArtifacts(query: ArtifactListQuery): Promise<ArtifactListing>;
   /** Every blob, in no particular order. */
   listBlobs(): Promise<readonly BlobListing[]>;
   /** The Artifact's Contents, or every Content, in no particular order. */
   listContents(artifactId?: ArtifactId): Promise<readonly Content[]>;
   /**
-   * Runs one read-modify-write so that no other transaction on the store
-   * lands between its reads and its commit, from any `ArtifactManager` over
-   * the store. `work` reads and commits through `view` only. Without it,
+   * Runs one read-modify-write, or one read of several steps, so that no
+   * other write lands between its reads and its commit, from any
+   * `ArtifactManager` over the store: a plain `commit` waits until `work`
+   * settles. `work` reads and commits through `view` only, and its reads see
+   * its own commits. If `work` throws, none of its commits stay. Without it,
    * changes are serialized per `ArtifactManager` and no further.
+   *
+   * A `commit` (or a transaction) rejects when its write did not land. One
+   * that rejects after the write landed (a durability failure reported once
+   * the records were replaced) leaves the write readable; the package reads
+   * back to tell the two apart.
    */
   transaction?<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T>;
 }

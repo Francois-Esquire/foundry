@@ -1,6 +1,13 @@
+import {
+  compareCreated,
+  isAfterCursor,
+  matchesArtifactFilter,
+} from "../listing";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, ArtifactRecords, Blob, Content } from "../schema";
 import type {
+  ArtifactListing,
+  ArtifactListQuery,
   ArtifactStore,
   ArtifactStoreWrite,
   BlobListing,
@@ -13,31 +20,138 @@ export interface InMemoryArtifactStoreOptions {
 }
 
 /**
- * The default store: plain maps in this process. Transactions run one at a
- * time, so several managers over one store never interleave a change.
+ * The default store: plain maps in this process. Commits and transactions
+ * take turns, so a commit never lands inside a running transaction. A
+ * transaction commits to a staged copy, swapped in only when its work
+ * succeeds.
  */
 export class InMemoryArtifactStore implements ArtifactStore {
-  readonly #artifacts = new Map<ArtifactId, Artifact>();
-  readonly #blobs = new Map<BlobId, Blob>();
-  readonly #contents = new Map<ContentId, Content>();
+  #records: Records;
   #tail: Promise<unknown> = Promise.resolve();
 
   constructor(options: InMemoryArtifactStoreOptions = {}) {
-    const { artifacts, blobs, contents } = structuredClone(
-      options.records ?? { artifacts: [], blobs: [], contents: [] }
+    this.#records = Records.from(
+      structuredClone(
+        options.records ?? { artifacts: [], blobs: [], contents: [] }
+      )
     );
-    for (const artifact of artifacts) {
-      this.#artifacts.set(artifact.id, artifact);
-    }
-    for (const blob of blobs) {
-      this.#blobs.set(blob.id, blob);
-    }
-    for (const content of contents) {
-      this.#contents.set(content.id, content);
-    }
   }
 
   commit(write: ArtifactStoreWrite): Promise<void> {
+    return this.#turn(() => this.#records.apply(write));
+  }
+
+  transaction<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T> {
+    return this.#turn(async () => {
+      let staged: Records | undefined;
+      const current = () => staged ?? this.#records;
+      const view: ArtifactStore = {
+        commit: (write) => {
+          staged ??= this.#records.copy();
+          return staged.apply(write);
+        },
+        findBlobs: (digest) => current().findBlobs(digest),
+        findReferences: (id) => current().findReferences(id),
+        getArtifact: (id) => current().getArtifact(id),
+        getBlob: (id) => current().getBlob(id),
+        getContent: (id) => current().getContent(id),
+        listArtifacts: (query) => current().listArtifacts(query),
+        listBlobs: () => current().listBlobs(),
+        listContents: (artifactId) => current().listContents(artifactId),
+      };
+      const result = await work(view);
+      if (staged) {
+        this.#records = staged;
+      }
+      return result;
+    });
+  }
+
+  findBlobs(digest: string): Promise<readonly Blob[]> {
+    return this.#records.findBlobs(digest);
+  }
+
+  findReferences(id: BlobId): Promise<BlobReferences> {
+    return this.#records.findReferences(id);
+  }
+
+  getArtifact(id: ArtifactId): Promise<Artifact | null> {
+    return this.#records.getArtifact(id);
+  }
+
+  getBlob(id: BlobId): Promise<Blob | null> {
+    return this.#records.getBlob(id);
+  }
+
+  getContent(id: ContentId): Promise<Content | null> {
+    return this.#records.getContent(id);
+  }
+
+  listArtifacts(query: ArtifactListQuery): Promise<ArtifactListing> {
+    return this.#records.listArtifacts(query);
+  }
+
+  listBlobs(): Promise<readonly BlobListing[]> {
+    return this.#records.listBlobs();
+  }
+
+  listContents(artifactId?: ArtifactId): Promise<readonly Content[]> {
+    return this.#records.listContents(artifactId);
+  }
+
+  /** A clone of every record. */
+  records(): Promise<ArtifactRecords> {
+    return this.#records.all();
+  }
+
+  /** Runs `work` after every commit and transaction queued before it. */
+  #turn<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.#tail.then(work, work);
+    this.#tail = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  }
+}
+
+/**
+ * One set of maps. Records are never changed in place, only replaced, so a
+ * copy shares them and costs one entry per record.
+ */
+class Records {
+  readonly #artifacts: Map<ArtifactId, Artifact>;
+  readonly #blobs: Map<BlobId, Blob>;
+  readonly #contents: Map<ContentId, Content>;
+
+  private constructor(
+    artifacts: Map<ArtifactId, Artifact>,
+    blobs: Map<BlobId, Blob>,
+    contents: Map<ContentId, Content>
+  ) {
+    this.#artifacts = artifacts;
+    this.#blobs = blobs;
+    this.#contents = contents;
+  }
+
+  /** Takes ownership of `records`. */
+  static from(records: ArtifactRecords): Records {
+    return new Records(
+      new Map(records.artifacts.map((row) => [row.id, row])),
+      new Map(records.blobs.map((row) => [row.id, row])),
+      new Map(records.contents.map((row) => [row.id, row]))
+    );
+  }
+
+  copy(): Records {
+    return new Records(
+      new Map(this.#artifacts),
+      new Map(this.#blobs),
+      new Map(this.#contents)
+    );
+  }
+
+  apply(write: ArtifactStoreWrite): Promise<void> {
     // Clone first so a value that cannot be cloned refuses the whole write.
     let puts: Required<
       Pick<ArtifactStoreWrite, "putArtifacts" | "putBlobs" | "putContents">
@@ -51,7 +165,6 @@ export class InMemoryArtifactStore implements ArtifactStore {
     } catch (error) {
       return Promise.reject(error);
     }
-    const { putArtifacts, putBlobs, putContents } = puts;
     for (const id of write.deleteArtifacts ?? []) {
       this.#artifacts.delete(id);
     }
@@ -61,13 +174,13 @@ export class InMemoryArtifactStore implements ArtifactStore {
     for (const id of write.deleteBlobs ?? []) {
       this.#blobs.delete(id);
     }
-    for (const artifact of putArtifacts) {
+    for (const artifact of puts.putArtifacts) {
       this.#artifacts.set(artifact.id, artifact);
     }
-    for (const content of putContents) {
+    for (const content of puts.putContents) {
       this.#contents.set(content.id, content);
     }
-    for (const blob of putBlobs) {
+    for (const blob of puts.putBlobs) {
       this.#blobs.set(blob.id, blob);
     }
     return Promise.resolve();
@@ -106,8 +219,16 @@ export class InMemoryArtifactStore implements ArtifactStore {
     });
   }
 
-  listArtifacts(): Promise<readonly Artifact[]> {
-    return detached([...this.#artifacts.values()]);
+  listArtifacts(query: ArtifactListQuery): Promise<ArtifactListing> {
+    const matches = [...this.#artifacts.values()]
+      .filter((artifact) => matchesArtifactFilter(artifact, query))
+      .sort(compareCreated);
+    return detached({
+      artifacts: matches
+        .filter((artifact) => isAfterCursor(artifact, query.after))
+        .slice(0, query.limit),
+      total: matches.length,
+    });
   }
 
   listBlobs(): Promise<readonly BlobListing[]> {
@@ -128,22 +249,12 @@ export class InMemoryArtifactStore implements ArtifactStore {
     );
   }
 
-  /** A clone of every record. */
-  records(): Promise<ArtifactRecords> {
+  all(): Promise<ArtifactRecords> {
     return detached({
       artifacts: [...this.#artifacts.values()],
       blobs: [...this.#blobs.values()],
       contents: [...this.#contents.values()],
     });
-  }
-
-  transaction<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T> {
-    const run = this.#tail.then(() => work(this));
-    this.#tail = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
   }
 }
 

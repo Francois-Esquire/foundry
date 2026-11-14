@@ -21,9 +21,9 @@ import {
   artifactFileSystem,
   JsonArtifactStore,
 } from "../node";
-import type { ArtifactStoreWrite } from "../store";
 import { InMemoryArtifactStore } from "../store/memory";
 import type { ContentResolved } from "../substrate";
+import { interceptCommits } from "../testing";
 import { fixture } from "./helpers/directory";
 import { required } from "./helpers/required";
 
@@ -161,14 +161,11 @@ describe("mutation hooks", () => {
     );
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const commit: { fails: boolean } = { fails: false };
-    class FailingStore extends InMemoryArtifactStore {
-      override commit(write: ArtifactStoreWrite): Promise<void> {
-        return commit.fails
-          ? Promise.reject(new Error("commit failed"))
-          : super.commit(write);
-      }
-    }
-    const artifacts = new ArtifactManager({ store: new FailingStore() });
+    const artifacts = new ArtifactManager({
+      store: interceptCommits(new InMemoryArtifactStore(), (write, land) =>
+        commit.fails ? Promise.reject(new Error("commit failed")) : land(write)
+      ),
+    });
     const committed: ContentResolved[] = [];
     const filesystem = artifactFileSystem({
       artifacts,

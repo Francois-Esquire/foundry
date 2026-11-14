@@ -268,10 +268,17 @@ canonical JSON, and Base64 helpers live in `@foundry/lib/digest`,
 
 Persistent stores implement `ArtifactStore`: detached reads, and one atomic
 `commit(write)` that carries a whole change as puts and deletes. A store enforces
-nothing; the manager checks every rule before a write reaches it. An optional
+nothing; the manager checks every rule before a write reaches it. Artifact listings
+take the filter, cursor and limit, so a page never loads the catalogue. An optional
 `transaction(work)` keeps other managers over the same store from writing between a
-change's reads and its commit. Blob bytes commit as records: inline bytes inside the
-blob, or the name of an immutable file `blobFiles` published before the commit.
+change's reads and its commit; a plain commit waits for it, and a failed `work` keeps
+none of its commits. The manager runs every change, and every read of several records,
+through it.
+
+Blob bytes commit as records: inline bytes inside the blob, or the name of an
+immutable file `blobFiles` published before the commit. When a commit fails, the
+manager removes those files only once the store shows the write absent; a commit that
+failed after its write landed (a failed directory sync, say) keeps them.
 `JsonArtifactStore` from `@foundry/artifacts/node` keeps every record in one JSON file,
 rewritten per commit under a `<path>.lock` file so several processes can share it. It
 is interim and goes when a SQLite store lands. Pair it with `blobFiles` for bytes.
@@ -289,6 +296,8 @@ bun run build --filter=@foundry/artifacts
 ```
 
 Package tests own manager, blob, and directory behavior. The store conformance
-suite in `@foundry/artifacts/testing` and the manager suite in
-`@foundry/artifacts/testing/manager` also support host-provided store implementations. Hosts own their persistence and
+suite in `@foundry/artifacts/testing/store` and the manager suite in
+`@foundry/artifacts/testing/manager` also support host-provided store implementations.
+`@foundry/artifacts/testing` holds test doubles: `interceptCommits` wraps a store's
+commits for fault injection. Hosts own their persistence and
 migration tests. Lib owns encoding and pagination helper tests.

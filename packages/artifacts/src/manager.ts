@@ -10,7 +10,7 @@ import { MAX_FILE_BYTES, MAX_TREE_BYTES } from "./constants";
 import { ArtifactApplicationError, TransactionRolledBackError } from "./errors";
 import type { ArtifactCursor } from "./listing";
 import type { ArtifactId, BlobId, ContentId } from "./ref";
-import type { ArtifactStore } from "./store";
+import type { ArtifactStore, ArtifactStoreWrite } from "./store";
 import { InMemoryArtifactStore } from "./store/memory";
 import type {
   Artifact,
@@ -69,16 +69,18 @@ interface TransactionScope {
  * store write; `transaction` groups several. Changes run one at a time per
  * manager, and inside the store's transaction when it offers one, so no
  * other manager over the store writes between a change's reads and its
- * commit. Reads queue behind changes on this manager. After a commit the
+ * commit. A read of several records runs the same way, so it sees one
+ * state. After a commit the
  * manager awaits bound application, notifies observers, and removes retired
  * backing files.
  *
  * Blob bytes never wait on the commit. Inline bytes travel inside the blob
  * record. Bytes for `files` are published first, to a fresh immutable file
- * no committed record names; the commit then names it. A change that fails
- * removes the files it published, a commit retires the files it stopped
- * naming once it lands, and `recover` removes any file left behind by a
- * crash in between.
+ * no committed record names; the commit then names it. A change whose
+ * write the store does not hold removes the files it published; one that
+ * failed after its write landed keeps them. A commit retires the files it
+ * stopped naming once it lands, and `recover` removes any file left behind
+ * by a crash in between.
  *
  * Inside a `transaction` operation, every call on the manager joins that
  * transaction: a read sees its uncommitted writes and a nested `transaction`
@@ -141,6 +143,7 @@ export class ArtifactManager implements Artifacts {
     }
     const effects = operationEffects();
     const callbacks: (() => Promise<void>)[] = [() => this.#settle(effects)];
+    let attempted: ArtifactStoreWrite | undefined;
     let result: T;
     try {
       result = await this.#exclusive(async (store) => {
@@ -173,18 +176,20 @@ export class ArtifactManager implements Artifacts {
             throw new TransactionRolledBackError({ cause: scope.failed.error });
           }
           await transaction.reclaim();
-          const write = change.write();
-          if (write) {
-            await store.commit(write);
+          attempted = change.write();
+          if (attempted) {
+            await store.commit(attempted);
           }
-          effects.committed = true;
           return value;
         } finally {
           change.settle();
         }
       });
     } catch (error) {
-      if (!effects.committed) {
+      // Published files go only once the store shows the write absent. A
+      // commit can fail after its write landed (syncing the replaced file);
+      // its records then name the files, and `recover` reapplies them.
+      if (!(await this.#mayHaveLanded(attempted))) {
         await this.#removeFiles(effects.published);
       }
       throw error;
@@ -409,8 +414,9 @@ export class ArtifactManager implements Artifacts {
     if (joined) {
       return operation(joined);
     }
-    return this.#serialized(async () => {
-      const change = new ArtifactChange(this.#store, { readOnly: true });
+    // One consistent state for every record the read takes.
+    return this.#exclusive(async (store) => {
+      const change = new ArtifactChange(store, { readOnly: true });
       try {
         return await operation(
           new ArtifactTransaction(change, operationEffects(), this.#limits)
@@ -422,8 +428,31 @@ export class ArtifactManager implements Artifacts {
   }
 
   /**
-   * One read-modify-write: serialized in this manager, and exclusive in the
-   * store when it offers transactions.
+   * Whether the store may hold `write`: it shows a blob the write puts with
+   * a backing file, or cannot be read. A write without one published file
+   * has nothing to keep.
+   */
+  async #mayHaveLanded(
+    write: ArtifactStoreWrite | undefined
+  ): Promise<boolean> {
+    const backed = (write?.putBlobs ?? []).filter(
+      (blob) => blob.path !== undefined
+    );
+    try {
+      for (const blob of backed) {
+        if ((await this.#store.getBlob(blob.id))?.path === blob.path) {
+          return true;
+        }
+      }
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * One read-modify-write, or one read of several steps: serialized in this
+   * manager, and exclusive in the store when it offers transactions.
    */
   #exclusive<T>(work: (store: ArtifactStore) => Promise<T>): Promise<T> {
     return this.#serialized(() => {
@@ -444,7 +473,6 @@ export class ArtifactManager implements Artifacts {
   }
 
   async #settle(effects: OperationEffects): Promise<void> {
-    effects.committed = true;
     let failure: ArtifactApplicationError | undefined;
     try {
       for (const id of effects.changed) {
