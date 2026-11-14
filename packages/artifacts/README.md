@@ -444,7 +444,9 @@ lock, through a transaction's view as well. Only that copy is checked, made into
 rows and handed to `onCommit`, so a caller changing the write later changes
 nothing, and no getter or `toJSON` of the caller's runs while it is encoded (the
 copy has none). A write the clone refuses, one holding a function or a symbol,
-rejects whole with the clone's error, in every store.
+rejects whole with the clone's error, in every store. A listing likewise reads its
+query as it stands at the call, and every store refuses a `limit` that is not a
+positive safe integer (SQLite would read a negative one as no limit).
 
 A storage limit of the SQLite store, not a rule of the package: `commit` refuses, before
 any statement runs, a write holding a value SQLite would not give back as written, with
@@ -470,9 +472,12 @@ A store says when a commit that resolved is there for good, as `durability`:
 `"commit"`, at once, or `"host"`, only once a transaction the store sits inside, which
 someone else owns, commits. `SqliteArtifactStore` is `"host"` over any Drizzle
 transaction passed as `database`, which it detects, and refuses `durability:
-"commit"` there; pass `durability: "host"` over a plain database on which the host
-began a transaction of its own (a raw `BEGIN`), which the store cannot see. The memory
-and JSON stores are `"commit"`.
+"commit"` there. Pass `durability: "host"` for a host transaction the store cannot see
+in its `database` (none arises with Drizzle's libSQL driver, which hands every
+transaction over as such an object, so this path is not exercised on libSQL). The memory
+and JSON stores are `"commit"`, and every store's transaction view is `"host"`: its
+commits stand only if the transaction's work succeeds, so a manager built over a view
+keeps what it retires too.
 
 Over a `"host"` store the manager cannot know a landed change will last, so it removes
 no file the change stopped naming. Before the commit it marks each one retired
@@ -488,9 +493,8 @@ construction. Over a `"commit"` store, retired files go once the commit lands, a
 write lock.
 
 Over a `"host"` store, bindings, observers and `afterCommit` effects still run once the
-store's commit resolves, before the host's outcome is known. A bound directory that
-applied a change the host then rolled back writes nothing back into the records: it
-sees the records differ from what it applied, and applies the records again.
+store's commit resolves, before the host's outcome is known. A directory bound to such a
+manager may then show a change the host rolled back until it applies the records again.
 
 Known limits:
 
