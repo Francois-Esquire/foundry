@@ -14,7 +14,8 @@ import type {
   HarnessAuthoritySettings,
   HarnessPermissionRequest,
 } from "../../harness/turn-driver";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
+import { InMemorySessionStore } from "../../store/memory";
 
 function request(
   signal = new AbortController().signal
@@ -31,7 +32,8 @@ function request(
 async function setup(mode: "scheduled" | "attended" = "scheduled") {
   const authority = createInMemoryAgentAuthorizer();
   const store = new InMemorySessionStore();
-  await store.createSession({ id: "session-1" });
+  const sessions = new Sessions({ store });
+  await sessions.createSession({ id: "session-1" });
   const settings: HarnessAuthoritySettings = {
     agentGeneration: 2,
     agentId: "coder",

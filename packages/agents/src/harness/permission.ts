@@ -6,6 +6,7 @@ import type {
 } from "../authorization/authorization";
 import { validateApprovalResponse } from "../session/converter";
 import type { AgentApprovalRequest } from "../session/events";
+import { Sessions } from "../session/sessions";
 import type { SessionPart } from "../session/types";
 import { raceAbort } from "./abortable";
 import { harnessProfileDecision } from "./permission-profile";
@@ -141,7 +142,7 @@ async function recordApprovalRequest(
     toolCallId: request.toolCallId,
     toolName: request.toolName,
   };
-  await settings.store.appendMessage({
+  await new Sessions({ store: settings.store }).appendMessage({
     parts: [
       {
         activityId: approval.activityId,
@@ -210,7 +211,7 @@ async function recordApprovalResponse(
   resolution: ApprovalResolution
 ): Promise<AgentAuthorizationDecision> {
   const decision = await settings.policy.resolveApproval(auth, resolution);
-  await settings.store.appendMessage({
+  await new Sessions({ store: settings.store }).appendMessage({
     parts: [
       {
         approvalId,

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { LoopAgent } from "../../agents/loop-agent";
 import { SessionHarness } from "../../harness/session-harness";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../session/store";
+import { InMemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   textStreamResult,

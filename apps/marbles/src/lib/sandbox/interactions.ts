@@ -11,8 +11,8 @@ import { resolveHarnessApproval } from "@foundry/agents/harness";
 import type {
   AgentApprovalRequest,
   SessionMessage,
-  SessionStore,
 } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
 import {
   type FeedAnswer,
   type FeedQuestionPayload,

@@ -2,7 +2,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { SessionHarness } from "../../harness/session-harness";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../session/store";
+import { InMemorySessionStore } from "../../store/memory";
 import { routed, textStreamResult } from "../helpers/mock-language-model";
 
 function capturingModel() {

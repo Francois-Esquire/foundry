@@ -8,7 +8,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SessionPart, SessionStore } from "@foundry/agents/session";
+import type { SessionPart } from "@foundry/agents/session";
+import { Sessions } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
 import { processAlive } from "@foundry/lib/file-lock";
 import { agent, step } from "@foundry.sh/marbles";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -73,6 +75,7 @@ describe("JsonSessionStore", () => {
   it("compacts a session whose history outgrows a tiny window, in one write", async () => {
     const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
     const store = new JsonSessionStore(dir);
+    const sessions = new Sessions({ store });
     bind(store);
     const chatty = agent({ prompt: "Talk." });
     const ask = step("ask")
@@ -93,7 +96,7 @@ describe("JsonSessionStore", () => {
     }
 
     const all = await store.listMessages("long");
-    const active = await store.activeMessages("long");
+    const active = await sessions.activeMessages("long");
     expect(all.some((m) => m.role === "summary")).toBe(true);
     expect(active.length).toBeLessThan(all.length);
     expect(new JsonSessionStore(dir).sessions()).toHaveLength(1);
@@ -105,24 +108,26 @@ describe("JsonSessionStore session ids", () => {
     const parent = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
     const dir = join(parent, "sessions");
     const store = new JsonSessionStore(dir);
+    const sessions = new Sessions({ store });
 
     for (const id of ["../outside", "nested/inner", "back\\slash", "nul\0"]) {
-      await expect(store.createSession({ id })).rejects.toThrow(
+      await expect(sessions.createSession({ id })).rejects.toThrow(
         "cannot name a file"
       );
     }
     expect(readdirSync(parent)).toEqual(["sessions"]);
     expect(readdirSync(dir)).toEqual([]);
 
-    await store.createSession({ id: "..dots.." });
+    await sessions.createSession({ id: "..dots.." });
     expect(store.sessions().map((record) => record.id)).toEqual(["..dots.."]);
   });
 
   it("lists past a stray file whose name no session id could make", async () => {
     const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
     const store = new JsonSessionStore(dir);
-    await store.createSession({ id: "valid" });
-    const message = await store.appendMessage({
+    const sessions = new Sessions({ store });
+    await sessions.createSession({ id: "valid" });
+    const message = await sessions.appendMessage({
       parts: [{ text: "hi", type: "text" }],
       role: "user",
       sessionId: "valid",
@@ -131,10 +136,10 @@ describe("JsonSessionStore session ids", () => {
 
     expect(store.sessions().map((record) => record.id)).toEqual(["valid"]);
     await expect(
-      store.updateMessage("missing", { status: "complete" })
+      sessions.updateMessage("missing", { status: "complete" })
     ).resolves.toBeNull();
     await expect(
-      store.updateMessage(message.id, { status: "complete" })
+      sessions.updateMessage(message.id, { status: "complete" })
     ).resolves.toMatchObject({ id: message.id, status: "complete" });
   });
 });
@@ -148,34 +153,60 @@ describe("JsonSessionStore across instances", () => {
     // scheduled roll share <state>/sessions.
     const dashboard = new JsonSessionStore(dir);
     const roll = new JsonSessionStore(dir);
-    await roll.createSession({ id: "shared" });
+    await new Sessions({ store: roll }).createSession({ id: "shared" });
 
     await expect(dashboard.getSession("shared")).resolves.toMatchObject({
       id: "shared",
     });
     await Promise.all(
       Array.from({ length: 6 }, (_, index) =>
-        (index % 2 === 0 ? dashboard : roll).appendMessage({
+        new Sessions({
+          store: index % 2 === 0 ? dashboard : roll,
+        }).appendMessage({
           parts: [{ text: `m${String(index)}`, type: "text" }],
           role: "user",
           sessionId: "shared",
         })
       )
     );
-    await dashboard.appendMessage({ parts, role: "user", sessionId: "shared" });
-    await roll.appendMessage({ parts, role: "assistant", sessionId: "shared" });
+    await new Sessions({ store: dashboard }).appendMessage({
+      parts,
+      role: "user",
+      sessionId: "shared",
+    });
+    await new Sessions({ store: roll }).appendMessage({
+      parts,
+      role: "assistant",
+      sessionId: "shared",
+    });
 
     const seen = await new JsonSessionStore(dir).listMessages("shared");
     expect(seen).toHaveLength(8);
     await expect(roll.listMessages("shared")).resolves.toEqual(seen);
   });
 
+  it("keeps both of two overlapping updates two stores make", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const dashboard = new Sessions({ store: new JsonSessionStore(dir) });
+    const roll = new Sessions({ store: new JsonSessionStore(dir) });
+    await dashboard.createSession({ id: "s" });
+
+    await Promise.all([
+      dashboard.updateSession("s", { title: "renamed" }),
+      roll.updateSession("s", { status: "archived" }),
+    ]);
+
+    await expect(
+      new JsonSessionStore(dir).getSession("s")
+    ).resolves.toMatchObject({ status: "archived", title: "renamed" });
+  });
+
   it("updates a message another store appended", async () => {
     const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
     const writer = new JsonSessionStore(dir);
     const other = new JsonSessionStore(dir);
-    await writer.createSession({ id: "s" });
-    const message = await writer.appendMessage({
+    await new Sessions({ store: writer }).createSession({ id: "s" });
+    const message = await new Sessions({ store: writer }).appendMessage({
       parts,
       role: "assistant",
       sessionId: "s",
@@ -183,19 +214,25 @@ describe("JsonSessionStore across instances", () => {
     });
 
     await expect(
-      other.updateMessage(message.id, { status: "complete" })
+      new Sessions({ store: other }).updateMessage(message.id, {
+        status: "complete",
+      })
     ).resolves.toMatchObject({ id: message.id, status: "complete" });
     await expect(writer.listMessages("s")).resolves.toMatchObject([
       { status: "complete" },
     ]);
     await expect(
-      other.updateMessage("missing", { status: "complete" })
+      new Sessions({ store: other }).updateMessage("missing", {
+        status: "complete",
+      })
     ).resolves.toBeNull();
   });
 
   it("skips a corrupt session file with a warning instead of failing", async () => {
     const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
-    await new JsonSessionStore(dir).createSession({ id: "good" });
+    await new Sessions({ store: new JsonSessionStore(dir) }).createSession({
+      id: "good",
+    });
     writeFileSync(join(dir, "broken.json"), "{not json");
     writeFileSync(join(dir, "wrong.json"), JSON.stringify({ session: {} }));
     const warnings: string[] = [];
@@ -203,11 +240,17 @@ describe("JsonSessionStore across instances", () => {
     const store = new JsonSessionStore(dir, {
       warn: (line) => warnings.push(line),
     });
+    const sessions = new Sessions({ store });
     expect(store.sessions().map((session) => session.id)).toEqual(["good"]);
     await expect(store.getSession("broken")).resolves.toBeNull();
+    // An unreadable file reads as no session, so the append is refused before
+    // any write reaches it.
     await expect(
-      store.appendMessage({ parts, role: "user", sessionId: "wrong" })
-    ).rejects.toThrow("not a readable session");
+      sessions.appendMessage({ parts, role: "user", sessionId: "wrong" })
+    ).rejects.toThrow("unknown session: wrong");
+    expect(readFileSync(join(dir, "wrong.json"), "utf8")).toBe(
+      JSON.stringify({ session: {} })
+    );
     expect(warnings).toEqual(
       expect.arrayContaining([
         "[sessions] skipped broken.json: not JSON",
@@ -221,10 +264,11 @@ describe("JsonSessionStore across instances", () => {
     const path = join(dir, "nightly.json");
     writeFileSync(path, "{damaged");
     const store = new JsonSessionStore(dir);
+    const sessions = new Sessions({ store });
 
     // The harness creates a session it cannot find; here that must fail loudly.
     await expect(store.getSession("nightly")).resolves.toBeNull();
-    await expect(store.createSession({ id: "nightly" })).rejects.toThrow(
+    await expect(sessions.createSession({ id: "nightly" })).rejects.toThrow(
       "repair or remove it"
     );
     expect(readFileSync(path, "utf8")).toBe("{damaged");
@@ -234,11 +278,21 @@ describe("JsonSessionStore across instances", () => {
     const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
     const first = new JsonSessionStore(dir);
     const second = new JsonSessionStore(dir);
-    const created = await first.createSession({ id: "s", title: "first" });
-    await first.appendMessage({ parts, role: "user", sessionId: "s" });
+    const created = await new Sessions({ store: first }).createSession({
+      id: "s",
+      title: "first",
+    });
+    await new Sessions({ store: first }).appendMessage({
+      parts,
+      role: "user",
+      sessionId: "s",
+    });
 
     await expect(
-      second.createSession({ id: "s", title: "second" })
+      new Sessions({ store: second }).createSession({
+        id: "s",
+        title: "second",
+      })
     ).resolves.toMatchObject({
       createdAt: created.createdAt,
       id: "s",
@@ -251,6 +305,7 @@ describe("JsonSessionStore across instances", () => {
     const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
     const path = join(dir, "s.json");
     const store = new JsonSessionStore(dir);
+    const sessions = new Sessions({ store });
     const message = (id: string, createdAt: number) => ({
       createdAt,
       id,
@@ -275,7 +330,7 @@ describe("JsonSessionStore across instances", () => {
       })
     );
 
-    const mine = await store.appendMessage({
+    const mine = await sessions.appendMessage({
       parts,
       role: "assistant",
       sessionId: "s",
@@ -283,7 +338,7 @@ describe("JsonSessionStore across instances", () => {
     const saved = JSON.parse(readFileSync(path, "utf8"));
     saved.messages.push(message("outside-2", 3));
     writeFileSync(path, JSON.stringify(saved));
-    await store.updateMessage("outside-2", { status: "error" });
+    await sessions.updateMessage("outside-2", { status: "error" });
 
     const ids = (await store.listMessages("s")).map((m) => m.id);
     expect(ids).toEqual(["outside-1", mine.id, "outside-2"]);
@@ -294,17 +349,67 @@ describe("JsonSessionStore across instances", () => {
     ]);
   });
 
-  it("takes over a lock left by a process that exited", async () => {
+  it("writes nothing to disk when a transaction's work throws, however much it committed", async () => {
     const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
     const store = new JsonSessionStore(dir);
-    await store.createSession({ id: "s" });
+    const sessions = new Sessions({ store });
+    await sessions.createSession({ id: "a" });
+    await sessions.appendMessage({ parts, role: "user", sessionId: "a" });
+    await sessions.createSession({ id: "b" });
+    const disk = () =>
+      readdirSync(dir)
+        .sort()
+        .map((name) => [name, readFileSync(join(dir, name), "utf8")]);
+    const before = disk();
+
+    await expect(
+      store.transaction(async (view) => {
+        const a = await view.getSession("a");
+        const [kept] = await view.listMessages("a");
+        if (!(a && kept)) {
+          throw new Error("seeded sessions missing");
+        }
+        await view.commit({
+          putMessages: [{ ...kept, summarized: true }],
+          putSessions: [{ ...a, title: "changed" }],
+        });
+        await view.commit({
+          putMessages: [{ ...kept, id: "new", sessionId: "b" }],
+        });
+        await view.commit({ putSessions: [{ ...a, id: "c" }] });
+        throw new Error("work failed");
+      })
+    ).rejects.toThrow("work failed");
+
+    expect(disk()).toEqual(before);
+  });
+
+  it("holds the directory lock for a transaction that touches nothing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const store = new JsonSessionStore(dir);
+
+    const held = await store.transaction(() =>
+      Promise.resolve(existsSync(join(dir, ".lock")))
+    );
+
+    expect(held).toBe(true);
+    expect(existsSync(join(dir, ".lock"))).toBe(false);
+  });
+
+  it("takes over the directory lock left by a process that exited", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const store = new JsonSessionStore(dir);
+    const sessions = new Sessions({ store });
+    await sessions.createSession({ id: "s" });
     const { pid } = spawnSync(process.execPath, ["-e", ""]);
     expect(pid !== undefined && processAlive(pid)).toBe(false);
-    writeFileSync(join(dir, "s.json.lock"), String(pid));
+    writeFileSync(join(dir, ".lock"), String(pid));
 
-    await store.appendMessage({ parts, role: "user", sessionId: "s" });
+    await sessions.appendMessage({ parts, role: "user", sessionId: "s" });
     await expect(store.listMessages("s")).resolves.toHaveLength(1);
-    expect(existsSync(join(dir, "s.json.lock"))).toBe(false);
+    expect(existsSync(join(dir, ".lock"))).toBe(false);
+    // The lock is not a session file.
+    expect(store.sessions().map((record) => record.id)).toEqual(["s"]);
   });
 });
 
@@ -313,29 +418,30 @@ describe("sessionLines", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
     const store = new JsonSessionStore(dir);
+    const sessions = new Sessions({ store });
     const parts: SessionPart[] = [{ text: "hi", type: "text" }];
 
     vi.setSystemTime(new Date("2026-09-10T10:00:00.000Z"));
-    await store.createSession({ id: "older" });
-    await store.appendMessage({
+    await sessions.createSession({ id: "older" });
+    await sessions.appendMessage({
       parts,
       role: "user",
       sessionId: "older",
     });
-    const reply = await store.appendMessage({
+    const reply = await sessions.appendMessage({
       parts,
       role: "assistant",
       sessionId: "older",
     });
-    await store.summarize({
+    await sessions.summarize({
       messageId: reply.id,
       sessionId: "older",
       summary: { parts },
     });
 
     vi.setSystemTime(new Date("2026-09-10T11:00:00.000Z"));
-    await store.createSession({ id: "newer" });
-    await store.appendMessage({
+    await sessions.createSession({ id: "newer" });
+    await sessions.appendMessage({
       parts,
       role: "user",
       sessionId: "newer",

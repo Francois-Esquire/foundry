@@ -1,6 +1,6 @@
 import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import type { HarnessTurnDriver } from "@foundry/agents/harness";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Container } from "@foundry/sandbox/container/containers";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { Execution } from "~/lib/providers/plugins";

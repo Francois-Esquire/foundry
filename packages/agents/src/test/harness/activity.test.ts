@@ -12,7 +12,8 @@ import type {
   HarnessTurnDriver,
 } from "../../harness/turn-driver";
 import { toModelMessages } from "../../session/converter";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
+import { InMemorySessionStore } from "../../store/memory";
 import { textDelta } from "../helpers/stream-parts";
 
 it("persists background activity across turns, rejects late progress, and reconstructs without model content", async () => {
@@ -132,7 +133,8 @@ it("marks lost activity unknown and preserves native late terminal updates", asy
 
 it("serializes concurrent recorders for the same native session", async () => {
   const store = new InMemorySessionStore();
-  await store.createSession({ id: "session" });
+  const sessions = new Sessions({ store });
+  await sessions.createSession({ id: "session" });
   const config = {
     agentId: "coder",
     harness: "native",
@@ -291,7 +293,8 @@ it("continues delivering idle native questions after the prior turn signal abort
 
 it("never makes the host delegation root its own parent when closing loaded history", async () => {
   const store = new InMemorySessionStore();
-  await store.createSession({ id: "child-session" });
+  const sessions = new Sessions({ store });
+  await sessions.createSession({ id: "child-session" });
   await createHarnessActivityRecorder({
     agentId: "coder",
     harness: "native",

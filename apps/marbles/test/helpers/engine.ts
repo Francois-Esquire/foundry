@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";

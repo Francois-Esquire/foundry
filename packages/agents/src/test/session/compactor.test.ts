@@ -10,12 +10,13 @@ import {
   renderTranscript,
   selectMarker,
 } from "../../session/compactor";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
 import type {
   SessionMessage,
   SessionPart,
   SessionRole,
 } from "../../session/types";
+import { InMemorySessionStore } from "../../store/memory";
 import { textGenerateResult } from "../helpers/mock-language-model";
 
 const text = (t: string): SessionPart[] => [{ text: t, type: "text" }];
@@ -55,10 +56,11 @@ async function seedRoles(
   store: InMemorySessionStore,
   items: [SessionRole, string][]
 ): Promise<{ sessionId: string; ids: string[] }> {
-  const session = await store.createSession();
+  const sessions = new Sessions({ store });
+  const session = await sessions.createSession();
   const ids: string[] = [];
   for (const [role, label] of items) {
-    const m = await store.appendMessage({
+    const m = await sessions.appendMessage({
       parts: text(label),
       role,
       sessionId: session.id,
@@ -87,13 +89,14 @@ const capability = { kind: "mcp.tool", serverId: "s", tool: "danger" } as const;
 describe("renderTranscript", () => {
   test("renders a pruned transcript: roles + tools, reasoning dropped", async () => {
     const store = new InMemorySessionStore();
-    const session = await store.createSession();
-    await store.appendMessage({
+    const sessions = new Sessions({ store });
+    const session = await sessions.createSession();
+    await sessions.appendMessage({
       parts: text("hello"),
       role: "user",
       sessionId: session.id,
     });
-    await store.appendMessage({
+    await sessions.appendMessage({
       parts: [
         { text: "thinking", type: "reasoning" },
         {
@@ -106,7 +109,7 @@ describe("renderTranscript", () => {
       role: "assistant",
       sessionId: session.id,
     });
-    await store.appendMessage({
+    await sessions.appendMessage({
       parts: [{ output: { ok: true }, toolCallId: "c1", type: "tool_result" }],
       role: "tool",
       sessionId: session.id,
@@ -137,6 +140,7 @@ describe("createModelSummarizer", () => {
 describe("compact", () => {
   test("summarizes messages before the marker and persists via the store", async () => {
     const store = new InMemorySessionStore();
+    const sessions = new Sessions({ store });
     const summarizer = fakeSummarizer();
     const { sessionId, ids } = await seed(store, ["m1", "m2", "m3", "m4"]);
 
@@ -148,7 +152,7 @@ describe("compact", () => {
     expect(summarizer.lastSeen).toEqual(["m1", "m2"]);
     expect(result.summarizedIds).toEqual([ids[0], ids[1]]);
 
-    const active = await store.activeMessages(sessionId);
+    const active = await sessions.activeMessages(sessionId);
     expect(active.map((m) => m.role)).toEqual(["summary", "user", "user"]);
     expect(active.map(labelOf)).toEqual(["SUMMARY", "m3", "m4"]);
   });
@@ -164,18 +168,23 @@ describe("compact", () => {
 
   test("repeat compaction folds the prior summary into the new one", async () => {
     const store = new InMemorySessionStore();
+    const sessions = new Sessions({ store });
     const summarizer = fakeSummarizer();
     const { sessionId, ids } = await seed(store, ["m1", "m2", "m3", "m4"]);
 
     await compact(store, summarizer, sessionId, req(ids[2])); // fold m1,m2 -> S1
     expect(summarizer.lastSeen).toEqual(["m1", "m2"]);
 
-    const m5 = await store.appendMessage({
+    const m5 = await sessions.appendMessage({
       parts: text("m5"),
       role: "user",
       sessionId,
     });
-    await store.appendMessage({ parts: text("m6"), role: "user", sessionId });
+    await sessions.appendMessage({
+      parts: text("m6"),
+      role: "user",
+      sessionId,
+    });
 
     const result = await compact(store, summarizer, sessionId, m5.id); // fold S1,m3,m4 -> S2
     if (result === null) {
@@ -186,13 +195,14 @@ describe("compact", () => {
     expect(summarizer.lastSeen).toEqual(["SUMMARY", "m3", "m4"]);
 
     // only the latest summary surfaces, prepended to the recent tail
-    const active = await store.activeMessages(sessionId);
+    const active = await sessions.activeMessages(sessionId);
     expect(active.map((m) => m.role)).toEqual(["summary", "user", "user"]);
     expect(active.map(labelOf)).toEqual(["SUMMARY", "m5", "m6"]);
   });
 
   test("real summarizer over a simulated model", async () => {
     const store = new InMemorySessionStore();
+    const sessions = new Sessions({ store });
     let generateCalls = 0;
     const model = new MockLanguageModelV4({
       doGenerate: () => {
@@ -213,7 +223,7 @@ describe("compact", () => {
       throw new Error("expected compaction");
     }
     expect(generateCalls).toBe(1);
-    const active = await store.activeMessages(sessionId);
+    const active = await sessions.activeMessages(sessionId);
     expect(active.map((m) => m.role)).toEqual(["summary", "user"]);
     expect(active[0]?.parts[0]).toEqual({ text: "[recap]", type: "text" });
   });
@@ -326,7 +336,7 @@ describe("maybeCompact", () => {
     }
     expect(summarizer.lastSeen).toEqual(["u1", "a1"]);
 
-    const active = await store.activeMessages(sessionId);
+    const active = await new Sessions({ store }).activeMessages(sessionId);
     expect(active.map((m) => m.role)).toEqual(["summary", "user", "assistant"]);
     expect(active.map(labelOf)).toEqual(["SUMMARY", "u2", "a2"]);
   });

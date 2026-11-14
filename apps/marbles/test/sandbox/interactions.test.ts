@@ -7,7 +7,8 @@ import {
   createInMemoryAgentAuthorizer,
 } from "@foundry/agents/authorization";
 import { createHarnessPermission } from "@foundry/agents/harness";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import { Sessions } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { afterEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
@@ -31,7 +32,7 @@ afterEach(async () => {
 async function fixture(pendingPath?: string) {
   const feed = openFeed(undefined, { id: "test", root: "/workspace" });
   const sessions = new InMemorySessionStore();
-  await sessions.createSession({ id: "session-1" });
+  await new Sessions({ store: sessions }).createSession({ id: "session-1" });
   const policy = createInMemoryAgentAuthorizer().authorizer;
   const bridge = new HarnessInteractions({
     askable: true,
@@ -96,7 +97,7 @@ it("keeps an attended permission pending, validates answers, and scopes a rememb
   expect(await pending).toEqual({ behavior: "allow" });
   expect(await f.permission()()).toEqual({ behavior: "allow" });
   expect(await f.bridge.answer(entry.id, "Deny")).toBe(false);
-  await f.sessions.createSession({ id: "session-2" });
+  await new Sessions({ store: f.sessions }).createSession({ id: "session-2" });
   const other = f.permission(true, "session-2")();
   const next = await f.open();
   await f.bridge.answer(next.id, {
@@ -338,7 +339,9 @@ it("recovers a canonical deferred request even if its publication callback never
   });
   await restored.restore();
   await restored.answer((await f.open()).id, "Allow future runs");
-  await f.sessions.createSession({ id: "new-run-session" });
+  await new Sessions({ store: f.sessions }).createSession({
+    id: "new-run-session",
+  });
   expect(await f.permission(false, "new-run-session")()).toEqual({
     behavior: "allow",
   });
@@ -460,7 +463,9 @@ it("remembers a deferred grant after reopening both session and authority stores
     unresolved: "ask" as const,
   };
   const first = open();
-  await first.sessions.createSession({ id: "previous-run" });
+  await new Sessions({ store: first.sessions }).createSession({
+    id: "previous-run",
+  });
   await first.bridge.registerSession(
     { agentId: "coder", sessionId: "previous-run", source },
     first.bridge.authority(source)
@@ -492,7 +497,9 @@ it("remembers a deferred grant after reopening both session and authority stores
   await second.bridge.answer(entry.id, "Allow future runs");
   await second.bridge.close();
   const third = open();
-  await third.sessions.createSession({ id: "next-run" });
+  await new Sessions({ store: third.sessions }).createSession({
+    id: "next-run",
+  });
   const allowed = createHarnessPermission({
     agentId: "coder",
     policy: third.policy,

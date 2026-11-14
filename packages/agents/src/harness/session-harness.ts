@@ -27,13 +27,14 @@ import type {
   SessionStream,
   StreamHandlers,
 } from "../session/events";
-import type { SessionStore, SummarizableStore } from "../session/store";
-import { InMemorySessionStore } from "../session/store";
+import { Sessions } from "../session/sessions";
 import type {
   SessionMessage,
   SessionPart,
   SessionRole,
 } from "../session/types";
+import type { SessionStore } from "../store";
+import { InMemorySessionStore } from "../store/memory";
 import { composeTools } from "../tools/compose";
 import type { AgentHarnessSettings } from "./agent-harness";
 import { AgentHarness } from "./agent-harness";
@@ -51,8 +52,8 @@ export type SessionHarnessSettings = AgentHarnessSettings & {
   nodeId?: string;
   /**
    * Auto-compaction: before each turn, if the active context exceeds the turn
-   * model's budget, fold older history into a summary. Requires a summarize-aware
-   * store; silently skipped otherwise. Best-effort — a failure never breaks a turn.
+   * model's budget, fold older history into a summary. Best-effort — a failure
+   * never breaks a turn.
    */
   compaction?: CompactionSettings;
 };
@@ -103,6 +104,7 @@ export class SessionHarness {
   readonly mesh: Mesh;
   readonly nodeId: string;
   readonly #harness: AgentHarness;
+  readonly #sessions: Sessions;
   readonly #compaction: CompactionSettings | undefined;
   #sessionReady: Promise<void> | undefined;
   /** Construction-time providerOptions, merged under per-turn cache directives. */
@@ -142,6 +144,7 @@ export class SessionHarness {
     this.agentGeneration = harness.agentGeneration;
     this.sessionId = harness.sessionId;
     this.store = store;
+    this.#sessions = new Sessions({ store });
     this.registry = registry;
     this.mesh = mesh;
     this.nodeId = nodeId;
@@ -161,14 +164,14 @@ export class SessionHarness {
       const inputParts = normalizeInput(input);
       await this.#validateApprovalResponses(inputParts);
       await this.#ensureSession();
-      await this.store.appendMessage({
+      await this.#sessions.appendMessage({
         parts: inputParts,
         role: inputRole(inputParts),
         sessionId: this.sessionId,
       });
       appended = true;
       await this.#maybeCompact();
-      const history = await readContext(this.store, this.sessionId);
+      const history = await this.#sessions.activeMessages(this.sessionId);
       const messages = await toModelMessages(history, this.agent.tools);
       const providerOptions = this.#applyCacheDirectives(
         messages,
@@ -191,7 +194,7 @@ export class SessionHarness {
       if (!appended) {
         return Promise.resolve({ ...message, sessionId });
       }
-      return this.store
+      return this.#sessions
         .appendMessage({
           metadata: message.metadata,
           parts: message.parts,
@@ -268,8 +271,7 @@ export class SessionHarness {
    */
   async #maybeCompact(): Promise<void> {
     const c = this.#compaction;
-    const store = asSummarizable(this.store);
-    if (!(c && store)) {
+    if (!c) {
       return;
     }
     try {
@@ -283,7 +285,7 @@ export class SessionHarness {
         c.window?.highWaterRatio ?? DEFAULT_COMPACTION_HIGH_WATER
       );
       const keepTokens = c.keepTokens ?? Math.floor(budget.headroom * 0.5);
-      await maybeCompact(store, c.summarizer, this.sessionId, {
+      await maybeCompact(this.store, c.summarizer, this.sessionId, {
         counter,
         keepTokens,
         limit,
@@ -327,28 +329,10 @@ export class SessionHarness {
   }
 
   async #createSessionIfMissing(): Promise<void> {
-    if (!(await this.store.getSession(this.sessionId))) {
-      await this.store.createSession({ id: this.sessionId });
+    if (!(await this.#sessions.getSession(this.sessionId))) {
+      await this.#sessions.createSession({ id: this.sessionId });
     }
   }
-}
-
-/**
- * The messages a turn sends: the active view (summary prepended) when the store
- * supports it, else raw history. Keeps stores that aren't summarize-aware working.
- */
-function readContext(
-  store: SessionStore,
-  sessionId: string
-): Promise<SessionMessage[]> {
-  const summarizable = asSummarizable(store);
-  return summarizable
-    ? summarizable.activeMessages(sessionId)
-    : store.listMessages(sessionId);
-}
-
-function asSummarizable(store: SessionStore): SummarizableStore | undefined {
-  return "activeMessages" in store ? (store as SummarizableStore) : undefined;
 }
 
 /**

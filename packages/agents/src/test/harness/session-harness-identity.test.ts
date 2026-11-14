@@ -1,5 +1,5 @@
 import { tool } from "ai";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import type {
@@ -8,12 +8,14 @@ import type {
 } from "../../authorization/authorization";
 import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
 import { SessionHarness } from "../../harness/session-harness";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
+import { InMemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   textStreamResult,
   toolCallStreamResult,
 } from "../helpers/mock-language-model";
+import { recordingStore } from "../helpers/recording-store";
 
 function recording(
   authorizer: AgentAuthorizer,
@@ -78,9 +80,12 @@ describe("SessionHarness — session identity", () => {
   });
 
   it("adopts an id the host already filed without creating the session again", async () => {
-    const store = new InMemorySessionStore();
-    await store.createSession({ id: "filed", title: "host" });
-    const create = vi.spyOn(store, "createSession");
+    const inner = new InMemorySessionStore();
+    const filed = await new Sessions({ store: inner }).createSession({
+      id: "filed",
+      title: "host",
+    });
+    const { store, writes } = recordingStore(inner);
     const harness = new SessionHarness({
       instructions: "x",
       model: createScriptedMockModel({ stream: [textStreamResult("hi")] }),
@@ -90,7 +95,15 @@ describe("SessionHarness — session identity", () => {
 
     await harness.generate("go");
 
-    expect(create).not.toHaveBeenCalled();
+    expect(writes.filter((write) => write.putMessages === undefined)).toEqual(
+      []
+    );
+    // Each append carried the session, changing nothing but its stamp.
+    const carried = writes.flatMap((write) => write.putSessions ?? []);
+    expect(carried).toHaveLength(2);
+    for (const record of carried) {
+      expect(record).toEqual({ ...filed, updatedAt: record.updatedAt });
+    }
     expect(await store.getSession("filed")).toMatchObject({ title: "host" });
     expect((await store.listMessages("filed")).map((m) => m.role)).toEqual([
       "user",

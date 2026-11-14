@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { SessionStore } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
 import { Workflow } from "@foundry/workflows/workflow";
 import { expect, it } from "vitest";
 import { step } from "~/authoring/builder";
@@ -333,7 +333,7 @@ it("keeps JsonSessionStore usable through the Agents SessionStore seam", () => {
   const store: SessionStore = new JsonSessionStore(
     join(fixture.root, "sessions")
   );
-  expect(typeof store.appendMessage).toBe("function");
+  expect(typeof store.commit).toBe("function");
 });
 
 it("skips observations that are not ones, in a record and in its log, without failing the start", async () => {

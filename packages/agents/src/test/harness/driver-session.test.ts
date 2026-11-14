@@ -7,11 +7,14 @@ import type {
   HarnessTurnDriver,
 } from "../../harness/turn-driver";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
+import type { SessionStore } from "../../store";
+import { InMemorySessionStore } from "../../store/memory";
+import { recordingStore } from "../helpers/recording-store";
 import { textDelta } from "../helpers/stream-parts";
 
 function settings(
-  store = new InMemorySessionStore(),
+  store: SessionStore = new InMemorySessionStore(),
   sessionId = "host-session"
 ): DriverSessionSettings {
   return {
@@ -129,7 +132,7 @@ describe("native driver session", () => {
       expect.objectContaining({ nativeSessionId: undefined })
     );
 
-    await config.store.appendMessage({
+    await new Sessions({ store: config.store }).appendMessage({
       parts: [
         {
           harness: "native",
@@ -164,22 +167,21 @@ describe("native driver session", () => {
   });
 
   it("close waits for the interrupted terminal message to persist", async () => {
-    const config = settings();
-    config.profile = { ...config.profile, mode: "attended", unresolved: "ask" };
-    config.approve = vi.fn(() => new Promise<never>(() => undefined));
-    const original = config.store.appendMessage.bind(config.store);
     let release!: () => void;
     const persist = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const append = vi
-      .spyOn(config.store, "appendMessage")
-      .mockImplementation(async (input) => {
-        if (input.role === "assistant") {
+    const { store, writes } = recordingStore(
+      new InMemorySessionStore(),
+      async (write) => {
+        if (write.putMessages?.some((m) => m.role === "assistant")) {
           await persist;
         }
-        return original(input);
-      });
+      }
+    );
+    const config = settings(store);
+    config.profile = { ...config.profile, mode: "attended", unresolved: "ask" };
+    config.approve = vi.fn(() => new Promise<never>(() => undefined));
     const native = driver();
     native.run = async (options) => {
       await options.permission({
@@ -199,8 +201,12 @@ describe("native driver session", () => {
       closed = true;
     });
     await vi.waitFor(() =>
-      expect(append).toHaveBeenCalledWith(
-        expect.objectContaining({ role: "assistant", status: "error" })
+      expect(writes).toContainEqual(
+        expect.objectContaining({
+          putMessages: [
+            expect.objectContaining({ role: "assistant", status: "error" }),
+          ],
+        })
       )
     );
     expect(closed).toBe(false);

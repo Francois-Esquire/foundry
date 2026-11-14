@@ -1,5 +1,6 @@
-import type { SessionStore } from "../session/store";
+import { Sessions } from "../session/sessions";
 import type { SessionMessage } from "../session/types";
+import type { SessionStore } from "../store";
 import { redactHarnessSummary } from "./permission";
 import type { HarnessActivity, HarnessActivityEvent } from "./turn-driver";
 
@@ -66,7 +67,7 @@ export function createHarnessActivityRecorder(settings: {
         revision: (previous?.revision ?? 0) + 1,
         sessionId: settings.sessionId,
       };
-      await settings.store.appendMessage({
+      await new Sessions({ store: settings.store }).appendMessage({
         parts: [{ event, type: "harness_activity" }],
         role: "system",
         sessionId: settings.sessionId,
