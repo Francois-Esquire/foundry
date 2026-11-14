@@ -505,9 +505,9 @@ export class ArtifactManager implements Artifacts {
    * neither this manager's queue nor the store; a change that reaches the
    * store sooner may commit before it. Any other change takes its turn at
    * once, so changes without a stream commit in call order, and stages its
-   * bytes in that turn, before the store's exclusion. `check` refuses what
-   * the change would refuse before reading a byte; the change checks again
-   * inside, over the state it commits against.
+   * bytes in that turn, before the store's exclusion. Either way `check`
+   * first refuses what the change would refuse before reading a byte; the
+   * change checks again inside, over the state it commits against.
    */
   async #staged<T>(
     entries: EntryInputs | undefined,
@@ -519,17 +519,44 @@ export class ArtifactManager implements Artifacts {
       return this.transaction(() => operation(joined));
     }
     const staging = this.#staging();
+    const prepare = async () => {
+      await this.#check(check);
+      await staging.stageAll(entries);
+    };
     if (!staging.streamsAhead(entries)) {
-      return this.#change(operation, staging, () => staging.stageAll(entries));
+      return this.#change(operation, staging, prepare);
     }
     try {
-      await this.#read(check);
-      await staging.stageAll(entries);
+      await prepare();
     } catch (error) {
       await staging.discard();
       throw error;
     }
     return this.#change(operation, staging);
+  }
+
+  /**
+   * `check` over the records as they are now, read without taking a turn,
+   * so it can run inside this manager's own turn. The change runs its
+   * checks again inside the store's exclusion; this only spares staging the
+   * bytes of a change already refused.
+   */
+  async #check(
+    check: (artifacts: ArtifactTransaction) => Promise<unknown>
+  ): Promise<void> {
+    const change = new ArtifactChange(this.#store, { readOnly: true });
+    try {
+      await check(
+        new ArtifactTransaction(
+          change,
+          operationEffects(),
+          this.#limits,
+          this.#staging()
+        )
+      );
+    } finally {
+      change.settle();
+    }
   }
 
   #staging(): BlobStaging {

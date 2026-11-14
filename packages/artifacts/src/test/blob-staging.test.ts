@@ -7,9 +7,14 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { BlobFiles } from "../blob";
 import { CHUNK_BYTES } from "../constants";
-import { FileTooLargeError, StaleContentError } from "../errors";
+import {
+  ArtifactNotFoundError,
+  FileTooLargeError,
+  StaleContentError,
+} from "../errors";
 import { ArtifactManager } from "../manager";
 import { blobFiles, JsonArtifactStore } from "../node";
+import { artifactIdSchema, contentIdSchema } from "../ref";
 import type { ArtifactStore } from "../store";
 import { InMemoryArtifactStore } from "../store/memory";
 import type { Content, FileInput } from "../substrate";
@@ -128,6 +133,7 @@ async function storage(kind: Kind) {
       /** `null` for none: bytes then stay inline in the records. */
       readonly files?: BlobFiles | null;
       readonly maxFileBytes?: number;
+      readonly maxTreeBytes?: number;
       readonly store?: ArtifactStore;
     } = {}
   ) =>
@@ -139,6 +145,9 @@ async function storage(kind: Kind) {
       ...(options.maxFileBytes === undefined
         ? {}
         : { maxFileBytes: options.maxFileBytes }),
+      ...(options.maxTreeBytes === undefined
+        ? {}
+        : { maxTreeBytes: options.maxTreeBytes }),
     });
   /** Nothing staged, and exactly the files the records name are published. */
   const settled = async () => {
@@ -172,6 +181,7 @@ describe.each(["memory", "json"] as const)(
         expect(await within(gate.waiting)).toBe("resolved");
         expect(await stagedFiles(blobs)).toHaveLength(1);
         expect(lockHeld()).toBe(false);
+        expect(await within(stalled.list())).toBe("resolved");
         expect(await within(other.list())).toBe("resolved");
         expect(
           await within(other.readFile(required(seed.contentId), "seed.txt"))
@@ -595,4 +605,156 @@ describe.each([
       expect(await stagedFiles(blobs)).toEqual([]);
     });
   }
+});
+
+describe.each(["memory", "json"] as const)(
+  "%s store: more staged inputs",
+  (kind) => {
+    it("take in every stream of one call before the change, the last one stalled", async () => {
+      const { blobs, manager, settled } = await storage(kind);
+      const stalled = manager();
+      const other = manager();
+      const free = gated([text("free")], []);
+      free.release();
+      const gate = gated([chunk(8)], [text("last")]);
+      const creating = stalled.create({
+        entries: {
+          "a.txt": { source: free.source },
+          "b.bin": { source: gate.source },
+        },
+        name: "Two streams",
+        type: "application/octet-stream",
+      });
+      try {
+        expect(await within(gate.waiting)).toBe("resolved");
+        expect(await stagedFiles(blobs)).toHaveLength(2);
+        expect(await within(other.list())).toBe("resolved");
+      } finally {
+        gate.release();
+      }
+      const created = await creating;
+      const a = await stalled.readFile(required(created.contentId), "a.txt");
+      expect(decoded(a?.blob)).toBe("free");
+      await settled();
+    });
+
+    it("take a revision's stream in before the change", async () => {
+      const { manager, settled } = await storage(kind);
+      const reviser = manager();
+      const other = manager();
+      const seed = await other.create({
+        entries: { "file.txt": { bytes: "first" } },
+        name: "Revised",
+        type: "text/plain",
+      });
+      const source = required(seed.content);
+      const gate = gated([], [text("second")]);
+      const revising = reviser.revise({
+        artifactId: seed.id,
+        changes: { put: { "file.txt": { source: gate.source } } },
+        contentId: source.id,
+        expectedUpdatedAt: source.updatedAt,
+      });
+      try {
+        expect(await within(gate.waiting)).toBe("resolved");
+        expect(await within(other.list())).toBe("resolved");
+      } finally {
+        gate.release();
+      }
+      const revised = await revising;
+      const read = await other.readFile(revised.id, "file.txt");
+      expect(decoded(read?.blob)).toBe("second");
+      await settled();
+    });
+
+    it("leave no staged file when the tree limit, checked inside the change, refuses it", async () => {
+      const { blobs, manager, settled } = await storage(kind);
+      const seen: { staged?: number } = {};
+      async function* source(): AsyncIterable<Uint8Array> {
+        yield chunk(10);
+        seen.staged = (await stagedFiles(blobs)).length;
+        yield text("over");
+      }
+      await expect(
+        manager({ maxTreeBytes: CHUNK_BYTES }).create({
+          entries: { "f.bin": { source: source() } },
+          name: "Tree",
+          type: "application/octet-stream",
+        })
+      ).rejects.toBeInstanceOf(FileTooLargeError);
+      expect(seen.staged).toBe(1);
+      await settled();
+    });
+  }
+);
+
+describe("Staged blob bytes without files, and refusals ahead of them", () => {
+  it("keep a stalled source from holding a store without files", async () => {
+    const { manager, store } = await storage("memory");
+    const stalled = manager({ files: null });
+    const other = manager({ files: null });
+    const gate = gated([chunk(9)], [text("inline")]);
+    const creating = stalled.create({
+      entries: { "big.bin": { source: gate.source } },
+      name: "Inline",
+      type: "application/octet-stream",
+    });
+    try {
+      expect(await within(gate.waiting)).toBe("resolved");
+      expect(await within(other.list())).toBe("resolved");
+      expect(
+        await within(other.create({ name: "Other", type: "text/plain" }))
+      ).toBe("resolved");
+    } finally {
+      gate.release();
+    }
+    await creating;
+    expect(await referencedFiles(store)).toEqual([]);
+    expect((await other.list()).total).toBe(2);
+  });
+
+  it("refuse what a change refuses before reading a byte, ahead of the byte limits", async () => {
+    const { manager } = await storage("memory");
+    const artifacts = manager({ maxFileBytes: 4 });
+    await expect(
+      artifacts.write({
+        artifactId: artifactIdSchema.parse(crypto.randomUUID()),
+        changes: { put: { "f.txt": { bytes: "far too long" } } },
+      })
+    ).rejects.toBeInstanceOf(ArtifactNotFoundError);
+    const created = await artifacts.create({
+      name: "Fenced",
+      type: "text/plain",
+    });
+    let pulled = false;
+    async function* source() {
+      pulled = true;
+      yield await Promise.resolve(text("never read"));
+    }
+    await expect(
+      artifacts.write({
+        artifactId: created.id,
+        changes: { put: { "f.txt": { source: source() } } },
+        expectedContentId: contentIdSchema.parse(crypto.randomUUID()),
+      })
+    ).rejects.toBeInstanceOf(StaleContentError);
+    expect(pulled).toBe(false);
+  });
+});
+
+describe("Staging a crashed process left", () => {
+  it("is removed when an instance first stages, without recover", async () => {
+    const { blobs, manager } = await storage("memory");
+    const exited = spawnSync(process.execPath, ["-e", ""]).pid;
+    const owner = `${String(exited)}-${crypto.randomUUID()}`;
+    await mkdir(join(blobs, ".staging", owner), { recursive: true });
+    await writeFile(join(blobs, ".staging", owner, crypto.randomUUID()), "x");
+    await manager().create({
+      entries: { "f.txt": { bytes: "fresh" } },
+      name: "Fresh",
+      type: "text/plain",
+    });
+    expect(await readdir(join(blobs, ".staging"))).not.toContain(owner);
+    expect(await stagedFiles(blobs)).toEqual([]);
+  });
 });

@@ -2,7 +2,7 @@ import { readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   hasErrorCode,
-  syncDirectorySync,
+  syncDirectory,
   writeFileAtomic,
 } from "@foundry/lib/atomic-file";
 import { processAlive } from "@foundry/lib/file-lock";
@@ -27,6 +27,8 @@ const liveOwners = new Set<string>();
 export function stagingArea(ready: () => Promise<string>): BlobStagingArea {
   const owner = `${String(process.pid)}-${crypto.randomUUID()}`;
   liveOwners.add(owner);
+  /** Swept once, before this instance first stages, so crashes do not wait on `recover`. */
+  let swept: Promise<void> | undefined;
   const ownDirectory = async () =>
     join(await ready(), STAGING_DIRECTORY, owner);
   const stagedPath = async (staged: string) => {
@@ -35,24 +37,25 @@ export function stagingArea(ready: () => Promise<string>): BlobStagingArea {
     }
     return join(await ownDirectory(), staged);
   };
+  async function abandon(): Promise<void> {
+    const root = join(await ready(), STAGING_DIRECTORY);
+    let owners: string[];
+    try {
+      owners = await readdir(root);
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) {
+        return;
+      }
+      throw error;
+    }
+    for (const name of owners) {
+      if (isAbandoned(name)) {
+        await rm(join(root, name), { force: true, recursive: true });
+      }
+    }
+  }
   return {
-    async abandon() {
-      const root = join(await ready(), STAGING_DIRECTORY);
-      let owners: string[];
-      try {
-        owners = await readdir(root);
-      } catch (error) {
-        if (hasErrorCode(error, "ENOENT")) {
-          return;
-        }
-        throw error;
-      }
-      for (const name of owners) {
-        if (isAbandoned(name)) {
-          await rm(join(root, name), { force: true, recursive: true });
-        }
-      }
-    },
+    abandon,
     async discard(staged) {
       await rm(await stagedPath(staged), { force: true });
     },
@@ -61,10 +64,14 @@ export function stagingArea(ready: () => Promise<string>): BlobStagingArea {
       const published = crypto.randomUUID();
       await rename(await stagedPath(staged), join(base, published));
       // The rename survives a crash before the records name the file.
-      syncDirectorySync(base);
+      await syncDirectory(base);
       return published;
     },
     async stage(bytes) {
+      swept ??= abandon().catch((error: unknown) => {
+        console.error("Abandoned blob staging cleanup failed", error);
+      });
+      await swept;
       const staged = crypto.randomUUID();
       await writeFileAtomic(await stagedPath(staged), bytes, {
         createDirectory: true,
