@@ -713,10 +713,11 @@ The main entry also exports `tasks`, the workspace's backlog, with the
 `tasks` to track what there is to do, what is ready, and what is done, or
 ignores it. Under a host (the worker the Marbles process runs for the
 workspace, or a program that hosts it with `hostWorkspace`) it is that
-workspace's tasks, kept in `tasks.json` in the workspace's state directory
-(in memory under `--dry-run`); one process owns them at a time, and another
-that reads or writes them meanwhile is refused. A reload's worker takes
-them over once the one before it has exited. A host refuses them while
+workspace's tasks, kept in the Marbles database (in memory under
+`--dry-run`); every process on the machine reads and writes the same tasks,
+and a change never lands between another's read and its write (see
+[State](/marbles/reference/state#tasks)). A `tasks.json` an earlier Marbles
+left is ignored. A host refuses them while
 its source loads, so use them in a step, an `observe` handler, or after the
 host starts, not at a module's top level; once the host's engine is
 disposed they are refused too. In a script no host loaded, it is held in
@@ -754,7 +755,8 @@ observe(tasks, async ({ tasks: changes }) => {
 });
 ```
 
-The host delivers from its start until it stops. Every change is stored
+The host delivers from its start until it stops, one host per workspace at
+a time. Every change is stored
 with the task in the same write, whether or not anything observes it yet,
 and is kept, with the record of which handlers completed it; nothing
 removes either. A handler receives every stored change it has not

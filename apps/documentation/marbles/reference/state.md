@@ -29,7 +29,9 @@ workspace this machine has run, and says which of them the process hosts.
   marbles.sock            the Unix socket it answers on, owner-only (mode 0600)
   marbles.db              the Marbles database (SQLite, WAL mode, with its
                           -wal and -shm files): every workspace's id, root,
-                          config, firstSeen, lastSeen, and whether it is hosted
+                          config, firstSeen, lastSeen, and whether it is hosted;
+                          every workspace's tasks, by workspace id, with each
+                          change they committed and which observers completed it
   daemon.log              stdout and stderr of a process a client started;
                           `marbles daemon` prints to its own terminal instead
   settings.json           global dashboard preferences (the theme), shared by
@@ -58,9 +60,9 @@ workspace this machine has run, and says which of them the process hosts.
   usage/direct.<sessionId>.json  turns taken outside a run, by message id
   usage/<key>+<turnId>.json  a turn saved separately when its document is locked
                           or unreadable, or a marker for usage not saved
-  tasks.json              the workspace's tasks and the changes they emitted
   locks/usage-<key>       writer of a run or direct-session usage document
-  locks/tasks             pid of the process that owns the workspace's tasks
+  locks/tasks             pid of the process delivering the workspace's task
+                          changes to its observers
   locks/schedule:<key>    pid of the tick running a schedule or monitor
   locks/run-<runId>       pid of the process that owns a recovered run
   locks/execution-<runId> pid of the process recovering an Execution Run record
@@ -122,6 +124,41 @@ ones it ships, is refused with an error that says which. The daemon, its
 workers, and the CLI hold it at once: a writer waits up to five seconds for
 another process's write to finish. `hosted` goes back to `false` when
 `marbles detach` or a client of the process detaches the workspace.
+
+### Tasks
+
+A workspace's tasks live in the Marbles database, scoped by the workspace
+id, with each change they commit, written in the same transaction, and the
+record of which observers completed it. Detaching a workspace keeps them.
+A `tasks.json` left in a workspace's directory by an earlier Marbles is
+ignored, not imported, and left as it is, like the other JSON state the
+database replaced.
+
+Any number of processes read and write a workspace's tasks at once: the
+worker hosting it, a program hosting it itself, and the CLI and the MCP
+server. A change takes the database's write lock for its whole
+read-check-write, so two processes changing one workspace never lose
+either's update; one whose token went stale meanwhile is refused with
+`conflict`. A task command with no worker hosting the workspace opens the
+database itself for that one command. A read (`tasks list`, `ready`,
+`get`, `deps`, and the MCP tools that read) opens it read-only, and without
+a database finds no tasks and creates nothing. A change is a writer, and
+with no Marbles process running makes and migrates the database under
+`locks/process`, as a program hosting a workspace does. Under `--dry-run`
+the tasks are in memory and nothing is written.
+
+One process delivers a workspace's changes to its observers at a time: the
+host that holds `locks/tasks` in the workspace's directory, from its start
+until it stops. A second host of the same workspace reads and writes its
+tasks but prints `[observe] not delivering here` and leaves delivery to the
+first. A change made in another process (a CLI command beside a program
+hosting the workspace itself) is delivered at the delivering host's next
+change or next start, not at once.
+
+Text the database cannot give back intact is refused before anything is
+written: a title, description, id, or time holding U+0000, or a lone
+surrogate (not well-formed UTF-16). The error names the field. Metadata and
+tags are JSON and keep such characters.
 
 ### Run output
 
