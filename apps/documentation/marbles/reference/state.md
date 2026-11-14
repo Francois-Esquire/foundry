@@ -125,7 +125,11 @@ holds nothing, and readers and the Marbles process pass over it. A database whos
 migrations are behind or ahead of the reading Marbles, or differ from the
 ones it ships, is refused with an error that says which. The daemon, its
 workers, and the CLI hold it at once: a writer waits up to five seconds for
-another process's write to finish. `hosted` goes back to `false` when
+another process's write to finish. A handle that waited past that, and
+so failed with SQLite's busy error, opens a fresh connection before it
+runs anything else, because the driver (`@libsql/client` 0.18) leaves the
+failed one unable to commit; the failed operation is not retried, and a
+refused commit is rolled back. `hosted` goes back to `false` when
 `marbles detach` or a client of the process detaches the workspace.
 
 ### Tasks
