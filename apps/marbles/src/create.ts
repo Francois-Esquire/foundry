@@ -15,6 +15,7 @@ import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/git";
 import { Catalog } from "~/authoring/catalog";
+import { Engine as PublishedEngine } from "~/entries/engine";
 import { layout } from "~/layout";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
@@ -232,7 +233,8 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const state = persisted(dry, options.stateDir);
   // Its sandboxes may mount what is cut there; see `containersFor`.
   const worktrees = Engine.worktreesFor(state);
-  const engine = new Engine({
+  // The class the package publishes, so a host's engine is that `Engine`.
+  const engine = new PublishedEngine({
     artifacts: artifactsAt(dry ? undefined : options.artifacts),
     // A dry run writes to memory but reads what real runs left, if any.
     ...(dry && options.artifacts && existsSync(options.artifacts)

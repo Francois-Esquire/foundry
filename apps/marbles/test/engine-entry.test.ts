@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Tasks } from "@foundry/tasks";
 import { afterEach, describe, expect, it } from "vitest";
+import { Catalog } from "~/authoring/catalog";
+import { createEngine } from "~/create";
 import { fileIdentity, queuedFiles } from "~/database/client";
 import { openWorkspaceRecords } from "~/database/managed";
 import { Engine } from "~/entries/engine";
@@ -10,6 +12,7 @@ import { Engine as LibEntryEngine } from "~/entries/lib";
 import { stateDatabase } from "~/layout";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import { workspaceState } from "~/lib/state/workspace";
+import { claimProcess, readProcess } from "~/process/instance";
 import { testInstances } from "./helpers/engine";
 
 const roots: string[] = [];
@@ -140,5 +143,36 @@ describe("the published Engine", () => {
       });
     expect((await across(make)).read).toBe("Kept");
     expect(existsSync(stateDatabase(stateRoot))).toBe(true);
+  });
+
+  it("keeps its tasks while the host holds its state dir's claim, as the docs say to", async () => {
+    const state = join(scratch(), "claimed");
+    const claim = claimProcess(state, { config: null, host: "worker" });
+    try {
+      const started = Date.now();
+      const { read } = await across(() => published(state, "claimed"));
+      expect(read).toBe("Kept");
+      // Its own lock: nothing waited for another process to make the database.
+      expect(Date.now() - started).toBeLessThan(4000);
+      expect(readProcess(state)?.pid).toBe(process.pid);
+    } finally {
+      claim.release();
+    }
+  });
+
+  it("is the class a hosted workspace's engine is built from", async () => {
+    const engine = createEngine({
+      catalog: new Catalog(),
+      dry: true,
+      print: () => undefined,
+      root: scratch(),
+      workspaceId: "hosted-class",
+    });
+    try {
+      expect(engine).toBeInstanceOf(Engine);
+      expect(engine).toBeInstanceOf(LibEntryEngine);
+    } finally {
+      await engine.dispose();
+    }
   });
 });

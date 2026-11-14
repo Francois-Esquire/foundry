@@ -167,9 +167,10 @@ export interface EngineOptions {
   readonly queues?: Readonly<Record<string, QueueSettings>>;
   /**
    * This workspace's tasks and the changes they record, which delivery
-   * hands to observers. Marbles hands in the workspace's rows in its
-   * database. In memory when omitted, whatever `state` is: nothing in them
-   * outlives the engine.
+   * hands to observers. When omitted, the `Engine` the package publishes
+   * (`@foundry.sh/marbles/engine` and `/lib`) keeps them in a Marbles
+   * database when `state` is set, and in memory otherwise;
+   * `MemoryWorkspaceRecords` keeps them in memory on purpose.
    */
   readonly records?: WorkspaceRecords;
   /**
@@ -187,7 +188,11 @@ export interface EngineOptions {
   readonly root: string;
   /** Where agent transcripts live. */
   readonly sessions: SessionStore;
-  /** Workspace state dir. Omit for in-memory: nothing survives the process. */
+  /**
+   * Workspace state dir: run records, trigger state, and, with the
+   * published `Engine`, the tasks. Omit for in-memory: nothing survives
+   * the process.
+   */
   readonly state?: string;
   /**
    * Where triggers keep their history, monitors what they saw, and agents

@@ -18,7 +18,6 @@ import { layout, stateDatabase } from "~/layout";
 import { acquireLock, PROCESS_LOCK } from "~/lib/state/locks";
 import { workspaceState } from "~/lib/state/workspace";
 import { type Daemon, startDaemon } from "~/process/daemon";
-import { claimProcess } from "~/process/instance";
 import { readWorkspace, recordWorkspace } from "./helpers/registry";
 
 const SRC = resolve("src");
@@ -157,8 +156,26 @@ await host.close();
   it("never migrates while a Marbles process holds the state root", async () => {
     const state = join(scratch(), "state");
     await current(state);
-    const claim = claimProcess(state, { host: "daemon" });
+    // The Marbles process is another process, as it always is.
+    const script = join(scratch(), "daemon-claim.ts");
+    writeFileSync(
+      script,
+      `import { claimProcess } from ${JSON.stringify(join(SRC, "process/instance.ts"))};
+claimProcess(${JSON.stringify(state)}, { host: "daemon" });
+process.stdout.write("claimed\\n");
+setInterval(() => undefined, 1000);
+`
+    );
+    const daemon = spawn("bun", [script], { cwd: resolve(".") });
     try {
+      await new Promise<void>((ready, failed) => {
+        daemon.stdout?.on("data", (chunk: Buffer) => {
+          if (chunk.toString().includes("claimed")) {
+            ready();
+          }
+        });
+        daemon.once("exit", (code) => failed(new Error(`exited ${code}`)));
+      });
       const next = newerBuild(scratch());
       await expect(
         recordWorkspace(state, workspaceState(state, scratch()), null, {
@@ -168,9 +185,9 @@ await host.close();
       ).rejects.toBeInstanceOf(IncompatibleDatabaseError);
       expect(await applied(state)).toBe(journalLength(MIGRATIONS));
       // The claim is still the Marbles process's.
-      expect(lockHolder(processLock(state))).toBe(process.pid);
+      expect(lockHolder(processLock(state))).toBe(daemon.pid);
     } finally {
-      claim.release();
+      daemon.kill("SIGKILL");
     }
   });
 

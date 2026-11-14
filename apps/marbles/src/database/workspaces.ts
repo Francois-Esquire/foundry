@@ -157,8 +157,10 @@ const HOST_RETRY_MS = 50;
  * start beside a host that runs for hours, as it always could, while no
  * two processes ever migrate at once.
  *
- * When another process holds the lock (the Marbles process, or a writer
- * doing the same), this one never migrates: it opens a database that is
+ * When this process holds the lock already (taken through `claimProcess`),
+ * it makes and migrates the database under it. When another process holds
+ * it (the Marbles process, or a writer doing the same), this one never
+ * migrates: it opens a database that is
  * current, waiting up to `wait` for the holder to make it so, and otherwise
  * throws `IncompatibleDatabaseError`. The caller closes the handle.
  */
@@ -177,6 +179,11 @@ export async function openHostDatabase(
       } finally {
         claim.release();
       }
+    }
+    // This process holds the lock already (a host that claimed it as
+    // `claimProcess` does), so it is the one that may migrate.
+    if (claim.pid === process.pid) {
+      return await initializeDatabase(file, options);
     }
     let opened: MarblesDatabase | undefined;
     try {
