@@ -42,9 +42,11 @@ a skill added after the prompt was written still resolves. With
 `prompts.strict = true`, a tag throws a `PromptError` instead of returning
 a prompt with errors.
 
-`String(review)` is the text, so a prompt goes straight into
-`agent({ prompt })`. `@foundry.sh/marbles` exports `prompts`, `ref`,
-`PromptError`, and the `Prompt` type.
+An agent takes its prompt as a string, so pass `review.text` or
+`String(review)` as `agent({ prompt })`. `@foundry.sh/marbles` exports
+`prompts`, `ref`, `PromptError`, and the `Prompt` class.
+
+These exports are not in `0.0.3`. They ship in the next release.
 
 ## In the editor
 

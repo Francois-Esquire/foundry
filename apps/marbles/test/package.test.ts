@@ -231,9 +231,10 @@ console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing
     writeFileSync(
       join(consumer, "prompt.ts"),
       `
-import { type Prompt, prompts, ref } from "@foundry.sh/marbles";
+import { Prompt, prompts, ref } from "@foundry.sh/marbles";
 const review: Prompt = prompts.claude\`/code-review, then ask \${ref.agent("reviewer")}.\`;
-console.log(String(review), "|", String(prompts.codex\`Use \${ref.skill("review")}\`));
+// Prompt is a class at run time too, as the declarations say.
+console.log(String(review), "|", String(prompts.codex\`Use \${ref.skill("review")}\`), "|", review instanceof Prompt);
 `
     );
     // An embedded host (an Electron main process) takes the narrow entry:
@@ -295,7 +296,7 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
       consumer
     );
     expect(run("bun", ["prompt.ts"], consumer)).toContain(
-      '/code-review, then ask @"reviewer (agent)". | Use $review'
+      '/code-review, then ask @"reviewer (agent)". | Use $review | true'
     );
     expect(run("bun", ["host.ts"], consumer)).toContain(
       "Hello host sees files packed-workflow,host-inventory"

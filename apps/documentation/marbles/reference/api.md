@@ -646,9 +646,10 @@ exports these types:
 | Usage | `Snapshot`, `Identity`, `Limit`, `Window`, `SpendCap`, `Balance`, `CreditBalance`, `Headroom`, `Money`, `Credits`, `Duration`, `Span`, `Consumption`, `SessionConsumption`, `Quantities`, `Charge`, `QueryOptions`, `QueryAllOptions`, `DurationText` |
 
 The main entry also exports `prompts` and `ref`, with `PromptError` and
-the `Prompt` type beside them: a tag per harness (`prompts.claude`,
+the `Prompt` class beside them: a tag per harness (`prompts.claude`,
 `prompts.codex`, `prompts.pi`) that writes each reference in that harness's
-notation. See [Prompts](/prompts).
+notation. They are not in `0.0.3` and ship in the next release. See
+[Prompts](/prompts).
 
 The main entry also exports `tasks`, the workspace's backlog, with the
 `Tasks` class, `MemoryTaskStore`, and `TaskError` beside it. A module imports
