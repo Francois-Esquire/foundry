@@ -1,7 +1,7 @@
 {
   "name": "@foundry/vscode-extension",
   "displayName": "Foundry Prompts",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "Highlights what a prompt references (skills, agents, files, arguments, commands) inside prompts tags and Claude skill files.",
   "categories": [
