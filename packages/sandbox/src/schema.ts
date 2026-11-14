@@ -16,9 +16,15 @@ export const containerRowStatusSchema = z.enum(CONTAINER_ROW_STATUSES);
 
 export type ContainerRowStatus = z.infer<typeof containerRowStatusSchema>;
 
+/**
+ * Any number, as the store accepts. `z.number()` would reject NaN and the
+ * infinities, which the store passes through unchanged.
+ */
+const timestampSchema = z.custom<number>((value) => typeof value === "number");
+
 const containerRowObjectSchema = z.object({
   /** Epoch milliseconds when the row was inserted. */
-  createdAt: z.number(),
+  createdAt: timestampSchema,
   id: z.string(),
   /** The runtime's name for the VM realizing this row. Undefined until the first start. */
   nativeId: z.string().or(z.undefined()),
@@ -31,7 +37,7 @@ const containerRowObjectSchema = z.object({
   spec: z.string(),
   status: containerRowStatusSchema,
   /** Epoch milliseconds of the last write to the row. */
-  updatedAt: z.number(),
+  updatedAt: timestampSchema,
 });
 
 /** One container in the registry: one row per container, one VM per row at a time. */
