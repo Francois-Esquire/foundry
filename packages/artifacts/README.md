@@ -371,8 +371,9 @@ JavaScript and matches those columns with `instr`, a plain substring test, so
 `%` and `_` match only themselves and non-ASCII text folds as in the memory
 store; SQLite's own `lower()` folds ASCII only. Ties in creation order sort and
 page by `id_order`, which orders as JavaScript compares strings by code unit;
-SQLite orders text by code point. Every filter is answered in SQL and bounded
-by `limit`, the inputs SQLite text cannot compare included. Text holding a lone
+SQLite orders text by code point. Every filter is answered in SQL, and `limit`
+bounds the rows a listing returns, the inputs SQLite text cannot compare
+included. Text holding a lone
 surrogate, which in JavaScript matches half of a stored pair, matches
 `text_units`: the lower-cased name, type and id as UTF-16 code units in hex
 (four digits and a comma per unit, the fields joined by `|`), where `instr`
@@ -443,8 +444,11 @@ Each store takes a write as it stands when `commit` is called: one
 lock, through a transaction's view as well. Only that copy is checked, made into
 rows and handed to `onCommit`, so a caller changing the write later changes
 nothing, and no getter or `toJSON` of the caller's runs while it is encoded (the
-copy has none). A write the clone refuses, one holding a function or a symbol,
-rejects whole with the clone's error, in every store. A listing likewise reads its
+copy has none). Each blob's inline bytes are copied again into a buffer of their own,
+since `structuredClone` keeps a `SharedArrayBuffer`'s memory shared; what a store holds
+then shares memory with nothing, and neither do the copies its reads hand out. A write
+the clone refuses, one holding a function or a symbol, rejects whole with the clone's
+error, in every store. A listing likewise reads its
 query as it stands at the call, and every store refuses a `limit` that is not a
 positive safe integer (SQLite would read a negative one as no limit).
 
@@ -479,24 +483,34 @@ and JSON stores are `"commit"`, and every store's transaction view is `"host"`: 
 commits stand only if the transaction's work succeeds, so a manager built over a view
 keeps what it retires too.
 
-Over a `"host"` store the manager cannot know a landed change will last, so it removes
-no file the change stopped naming. Before the commit it marks each one retired
-(`BlobFiles.retire`; `blobFiles` refreshes the file's times), and a mark that fails
-fails the change. `recover` over such a store removes a file no record names only once
-`BlobFiles.abandoned` says it has gone unchanged for as long as abandoned staging
-(`STAGING_ABANDONED_AFTER_MS`, 24 hours), so a `recover` reading the host's uncommitted
-records keeps what a rollback would name again. A host rollback therefore reads every
-file the change retired; after a host commit, the retired files wait for `recover`.
-A `"host"` manager whose `BlobFiles` lacks `retire` or `abandoned` is refused at
-construction. Over a `"commit"` store, retired files go once the commit lands, and
-`recover` removes unnamed files at once: it reads committed records under the store's
-write lock.
+Over a `"host"` store the manager cannot know a landed change will last, so it never
+removes a file committed records may name: not the files a change stopped naming, and
+not in `recover`, which it refuses with an error saying to run it from a manager over
+the durable store, outside the host's transaction. A host rollback therefore reads every
+file the change retired. A retired file, and a file a rolled-back change published, stays
+until such a durable `recover` runs; nothing removes it before then, however long that
+is.
+
+Reclaiming is a manager over a `"commit"` store: retired files go once its own commit
+lands, and its `recover` removes every file no record names. It reads committed records
+under the store's exclusion, so it never runs while a host transaction on its database is
+unsettled: on SQLite that transaction holds the write lock, and the durable `recover`
+fails with `SQLITE_BUSY` (or waits out its busy timeout) and removes nothing; through a
+store's own `transaction`, on every store, it waits for the transaction to settle, then
+sees its outcome.
 
 Over a `"host"` store, bindings, observers and `afterCommit` effects still run once the
 store's commit resolves, before the host's outcome is known. A directory bound to such a
 manager may then show a change the host rolled back until it applies the records again.
 
 Known limits:
+
+- A listing's `limit` bounds the rows it returns, not the work behind them. Text holding
+  a lone surrogate (matched on `text_units`), a cursor whose time is not a valid `Date`
+  (which compares by `id_order`, and no index orders by `id_order` alone), and `total`
+  (a count of every match) can each examine every Artifact in the scope. Ordinary text
+  is matched with `instr` and examines them too; type and cursor filters search their
+  index.
 
 - libSQL defect (`@libsql/client` 0.18.0): after it refuses a `BEGIN` with
   `SQLITE_BUSY` (another process or connection holds the write lock), the refused

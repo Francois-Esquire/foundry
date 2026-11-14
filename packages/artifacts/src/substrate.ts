@@ -239,7 +239,9 @@ export interface Artifacts extends ArtifactOperations {
   observe(changed: ArtifactObserver): () => void;
   /**
    * Remove abandoned backing files (and bytes staged by a process that is
-   * gone), then reapply every Artifact.
+   * gone), then reapply every Artifact. Over a store whose commits a host
+   * transaction may roll back (durability `"host"`), it rejects: run it from
+   * a manager over the durable store, outside that transaction.
    */
   recover(): Promise<void>;
   /**
