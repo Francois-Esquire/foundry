@@ -12,7 +12,7 @@ import type {
   WorkspaceStore,
   WorkspaceStoreWrite,
 } from "./index";
-import { byCodePoint, byPathThenId, pageOffset } from "./order";
+import { byCodePoint, byPathThenId, pageInputOf, pageOffset } from "./order";
 
 /** Why a call from inside the store's own transaction is refused. */
 const REENTRY =
@@ -28,8 +28,16 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
   private storage = new Storage();
   private readonly turns = new Turns(REENTRY);
 
+  /**
+   * Takes the write as it stands now: one `structuredClone` of it, made
+   * before the commit waits its turn, so a caller changing the write later
+   * changes nothing. A write the clone refuses rejects whole and changes
+   * nothing. A transaction's view takes its writes the same way.
+   */
   commit(write: WorkspaceStoreWrite): Promise<void> {
-    return this.inTurn((storage) => storage.apply(write));
+    return withOwnCopy(write, (copy) =>
+      this.inTurn((storage) => storage.apply(copy))
+    );
   }
 
   transaction<T>(work: (view: WorkspaceStore) => Promise<T>): Promise<T> {
@@ -40,12 +48,14 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
         new Promise((resolve) => resolve(answer(staged)));
       const view: WorkspaceStore = {
         commit: (write) =>
-          onStaged((storage) => {
-            if (!open) {
-              throw new Error("This transaction has ended");
-            }
-            storage.apply(write);
-          }),
+          withOwnCopy(write, (copy) =>
+            onStaged((storage) => {
+              if (!open) {
+                throw new Error("This transaction has ended");
+              }
+              storage.apply(copy);
+            })
+          ),
         findWorkspaceByPath: (path) =>
           onStaged((storage) => storage.findWorkspaceByPath(path)),
         findWorkspaceBySourceId: (sourceId) =>
@@ -85,10 +95,17 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
     return this.inTurn((storage) => storage.findWorkspaceBySourceId(sourceId));
   }
 
+  /** Reads `input` when called; see {@link pageInputOf}. */
   listWorkspaces(
     input?: PageInput<number>
   ): Promise<Page<WorkspaceRegistration, number>> {
-    return this.inTurn((storage) => storage.listWorkspaces(input));
+    let query: PageInput<number>;
+    try {
+      query = pageInputOf(input);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.inTurn((storage) => storage.listWorkspaces(query));
   }
 
   getEntry(
@@ -136,6 +153,7 @@ class Storage {
     return new Storage(new Map(this.workspaces), new Map(this.entries));
   }
 
+  /** Applies `write`, the store's own copy, which the maps then hold. */
   apply(write: WorkspaceStoreWrite): void {
     if (write.workspace === undefined) {
       this.workspaces.delete(write.removeWorkspace);
@@ -147,14 +165,11 @@ class Storage {
 
   /**
    * Deletes the named entries of the saved Workspace, then files each put
-   * under its own `workspaceId`. Clones first, so a write holding a value
-   * that cannot be cloned changes nothing.
+   * under its own `workspaceId`.
    */
   private save(write: WorkspaceSave): void {
-    const workspace = structuredClone(write.workspace);
-    const puts = (write.putEntries ?? []).map((entry) =>
-      structuredClone(entry)
-    );
+    const { workspace } = write;
+    const puts = write.putEntries ?? [];
     const changed = new Map<
       WorkspaceId,
       Map<WorkspaceEntryId, WorkspaceEntry>
@@ -232,6 +247,23 @@ class Storage {
   private ordered(): WorkspaceRegistration[] {
     return [...this.workspaces.values()].sort(byCreatedAtThenId);
   }
+}
+
+/**
+ * `take` with the store's own copy of `write`, or a rejection when the
+ * write cannot be cloned.
+ */
+function withOwnCopy(
+  write: WorkspaceStoreWrite,
+  take: (copy: WorkspaceStoreWrite) => Promise<void>
+): Promise<void> {
+  let copy: WorkspaceStoreWrite;
+  try {
+    copy = structuredClone(write);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  return take(copy);
 }
 
 function byCreatedAtThenId(

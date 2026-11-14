@@ -1,3 +1,4 @@
+import type { PageInput } from "@foundry/core/pagination";
 import { byCodeUnit } from "@foundry/lib/ordering";
 import type { WorkspaceEntry } from "../types";
 
@@ -58,4 +59,17 @@ export function pageOffset(cursor: number | undefined): number {
     throw new RangeError("Page cursor is invalid");
   }
   return cursor;
+}
+
+/**
+ * A `listWorkspaces` input as it stands now: its cursor and limit, read
+ * once when the read is called, so a caller changing its input while the
+ * read waits its turn changes nothing. They are checked when the read runs.
+ */
+export function pageInputOf(
+  input: PageInput<number> | undefined
+): PageInput<number> {
+  return input === undefined
+    ? {}
+    : { cursor: input.cursor, limit: input.limit };
 }

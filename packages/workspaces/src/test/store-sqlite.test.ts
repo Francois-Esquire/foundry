@@ -325,6 +325,72 @@ describe("SqliteWorkspaceStore", () => {
     ]);
   });
 
+  test.each([
+    ["memory", memory],
+    ["file", files],
+  ] as const)(
+    "onCommit receives the write as it stood when commit was called, not the caller's object (%s)",
+    async (_location, databases) => {
+      const received: WorkspaceStoreWrite[] = [];
+      const store = new SqliteWorkspaceStore({
+        database: await databases.open(),
+        onCommit: (_transaction, write) => {
+          received.push(write);
+          return Promise.resolve();
+        },
+        scope: "host",
+      });
+      const saveOf = (label: string) => {
+        const workspace = hostWorkspace({ path: newRoot(label) });
+        return {
+          putEntries: [fileRecord(workspace.id, { path: "a.md" })],
+          workspace,
+        };
+      };
+      const change = (save: ReturnType<typeof saveOf>) => {
+        Object.assign(save.workspace, { name: "changed" });
+        save.workspace.updatedAt.setTime(0);
+        for (const entry of save.putEntries) {
+          Object.assign(entry, { path: "changed.md" });
+        }
+        save.putEntries.push(
+          fileRecord(save.workspace.id, { path: "late.md" })
+        );
+      };
+
+      // Queued behind a transaction, then through a transaction's view.
+      const held = Promise.withResolvers<undefined>();
+      const entered = Promise.withResolvers<undefined>();
+      const running = store.transaction(async () => {
+        entered.resolve(undefined);
+        await held.promise;
+      });
+      await entered.promise;
+      const queued = saveOf("queued");
+      const expected: WorkspaceStoreWrite[] = [structuredClone(queued)];
+      const landing = store.commit(queued);
+      change(queued);
+      held.resolve(undefined);
+      await Promise.all([running, landing]);
+      const viewed = saveOf("viewed");
+      expected.push(structuredClone(viewed));
+      await store.transaction(async (view) => {
+        const committed = view.commit(viewed);
+        change(viewed);
+        await committed;
+      });
+
+      expect(received).toEqual(expected);
+      expect(received[0]).not.toBe(queued);
+      expect(received[1]).not.toBe(viewed);
+      for (const write of received) {
+        const id = write.workspace?.id as WorkspaceId;
+        expect(await store.getWorkspace(id)).toEqual(write.workspace);
+        expect(await store.listEntries(id)).toEqual(write.putEntries);
+      }
+    }
+  );
+
   test("onCommit calling the store it belongs to is refused at once", async () => {
     const outcomes: string[] = [];
     let store: SqliteWorkspaceStore | undefined;

@@ -28,7 +28,7 @@ import type {
   WorkspaceStore,
   WorkspaceStoreWrite,
 } from "./index";
-import { byPathThenId, pageOffset } from "./order";
+import { byPathThenId, pageInputOf, pageOffset } from "./order";
 import { workspaceEntries, workspaces } from "./tables";
 
 /**
@@ -56,7 +56,8 @@ export interface SqliteWorkspaceStoreOptions {
   /**
    * Runs inside the commit's transaction after the store's own statements,
    * so the host can record the change atomically with it. A throw rolls the
-   * whole commit back. It receives the write as committed: a removal names
+   * whole commit back. It receives the store's own copy of the write, the
+   * one its rows were made from, not the caller's object: a removal names
    * only the Workspace, not the entries it deleted, so a hook that records
    * what a removal dropped has no entry ids from this store.
    */
@@ -122,11 +123,20 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
    * and its registration. Then `onCommit`. Rejects, before writing anything, a write
    * holding a value SQLite would not return intact (see
    * {@link unstorableField}). A delete of a key no row can hold does nothing.
+   *
+   * The store takes the write as it stands when `commit` is called: one
+   * `structuredClone` of the whole write, as the memory store takes it, made
+   * before the commit waits its turn. That copy alone is checked, made into
+   * every row, and handed to `onCommit`, so a caller changing its write
+   * later changes nothing. A write the clone refuses rejects with the
+   * clone's error, as in the memory store.
    */
   commit(write: WorkspaceStoreWrite): Promise<void> {
+    let owned: WorkspaceStoreWrite;
     let unstorable: RangeError | undefined;
     try {
-      unstorable = refuseUnstorable(write);
+      owned = structuredClone(write);
+      unstorable = refuseUnstorable(owned);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -135,12 +145,12 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     }
     return this.#turns.run(() =>
       this.#database.transaction(async (transaction) => {
-        if (write.workspace === undefined) {
-          await this.#remove(transaction, write.removeWorkspace);
+        if (owned.workspace === undefined) {
+          await this.#remove(transaction, owned.removeWorkspace);
         } else {
-          await this.#save(transaction, write);
+          await this.#save(transaction, owned);
         }
-        await this.#onCommit?.(transaction, write);
+        await this.#onCommit?.(transaction, owned);
       })
     );
   }
@@ -203,14 +213,21 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
    * One page and the total as of one moment: the two reads share one
    * database transaction, so no commit lands between them. On libSQL that
    * transaction begins `BEGIN IMMEDIATE`, as every Drizzle transaction there
-   * does, so a list holds the write lock while it reads.
+   * does, so a list holds the write lock while it reads. Reads `input` when
+   * called; see {@link pageInputOf}.
    */
   listWorkspaces(
-    input: PageInput<number> = {}
+    input?: PageInput<number>
   ): Promise<Page<WorkspaceRegistration, number>> {
+    let query: PageInput<number>;
+    try {
+      query = pageInputOf(input);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     return this.#turns.run(() => {
-      const limit = pageLimit(input.limit);
-      const offset = pageOffset(input.cursor);
+      const limit = pageLimit(query.limit);
+      const offset = pageOffset(query.cursor);
       const inScope = eq(workspaces.scope, this.#scope);
       return this.#database.transaction(async (transaction) => {
         const [counted] = await transaction
@@ -574,12 +591,14 @@ type Put = readonly [
 ];
 
 /**
- * The refusal for the first value a write puts that SQLite would not give
- * back intact, naming it by its path, such as `putEntries[2].path`. A storage
- * limit of this store, not a rule of the domain. It reads every field the
- * write puts, so a field that throws when read rejects the write before any
- * statement runs. A value that throws only when bound (an object posing as a
- * `Date`) fails inside the commit's transaction, which rolls back.
+ * The refusal for the first value the store's copy of a write puts that
+ * SQLite would not give back intact, naming it by its path, such as
+ * `putEntries[2].path`. A storage limit of this store, not a rule of the
+ * domain. The copy was taken by `structuredClone`, so a field that throws
+ * when read, or holds a function, has already rejected the write before
+ * any statement runs. A value that fails only when bound (an object posing
+ * as a `Date`, which the clone makes a plain object) fails inside the
+ * commit's transaction, which rolls back.
  */
 function refuseUnstorable(write: WorkspaceStoreWrite): RangeError | undefined {
   const field = unstorableField(write);

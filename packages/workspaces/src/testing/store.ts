@@ -43,6 +43,7 @@ export function describeWorkspaceStore(
     describeScopes(open);
     describeAtomicity(open);
     describeDetachment(open);
+    describeOwnership(open);
     describeLargeWrites(open);
     describeTransactions(open);
     describeReentry(open);
@@ -977,6 +978,148 @@ function manyFiles(
 }
 
 /** Every read over one Workspace, to compare before and after a write. */
+function describeOwnership(open: Open): void {
+  describe("a write and a list input are the store's from the call", () => {
+    /**
+     * A store holding a Workspace with two files, and a save of it as a
+     * caller holds it, with what the store should hold once the save lands
+     * as it stood at the call.
+     */
+    async function arranged() {
+      const store = (await open())(SCOPE);
+      const workspace = hostWorkspace({ path: newRoot("owned") });
+      const kept = fileRecord(workspace.id, { path: "a.md" });
+      const doomed = fileRecord(workspace.id, { path: "b.md" });
+      await seed(store, workspace, [kept, doomed]);
+      const save = {
+        deleteEntries: [] as WorkspaceEntry["id"][],
+        putEntries: [fileRecord(workspace.id, { path: "c.md" })],
+        workspace: { ...workspace, name: "saved", updatedAt: new Date(5) },
+      };
+      const expected = structuredClone({
+        entries: [kept, doomed, ...save.putEntries],
+        list: { items: [save.workspace], total: 1 },
+        workspace: save.workspace,
+      });
+      return { doomed, expected, save, store, workspace };
+    }
+
+    /**
+     * Changes, in place, everything `save` holds, as a caller might once
+     * `commit` has returned: every field of its registration and entries, a
+     * further entry put, `doomed` deleted, and the save made a removal.
+     */
+    function scramble(
+      save: Awaited<ReturnType<typeof arranged>>["save"],
+      doomed: WorkspaceEntry
+    ): void {
+      const { workspace } = save;
+      scribbleWorkspace(workspace);
+      for (const entry of save.putEntries) {
+        scribbleEntry(entry);
+      }
+      save.putEntries.push(fileRecord(workspace.id, { path: "late.md" }));
+      save.deleteEntries.push(doomed.id);
+      Object.assign(save, {
+        removeWorkspace: workspace.id,
+        workspace: undefined,
+      });
+    }
+
+    test("a commit changed at once after the call lands as it was called", async () => {
+      const { doomed, expected, save, store, workspace } = await arranged();
+
+      const landing = store.commit(save);
+      scramble(save, doomed);
+      await landing;
+
+      expect(await everything(store, workspace)).toEqual(expected);
+    });
+
+    test("a commit changed while it waits behind a transaction lands as it was called", async ({
+      skip,
+    }) => {
+      const { doomed, expected, save, store, workspace } = await arranged();
+      if (store.transaction === undefined) {
+        return skip();
+      }
+      const entered = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
+      const running = store.transaction(async () => {
+        entered.resolve(undefined);
+        await release.promise;
+      });
+      await entered.promise;
+
+      const landing = store.commit(save);
+      scramble(save, doomed);
+      release.resolve(undefined);
+      await Promise.all([running, landing]);
+
+      expect(await everything(store, workspace)).toEqual(expected);
+    });
+
+    test("a commit through a transaction's view lands as it was called", async ({
+      skip,
+    }) => {
+      const { doomed, expected, save, store, workspace } = await arranged();
+      if (store.transaction === undefined) {
+        return skip();
+      }
+
+      await store.transaction(async (view) => {
+        const committed = view.commit(save);
+        scramble(save, doomed);
+        await committed;
+        expect(await everything(view, workspace)).toEqual(expected);
+      });
+
+      expect(await everything(store, workspace)).toEqual(expected);
+    });
+
+    test("listWorkspaces pages by its input as it was called, at once or behind a transaction", async ({
+      skip,
+    }) => {
+      const store = (await open())(SCOPE);
+      const created = [0, 1, 2].map((index) =>
+        hostWorkspace({
+          createdAt: new Date(index),
+          path: newRoot(String(index)),
+        })
+      );
+      for (const workspace of created) {
+        await seed(store, workspace);
+      }
+      const firstPage = { items: created.slice(0, 1), nextCursor: 1, total: 3 };
+      const change = (input: { cursor?: number; limit?: number }) => {
+        Object.assign(input, { cursor: 2, limit: 3 });
+      };
+
+      const atOnce: { cursor?: number; limit?: number } = { limit: 1 };
+      const listed = store.listWorkspaces(atOnce);
+      change(atOnce);
+      expect(await listed).toEqual(firstPage);
+
+      if (store.transaction === undefined) {
+        return skip();
+      }
+      const entered = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
+      const running = store.transaction(async () => {
+        entered.resolve(undefined);
+        await release.promise;
+      });
+      await entered.promise;
+      const queued: { cursor?: number; limit?: number } = { limit: 1 };
+      const waiting = store.listWorkspaces(queued);
+      change(queued);
+      release.resolve(undefined);
+      await running;
+      expect(await waiting).toEqual(firstPage);
+    });
+  });
+}
+
 async function everything(
   store: WorkspaceStore,
   workspace: WorkspaceRegistration
