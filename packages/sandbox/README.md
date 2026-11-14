@@ -436,10 +436,25 @@ boots again under `<rowId>-<generation>`.
 A registry owns every VM it boots. If the commit that records a boot fails
 (a SQLite store busy under another connection's lock, say), `start`, `open`
 or `restart` removes the VM it just booted, tries to mark the row `failed`,
-and rejects with the commit's error. A VM the registry cannot remove, then or
-when its last handle closes, stays the registry's: `sweep` and `shutdown`
-retry it against the runtime's inventory, `shutdown` rejects while one
+and rejects with the commit's error. A VM the registry cannot remove stays
+the registry's: after a failed post-boot commit, after a guest setup that
+failed, when its last handle closes, or when `open` or `remove` fails to
+stop or remove an old native name (the runtime cannot say whether such a VM
+is gone or stuck). `sweep` and `shutdown` retry it against the runtime's
+inventory, which drops a VM that is gone; `shutdown` rejects while one
 remains, and calling `shutdown` again retries it.
+
+Limits:
+
+- The list of VMs the registry could not remove is in memory. If the process
+  is lost first, their cleanup is not guaranteed: the next process's `open`
+  or `remove` of the row removes a VM whose name the row still records, but
+  nothing removes one whose row has moved on to a later name.
+- `sweep` removes VMs; it does not repair rows. A row left `starting`,
+  `restarting` or `running` with no VM (after a commit that failed while a
+  VM was removed) stays so until a later `open` or `remove` of it.
+- Once `open` has failed to stop an old native name, `shutdown` reads the
+  runtime's inventory to settle it, even when that VM was simply gone.
 
 Every container is parameterized by its spec: image, workdir, public
 environment, ports, `resources` (memory, cpus, pids), network, mounts, labels,
