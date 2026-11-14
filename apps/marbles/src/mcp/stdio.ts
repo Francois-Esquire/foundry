@@ -1,6 +1,4 @@
-import { Console } from "node:console";
 import { resolve } from "node:path";
-import { Writable } from "node:stream";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   hostHere,
@@ -10,33 +8,16 @@ import {
 } from "~/access/workspace";
 import type { Flags } from "~/args";
 import { createMcpServer, type McpServerOptions } from "~/mcp/server";
+import { takeStdout } from "~/mcp/stdout";
 import type { WorkspaceSummary } from "~/model/connection";
 import { readStatus } from "~/status/model";
 import type { WorkspaceHost } from "~/workspace/host";
 import { findWorkspace } from "~/workspace/open";
 import { resolveSource } from "~/workspace/source";
 
-// Imported source and workflow bodies may print. Only the transport writes
-// to the original stdout; everything else goes to stderr. The CLI loads this
-// module only for `marbles mcp`, after its own imports.
-const protocolWrite = process.stdout.write.bind(process.stdout);
-const protocolOutput = new Writable({
-  write(chunk, encoding, callback) {
-    protocolWrite(chunk, encoding, callback);
-  },
-});
-const diagnosticWrite = process.stderr.write.bind(process.stderr);
-process.stdout.write = diagnosticWrite;
-// evlog binds stdout's write when it loads, before this redirect, and
-// pretty-prints model turns there. It reads this slot first on every write.
-Object.assign(globalThis, { __evlogNativeStdoutWrite: diagnosticWrite });
-Object.assign(
-  globalThis.console,
-  new Console({
-    stderr: process.stderr,
-    stdout: process.stderr,
-  })
-);
+// The CLI loads this module only for `marbles mcp`, after its own imports;
+// nothing has printed yet.
+const protocolOutput = takeStdout();
 const print = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };

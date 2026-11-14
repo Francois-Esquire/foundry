@@ -247,12 +247,14 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   }
 }, 30_000);
 
-it("keeps a dry-run model turn's log off the protocol stream", async () => {
+it("keeps a dry-run model turn's log, Bun's own stdout, and a child's off the protocol stream", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-dry-"));
   const source = join(root, "marbles.ts");
   await writeFile(
     source,
     `import { agent } from "@foundry.sh/marbles";
+await Bun.write(Bun.stdout, "NATIVE_STDOUT\\n");
+Bun.spawnSync(["echo", "CHILD_STDOUT"], { stdout: "inherit" });
 agent({ name: "helper", prompt: "You help." });`
   );
   configureProviders(join(root, "state"));
@@ -292,6 +294,8 @@ agent({ name: "helper", prompt: "You help." });`
     await rm(root, { force: true, recursive: true });
     // The turn's model log is a diagnostic: stderr has it, stdout does not.
     expect(ended.stderr).toContain("models.inference");
+    expect(ended.stderr).toContain("NATIVE_STDOUT");
+    expect(ended.stderr).toContain("CHILD_STDOUT");
     expect(strayLines(ended.stdout)).toEqual([]);
   }
 }, 30_000);
