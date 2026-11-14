@@ -124,9 +124,9 @@ From this checkout, without a build, run `bun --no-env-file
 
 `--source` accepts a file or directory and defaults to `.foundry/marbles`
 under `cwd`. The server reads and writes that workspace's stored state and
-drives the Marbles process when one runs. Outside `--dry-run` it never
-starts the process, never attaches the workspace, and runs none of its
-source; under `--dry-run` it hosts the workspace in its own process. The task tools
+drives the Marbles process when one runs. It never starts the process,
+never attaches the workspace, and runs none of its source, under
+`--dry-run` too. The task tools
 work without a process, and without a source, for this workspace and any
 workspace recorded under the state root, even one whose checkout is gone:
 a worker that hosts the workspace
@@ -225,19 +225,18 @@ that interruption rather than waiting indefinitely.
 
 Diagnostics and the worker's status lines go to stderr; stdout carries MCP
 messages only. The server runs in a child process whose stdout is stderr,
-so whatever source modules and the processes they start print to stdout
-goes to stderr too. The server exits when stdin closes, when the
+so whatever it and the processes it starts print to stdout goes to stderr
+too. The server exits when stdin closes, when the
 `marbles mcp` process that started it exits, or when it receives SIGINT or
-SIGTERM. Shutdown takes a few seconds at most. Work that does not stop in
-time is cut off, and the server is killed if it still runs. If the
-`marbles mcp` process gets SIGKILL while source code blocks the
-server's event loop, the server runs until that code returns. A Marbles process that hosts the workspace keeps
-hosting it, and several MCP clients can use one process at once. Use `--state` to select a
-separate state root (each root has its own process), or `--dry-run` to host
-the workspace in the server's own process with in-memory state, echo
-models, and no provider calls; closing a dry-run server cancels its runs.
-Dry runs still execute source and workflow code, including any filesystem
-or network calls that code makes directly.
+SIGTERM. Shutdown takes a few seconds at most. A task call that does not
+finish in time is cut off, and the server is killed if it still runs. A
+Marbles process that hosts the workspace keeps hosting it, and several MCP
+clients can use one process at once. Use `--state` to select a separate
+state root (each root has its own process). Under `--dry-run` the server
+joins no process, lists only its own workspace, keeps its tasks in memory
+for the session, and writes nothing. `list_config`, the dispatch tools,
+`get_run`, and `cancel_run` then return an error. A dry run of a workflow
+goes through `marbles roll --dry-run`.
 
 ### Dashboard
 

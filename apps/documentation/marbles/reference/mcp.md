@@ -4,9 +4,9 @@ description: Launch workflows and agents over STDIO, then watch their output by 
 ---
 
 The Marbles MCP server reads and writes a workspace's stored state and
-drives a running Marbles process. It manages nothing: outside `--dry-run`
-it never starts the process, never attaches a workspace, and runs no source
-or trigger itself.
+drives a running Marbles process. It manages nothing: it never starts the
+process, never attaches a workspace, and runs no source or trigger itself.
+This holds under `--dry-run` too.
 External agents can list workspaces, read or change the workspace's tasks,
 and, while the Marbles process hosts the workspace, inspect its loaded
 configuration, dispatch work, read its status, and cancel it. Both workflow
@@ -62,12 +62,13 @@ workspace's schedules and monitors run in that worker, never in the server.
 
 The server also accepts `--state`, `--artifacts`, and `--dry-run`. Their defaults match the [CLI flags](/marbles/reference/cli#flags).
 Diagnostics go to stderr; stdout carries MCP messages only. The server
-runs in a child process whose stdout is stderr, so whatever source modules
-and the processes they start print to stdout goes to stderr too. Under
-`--dry-run` the server hosts the workspace in its own process instead:
-nothing persists, the Marbles process is not involved, only the server's
-own workspace exists, every tool answers from that host, a `.env.schema`
-that does not resolve prevents startup, and no trigger loop runs.
+runs in a child process whose stdout is stderr, so whatever it and the
+processes it starts print to stdout goes to stderr too.
+
+Under `--dry-run` the server still hosts nothing and loads no source. It
+joins no Marbles process, even one that hosts the workspace, and writes
+nothing. [Tools](#tools) says what each tool does then. A dry run of a
+workflow goes through `marbles roll --dry-run`.
 
 ## Tools
 
@@ -92,8 +93,13 @@ checkout is gone; an id with no record is a tool error. A symlink under
 the state root is not a record, and the server's own workspace is refused
 when its state directory is a symlink. The other tools reach a workspace only through the
 worker that hosts it: an id that is not hosted is a tool error, and a call
-to a workspace whose worker is not `ready` fails with its state. Under `--dry-run` only the server's own
-workspace exists.
+to a workspace whose worker is not `ready` fails with its state.
+
+Under `--dry-run`, `list_workspaces` names only the server's own workspace,
+as `stopped`. The task tools answer from memory for that workspace and
+refuse any other id. `list_config`, `dispatch_workflow`, `dispatch_agent`,
+`get_run`, and `cancel_run` return an error that names
+`marbles roll --dry-run`.
 
 Dispatch responses are acknowledgements, even if their status is already
 `completed`. They contain no final `output`, `text`, or `error`; call `get_run`
@@ -168,7 +174,7 @@ For example:
 ```
 
 `maxTurns` limits SDK model/tool steps for network providers and the native
-loop for Claude Code. Dry runs use an SDK step limit. It does not ask the
+loop for Claude Code. It does not ask the
 server to send repeated follow-up prompts or force that many replies.
 Continue a conversation by making another dispatch with its `session`.
 Concurrent dispatches cannot use the same active session in one worker.
@@ -191,9 +197,7 @@ external work. Cancellation cannot undo completed side effects.
 A dispatched run belongs to the workspace's worker, not to the MCP
 connection. Closing stdin, ending the `marbles mcp` process, or SIGINT or
 SIGTERM ends the server and nothing else. Shutdown takes a few seconds at
-most; work that does not stop in time is cut off. One case has no bound:
-if the `marbles mcp` process gets SIGKILL while workspace code blocks the
-server's event loop, the server runs until that code returns. In every case the Marbles process keeps hosting the workspace, its triggers
+most; a task call that does not finish in time is cut off. The Marbles process keeps hosting the workspace, its triggers
 keep running, and runs already dispatched run to completion. Several MCP
 clients can run at once against one process. `get_run` and `cancel_run`
 look a run up in the worker that hosts its workspace, so any server for
@@ -204,10 +208,8 @@ disk stays watchable, and a run parked on a question or a pause is adopted
 by the fresh worker. The journal is not a persistent job queue, and output
 files have no automatic retention policy yet.
 
-`--dry-run` keeps everything in the server's process: closing the connection
-cancels outstanding work, runs save no journal, and nothing can watch them
-from outside. Dry runs still execute arbitrary source and workflow code;
-they do not isolate its own filesystem or network calls.
+Under `--dry-run` the server runs nothing. Its in-memory tasks end with
+the connection.
 
 `marbles stop` ends the process and every workspace it hosts; `marbles
 status` shows the process and which workspaces are hosted. Custom artifact
