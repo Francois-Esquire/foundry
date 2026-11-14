@@ -332,6 +332,55 @@ export function describeSessionStore(
       );
     });
 
+    it("keeps a write as it was when commit was called, whatever its caller changes after", async () => {
+      const store = await fresh();
+      await store.commit({ putSessions: [session("s")] });
+      const written = message("m1", "s", 1);
+      const record = session("s", { title: "before" });
+
+      const pending = store.commit({
+        putMessages: [written],
+        putSessions: [record],
+      });
+      (written.parts[0] as { text: string }).text = "after";
+      written.status = "error";
+      record.title = "after";
+      await pending;
+
+      await expect(store.getMessage("m1")).resolves.toStrictEqual(
+        message("m1", "s", 1)
+      );
+      await expect(store.getSession("s")).resolves.toStrictEqual(
+        session("s", { title: "before" })
+      );
+    });
+
+    it("keeps a commit queued behind a transaction as it was when called", async (context) => {
+      const store = await fresh();
+      if (store.transaction === undefined) {
+        context.skip();
+        return;
+      }
+      await store.commit({ putSessions: [session("s")] });
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const running = store.transaction(async () => {
+        entered.resolve();
+        await release.promise;
+      });
+      await entered.promise;
+      const written = message("m1", "s", 1);
+
+      const queued = store.commit({ putMessages: [written] });
+      (written.parts[0] as { text: string }).text = "after";
+      release.resolve();
+      await Promise.all([running, queued]);
+
+      await expect(store.getMessage("m1")).resolves.toStrictEqual(
+        message("m1", "s", 1)
+      );
+    });
+
     it("hands out values that do not change what it holds", async () => {
       const store = await fresh();
       await store.commit({

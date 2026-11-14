@@ -178,11 +178,21 @@ export class JsonSessionStore implements SessionStore {
     });
   }
 
-  /** Merges `write` into the files it changes, holding the directory's turn. */
+  /**
+   * Merges `write` into the files it changes, holding the directory's turn.
+   * The write is copied when called, before waiting for the turn (see
+   * {@link ownedWrite}).
+   */
   commit(write: SessionStoreWrite): Promise<void> {
+    let owned: SessionStoreWrite;
+    try {
+      owned = ownedWrite(write);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     return this.#exclusive(async () => {
       const draft = new Draft(this.#file);
-      await draft.commit(write);
+      await draft.commit(owned);
       await this.#publish(draft);
     });
   }
@@ -388,7 +398,13 @@ class Draft implements SessionStore {
     this.#files = files;
   }
 
-  commit(write: SessionStoreWrite): Promise<void> {
+  commit(input: SessionStoreWrite): Promise<void> {
+    let write: SessionStoreWrite;
+    try {
+      write = ownedWrite(input);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     return this.#turns.run(async () => {
       const next = new Map<string, SessionFile | undefined>();
       const fileOf = async (id: string) => {
@@ -531,6 +547,15 @@ function withoutMessage(file: SessionFile, id: string): SessionFile {
 }
 
 /** `file` as staged: detached, with the text it will be written as. */
+/**
+ * `write` in the JSON form the store writes, copied now so a caller changing
+ * `write` afterwards changes nothing the store keeps. A value with no JSON
+ * form refuses the whole write here, before anything is staged.
+ */
+function ownedWrite(write: SessionStoreWrite): SessionStoreWrite {
+  return JSON.parse(JSON.stringify(write)) as SessionStoreWrite;
+}
+
 function encoded(file: SessionFile): StagedFile {
   const text = JSON.stringify(file, null, 2);
   return { ...(JSON.parse(text) as SessionFile), text };

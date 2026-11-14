@@ -21,9 +21,20 @@ export class InMemorySessionStore implements SessionStore {
   readonly #owners = new Map<string, string>();
   readonly #turns = new Turns(REENTRY);
 
+  /**
+   * Copies `write` when called, before waiting for its turn, so a caller
+   * changing it afterwards changes nothing it keeps; a value that cannot be
+   * copied refuses the whole write.
+   */
   commit(write: SessionStoreWrite): Promise<void> {
+    let copied: Copied;
+    try {
+      copied = copyOf(write);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     return this.#turns.run(() => {
-      this.#apply(write);
+      this.#apply(copied);
       return Promise.resolve();
     });
   }
@@ -79,10 +90,7 @@ export class InMemorySessionStore implements SessionStore {
     replaceEntries(this.#owners, source.#owners);
   }
 
-  #apply(write: SessionStoreWrite): void {
-    // Copy first so a value that cannot be copied refuses the whole write.
-    const sessions = (write.putSessions ?? []).map((s) => structuredClone(s));
-    const messages = (write.putMessages ?? []).map((m) => structuredClone(m));
+  #apply({ messages, sessions }: Copied): void {
     for (const session of sessions) {
       this.#sessions.set(session.id, session);
     }
@@ -112,6 +120,19 @@ export class InMemorySessionStore implements SessionStore {
     );
     this.#owners.set(message.id, message.sessionId);
   }
+}
+
+/** A write's records, copied so they share nothing with the caller's. */
+interface Copied {
+  readonly messages: readonly SessionMessage[];
+  readonly sessions: readonly SessionRecord[];
+}
+
+function copyOf(write: SessionStoreWrite): Copied {
+  return {
+    messages: (write.putMessages ?? []).map((m) => structuredClone(m)),
+    sessions: (write.putSessions ?? []).map((s) => structuredClone(s)),
+  };
 }
 
 /** Makes `target` hold `source`'s entries, in `source`'s order. */

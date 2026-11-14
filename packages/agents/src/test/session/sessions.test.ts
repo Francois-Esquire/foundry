@@ -1,4 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import type {
+  CreateMessageInput,
+  SummarizeInput,
+  UpdateMessageInput,
+  UpdateSessionInput,
+} from "../../session/sessions";
 import {
   messagesToSummarize,
   newSessionMessage,
@@ -703,6 +709,73 @@ describe.each(sessionStoreKinds())("over %s", (_kind, open) => {
         await expect(store.listMessages("s")).resolves.toEqual([]);
       }
     );
+  });
+
+  describe("Sessions reads what a caller hands it once, when called", () => {
+    it("keeps an appended message as it was handed over", async () => {
+      const store = await open();
+      const sessions = new Sessions({ store });
+      await sessions.createSession({ id: "s" });
+      const input: CreateMessageInput = {
+        metadata: { model: { id: "before" } },
+        parts: [{ text: "before", type: "text" }],
+        role: "user",
+        sessionId: "s",
+      };
+
+      const pending = sessions.appendMessage(input);
+      (input.parts[0] as { text: string }).text = "after";
+      (input.metadata as { model: { id: string } }).model.id = "after";
+      input.role = "assistant";
+      const appended = await pending;
+
+      const kept = {
+        metadata: { model: { id: "before" } },
+        parts: [{ text: "before", type: "text" }],
+        role: "user",
+      };
+      expect(appended).toMatchObject(kept);
+      await expect(store.getMessage(appended.id)).resolves.toMatchObject(kept);
+    });
+
+    it("keeps an update, a summary and a session patch as they were handed over", async () => {
+      const store = await open();
+      const sessions = new Sessions({ store });
+      const { sessionId, ids } = await seedMessages(sessions, ["m1", "m2"]);
+      const update: UpdateMessageInput = {
+        parts: [{ text: "before", type: "text" }],
+        status: "error",
+      };
+      const fold: SummarizeInput = {
+        messageId: req(ids[1]),
+        sessionId,
+        summary: { parts: [{ text: "summary before", type: "text" }] },
+      };
+      const rename: UpdateSessionInput = { title: "before" };
+
+      const updating = sessions.updateMessage(req(ids[0]), update);
+      (update.parts?.[0] as { text: string }).text = "after";
+      update.status = "complete";
+      await updating;
+      const folding = sessions.summarize(fold);
+      (fold.summary.parts[0] as { text: string }).text = "summary after";
+      fold.messageId = "nowhere";
+      const result = await folding;
+      const renaming = sessions.updateSession(sessionId, rename);
+      rename.title = "after";
+      await renaming;
+
+      await expect(store.getMessage(req(ids[0]))).resolves.toMatchObject({
+        parts: [{ text: "before", type: "text" }],
+        status: "error",
+      });
+      expect(result?.summary.parts).toEqual([
+        { text: "summary before", type: "text" },
+      ]);
+      await expect(store.getSession(sessionId)).resolves.toMatchObject({
+        title: "before",
+      });
+    });
   });
 });
 
