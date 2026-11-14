@@ -64,8 +64,11 @@ Five buckets, each importing only what sits below it:
   once. `open.ts` has one way in per role: `initializeDatabase`, the
   Marbles process's alone, creates it (WAL, busy timeout, foreign keys)
   and migrates it; `writeDatabase` writes only to a file that is there and
-  current; `readDatabase` reads through a connection that cannot write or
-  create and leaves no side file behind. `client.ts` makes everything this
+  current; `readDatabase` reads through a read-only connection and never
+  creates the database file, migrates it, or changes its content. It
+  makes no side file either, but for one narrow race, described on
+  `readDatabase`, that can leave an empty WAL file, which holds nothing
+  and which readers and writers pass over. `client.ts` makes everything this
   process does on the file take turns, keyed by the file's device and
   inode (a link or another spelling of its name shares the queue), since
   the native driver blocks the thread while it waits for a lock. Nothing

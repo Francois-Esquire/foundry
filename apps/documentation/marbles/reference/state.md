@@ -111,8 +111,10 @@ current fails to start); `list`, `status`,
 root empty. Only the Marbles process creates the database and applies the
 migrations its Marbles ships. Its workers and the CLI write only to a
 database that is there and current. `status`, the MCP server, and every
-other reader open it read-only: they never create, migrate, or switch its
-journal mode, and leave no file behind that was not there. A database whose
+other reader open it read-only: they never create, migrate, or change it,
+and never switch its journal mode. A reader that meets the last writer
+closing at the moment it opens can leave an empty `marbles.db-wal`; it
+holds nothing, and readers and the Marbles process pass over it. A database whose
 migrations are behind or ahead of the reading Marbles, or differ from the
 ones it ships, is refused with an error that says which. The daemon, its
 workers, and the CLI hold it at once: a writer waits up to five seconds for

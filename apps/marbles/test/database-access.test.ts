@@ -5,6 +5,8 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -247,10 +249,24 @@ describe("reading the Marbles database", () => {
   it("refuses a WAL file it would have to recover, creating nothing", async () => {
     const dir = join(scratch(), "state");
     const file = join(dir, "marbles.db");
+    const holder = await processWith(scratch(), file, "a", "hold");
+    holder.kill("SIGKILL");
+    await exited(holder);
+    // Its committed frames are in the WAL, and the index to them is gone.
+    rmSync(`${file}-shm`);
+    expect(statSync(`${file}-wal`).size).toBeGreaterThan(0);
+    const before = snapshot(dir);
+    await expect(readDatabase(file, ids)).rejects.toThrow(UNCLEAN);
+    expect(snapshot(dir)).toEqual(before);
+  });
+
+  it("reads past an empty WAL file, as the narrow race leaves one", async () => {
+    const dir = join(scratch(), "state");
+    const file = join(dir, "marbles.db");
     await exited(await processWith(scratch(), file, "a", "exit"));
     writeFileSync(`${file}-wal`, "");
     const before = snapshot(dir);
-    await expect(readDatabase(file, ids)).rejects.toThrow(UNCLEAN);
+    expect(await readDatabase(file, ids)).toEqual(["a"]);
     expect(snapshot(dir)).toEqual(before);
   });
 

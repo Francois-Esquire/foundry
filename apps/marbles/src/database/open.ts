@@ -133,17 +133,30 @@ export async function writeDatabase<T>(
 /**
  * Run `work` on a read-only view of the database at `file`, and close it
  * after. Undefined, and `work` not run, when there is no file or nothing
- * was ever migrated into it. The connection cannot write or create, and a
- * schema behind or ahead of this Marbles is refused
- * (`IncompatibleDatabaseError`) without touching the file.
+ * was ever migrated into it. A schema behind or ahead of this Marbles is
+ * refused (`IncompatibleDatabaseError`).
  *
- * With a WAL file beside it, the database may be open in another process:
- * the read takes part in SQLite's WAL locking through the shared-memory
- * file already there. Without one, everything is in the main file and no
- * connection has it open, so it is read as immutable, which takes no lock
- * and writes no side file; a file that changes while it is read that way
- * (a process opened it meanwhile) is read again. A WAL file without its
- * shared-memory file needs recovering, which only a writer can do.
+ * The rule a reader keeps: it never creates the database file, never
+ * migrates it, and never changes its content. The connection is read-only
+ * (`mode=ro`), so it cannot write.
+ *
+ * With both side files beside it, the database may be open in another
+ * process: the read takes part in SQLite's WAL locking through the
+ * shared-memory file already there, opened read-only (`readonly_shm=1`) so
+ * the read cannot make one. Without them, or with only an empty WAL file,
+ * everything is in the main file and no connection has it open, so it is
+ * read as immutable, which takes no lock and makes no side file; a file
+ * that changes while it is read that way (a process opened it meanwhile)
+ * is read again. A WAL file holding frames but no shared-memory file needs
+ * recovering, which only a writer can do.
+ *
+ * One race is narrowed, not closed. When the last writer closes between
+ * this connection opening and its first read, it takes the side files with
+ * it. The read then fails for want of the shared-memory file and is made
+ * again as immutable, but SQLite has by then left an empty WAL file. libSQL
+ * offers no supported way to stop that short of a VFS of its own. The
+ * empty file holds nothing: the next reader reads past it as immutable, and
+ * the next writer opens and migrates as usual.
  */
 export async function readDatabase<T>(
   file: string,
@@ -155,34 +168,58 @@ export async function readDatabase<T>(
     if (!existsSync(path)) {
       return;
     }
-    const wal = existsSync(`${path}-wal`);
-    if (wal && !existsSync(`${path}-shm`)) {
-      throw new UnreadableDatabaseError(
-        `the Marbles database at ${path} was not closed cleanly; start the Marbles process to recover it`
-      );
-    }
-    const before = wal ? undefined : fingerprint(path);
-    const client = existing(
-      path,
-      wal ? "mode=ro" : "mode=ro&immutable=1",
-      options
-    );
-    let value: T | undefined;
-    try {
-      const database = drizzle({ client });
-      value = (await usable(database, path, options))
-        ? await work(database)
-        : undefined;
-    } finally {
-      client.close();
-    }
-    if (before === undefined || before === fingerprint(path)) {
-      return value;
+    const read = await readOnce(path, work, options);
+    if (read.done) {
+      return read.value;
     }
   }
   throw new UnreadableDatabaseError(
     `the Marbles database at ${path} kept changing while it was read; try again`
   );
+}
+
+type Read<T> =
+  | { readonly done: true; readonly value: T | undefined }
+  | { readonly done: false };
+
+/** One attempt of `readDatabase`; not done when the file changed under it. */
+async function readOnce<T>(
+  path: string,
+  work: (database: StoreDatabase) => Promise<T>,
+  options: OpenDatabaseOptions
+): Promise<Read<T>> {
+  const wal = sizeOf(`${path}-wal`);
+  const live = wal !== undefined && existsSync(`${path}-shm`);
+  if (!live && wal !== undefined && wal > 0) {
+    throw new UnreadableDatabaseError(
+      `the Marbles database at ${path} was not closed cleanly; start the Marbles process to recover it`
+    );
+  }
+  const before = live ? undefined : fingerprint(path);
+  const client = existing(
+    path,
+    live ? "mode=ro&readonly_shm=1" : "mode=ro&immutable=1",
+    options
+  );
+  let value: T | undefined;
+  try {
+    const database = drizzle({ client });
+    value = (await usable(database, path, options))
+      ? await work(database)
+      : undefined;
+  } catch (error) {
+    // The last writer closed after this one opened and took the side files
+    // along: read again, now as immutable.
+    if (live && !existsSync(`${path}-shm`)) {
+      return { done: false };
+    }
+    throw error;
+  } finally {
+    client.close();
+  }
+  return before === undefined || before === fingerprint(path)
+    ? { done: true, value }
+    : { done: false };
 }
 
 /**
@@ -248,10 +285,21 @@ function describe(missing: readonly ShippedMigration[]): string {
   return `${first?.tag ?? "a migration"}${more > 0 ? ` and ${String(more)} more` : ""}`;
 }
 
-/** What changes when a process writes the file: its identity, size and time. */
+/** The size of the file at `path`, read without opening it; undefined when there is none. */
+function sizeOf(path: string): number | undefined {
+  return statSync(path, { throwIfNoEntry: false })?.size;
+}
+
+/** What changes when a process writes the file or opens it: its identity, size and time, and its side files. */
 function fingerprint(path: string): string | undefined {
   const stat = statSync(path, { throwIfNoEntry: false });
   return stat === undefined
     ? undefined
-    : `${String(stat.ino)}:${String(stat.size)}:${String(stat.mtimeMs)}:${String(existsSync(`${path}-wal`))}`;
+    : [
+        stat.ino,
+        stat.size,
+        stat.mtimeMs,
+        sizeOf(`${path}-wal`),
+        existsSync(`${path}-shm`),
+      ].join(":");
 }
