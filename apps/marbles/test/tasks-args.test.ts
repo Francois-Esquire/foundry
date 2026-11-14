@@ -189,19 +189,12 @@ it("reads --metadata as JSON: stored on create, a patch on update", () => {
   });
 });
 
-it("keeps a __proto__ key in --metadata at any depth", () => {
-  const { task: command } = task([
-    "update",
-    "tk-1",
-    "--metadata",
-    '{"__proto__":null,"x":{"__proto__":1}}',
-  ]);
-  const operation =
-    command.kind === "change" ? command.change.operations[0] : undefined;
-  const patch = operation?.kind === "task.update" ? operation.patch : {};
-  expect(JSON.stringify(patch.metadata)).toBe(
-    '{"__proto__":null,"x":{"__proto__":1}}'
-  );
+it("refuses a __proto__ key in --metadata at any depth", () => {
+  for (const metadata of ['{"__proto__":null}', '{"x":[{"__proto__":1}]}']) {
+    expect(() =>
+      parseArgs(["tasks", "update", "tk-1", "--metadata", metadata])
+    ).toThrow('"__proto__" is not allowed as a metadata key');
+  }
 });
 
 it("refuses a tasks line that cannot run, before anything loads", () => {

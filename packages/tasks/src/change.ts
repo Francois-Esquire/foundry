@@ -1,12 +1,14 @@
+import { z } from "zod";
 import { type AvailabilityOptions, availabilityIn } from "./availability";
 import { edgeKey } from "./edges";
 import { TaskError } from "./errors";
-import type {
-  ChangedTask,
-  TaskChange,
-  TaskOperation,
-  TaskRef,
-  TaskToken,
+import {
+  type ChangedTask,
+  type TaskChange,
+  type TaskOperation,
+  type TaskRef,
+  type TaskToken,
+  taskMetadataSchema,
 } from "./operations";
 import type { TaskSnapshot, TaskStoreWrite } from "./store";
 import type {
@@ -170,7 +172,7 @@ class Batch {
       createdAt: now,
       description: input.description ?? null,
       id,
-      metadata: input.metadata ?? {},
+      metadata: checkedMetadata(input.metadata ?? {}),
       parentId,
       settledAt: isSettled(status) ? now : null,
       status,
@@ -197,7 +199,12 @@ class Batch {
         : { description: patch.description }),
       ...(patch.metadata === undefined
         ? {}
-        : { metadata: mergedMetadata(current.metadata, patch.metadata) }),
+        : {
+            metadata: mergedMetadata(
+              current.metadata,
+              checkedMetadata(patch.metadata)
+            ),
+          }),
       ...(patch.tags === undefined ? {} : { tags: uniqueTags(patch.tags) }),
       updatedAt: this.now(),
     });
@@ -434,13 +441,28 @@ export function changeEvent(
  * one whole.
  */
 function mergedMetadata(stored: JsonObject, patch: JsonObject): JsonObject {
-  // Spread and `fromEntries` define own properties, so a `__proto__` key
-  // stays a key instead of reaching the prototype setter.
+  // `checkedMetadata` refuses a `__proto__` key; spread and `fromEntries`
+  // define own properties, so one could not reach the prototype setter here.
   return Object.fromEntries(
     Object.entries({ ...stored, ...patch }).filter(
       ([key, value]) => value !== null || !Object.hasOwn(patch, key)
     )
   );
+}
+
+/**
+ * Metadata as `taskChangeSchema` takes it, for callers that skip the schema:
+ * a fresh copy of plain JSON, with no `__proto__` key at any depth.
+ */
+function checkedMetadata(metadata: JsonObject): JsonObject {
+  const checked = taskMetadataSchema.safeParse(metadata);
+  if (!checked.success) {
+    throw new TaskError(
+      "invalid_operation",
+      `metadata: ${z.prettifyError(checked.error)}`
+    );
+  }
+  return checked.data;
 }
 
 /** Each tag once, where it first appears. Tags are exact strings. */

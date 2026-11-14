@@ -89,33 +89,60 @@ describe("taskChangeSchema", () => {
     }
   });
 
-  test("keeps a __proto__ metadata key at any depth", () => {
+  test("refuses metadata that would not survive as plain JSON", () => {
+    const update = (metadata: unknown) => ({
+      operations: [
+        { kind: "task.update", patch: { metadata }, task: { id: "t" } },
+      ],
+    });
     // A quoted `__proto__` in an object literal sets the prototype; parsed
     // JSON defines the key.
-    const metadata = JSON.parse('{"__proto__":null,"x":{"__proto__":1}}');
+    const proto = JSON.parse('{"__proto__":{"owner":"alice"}}');
+    const nested = JSON.parse('{"nested":{"list":[{"__proto__":1}]}}');
+    let reads = 0;
+    const getter = {
+      get late() {
+        reads += 1;
+        return reads === 1 ? 1 : Number.NaN;
+      },
+    };
+    const refusals: [unknown, string][] = [
+      [proto, '"__proto__" is not allowed as a metadata key'],
+      [nested, '"__proto__" is not allowed as a metadata key'],
+      [getter, "A getter is not JSON data"],
+      [{ list: new Array(2) }, "Invalid input"],
+      [{ n: Number.NaN }, "Invalid input"],
+      [[], "expected record"],
+    ];
+    for (const [metadata, message] of refusals) {
+      const parsed = taskChangeSchema.safeParse(update(metadata));
+      expect(parsed.error?.issues[0]?.message).toContain(message);
+    }
+    expect(
+      taskChangeSchema.safeParse(update(nested)).error?.issues[0]?.path
+    ).toEqual([
+      "operations",
+      0,
+      "patch",
+      "metadata",
+      "nested",
+      "list",
+      0,
+      "__proto__",
+    ]);
+  });
+
+  test("reads metadata into a copy, so the input can change afterwards", () => {
+    const metadata = { nested: { list: [1] } };
     const parsed = taskChangeSchema.parse({
       operations: [
         { kind: "task.update", patch: { metadata }, task: { id: "t" } },
       ],
     });
     const [operation] = parsed.operations;
-    const patch = operation?.kind === "task.update" ? operation.patch : {};
-    expect(JSON.stringify(patch.metadata)).toBe(
-      '{"__proto__":null,"x":{"__proto__":1}}'
-    );
-
-    const hidden = JSON.parse('{"x":{"__proto__":1}}');
-    Object.defineProperty(hidden.x, "__proto__", {
-      enumerable: true,
-      value: () => 1,
-    });
-    for (const bad of [[], "text", hidden]) {
-      const change = {
-        operations: [
-          { kind: "task.update", patch: { metadata: bad }, task: { id: "t" } },
-        ],
-      };
-      expect(taskChangeSchema.safeParse(change).success).toBe(false);
-    }
+    const copy =
+      operation?.kind === "task.update" ? operation.patch.metadata : {};
+    metadata.nested.list.push(2);
+    expect(copy).toEqual({ nested: { list: [1] } });
   });
 });
