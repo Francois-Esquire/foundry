@@ -12,10 +12,10 @@ import {
 } from "@foundry/sandbox/container/constants";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { SandboxError } from "@foundry/sandbox/errors";
 import { normalizeSandboxPath } from "@foundry/sandbox/path";
 import { sandboxFromAdapter } from "@foundry/sandbox/sandbox";
+import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { expect, it } from "vitest";
 import packageJson from "../../package.json";
 
@@ -47,6 +47,14 @@ it("exposes sandbox ownership labels and the persisted spec format", () => {
   );
 });
 
+it("resolves the store interface through its own entry", () => {
+  for (const target of Object.values(packageJson.exports["./store"])) {
+    expect(existsSync(resolve(import.meta.dirname, "../..", target))).toBe(
+      true
+    );
+  }
+});
+
 it("resolves source and built declarations for the public leaf modules", () => {
   expect(Object.hasOwn(packageJson.exports, ".")).toBe(false);
   for (const entry of [
@@ -56,7 +64,8 @@ it("resolves source and built declarations for the public leaf modules", () => {
     "path",
     "constants",
     "schema",
-    "container/store",
+    "store/memory",
+    "testing/store",
     "container/constants",
     "container/constraints",
     "container/containers",

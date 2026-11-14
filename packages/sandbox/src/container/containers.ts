@@ -1,5 +1,8 @@
 import { SandboxError } from "../errors";
 import { assertNotAborted } from "../sandbox";
+import type { ContainerRow } from "../schema";
+import type { ContainerStore } from "../store/index";
+import { createMemoryContainerStore } from "../store/memory";
 import {
   ACTIVE_CONTAINER_RESOURCE_STATUSES,
   CONTAINER_ID_LABEL,
@@ -17,7 +20,6 @@ import {
 import type { ContainerFacets } from "./facets";
 import { containerFacets, resolveContainerMountSpecs } from "./facets";
 import { provisionContainerSandbox, startContainerSandbox } from "./sandbox";
-import type { ContainerRow, ContainerStore } from "./store";
 import type {
   ContainerConfig,
   ContainerMountSpec,
@@ -40,7 +42,8 @@ export interface CreateContainersOptions {
   /** Guest directory every mount target must equal or fall under. */
   readonly mountTargetRoot?: string;
   readonly runtime: ContainerRuntime;
-  readonly store: ContainerStore;
+  /** Persistence. Defaults to an in-memory store. */
+  readonly store?: ContainerStore;
 }
 
 export interface Containers {
@@ -49,12 +52,15 @@ export interface Containers {
   open(id: string, signal?: AbortSignal): Promise<Container>;
   /**
    * Delete a row whose VM is not live here, removing whatever the runtime
-   * still holds under its native name. Refuses while a handle is open.
+   * still holds under its native name. Refuses while a handle is open; an
+   * `open` or `restart` that begins before the delete commits is refused.
    */
   remove(id: string): Promise<void>;
   /**
    * The one change mechanism. Replaces the VM under the same row, with a new
    * spec when given. Open handles stay valid and see the new sandbox.
+   * Restarts of one container take turns; one whose last handle closes before
+   * it finishes stops and rejects, and the close removes whatever it booted.
    */
   restart(
     id: string,
@@ -85,11 +91,16 @@ export interface Container extends ContainerFacets {
   readonly row: ContainerRow;
 }
 
+/** The fields a registry write may change. Identity and creation time are fixed. */
+type RowPatch = Partial<Pick<ContainerRow, "nativeId" | "spec" | "status">>;
+
 interface Live {
   facets: ContainerFacets;
   handles: number;
   row: ContainerRow;
   sandbox: ContainerSandbox;
+  /** The restart in progress, settled; a release waits for it. */
+  turn: Promise<void>;
 }
 
 /**
@@ -99,27 +110,104 @@ interface Live {
  * old one.
  */
 export function createContainers(options: CreateContainersOptions): Containers {
-  const { runtime, store } = options;
+  const { runtime } = options;
+  const store = options.store ?? createMemoryContainerStore();
   const live = new Map<string, Live>();
   const pending = new Map<string, Promise<Live>>();
   const releasing = new Map<string, Promise<void>>();
+  /** Ids reserved by a `remove` from its checks until its delete commits. */
+  const removing = new Set<string>();
   let stopped = false;
+  let tail: Promise<unknown> = Promise.resolve();
 
   const selection = Object.freeze({
     [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
     [CONTAINER_INSTANCE_LABEL]: options.instanceLabel,
   });
 
-  const update = async (
-    entry: { row: ContainerRow },
-    patch: Partial<Pick<ContainerRow, "nativeId" | "spec" | "status">>
-  ): Promise<void> => {
-    const next = { ...patch, updatedAt: Date.now() };
-    await store.update(entry.row.id, next);
-    entry.row = Object.freeze({ ...entry.row, ...next });
+  const rowOrThrow = async (
+    id: string,
+    view: ContainerStore = store
+  ): Promise<ContainerRow> => {
+    const row = await view.get(id);
+    if (row === undefined) {
+      throw new SandboxError(
+        "invalid-contract",
+        `container ${id} does not exist`
+      );
+    }
+    return row;
   };
 
-  /** Boot a VM for the row and update its status. */
+  /**
+   * Runs one read-modify-write of the store: serialized in this registry, and
+   * inside the store's transaction when it offers one, so no other write from
+   * any registry over the store lands between its reads and its commit.
+   * `work` reads and commits through `view` only. Runtime calls stay outside,
+   * so a slow VM holds up no other row.
+   */
+  const serialized = <T>(
+    work: (view: ContainerStore) => Promise<T>
+  ): Promise<T> => {
+    const exclusive = (): Promise<T> =>
+      store.transaction === undefined ? work(store) : store.transaction(work);
+    const run = tail.then(exclusive, exclusive);
+    tail = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  };
+
+  /**
+   * Changes fields of a row that must still exist, over the row as stored,
+   * and keeps the result on the entry. Identity and creation time are fixed.
+   * A patch that depends on the row is worked out from the row as stored.
+   */
+  const update = async (
+    entry: { row: ContainerRow },
+    patch: RowPatch | ((current: ContainerRow) => RowPatch)
+  ): Promise<void> => {
+    entry.row = await serialized(async (view) => {
+      const current = await rowOrThrow(entry.row.id, view);
+      const next: ContainerRow = Object.freeze({
+        ...current,
+        ...(typeof patch === "function" ? patch(current) : patch),
+        updatedAt: Date.now(),
+      });
+      await view.commit({ putContainers: [next] });
+      return next;
+    });
+  };
+
+  /** A new row in `starting` under its first native name, refused if the id is taken. */
+  const insert = (constraints: ContainerSandboxConstraints) =>
+    serialized(async (view): Promise<ContainerRow> => {
+      const id = globalThis.crypto.randomUUID();
+      if ((await view.get(id)) !== undefined) {
+        throw new SandboxError(
+          "invalid-contract",
+          `container ${id} already exists`
+        );
+      }
+      const now = Date.now();
+      const row: ContainerRow = Object.freeze({
+        createdAt: now,
+        id,
+        nativeId: nextNativeId({ id, nativeId: undefined }),
+        spec: JSON.stringify(constraints),
+        status: "starting",
+        updatedAt: now,
+      });
+      await view.commit({ putContainers: [row] });
+      return row;
+    });
+
+  /**
+   * Boot a VM under the native name the row already records, then record
+   * whether it came up. The name is written first so that a VM this process
+   * never got to remove can still be found and removed by the next boot.
+   */
   const boot = async (
     entry: { row: ContainerRow },
     constraints: ContainerSandboxConstraints,
@@ -127,7 +215,13 @@ export function createContainers(options: CreateContainersOptions): Containers {
   ): Promise<Pick<Live, "sandbox" | "facets">> => {
     assertNotAborted(signal, "container start was cancelled");
     const { row } = entry;
-    const nativeId = nextNativeId(row);
+    const { nativeId } = row;
+    if (nativeId === undefined) {
+      throw new SandboxError(
+        "invalid-transition",
+        `container ${row.id} has no native name recorded to boot under`
+      );
+    }
     const resolved = containerSandboxConfigFromConstraints(
       constraints,
       options.config
@@ -141,7 +235,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
       },
       name: nativeId,
     };
-    await update(entry, { nativeId });
     let sandbox: ContainerSandbox;
     let mounts: readonly ContainerMountSpec[];
     try {
@@ -168,22 +261,28 @@ export function createContainers(options: CreateContainersOptions): Containers {
     };
   };
 
+  /** Boot a row whose native name is already recorded, and make it live. */
   const bringUp = async (
-    row: ContainerRow,
+    entry: { row: ContainerRow },
     constraints: ContainerSandboxConstraints,
     signal: AbortSignal | undefined
   ): Promise<Live> => {
-    const entry = { row };
-    await update(entry, { status: "starting" });
     const booted = await boot(entry, constraints, signal);
-    const created: Live = { ...booted, handles: 0, row: entry.row };
-    live.set(row.id, created);
+    const created: Live = {
+      ...booted,
+      handles: 0,
+      row: entry.row,
+      turn: Promise.resolve(),
+    };
+    live.set(entry.row.id, created);
     return created;
   };
 
   const release = (entry: Live): Promise<void> => {
     live.delete(entry.row.id);
     const done = (async () => {
+      // A restart under way finishes first, so the VM removed is its VM.
+      await entry.turn;
       await entry.sandbox.remove();
       await update(entry, { status: "stopped" });
     })().finally(() => releasing.delete(entry.row.id));
@@ -240,6 +339,15 @@ export function createContainers(options: CreateContainersOptions): Containers {
     });
   };
 
+  const assertNotRemoving = (id: string): void => {
+    if (removing.has(id)) {
+      throw new SandboxError(
+        "invalid-transition",
+        `container ${id} is being removed`
+      );
+    }
+  };
+
   const assertOpen = (): void => {
     if (stopped) {
       throw new SandboxError(
@@ -247,17 +355,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
         "containers registry has shut down"
       );
     }
-  };
-
-  const rowOrThrow = async (id: string): Promise<ContainerRow> => {
-    const row = await store.get(id);
-    if (row === undefined) {
-      throw new SandboxError(
-        "invalid-contract",
-        `container ${id} does not exist`
-      );
-    }
-    return row;
   };
 
   const containers: Containers = {
@@ -271,13 +368,19 @@ export function createContainers(options: CreateContainersOptions): Containers {
       }
       let inflight = pending.get(id);
       if (inflight === undefined) {
+        assertNotRemoving(id);
         inflight = (async () => {
           await released(id);
           const row = await rowOrThrow(id);
           if (row.nativeId !== undefined) {
             await removeNative(runtime, row.nativeId);
           }
-          return bringUp(row, parseSpec(JSON.parse(row.spec)), signal);
+          const entry = { row };
+          await update(entry, (current) => ({
+            nativeId: nextNativeId(current),
+            status: "starting",
+          }));
+          return bringUp(entry, parseSpec(JSON.parse(row.spec)), signal);
         })().finally(() => pending.delete(id));
         pending.set(id, inflight);
       }
@@ -286,18 +389,26 @@ export function createContainers(options: CreateContainersOptions): Containers {
 
     async remove(id) {
       assertOpen();
-      await released(id);
       if (live.has(id) || pending.has(id)) {
         throw new SandboxError(
           "invalid-transition",
           `container ${id} is live; close every handle before removing it`
         );
       }
-      const row = await rowOrThrow(id);
-      if (row.nativeId !== undefined) {
-        await removeNative(runtime, row.nativeId);
+      assertNotRemoving(id);
+      // Reserved before the first await and held until the delete commits,
+      // so no `open` can begin on the row while it is being removed.
+      removing.add(id);
+      try {
+        await released(id);
+        const row = await rowOrThrow(id);
+        if (row.nativeId !== undefined) {
+          await removeNative(runtime, row.nativeId);
+        }
+        await serialized((view) => view.commit({ deleteContainers: [id] }));
+      } finally {
+        removing.delete(id);
       }
-      await store.remove(id);
     },
 
     async restart(id, spec, signal) {
@@ -305,12 +416,10 @@ export function createContainers(options: CreateContainersOptions): Containers {
       const entry = live.get(id);
       if (entry === undefined) {
         // Not live here: the next `open` boots it with the new spec.
+        assertNotRemoving(id);
         const row = await rowOrThrow(id);
         if (spec !== undefined) {
-          await update(
-            { row },
-            { spec: JSON.stringify(parseSpec(spec)), status: row.status }
-          );
+          await update({ row }, { spec: JSON.stringify(parseSpec(spec)) });
         }
         return;
       }
@@ -318,19 +427,42 @@ export function createContainers(options: CreateContainersOptions): Containers {
         spec === undefined
           ? parseSpec(JSON.parse(entry.row.spec))
           : parseSpec(spec);
-      await update(entry, {
-        status: "restarting",
-        ...(spec === undefined ? {} : { spec: JSON.stringify(constraints) }),
-      });
-      await entry.sandbox.remove();
-      try {
-        const booted = await boot(entry, constraints, signal);
-        entry.sandbox = booted.sandbox;
-        entry.facets = booted.facets;
-      } catch (error: unknown) {
-        live.delete(id);
-        throw error;
-      }
+      /** Refuses to go on once the last handle has closed. */
+      const assertStillLive = (): void => {
+        if (live.get(id) !== entry) {
+          throw new SandboxError(
+            "invalid-transition",
+            `container ${id} was closed before its restart finished`
+          );
+        }
+      };
+      const run = async (): Promise<void> => {
+        assertStillLive();
+        await update(entry, {
+          status: "restarting",
+          ...(spec === undefined ? {} : { spec: JSON.stringify(constraints) }),
+        });
+        await entry.sandbox.remove();
+        assertStillLive();
+        try {
+          await update(entry, (current) => ({
+            nativeId: nextNativeId(current),
+          }));
+          assertStillLive();
+          const booted = await boot(entry, constraints, signal);
+          entry.sandbox = booted.sandbox;
+          entry.facets = booted.facets;
+        } catch (error: unknown) {
+          if (live.get(id) === entry) {
+            live.delete(id);
+          }
+          throw error;
+        }
+      };
+      // Restarts of one container take turns; a release waits for the last.
+      const turn = entry.turn.then(run, run);
+      entry.turn = turn.catch(() => undefined);
+      await turn;
     },
 
     async shutdown() {
@@ -345,17 +477,8 @@ export function createContainers(options: CreateContainersOptions): Containers {
     async start(spec, signal) {
       assertOpen();
       const constraints = parseSpec(spec);
-      const now = Date.now();
-      const row: ContainerRow = Object.freeze({
-        createdAt: now,
-        id: globalThis.crypto.randomUUID(),
-        nativeId: undefined,
-        spec: JSON.stringify(constraints),
-        status: "starting",
-        updatedAt: now,
-      });
-      await store.insert(row);
-      return handleFor(await bringUp(row, constraints, signal));
+      const row = await insert(constraints);
+      return handleFor(await bringUp({ row }, constraints, signal));
     },
     async sweep(signal) {
       assertOpen();
@@ -390,7 +513,7 @@ function parseSpec(input: unknown): ContainerSandboxConstraints {
 }
 
 /** `<rowId>-<generation>`, the generation read back off the previous native id. */
-function nextNativeId(row: ContainerRow): string {
+function nextNativeId(row: Pick<ContainerRow, "id" | "nativeId">): string {
   const previous = Number.parseInt(
     row.nativeId?.slice(row.id.length + 1) ?? "0",
     10

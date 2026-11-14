@@ -6,6 +6,11 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    "./store": {
+      "types": "./dist/store/index.d.ts",
+      "import": "./src/store/index.ts",
+      "default": "./src/store/index.ts"
+    },
     "./*": {
       "types": "./dist/*.d.ts",
       "import": "./src/*.ts",

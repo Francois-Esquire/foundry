@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CONTAINER_ENVIRONMENT_ID_LABEL,
   CONTAINER_ID_LABEL,
@@ -13,11 +13,16 @@ import {
 } from "../container/constants";
 import type { ContainerSandboxConstraints } from "../container/constraints";
 import { createContainers } from "../container/containers";
-import { createMemoryContainerStore } from "../container/store";
+import type { ContainerRow } from "../schema";
+import type { ContainerStore, ContainerStoreWrite } from "../store/index";
+import { createMemoryContainerStore } from "../store/memory";
 import { createFakeContainerRuntime } from "../testing";
 
 const MISSING_HYPERVISOR_ERROR = /no hypervisor/;
 const MISSING_CONTAINER_ERROR = /does not exist/;
+const DUPLICATE_CONTAINER_ERROR = /already exists/;
+const REMOVING_CONTAINER_ERROR = /being removed/;
+const CLOSED_DURING_RESTART_ERROR = /closed before its restart finished/;
 const INVALID_SPEC_ERROR = /invalid container spec/;
 const LIVE_CONTAINER_ERROR = /live/;
 const SHUTDOWN_ERROR = /shut down/;
@@ -34,6 +39,71 @@ function fixture(instanceLabel = "instance-a") {
   const store = createMemoryContainerStore();
   const containers = createContainers({ instanceLabel, runtime, store });
   return { containers, runtime, store };
+}
+
+/**
+ * A memory store that answers asynchronously and can hold a matching commit
+ * until the test lets it through, so one write can be caught mid-flight.
+ * With `transactional`, it offers the memory store's transaction and holds
+ * commits made through a transaction's view.
+ */
+function gatedStore({ transactional = false } = {}) {
+  const inner = createMemoryContainerStore();
+  const writes: ContainerStoreWrite[] = [];
+  let gate:
+    | { matches: (write: ContainerStoreWrite) => boolean; open: Promise<void> }
+    | undefined;
+  let held = (): void => undefined;
+  const gated = (target: ContainerStore): ContainerStore => ({
+    async commit(write) {
+      writes.push(write);
+      const current = gate;
+      if (current?.matches(write)) {
+        gate = undefined;
+        held();
+        await current.open;
+      }
+      await target.commit(write);
+    },
+    get: async (id) => await target.get(id),
+    list: async () => await target.list(),
+  });
+  const store: ContainerStore = transactional
+    ? {
+        ...gated(inner),
+        transaction<T>(work: (view: ContainerStore) => Promise<T>) {
+          if (inner.transaction === undefined) {
+            throw new Error("the memory store offers a transaction");
+          }
+          return inner.transaction((view) => work(gated(view)));
+        },
+      }
+    : gated(inner);
+  return {
+    /** Holds the next commit `matches` accepts; resolves once one is held. */
+    hold(matches: (write: ContainerStoreWrite) => boolean) {
+      let release = (): void => undefined;
+      const open = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const caught = new Promise<void>((resolve) => {
+        held = resolve;
+      });
+      gate = { matches, open };
+      return { caught, release };
+    },
+    store,
+    writes,
+  };
+}
+
+function puts(writes: readonly ContainerStoreWrite[]): Partial<ContainerRow>[] {
+  return writes.flatMap((write) =>
+    (write.putContainers ?? []).map(({ nativeId, status }) => ({
+      nativeId,
+      status,
+    }))
+  );
 }
 
 describe("containers registry", () => {
@@ -212,22 +282,25 @@ describe("containers registry", () => {
   });
 
   it("restart replaces the VM under open handles, with a new spec when given", async () => {
-    const { runtime, store, containers } = fixture();
+    const { store, writes } = gatedStore({ transactional: true });
+    const runtime = createFakeContainerRuntime();
+    const containers = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
     const a = await containers.start(SPEC);
     const b = await containers.open(a.id);
     const before = a.files;
-    const statuses: string[] = [];
-    const observed = store.update.bind(store);
-    store.update = (id, patch) => {
-      if (patch.status !== undefined) {
-        statuses.push(patch.status);
-      }
-      return observed(id, patch);
-    };
+    writes.length = 0;
 
     await containers.restart(a.id, { ...SPEC, ports: [3000, 5173] });
 
-    expect(statuses).toEqual(["restarting", "running"]);
+    expect(puts(writes)).toEqual([
+      { nativeId: `${a.id}-1`, status: "restarting" },
+      { nativeId: `${a.id}-2`, status: "restarting" },
+      { nativeId: `${a.id}-2`, status: "running" },
+    ]);
     expect(runtime.instances[0]?.removed).toBe(true);
     expect(runtime.instances[1]?.id).toBe(`${a.id}-2`);
     expect(runtime.instances[1]?.spec.ports.map((p) => p.guestPort)).toEqual([
@@ -317,7 +390,7 @@ describe("containers registry", () => {
 
     const kept = await mine.start(SPEC);
     const orphan = await mine.start(SPEC);
-    await store.remove(orphan.id);
+    await store.commit({ deleteContainers: [orphan.id] });
     const foreign = await other.start(SPEC);
     await runtime.create({
       cpus: 1,
@@ -379,6 +452,197 @@ describe("containers registry", () => {
       }
     }
   );
+
+  it("keeps the memory store when given none", async () => {
+    const containers = createContainers({
+      instanceLabel: "instance-a",
+      runtime: createFakeContainerRuntime(),
+    });
+    const c = await containers.start(SPEC);
+    expect((await containers.list()).map((row) => row.status)).toEqual([
+      "running",
+    ]);
+    await c.close();
+    expect((await containers.list())[0]?.status).toBe("stopped");
+  });
+
+  it("refuses to write back a row deleted under a live handle", async () => {
+    const { store, containers } = fixture();
+    const c = await containers.start(SPEC);
+    await store.commit({ deleteContainers: [c.id] });
+    await expect(c.close()).rejects.toThrow(MISSING_CONTAINER_ERROR);
+    expect(await store.get(c.id)).toBeUndefined();
+  });
+
+  it("commits a new row once, under its first native name, before the VM boots", async () => {
+    const { store, writes } = gatedStore();
+    const containers = createContainers({
+      instanceLabel: "instance-a",
+      runtime: createFakeContainerRuntime(),
+      store,
+    });
+    const c = await containers.start(SPEC);
+    expect(puts(writes)).toEqual([
+      { nativeId: `${c.id}-1`, status: "starting" },
+      { nativeId: `${c.id}-1`, status: "running" },
+    ]);
+    await c.close();
+    writes.length = 0;
+
+    const reopened = await containers.open(c.id);
+    expect(puts(writes)).toEqual([
+      { nativeId: `${c.id}-2`, status: "starting" },
+      { nativeId: `${c.id}-2`, status: "running" },
+    ]);
+    await reopened.close();
+  });
+
+  it("keeps a spec recorded while a reopen is writing its native name", async () => {
+    const { hold, store } = gatedStore();
+    const containers = createContainers({
+      instanceLabel: "instance-a",
+      runtime: createFakeContainerRuntime(),
+      store,
+    });
+    const c = await containers.start(SPEC);
+    await c.close();
+    const alpine = { ...SPEC, image: "docker.io/library/alpine:3" };
+
+    const gate = hold(
+      (write) => write.putContainers?.[0]?.nativeId === `${c.id}-2`
+    );
+    const reopening = containers.open(c.id);
+    await gate.caught;
+    const restarting = containers.restart(c.id, alpine);
+    // Let the restart reach the store before the reopen's commit lands.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    gate.release();
+    await restarting;
+    const reopened = await reopening;
+
+    expect(JSON.parse((await store.get(c.id))?.spec ?? "")).toMatchObject({
+      image: "docker.io/library/alpine:3",
+    });
+    expect((await store.get(c.id))?.nativeId).toBe(`${c.id}-2`);
+    await reopened.close();
+  });
+
+  it("keeps a spec another registry records while a reopen is writing", async () => {
+    const { hold, store } = gatedStore({ transactional: true });
+    const runtime = createFakeContainerRuntime();
+    const first = createContainers({ instanceLabel: "a", runtime, store });
+    const second = createContainers({ instanceLabel: "a", runtime, store });
+    const c = await first.start(SPEC);
+    await c.close();
+    const alpine = { ...SPEC, image: "docker.io/library/alpine:3" };
+
+    const gate = hold(
+      (write) => write.putContainers?.[0]?.nativeId === `${c.id}-2`
+    );
+    const reopening = first.open(c.id);
+    await gate.caught;
+    const restarting = second.restart(c.id, alpine);
+    // Let the other registry reach the store before the reopen's commit lands.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    gate.release();
+    await restarting;
+    const reopened = await reopening;
+
+    expect(JSON.parse((await store.get(c.id))?.spec ?? "")).toMatchObject({
+      image: "docker.io/library/alpine:3",
+    });
+    expect((await store.get(c.id))?.nativeId).toBe(`${c.id}-2`);
+    await reopened.close();
+  });
+
+  it("boots two registries reopening one row under different native names", async () => {
+    const { store } = gatedStore({ transactional: true });
+    const runtime = createFakeContainerRuntime();
+    const first = createContainers({ instanceLabel: "a", runtime, store });
+    const second = createContainers({ instanceLabel: "a", runtime, store });
+    const c = await first.start(SPEC);
+    await c.close();
+
+    // Each names its VM from the row as stored, so no name is used twice.
+    // The row records one of them: one row is live in one registry at a time.
+    const handles = await Promise.all([first.open(c.id), second.open(c.id)]);
+    expect(runtime.instances.map((instance) => instance.id)).toEqual([
+      `${c.id}-1`,
+      `${c.id}-2`,
+      `${c.id}-3`,
+    ]);
+    await Promise.all(handles.map((handle) => handle.close()));
+  });
+
+  it("refuses a new row whose generated id is already taken", async () => {
+    const { store, containers } = fixture();
+    const first = await containers.start(SPEC);
+    await first.close();
+    const before = await store.get(first.id);
+    const uuid = vi
+      .spyOn(globalThis.crypto, "randomUUID")
+      .mockReturnValue(first.id as ReturnType<Crypto["randomUUID"]>);
+    try {
+      await expect(
+        containers.start({ ...SPEC, image: "docker.io/library/alpine:3" })
+      ).rejects.toThrow(DUPLICATE_CONTAINER_ERROR);
+    } finally {
+      uuid.mockRestore();
+    }
+    expect(await store.get(first.id)).toEqual(before);
+    expect(await containers.list()).toHaveLength(1);
+  });
+
+  it("refuses an open that begins while the row is being removed", async () => {
+    const { hold, store } = gatedStore({ transactional: true });
+    const runtime = createFakeContainerRuntime();
+    const containers = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const c = await containers.start(SPEC);
+    await c.close();
+
+    const gate = hold(
+      (write) => write.deleteContainers?.includes(c.id) ?? false
+    );
+    const removing = containers.remove(c.id);
+    await gate.caught;
+    const opening = containers.open(c.id);
+    const restarting = containers.restart(c.id, SPEC);
+    gate.release();
+
+    await expect(opening).rejects.toThrow(REMOVING_CONTAINER_ERROR);
+    await expect(restarting).rejects.toThrow(REMOVING_CONTAINER_ERROR);
+    await removing;
+    expect(await store.get(c.id)).toBeUndefined();
+    expect(runtime.instances).toHaveLength(1);
+  });
+
+  it("stops a restart whose last handle closes and leaves no VM behind", async () => {
+    const { hold, store } = gatedStore({ transactional: true });
+    const runtime = createFakeContainerRuntime();
+    const containers = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const c = await containers.start(SPEC);
+
+    const gate = hold(
+      (write) => write.putContainers?.[0]?.nativeId === `${c.id}-2`
+    );
+    const restarting = containers.restart(c.id);
+    await gate.caught;
+    const closing = c.close();
+    gate.release();
+
+    await expect(restarting).rejects.toThrow(CLOSED_DURING_RESTART_ERROR);
+    await closing;
+    expect(runtime.instances.every((instance) => instance.removed)).toBe(true);
+    expect((await store.get(c.id))?.status).toBe("stopped");
+  });
 
   it("remove deletes a closed row and refuses a live one", async () => {
     const { runtime, store, containers } = fixture();

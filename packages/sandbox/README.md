@@ -51,7 +51,7 @@ package depending on the SDK.
 ```typescript
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createVirtualSystem } from "@foundry/sandbox/virtual/system";
 
 const containers = createContainers({
@@ -143,9 +143,17 @@ sandboxFromAdapter(adapter); // a Sandbox over a backend's SandboxAdapter
 
 POSIX glob matching lives in `@foundry/lib/glob` (`globToRegExp`).
 
-`@foundry/sandbox/container/store` exports `ContainerStore`, `ContainerRow`,
-`ContainerRowStatus`, and `createMemoryContainerStore` without importing a
-runtime. `CONTAINER_ROW_STATUSES` lives in
+`@foundry/sandbox/store` exports the `ContainerStore` interface, its
+`ContainerStoreWrite`, `ContainerRow`, and `ContainerRowStatus` without
+importing a runtime. A store applies each `commit(write)` atomically and
+enforces nothing; the registry holds every rule. A store may offer
+`transaction(work)`, which keeps every write from any registry over the store
+out from between `work`'s reads and its commit; the registry runs each
+read-modify-write through it when offered, and serializes its own writes
+either way. `@foundry/sandbox/store/memory`
+exports `createMemoryContainerStore`, the default when `createContainers` gets
+no `store`. `@foundry/sandbox/testing/store` exports `describeContainerStore`,
+the Vitest conformance suite every store passes. `CONTAINER_ROW_STATUSES` lives in
 `@foundry/sandbox/container/constants`.
 
 Constants have scoped entry points: `@foundry/sandbox/constants`,

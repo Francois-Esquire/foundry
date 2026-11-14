@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { createContainers } from "../container/containers";
 import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
-import { createMemoryContainerStore } from "../container/store";
+import { createMemoryContainerStore } from "../store/memory";
 
 it("executes workspace tools while preserving nosuid/nodev and config noexec", async () => {
   const source = await realpath(

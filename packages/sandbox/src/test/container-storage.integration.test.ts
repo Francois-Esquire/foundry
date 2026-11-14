@@ -14,7 +14,7 @@ import { expect, it } from "vitest";
 
 import { createContainers } from "../container/containers";
 import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
-import { createMemoryContainerStore } from "../container/store";
+import { createMemoryContainerStore } from "../store/memory";
 
 it("uses guest storage over a mounted slice and enforces a read-only mount", async () => {
   const runtime = createMicrosandboxRuntime();
