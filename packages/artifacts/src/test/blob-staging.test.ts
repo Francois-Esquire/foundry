@@ -1055,3 +1055,35 @@ describe("Call order for changes named by Content", () => {
     expect(decoded(read?.blob)).toBe("streamed");
   });
 });
+
+describe.each(["memory", "json"] as const)(
+  "%s store: ordering turns",
+  (kind) => {
+    it("releases a streamed change's turn before its bindings run", async () => {
+      const { manager } = await storage(kind);
+      const artifacts = manager();
+      const created = await artifacts.create({
+        entries: { "f.txt": { bytes: "start" } },
+        name: "Bound",
+        type: "text/plain",
+      });
+      const renamed: Promise<unknown>[] = [];
+      const unbind = artifacts.bind(async (id) => {
+        unbind();
+        const renaming = artifacts.rename(id, "bound");
+        renamed.push(renaming);
+        await renaming;
+      });
+      async function* source() {
+        yield await Promise.resolve(text("streamed"));
+      }
+      const writing = artifacts.write({
+        artifactId: created.id,
+        changes: { put: { "f.txt": { source: source() } } },
+      });
+      expect(await within(writing)).toBe("resolved");
+      expect(await within(Promise.all(renamed))).toBe("resolved");
+      expect((await artifacts.get(created.id))?.name).toBe("bound");
+    });
+  }
+);

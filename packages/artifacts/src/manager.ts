@@ -161,7 +161,9 @@ export class ArtifactManager implements Artifacts {
    * One change: `prepare` runs in this manager's turn, before the store's
    * exclusion, then `operation` builds the change inside it over the bytes
    * `staging` holds. Whatever `staging` still holds is discarded once the
-   * change settles.
+   * change settles. `settled` is told once the commit or the rollback is
+   * complete, before bindings, observers and after-commit callbacks run, so
+   * one of them may start the next change to the same Artifact.
    */
   async #change<T>(
     operation: (
@@ -169,63 +171,70 @@ export class ArtifactManager implements Artifacts {
       effects: CommitEffects
     ) => Promise<T>,
     staging: BlobStaging,
-    prepare: () => Promise<void> = () => Promise.resolve()
+    prepare: () => Promise<void> = () => Promise.resolve(),
+    settled: () => void = () => undefined
   ): Promise<T> {
     const effects = operationEffects();
     const callbacks: (() => Promise<void>)[] = [() => this.#settle(effects)];
     let attempted: ArtifactStoreWrite | undefined;
     let result: T;
     try {
-      result = await this.#exclusive(async (store) => {
-        const change = new ArtifactChange(store, {});
-        try {
-          const transaction = new ArtifactTransaction(
-            change,
-            effects,
-            this.#limits,
-            staging
-          );
-          const scope: TransactionScope = {
-            effects: {
-              afterCommit: (callback) => {
-                change.assertWritable();
-                callbacks.push(callback);
-              },
-            },
-            open: true,
-            transaction,
-          };
-          let value: T;
+      try {
+        result = await this.#exclusive(async (store) => {
+          const change = new ArtifactChange(store, {});
           try {
-            value = await this.#scope.run(scope, () =>
-              operation(transaction, scope.effects)
+            const transaction = new ArtifactTransaction(
+              change,
+              effects,
+              this.#limits,
+              staging
             );
+            const scope: TransactionScope = {
+              effects: {
+                afterCommit: (callback) => {
+                  change.assertWritable();
+                  callbacks.push(callback);
+                },
+              },
+              open: true,
+              transaction,
+            };
+            let value: T;
+            try {
+              value = await this.#scope.run(scope, () =>
+                operation(transaction, scope.effects)
+              );
+            } finally {
+              scope.open = false;
+            }
+            if (scope.failed) {
+              throw new TransactionRolledBackError({
+                cause: scope.failed.error,
+              });
+            }
+            await transaction.reclaim();
+            attempted = change.write();
+            if (attempted) {
+              await store.commit(attempted);
+            }
+            return value;
           } finally {
-            scope.open = false;
+            change.settle();
           }
-          if (scope.failed) {
-            throw new TransactionRolledBackError({ cause: scope.failed.error });
-          }
-          await transaction.reclaim();
-          attempted = change.write();
-          if (attempted) {
-            await store.commit(attempted);
-          }
-          return value;
-        } finally {
-          change.settle();
+        }, prepare);
+      } catch (error) {
+        // Published files go only once the store shows the write absent. A
+        // commit can fail after its write landed (syncing the replaced file);
+        // its records then name the files, and `recover` reapplies them.
+        if (!(await this.#mayHaveLanded(attempted))) {
+          await this.#removeFiles(effects.published);
         }
-      }, prepare);
-    } catch (error) {
-      // Published files go only once the store shows the write absent. A
-      // commit can fail after its write landed (syncing the replaced file);
-      // its records then name the files, and `recover` reapplies them.
-      if (!(await this.#mayHaveLanded(attempted))) {
-        await this.#removeFiles(effects.published);
+        throw error;
+      } finally {
+        await staging.discard();
       }
-      throw error;
     } finally {
-      await staging.discard();
+      settled();
     }
     // Outside the change, so a callback (a binding) may start the next one.
     await runAfterCommit(callbacks);
@@ -558,9 +567,9 @@ export class ArtifactManager implements Artifacts {
     }
     const staging = this.#staging();
     const streaming = staging.streamsAhead(entries);
-    return this.#inOrder(id, streaming, () =>
+    return this.#inOrder(id, streaming, (settled) =>
       streaming
-        ? this.#streamed(entries, check, operation, staging)
+        ? this.#streamed(entries, check, operation, staging, settled)
         : this.#change(operation, staging, async () => {
             await this.#check(check, staging);
             await staging.stageAll(entries);
@@ -572,7 +581,8 @@ export class ArtifactManager implements Artifacts {
     entries: EntryInputs | undefined,
     check: (artifacts: ArtifactTransaction) => Promise<unknown>,
     operation: (artifacts: ArtifactTransaction) => Promise<T>,
-    staging: BlobStaging
+    staging: BlobStaging,
+    settled: () => void
   ): Promise<T> {
     try {
       await this.#exclusive((store) => this.#checkOver(store, check, staging));
@@ -581,28 +591,31 @@ export class ArtifactManager implements Artifacts {
       await staging.discard();
       throw error;
     }
-    return this.#change(operation, staging);
+    return this.#change(operation, staging, undefined, settled);
   }
 
   /**
    * Call order for the changes this manager makes to Artifact `id`. A change
    * that `streams` takes its turn only once its bytes are staged, so a later
-   * change to `id` starts only after it has settled; until then it waits
-   * outside the queue. A change with no such stream ahead of it starts at
-   * once, and the queue keeps its order. Changes with no `id`, and calls
-   * joined to an open transaction, are not held.
+   * change to `id` starts only after it has committed or rolled back (it
+   * calls the `settled` it is given then, before its bindings run, or it
+   * rejects); until then the later change waits outside the queue. A change
+   * with no such stream ahead of it starts at once, and the queue keeps its
+   * order. Changes with no `id`, and calls joined to an open transaction,
+   * are not held.
    */
   #inOrder<T>(
     id: ArtifactId | undefined,
     streams: boolean,
-    start: () => Promise<T>
+    start: (settled: () => void) => Promise<T>
   ): Promise<T> {
+    const unheld = () => undefined;
     if (id === undefined || this.#joined()) {
-      return start();
+      return start(unheld);
     }
     const before = this.#ordered.get(id);
     if (before === undefined && !streams) {
-      return start();
+      return start(unheld);
     }
     let secured!: () => void;
     const mine = new Promise<void>((resolve) => {
@@ -615,8 +628,9 @@ export class ArtifactManager implements Artifacts {
       }
     });
     const begin = () => {
-      const result = start();
-      // A stream secures its place once it settles; any other change once queued.
+      const result = start(secured);
+      // A stream secures its place once it commits or rolls back, or once it
+      // rejects before reaching its change; any other change once queued.
       (streams ? result : Promise.resolve()).then(secured, secured);
       return result;
     };
