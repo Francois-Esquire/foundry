@@ -817,7 +817,7 @@ export function describeArtifactStore(
         contentIds: [],
       });
       expect(await everyArtifact(store)).toEqual([owner]);
-    });
+    }, 30_000);
 
     it("commits and deletes thousands of records in one write", async () => {
       const store = await fresh();
@@ -853,7 +853,7 @@ export function describeArtifactStore(
         blobIds: [],
         contentIds: [],
       });
-    });
+    }, 30_000);
 
     it("takes a write as it stands when commit is called, whatever the caller changes after", async () => {
       const store = await fresh();

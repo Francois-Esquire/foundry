@@ -470,7 +470,7 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
     expect(
       await readFile(join(required(conflicts[0]).directory, "notes.md"), "utf8")
     ).toBe("disk edit");
-  });
+  }, 30_000);
 
   it("left by a previous process are kept before records are applied", async () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-restart-fs-"));

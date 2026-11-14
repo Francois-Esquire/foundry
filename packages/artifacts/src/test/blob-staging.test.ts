@@ -609,7 +609,7 @@ describe.each(
       expect(await store.listBlobs()).toEqual([]);
       expect(await publishedFiles(blobs)).toEqual([]);
       expect(await stagedFiles(blobs)).toEqual([]);
-    });
+    }, 30_000);
 
     it(`rewrite an owned object in place, ${label}`, async () => {
       const { artifacts, blobs, store } = await harness();

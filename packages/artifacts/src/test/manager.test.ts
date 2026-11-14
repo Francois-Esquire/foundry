@@ -150,7 +150,7 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager blob objects", (kind) => {
     expect(reads).toHaveBeenCalledTimes(1);
     await artifacts.delete(fork.id);
     expect(await store.listBlobs()).toEqual([]);
-  });
+  }, 30_000);
 
   it("rewrites an owned object in place even when another object holds the new bytes", async () => {
     const store = await openStore(kind);

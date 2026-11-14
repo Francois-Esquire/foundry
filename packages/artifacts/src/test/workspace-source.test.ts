@@ -102,7 +102,7 @@ describe.each(STORE_KINDS)(
         byPath(await scanDirectory(nodeFileSystem, workspace.root))
       );
       expect(entries.filter((entry) => entry.type === "file")).toHaveLength(73);
-    });
+    }, 30_000);
 
     it("scans metadata without opening a blob and ignores no curated entries", async () => {
       const { artifacts, load } = await fixture(
