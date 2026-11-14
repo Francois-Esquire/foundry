@@ -125,8 +125,7 @@ interface SessionStream extends AsyncIterable<SessionEvent> {
 
 Iterate it, tap `StreamHandlers`, or just await a promise. Any combination.
 
-**Compaction** is opt-in and best-effort — it needs a summarize-aware store and
-never breaks a turn if it fails:
+**Compaction** is opt-in and best-effort — it never breaks a turn if it fails:
 
 ```typescript
 compaction: {
@@ -253,34 +252,53 @@ interface SessionMessage {
 Parts are the persisted form of _everything_ a turn emits, not just final text,
 so a transcript reconstructs exactly.
 
-### The store
+### Sessions and the store
+
+`Sessions` is the one writer of a store. It holds the session rules — a
+message needs its session, a session is filed once, a summary folds the
+history before it — and builds each change as one atomic `commit`:
 
 ```typescript
+import { Sessions } from "@foundry/agents/session";
+
+const sessions = new Sessions({ store }); // default: an InMemorySessionStore
+await sessions.createSession({ id: "s" });
+await sessions.appendMessage({ parts, role: "user", sessionId: "s" });
+await sessions.summarize({ messageId, sessionId: "s", summary: { parts } });
+await sessions.activeMessages("s"); // the latest summary, then what it did not fold
+```
+
+`summarize` writes the summary and every message it folds in one commit, so a
+history is never left half folded. Writes to a session take turns across every
+`Sessions` over the same store in this process.
+
+The store keeps records and enforces nothing:
+
+```typescript
+// @foundry/agents/store
 interface SessionStore {
-  createSession(input?: CreateSessionInput): Promise<SessionRecord>;
+  commit(write: SessionStoreWrite): Promise<void>; // all of it or none
+  getMessage(id: string): Promise<SessionMessage | null>;
   getSession(id: string): Promise<SessionRecord | null>;
-  updateSession(
-    id: string,
-    patch: UpdateSessionInput,
-  ): Promise<SessionRecord | null>;
-  appendMessage(input: CreateMessageInput): Promise<SessionMessage>;
-  updateMessage(
-    id: string,
-    patch: UpdateMessageInput,
-  ): Promise<SessionMessage | null>;
   listMessages(sessionId: string): Promise<SessionMessage[]>;
+}
+
+interface SessionStoreWrite {
+  putMessages?: readonly SessionMessage[]; // new ids go last; known ids keep their place
+  putSessions?: readonly SessionRecord[];
 }
 ```
 
-To back a session with a real database, extend `AbstractSessionStore` — it
-supplies the shared summarize and active-view behaviour so every store folds
-history identically. `InMemorySessionStore` is the zero-config default and the
-reference implementation any persistent store must match.
+Values crossing the seam are detached, and every write `Sessions` builds
+changes one session. `InMemorySessionStore` (`@foundry/agents/store/memory`)
+is the default. A persistent store proves it behaves the same by running
+the conformance suite:
 
-Override `summarize` when you do. The base implementation appends the summary
-and flips each folded message in a loop, which is only safe in memory; a real
-store must commit both as one transaction or the next compaction reads a
-corrupt history.
+```typescript
+import { describeSessionStore } from "@foundry/agents/testing";
+
+describeSessionStore("MyStore", () => new MyStore(/* fresh and empty */));
+```
 
 ### Events
 
