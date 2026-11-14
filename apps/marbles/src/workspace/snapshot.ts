@@ -6,7 +6,7 @@ import type {
 } from "@foundry/workflows/snapshot";
 import { StepSnapshotSchema } from "@foundry/workflows/snapshot";
 import type { RunRecord } from "@foundry/workflows/store";
-import { Option, Schema } from "effect";
+import { z } from "zod";
 import type { AutomationRecord } from "~/lib/automation/service";
 import type { ExecutionRun } from "~/lib/executions";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
@@ -31,29 +31,32 @@ import { type InputAttention, isActive } from "~/model/run-status";
 import type { KnownRun, MayBelong } from "./usage";
 import { stepUsages, totalOf, workspaceUsage } from "./usage";
 
-const decodeTrace = Schema.decodeUnknownOption(
-  Schema.Struct({
-    workflow: Schema.optional(
-      Schema.Struct({
-        steps: Schema.optional(
-          Schema.Record({ key: Schema.String, value: StepSnapshotSchema })
-        ),
-        telemetry: Schema.optional(
-          Schema.Struct({
-            logs: Schema.Array(
-              Schema.Struct({
-                at: Schema.String,
-                level: Schema.Literal("debug", "info", "warn", "error"),
-                message: Schema.String,
-                path: Schema.optional(Schema.Array(Schema.String)),
-              })
-            ),
-          })
-        ),
-      })
-    ),
-  })
-);
+const TraceSchema = z.object({
+  workflow: z
+    .object({
+      steps: z.record(z.string(), StepSnapshotSchema).optional(),
+      telemetry: z
+        .object({
+          logs: z.array(
+            z.object({
+              at: z.string(),
+              level: z.enum(["debug", "info", "warn", "error"]),
+              message: z.string(),
+              path: z.array(z.string()).optional(),
+            })
+          ),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
+function decodeTrace(
+  metadata: unknown
+): z.infer<typeof TraceSchema> | undefined {
+  const decoded = TraceSchema.safeParse(metadata);
+  return decoded.success ? decoded.data : undefined;
+}
 
 function json(value: unknown): JsonValue | undefined {
   if (value === undefined) {
@@ -134,7 +137,7 @@ function runSnapshot(
       }
     | undefined
 ): RunSnapshot {
-  const trace = Option.getOrUndefined(decodeTrace(record.metadata));
+  const trace = decodeTrace(record.metadata);
   const steps = trace?.workflow?.steps ?? {};
   const waiting =
     record.status === "running"

@@ -1,8 +1,14 @@
 import type { Scope } from "effect";
 
-import { Effect, Match, Schema, Stream, SubscriptionRef } from "effect";
+import { Effect, Match, Stream, SubscriptionRef } from "effect";
 
 import type { ChannelEvent } from "./channels";
+import type {
+  SnapshotState,
+  StepSnapshot,
+  WorkflowSnapshot,
+  WorkflowStepNode,
+} from "./schema";
 
 /**
  * Projected runtime state: receives {@link applyEvent} updates via
@@ -19,108 +25,13 @@ import type { ChannelEvent } from "./channels";
  * state via changes.
  */
 
-/**
- * Step-level status. Distinct from `RunStatus` (run-level) — a Run
- * can be `queued` while its steps are `pending`, etc.
- *
- *   - `pending`   seeded when a workflow dispatches; before `started`
- *   - `running`   step is currently executing
- *   - `complete`  step returned a value
- *   - `failed`    step threw or bailed
- *   - `skipped`   branch arm not taken (writer: composer)
- *   - `suspended` step is parked awaiting `resume`
- *   - `aborted`   step interrupted by cancellation
- *   - `paused`    operator-paused mid-flight; resumes back to `running`
- */
-export const StepStatusSchema = Schema.Literal(
-  "pending",
-  "running",
-  "complete",
-  "failed",
-  "skipped",
-  "suspended",
-  "aborted",
-  "paused"
-);
-export type StepStatus = Schema.Schema.Type<typeof StepStatusSchema>;
-
-/**
- * A node in the workflow's structural tree. Carries no live status —
- * status lives in the flat `steps` map under the same `key`.
- */
-export interface WorkflowStepNode {
-  readonly children?: readonly WorkflowStepNode[];
-  readonly index: number;
-  readonly key: string;
-  readonly name: string;
-}
-export const WorkflowStepNodeSchema: Schema.Schema<WorkflowStepNode> =
-  Schema.suspend(() =>
-    Schema.Struct({
-      children: Schema.optional(Schema.Array(WorkflowStepNodeSchema)),
-      index: Schema.Number,
-      key: Schema.String,
-      name: Schema.String,
-    })
-  );
-
-/**
- * The structural plan + cursor. Nullable — single-step Runs (Step.run
- * without a Workflow wrapper) leave this null and just populate
- * `steps`/`results`.
- */
-export const WorkflowSnapshotSchema = Schema.Struct({
-  cursor: Schema.NullOr(Schema.String),
-  input: Schema.Unknown,
-  name: Schema.String,
-  steps: Schema.Array(WorkflowStepNodeSchema),
-});
-export type WorkflowSnapshot = Schema.Schema.Type<
-  typeof WorkflowSnapshotSchema
->;
-
-/**
- * Per-step snapshot, flat by namespaced key (no nested children).
- */
-export const StepSnapshotSchema = Schema.Struct({
-  attempt: Schema.Number,
-  bail: Schema.optional(Schema.Unknown),
-  completedAt: Schema.optional(Schema.String),
-  durationMs: Schema.optional(Schema.Number),
-  error: Schema.optional(
-    Schema.Struct({
-      message: Schema.String,
-      name: Schema.String,
-      stack: Schema.optional(Schema.String),
-    })
-  ),
-  name: Schema.String,
-  namespace: Schema.String,
-  output: Schema.optional(Schema.Unknown),
-  progress: Schema.optional(Schema.Number),
-  startedAt: Schema.optional(Schema.String),
-  status: StepStatusSchema,
-  suspendedAt: Schema.optional(Schema.String),
-  suspension: Schema.optional(
-    Schema.Struct({
-      meta: Schema.optional(
-        Schema.Record({ key: Schema.String, value: Schema.Unknown })
-      ),
-      name: Schema.String,
-      reason: Schema.String,
-      suspendedAt: Schema.String,
-    })
-  ),
-});
-export type StepSnapshot = Schema.Schema.Type<typeof StepSnapshotSchema>;
-
-export const SnapshotStateSchema = Schema.Struct({
-  results: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-  steps: Schema.Record({ key: Schema.String, value: StepSnapshotSchema }),
-  updatedAt: Schema.String,
-  workflow: Schema.NullOr(WorkflowSnapshotSchema),
-});
-export type SnapshotState = Schema.Schema.Type<typeof SnapshotStateSchema>;
+export type {
+  SnapshotState,
+  StepSnapshot,
+  StepStatus,
+  WorkflowSnapshot,
+  WorkflowStepNode,
+} from "./schema";
 
 const emptyState = (): SnapshotState => ({
   results: {},
