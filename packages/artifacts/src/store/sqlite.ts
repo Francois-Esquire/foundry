@@ -16,6 +16,7 @@ import type { BaseSQLiteDatabase, SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 
 import type { ArtifactCursor } from "../listing";
+import { ownedListQuery } from "../listing";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, Blob, Content } from "../schema";
 import type {
@@ -348,9 +349,22 @@ export class SqliteArtifactStore implements ArtifactStore {
    * reads. Every filter is answered in SQL, as the memory store answers it
    * by `matchesArtifactFilter` and `isAfterCursor`, and `limit` bounds the
    * rows read; see {@link textMatch} and {@link afterCursor}. A `type` or
-   * text no stored row can hold matches nothing, without a query.
+   * text no stored row can hold matches nothing, without a query. The query
+   * is read as it stands at the call (see `ownedListQuery`), which refuses
+   * a `limit` that is not a positive safe integer.
    */
   listArtifacts(query: ArtifactListQuery): Promise<ArtifactListing> {
+    let owned: ArtifactListQuery;
+    try {
+      owned = ownedListQuery(query);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#listArtifacts(owned);
+  }
+
+  /** {@link listArtifacts} by the store's own copy of the query. */
+  #listArtifacts(query: ArtifactListQuery): Promise<ArtifactListing> {
     return this.#run(() => {
       const needle = query.text?.toLowerCase();
       if (

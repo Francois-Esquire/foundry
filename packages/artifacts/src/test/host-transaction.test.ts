@@ -12,6 +12,7 @@ import { SqliteArtifactStore } from "../store/sqlite";
 import { interceptCommits } from "../testing";
 import { required } from "./helpers/required";
 import { type LibsqlDatabases, libsqlDatabases } from "./helpers/sqlite";
+import { openStore, STORE_KINDS } from "./helpers/stores";
 
 const roots: string[] = [];
 afterAll(() =>
@@ -312,3 +313,89 @@ describe("a store's durability", () => {
     ).not.toThrow();
   });
 });
+
+describe.each(STORE_KINDS)(
+  "a manager over a %s store's transaction view",
+  (kind) => {
+    test("leaves the file a change retired when the transaction's work throws", async () => {
+      const store = await openStore(kind);
+      const root = await mkdtemp(join(tmpdir(), "artifact-view-"));
+      roots.push(root);
+      const files = blobFiles(root);
+      const outer = new ArtifactManager({ files, store });
+      const created = await outer.create({
+        entries: { "a.txt": { bytes: "before" } },
+        name: "A",
+        type: "text/plain",
+      });
+      const transaction = required(store.transaction?.bind(store));
+
+      await expect(
+        transaction(async (view) => {
+          const inner = new ArtifactManager({ files, store: view });
+          await inner.write({
+            artifactId: created.id,
+            changes: { put: { "a.txt": { bytes: "after" } } },
+          });
+          throw new Error(ROLLED_BACK);
+        })
+      ).rejects.toThrow(ROLLED_BACK);
+
+      const artifact = required(await outer.get(created.id));
+      const file = await outer.readFile(required(artifact.contentId), "a.txt");
+      expect(new TextDecoder().decode(required(file).blob)).toBe("before");
+    });
+  }
+);
+
+describe.each([
+  ["memory", libsqlDatabases("memory")],
+  ["file", libsqlDatabases("file")],
+] as const)(
+  "deletes inside a host transaction (%s)",
+  (_location, databases) => {
+    test("a deleted Artifact's files survive a host rollback", async () => {
+      const { durable, inHost, original, published, read } =
+        await setup(databases);
+      const [only] = (await durable.list({})).items;
+      await inHost("rollback", async (joined) => {
+        expect(await joined.delete(required(only).id)).toBe(true);
+      });
+
+      expect(await read()).toBe("before");
+      expect(await published()).toEqual(original);
+    });
+
+    test("Content and blobs a sweep removed survive a host rollback", async () => {
+      const { durable, inHost, read } = await setup(databases);
+      const [only] = (await durable.list({})).items;
+      const artifact = required(only);
+      const first = required(artifact.content);
+      // A second Content holding its own file, then the first selected again:
+      // the second is ready, unpointed and unfrozen, so a sweep takes it.
+      const second = await durable.revise({
+        artifactId: artifact.id,
+        changes: { put: { "b.txt": { bytes: "second only" } } },
+        contentId: first.id,
+        expectedUpdatedAt: first.updatedAt,
+      });
+      await durable.select({ artifactId: artifact.id, contentId: first.id });
+      const readSecond = async () => {
+        const file = await durable.readFile(second.id, "b.txt");
+        return new TextDecoder().decode(required(file).blob);
+      };
+      expect(await readSecond()).toBe("second only");
+
+      await inHost("rollback", async (joined) => {
+        const swept = await joined.sweep({
+          olderThan: new Date(Date.now() + 60_000),
+        });
+        expect(swept.contents).toBe(1);
+        expect(swept.blobs).toBeGreaterThan(0);
+      });
+
+      expect(await readSecond()).toBe("second only");
+      expect(await read()).toBe("before");
+    });
+  }
+);

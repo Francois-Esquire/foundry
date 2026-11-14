@@ -4,7 +4,7 @@ import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
 import { acquireFileLock } from "@foundry/lib/file-lock";
 import { Turns } from "@foundry/lib/turns";
-
+import { ownedListQuery } from "../listing";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, ArtifactRecords, Blob, Content } from "../schema";
 import type {
@@ -113,13 +113,22 @@ export class JsonArtifactStore implements ArtifactStore {
           }
           return read((records) => records.commit(copy));
         },
+        // Its commits stand only if the work succeeds and the file is saved.
+        durability: "host",
         findBlobs: (digest) => read((records) => records.findBlobs(digest)),
         findReferences: (id) => read((records) => records.findReferences(id)),
         getArtifact: (id) => read((records) => records.getArtifact(id)),
         getBlob: (id) => read((records) => records.getBlob(id)),
         getContent: (id) => read((records) => records.getContent(id)),
-        listArtifacts: (query) =>
-          read((records) => records.listArtifacts(query)),
+        listArtifacts: (query) => {
+          let owned: ArtifactListQuery;
+          try {
+            owned = ownedListQuery(query);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          return read((records) => records.listArtifacts(owned));
+        },
         listBlobs: () => read((records) => records.listBlobs()),
         listContents: (artifactId) =>
           read((records) => records.listContents(artifactId)),
@@ -158,8 +167,10 @@ export class JsonArtifactStore implements ArtifactStore {
     return (await this.#current()).getContent(id);
   }
 
+  /** Lists by the query as it stands at the call, not once the file loads. */
   async listArtifacts(query: ArtifactListQuery): Promise<ArtifactListing> {
-    return (await this.#current()).listArtifacts(query);
+    const owned = ownedListQuery(query);
+    return (await this.#current()).listArtifacts(owned);
   }
 
   async listBlobs(): Promise<readonly BlobListing[]> {

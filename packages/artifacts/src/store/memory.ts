@@ -4,6 +4,7 @@ import {
   compareCreated,
   isAfterCursor,
   matchesArtifactFilter,
+  ownedListQuery,
 } from "../listing";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, ArtifactRecords, Blob, Content } from "../schema";
@@ -72,13 +73,17 @@ export class InMemoryArtifactStore implements ArtifactStore {
               return staged.apply(copy);
             })
           ),
+        // Its commits stand only if the work succeeds.
+        durability: "host",
         findBlobs: (digest) => read((records) => records.findBlobs(digest)),
         findReferences: (id) => read((records) => records.findReferences(id)),
         getArtifact: (id) => read((records) => records.getArtifact(id)),
         getBlob: (id) => read((records) => records.getBlob(id)),
         getContent: (id) => read((records) => records.getContent(id)),
         listArtifacts: (query) =>
-          read((records) => records.listArtifacts(query)),
+          listed(query, (copy) =>
+            read((records) => records.listArtifacts(copy))
+          ),
         listBlobs: () => read((records) => records.listBlobs()),
         listContents: (artifactId) =>
           read((records) => records.listContents(artifactId)),
@@ -116,7 +121,7 @@ export class InMemoryArtifactStore implements ArtifactStore {
   }
 
   listArtifacts(query: ArtifactListQuery): Promise<ArtifactListing> {
-    return this.#records.listArtifacts(query);
+    return listed(query, (copy) => this.#records.listArtifacts(copy));
   }
 
   listBlobs(): Promise<readonly BlobListing[]> {
@@ -262,6 +267,23 @@ class Records {
       contents: [...this.#contents.values()],
     });
   }
+}
+
+/**
+ * `take` with the store's own copy of a listing query, or a rejection of
+ * one {@link ownedListQuery} refuses.
+ */
+function listed(
+  query: ArtifactListQuery,
+  take: (copy: ArtifactListQuery) => Promise<ArtifactListing>
+): Promise<ArtifactListing> {
+  let copy: ArtifactListQuery;
+  try {
+    copy = ownedListQuery(query);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  return take(copy);
 }
 
 /**

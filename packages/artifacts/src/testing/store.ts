@@ -938,6 +938,66 @@ export function describeArtifactStore(
       expect(reads).toBe(1);
     });
 
+    it("commits for good itself, and says its transaction's view does not", async () => {
+      const store = await fresh();
+      expect(store.durability ?? "commit").toBe("commit");
+      const durability = await requireTransaction(store)((view) =>
+        Promise.resolve(view.durability)
+      );
+      // A view's commits stand only if the transaction's work succeeds.
+      expect(durability).toBe("host");
+    });
+
+    it("refuses a listing limit that is not a positive safe integer", async () => {
+      const store = await fresh();
+      await store.commit({ putArtifacts: [artifact(), artifact()] });
+      for (const limit of [
+        -1,
+        0,
+        2.5,
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        2 ** 53,
+      ]) {
+        await expect(store.listArtifacts({ limit })).rejects.toThrow(
+          "limit must be a positive safe integer"
+        );
+        await expect(
+          requireTransaction(store)((view) => view.listArtifacts({ limit }))
+        ).rejects.toThrow("limit must be a positive safe integer");
+      }
+      expect(
+        (await store.listArtifacts({ limit: Number.MAX_SAFE_INTEGER })).total
+      ).toBe(2);
+    });
+
+    it("lists by the query as it stands when called, whatever the caller changes after", async () => {
+      const store = await fresh();
+      const transaction = requireTransaction(store);
+      const at = (seconds: number) => new Date(AT.getTime() + seconds * 1000);
+      const rows = [1, 2, 3].map((seconds) =>
+        artifact({ createdAt: at(seconds), name: `Note ${String(seconds)}` })
+      );
+      await store.commit({ putArtifacts: rows });
+      const [first, second] = rows;
+      const held = Promise.withResolvers<void>();
+      const entered = Promise.withResolvers<void>();
+      const running = transaction(async () => {
+        entered.resolve();
+        await held.promise;
+      });
+      await entered.promise;
+      const after = { createdAt: at(1), id: first?.id as ArtifactId };
+      const query = { after, limit: 1, text: "note", type: "text/plain" };
+      const listing = store.listArtifacts(query);
+      Object.assign(query, { limit: 10, text: "other", type: "image/png" });
+      after.createdAt.setTime(0);
+      held.resolve();
+      await running;
+
+      expect(await listing).toEqual({ artifacts: [second], total: 3 });
+    });
+
     it("queues a plain commit behind a running transaction", async () => {
       const store = await fresh();
       const transaction = requireTransaction(store);
