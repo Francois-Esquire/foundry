@@ -9,8 +9,8 @@ import {
 } from "../../session/sessions";
 import type { SessionMessage, SessionPart } from "../../session/types";
 import type { SessionStore } from "../../store";
-import { InMemorySessionStore } from "../../store/memory";
 import { recordingStore } from "../helpers/recording-store";
+import { sessionStoreKinds } from "../helpers/session-stores";
 
 const UNKNOWN_SESSION_PATTERN = /unknown session/;
 
@@ -43,320 +43,480 @@ async function seedMessages(
 const labelOf = (m: SessionMessage): string =>
   m.parts[0]?.type === "text" ? m.parts[0].text : "";
 
-describe("Sessions", () => {
-  it("creates a session with defaults and reads it back", async () => {
+describe("Sessions without a store", () => {
+  it("keeps its sessions in memory", async () => {
     const sessions = new Sessions();
-    const session = await sessions.createSession();
+    const session = await sessions.createSession({ id: "s" });
 
-    expect(session.id).toBeTruthy();
-    expect(session.status).toBe("active");
-    expect(session.title).toBeNull();
-    expect(await sessions.getSession(session.id)).toEqual(session);
-  });
-
-  it("adopts a provided id (for resume) and an optional title", async () => {
-    const sessions = new Sessions();
-    const session = await sessions.createSession({
-      id: "known",
-      title: "Hello",
-    });
-
-    expect(session.id).toBe("known");
-    expect(session.title).toBe("Hello");
-  });
-
-  it("resumes, not resets, a session created again under its id", async () => {
-    const sessions = new Sessions();
-    const first = await sessions.createSession({ id: "known", title: "Hello" });
-    const kept = await sessions.appendMessage({
-      parts: text("kept"),
-      role: "user",
-      sessionId: "known",
-    });
-
-    // The append stamped the session; nothing else about it changed.
-    await expect(
-      sessions.createSession({ id: "known", title: "Other" })
-    ).resolves.toEqual({ ...first, updatedAt: kept.createdAt });
-    await expect(sessions.listMessages("known")).resolves.toHaveLength(1);
-  });
-
-  it("returns null for an unknown session", async () => {
-    const sessions = new Sessions();
-    expect(await sessions.getSession("nope")).toBeNull();
-  });
-
-  it("appends messages and lists them in insertion order", async () => {
-    const sessions = new Sessions();
-    const session = await sessions.createSession();
-
-    const first = await sessions.appendMessage({
-      parts: [{ text: "hi", type: "text" }],
-      role: "user",
-      sessionId: session.id,
-    });
-    const second = await sessions.appendMessage({
-      parts: [{ text: "hello", type: "text" }],
-      role: "assistant",
-      sessionId: session.id,
-    });
-
-    const list = await sessions.listMessages(session.id);
-    expect(list.map((m) => m.id)).toEqual([first.id, second.id]);
-    expect(list[0]?.role).toBe("user");
-    expect(list[1]?.parts).toEqual([{ text: "hello", type: "text" }]);
-  });
-
-  it("defaults message status to complete and stamps timestamps", async () => {
-    const sessions = new Sessions();
-    const session = await sessions.createSession();
-    const message = await sessions.appendMessage({
-      parts: [],
-      role: "user",
-      sessionId: session.id,
-    });
-
-    expect(message.status).toBe("complete");
-    expect(message.createdAt).toBeGreaterThan(0);
-    expect(message.updatedAt).toBe(message.createdAt);
-  });
-
-  it("rejects an append to an unknown session", async () => {
-    const sessions = new Sessions();
-    await expect(
-      sessions.appendMessage({ parts: [], role: "user", sessionId: "ghost" })
-    ).rejects.toThrow(UNKNOWN_SESSION_PATTERN);
-  });
-
-  it("updates a streaming message's parts and status", async () => {
-    const sessions = new Sessions();
-    const session = await sessions.createSession();
-    const message = await sessions.appendMessage({
-      parts: [{ text: "", type: "text" }],
-      role: "assistant",
-      sessionId: session.id,
-      status: "streaming",
-    });
-
-    const updated = await sessions.updateMessage(message.id, {
-      parts: [{ text: "done", type: "text" }],
-      status: "complete",
-    });
-
-    expect(updated?.status).toBe("complete");
-    expect(updated?.parts).toEqual([{ text: "done", type: "text" }]);
-  });
-
-  it("returns null when updating a message that does not exist", async () => {
-    const sessions = new Sessions();
-    expect(
-      await sessions.updateMessage("nope", { status: "complete" })
-    ).toBeNull();
-  });
-
-  it("patches a session's title and status", async () => {
-    const sessions = new Sessions();
-    const session = await sessions.createSession();
-
-    const updated = await sessions.updateSession(session.id, {
-      status: "archived",
-      title: "Renamed",
-    });
-
-    expect(updated?.title).toBe("Renamed");
-    expect(updated?.status).toBe("archived");
-  });
-
-  it("isolates messages by session", async () => {
-    const sessions = new Sessions();
-    const a = await sessions.createSession();
-    const b = await sessions.createSession();
-    await sessions.appendMessage({
-      parts: text("a"),
-      role: "user",
-      sessionId: a.id,
-    });
-
-    expect(await sessions.listMessages(b.id)).toEqual([]);
-  });
-
-  it("writes and round-trips the parent linkage", async () => {
-    const sessions = new Sessions();
-    const session = await sessions.createSession({
-      parentMessageId: "m1",
-      parentSessionId: "p1",
-    });
-
-    expect(session.parentSessionId).toBe("p1");
-    expect(session.parentMessageId).toBe("m1");
-    expect(await sessions.getSession(session.id)).toEqual(session);
-  });
-
-  it("freezes a provided recursion depth", async () => {
-    const sessions = new Sessions();
-    const session = await sessions.createSession({ recursionDepth: 2 });
-
-    expect(session.recursionDepth).toBe(2);
-  });
-
-  it("defaults linkage to null and recursion depth to undefined", async () => {
-    const sessions = new Sessions();
-    const session = await sessions.createSession();
-
-    expect(session.parentSessionId).toBeNull();
-    expect(session.parentMessageId).toBeNull();
-    expect(session.recursionDepth).toBeUndefined();
+    await expect(sessions.getSession("s")).resolves.toEqual(session);
   });
 });
 
-describe("Sessions rules", () => {
-  it("stamps the session's updatedAt with each message it appends or folds", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    try {
-      const sessions = new Sessions();
-      vi.setSystemTime(1000);
-      await sessions.createSession({ id: "s" });
-      vi.setSystemTime(2000);
+describe.each(sessionStoreKinds())("over %s", (_kind, open) => {
+  describe("Sessions", () => {
+    it("creates a session with defaults and reads it back", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const session = await sessions.createSession();
+
+      expect(session.id).toBeTruthy();
+      expect(session.status).toBe("active");
+      expect(session.title).toBeNull();
+      expect(await sessions.getSession(session.id)).toEqual(session);
+    });
+
+    it("adopts a provided id (for resume) and an optional title", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const session = await sessions.createSession({
+        id: "known",
+        title: "Hello",
+      });
+
+      expect(session.id).toBe("known");
+      expect(session.title).toBe("Hello");
+    });
+
+    it("resumes, not resets, a session created again under its id", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const first = await sessions.createSession({
+        id: "known",
+        title: "Hello",
+      });
+      const kept = await sessions.appendMessage({
+        parts: text("kept"),
+        role: "user",
+        sessionId: "known",
+      });
+
+      // The append stamped the session; nothing else about it changed.
+      await expect(
+        sessions.createSession({ id: "known", title: "Other" })
+      ).resolves.toEqual({ ...first, updatedAt: kept.createdAt });
+      await expect(sessions.listMessages("known")).resolves.toHaveLength(1);
+    });
+
+    it("returns null for an unknown session", async () => {
+      const sessions = new Sessions({ store: await open() });
+      expect(await sessions.getSession("nope")).toBeNull();
+    });
+
+    it("appends messages and lists them in insertion order", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const session = await sessions.createSession();
+
       const first = await sessions.appendMessage({
-        parts: text("m1"),
+        parts: [{ text: "hi", type: "text" }],
         role: "user",
-        sessionId: "s",
+        sessionId: session.id,
       });
-      expect((await sessions.getSession("s"))?.updatedAt).toBe(2000);
-
-      vi.setSystemTime(3000);
       const second = await sessions.appendMessage({
-        parts: text("m2"),
-        role: "user",
-        sessionId: "s",
+        parts: [{ text: "hello", type: "text" }],
+        role: "assistant",
+        sessionId: session.id,
       });
-      vi.setSystemTime(4000);
-      await sessions.updateMessage(first.id, { status: "error" });
-      expect((await sessions.getSession("s"))?.updatedAt).toBe(3000);
 
-      vi.setSystemTime(5000);
-      await sessions.summarize({
-        messageId: second.id,
-        sessionId: "s",
-        summary: { parts: text("S") },
-      });
-      expect((await sessions.getSession("s"))?.updatedAt).toBe(5000);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-});
+      const list = await sessions.listMessages(session.id);
+      expect(list.map((m) => m.id)).toEqual([first.id, second.id]);
+      expect(list[0]?.role).toBe("user");
+      expect(list[1]?.parts).toEqual([{ text: "hello", type: "text" }]);
+    });
 
-describe("Sessions stamps against a clock that steps back", () => {
-  it("never moves updatedAt backwards when a session or a message is updated", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    try {
-      const sessions = new Sessions();
-      vi.setSystemTime(10);
-      await sessions.createSession({ id: "s" });
+    it("defaults message status to complete and stamps timestamps", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const session = await sessions.createSession();
       const message = await sessions.appendMessage({
-        parts: text("m1"),
+        parts: [],
         role: "user",
-        sessionId: "s",
+        sessionId: session.id,
       });
-      vi.setSystemTime(100);
-      await sessions.updateSession("s", { title: "first" });
-      await sessions.updateMessage(message.id, { status: "error" });
-      vi.setSystemTime(50);
-      const session = await sessions.updateSession("s", { title: "second" });
+
+      expect(message.status).toBe("complete");
+      expect(message.createdAt).toBeGreaterThan(0);
+      expect(message.updatedAt).toBe(message.createdAt);
+    });
+
+    it("rejects an append to an unknown session", async () => {
+      const sessions = new Sessions({ store: await open() });
+      await expect(
+        sessions.appendMessage({ parts: [], role: "user", sessionId: "ghost" })
+      ).rejects.toThrow(UNKNOWN_SESSION_PATTERN);
+    });
+
+    it("updates a streaming message's parts and status", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const session = await sessions.createSession();
+      const message = await sessions.appendMessage({
+        parts: [{ text: "", type: "text" }],
+        role: "assistant",
+        sessionId: session.id,
+        status: "streaming",
+      });
+
       const updated = await sessions.updateMessage(message.id, {
+        parts: [{ text: "done", type: "text" }],
         status: "complete",
       });
 
-      expect(session).toMatchObject({ title: "second", updatedAt: 100 });
-      expect(updated).toMatchObject({ status: "complete", updatedAt: 100 });
-      await expect(sessions.getSession("s")).resolves.toMatchObject({
-        updatedAt: 100,
-      });
-      await expect(sessions.listMessages("s")).resolves.toMatchObject([
-        { updatedAt: 100 },
-      ]);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+      expect(updated?.status).toBe("complete");
+      expect(updated?.parts).toEqual([{ text: "done", type: "text" }]);
+    });
 
-  it("never moves a session's updatedAt backwards", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    try {
-      const sessions = new Sessions();
-      vi.setSystemTime(1000);
-      await sessions.createSession({ id: "s" });
-      vi.setSystemTime(2000);
+    it("returns null when updating a message that does not exist", async () => {
+      const sessions = new Sessions({ store: await open() });
+      expect(
+        await sessions.updateMessage("nope", { status: "complete" })
+      ).toBeNull();
+    });
+
+    it("patches a session's title and status", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const session = await sessions.createSession();
+
+      const updated = await sessions.updateSession(session.id, {
+        status: "archived",
+        title: "Renamed",
+      });
+
+      expect(updated?.title).toBe("Renamed");
+      expect(updated?.status).toBe("archived");
+    });
+
+    it("isolates messages by session", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const a = await sessions.createSession();
+      const b = await sessions.createSession();
       await sessions.appendMessage({
-        parts: text("m1"),
+        parts: text("a"),
         role: "user",
-        sessionId: "s",
-      });
-      vi.setSystemTime(1000);
-      const late = await sessions.appendMessage({
-        parts: text("m2"),
-        role: "user",
-        sessionId: "s",
+        sessionId: a.id,
       });
 
-      expect(late.createdAt).toBe(1000);
-      expect((await sessions.getSession("s"))?.updatedAt).toBe(2000);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-});
+      expect(await sessions.listMessages(b.id)).toEqual([]);
+    });
 
-describe("Sessions over one store", () => {
-  it("keeps both of two overlapping updates from two instances", async () => {
-    const store = new InMemorySessionStore();
-    const a = new Sessions({ store });
-    const b = new Sessions({ store });
-    await a.createSession({ id: "s" });
+    it("writes and round-trips the parent linkage", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const session = await sessions.createSession({
+        parentMessageId: "m1",
+        parentSessionId: "p1",
+      });
 
-    await Promise.all([
-      a.updateSession("s", { title: "renamed" }),
-      b.updateSession("s", { status: "archived" }),
-    ]);
+      expect(session.parentSessionId).toBe("p1");
+      expect(session.parentMessageId).toBe("m1");
+      expect(await sessions.getSession(session.id)).toEqual(session);
+    });
 
-    await expect(store.getSession("s")).resolves.toMatchObject({
-      status: "archived",
-      title: "renamed",
+    it("freezes a provided recursion depth", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const session = await sessions.createSession({ recursionDepth: 2 });
+
+      expect(session.recursionDepth).toBe(2);
+    });
+
+    it("defaults linkage to null and recursion depth to undefined", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const session = await sessions.createSession();
+
+      expect(session.parentSessionId).toBeNull();
+      expect(session.parentMessageId).toBeNull();
+      expect(session.recursionDepth).toBeUndefined();
     });
   });
 
-  it("files a session once when two instances create it together", async () => {
-    const { store, writes } = recordingStore(new InMemorySessionStore());
+  describe("Sessions rules", () => {
+    it("stamps the session's updatedAt with each message it appends or folds", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        const sessions = new Sessions({ store: await open() });
+        vi.setSystemTime(1000);
+        await sessions.createSession({ id: "s" });
+        vi.setSystemTime(2000);
+        const first = await sessions.appendMessage({
+          parts: text("m1"),
+          role: "user",
+          sessionId: "s",
+        });
+        expect((await sessions.getSession("s"))?.updatedAt).toBe(2000);
 
-    const [first, second] = await Promise.all([
-      new Sessions({ store }).createSession({ id: "s", title: "first" }),
-      new Sessions({ store }).createSession({ id: "s", title: "second" }),
-    ]);
+        vi.setSystemTime(3000);
+        const second = await sessions.appendMessage({
+          parts: text("m2"),
+          role: "user",
+          sessionId: "s",
+        });
+        vi.setSystemTime(4000);
+        await sessions.updateMessage(first.id, { status: "error" });
+        expect((await sessions.getSession("s"))?.updatedAt).toBe(3000);
 
-    expect(writes).toHaveLength(1);
-    expect(second).toEqual(first);
+        vi.setSystemTime(5000);
+        await sessions.summarize({
+          messageId: second.id,
+          sessionId: "s",
+          summary: { parts: text("S") },
+        });
+        expect((await sessions.getSession("s"))?.updatedAt).toBe(5000);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
-  it("serializes its own read-modify-writes over a store without transactions", async () => {
-    const inner = new InMemorySessionStore();
-    const store: SessionStore = {
-      commit: (write) => inner.commit(write),
-      getMessage: (id) => inner.getMessage(id),
-      getSession: (id) => inner.getSession(id),
-      listMessages: (sessionId) => inner.listMessages(sessionId),
-    };
-    const sessions = new Sessions({ store });
-    await sessions.createSession({ id: "s" });
+  describe("Sessions stamps against a clock that steps back", () => {
+    it("never moves updatedAt backwards when a session or a message is updated", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        const sessions = new Sessions({ store: await open() });
+        vi.setSystemTime(10);
+        await sessions.createSession({ id: "s" });
+        const message = await sessions.appendMessage({
+          parts: text("m1"),
+          role: "user",
+          sessionId: "s",
+        });
+        vi.setSystemTime(100);
+        await sessions.updateSession("s", { title: "first" });
+        await sessions.updateMessage(message.id, { status: "error" });
+        vi.setSystemTime(50);
+        const session = await sessions.updateSession("s", { title: "second" });
+        const updated = await sessions.updateMessage(message.id, {
+          status: "complete",
+        });
 
-    await Promise.all([
-      sessions.updateSession("s", { title: "renamed" }),
-      sessions.updateSession("s", { status: "archived" }),
-    ]);
+        expect(session).toMatchObject({ title: "second", updatedAt: 100 });
+        expect(updated).toMatchObject({ status: "complete", updatedAt: 100 });
+        await expect(sessions.getSession("s")).resolves.toMatchObject({
+          updatedAt: 100,
+        });
+        await expect(sessions.listMessages("s")).resolves.toMatchObject([
+          { updatedAt: 100 },
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
 
-    await expect(store.getSession("s")).resolves.toMatchObject({
-      status: "archived",
-      title: "renamed",
+    it("never moves a session's updatedAt backwards", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        const sessions = new Sessions({ store: await open() });
+        vi.setSystemTime(1000);
+        await sessions.createSession({ id: "s" });
+        vi.setSystemTime(2000);
+        await sessions.appendMessage({
+          parts: text("m1"),
+          role: "user",
+          sessionId: "s",
+        });
+        vi.setSystemTime(1000);
+        const late = await sessions.appendMessage({
+          parts: text("m2"),
+          role: "user",
+          sessionId: "s",
+        });
+
+        expect(late.createdAt).toBe(1000);
+        expect((await sessions.getSession("s"))?.updatedAt).toBe(2000);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe("Sessions over one store", () => {
+    it("keeps both of two overlapping updates from two instances", async () => {
+      const store = await open();
+      const a = new Sessions({ store });
+      const b = new Sessions({ store });
+      await a.createSession({ id: "s" });
+
+      await Promise.all([
+        a.updateSession("s", { title: "renamed" }),
+        b.updateSession("s", { status: "archived" }),
+      ]);
+
+      await expect(store.getSession("s")).resolves.toMatchObject({
+        status: "archived",
+        title: "renamed",
+      });
+    });
+
+    it("files a session once when two instances create it together", async () => {
+      const { store, writes } = recordingStore(await open());
+
+      const [first, second] = await Promise.all([
+        new Sessions({ store }).createSession({ id: "s", title: "first" }),
+        new Sessions({ store }).createSession({ id: "s", title: "second" }),
+      ]);
+
+      expect(writes).toHaveLength(1);
+      expect(second).toEqual(first);
+    });
+
+    it("serializes its own read-modify-writes over a store without transactions", async () => {
+      const inner = await open();
+      const store: SessionStore = {
+        commit: (write) => inner.commit(write),
+        getMessage: (id) => inner.getMessage(id),
+        getSession: (id) => inner.getSession(id),
+        listMessages: (sessionId) => inner.listMessages(sessionId),
+      };
+      const sessions = new Sessions({ store });
+      await sessions.createSession({ id: "s" });
+
+      await Promise.all([
+        sessions.updateSession("s", { title: "renamed" }),
+        sessions.updateSession("s", { status: "archived" }),
+      ]);
+
+      await expect(store.getSession("s")).resolves.toMatchObject({
+        status: "archived",
+        title: "renamed",
+      });
+    });
+  });
+
+  describe("Sessions.summarize", () => {
+    it("marks the messages before the marker and creates a summary block", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const { sessionId, ids } = await seedMessages(sessions, [
+        "m1",
+        "m2",
+        "m3",
+        "m4",
+      ]);
+
+      const result = await sessions.summarize({
+        messageId: req(ids[2]),
+        sessionId,
+        summary: { parts: text("SUMMARY") },
+      });
+
+      if (result === null) {
+        throw new Error("expected a summarize result");
+      }
+      expect(result.summarizedIds).toEqual([ids[0], ids[1]]);
+      expect(result.summary.role).toBe("summary");
+      expect(result.summary.summarized).toBe(false);
+
+      const flags = new Map(
+        (await sessions.listMessages(sessionId)).map((m) => [
+          m.id,
+          m.summarized ?? false,
+        ])
+      );
+      expect(flags.get(req(ids[0]))).toBe(true);
+      expect(flags.get(req(ids[1]))).toBe(true);
+      expect(flags.get(req(ids[2]))).toBe(false);
+    });
+
+    it("skips already-summarized messages", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const { sessionId, ids } = await seedMessages(sessions, [
+        "m1",
+        "m2",
+        "m3",
+      ]);
+      await sessions.updateMessage(req(ids[0]), { summarized: true });
+
+      const result = await sessions.summarize({
+        messageId: req(ids[2]),
+        sessionId,
+        summary: { parts: text("S") },
+      });
+
+      expect(result?.summarizedIds).toEqual([ids[1]]);
+    });
+
+    it("writes the summary and every flip it stands for as one commit", async () => {
+      const { store, writes } = recordingStore(await open());
+      const sessions = new Sessions({ store });
+      const { sessionId, ids } = await seedMessages(sessions, [
+        "m1",
+        "m2",
+        "m3",
+      ]);
+      const seeded = writes.length;
+
+      const result = await sessions.summarize({
+        messageId: req(ids[2]),
+        sessionId,
+        summary: { parts: text("S") },
+      });
+
+      const made = writes.slice(seeded);
+      expect(made).toHaveLength(1);
+      expect(made[0]?.putMessages?.map((m) => m.id)).toEqual([
+        ids[0],
+        ids[1],
+        result?.summary.id,
+      ]);
+    });
+
+    it("leaves history unfolded when the summary write fails", async () => {
+      const { store } = recordingStore(await open(), (write) => {
+        if (write.putMessages?.some((m) => m.role === "summary")) {
+          throw new Error("disk full");
+        }
+      });
+      const sessions = new Sessions({ store });
+      const { sessionId, ids } = await seedMessages(sessions, [
+        "m1",
+        "m2",
+        "m3",
+      ]);
+      const before = await sessions.listMessages(sessionId);
+
+      await expect(
+        sessions.summarize({
+          messageId: req(ids[2]),
+          sessionId,
+          summary: { parts: text("S") },
+        })
+      ).rejects.toThrow("disk full");
+      await expect(sessions.listMessages(sessionId)).resolves.toEqual(before);
+    });
+
+    it("returns null when nothing precedes the marker", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const { sessionId, ids } = await seedMessages(sessions, ["m1", "m2"]);
+
+      expect(
+        await sessions.summarize({
+          messageId: req(ids[0]),
+          sessionId,
+          summary: { parts: text("S") },
+        })
+      ).toBeNull();
+    });
+  });
+
+  describe("Sessions.activeMessages", () => {
+    it("prepends the latest summary and drops summarized + summary-type rows", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const { sessionId, ids } = await seedMessages(sessions, [
+        "m1",
+        "m2",
+        "m3",
+        "m4",
+      ]);
+      await sessions.summarize({
+        messageId: req(ids[2]),
+        sessionId,
+        summary: { parts: text("SUMMARY") },
+      });
+
+      const active = await sessions.activeMessages(sessionId);
+      expect(active.map((m) => m.role)).toEqual(["summary", "user", "user"]);
+      expect(active.map(labelOf)).toEqual(["SUMMARY", "m3", "m4"]);
+    });
+
+    it("returns the raw active messages when there is no summary", async () => {
+      const sessions = new Sessions({ store: await open() });
+      const { sessionId } = await seedMessages(sessions, ["m1", "m2"]);
+
+      expect((await sessions.activeMessages(sessionId)).map(labelOf)).toEqual([
+        "m1",
+        "m2",
+      ]);
     });
   });
 });
@@ -420,139 +580,5 @@ describe("messagesToSummarize", () => {
     const msgs = [{ id: "a" }, { id: "b" }] as SessionMessage[];
     expect(messagesToSummarize(msgs, "missing")).toEqual([]);
     expect(messagesToSummarize(msgs, "a")).toEqual([]);
-  });
-});
-
-describe("Sessions.summarize", () => {
-  it("marks the messages before the marker and creates a summary block", async () => {
-    const sessions = new Sessions();
-    const { sessionId, ids } = await seedMessages(sessions, [
-      "m1",
-      "m2",
-      "m3",
-      "m4",
-    ]);
-
-    const result = await sessions.summarize({
-      messageId: req(ids[2]),
-      sessionId,
-      summary: { parts: text("SUMMARY") },
-    });
-
-    if (result === null) {
-      throw new Error("expected a summarize result");
-    }
-    expect(result.summarizedIds).toEqual([ids[0], ids[1]]);
-    expect(result.summary.role).toBe("summary");
-    expect(result.summary.summarized).toBe(false);
-
-    const flags = new Map(
-      (await sessions.listMessages(sessionId)).map((m) => [
-        m.id,
-        m.summarized ?? false,
-      ])
-    );
-    expect(flags.get(req(ids[0]))).toBe(true);
-    expect(flags.get(req(ids[1]))).toBe(true);
-    expect(flags.get(req(ids[2]))).toBe(false);
-  });
-
-  it("skips already-summarized messages", async () => {
-    const sessions = new Sessions();
-    const { sessionId, ids } = await seedMessages(sessions, ["m1", "m2", "m3"]);
-    await sessions.updateMessage(req(ids[0]), { summarized: true });
-
-    const result = await sessions.summarize({
-      messageId: req(ids[2]),
-      sessionId,
-      summary: { parts: text("S") },
-    });
-
-    expect(result?.summarizedIds).toEqual([ids[1]]);
-  });
-
-  it("writes the summary and every flip it stands for as one commit", async () => {
-    const { store, writes } = recordingStore(new InMemorySessionStore());
-    const sessions = new Sessions({ store });
-    const { sessionId, ids } = await seedMessages(sessions, ["m1", "m2", "m3"]);
-    const seeded = writes.length;
-
-    const result = await sessions.summarize({
-      messageId: req(ids[2]),
-      sessionId,
-      summary: { parts: text("S") },
-    });
-
-    const made = writes.slice(seeded);
-    expect(made).toHaveLength(1);
-    expect(made[0]?.putMessages?.map((m) => m.id)).toEqual([
-      ids[0],
-      ids[1],
-      result?.summary.id,
-    ]);
-  });
-
-  it("leaves history unfolded when the summary write fails", async () => {
-    const { store } = recordingStore(new InMemorySessionStore(), (write) => {
-      if (write.putMessages?.some((m) => m.role === "summary")) {
-        throw new Error("disk full");
-      }
-    });
-    const sessions = new Sessions({ store });
-    const { sessionId, ids } = await seedMessages(sessions, ["m1", "m2", "m3"]);
-    const before = await sessions.listMessages(sessionId);
-
-    await expect(
-      sessions.summarize({
-        messageId: req(ids[2]),
-        sessionId,
-        summary: { parts: text("S") },
-      })
-    ).rejects.toThrow("disk full");
-    await expect(sessions.listMessages(sessionId)).resolves.toEqual(before);
-  });
-
-  it("returns null when nothing precedes the marker", async () => {
-    const sessions = new Sessions();
-    const { sessionId, ids } = await seedMessages(sessions, ["m1", "m2"]);
-
-    expect(
-      await sessions.summarize({
-        messageId: req(ids[0]),
-        sessionId,
-        summary: { parts: text("S") },
-      })
-    ).toBeNull();
-  });
-});
-
-describe("Sessions.activeMessages", () => {
-  it("prepends the latest summary and drops summarized + summary-type rows", async () => {
-    const sessions = new Sessions();
-    const { sessionId, ids } = await seedMessages(sessions, [
-      "m1",
-      "m2",
-      "m3",
-      "m4",
-    ]);
-    await sessions.summarize({
-      messageId: req(ids[2]),
-      sessionId,
-      summary: { parts: text("SUMMARY") },
-    });
-
-    const active = await sessions.activeMessages(sessionId);
-    expect(active.map((m) => m.role)).toEqual(["summary", "user", "user"]);
-    expect(active.map(labelOf)).toEqual(["SUMMARY", "m3", "m4"]);
-  });
-
-  it("returns the raw active messages when there is no summary", async () => {
-    const sessions = new Sessions();
-    const { sessionId } = await seedMessages(sessions, ["m1", "m2"]);
-
-    expect((await sessions.activeMessages(sessionId)).map(labelOf)).toEqual([
-      "m1",
-      "m2",
-    ]);
   });
 });
