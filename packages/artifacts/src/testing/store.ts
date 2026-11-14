@@ -550,6 +550,69 @@ export function describeArtifactStore(
       });
       expect(sorted(byId.artifacts)).toEqual(higher);
       expect(byId.total).toBe(5);
+      // Kept in creation order, and paged: the cursor compares by id, the
+      // order stays by time.
+      const afterInvalid = (id: string, limit: number) =>
+        store.listArtifacts({
+          // Any id, the empty one too: a cursor need not name an Artifact.
+          after: { createdAt: new Date(Number.NaN), id: id as ArtifactId },
+          includeArchived: true,
+          limit,
+        });
+      const pivot = higher[1]?.id ?? "";
+      const kept = rows.filter((row) => row.id > pivot);
+      expect((await afterInvalid(pivot, 10)).artifacts).toEqual(kept);
+      expect(await afterInvalid(pivot, 1)).toEqual({
+        artifacts: kept.slice(0, 1),
+        total: 5,
+      });
+      expect((await afterInvalid("", 10)).artifacts).toEqual(rows);
+    });
+
+    it("matches text holding a lone surrogate by code unit, within one field, and bounds it by limit", async () => {
+      const store = await fresh();
+      const at = (seconds: number) => new Date(AT.getTime() + seconds * 1000);
+      const rows = [
+        artifact({ createdAt: at(1), name: "😀 face" }),
+        artifact({ createdAt: at(2), name: "😀 other" }),
+        // The pair ends the name and the type follows: no match across them.
+        artifact({ createdAt: at(3), name: "x😀", type: "text/plain" }),
+        artifact({ createdAt: at(4), name: "🙂 face" }),
+        // Holds no unit U+D83D, though its units' hex digits run "…d83d…".
+        artifact({ createdAt: at(5), name: "\u0AD8\u3D00" }),
+      ];
+      await store.commit({ putArtifacts: rows });
+      const names = async (text: string, limit = 10) => {
+        const listing = await store.listArtifacts({ limit, text });
+        return {
+          names: listing.artifacts.map((row) => row.name),
+          total: listing.total,
+        };
+      };
+
+      expect(await names("\uD83D")).toEqual({
+        names: ["😀 face", "😀 other", "x😀", "🙂 face"],
+        total: 4,
+      });
+      expect(await names("\uDE00")).toEqual({
+        names: ["😀 face", "😀 other", "x😀"],
+        total: 3,
+      });
+      expect(await names("\uDE00 f")).toEqual({
+        names: ["😀 face"],
+        total: 1,
+      });
+      expect(await names("\uDE00t")).toEqual({ names: [], total: 0 });
+      expect(await names("\uDE00 O")).toEqual({
+        names: ["😀 other"],
+        total: 1,
+      });
+      expect(await names("\uD83D", 1)).toEqual({
+        names: ["😀 face"],
+        total: 4,
+      });
+      // NUL matches nothing, whatever else the text holds.
+      expect(await names("\uD83D\u0000")).toEqual({ names: [], total: 0 });
     });
 
     it("names each referencing record once, and forgets a reference put away", async () => {

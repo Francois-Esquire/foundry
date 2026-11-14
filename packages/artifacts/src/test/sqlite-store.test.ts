@@ -652,7 +652,13 @@ describe("SqliteArtifactStore reading a blob row it did not write", () => {
 describe("Artifact tables", () => {
   test("hold each record field for field, plus scope and the store's own columns", () => {
     expect(
-      columnsOf(artifacts, ["idLower", "idOrder", "nameLower", "typeLower"])
+      columnsOf(artifacts, [
+        "idLower",
+        "idOrder",
+        "nameLower",
+        "textUnits",
+        "typeLower",
+      ])
     ).toEqual(fieldsOf(artifactSchema.unwrap().shape));
     expect(columnsOf(artifactContents)).toEqual(
       fieldsOf(contentSchema.unwrap().shape)
@@ -679,7 +685,12 @@ describe("Artifact tables", () => {
       Readonly<
         Omit<
           typeof artifacts.$inferSelect,
-          "idLower" | "idOrder" | "nameLower" | "scope" | "typeLower"
+          | "idLower"
+          | "idOrder"
+          | "nameLower"
+          | "scope"
+          | "textUnits"
+          | "typeLower"
         >
       >
     >().toEqualTypeOf<Artifact>();
@@ -817,6 +828,33 @@ describe("SqliteArtifactStore query plans", () => {
         [null, "scope=?"],
         ["artifacts_scope_created", "scope=?"],
       ],
+    ],
+    [
+      "listArtifacts by text holding a lone surrogate",
+      (store: SqliteArtifactStore) =>
+        store.listArtifacts({ limit: 5, text: "\uD83D" }),
+      [
+        [null, "scope=?"],
+        ["artifacts_scope_created", "scope=?"],
+      ],
+    ],
+    [
+      "listArtifacts after a cursor whose time is no valid Date",
+      (store: SqliteArtifactStore) =>
+        store.listArtifacts({
+          after: { createdAt: new Date(Number.NaN), id: artifactId("a") },
+          limit: 5,
+        }),
+      [
+        [null, "scope=?"],
+        ["artifacts_scope_created", "scope=?"],
+      ],
+    ],
+    [
+      "listArtifacts by text holding NUL, which reads nothing",
+      (store: SqliteArtifactStore) =>
+        store.listArtifacts({ limit: 5, text: "a\u0000" }),
+      [],
     ],
     [
       "listBlobs",

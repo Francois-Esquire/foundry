@@ -17,11 +17,7 @@ import type {
   SQLiteTransaction,
 } from "drizzle-orm/sqlite-core";
 
-import {
-  compareCreated,
-  isAfterCursor,
-  matchesArtifactFilter,
-} from "../listing";
+import type { ArtifactCursor } from "../listing";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, Blob, Content } from "../schema";
 import type {
@@ -98,6 +94,7 @@ const {
   idOrder: _idOrder,
   nameLower: _nameLower,
   scope: _artifactScope,
+  textUnits: _textUnits,
   typeLower: _typeLower,
   ...artifactColumns
 } = getTableColumns(artifacts);
@@ -331,27 +328,47 @@ export class SqliteArtifactStore implements ArtifactStore {
   /**
    * One page and the total as of one moment: the two reads share one
    * database transaction, which on libSQL holds the write lock while it
-   * reads. The text filter matches the stored lower-cased columns with
-   * `instr`, a plain substring test, so `%` and `_` match only themselves.
-   *
-   * Two filters SQLite cannot answer as JavaScript does are answered here
-   * from the scope's rows instead, with the listing's own functions: text
-   * that, lower-cased, is not storable (a lone surrogate in it can match
-   * half of a stored pair, by code unit), and a cursor whose time is not a
-   * valid `Date`.
+   * reads. Every filter is answered in SQL, as the memory store answers it
+   * by `matchesArtifactFilter` and `isAfterCursor`, and `limit` bounds the
+   * rows read; see {@link textMatch} and {@link afterCursor}. A `type` or
+   * text no stored row can hold matches nothing, without a query.
    */
   listArtifacts(query: ArtifactListQuery): Promise<ArtifactListing> {
     return this.#run(() => {
-      if (query.type !== undefined && !storable(query.type)) {
-        // No stored type can equal it.
+      const needle = query.text?.toLowerCase();
+      if (
+        (query.type !== undefined && !storable(query.type)) ||
+        needle?.includes("\u0000")
+      ) {
+        // Stored text holds no NUL, nor any type a row cannot hold.
         return Promise.resolve({ artifacts: [], total: 0 });
       }
-      const needle = query.text?.toLowerCase();
-      const exact =
-        (needle === undefined || storable(needle)) &&
-        (query.after === undefined ||
-          Number.isFinite(query.after.createdAt.getTime()));
-      return exact ? this.#listInSql(query, needle) : this.#listHere(query);
+      const matches = and(
+        eq(artifacts.scope, this.#scope),
+        query.includeArchived === true
+          ? undefined
+          : ne(artifacts.status, "archived"),
+        query.type === undefined ? undefined : eq(artifacts.type, query.type),
+        needle === undefined ? undefined : textMatch(needle)
+      );
+      return this.#database.transaction(async (transaction) => {
+        const [counted] = await transaction
+          .select({ total: count() })
+          .from(artifacts)
+          .where(matches);
+        const page = await transaction
+          .select(artifactColumns)
+          .from(artifacts)
+          .where(
+            and(
+              matches,
+              query.after === undefined ? undefined : afterCursor(query.after)
+            )
+          )
+          .orderBy(asc(artifacts.createdAt), asc(artifacts.idOrder))
+          .limit(query.limit);
+        return { artifacts: page, total: counted?.total ?? 0 };
+      });
     });
   }
 
@@ -395,69 +412,6 @@ export class SqliteArtifactStore implements ArtifactStore {
         ? Promise.reject(new Error(SETTLED))
         : operation()
     );
-  }
-
-  #listInSql(
-    query: ArtifactListQuery,
-    needle: string | undefined
-  ): Promise<ArtifactListing> {
-    const matches = and(
-      eq(artifacts.scope, this.#scope),
-      query.includeArchived === true
-        ? undefined
-        : ne(artifacts.status, "archived"),
-      query.type === undefined ? undefined : eq(artifacts.type, query.type),
-      needle === undefined
-        ? undefined
-        : or(
-            sql`instr(${artifacts.nameLower}, ${needle}) > 0`,
-            sql`instr(${artifacts.typeLower}, ${needle}) > 0`,
-            sql`instr(${artifacts.idLower}, ${needle}) > 0`
-          )
-    );
-    const { after } = query;
-    return this.#database.transaction(async (transaction) => {
-      const [counted] = await transaction
-        .select({ total: count() })
-        .from(artifacts)
-        .where(matches);
-      const page = await transaction
-        .select(artifactColumns)
-        .from(artifacts)
-        .where(
-          and(
-            matches,
-            after === undefined
-              ? undefined
-              : sql`(${artifacts.createdAt}, ${artifacts.idOrder}) > (${after.createdAt.getTime()}, ${codeUnitOrder(after.id)})`
-          )
-        )
-        .orderBy(asc(artifacts.createdAt), asc(artifacts.idOrder))
-        .limit(query.limit);
-      return { artifacts: page, total: counted?.total ?? 0 };
-    });
-  }
-
-  /** Every candidate row of the scope, filtered, ordered and paged here. */
-  async #listHere(query: ArtifactListQuery): Promise<ArtifactListing> {
-    const rows = await this.#database
-      .select(artifactColumns)
-      .from(artifacts)
-      .where(
-        and(
-          eq(artifacts.scope, this.#scope),
-          query.type === undefined ? undefined : eq(artifacts.type, query.type)
-        )
-      );
-    const matches = rows
-      .filter((artifact) => matchesArtifactFilter(artifact, query))
-      .sort(compareCreated);
-    return {
-      artifacts: matches
-        .filter((artifact) => isAfterCursor(artifact, query.after))
-        .slice(0, query.limit),
-      total: matches.length,
-    };
   }
 
   /**
@@ -599,6 +553,9 @@ function writeRows(scope: string, write: ArtifactStoreWrite): WriteRows {
       publishedAt: artifact.publishedAt,
       scope,
       status: artifact.status,
+      textUnits: [artifact.name, artifact.type, artifact.id]
+        .map((field) => codeUnitText(field.toLowerCase()))
+        .join("|"),
       type: artifact.type,
       typeLower: artifact.type.toLowerCase(),
       updatedAt: artifact.updatedAt,
@@ -701,6 +658,53 @@ function blobRowFault(row: Omit<BlobRow, "scope">): string | undefined {
   if (row.chunks !== null && !Array.isArray(row.chunks)) {
     return "chunks holds no list";
   }
+}
+
+/**
+ * Whether an Artifact's name, type or id, lower-cased, holds `needle`, a
+ * lower-cased text with no NUL, as `matchesArtifactFilter` asks by code
+ * unit. Text that is well-formed UTF-16 holds another as code units exactly
+ * when it does as code points, so `instr` on the lower-cased columns
+ * answers it. A needle holding a lone surrogate can match half of a stored
+ * pair, which no text comparison in SQLite can see, so it is matched by
+ * {@link codeUnitText} on `text_units` instead.
+ */
+function textMatch(needle: string): SQL | undefined {
+  if (!needle.isWellFormed()) {
+    return sql`instr(${artifacts.textUnits}, ${codeUnitText(needle)}) > 0`;
+  }
+  return or(
+    sql`instr(${artifacts.nameLower}, ${needle}) > 0`,
+    sql`instr(${artifacts.typeLower}, ${needle}) > 0`,
+    sql`instr(${artifacts.idLower}, ${needle}) > 0`
+  );
+}
+
+/**
+ * The rows `isAfterCursor` keeps. It compares creation times, then ids by
+ * code unit; with a cursor whose time is no valid `Date`, the time
+ * difference is `NaN`, so it compares by id alone, which is `id_order`.
+ */
+function afterCursor(cursor: ArtifactCursor): SQL {
+  const time = cursor.createdAt.getTime();
+  const order = codeUnitOrder(cursor.id);
+  return Number.isFinite(time)
+    ? sql`(${artifacts.createdAt}, ${artifacts.idOrder}) > (${time}, ${order})`
+    : sql`${artifacts.idOrder} > ${order}`;
+}
+
+/**
+ * `text` as its UTF-16 code units, each four lower-case hex digits and a
+ * comma. One such string holds another exactly where the texts hold each
+ * other by code unit: every comma of the needle must meet a comma of the
+ * text, so a match cannot start inside a unit.
+ */
+function codeUnitText(text: string): string {
+  let units = "";
+  for (let index = 0; index < text.length; index += 1) {
+    units += `${text.charCodeAt(index).toString(16).padStart(4, "0")},`;
+  }
+  return units;
 }
 
 /**

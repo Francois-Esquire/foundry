@@ -25,10 +25,12 @@ import type { ArtifactMetadata, ContentMetadata, ContentTree } from "../schema";
  *
  * - On `artifacts`, `name_lower`, `type_lower` and `id_lower`, each field
  *   lower-cased by JavaScript's `toLowerCase`, which the text filter
- *   matches; and `id_order`, the id's UTF-16 code units as big-endian
- *   bytes, which sort as the code units do. SQLite folds case for ASCII
- *   only and orders text by code point, so neither can come from `name` or
- *   `id` in SQL.
+ *   matches; `text_units`, the same three as UTF-16 code units in hex,
+ *   which a filter holding a lone surrogate matches by code unit; and
+ *   `id_order`, the id's UTF-16 code units as big-endian bytes, which sort
+ *   as the code units do. SQLite folds case for ASCII only, and compares
+ *   and orders text by code point, so none can come from `name` or `id` in
+ *   SQL.
  * - Two lookup tables, `artifact_content_blobs` and `artifact_blob_chunks`,
  *   one row per blob a Content's tree or a blob's chunks name, which
  *   `findReferences` reads. The JSON they come from cannot be indexed.
@@ -65,6 +67,11 @@ export const artifacts = sqliteTable(
     publishedAt: integer("published_at", { mode: "timestamp_ms" }),
     scope: text("scope").notNull(),
     status: text("status", { enum: ARTIFACT_STATUSES }).notNull(),
+    /**
+     * `name`, `type` and `id`, each lower-cased, as UTF-16 code units in
+     * hex (four digits and a comma per unit), joined by `|`.
+     */
+    textUnits: text("text_units").notNull(),
     type: text("type").notNull(),
     /** `type.toLowerCase()` */
     typeLower: text("type_lower").notNull(),

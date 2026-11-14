@@ -45,8 +45,13 @@ function insertArtifact(id: string): string {
   const order = [...id]
     .map((unit) => unit.charCodeAt(0).toString(16).padStart(4, "0"))
     .join("");
-  return `INSERT INTO artifacts (archived_at, content_id, created_at, id, id_lower, id_order, metadata, name, name_lower, published_at, scope, status, type, type_lower, updated_at)
-    VALUES (NULL, NULL, ${at}, '${id}', '${id}', x'${order}', '{}', '${id}', '${id}', NULL, 's', 'draft', 'text/plain', 'text/plain', ${at})`;
+  const units = (text: string) =>
+    [...text]
+      .map((unit) => `${unit.charCodeAt(0).toString(16).padStart(4, "0")},`)
+      .join("");
+  const textUnits = [id, "text/plain", id].map(units).join("|");
+  return `INSERT INTO artifacts (archived_at, content_id, created_at, id, id_lower, id_order, metadata, name, name_lower, published_at, scope, status, text_units, type, type_lower, updated_at)
+    VALUES (NULL, NULL, ${at}, '${id}', '${id}', x'${order}', '{}', '${id}', '${id}', NULL, 's', 'draft', '${textUnits}', 'text/plain', 'text/plain', ${at})`;
 }
 
 describe("a listing against another process", () => {
