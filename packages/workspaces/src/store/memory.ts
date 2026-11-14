@@ -17,8 +17,9 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
     Map<WorkspaceEntryId, WorkspaceEntry>
   >();
 
-  commit(write: WorkspaceStoreWrite): Promise<void> {
-    // Clone first so a value that cannot be cloned refuses the whole write.
+  // Async, and clones first, so a write holding a value that cannot be cloned
+  // rejects whole instead of throwing partway.
+  async commit(write: WorkspaceStoreWrite): Promise<void> {
     const workspace =
       write.workspace === undefined ? null : structuredClone(write.workspace);
     const workspaceId =
@@ -48,7 +49,6 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
     } else {
       this.entries.delete(workspaceId);
     }
-    return Promise.resolve();
   }
 
   getWorkspace(
