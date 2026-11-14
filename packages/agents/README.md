@@ -269,8 +269,10 @@ await sessions.activeMessages("s"); // the latest summary, then what it did not 
 ```
 
 `summarize` writes the summary and every message it folds in one commit, so a
-history is never left half folded. Writes to a session take turns across every
-`Sessions` over the same store in this process.
+history is never left half folded. Appending a message or a summary also stamps
+the session's `updatedAt`. Mutations take turns per `Sessions`; when the store
+offers a `transaction`, each runs in one, so no write from another `Sessions`
+over the store lands between a mutation's reads and its commit.
 
 The store keeps records and enforces nothing:
 
@@ -281,6 +283,8 @@ interface SessionStore {
   getMessage(id: string): Promise<SessionMessage | null>;
   getSession(id: string): Promise<SessionRecord | null>;
   listMessages(sessionId: string): Promise<SessionMessage[]>;
+  // optional: one read-modify-write that no other write interleaves with
+  transaction?<T>(work: (view: SessionStore) => Promise<T>): Promise<T>;
 }
 
 interface SessionStoreWrite {
@@ -292,13 +296,21 @@ interface SessionStoreWrite {
 Values crossing the seam are detached, and every write `Sessions` builds
 changes one session. `InMemorySessionStore` (`@foundry/agents/store/memory`)
 is the default. A persistent store proves it behaves the same by running
-the conformance suite:
+the conformance suite. `open` returns fresh, empty storage as a store per
+scope:
 
 ```typescript
-import { describeSessionStore } from "@foundry/agents/testing";
+import { describeSessionStore } from "@foundry/agents/testing/store";
 
-describeSessionStore("MyStore", () => new MyStore(/* fresh and empty */));
+describeSessionStore("MyStore", () => {
+  const database = freshDatabase();
+  return (scope) => new MyStore({ database, scope });
+});
 ```
+
+A session keeps tool outputs and structured outputs in their JSON form, the
+form every durable store writes. A tool output with no JSON form (a BigInt, a
+cycle) fails the turn with an error that names the tool.
 
 ### Events
 
