@@ -215,6 +215,35 @@ export function describeSessionStore(
       expect(parent !== null && "recursionDepth" in parent).toBe(false);
     });
 
+    it("gives back exactly the own properties it was given, and none holding undefined", async () => {
+      const store = await fresh();
+      const root = session("root", { recursionDepth: 1 });
+      const full = message("full", "root", 2, {
+        metadata: FULL_METADATA,
+        parts: EVERY_PART,
+        summarized: false,
+      });
+      const bare = message("bare", "root", 3);
+      await store.commit({ putMessages: [full, bare], putSessions: [root] });
+
+      const read = {
+        listed: await store.listMessages("root"),
+        message: await store.getMessage("full"),
+        session: await store.getSession("root"),
+      };
+      expect(read).toStrictEqual({
+        listed: [full, bare],
+        message: full,
+        session: root,
+      });
+      expect(ownPaths(read)).toEqual(
+        ownPaths({ listed: [full, bare], message: full, session: root })
+      );
+      expect(
+        ownPaths(read).filter((path) => path.endsWith("=undefined"))
+      ).toEqual([]);
+    });
+
     it("keeps each session's messages apart", async () => {
       const store = await fresh();
       await store.commit({
@@ -804,6 +833,27 @@ function message(
     updatedAt: at,
     ...fields,
   };
+}
+
+/**
+ * Every own property path in `value`, each marked `=undefined` when it holds
+ * `undefined`, so a property left out and one holding `undefined` differ.
+ */
+function ownPaths(value: unknown, at = "$"): string[] {
+  if (value === undefined) {
+    return [`${at}=undefined`];
+  }
+  if (typeof value !== "object" || value === null) {
+    return [at];
+  }
+  return [
+    at,
+    ...Object.keys(value)
+      .sort()
+      .flatMap((key) =>
+        ownPaths((value as Record<string, unknown>)[key], `${at}.${key}`)
+      ),
+  ];
 }
 
 async function ids(store: SessionStore, sessionId: string): Promise<string[]> {
