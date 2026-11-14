@@ -1,0 +1,285 @@
+import { spawn } from "node:child_process";
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { count, sql } from "drizzle-orm";
+import { describe, expect, it } from "vitest";
+import { MIGRATIONS } from "~/database/migrate";
+import type { StoreDatabase } from "~/database/open";
+import { openDatabase } from "~/database/open";
+import { marblesWorkspaces } from "~/database/tables";
+
+const SRC = resolve("src");
+const NEWER = /migrated by a newer Marbles/;
+const WAITING_ON_ITSELF = /waiting on itself/;
+
+function scratch(): string {
+  return mkdtempSync(join(tmpdir(), "marbles-db-"));
+}
+
+function journalEntries(folder: string = MIGRATIONS): number {
+  const journal = JSON.parse(
+    readFileSync(join(folder, "meta", "_journal.json"), "utf8")
+  ) as { entries: unknown[] };
+  return journal.entries.length;
+}
+
+async function pragma(database: StoreDatabase, name: string) {
+  const [row] = await database.values(sql.raw(`PRAGMA ${name}`));
+  return row?.[0];
+}
+
+async function applied(database: StoreDatabase): Promise<number> {
+  const [row] = await database.values<[number]>(
+    sql`SELECT count(*) FROM __drizzle_migrations`
+  );
+  return Number(row?.[0]);
+}
+
+function workspaceRow(id: string) {
+  const now = new Date().toISOString();
+  return { firstSeen: now, id, lastSeen: now, root: `/r/${id}` };
+}
+
+async function rows(database: StoreDatabase): Promise<number> {
+  const [row] = await database
+    .select({ total: count() })
+    .from(marblesWorkspaces);
+  return row?.total ?? 0;
+}
+
+describe("the Marbles database", () => {
+  it("runs on Bun under the test runner", () => {
+    expect(process.versions.bun).toBeDefined();
+  });
+
+  it("creates, configures and migrates a database in an empty directory", async () => {
+    const file = join(scratch(), "nested", "marbles.db");
+    const opened = await openDatabase(file);
+    try {
+      expect(existsSync(file)).toBe(true);
+      expect(await pragma(opened.database, "journal_mode")).toBe("wal");
+      expect(await pragma(opened.database, "foreign_keys")).toBe(1);
+      expect(await pragma(opened.database, "busy_timeout")).toBe(5000);
+      expect(await applied(opened.database)).toBe(journalEntries());
+      expect(await rows(opened.database)).toBe(0);
+    } finally {
+      opened.close();
+    }
+  });
+
+  it("reopens an existing database with its rows, and applies nothing twice", async () => {
+    const file = join(scratch(), "marbles.db");
+    const first = await openDatabase(file);
+    await first.database.insert(marblesWorkspaces).values(workspaceRow("a"));
+    first.close();
+
+    const again = await openDatabase(file);
+    try {
+      expect(await rows(again.database)).toBe(1);
+      expect(await applied(again.database)).toBe(journalEntries());
+      expect(await pragma(again.database, "foreign_keys")).toBe(1);
+    } finally {
+      again.close();
+    }
+  });
+
+  it("applies a migration added since the database was made", async () => {
+    const dir = scratch();
+    const folder = join(dir, "migrations");
+    cpSync(MIGRATIONS, folder, { recursive: true });
+    const file = join(dir, "marbles.db");
+    (await openDatabase(file, { migrations: folder })).close();
+
+    const journal = JSON.parse(
+      readFileSync(join(folder, "meta", "_journal.json"), "utf8")
+    ) as { entries: { tag: string; when: number }[] };
+    const last = journal.entries.at(-1);
+    if (last === undefined) {
+      throw new Error("no migrations are committed");
+    }
+    journal.entries.push({
+      ...last,
+      tag: "9999_probe",
+      when: last.when + 1,
+    });
+    writeFileSync(
+      join(folder, "meta", "_journal.json"),
+      JSON.stringify(journal)
+    );
+    writeFileSync(
+      join(folder, "9999_probe.sql"),
+      "CREATE TABLE `marbles_probe` (`id` text PRIMARY KEY NOT NULL);"
+    );
+    const migrated = await openDatabase(file, { migrations: folder });
+    try {
+      expect(await applied(migrated.database)).toBe(journalEntries() + 1);
+      await migrated.database.run(sql`INSERT INTO marbles_probe VALUES ('x')`);
+    } finally {
+      migrated.close();
+    }
+    // The Marbles that shipped without that migration refuses the file.
+    await expect(openDatabase(file)).rejects.toThrow(NEWER);
+  });
+
+  it("lets two handles in one process overlap their transactions", async () => {
+    const file = join(scratch(), "marbles.db");
+    const a = await openDatabase(file, { busyTimeout: 1000 });
+    const b = await openDatabase(file, { busyTimeout: 1000 });
+    try {
+      const pause = () => new Promise((settle) => setTimeout(settle, 20));
+      const write = (database: StoreDatabase, id: string) =>
+        database.transaction(async (tx) => {
+          await tx.insert(marblesWorkspaces).values(workspaceRow(`${id}-1`));
+          await pause();
+          await tx.insert(marblesWorkspaces).values(workspaceRow(`${id}-2`));
+        });
+      const failing = a.database.transaction(async (tx) => {
+        await tx.insert(marblesWorkspaces).values(workspaceRow("gone"));
+        await pause();
+        throw new Error("rolled back");
+      });
+      await Promise.all([
+        write(a.database, "a"),
+        write(b.database, "b"),
+        expect(failing).rejects.toThrow("rolled back"),
+        write(b.database, "c"),
+      ]);
+      expect(await rows(a.database)).toBe(6);
+    } finally {
+      a.close();
+      b.close();
+    }
+  });
+
+  it("refuses, rather than hangs, a transaction that waits on itself", async () => {
+    const file = join(scratch(), "marbles.db");
+    const opened = await openDatabase(file, { busyTimeout: 200 });
+    try {
+      await expect(
+        opened.database.transaction(async () => {
+          await rows(opened.database);
+        })
+        // Drizzle wraps the refusal in the query it stopped.
+      ).rejects.toMatchObject({
+        cause: expect.objectContaining({
+          message: expect.stringMatching(WAITING_ON_ITSELF),
+        }),
+      });
+      // The turn it held came back: the database is usable again.
+      expect(await rows(opened.database)).toBe(0);
+    } finally {
+      opened.close();
+    }
+  });
+
+  it("is opened, migrated and written by several processes at once", async () => {
+    const dir = scratch();
+    const file = join(dir, "marbles.db");
+    const go = join(dir, "go");
+    const writers = 3;
+    const transactions = 15;
+    const script = join(dir, "writer.ts");
+    writeFileSync(
+      script,
+      `import { existsSync } from "node:fs";
+import { openDatabase } from ${JSON.stringify(join(SRC, "database/open.ts"))};
+import { marblesWorkspaces } from ${JSON.stringify(join(SRC, "database/tables.ts"))};
+const [name] = process.argv.slice(2);
+process.stdout.write("ready\\n");
+while (!existsSync(${JSON.stringify(go)})) {
+  await new Promise((settle) => setTimeout(settle, 5));
+}
+const opened = await openDatabase(${JSON.stringify(file)});
+const now = new Date().toISOString();
+const row = (id) => ({ firstSeen: now, id, lastSeen: now, root: "/r" });
+for (let i = 0; i < ${String(transactions)}; i += 1) {
+  await opened.database.transaction(async (tx) => {
+    await tx.insert(marblesWorkspaces).values(row(name + "-" + i + "-a"));
+    await new Promise((settle) => setTimeout(settle, 1));
+    await tx.insert(marblesWorkspaces).values(row(name + "-" + i + "-b"));
+  });
+}
+opened.close();
+`
+    );
+    const children = Array.from({ length: writers }, (_, index) =>
+      spawn("bun", [script, `w${String(index)}`], {
+        cwd: resolve("."),
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+    );
+    const exits = children.map(
+      (child) =>
+        new Promise<{ code: number | null; stderr: string }>((settle) => {
+          let stderr = "";
+          child.stderr?.on("data", (chunk: Buffer) => {
+            stderr += chunk.toString();
+          });
+          child.once("exit", (code) => settle({ code, stderr }));
+        })
+    );
+    await Promise.all(
+      children.map(
+        (child) =>
+          new Promise<void>((ready) => {
+            child.stdout?.on("data", (chunk: Buffer) => {
+              if (chunk.toString().includes("ready")) {
+                ready();
+              }
+            });
+          })
+      )
+    );
+    // Every writer opens the empty file at once: each migrates, or waits
+    // for the one that does and finds nothing left to apply.
+    writeFileSync(go, "");
+    for (const exit of await Promise.all(exits)) {
+      expect(exit.code, exit.stderr).toBe(0);
+    }
+    const opened = await openDatabase(file);
+    try {
+      expect(await rows(opened.database)).toBe(writers * transactions * 2);
+      expect(await applied(opened.database)).toBe(journalEntries());
+      expect(await pragma(opened.database, "journal_mode")).toBe("wal");
+    } finally {
+      opened.close();
+    }
+  }, 60_000);
+
+  it("has a committed migration for everything in the schema", async () => {
+    const out = join(scratch(), "migrations");
+    cpSync(MIGRATIONS, out, { recursive: true });
+    const before = readdirSync(out).sort();
+    const generated = spawn(
+      resolve("../../node_modules/.bin/drizzle-kit"),
+      [
+        "generate",
+        "--dialect",
+        "sqlite",
+        "--schema",
+        "./src/database/schema.ts",
+        "--out",
+        out,
+      ],
+      { cwd: resolve("."), stdio: ["ignore", "pipe", "pipe"] }
+    );
+    let output = "";
+    generated.stdout?.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    generated.stderr?.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    const code = await new Promise((settle) => generated.once("exit", settle));
+    expect(code, output).toBe(0);
+    expect(readdirSync(out).sort(), output).toEqual(before);
+  }, 60_000);
+});
