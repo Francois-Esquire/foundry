@@ -23,6 +23,7 @@ import {
 import { ArtifactManager } from "../manager";
 import { blobFiles, JsonArtifactStore } from "../node";
 import { STAGING_ABANDONED_AFTER_MS } from "../node/staging";
+import type { ContentId } from "../ref";
 import { artifactIdSchema, blobIdSchema, contentIdSchema } from "../ref";
 import type { ArtifactStore } from "../store";
 import { InMemoryArtifactStore } from "../store/memory";
@@ -981,5 +982,40 @@ describe("Staging bounds", () => {
     }
     await Promise.all(creating);
     expect((await artifacts.list()).total).toBe(MAX_STAGING_STREAMS + 1);
+  });
+});
+
+describe("Ownership checks inside one transaction", () => {
+  it("let several in-place writes to the same path commit together", async () => {
+    const { manager } = await storage("memory");
+    const artifacts = manager();
+    const [a, b] = await Promise.all(
+      ["A", "B"].map((name) =>
+        artifacts.create({
+          entries: { "f.txt": { bytes: `${name} before` } },
+          name,
+          type: "text/plain",
+        })
+      )
+    );
+    const put = (bytes: string) => ({ put: { "f.txt": { bytes } } });
+    await artifacts.transaction(async (scoped) => {
+      await scoped.write({
+        artifactId: required(a).id,
+        changes: put("A after"),
+      });
+      await scoped.write({
+        artifactId: required(b).id,
+        changes: put("B after"),
+      });
+      await scoped.write({
+        artifactId: required(a).id,
+        changes: put("A again"),
+      });
+    });
+    const read = async (id: ContentId) =>
+      decoded((await artifacts.readFile(id, "f.txt"))?.blob);
+    expect(await read(required(required(a).contentId))).toBe("A again");
+    expect(await read(required(required(b).contentId))).toBe("B after");
   });
 });

@@ -111,7 +111,7 @@ export class BlobStaging {
   >();
   /** Staged files not yet promoted or discarded. */
   readonly #waiting = new Set<string>();
-  /** The ownership each path showed when the change was first checked. */
+  /** Per Artifact and path, the ownership seen before the bytes were staged. */
   readonly #ownership = new Map<string, Ownership | null>();
 
   /** `turns` bound the streams staged at once; one manager shares them. */
@@ -124,16 +124,24 @@ export class BlobStaging {
   }
 
   /**
-   * Records the ownership `path` showed the first time the change is
-   * checked, before its bytes are staged. Afterwards, whether the ownership
-   * shown now is still that one.
+   * Records the ownership an entry showed when its change was checked,
+   * before its bytes were staged. `key` names the Artifact and path.
    */
-  expectOwnership(path: string, now: Ownership | null): boolean {
-    if (!this.#ownership.has(path)) {
-      this.#ownership.set(path, now);
+  recordOwnership(key: string, seen: Ownership | null): void {
+    this.#ownership.set(key, seen);
+  }
+
+  /**
+   * Whether the ownership an entry shows now is the one recorded for it, if
+   * any was; the record is spent, so a later write to the same entry in the
+   * same change is not held to it.
+   */
+  confirmOwnership(key: string, now: Ownership | null): boolean {
+    if (!this.#ownership.has(key)) {
       return true;
     }
-    const expected = this.#ownership.get(path) ?? null;
+    const expected = this.#ownership.get(key) ?? null;
+    this.#ownership.delete(key);
     return (
       expected?.blobId === now?.blobId && expected?.exclusive === now?.exclusive
     );

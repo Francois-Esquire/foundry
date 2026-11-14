@@ -154,8 +154,8 @@ export class ArtifactTransaction implements ArtifactOperations {
 
   /**
    * The ownership of each object an in-place write may replace, recorded
-   * the first time this write is checked (before its bytes are staged) and
-   * confirmed each time after. An object shared or freed meanwhile refuses
+   * when the write is checked before its bytes are staged (a read-only
+   * check) and confirmed once by the change itself. An object shared or freed meanwhile refuses
    * the write as stale: the bytes were taken in against ownership that no
    * longer holds.
    */
@@ -182,7 +182,11 @@ export class ArtifactTransaction implements ArtifactOperations {
               )),
             }
           : null;
-      if (!this.#staging.expectOwnership(path, now)) {
+      const key = `${artifact.id}\u0000${path}`;
+      // The check before staging records; the change's own check confirms.
+      if (this.#change.readOnly) {
+        this.#staging.recordOwnership(key, now);
+      } else if (!this.#staging.confirmOwnership(key, now)) {
         throw new StaleContentError(artifact.id, {
           contentId: artifact.contentId,
           updatedAt: active?.updatedAt ?? null,
