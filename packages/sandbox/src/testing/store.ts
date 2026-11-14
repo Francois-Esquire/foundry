@@ -24,6 +24,24 @@ function ids(rows: readonly ContainerRow[]): string[] {
   return rows.map((item) => item.id).sort();
 }
 
+type Transaction = NonNullable<ContainerStore["transaction"]>;
+
+/** The store's transaction, or the test skipped as not applicable. */
+function transactionOf(
+  store: ContainerStore,
+  skip: (note: string) => never
+): Transaction {
+  const { transaction } = store;
+  return transaction === undefined
+    ? skip("the store offers no transaction")
+    : transaction.bind(store);
+}
+
+/** Lets every other queued callback run, so a missing exclusion would show. */
+function yieldTurn(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 export function describeContainerStore(
   name: string,
   open: () => ContainerStore | Promise<ContainerStore>
@@ -93,13 +111,21 @@ export function describeContainerStore(
     it("keeps nothing from a write that fails", async () => {
       const store = await open();
       await store.commit({ putContainers: [row("kept")] });
-      const unstorable = row("bad", {
-        spec: (() => "{}") as unknown as string,
+      // Every store reads each field of a row it keeps, so a `spec` that
+      // throws on read fails a write that also carries a delete and a valid
+      // put. The SQLite run will also force `onCommit` to throw after its
+      // statements have executed.
+      const unreadable = row("bad");
+      Object.defineProperty(unreadable, "spec", {
+        enumerable: true,
+        get(): string {
+          throw new Error("spec cannot be read");
+        },
       });
       await expect(
         store.commit({
           deleteContainers: ["kept"],
-          putContainers: [row("c1"), unstorable],
+          putContainers: [row("c1"), unreadable],
         })
       ).rejects.toThrow();
       expect(ids(await store.list())).toEqual(["kept"]);
@@ -125,6 +151,80 @@ export function describeContainerStore(
       expect(read).not.toBe(listed);
       expect((await store.get("c1"))?.status).toBe("starting");
       expect((await store.list())[0]?.status).toBe("starting");
+    });
+
+    it("keeps each transaction's reads and commit together", async ({
+      skip,
+    }) => {
+      const store = await open();
+      const transaction = transactionOf(store, skip);
+      await store.commit({ putContainers: [row("c1")] });
+      const bump = () =>
+        transaction(async (view) => {
+          const current = await view.get("c1");
+          await yieldTurn();
+          await view.commit({
+            putContainers: [
+              row("c1", { updatedAt: (current?.updatedAt ?? 0) + 1 }),
+            ],
+          });
+        });
+      await Promise.all([bump(), bump()]);
+      expect((await store.get("c1"))?.updatedAt).toBe(3);
+    });
+
+    it("lands a plain commit only after a transaction it overlaps", async ({
+      skip,
+    }) => {
+      const store = await open();
+      const transaction = transactionOf(store, skip);
+      await store.commit({ putContainers: [row("c1")] });
+      let outside: Promise<void> = Promise.resolve();
+      const seen = await transaction(async (view) => {
+        outside = store.commit({
+          putContainers: [row("c1", { status: "running", updatedAt: 3 })],
+        });
+        await yieldTurn();
+        const read = await view.get("c1");
+        await view.commit({
+          putContainers: [row("c1", { status: "stopped", updatedAt: 2 })],
+        });
+        return read?.status;
+      });
+      await outside;
+      expect(seen).toBe("starting");
+      expect((await store.get("c1"))?.status).toBe("running");
+    });
+
+    it("reads its own commits and returns what its work returns", async ({
+      skip,
+    }) => {
+      const store = await open();
+      const transaction = transactionOf(store, skip);
+      const result = await transaction(async (view) => {
+        await view.commit({ putContainers: [row("c1")] });
+        return ids(await view.list());
+      });
+      expect(result).toEqual(["c1"]);
+      expect(await store.get("c1")).toEqual(row("c1"));
+    });
+
+    it("keeps none of the commits of a transaction that throws", async ({
+      skip,
+    }) => {
+      const store = await open();
+      const transaction = transactionOf(store, skip);
+      await store.commit({ putContainers: [row("kept")] });
+      await expect(
+        transaction(async (view) => {
+          await view.commit({
+            deleteContainers: ["kept"],
+            putContainers: [row("c1")],
+          });
+          throw new Error("work failed");
+        })
+      ).rejects.toThrow("work failed");
+      expect(ids(await store.list())).toEqual(["kept"]);
     });
 
     it("keeps two stores apart", async () => {

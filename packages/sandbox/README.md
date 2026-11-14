@@ -146,7 +146,11 @@ POSIX glob matching lives in `@foundry/lib/glob` (`globToRegExp`).
 `@foundry/sandbox/store` exports the `ContainerStore` interface, its
 `ContainerStoreWrite`, `ContainerRow`, and `ContainerRowStatus` without
 importing a runtime. A store applies each `commit(write)` atomically and
-enforces nothing; the registry holds every rule. `@foundry/sandbox/store/memory`
+enforces nothing; the registry holds every rule. A store may offer
+`transaction(work)`, which keeps every write from any registry over the store
+out from between `work`'s reads and its commit; the registry runs each
+read-modify-write through it when offered, and serializes its own writes
+either way. `@foundry/sandbox/store/memory`
 exports `createMemoryContainerStore`, the default when `createContainers` gets
 no `store`. `@foundry/sandbox/testing/store` exports `describeContainerStore`,
 the Vitest conformance suite every store passes. `CONTAINER_ROW_STATUSES` lives in

@@ -26,4 +26,12 @@ export interface ContainerStore {
   commit(write: ContainerStoreWrite): Promise<void>;
   get(id: string): Promise<ContainerRow | undefined>;
   list(): Promise<readonly ContainerRow[]>;
+  /**
+   * Runs one read-modify-write so that no other write to the store lands
+   * between its reads and its commit, from any registry over the store.
+   * `work` reads and commits through `view` only; if it throws, none of its
+   * commits are kept. Without it, a registry serializes its own writes and
+   * no further.
+   */
+  transaction?<T>(work: (view: ContainerStore) => Promise<T>): Promise<T>;
 }
