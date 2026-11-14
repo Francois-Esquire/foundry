@@ -11,14 +11,16 @@ import type {
   ModuleVersion,
 } from "../domain";
 import type { ModuleManifest } from "../manifest";
-import type { InstallationGrant, RetainedManifest } from "../schema";
+import type {
+  InstallationGrant,
+  RetainedManifest,
+  StoredInstallation,
+} from "../schema";
 
 export type { InstallationGrant, RetainedManifest } from "../schema";
 
-export interface ModuleGatewayContext {
-  readonly grants: readonly InstallationGrant[];
-  readonly installation: Installation;
-}
+/** What the gateway reads to authorize a call: an Installation with its Grants. */
+export type ModuleGatewayContext = StoredInstallation;
 
 export interface RegisterModuleInput {
   readonly module: Module;
