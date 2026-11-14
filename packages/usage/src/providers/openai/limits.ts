@@ -171,13 +171,11 @@ export const readCodexLimits = async (options: {
   }
 };
 
-/** An API key or Bedrock has no plan limits; a signed-out CLI has no account. */
+/** An API key or Bedrock has no plan limits; a signed-out CLI has no account, so no limits. */
 const refusal = (response: unknown): Reading | undefined => {
   const { account } = record(response);
   if (account === null || account === undefined) {
-    throw new Error(
-      "Codex is not signed in here. Run `codex login` with this CODEX_HOME."
-    );
+    return { limits: [] };
   }
   const { type } = record(account);
   if (type === "apiKey" || type === "amazonBedrock") {

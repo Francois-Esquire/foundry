@@ -175,11 +175,28 @@ Each tab except Settings shows its count, capped at 99+. Focusing Triggers or
 Marbles shows Catalog; focusing Runs shows Overview.
 
 Usage is recorded once per agent turn inside a run, from the token counts the
-harness reports. A cost is estimated at the catalog's list price when the
-model has one and keeps that price with the turn; `~` marks an estimate. A
-turn without a price is counted as unpriced, never as zero, and a run with no
-recorded turns shows "no usage recorded". A step's total includes its
-descendants' turns once.
+harness reports. A cost is estimated at the list price the model's catalog
+row states, when a server or the configuration gave one, else at the
+models.dev list price for it, and keeps that price with the turn; `~` marks
+an estimate. Marbles fetches models.dev when an engine starts and when
+Airplane Mode turns off, keeps it once it loads, and never waits for it. A
+fetch that fails is tried again the next time.
+
+Claude Code reports `total_cost_usd`, a running total for its CLI session.
+Marbles records it only for a turn that made one model call and resumed no
+session: in practice the first turn each time Marbles opens a Claude Code
+session on this machine, when the provider's settings name no `resume`,
+`continue`, `sessionId` or `extraArgs`. Every later turn resumes the CLI
+session, so its figure may include earlier turns; that turn is priced from
+its tokens like any other, or its cost stays unknown. A turn in a sandbox never gets the figure. The
+CLI computes it from its own price table, so it is stored as Claude Code's
+own figure and shown as an estimate (`~`). On an API key it estimates what
+the API bills. On a subscription nothing is billed per token, so it is what
+the work would cost at API prices.
+
+A turn without a price is counted as unpriced, never as zero, and a run
+with no recorded turns shows "no usage recorded". A step's total includes
+its descendants' turns once.
 
 A committed turn whose usage was not saved is found again in its session
 transcript: its tokens count, its cost is unknown, and the total says "not
@@ -328,3 +345,11 @@ architecture, verify its SHA-256, and use Marbles' permission-controlled coding
 tools. Supply a session API key or sign in with Pi on the host for the selected
 `provider/model`; the host resolves the current key, and only that key enters
 the guest environment. Refresh credentials remain on the host.
+
+An OpenAI-compatible gateway is configured with the `gateway` plugin:
+`{ "id": "gw", "plugin": "gateway", "enabled": true, "settings": { "baseURL": "https://gateway.example/v1", "apiKey": "GATEWAY_API_KEY" } }`.
+`apiKey` names the environment variable that holds the key, never the key
+itself, and the instance is available once that variable is set. Any other
+setting is an error. Its catalog is `openai/gpt-5-mini` and
+`openai/text-embedding-3-small`. A streamed turn asks the gateway for usage,
+so it records its tokens.

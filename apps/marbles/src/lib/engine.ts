@@ -11,6 +11,8 @@ import { Config } from "@foundry/lib/config";
 import type { ModelManager } from "@foundry/models";
 import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
+import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
+import { holdModelsDev } from "@foundry/models/catalog/models-dev-source";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import type { TaskStore } from "@foundry/tasks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
@@ -309,6 +311,8 @@ export class Engine {
   #stopping: Promise<void> | undefined;
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
+  /** The models.dev load the usage ledger prices from: held while running and online. */
+  #prices: ModelsDevHold | undefined;
 
   /**
    * Where an engine over `state` cuts worktrees by default: inside the state
@@ -326,7 +330,24 @@ export class Engine {
     const askable = options.askable ?? false;
     const { containers } = options;
     this.models = models;
-    this.airplane = airplaneMode(models);
+    // Started now, so list prices are there by the first turn; nothing
+    // waits for it. Airplane Mode gives it up, and leaving it holds it again.
+    this.#prices = holdModelsDev();
+    const airplane = airplaneMode(models);
+    this.airplane = {
+      dispose: () => airplane.dispose(),
+      get enabled() {
+        return airplane.enabled;
+      },
+      set: (enabled) => {
+        airplane.set(enabled);
+        if (enabled) {
+          this.#releasePrices();
+        } else if (!this.#disposing) {
+          this.#prices ??= holdModelsDev();
+        }
+      },
+    };
     this.providers = options.providers;
     this.#unwatch =
       options.providers?.watch((problem) => print(`[providers] ${problem}`)) ??
@@ -1147,6 +1168,12 @@ export class Engine {
     return this.#running?.held.workflow(runId)?.root.subscribe(signal);
   }
 
+  /** Give up the models.dev load; one still fetching is aborted when no other engine holds it. */
+  #releasePrices(): void {
+    this.#prices?.release();
+    this.#prices = undefined;
+  }
+
   /**
    * Stop execution and close what this engine was handed: the workspace system,
    * the containers if a sandbox ever opened them, and the models. The models
@@ -1185,6 +1212,7 @@ export class Engine {
     await close(() => this.sandboxes.close());
     this.#unwatch();
     this.airplane.dispose();
+    this.#releasePrices();
     await close(async () => {
       await this.providers?.dispose();
     });

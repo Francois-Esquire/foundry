@@ -72,15 +72,9 @@ describe("vercelProvider", () => {
     );
   });
 
-  it("ships a priced floor", () => {
-    const luna = VERCEL_DEFAULT_MODELS.find(
-      (m) => m.id === "openai/gpt-5.6-luna"
-    );
-    expect(luna?.costs).toEqual({
-      cachedInput: 0.02,
-      cacheWrite: 0.25,
-      input: 0.2,
-      output: 1.2,
-    });
+  it("ships a floor with no price of its own: models.dev prices it at run time", () => {
+    for (const row of VERCEL_DEFAULT_MODELS) {
+      expect(row.costs).toBeUndefined();
+    }
   });
 });

@@ -97,9 +97,22 @@ entry exports no provider.
 | `/local/remote` | `forkLocalWorker`: the worker process and its IPC transport |
 | `/local/remote/provider` | `RemoteLocalProvider`: the local surface over that transport |
 | `/live`, `/live/node` | Live interactions, browser and Node |
-| `/catalog/*` | Catalog adapters and the bundled models.dev snapshot |
+| `/catalog/*` | Catalog adapters, and models.dev read at run time |
 | `/embeddings/*` | Chunking, embedding, and ranking |
 | `/model-option`, `/cost` | Pure leaves; see below |
+
+**models.dev at run time.** `holdModelsDev()` (`/catalog/models-dev-source`)
+starts fetching `https://models.dev/catalog.json`, or joins the fetch already
+running, and returns a hold whose `loaded` never rejects. Once loaded, the
+catalog is kept for the life of the process. A fetch that fails is not
+retried on its own; the next hold tries again. Release the hold when the
+host stops:
+when the last hold is released before the fetch finishes, it is aborted, so
+it never keeps a finished process open. Nothing waits for it: until it has
+loaded, and when it fails, a price that needs it is absent.
+`loadedModelsDev()` returns what has loaded, without fetching. `FOUNDRY_MODELS_DEV_URL` names another source; an empty value
+loads nothing. `enrichFromModelsDev(rows, catalog)` (`/catalog/models-dev`)
+fills a row's absent facts from it and never overrides what the row states.
 
 **Two ids per row, on purpose.** `id` is how callers and the picker name a
 model; `modelId` is what goes on the wire. They coincide for cloud rows and
@@ -134,6 +147,16 @@ Pure leaves a renderer can import without the Node-only runtime:
 `toModelOption(row)` flattens a catalog row for a picker; `costFromUsage(costs,
 usage)` prices a turn with cache and tiered rates. Use these subpaths for browser
 code; the root entry also imports registry and observability code.
+
+`claudeCodeCallCost(providerMetadata)` returns what Claude Code reported a
+call cost (its `total_cost_usd`), only for a call that resumed no session.
+That figure is a running total for the CLI session, so only such a call has
+a figure of its own. The Claude Code provider marks that call in
+`providerMetadata.foundry.claudeCodeFresh`. It marks a call only when the
+model's settings, default settings included, name no `resume`, `continue`,
+`sessionId` or `extraArgs`, and no earlier call ran on the same model instance, since
+the instance resumes the session its first call opened. The CLI computes
+the figure from its own price table on any login, so it is an estimate.
 
 ## Observability · errors
 

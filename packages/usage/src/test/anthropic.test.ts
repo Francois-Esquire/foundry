@@ -277,13 +277,14 @@ describe("Claude reads through a credential", () => {
     expect(calls.usage).toBe(0);
   });
 
-  it("fails a signed-out login, and a CLI that hangs, closing it each time", async () => {
+  it("reads no limits for a signed-out login, fails a CLI that hangs, and closes it each time", async () => {
     const signedOut = await setup({
       init: { account: { tokenSource: "none" } },
     });
-    await expect(signedOut.provider().limits()).rejects.toThrow(
-      "not signed in"
-    );
+    await expect(signedOut.provider().limits()).resolves.toEqual({
+      limits: [],
+    });
+    expect(signedOut.calls.usage).toBe(0);
     expect(signedOut.calls.closed).toBe(1);
 
     const hung = await setup({ usage: HANG });
@@ -312,6 +313,15 @@ describe("Claude reads through a credential", () => {
     await touch(join(home, "other", ".credentials.json"));
     expect((await custom.defaultAccount())?.credential).toEqual({
       configDir: join(home, "other"),
+      kind: "login",
+    });
+  });
+
+  it("finds the default account by its history alone, with no login", async () => {
+    const { home, provider } = await setup();
+    await touch(join(home, ".claude", "projects", "p", "s.jsonl"));
+    expect((await provider.defaultAccount())?.credential).toEqual({
+      configDir: join(home, ".claude"),
       kind: "login",
     });
   });
