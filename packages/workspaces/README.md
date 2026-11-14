@@ -162,8 +162,8 @@ Git is opt-in on `@foundry/workspaces/git`: the `git()` layer, plus
 the resulting `Git`.
 
 A new `WorkspaceStore` proves itself against the conformance suite on
-`@foundry/workspaces/testing`: `describeWorkspaceStore(name, open)` registers
-Vitest tests, and `open` returns a fresh empty store.
+`@foundry/workspaces/testing/store`: `describeWorkspaceStore(name, open)`
+registers Vitest tests, and `open` returns a fresh empty store.
 
 Tests live in `src/test/`. The build emits declarations; runtime exports resolve
 to TypeScript source. Run lint and formatting checks from the repository root.

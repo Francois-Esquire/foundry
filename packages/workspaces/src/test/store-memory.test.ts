@@ -89,7 +89,7 @@ describe("@foundry/workspaces store paths", () => {
     const { exports } = readManifest();
     expect(exports?.["./store"]?.import).toBe("./src/store/index.ts");
     expect(exports?.["./store/memory"]?.import).toBe("./src/store/memory.ts");
-    expect(exports?.["./testing"]?.import).toBe("./src/testing/store.ts");
+    expect(exports?.["./testing/store"]?.import).toBe("./src/testing/store.ts");
   });
 
   it("keeps every store implementation off the main entry", async () => {
