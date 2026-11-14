@@ -9,6 +9,7 @@ import { drizzle } from "drizzle-orm/libsql";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 
 import { serialClient } from "~/database/client";
+import { guardedClient } from "~/database/guard";
 import {
   IncompatibleDatabaseError,
   MIGRATIONS,
@@ -99,9 +100,9 @@ export async function initializeDatabase(
   try {
     await client.execute("PRAGMA journal_mode = WAL");
     await client.execute("PRAGMA foreign_keys = ON");
-    const database = drizzle({ client });
-    await migrate(client, database, path, options.migrations ?? MIGRATIONS);
-    return { close: () => client.close(), database, file: path };
+    const folder = options.migrations ?? MIGRATIONS;
+    await migrate(client, drizzle({ client }), path, folder);
+    return writer(client, path, folder);
   } catch (error) {
     client.close();
     throw error;
@@ -128,12 +129,11 @@ export async function openDatabase(
   const client = existing(path, "mode=rw", options);
   try {
     await client.execute("PRAGMA foreign_keys = ON");
-    const database = drizzle({ client });
-    if (!(await usable(database, path, options))) {
+    if (!(await usable(drizzle({ client }), path, options))) {
       client.close();
       return;
     }
-    return { close: () => client.close(), database, file: path };
+    return writer(client, path, options.migrations ?? MIGRATIONS);
   } catch (error) {
     client.close();
     throw error;
@@ -251,6 +251,21 @@ async function readOnce<T>(
   return before === undefined || before === fingerprint(path)
     ? { done: true, value }
     : { done: false };
+}
+
+/**
+ * A writer's handle over `client`, whose schema was just found to be the
+ * one the migrations in `folder` make: every transaction on it checks that
+ * it still is (`guardedClient`), so a handle kept open for hours never
+ * writes to a database a newer Marbles has migrated since.
+ */
+function writer(client: Client, path: string, folder: string): MarblesDatabase {
+  const guarded = guardedClient(client, path, shippedMigrations(folder));
+  return {
+    close: () => guarded.close(),
+    database: drizzle({ client: guarded }),
+    file: path,
+  };
 }
 
 /**
