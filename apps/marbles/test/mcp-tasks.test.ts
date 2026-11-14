@@ -194,30 +194,31 @@ it("commits, returns, and filters tags over a workspace's own records", async ()
   expect((await other.get(tagged?.id ?? ""))?.tags).toEqual([]);
 });
 
-it("sets and removes a __proto__ metadata key like any other", async () => {
+it("publishes metadata as a JSON object and refuses a __proto__ key in it", async () => {
   const { client, tasks } = await connect();
   const { tools } = await client.listTools();
   const change = tools.find(({ name }) => name === "change_tasks");
-  // Metadata is checked in place, but still published as an object.
-  expect(JSON.stringify(change?.inputSchema)).toContain(
-    '"metadata":{"type":"object"}'
-  );
-  const task = await tasks.create({
-    metadata: JSON.parse('{"__proto__":{"owner":"alice"},"keep":1}'),
-    title: "proto",
-  });
+  // Typed as JSON on create and update; the `__proto__` refusal is not in
+  // the JSON Schema, so the server answers it.
+  const published = JSON.stringify(change?.inputSchema);
+  const typed =
+    '"metadata":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{"$ref":';
+  expect(published.split(typed)).toHaveLength(3);
+
+  const task = await tasks.create({ metadata: { keep: 1 }, title: "proto" });
   // A quoted `__proto__` in an object literal sets the prototype; parsed
   // JSON defines the key.
-  const metadata = JSON.parse('{"__proto__":null,"x":{"__proto__":1}}');
+  const metadata = JSON.parse('{"x":{"__proto__":1}}');
   const result = await call(client, "change_tasks", {
     operations: [
       { kind: "task.update", patch: { metadata }, task: { id: task.id } },
     ],
   });
-  expect(result.isError).not.toBe(true);
-  expect(JSON.stringify((await tasks.get(task.id))?.metadata)).toBe(
-    '{"keep":1,"x":{"__proto__":1}}'
+  expect(result.isError).toBe(true);
+  expect(textOf(result)).toContain(
+    '"__proto__" is not allowed as a metadata key'
   );
+  expect((await tasks.get(task.id))?.metadata).toEqual({ keep: 1 });
 });
 
 it("creates, reads, and changes tasks through the shared command language", async () => {
