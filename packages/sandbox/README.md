@@ -143,21 +143,103 @@ sandboxFromAdapter(adapter); // a Sandbox over a backend's SandboxAdapter
 
 POSIX glob matching lives in `@foundry/lib/glob` (`globToRegExp`).
 
-`@foundry/sandbox/store` exports the `ContainerStore` interface, its
-`ContainerStoreWrite`, `ContainerRow`, and `ContainerRowStatus` without
-importing a runtime. A store applies each `commit(write)` atomically and
-enforces nothing; the registry holds every rule. A store may offer
+Constants have scoped entry points: `@foundry/sandbox/constants`,
+`@foundry/sandbox/container/constants`, and `@foundry/sandbox/tools/constants`.
+
+## Storage
+
+`ContainerStore` on `@foundry/sandbox/store` is the seam the containers
+registry persists its rows through: `list()`, `get(id)`, and `commit(write)`,
+where a write deletes and puts rows all or nothing, deletes first. A store
+enforces nothing; the registry holds every rule. Values crossing the seam are
+detached, reads hand out frozen rows, and `list()` returns rows in the order
+first put (a row put again keeps its place). A store may offer
 `transaction(work)`, which keeps every write from any registry over the store
 out from between `work`'s reads and its commit; the registry runs each
 read-modify-write through it when offered, and serializes its own writes
-either way. `@foundry/sandbox/store/memory`
-exports `createMemoryContainerStore`, the default when `createContainers` gets
-no `store`. `@foundry/sandbox/testing/store` exports `describeContainerStore`,
-the Vitest conformance suite every store passes. `CONTAINER_ROW_STATUSES` lives in
-`@foundry/sandbox/container/constants`.
+either way. `@foundry/sandbox/schema` defines `ContainerRow` as a Zod schema.
 
-Constants have scoped entry points: `@foundry/sandbox/constants`,
-`@foundry/sandbox/container/constants`, and `@foundry/sandbox/tools/constants`.
+| Path                             | Holds                                                              |
+| -------------------------------- | ------------------------------------------------------------------ |
+| `@foundry/sandbox/store`         | `ContainerStore`, `ContainerStoreWrite`, and the row types.        |
+| `@foundry/sandbox/store/memory`  | `createMemoryContainerStore`, the default `createContainers` uses. |
+| `@foundry/sandbox/store/sqlite`  | `createSqliteContainerStore`, over a host's Drizzle database.      |
+| `@foundry/sandbox/store/tables`  | The Drizzle table it uses: `sandbox_containers`.                   |
+| `@foundry/sandbox/testing/store` | `describeContainerStore`, the suite every store passes.            |
+
+`CONTAINER_ROW_STATUSES` lives in `@foundry/sandbox/container/constants`.
+
+Both stores take their calls in turns: a call made while a transaction runs
+waits for it, and a call to the store from inside its own transaction's work
+(or the SQLite store's `onCommit` hook) is refused at once with a
+`ReentrantCallError` that says to use the view, instead of waiting on itself
+forever. The registry calls only the view inside a transaction.
+
+`createSqliteContainerStore` takes the host's database and never opens one.
+The host composes the table from `./store/tables` into its own schema and
+owns the migrations; `drizzle-orm` is an optional peer dependency, needed
+only on the two SQLite paths. Every row carries a `scope`, an opaque
+partition the host chooses (a workspace id, say), and a store reads and
+writes only its own. The table also has a `position` column: the store
+assigns it when a row is first put, keeps it when the row is put again, and
+lists rows by it.
+
+```ts
+import { createContainers } from "@foundry/sandbox/container/containers";
+import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
+
+const store = createSqliteContainerStore({
+  database, // a drizzle-orm/libsql database, or a transaction on one
+  scope: workspaceId,
+  // Optional: runs in the commit's transaction, after the store's statements.
+  onCommit: async (transaction, write) => {
+    await transaction.insert(changes).values({ write });
+  },
+});
+const containers = createContainers({ instanceLabel, runtime, store });
+```
+
+Each `commit` is one database transaction, and a throwing `onCommit` rolls
+it back. `onCommit` uses the `transaction` it is given. `get` and `list` are
+one query each. `transaction(work)` runs `work` in one database transaction;
+a commit through its view that fails rolls back only itself. Across
+connections, each transaction takes SQLite's write lock at its first
+statement: Drizzle's libSQL driver begins every transaction with
+`BEGIN IMMEDIATE`. A write from another process then waits for as long as its
+connection's busy timeout allows, or fails with `SQLITE_BUSY`. Either way it
+never lands between a transaction's reads and its commit.
+
+Host requirement: the store's queue covers only its own instance. Within
+one process, the host must serialize writes per database file across every
+client and store on it (Marbles does). A second libSQL client in the same
+process does not wait usefully: libSQL waits out its busy timeout
+synchronously, holding up the thread the first client needs to commit, so
+it blocks for the whole timeout and then fails with `SQLITE_BUSY`. Do not
+open the same file with a second SQLite library in the process either
+(`bun:sqlite` or `node:sqlite` beside libSQL): SQLite's file locks are per
+process, so the two libraries do not see each other's locks at all.
+Connection settings such as WAL and the busy timeout are the host's.
+
+Storage limits of the SQLite store, not rules of the package. `commit`
+refuses, before writing anything and through a transaction's view as well, a
+write SQLite would not give back intact, with a `RangeError` naming the
+field, such as `putContainers[0].spec`:
+
+- Text holding U+0000, or text that is not well-formed UTF-16 (a lone
+  surrogate), in `id`, `nativeId`, `spec`, or `status`. libSQL reads text
+  back cut at its first NUL; a lone surrogate is bound as U+FFFD on Node and
+  as nothing on Bun, so it reads back changed and could match another row's
+  id. A `get` or delete by such an id finds nothing, and the store refuses
+  such a `scope`.
+- A `createdAt` or `updatedAt` that is NaN, an infinity, `-0`, or beyond
+  `±Number.MAX_SAFE_INTEGER`. The schema takes any number; the columns are
+  integers. libSQL refuses to bind NaN and the infinities, `-0` reads back as
+  `0`, and an integer past the safe range is kept as a 64-bit integer that
+  libSQL then refuses to read. Every other number, whole or fractional,
+  reads back exactly. The registry writes `Date.now()`, which always fits.
+
+`nativeId` is the one field that may be `undefined`; its column is NULL
+then, and a NULL reads back as `nativeId: undefined`, the key present.
 
 ## Sandbox tools
 
