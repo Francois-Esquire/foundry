@@ -29,13 +29,15 @@ describe("container row schema", () => {
     ).toEqual({ ...row, nativeId: "c1-1", status: "running" });
   });
 
-  it("rejects unknown statuses and fractional timestamps", () => {
+  it("rejects an unknown status", () => {
     expect(
       containerRowSchema.safeParse({ ...row, status: "paused" }).success
     ).toBe(false);
-    expect(
-      containerRowSchema.safeParse({ ...row, createdAt: 1.5 }).success
-    ).toBe(false);
+  });
+
+  it("accepts every id and timestamp the store accepts", () => {
+    const loose = { ...row, createdAt: 1.5, id: "", updatedAt: -1 };
+    expect(containerRowSchema.parse(loose)).toEqual(loose);
   });
 
   it("limits a patch to the fields an update may change", () => {
