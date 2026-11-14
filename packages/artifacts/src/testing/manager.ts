@@ -102,13 +102,14 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 /**
  * Registers the manager's behaviour over a store: rules, sharing, fences,
  * rollback and commit-time effects. `createStore` returns a fresh, empty
- * store each time.
- */ export function describeArtifactManager(
+ * store each time, or a promise of one.
+ */
+export function describeArtifactManager(
   name: string,
-  createStore: () => ArtifactStore
+  createStore: () => ArtifactStore | Promise<ArtifactStore>
 ): void {
-  function harness() {
-    const store = createStore();
+  async function harness() {
+    const store = await createStore();
     const mutations: string[] = [];
     const artifacts = new ArtifactManager({ store });
     artifacts.observe((id) => mutations.push(id));
@@ -116,7 +117,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
   }
   describe(`${name} Artifact manager`, () => {
     test("stores structural entries without blobs and removes directories recursively", async () => {
-      const { artifacts, store } = harness();
+      const { artifacts, store } = await harness();
       const before = (await store.listBlobs()).length;
       const artifact = await artifacts.create({
         entries: {
@@ -165,7 +166,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
       expect((await store.listBlobs()).length).toBe(before);
     });
     test("explicit revision preserves predecessors without publication and rolls back invalid contributions", async () => {
-      const { artifacts, store, mutations } = harness();
+      const { artifacts, store, mutations } = await harness();
       const artifact = await artifacts.create({
         entries: { "index.html": text("before") },
         metadata: {
@@ -239,7 +240,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
       });
     });
     test("same-millisecond edits, metadata and freeze advance the Content fence", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       vi.useFakeTimers({ toFake: ["Date"] });
       try {
         vi.setSystemTime(new Date("2026-09-06T12:00:00Z"));
@@ -284,7 +285,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
       }
     });
     test("create with files, autosave in place, publish, edit after freeze", async () => {
-      const { store, artifacts, mutations } = harness();
+      const { store, artifacts, mutations } = await harness();
       const before = (await store.listBlobs()).length;
 
       const created = await artifacts.create({
@@ -345,7 +346,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
       ).toBeGreaterThan(0);
     });
     test("fences, select, fork, tags", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const a = await artifacts.create({
         entries: { "doc.md": text("# one", "text/markdown") },
         freeze: { tag: "v1" },
@@ -408,7 +409,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
       ).rejects.toBeInstanceOf(InvalidArtifactInputError);
     });
     test("resolves files and roots, validates pointers, reads by session", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const a = await artifacts.create({
         entries: {
           "outputs/index.html": text("<p>root</p>"),
@@ -471,7 +472,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
       );
     });
     test("archive, list, rename, delete", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const type = `test/${crypto.randomUUID()}`;
       const a = await artifacts.create({
         entries: { f: text("a") },
@@ -522,7 +523,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
     });
 
     test("preserves shared blobs through fork edits and only reclaims the final reference", async () => {
-      const { artifacts, store } = harness();
+      const { artifacts, store } = await harness();
       const original = await artifacts.create({
         entries: { "file.txt": { bytes: crypto.randomUUID() } },
         name: "Original",
@@ -547,7 +548,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
     });
 
     test("reuses an exclusive ready blob and enforces concurrent write fences", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const original = await artifacts.create({
         entries: { "file.txt": { bytes: crypto.randomUUID() } },
         name: "Exclusive",
@@ -574,7 +575,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
     });
 
     test("enforces write fences between two managers over one store", async () => {
-      const store = createStore();
+      const store = await createStore();
       const one = new ArtifactManager({ store });
       const other = new ArtifactManager({ store });
       const original = await one.create({
@@ -599,7 +600,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
     });
 
     test("rolls back records and notifications and expires scoped handles", async () => {
-      const { artifacts, mutations } = harness();
+      const { artifacts, mutations } = await harness();
       let scoped: ArtifactOperations | undefined;
       let id: ArtifactResolved["id"] | undefined;
       await expect(
@@ -622,7 +623,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
     });
 
     test("runs every after-commit callback even when one fails", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const applied: string[] = [];
       await expect(
         artifacts.transaction(async (transaction, effects) => {
@@ -642,7 +643,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
     });
 
     test("runs after-commit work once the change is released, so it can write again", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const order: string[] = [];
       await artifacts.transaction(async (transaction, effects) => {
         await transaction.create({ name: "Outer", type: "text/plain" });
@@ -657,7 +658,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
     }, 2000);
 
     test("discards after-commit work when the change rolls back", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       let ran = false;
       await expect(
         artifacts.transaction((_transaction, effects) => {
@@ -673,7 +674,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
     /** Two managers over one pausable store, and an Artifact holding `file.txt`. */
     async function sharedStore() {
-      const shared = pausable(createStore());
+      const shared = pausable(await createStore());
       const reader = new ArtifactManager({ store: shared.store });
       const writer = new ArtifactManager({ store: shared.store });
       const created = await writer.create({

@@ -106,22 +106,28 @@ function sorted<T extends { readonly id: string }>(rows: readonly T[]): T[] {
 }
 
 /**
+ * Fresh, empty storage, reached one scope at a time. The same scope reaches
+ * the same records on every call; two scopes never see each other's.
+ */
+export type ScopedArtifactStores = (scope: string) => ArtifactStore;
+
+/**
  * Registers the tests every `ArtifactStore` must pass. `open` returns fresh,
  * empty storage, opened per scope: two scopes over one storage never see
  * each other's records, and one scope opened twice sees one set.
  */
 export function describeArtifactStore(
   name: string,
-  open: () => (scope: string) => ArtifactStore
+  open: () => ScopedArtifactStores | Promise<ScopedArtifactStores>
 ): void {
-  const fresh = () => open()("conformance");
+  const fresh = async () => (await open())("conformance");
   /** Every Artifact, oldest first. */
   const everyArtifact = async (store: ArtifactStore) =>
     (await store.listArtifacts({ includeArchived: true, limit: 1000 }))
       .artifacts;
   describe(`${name} Artifact store conformance`, () => {
     it("reads back every record a commit puts", async () => {
-      const store = fresh();
+      const store = await fresh();
       const owner = artifact();
       const blob = inlineBlob();
       const version = content(owner.id, [blob.id]);
@@ -142,7 +148,7 @@ export function describeArtifactStore(
     });
 
     it("answers absent records with null and empty lists", async () => {
-      const store = fresh();
+      const store = await fresh();
       expect(await store.getArtifact(artifactId())).toBeNull();
       expect(await store.getContent(contentId())).toBeNull();
       expect(await store.getBlob(blobId())).toBeNull();
@@ -157,7 +163,7 @@ export function describeArtifactStore(
     });
 
     it("lists one Artifact's Contents apart from another's", async () => {
-      const store = fresh();
+      const store = await fresh();
       const first = artifact();
       const second = artifact();
       const mine = content(first.id);
@@ -173,7 +179,7 @@ export function describeArtifactStore(
     });
 
     it("finds blobs by digest and names a backing path in listings", async () => {
-      const store = fresh();
+      const store = await fresh();
       const inline = inlineBlob();
       const backed: Blob = {
         byteLength: 1,
@@ -190,7 +196,7 @@ export function describeArtifactStore(
     });
 
     it("finds the Contents and chunked blobs naming a blob", async () => {
-      const store = fresh();
+      const store = await fresh();
       const owner = artifact();
       const leaf = inlineBlob();
       const unnamed = inlineBlob();
@@ -218,7 +224,7 @@ export function describeArtifactStore(
     });
 
     it("replaces a record put again and removes deleted ones", async () => {
-      const store = fresh();
+      const store = await fresh();
       const kept = artifact();
       const gone = artifact();
       const version = content(gone.id);
@@ -245,7 +251,7 @@ export function describeArtifactStore(
     });
 
     it("applies deletes before puts", async () => {
-      const store = fresh();
+      const store = await fresh();
       const record = artifact();
       await store.commit({ putArtifacts: [record] });
       const replaced = { ...record, name: "Replaced" };
@@ -257,7 +263,7 @@ export function describeArtifactStore(
     });
 
     it("keeps nothing from a commit that fails", async () => {
-      const store = fresh();
+      const store = await fresh();
       const before = artifact();
       await store.commit({ putArtifacts: [before] });
       const unstorable = artifact({
@@ -275,7 +281,7 @@ export function describeArtifactStore(
     });
 
     it("detaches what it stores from what it returns", async () => {
-      const store = fresh();
+      const store = await fresh();
       const record = artifact();
       const blob = inlineBlob();
       await store.commit({ putArtifacts: [record], putBlobs: [blob] });
@@ -298,7 +304,7 @@ export function describeArtifactStore(
     });
 
     it("keeps two scopes over one storage apart", async () => {
-      const storage = open();
+      const storage = await open();
       const mine = storage("mine");
       const theirs = storage("theirs");
       const record = artifact();
@@ -312,7 +318,7 @@ export function describeArtifactStore(
     });
 
     it("lists Artifacts by filter in creation order, paged by cursor", async () => {
-      const store = fresh();
+      const store = await fresh();
       const at = (seconds: number) => new Date(AT.getTime() + seconds * 1000);
       // Two share an instant, so ids break the tie.
       const [early, tiedLow, tiedHigh, archived, other] = [
@@ -370,8 +376,325 @@ export function describeArtifactStore(
       ).toEqual({ artifacts: [], total: 4 });
     });
 
+    it("matches text as toLowerCase does, by code unit, with % and _ as themselves", async () => {
+      const store = await fresh();
+      const named = (title: string, fields: Partial<Artifact> = {}) =>
+        artifact({ name: title, ...fields });
+      const records = {
+        accented: named("ÄRGER im Büro"),
+        dotted: named("İstanbul"),
+        emoji: named("😀 face"),
+        greek: named("ΟΔΟΣ"),
+        id: named("By id", { id: artifactIdSchema.parse("ID-ÄBC") }),
+        percent: named("100% done"),
+        plain: named("plain"),
+        type: named("By type", { type: "TEXT/Markdown" }),
+        underscore: named("snake_case"),
+      };
+      await store.commit({ putArtifacts: Object.values(records) });
+      const matching = async (text: string) => {
+        const listing = await store.listArtifacts({ limit: 100, text });
+        expect(listing.total).toBe(listing.artifacts.length);
+        return listing.artifacts.map((row) => row.name).sort();
+      };
+
+      expect(await matching("ärger")).toEqual(["ÄRGER im Büro"]);
+      expect(await matching("ÄRGER")).toEqual(["ÄRGER im Büro"]);
+      // "İ" lower-cases to "i" and a combining dot, so "istanbul" is no match.
+      expect(await matching("i̇stanbul")).toEqual(["İstanbul"]);
+      expect(await matching("istanbul")).toEqual([]);
+      // A final capital sigma lower-cases to the final form.
+      expect(await matching("ς")).toEqual(["ΟΔΟΣ"]);
+      expect(await matching("σ")).toEqual([]);
+      expect(await matching("%")).toEqual(["100% done"]);
+      expect(await matching("0% d")).toEqual(["100% done"]);
+      expect(await matching("_")).toEqual(["snake_case"]);
+      expect(await matching("e_c")).toEqual(["snake_case"]);
+      expect(await matching("%d")).toEqual([]);
+      expect(await matching("markdown")).toEqual(["By type"]);
+      expect(await matching("id-äb")).toEqual(["By id"]);
+      // Half of a surrogate pair matches by code unit; a NUL matches nothing.
+      expect(await matching("\uD83D")).toEqual(["😀 face"]);
+      expect(await matching("\u0000")).toEqual([]);
+      // Empty text matches everything.
+      expect(await matching("")).toHaveLength(Object.keys(records).length);
+    });
+
+    it("orders tied Artifacts by id in code-unit order, and pages between them", async () => {
+      const store = await fresh();
+      const ids = ["￿", "😀", "a", ""];
+      await store.commit({
+        putArtifacts: ids.map((id) =>
+          artifact({ id: artifactIdSchema.parse(id), name: id })
+        ),
+      });
+      // By code unit, a surrogate pair (U+D83D…) sorts before U+E000;
+      // by code point it would sort last.
+      const order = ["a", "😀", "", "￿"];
+      const page = async (after?: string, limit = 10) =>
+        store.listArtifacts({
+          ...(after === undefined
+            ? {}
+            : { after: { createdAt: AT, id: artifactIdSchema.parse(after) } }),
+          limit,
+        });
+      const names = async (after?: string, limit?: number) =>
+        (await page(after, limit)).artifacts.map((row) => row.name);
+
+      expect(await names()).toEqual(order);
+      expect(await names(undefined, 2)).toEqual(order.slice(0, 2));
+      expect(await names("😀")).toEqual(order.slice(2));
+      // A cursor need not name a stored Artifact: half a pair sorts first.
+      expect(await names("\uD83D")).toEqual(order.slice(1));
+      expect((await page("")).total).toBe(4);
+    });
+
+    it("counts every match of the filter, whatever the cursor and limit", async () => {
+      const store = await fresh();
+      const at = (seconds: number) => new Date(AT.getTime() + seconds * 1000);
+      const rows = [
+        artifact({ createdAt: at(1), name: "Draft note" }),
+        artifact({ createdAt: at(2), name: "Image note", type: "image/png" }),
+        artifact({
+          archivedAt: at(3),
+          createdAt: at(3),
+          name: "Archived note",
+          status: "archived",
+        }),
+        artifact({
+          archivedAt: at(4),
+          createdAt: at(4),
+          name: "Archived image",
+          status: "archived",
+          type: "image/png",
+        }),
+        artifact({ createdAt: at(5), name: "Other" }),
+      ];
+      await store.commit({ putArtifacts: rows });
+      const [first] = rows;
+      const after = { createdAt: at(1), id: first?.id as ArtifactId };
+      const cases: [Partial<ArtifactListQuery>, number, number][] = [
+        [{}, 3, 3],
+        [{ includeArchived: true }, 5, 5],
+        [{ type: "image/png" }, 1, 1],
+        [{ includeArchived: true, type: "image/png" }, 2, 2],
+        [{ text: "note" }, 2, 2],
+        [{ includeArchived: true, text: "NOTE" }, 3, 3],
+        [{ includeArchived: true, text: "image", type: "image/png" }, 2, 2],
+        [{ after, includeArchived: true }, 4, 5],
+        [{ after, limit: 1, text: "note" }, 1, 2],
+        [{ after, includeArchived: true, limit: 1, type: "image/png" }, 1, 2],
+        [{ type: "missing" }, 0, 0],
+        [{ text: "missing" }, 0, 0],
+      ];
+      for (const [query, listed, total] of cases) {
+        const listing = await store.listArtifacts({ limit: 10, ...query });
+        expect(
+          [listing.artifacts.length, listing.total],
+          JSON.stringify(query)
+        ).toEqual([listed, total]);
+      }
+      // A cursor whose time is no valid Date compares by id alone.
+      const [low, ...higher] = sorted(rows);
+      const byId = await store.listArtifacts({
+        after: { createdAt: new Date(Number.NaN), id: low?.id as ArtifactId },
+        includeArchived: true,
+        limit: 10,
+      });
+      expect(sorted(byId.artifacts)).toEqual(higher);
+      expect(byId.total).toBe(5);
+    });
+
+    it("names each referencing record once, and forgets a reference put away", async () => {
+      const store = await fresh();
+      const owner = artifact();
+      const [leaf, other, spare] = [inlineBlob(), inlineBlob(), inlineBlob()];
+      const manifest: Blob = {
+        byteLength: 3,
+        chunks: [leaf.id, leaf.id, spare.id],
+        createdAt: AT,
+        digest: OTHER_DIGEST,
+        id: blobId(),
+      };
+      const version = content(owner.id, [leaf.id, leaf.id]);
+      await store.commit({
+        putArtifacts: [owner],
+        putBlobs: [leaf, other, spare, manifest],
+        putContents: [version],
+      });
+      expect(await store.findReferences(leaf.id)).toEqual({
+        blobIds: [manifest.id],
+        contentIds: [version.id],
+      });
+
+      // Put again naming other blobs, each record stops naming the first.
+      await store.commit({
+        putBlobs: [{ ...manifest, chunks: [other.id] }],
+        putContents: [{ ...version, tree: content(owner.id, [other.id]).tree }],
+      });
+      expect(await store.findReferences(leaf.id)).toEqual({
+        blobIds: [],
+        contentIds: [],
+      });
+      expect(await store.findReferences(spare.id)).toEqual({
+        blobIds: [],
+        contentIds: [],
+      });
+      expect(await store.findReferences(other.id)).toEqual({
+        blobIds: [manifest.id],
+        contentIds: [version.id],
+      });
+
+      await store.commit({
+        deleteBlobs: [manifest.id],
+        deleteContents: [version.id],
+      });
+      expect(await store.findReferences(other.id)).toEqual({
+        blobIds: [],
+        contentIds: [],
+      });
+    });
+
+    it("keeps the last of one record put twice in one write", async () => {
+      const store = await fresh();
+      const owner = artifact();
+      const [first, last] = [inlineBlob(), inlineBlob()];
+      const version = content(owner.id, [first.id]);
+      const again = { ...version, tree: content(owner.id, [last.id]).tree };
+      await store.commit({
+        putArtifacts: [owner, { ...owner, name: "Last" }],
+        putBlobs: [first, last],
+        putContents: [version, again],
+      });
+      expect((await store.getArtifact(owner.id))?.name).toBe("Last");
+      expect(await store.getContent(version.id)).toEqual(again);
+      expect((await store.findReferences(first.id)).contentIds).toEqual([]);
+      expect((await store.findReferences(last.id)).contentIds).toEqual([
+        version.id,
+      ]);
+    });
+
+    it("gives every field back exactly, set or null, of every record and source", async () => {
+      const store = await fresh();
+      const later = new Date(AT.getTime() + 1234);
+      const owner = artifact({
+        archivedAt: later,
+        metadata: {
+          nested: { list: [1, -1.5, "two", null, true, { deep: [] }] },
+          sessionId: "s",
+          unicode: "\u0000 and \uD800 kept in JSON",
+        },
+        publishedAt: later,
+        status: "archived",
+      });
+      const bare = artifact();
+      const empty: Blob = {
+        byteLength: 0,
+        bytes: new Uint8Array(0),
+        createdAt: AT,
+        digest: DIGEST,
+        id: blobId(),
+      };
+      const backed: Blob = {
+        byteLength: 2,
+        createdAt: later,
+        digest: OTHER_DIGEST,
+        id: blobId(),
+        path: "objects/ab/cd",
+      };
+      const leaf = inlineBlob();
+      const manifest: Blob = {
+        byteLength: 1,
+        chunks: [leaf.id],
+        createdAt: AT,
+        digest: DIGEST,
+        id: blobId(),
+      };
+      const version: Content = {
+        ...content(owner.id, [backed.id]),
+        frozenAt: later,
+        metadata: {
+          entries: { main: "0.txt" },
+          entry: "0.txt",
+          failure: { code: "x", message: "y" },
+          unknown: { kept: [1] },
+        },
+        state: "frozen",
+        tag: "v1",
+        tree: {
+          "0.txt": {
+            blobId: backed.id,
+            bytes: 2,
+            digest: OTHER_DIGEST,
+            mime: "text/plain",
+            type: "file",
+          },
+          "1.bin": {
+            blobId: empty.id,
+            bytes: 0,
+            digest: DIGEST,
+            mime: null,
+            type: "file",
+          },
+          dev: { type: "device" },
+          dir: { type: "directory" },
+          link: { target: "../elsewhere", type: "symlink" },
+          pipe: { type: "pipe" },
+          sock: { type: "socket" },
+        },
+      };
+      const pointed = { ...owner, contentId: version.id };
+      await store.commit({
+        putArtifacts: [pointed, bare],
+        putBlobs: [empty, backed, leaf, manifest],
+        putContents: [version],
+      });
+
+      expect(await store.getArtifact(pointed.id)).toStrictEqual(pointed);
+      expect(await store.getArtifact(bare.id)).toStrictEqual(bare);
+      expect(await store.getContent(version.id)).toStrictEqual(version);
+      for (const blob of [empty, backed, leaf, manifest]) {
+        expect(await store.getBlob(blob.id)).toStrictEqual(blob);
+      }
+      expect(await store.findBlobs(OTHER_DIGEST)).toStrictEqual([backed]);
+    });
+
+    it("commits and deletes thousands of records in one write", async () => {
+      const store = await fresh();
+      const count = 3000;
+      const owners = Array.from({ length: count }, () => artifact());
+      const blobs = owners.map(() => inlineBlob());
+      const versions = owners.map((owner, index) =>
+        content(owner.id, [blobs[index]?.id as BlobId, blobs[0]?.id as BlobId])
+      );
+      await store.commit({
+        putArtifacts: owners,
+        putBlobs: blobs,
+        putContents: versions,
+      });
+      expect((await store.listArtifacts({ limit: 10 })).total).toBe(count);
+      expect(await store.listContents()).toHaveLength(count);
+      expect(await store.listBlobs()).toHaveLength(count);
+      expect(
+        (await store.findReferences(blobs[0]?.id as BlobId)).contentIds
+      ).toHaveLength(count);
+
+      await store.commit({
+        deleteArtifacts: owners.map((row) => row.id),
+        deleteBlobs: blobs.map((row) => row.id),
+        deleteContents: versions.map((row) => row.id),
+      });
+      expect(await everyArtifact(store)).toEqual([]);
+      expect(await store.listContents()).toEqual([]);
+      expect(await store.listBlobs()).toEqual([]);
+      expect(await store.findReferences(blobs[0]?.id as BlobId)).toEqual({
+        blobIds: [],
+        contentIds: [],
+      });
+    });
+
     it("queues a plain commit behind a running transaction", async () => {
-      const store = fresh();
+      const store = await fresh();
       const transaction = requireTransaction(store);
       let release!: () => void;
       const held = new Promise<void>((resolve) => {
@@ -401,7 +724,7 @@ export function describeArtifactStore(
     });
 
     it("runs transactions one at a time", async () => {
-      const store = fresh();
+      const store = await fresh();
       const transaction = requireTransaction(store);
       const order: string[] = [];
       let release!: () => void;
@@ -429,7 +752,7 @@ export function describeArtifactStore(
     });
 
     it("reads a transaction's own commits through its view", async () => {
-      const store = fresh();
+      const store = await fresh();
       const transaction = requireTransaction(store);
       const record = artifact();
       const blob = inlineBlob();
@@ -446,7 +769,7 @@ export function describeArtifactStore(
     });
 
     it("keeps every commit made concurrently through one view", async () => {
-      const storage = open();
+      const storage = await open();
       const store = storage("conformance");
       const transaction = requireTransaction(store);
       const first = artifact({ name: "First" });
@@ -469,7 +792,7 @@ export function describeArtifactStore(
     });
 
     it("refuses a call to the outer store from inside its own transaction, at once", async () => {
-      const store = fresh();
+      const store = await fresh();
       const transaction = requireTransaction(store);
       const inner = artifact({ name: "Inner" });
       const calls: Record<string, () => Promise<unknown>> = {
@@ -505,7 +828,7 @@ export function describeArtifactStore(
     });
 
     it("queues an independent caller behind a transaction it runs alongside", async () => {
-      const store = fresh();
+      const store = await fresh();
       const transaction = requireTransaction(store);
       const read = Promise.withResolvers<void>();
       const proceed = Promise.withResolvers<void>();
@@ -527,7 +850,7 @@ export function describeArtifactStore(
     });
 
     it("rejects a view used after its transaction settled", async () => {
-      const store = fresh();
+      const store = await fresh();
       const transaction = requireTransaction(store);
       const kept = await transaction((view) => Promise.resolve(view));
       await expect(kept.listBlobs()).rejects.toThrow("settled");
@@ -538,7 +861,7 @@ export function describeArtifactStore(
     });
 
     it("keeps none of a transaction's commits when its work throws", async () => {
-      const store = fresh();
+      const store = await fresh();
       const transaction = requireTransaction(store);
       const before = artifact();
       await store.commit({ putArtifacts: [before] });
