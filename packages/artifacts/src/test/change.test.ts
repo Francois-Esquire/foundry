@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { ArtifactChange } from "../change";
+import type { ListArtifactsInput } from "../index";
 import { ArtifactManager } from "../manager";
-import type { Blob } from "../schema";
+import { artifactIdSchema } from "../ref";
+import type { Artifact, Blob } from "../schema";
 import { InMemoryArtifactStore } from "../store/memory";
 import { required } from "./helpers/required";
 
@@ -110,5 +112,83 @@ describe("Artifact change rules", () => {
     await expect(reading.putArtifact(artifact)).rejects.toThrow("read-only");
     reading.settle();
     await expect(reading.getArtifact(artifact.id)).rejects.toThrow("settled");
+  });
+});
+
+describe("Artifact change listings", () => {
+  const at = (seconds: number) =>
+    new Date(Date.UTC(2026, 0, 1) + seconds * 1000);
+  function record(
+    name: string,
+    seconds: number,
+    id: string = crypto.randomUUID()
+  ) {
+    return {
+      archivedAt: null,
+      contentId: null,
+      createdAt: at(seconds),
+      id: artifactIdSchema.parse(id),
+      metadata: {},
+      name,
+      publishedAt: null,
+      status: "draft",
+      type: seconds % 2 === 0 ? "text/plain" : "image/png",
+      updatedAt: at(seconds),
+    } satisfies Artifact;
+  }
+
+  /** Every page of `input`, walked by cursor. */
+  async function pages(change: ArtifactChange, input: ListArtifactsInput) {
+    const walked: Awaited<ReturnType<ArtifactChange["listArtifacts"]>>[] = [];
+    let cursor: ListArtifactsInput["cursor"];
+    do {
+      const page = await change.listArtifacts({ ...input, cursor });
+      walked.push(page);
+      cursor = page.nextCursor;
+    } while (cursor);
+    return walked;
+  }
+
+  it("lists a pending change exactly as the store lists it once committed", async () => {
+    const stored = [
+      record("Keep first", 1),
+      record("Keep tied", 2, "a-tied"),
+      record("Renamed later", 2, "b-tied"),
+      record("Archived later", 3),
+      record("Deleted later", 4),
+      record("Keep last", 5),
+    ];
+    const store = new InMemoryArtifactStore();
+    await store.commit({ putArtifacts: stored });
+    const change = new ArtifactChange(store, {});
+    const [, , renamed, archived, deleted] = stored;
+    await change.putArtifact({ ...required(renamed), name: "Keep renamed" });
+    await change.putArtifact({
+      ...required(archived),
+      archivedAt: at(9),
+      status: "archived",
+    });
+    await change.deleteArtifact(required(deleted).id);
+    await change.putArtifact(record("Keep added early", 0));
+    await change.putArtifact(record("Keep added tied", 2, "c-tied"));
+    await change.putArtifact(record("Added last", 7));
+
+    const committed = new InMemoryArtifactStore({
+      records: await store.records(),
+    });
+    await committed.commit(required(change.write()));
+    const after = new ArtifactChange(committed, { readOnly: true });
+
+    for (const filter of [
+      {},
+      { includeArchived: true },
+      { query: " keep " },
+      { includeArchived: true, type: "image/png" },
+    ]) {
+      for (const limit of [1, 2, 3, 20]) {
+        const input = { ...filter, limit };
+        expect(await pages(change, input)).toEqual(await pages(after, input));
+      }
+    }
   });
 });

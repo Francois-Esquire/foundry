@@ -44,26 +44,38 @@ export class InMemoryArtifactStore implements ArtifactStore {
   transaction<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T> {
     return this.#turn(async () => {
       let staged: Records | undefined;
-      const current = () => staged ?? this.#records;
+      let open = true;
+      /** The records the view reads, rejecting once the transaction settled. */
+      const read = <R>(take: (records: Records) => Promise<R>): Promise<R> =>
+        open
+          ? take(staged ?? this.#records)
+          : Promise.reject(new Error("Artifact store transaction has settled"));
       const view: ArtifactStore = {
-        commit: (write) => {
-          staged ??= this.#records.copy();
-          return staged.apply(write);
-        },
-        findBlobs: (digest) => current().findBlobs(digest),
-        findReferences: (id) => current().findReferences(id),
-        getArtifact: (id) => current().getArtifact(id),
-        getBlob: (id) => current().getBlob(id),
-        getContent: (id) => current().getContent(id),
-        listArtifacts: (query) => current().listArtifacts(query),
-        listBlobs: () => current().listBlobs(),
-        listContents: (artifactId) => current().listContents(artifactId),
+        commit: (write) =>
+          read(() => {
+            staged ??= this.#records.copy();
+            return staged.apply(write);
+          }),
+        findBlobs: (digest) => read((records) => records.findBlobs(digest)),
+        findReferences: (id) => read((records) => records.findReferences(id)),
+        getArtifact: (id) => read((records) => records.getArtifact(id)),
+        getBlob: (id) => read((records) => records.getBlob(id)),
+        getContent: (id) => read((records) => records.getContent(id)),
+        listArtifacts: (query) =>
+          read((records) => records.listArtifacts(query)),
+        listBlobs: () => read((records) => records.listBlobs()),
+        listContents: (artifactId) =>
+          read((records) => records.listContents(artifactId)),
       };
-      const result = await work(view);
-      if (staged) {
-        this.#records = staged;
+      try {
+        const result = await work(view);
+        if (staged) {
+          this.#records = staged;
+        }
+        return result;
+      } finally {
+        open = false;
       }
-      return result;
     });
   }
 

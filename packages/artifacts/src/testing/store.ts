@@ -415,6 +415,17 @@ export function describeArtifactStore(
       expect(await store.getBlob(blob.id)).toBeNull();
     });
 
+    it("rejects a view used after its transaction settled", async () => {
+      const store = fresh();
+      const transaction = requireTransaction(store);
+      const kept = await transaction((view) => Promise.resolve(view));
+      await expect(kept.listBlobs()).rejects.toThrow("settled");
+      await expect(kept.commit({ putArtifacts: [artifact()] })).rejects.toThrow(
+        "settled"
+      );
+      expect(await everyArtifact(store)).toEqual([]);
+    });
+
     it("keeps none of a transaction's commits when its work throws", async () => {
       const store = fresh();
       const transaction = requireTransaction(store);

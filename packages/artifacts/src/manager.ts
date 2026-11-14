@@ -116,8 +116,10 @@ export class ArtifactManager implements Artifacts {
 
   /**
    * Told of each Artifact a commit changed, once its records are committed,
-   * even when applying them to disk failed. `recover` tells again with
-   * cause `recovery`: the same committed state, not another change.
+   * even when applying them to disk failed. A commit whose store rejected it
+   * after its write landed (a failed sync of the replaced file) tells no one:
+   * the change rejects, and `recover` reapplies and tells with cause
+   * `recovery`, the same committed state, not another change.
    */
   observe(changed: ArtifactObserver): () => void {
     this.#observers.add(changed);

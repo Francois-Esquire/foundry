@@ -16,7 +16,26 @@ import { required } from "./helpers/required";
 const PUBLISHED_BLOB = /^[a-f0-9-]+$/;
 
 /** How the next records-file replacement fails, if it does. */
-const recordsFile: { failure?: "before rename" | "after rename" } = {};
+const recordsFile: {
+  failure?: "before rename" | "after rename" | "stat after rename";
+  statFails?: boolean;
+} = {};
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    stat: (...args: Parameters<typeof actual.stat>) => {
+      if (recordsFile.statFails && String(args[0]).endsWith("records.json")) {
+        recordsFile.statFails = false;
+        return Promise.reject(
+          Object.assign(new Error("EIO: stat failed"), { code: "EIO" })
+        );
+      }
+      return actual.stat(...args);
+    },
+  };
+});
 
 vi.mock("@foundry/lib/atomic-file", async (importOriginal) => {
   const actual =
@@ -34,6 +53,9 @@ vi.mock("@foundry/lib/atomic-file", async (importOriginal) => {
         throw Object.assign(new Error("EIO: write failed"), { code: "EIO" });
       }
       await actual.writeFileAtomic(...args);
+      if (failure === "stat after rename") {
+        recordsFile.statFails = true;
+      }
       if (failure === "after rename") {
         // The directory sync after the rename fails: the file is replaced.
         throw Object.assign(new Error("EIO: directory sync failed"), {
@@ -47,6 +69,7 @@ vi.mock("@foundry/lib/atomic-file", async (importOriginal) => {
 const roots: string[] = [];
 afterEach(async () => {
   recordsFile.failure = undefined;
+  recordsFile.statFails = false;
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { force: true, recursive: true }))
   );
@@ -143,5 +166,18 @@ describe("A commit that fails", () => {
     expect(await files()).toHaveLength(1);
     const entry = await artifacts.readRoot(required(artifact?.contentId));
     expect(new TextDecoder().decode(entry?.blob)).toBe("# Kept");
+  });
+
+  it("never fails a JSON commit whose follow-up stat fails after the rename", async () => {
+    const { artifacts, create, files, id } = await harness(
+      (root) => new JsonArtifactStore({ path: join(root, "records.json") })
+    );
+    recordsFile.failure = "stat after rename";
+    await create();
+    recordsFile.failure = undefined;
+    expect(recordsFile.statFails).toBe(false);
+    const artifact = await artifacts.get(id);
+    expect(artifact?.name).toBe("Notes");
+    expect(await files()).toHaveLength(1);
   });
 });

@@ -2,8 +2,10 @@ import type { ArtifactStore, ArtifactStoreWrite } from "../store";
 import { isTransactional } from "./transactional";
 
 /**
- * Stands in for a commit: call `commit` to let the write land, throw before
- * it to refuse the write, or throw after it to fail once the write landed.
+ * Stands in for a commit: call `commit` to pass the write on, or throw
+ * before it to refuse the write. Throwing after it fails the commit the
+ * caller sees; within a transaction's view the store then discards the
+ * write with the rest of the transaction.
  */
 export type CommitInterceptor = (
   write: ArtifactStoreWrite,

@@ -66,28 +66,44 @@ export class JsonArtifactStore implements ArtifactStore {
     return this.#locked(async () => {
       const base = await this.#current();
       let staged: InMemoryArtifactStore | undefined;
-      const current = () => staged ?? base;
+      let open = true;
+      /** The records the view reads, rejecting once the transaction settled. */
+      const read = <R>(
+        take: (records: InMemoryArtifactStore) => Promise<R>
+      ): Promise<R> =>
+        open
+          ? take(staged ?? base)
+          : Promise.reject(new Error("Artifact store transaction has settled"));
       const view: ArtifactStore = {
-        commit: async (write) => {
-          staged ??= new InMemoryArtifactStore({
-            records: await base.records(),
-          });
-          await staged.commit(write);
-        },
-        findBlobs: (digest) => current().findBlobs(digest),
-        findReferences: (id) => current().findReferences(id),
-        getArtifact: (id) => current().getArtifact(id),
-        getBlob: (id) => current().getBlob(id),
-        getContent: (id) => current().getContent(id),
-        listArtifacts: (query) => current().listArtifacts(query),
-        listBlobs: () => current().listBlobs(),
-        listContents: (artifactId) => current().listContents(artifactId),
+        commit: (write) =>
+          read(async () => {
+            staged ??= new InMemoryArtifactStore({
+              records: await base.records(),
+            });
+            await staged.commit(write);
+          }),
+        findBlobs: (digest) => read((records) => records.findBlobs(digest)),
+        findReferences: (id) => read((records) => records.findReferences(id)),
+        getArtifact: (id) => read((records) => records.getArtifact(id)),
+        getBlob: (id) => read((records) => records.getBlob(id)),
+        getContent: (id) => read((records) => records.getContent(id)),
+        listArtifacts: (query) =>
+          read((records) => records.listArtifacts(query)),
+        listBlobs: () => read((records) => records.listBlobs()),
+        listContents: (artifactId) =>
+          read((records) => records.listContents(artifactId)),
       };
-      const result = await work(view);
-      if (staged) {
-        await this.#save(staged);
+      try {
+        const result = await work(view);
+        // Settled before saving, so a late commit cannot slip into the save.
+        open = false;
+        if (staged) {
+          await this.#save(staged);
+        }
+        return result;
+      } finally {
+        open = false;
       }
-      return result;
     });
   }
 

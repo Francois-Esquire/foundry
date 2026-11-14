@@ -243,6 +243,8 @@ export interface Artifacts extends ArtifactOperations {
    * Run grouped operations through the supplied handle; they commit together.
    * Effects register with the outermost transaction, never a nested return.
    * All effects run after commit (even on application failure), none on rollback.
+   * When the store rejects the commit after its write landed, the transaction
+   * rejects and no effect runs; its records stand, and `recover` reapplies them.
    */
   transaction<T>(
     operation: (
