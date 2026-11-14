@@ -214,13 +214,21 @@ Two `Tasks` over one `SqliteTaskStore` are kept apart (see `transaction`
 below). In this process the store's calls take turns, so one made while a
 transaction runs waits for it. Across connections, each transaction takes
 SQLite's write lock at its first statement: Drizzle's libSQL driver begins
-every transaction with `BEGIN IMMEDIATE`. A write from another connection,
-including another process, then waits for as long as that connection's busy
-timeout allows, or fails with `SQLITE_BUSY`. Either way it never lands
-between a transaction's reads and its commit. Two clients in one process do
-not wait on each other's locks: libSQL waits out a busy timeout
-synchronously, so it would hold up the thread that has to commit. Connection
-settings such as WAL and the busy timeout are the host's.
+every transaction with `BEGIN IMMEDIATE`. A write from another process then
+waits for as long as its connection's busy timeout allows, or fails with
+`SQLITE_BUSY`. Either way it never lands between a transaction's reads and
+its commit.
+
+Host requirement: the store's queue covers only its own instance. Within
+one process, the host must serialize writes per database file across every
+client and store on it (Marbles does). A second libSQL client in the same
+process does not wait usefully: libSQL waits out its busy timeout
+synchronously, holding up the thread the first client needs to commit, so
+it blocks for the whole timeout and then fails with `SQLITE_BUSY`. Do not
+open the same file with a second SQLite library in the process either
+(`bun:sqlite` or `node:sqlite` beside libSQL): SQLite's file locks are per
+process, so the two libraries do not see each other's locks at all.
+Connection settings such as WAL and the busy timeout are the host's.
 
 A storage limit of the SQLite store, not a rule of the package: SQLite does
 not give back every JavaScript string as it was bound. libSQL reads text
