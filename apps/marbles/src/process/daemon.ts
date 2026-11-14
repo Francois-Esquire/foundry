@@ -509,65 +509,96 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     return existing;
   }
 
-  function workerFor(
+  /**
+   * Attach and detach take turns per workspace, across the record write and
+   * the change to `workers`, so neither acts on a map the other changed
+   * while it waited for the write. A turn's entry goes once it is the last.
+   */
+  const turns = new Map<string, Promise<void>>();
+
+  function inTurn<T>(id: string, work: () => Promise<T>): Promise<T> {
+    const next = (turns.get(id) ?? Promise.resolve()).then(work);
+    const done = next.then(
+      () => undefined,
+      () => undefined
+    );
+    turns.set(id, done);
+    done.then(() => {
+      if (turns.get(id) === done) {
+        turns.delete(id);
+      }
+    });
+    return next;
+  }
+
+  function refuseWhileStopping(): void {
+    if (stopping) {
+      throw new Error(
+        "the Marbles process is stopping; retry once it has exited"
+      );
+    }
+  }
+
+  /**
+   * The worker hosting the source's workspace: the one already running it,
+   * or a new one, recorded as hosted before it is listed or started, so
+   * whoever waits for it to be ready finds the record. A write that fails
+   * fails the attach and lists nothing.
+   */
+  function attach(
     source: string,
     setup?: SetupDraftParams,
     root?: string
-  ): Worker {
+  ): Promise<Worker> {
     const configPath = resolveSource(source);
     const found = sourceFiles(configPath) !== undefined;
     const workspace = layout.workspace(
       found ? sourceRoot(configPath) : (root ?? process.cwd())
     );
-    const existing = workers.get(workspace.id);
-    if (existing && existing.wanted === "running") {
-      return reuse(existing, configPath, setup);
-    }
-    // Recorded before the worker starts, so whoever waits for it to be
-    // ready finds the record; a write that fails fails the attach.
-    const recorded = registry.touch(workspace, found ? configPath : null, {
-      hosted: true,
+    const config = found ? configPath : null;
+    return inTurn(workspace.id, async () => {
+      // Checked again in the turn: a shutdown that began while this attach
+      // waited has already stopped every worker it would see.
+      refuseWhileStopping();
+      const running = workers.get(workspace.id);
+      if (running && running.wanted === "running") {
+        return reuse(running, configPath, setup);
+      }
+      await registry.touch(workspace, config, { hosted: true });
+      refuseWhileStopping();
+      // The turn keeps every other attach and detach out; a worker drained
+      // by a detach still in its drain may have exited meanwhile.
+      const existing = workers.get(workspace.id);
+      if (existing && existing.wanted === "running") {
+        return reuse(existing, configPath, setup);
+      }
+      const worker: Worker = {
+        exited: Promise.resolve(),
+        ready: pendingReady(),
+        ...(setup === undefined ? {} : { setup }),
+        source: configPath,
+        summary: {
+          config,
+          id: workspace.id,
+          root: workspace.root,
+          state: "starting",
+        },
+        tail: [],
+        wanted: "running",
+      };
+      workers.set(workspace.id, worker);
+      // A worker being detached holds the workspace's claim until it exits,
+      // and would refuse its replacement: that one starts once it has.
+      (existing?.stopping ?? existing?.exited ?? Promise.resolve())
+        .then(() => startWaited(worker))
+        .catch(() => undefined);
+      return worker;
     });
-    const worker: Worker = {
-      exited: Promise.resolve(),
-      ready: pendingReady(),
-      ...(setup === undefined ? {} : { setup }),
-      source: configPath,
-      summary: {
-        config: found ? configPath : null,
-        id: workspace.id,
-        root: workspace.root,
-        state: "starting",
-      },
-      tail: [],
-      wanted: "running",
-    };
-    workers.set(workspace.id, worker);
-    // A worker being detached holds the workspace's claim until it exits,
-    // and would refuse its replacement: that one starts once it has.
-    Promise.all([recorded, existing && (existing.stopping ?? existing.exited)])
-      .then(
-        () => startWaited(worker),
-        (error: unknown) => unrecorded(worker, error)
-      )
-      .catch(() => undefined);
-    return worker;
-  }
-
-  /** The record a worker waited for could not be written: it never starts. */
-  function unrecorded(worker: Worker, error: unknown): void {
-    const why = `the workspace could not be recorded: ${error instanceof Error ? error.message : String(error)}`;
-    print(`[${worker.summary.id}] ${why}`);
-    if (workers.get(worker.summary.id) === worker) {
-      workers.delete(worker.summary.id);
-    }
-    setState(worker, "failed", why);
-    worker.ready.reject(new Error(why));
   }
 
   /**
-   * Start a worker that waited for its record, and for its predecessor to
-   * exit, unless meanwhile it was stopped, replaced, or spawned by a reload.
+   * Start a worker that waited for its predecessor to exit, unless
+   * meanwhile it was stopped, replaced, or spawned by a reload.
    */
   function startWaited(worker: Worker): Promise<unknown> {
     const current = workers.get(worker.summary.id) === worker;
@@ -585,24 +616,34 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     return worker;
   }
 
+  /**
+   * Drain the worker, then, in the workspace's turn, record it as not
+   * hosted and drop it. The drain stays outside the turn: an attach that
+   * lands while it runs hosts the workspace again, and this detach then
+   * leaves that one alone.
+   */
   async function detach(worker: Worker): Promise<void> {
     const { id } = worker.summary;
     await stopWorker(worker);
-    // An attach that landed while this worker drained hosts the workspace
-    // again under the same id; that one is not ours to drop.
-    if (workers.get(id) !== worker) {
-      throw new Error(
-        `workspace ${id} was attached again while it was being detached; it stays hosted`
+    await inTurn(id, async () => {
+      const replaced = () => {
+        if (workers.get(id) !== worker) {
+          throw new Error(
+            `workspace ${id} was attached again while it was being detached; it stays hosted`
+          );
+        }
+      };
+      replaced();
+      // The record first: a write that fails leaves the worker listed, so
+      // the detach can be retried, rather than hosted again at the next boot.
+      await registry.touch(
+        layout.workspace(worker.summary.root),
+        worker.summary.config,
+        { hosted: false }
       );
-    }
-    // The record first: a write that fails leaves the worker listed, so the
-    // detach can be retried, rather than hosted again at the next boot.
-    await registry.touch(
-      layout.workspace(worker.summary.root),
-      worker.summary.config,
-      { hosted: false }
-    );
-    workers.delete(id);
+      replaced();
+      workers.delete(id);
+    });
   }
 
   /** Workspace methods that begin work; the rest read, steer, or end it. */
@@ -654,7 +695,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         return [...workers.values()].map((worker) => worker.summary);
       case DAEMON_METHODS.attach: {
         const { root, setup, source } = attachParamsSchema.parse(params);
-        const worker = workerFor(source, setup, root);
+        const worker = await attach(source, setup, root);
         return timeout(
           worker.ready.promise,
           READY_TIMEOUT_MS,
@@ -781,7 +822,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       record.config !== null &&
       sourceFiles(record.config) !== undefined
     ) {
-      workerFor(record.config);
+      // One workspace that cannot be hosted again leaves the rest hosted.
+      attach(record.config).catch((error: unknown) => {
+        print(
+          `[${record.id}] not hosted again: ${error instanceof Error ? error.message : String(error)}`
+        );
+      });
     }
   }
 

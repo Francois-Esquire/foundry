@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { WorkspaceRegistry } from "~/database/workspaces";
 import { type Layout, layout } from "~/layout";
 import type {
   DispatchOptions,
@@ -579,6 +580,55 @@ export const hold = step("hold").do(async () => {
     ]);
     expect((await readWorkspace(machine.state, summary.id))?.hosted).toBe(true);
     client.close();
+  }, 60_000);
+
+  it("keeps a workspace attached again while its detach is recording it", async () => {
+    const { home, machine, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, greeter("greet"));
+    await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    const summary = await client.attach(source);
+    // The detach drains its worker, then waits here, in the record write.
+    const writing = Promise.withResolvers<void>();
+    const gate = Promise.withResolvers<void>();
+    const { touch } = WorkspaceRegistry.prototype;
+    const paused = vi
+      .spyOn(WorkspaceRegistry.prototype, "touch")
+      .mockImplementation(async function (
+        this: WorkspaceRegistry,
+        workspace,
+        config,
+        options
+      ) {
+        if (options?.hosted === false) {
+          writing.resolve();
+          await gate.promise;
+        }
+        return touch.call(this, workspace, config, options);
+      });
+    try {
+      const detaching = client.detach(summary.id);
+      await writing.promise;
+      const attaching = client.attach(source);
+      // Long enough for the attach to reach the daemon and do what it may.
+      await sleep(300);
+      gate.resolve();
+      await detaching;
+      expect(await client.workspaces()).toEqual([
+        expect.objectContaining({ id: summary.id }),
+      ]);
+      const again = await attaching;
+      expect(again.state).toBe("ready");
+      expect(again.pid).not.toBe(summary.pid);
+      expect((await readWorkspace(machine.state, summary.id))?.hosted).toBe(
+        true
+      );
+    } finally {
+      gate.resolve();
+      paused.mockRestore();
+      client.close();
+    }
   }, 60_000);
 
   it("refuses a second daemon on the same state root, and a client with none to start", async () => {
