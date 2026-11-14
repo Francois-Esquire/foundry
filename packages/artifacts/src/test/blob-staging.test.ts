@@ -29,7 +29,7 @@ import type { ContentId } from "../ref";
 import { artifactIdSchema, blobIdSchema, contentIdSchema } from "../ref";
 import type { ArtifactStore } from "../store";
 import { InMemoryArtifactStore } from "../store/memory";
-import type { Content, FileInput } from "../substrate";
+import type { ArtifactResolved, Content, FileInput } from "../substrate";
 import { interceptCommits } from "../testing";
 import { required } from "./helpers/required";
 
@@ -1228,3 +1228,129 @@ describe("A Content-named change's reservation", () => {
     expect(reads).not.toHaveBeenCalled();
   });
 });
+
+describe.each(["memory", "json"] as const)(
+  "%s store: ordering re-checks",
+  (kind) => {
+    async function seeded(name = "Ordered") {
+      const { manager } = await storage(kind);
+      const artifacts = manager();
+      const created = await artifacts.create({
+        entries: { "f.txt": { bytes: "start" } },
+        name,
+        type: "text/plain",
+      });
+      return { artifacts, created };
+    }
+    const later = (artifacts: ArtifactManager, id: ArtifactResolved["id"]) =>
+      within(
+        artifacts.write({
+          artifactId: id,
+          changes: { put: { "f.txt": { bytes: "after" } } },
+        })
+      );
+
+    it("releases a stream change's place when it is refused", async () => {
+      const { artifacts, created } = await seeded();
+      async function* source() {
+        yield await Promise.resolve(text("never"));
+      }
+      await expect(
+        artifacts.write({
+          artifactId: created.id,
+          changes: { put: { "f.txt": { source: source() } } },
+          expectedContentId: contentIdSchema.parse(crypto.randomUUID()),
+        })
+      ).rejects.toBeInstanceOf(StaleContentError);
+      expect(await later(artifacts, created.id)).toBe("resolved");
+    });
+
+    it("releases a stream change's place when its source errors", async () => {
+      const { artifacts, created } = await seeded();
+      async function* source(): AsyncIterable<Uint8Array> {
+        yield text("part");
+        throw new Error("source failed");
+      }
+      await expect(
+        artifacts.write({
+          artifactId: created.id,
+          changes: { put: { "f.txt": { source: source() } } },
+        })
+      ).rejects.toThrow("source failed");
+      expect(await later(artifacts, created.id)).toBe("resolved");
+    });
+
+    it("releases a stream change's place when its source closes early", async () => {
+      const { artifacts, created } = await seeded();
+      async function* source(): AsyncIterable<Uint8Array> {
+        yield text("short");
+      }
+      await expect(
+        artifacts.write({
+          artifactId: created.id,
+          changes: { put: { "f.txt": { bytes: 64, source: source() } } },
+        })
+      ).rejects.toBeInstanceOf(InvalidArtifactInputError);
+      expect(await later(artifacts, created.id)).toBe("resolved");
+    });
+
+    it("settles two stream changes to one Artifact in call order", async () => {
+      const { artifacts, created } = await seeded();
+      const first = gated([], [text("first")]);
+      const second = gated([], [text("second")]);
+      const settled: string[] = [];
+      const writes = [first, second].map((gate, index) =>
+        artifacts
+          .write({
+            artifactId: created.id,
+            changes: { put: { "f.txt": { source: gate.source } } },
+          })
+          .then(() => {
+            settled.push(index === 0 ? "first" : "second");
+          })
+      );
+      await first.waiting;
+      // The second is released first; it still commits after the first.
+      second.release();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(settled).toEqual([]);
+      first.release();
+      await Promise.all(writes);
+      expect(settled).toEqual(["first", "second"]);
+      const read = await artifacts.readFile(
+        required(created.contentId),
+        "f.txt"
+      );
+      expect(decoded(read?.blob)).toBe("second");
+    });
+
+    it("does not hold other Artifacts while a stream waits for a staging turn", async () => {
+      const { artifacts, created: other } = await seeded("Other");
+      const gates = Array.from({ length: MAX_STAGING_STREAMS + 1 }, () =>
+        gated([], [text("x")])
+      );
+      const creating = gates.map((gate, index) =>
+        artifacts.create({
+          entries: { "f.txt": { source: gate.source } },
+          id: artifactIdSchema.parse(crypto.randomUUID()),
+          name: `Stream ${String(index)}`,
+          type: "text/plain",
+        })
+      );
+      try {
+        await Promise.all(
+          gates.slice(0, MAX_STAGING_STREAMS).map((g) => g.waiting)
+        );
+        expect(await later(artifacts, other.id)).toBe("resolved");
+        expect(
+          await within(artifacts.tag(required(other.contentId), "elsewhere"))
+        ).toBe("resolved");
+      } finally {
+        for (const gate of gates) {
+          gate.release();
+        }
+      }
+      await Promise.all(creating);
+    });
+  }
+);
