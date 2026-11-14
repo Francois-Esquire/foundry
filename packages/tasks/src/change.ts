@@ -1,4 +1,3 @@
-import type { JsonValue } from "@foundry/lib/json";
 import { type AvailabilityOptions, availabilityIn } from "./availability";
 import { edgeKey } from "./edges";
 import { TaskError } from "./errors";
@@ -435,13 +434,13 @@ export function changeEvent(
  * one whole.
  */
 function mergedMetadata(stored: JsonObject, patch: JsonObject): JsonObject {
-  const merged: Record<string, JsonValue> = {};
-  for (const [key, value] of Object.entries({ ...stored, ...patch })) {
-    if (value !== null || !Object.hasOwn(patch, key)) {
-      merged[key] = value;
-    }
-  }
-  return merged;
+  // Spread and `fromEntries` define own properties, so a `__proto__` key
+  // stays a key instead of reaching the prototype setter.
+  return Object.fromEntries(
+    Object.entries({ ...stored, ...patch }).filter(
+      ([key, value]) => value !== null || !Object.hasOwn(patch, key)
+    )
+  );
 }
 
 /** Each tag once, where it first appears. Tags are exact strings. */

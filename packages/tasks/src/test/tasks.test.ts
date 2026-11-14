@@ -146,6 +146,30 @@ describe("Tasks", () => {
     expect(unchanged.updatedAt > updated.updatedAt).toBe(true);
   });
 
+  test("update keeps and sets a __proto__ metadata key as a plain key", async () => {
+    const tasks = new Tasks({ clock });
+    const task = await tasks.create({
+      metadata: JSON.parse('{"__proto__":{"owner":"alice"},"keep":1}'),
+      title: "proto",
+    });
+
+    const kept = await tasks.update(task.id, { metadata: {} });
+    expect(Object.keys(kept.metadata)).toEqual(["__proto__", "keep"]);
+    expect(Object.getPrototypeOf(kept.metadata)).toBe(Object.prototype);
+
+    const set = await tasks.update(task.id, {
+      metadata: JSON.parse('{"__proto__":{"owner":"bob"}}'),
+    });
+    expect(JSON.stringify(set.metadata)).toBe(
+      '{"__proto__":{"owner":"bob"},"keep":1}'
+    );
+
+    const removed = await tasks.update(task.id, {
+      metadata: JSON.parse('{"__proto__":null}'),
+    });
+    expect(Object.keys(removed.metadata)).toEqual(["keep"]);
+  });
+
   test("a stale token refuses the write", async () => {
     const tasks = new Tasks({ clock });
     const task = await tasks.create({ title: "token" });
