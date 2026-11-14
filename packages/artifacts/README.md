@@ -293,8 +293,9 @@ limit, and one manager reads at most eight streams ahead at once.
 Changes one manager makes to the same Artifact commit in call order: a later change to
 an Artifact waits for an earlier stream change to it to settle. A stalled stream
 therefore delays later changes to that Artifact only; other Artifacts, reads and other
-managers go on. Order across managers is not promised, nor for changes named only by
-Content or made inside `transaction(work)`.
+managers go on. Changes named by Content (`freeze`, `tag`, `setMetadata`, `deleteContent`, `fork`)
+take their place in their Artifact's order while a stream change is pending. Order
+across managers is not promised, nor for calls made inside `transaction(work)`.
 
 Staged files a change does not keep are discarded when it settles. Each `blobFiles`
 instance stages under its own directory and refreshes it whenever it stages a file; a
