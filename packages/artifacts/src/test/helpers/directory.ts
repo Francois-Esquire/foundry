@@ -13,18 +13,20 @@ import {
   artifactFileSystem,
   blobFiles,
 } from "../../node";
-import { InMemoryArtifactStore } from "../../store/memory";
 import type { EntryInputs } from "../../substrate";
+import { openStore, type StoreKind } from "./stores";
 
+/** An Artifact bound to a directory, over a fresh store of `kind`. */
 export async function fixture(
   entries: EntryInputs = {},
   files = false,
-  options: Omit<ArtifactFileSystemOptions, "artifacts" | "root"> = {}
+  options: Omit<ArtifactFileSystemOptions, "artifacts" | "root"> = {},
+  kind: StoreKind = "memory"
 ) {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "artifact-directory-"))
   );
-  const store = new InMemoryArtifactStore();
+  const store = await openStore(kind);
   const artifacts = new ArtifactManager({
     store,
     ...(files ? { files: blobFiles(join(root, ".blobs")) } : {}),

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHUNK_BYTES } from "../constants";
 import { ArtifactManager } from "../manager";
 import { blobFiles } from "../node";
-import { InMemoryArtifactStore } from "../store/memory";
+import { openStore, STORE_KINDS, type StoreKind } from "./helpers/stores";
 
 /** Which step of staging fails next, once. */
 const inject: {
@@ -80,11 +80,11 @@ afterEach(async () => {
   );
 });
 
-async function harness() {
+async function harness(kind: StoreKind) {
   const root = await mkdtemp(join(tmpdir(), "artifact-staging-failure-"));
   roots.push(root);
   const blobs = join(root, "blobs");
-  const store = new InMemoryArtifactStore();
+  const store = await openStore(kind);
   const artifacts = new ArtifactManager({ files: blobFiles(blobs), store });
   const staged = async () => {
     const found: string[] = [];
@@ -103,9 +103,9 @@ async function harness() {
 
 const entries = (bytes: string) => ({ "f.txt": { bytes } });
 
-describe("Staging that fails part way", () => {
+describe.each(STORE_KINDS)("%s store: Staging that fails part way", (kind) => {
   it("leaves no staged file when the staging directory sync fails after the rename", async () => {
-    const { artifacts, published, staged } = await harness();
+    const { artifacts, published, staged } = await harness(kind);
     inject.stagingSync = true;
     await expect(
       artifacts.create({ entries: entries("x"), name: "A", type: "text/plain" })
@@ -116,7 +116,7 @@ describe("Staging that fails part way", () => {
   });
 
   it("leaves no published or staged file when promotion's directory sync fails", async () => {
-    const { artifacts, published, staged } = await harness();
+    const { artifacts, published, staged } = await harness(kind);
     inject.promotionSync = true;
     await expect(
       artifacts.create({ entries: entries("x"), name: "A", type: "text/plain" })
@@ -127,7 +127,7 @@ describe("Staging that fails part way", () => {
   });
 
   it("keeps a change's outcome when discarding its unused staging fails", async () => {
-    const { artifacts, published, store } = await harness();
+    const { artifacts, published, store } = await harness(kind);
     const logged = vi.spyOn(console, "error").mockImplementation(() => {
       // Expected: the failed discard is reported, not thrown.
     });
@@ -153,7 +153,7 @@ describe("Staging that fails part way", () => {
   });
 
   it("keeps a failed change's own error when discarding its staging fails", async () => {
-    const { artifacts } = await harness();
+    const { artifacts } = await harness(kind);
     vi.spyOn(console, "error").mockImplementation(() => {
       // Expected: the failed discard is reported, not thrown.
     });

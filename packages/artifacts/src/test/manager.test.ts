@@ -10,10 +10,10 @@ import {
   TransactionRolledBackError,
 } from "../errors";
 import { ArtifactManager } from "../manager";
-import { InMemoryArtifactStore } from "../store/memory";
 import type { Content } from "../substrate";
 import { fixture, publishedFiles } from "./helpers/directory";
 import { required } from "./helpers/required";
+import { openStore, STORE_KINDS } from "./helpers/stores";
 
 function file(content: Content, path = "a.txt"): StoredFile {
   const node = content.tree[path];
@@ -23,9 +23,9 @@ function file(content: Content, path = "a.txt"): StoredFile {
   return node;
 }
 
-describe("ArtifactManager blob objects", () => {
+describe.each(STORE_KINDS)("%s store: ArtifactManager blob objects", (kind) => {
   it("updates an exclusive ready blob in place without changing Content identity", async () => {
-    const store = new InMemoryArtifactStore();
+    const store = await openStore(kind);
     const artifacts = new ArtifactManager({ store });
     const created = await artifacts.create({
       entries: { "a.txt": { bytes: "before" } },
@@ -44,7 +44,7 @@ describe("ArtifactManager blob objects", () => {
   });
 
   it("preserves shared bytes through edits and deletion of a fork", async () => {
-    const store = new InMemoryArtifactStore();
+    const store = await openStore(kind);
     const artifacts = new ArtifactManager({ store });
     const original = await artifacts.create({
       entries: { "a.txt": { bytes: "shared" } },
@@ -81,7 +81,7 @@ describe("ArtifactManager blob objects", () => {
   });
 
   it("retains a blob referenced by a sibling file during a multi-file write", async () => {
-    const store = new InMemoryArtifactStore();
+    const store = await openStore(kind);
     const artifacts = new ArtifactManager({ store });
     const original = await artifacts.create({
       entries: { "a.txt": { bytes: "old" } },
@@ -108,7 +108,7 @@ describe("ArtifactManager blob objects", () => {
   });
 
   it("shares streamed chunks and reads a range across chunk boundaries", async () => {
-    const store = new InMemoryArtifactStore();
+    const store = await openStore(kind);
     const artifacts = new ArtifactManager({ store });
     const first = new Uint8Array(CHUNK_BYTES).fill(1);
     const last = new Uint8Array(7).fill(2);
@@ -153,7 +153,7 @@ describe("ArtifactManager blob objects", () => {
   });
 
   it("rewrites an owned object in place even when another object holds the new bytes", async () => {
-    const store = new InMemoryArtifactStore();
+    const store = await openStore(kind);
     const artifacts = new ArtifactManager({ store });
     const other = await artifacts.create({
       entries: { "a.txt": { bytes: "target" } },
@@ -176,7 +176,7 @@ describe("ArtifactManager blob objects", () => {
   });
 
   it("does not rewrite an object a sibling byte write joined in the same change", async () => {
-    const store = new InMemoryArtifactStore();
+    const store = await openStore(kind);
     const artifacts = new ArtifactManager({ store });
     const original = await artifacts.create({
       entries: { "a.txt": { bytes: "old" } },
@@ -204,7 +204,7 @@ describe("ArtifactManager blob objects", () => {
   });
 
   it("chunks large in-memory bytes like a stream and shares the result", async () => {
-    const store = new InMemoryArtifactStore();
+    const store = await openStore(kind);
     const artifacts = new ArtifactManager({ store });
     const bytes = new Uint8Array(CHUNK_BYTES + 5).fill(3);
     async function* stream() {
@@ -230,7 +230,9 @@ describe("ArtifactManager blob objects", () => {
   it("retires the previous backing file of a rewritten object after commit", async () => {
     const { artifacts, artifact, root } = await fixture(
       { "a.txt": { bytes: "old" } },
-      true
+      true,
+      {},
+      kind
     );
     const before = await publishedFiles(root);
     const edited = await artifacts.write({
@@ -244,7 +246,7 @@ describe("ArtifactManager blob objects", () => {
   });
 
   it("rejects a blob with two byte sources without persisting it", async () => {
-    const store = new InMemoryArtifactStore();
+    const store = await openStore(kind);
     const artifacts = new ArtifactManager({ store });
     const original = await artifacts.create({
       entries: { "a.txt": { bytes: "a" } },
@@ -263,169 +265,181 @@ describe("ArtifactManager blob objects", () => {
   });
 });
 
-describe("ArtifactManager operation boundaries", () => {
-  it("rolls back records and newly published files without notifying observers", async () => {
-    const { artifacts, artifact, store, root } = await fixture(
-      { "a.txt": { bytes: "old" } },
-      true
-    );
-    const before = await publishedFiles(root);
-    const changed = vi.fn();
-    artifacts.observe(changed);
-    await expect(
-      artifacts.transaction(async (transaction) => {
-        await transaction.write({
-          artifactId: artifact.id,
-          changes: { put: { "a.txt": { bytes: "uncommitted" } } },
+describe.each(STORE_KINDS)(
+  "%s store: ArtifactManager operation boundaries",
+  (kind) => {
+    it("rolls back records and newly published files without notifying observers", async () => {
+      const { artifacts, artifact, store, root } = await fixture(
+        { "a.txt": { bytes: "old" } },
+        true,
+        {},
+        kind
+      );
+      const before = await publishedFiles(root);
+      const changed = vi.fn();
+      artifacts.observe(changed);
+      await expect(
+        artifacts.transaction(async (transaction) => {
+          await transaction.write({
+            artifactId: artifact.id,
+            changes: { put: { "a.txt": { bytes: "uncommitted" } } },
+          });
+          throw new Error("abort");
+        })
+      ).rejects.toThrow("abort");
+      expect(await artifacts.get(artifact.id)).toEqual(artifact);
+      expect(await publishedFiles(root)).toEqual(before);
+      expect(await store.listBlobs()).toHaveLength(1);
+      expect(changed).not.toHaveBeenCalled();
+    });
+
+    it("rejects a stale write after another operation commits", async () => {
+      const { artifacts, artifact } = await fixture(
+        {
+          "a.txt": { bytes: "old" },
+        },
+        false,
+        {},
+        kind
+      );
+      const command = {
+        artifactId: artifact.id,
+        expectedContentId: artifact.contentId,
+        expectedUpdatedAt: required(artifact.content).updatedAt,
+      };
+      const first = artifacts.write({
+        ...command,
+        changes: { put: { "a.txt": { bytes: "first" } } },
+      });
+      const second = artifacts.write({
+        ...command,
+        changes: { put: { "a.txt": { bytes: "second" } } },
+      });
+      const results = await Promise.allSettled([first, second]);
+      expect(results[0].status).toBe("fulfilled");
+      const [, rejected] = results;
+      expect(rejected.status).toBe("rejected");
+      if (rejected.status !== "rejected") {
+        throw new Error("Expected stale rejection");
+      }
+      expect(rejected.reason).toBeInstanceOf(StaleContentError);
+    });
+
+    it("publishes only on explicit freeze, not on the freezes revise and fork imply", async () => {
+      const artifacts = new ArtifactManager({
+        store: await openStore(kind),
+      });
+      const create = (name: string) =>
+        artifacts.create({
+          entries: { "a.txt": { bytes: name } },
+          name,
+          type: "text/plain",
         });
-        throw new Error("abort");
-      })
-    ).rejects.toThrow("abort");
-    expect(await artifacts.get(artifact.id)).toEqual(artifact);
-    expect(await publishedFiles(root)).toEqual(before);
-    expect(await store.listBlobs()).toHaveLength(1);
-    expect(changed).not.toHaveBeenCalled();
-  });
+      const revised = await create("Revised");
+      const source = required(revised.content);
+      await artifacts.revise({
+        artifactId: revised.id,
+        contentId: source.id,
+        expectedUpdatedAt: source.updatedAt,
+      });
+      const forked = await create("Forked");
+      await artifacts.fork({ contentId: required(forked.contentId) });
+      const frozen = await create("Frozen");
+      await artifacts.freeze(required(frozen.contentId));
+      for (const { id, contentId } of [revised, forked]) {
+        expect((await artifacts.getContent(required(contentId)))?.state).toBe(
+          "frozen"
+        );
+        expect(await artifacts.get(id)).toMatchObject({
+          publishedAt: null,
+          status: "draft",
+        });
+      }
+      expect((await artifacts.get(frozen.id))?.status).toBe("published");
+    });
 
-  it("rejects a stale write after another operation commits", async () => {
-    const { artifacts, artifact } = await fixture({
-      "a.txt": { bytes: "old" },
+    it("expires the transaction handle after settlement", async () => {
+      const artifacts = new ArtifactManager({
+        store: await openStore(kind),
+      });
+      const scoped = await artifacts.transaction((transaction) =>
+        Promise.resolve(transaction)
+      );
+      await expect(scoped.list()).rejects.toThrow("settled");
     });
-    const command = {
-      artifactId: artifact.id,
-      expectedContentId: artifact.contentId,
-      expectedUpdatedAt: required(artifact.content).updatedAt,
-    };
-    const first = artifacts.write({
-      ...command,
-      changes: { put: { "a.txt": { bytes: "first" } } },
-    });
-    const second = artifacts.write({
-      ...command,
-      changes: { put: { "a.txt": { bytes: "second" } } },
-    });
-    const results = await Promise.allSettled([first, second]);
-    expect(results[0].status).toBe("fulfilled");
-    const [, rejected] = results;
-    expect(rejected.status).toBe("rejected");
-    if (rejected.status !== "rejected") {
-      throw new Error("Expected stale rejection");
-    }
-    expect(rejected.reason).toBeInstanceOf(StaleContentError);
-  });
 
-  it("publishes only on explicit freeze, not on the freezes revise and fork imply", async () => {
-    const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+    it("retains committed bytes after application failure and recovers the directory", async () => {
+      const { artifacts, artifact, filesystem, load, root } = await fixture(
+        { "a.txt": { bytes: "old" } },
+        true,
+        {},
+        kind
+      );
+      const { writeFile, readFile } = await import("node:fs/promises");
+      const { join } = await import("node:path");
+      const workspace = await load();
+      const unbind = artifacts.bind(() =>
+        Promise.reject(new Error("application unavailable"))
+      );
+      await expect(
+        artifacts.write({
+          artifactId: artifact.id,
+          changes: { put: { "a.txt": { bytes: "committed" } } },
+        })
+      ).rejects.toMatchObject({
+        committed: true,
+        constructor: ArtifactApplicationError,
+      });
+      expect(
+        new TextDecoder().decode(
+          required(
+            await artifacts.readFile(required(artifact.contentId), "a.txt")
+          ).blob
+        )
+      ).toBe("committed");
+      unbind();
+      await writeFile(join(workspace.root, "a.txt"), "incomplete application");
+      await filesystem.recover();
+      expect(await readFile(join(workspace.root, "a.txt"), "utf8")).toBe(
+        "committed"
+      );
+      expect(await publishedFiles(root)).toHaveLength(1);
     });
-    const create = (name: string) =>
-      artifacts.create({
-        entries: { "a.txt": { bytes: name } },
-        name,
+
+    it("tells observers of a commit whose application failed, and recovery as recovery", async () => {
+      const artifacts = new ArtifactManager({
+        store: await openStore(kind),
+      });
+      const artifact = await artifacts.create({
+        entries: { "a.txt": { bytes: "old" } },
+        name: "Observed",
         type: "text/plain",
       });
-    const revised = await create("Revised");
-    const source = required(revised.content);
-    await artifacts.revise({
-      artifactId: revised.id,
-      contentId: source.id,
-      expectedUpdatedAt: source.updatedAt,
-    });
-    const forked = await create("Forked");
-    await artifacts.fork({ contentId: required(forked.contentId) });
-    const frozen = await create("Frozen");
-    await artifacts.freeze(required(frozen.contentId));
-    for (const { id, contentId } of [revised, forked]) {
-      expect((await artifacts.getContent(required(contentId)))?.state).toBe(
-        "frozen"
+      const told: [string, string][] = [];
+      artifacts.observe((id, cause) => told.push([id, cause]));
+      const unbind = artifacts.bind(() =>
+        Promise.reject(new Error("application unavailable"))
       );
-      expect(await artifacts.get(id)).toMatchObject({
-        publishedAt: null,
-        status: "draft",
-      });
-    }
-    expect((await artifacts.get(frozen.id))?.status).toBe("published");
-  });
-
-  it("expires the transaction handle after settlement", async () => {
-    const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+      await expect(
+        artifacts.write({
+          artifactId: artifact.id,
+          changes: { put: { "a.txt": { bytes: "committed" } } },
+        })
+      ).rejects.toBeInstanceOf(ArtifactApplicationError);
+      expect(told).toEqual([[artifact.id, "commit"]]);
+      unbind();
+      await artifacts.recover();
+      expect(told).toEqual([
+        [artifact.id, "commit"],
+        [artifact.id, "recovery"],
+      ]);
     });
-    const scoped = await artifacts.transaction((transaction) =>
-      Promise.resolve(transaction)
-    );
-    await expect(scoped.list()).rejects.toThrow("settled");
-  });
+  }
+);
 
-  it("retains committed bytes after application failure and recovers the directory", async () => {
-    const { artifacts, artifact, filesystem, load, root } = await fixture(
-      { "a.txt": { bytes: "old" } },
-      true
-    );
-    const { writeFile, readFile } = await import("node:fs/promises");
-    const { join } = await import("node:path");
-    const workspace = await load();
-    const unbind = artifacts.bind(() =>
-      Promise.reject(new Error("application unavailable"))
-    );
-    await expect(
-      artifacts.write({
-        artifactId: artifact.id,
-        changes: { put: { "a.txt": { bytes: "committed" } } },
-      })
-    ).rejects.toMatchObject({
-      committed: true,
-      constructor: ArtifactApplicationError,
-    });
-    expect(
-      new TextDecoder().decode(
-        required(
-          await artifacts.readFile(required(artifact.contentId), "a.txt")
-        ).blob
-      )
-    ).toBe("committed");
-    unbind();
-    await writeFile(join(workspace.root, "a.txt"), "incomplete application");
-    await filesystem.recover();
-    expect(await readFile(join(workspace.root, "a.txt"), "utf8")).toBe(
-      "committed"
-    );
-    expect(await publishedFiles(root)).toHaveLength(1);
-  });
-
-  it("tells observers of a commit whose application failed, and recovery as recovery", async () => {
-    const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
-    });
-    const artifact = await artifacts.create({
-      entries: { "a.txt": { bytes: "old" } },
-      name: "Observed",
-      type: "text/plain",
-    });
-    const told: [string, string][] = [];
-    artifacts.observe((id, cause) => told.push([id, cause]));
-    const unbind = artifacts.bind(() =>
-      Promise.reject(new Error("application unavailable"))
-    );
-    await expect(
-      artifacts.write({
-        artifactId: artifact.id,
-        changes: { put: { "a.txt": { bytes: "committed" } } },
-      })
-    ).rejects.toBeInstanceOf(ArtifactApplicationError);
-    expect(told).toEqual([[artifact.id, "commit"]]);
-    unbind();
-    await artifacts.recover();
-    expect(told).toEqual([
-      [artifact.id, "commit"],
-      [artifact.id, "recovery"],
-    ]);
-  });
-});
-
-describe("ArtifactManager transactions", () => {
+describe.each(STORE_KINDS)("%s store: ArtifactManager transactions", (kind) => {
   it("joins calls made inside a transaction: reads see its writes, nested transactions commit with it", async () => {
-    const store = new InMemoryArtifactStore();
+    const store = await openStore(kind);
     const artifacts = new ArtifactManager({ store });
     const created = await artifacts.create({
       entries: { "a.txt": { bytes: "before" } },
@@ -459,7 +473,7 @@ describe("ArtifactManager transactions", () => {
 
   it("rolls joined calls back with the transaction they joined", async () => {
     const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+      store: await openStore(kind),
     });
     const created = await artifacts.create({
       entries: { "a.txt": { bytes: "before" } },
@@ -479,7 +493,7 @@ describe("ArtifactManager transactions", () => {
 
   it("rolls the whole transaction back when a joined write fails, even if the failure was caught", async () => {
     const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+      store: await openStore(kind),
     });
     const created = await artifacts.create({
       entries: { "a.txt": { bytes: "before" } },
@@ -510,7 +524,7 @@ describe("ArtifactManager transactions", () => {
 
   it("starts its own transaction for work that outlives the one it was scheduled in", async () => {
     const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+      store: await openStore(kind),
     });
     const created = await artifacts.create({
       entries: { "a.txt": { bytes: "before" } },
@@ -533,7 +547,7 @@ describe("ArtifactManager transactions", () => {
   });
   it("runs every outer commit effect after application failure and retains all original errors", async () => {
     const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+      store: await openStore(kind),
     });
     const original = new Error("host application failed");
     const effectError = new Error("effect failed");
