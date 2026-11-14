@@ -10,7 +10,7 @@ import { moduleManifestSchema } from "./manifest";
 
 /**
  * The records a ModuleStore persists and returns: Modules, retained
- * manifests, and Installations with their Grants. Each type is inferred from
+ * manifests with their owning Module, and Installations with their Grants. Each type is inferred from
  * its schema here, so the schema is the one definition of the persisted
  * shape. Versions are not records; the Content is.
  */
@@ -31,13 +31,23 @@ export type Module = z.infer<typeof moduleSchema>;
 /**
  * A manifest the Content cannot supply itself: an output-only import, or a
  * legacy row whose stored manifest differs from its embedded source. It is
- * the only copy, and it outranks the embedded one when both exist.
+ * the only copy, and it outranks the embedded one when both exist. It
+ * belongs to the Module that retained it: retaining it again under another
+ * Module conflicts, and deleting that Module drops it.
  */
-export const retainedManifestSchema = z
+export const storedManifestSchema = z
   .object({
     contentId: contentIdSchema,
     manifest: moduleManifestSchema,
+    moduleId: moduleIdSchema,
   })
+  .readonly();
+export type StoredManifest = z.infer<typeof storedManifestSchema>;
+
+/** A retained manifest as the Store lists it, without its owning Module. */
+export const retainedManifestSchema = storedManifestSchema
+  .unwrap()
+  .omit({ moduleId: true })
   .readonly();
 export type RetainedManifest = z.infer<typeof retainedManifestSchema>;
 
@@ -69,10 +79,35 @@ export const installationGrantSchema = z
   .readonly();
 export type InstallationGrant = z.infer<typeof installationGrantSchema>;
 
+/**
+ * Why a set of Grants cannot belong to one Installation, or null when it can:
+ * an Installation holds at most one Grant per capability.
+ */
+export function grantCapabilitiesProblem(
+  grants: readonly Pick<InstallationGrant, "capability">[]
+): string | null {
+  const capabilities = new Set<string>();
+  for (const { capability } of grants) {
+    if (capabilities.has(capability)) {
+      return `Grant capability ${capability} is duplicated`;
+    }
+    capabilities.add(capability);
+  }
+  return null;
+}
+
 /** One Installation and its Grants, as a store keeps them. */
 export const storedInstallationSchema = z
   .object({
-    grants: z.array(installationGrantSchema).readonly(),
+    grants: z
+      .array(installationGrantSchema)
+      .readonly()
+      .superRefine((grants, context) => {
+        const problem = grantCapabilitiesProblem(grants);
+        if (problem !== null) {
+          context.addIssue({ code: "custom", message: problem });
+        }
+      }),
     installation: installationSchema,
   })
   .readonly();

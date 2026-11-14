@@ -2,7 +2,7 @@ import { byCodeUnit } from "@foundry/lib/ordering";
 
 import type { Installation, InstallationId, Module } from "../domain";
 import { createDisabledInstallation } from "../domain";
-import type { StoredInstallation } from "../schema";
+import { grantCapabilitiesProblem, type StoredInstallation } from "../schema";
 import type {
   BeginInstallationTransitionInput,
   CreateInstallationInput,
@@ -142,14 +142,9 @@ export function replaceGrants(
   input: ReplaceInstallationGrantsInput
 ): InstallationRule<readonly InstallationGrant[]> {
   return (stored) => {
-    const capabilities = new Set<string>();
-    for (const grant of input.grants) {
-      if (capabilities.has(grant.capability)) {
-        throw new ModuleStoreConflictError(
-          `Grant capability ${grant.capability} is duplicated`
-        );
-      }
-      capabilities.add(grant.capability);
+    const problem = grantCapabilitiesProblem(input.grants);
+    if (problem !== null) {
+      throw new ModuleStoreConflictError(problem);
     }
     const grants = input.grants
       .map((grant) => copyGrant({ ...grant, createdAt: new Date(input.now) }))

@@ -13,6 +13,8 @@ import {
   installationSchema,
   moduleSchema,
   retainedManifestSchema,
+  storedInstallationSchema,
+  storedManifestSchema,
 } from "../schema";
 import { InMemoryModuleStore } from "../store/memory";
 import { moduleFixture, VALID_MANIFEST } from "./helpers/module-fixture";
@@ -75,8 +77,10 @@ async function storedRecords() {
   const context = await store.loadGatewayContext(created.id);
   return {
     context,
+    module,
     modules: await store.listModules(),
     retained: await store.listRetainedManifests(),
+    store,
   };
 }
 
@@ -100,6 +104,47 @@ describe("Module record schemas", () => {
     for (const grant of context?.grants ?? []) {
       expect(exactly(installationGrantSchema).parse(grant)).toEqual(grant);
     }
+  });
+
+  it("keep the owning Module with a retained manifest", async () => {
+    const { module, retained } = await storedRecords();
+    const [record] = retained;
+    const stored = { ...record, moduleId: module.id };
+
+    expect(exactly(storedManifestSchema).parse(stored)).toEqual(stored);
+    expect(storedManifestSchema.safeParse(record).success).toBe(false);
+  });
+
+  it("refuse an Installation holding two Grants for one capability, as the Store does", async () => {
+    const { context, store } = await storedRecords();
+    if (context === null) {
+      throw new Error("expected a gateway context");
+    }
+    const { installation } = context;
+    const read = {
+      capability: "host.files.read",
+      constraintsDigest: "digest-files",
+      version: 1,
+    };
+    const grants = [read, { ...read, version: 2 }];
+    const message = "Grant capability host.files.read is duplicated";
+
+    const result = storedInstallationSchema.safeParse({
+      grants: grants.map((grant) => ({ ...grant, createdAt: new Date() })),
+      installation,
+    });
+
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({ message, path: ["grants"] }),
+    ]);
+    await expect(
+      store.replaceInstallationGrants({
+        expectedGeneration: installation.generation,
+        grants,
+        installationId: installation.id,
+        now: new Date("2026-08-08T00:04:00.000Z"),
+      })
+    ).rejects.toThrow(message);
   });
 
   it("refuse values outside the persisted shape", () => {
