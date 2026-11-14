@@ -2,7 +2,13 @@ import { eq, getTableColumns, sql } from "drizzle-orm";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, expectTypeOf, test } from "vitest";
 import type { z } from "zod";
-import type { Task, TaskDependency, TaskId, TaskStoreWrite } from "../schema";
+import type {
+  Task,
+  TaskDependency,
+  TaskEvent,
+  TaskId,
+  TaskStoreWrite,
+} from "../schema";
 import { taskDependencySchema, taskSchema } from "../schema";
 import { SqliteTaskStore } from "../store/sqlite";
 import { taskDependencies, tasks } from "../store/tables";
@@ -186,6 +192,74 @@ describe("SqliteTaskStore", () => {
       tasks: [{ after: created, before: null, id: created.id }],
     });
   });
+
+  test.each([
+    ["memory", memory],
+    ["file", files],
+  ] as const)(
+    "onCommit receives the write as it stood when commit was called, not the caller's object (%s)",
+    async (_location, databases) => {
+      const received: TaskStoreWrite[] = [];
+      const store = new SqliteTaskStore({
+        database: await databases.open(),
+        onCommit: (_transaction, write) => {
+          received.push(write);
+          return Promise.resolve();
+        },
+        scope: "host",
+      });
+      const writeOf = (name: string) => {
+        const record = taskRecord(name, { metadata: { list: ["x"] } });
+        return {
+          event: {
+            dependencies: { added: [], removed: [] },
+            kind: "tasks.changed",
+            tasks: [{ after: { ...record }, before: null, id: record.id }],
+          } satisfies TaskEvent,
+          putTasks: [record],
+        };
+      };
+      const change = (write: ReturnType<typeof writeOf>) => {
+        for (const record of write.putTasks) {
+          Object.assign(record, { title: "changed" });
+          (record.metadata.list as string[]).push("changed");
+        }
+        for (const delta of write.event.tasks) {
+          Object.assign(delta.after, { title: "changed" });
+        }
+        write.putTasks.push(taskRecord("late"));
+      };
+
+      // Queued behind a transaction, then through a transaction's view.
+      const held = Promise.withResolvers<void>();
+      const entered = Promise.withResolvers<void>();
+      const running = store.transaction(async () => {
+        entered.resolve();
+        await held.promise;
+      });
+      await entered.promise;
+      const queued = writeOf("queued");
+      const expected = [structuredClone(queued)];
+      const landing = store.commit(queued);
+      change(queued);
+      held.resolve();
+      await Promise.all([running, landing]);
+      const viewed = writeOf("viewed");
+      expected.push(structuredClone(viewed));
+      await store.transaction(async (view) => {
+        const committed = view.commit(viewed);
+        change(viewed);
+        await committed;
+      });
+
+      expect(received).toEqual(expected);
+      expect(received[0]).not.toBe(queued);
+      expect(received[1]).not.toBe(viewed);
+      expect((await store.snapshot()).tasks).toEqual(
+        received.flatMap((write) => write.putTasks ?? [])
+      );
+    }
+  );
 
   test("onCommit runs for a write that changed nothing, which has no event", async () => {
     const writes: TaskStoreWrite[] = [];

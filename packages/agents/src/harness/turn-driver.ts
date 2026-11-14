@@ -4,6 +4,11 @@ import type { ModelRoute } from "../agents/model";
 import type { AgentAuthorizer } from "../authorization/authorization";
 import type { Capability, ToolSource } from "../authorization/capability";
 import type {
+  HarnessActivity,
+  HarnessActivityEvent,
+  HarnessToolEvent,
+} from "../schema";
+import type {
   AgentApprovalRequest,
   SessionInput,
   SessionStream,
@@ -12,6 +17,12 @@ import type { SessionStore } from "../session/store";
 import type { SessionMessage } from "../session/types";
 import type { TurnOptions } from "./session-harness";
 import type { StreamPart } from "./stream-transform";
+
+export type {
+  HarnessActivity,
+  HarnessActivityEvent,
+  HarnessToolEvent,
+} from "../schema";
 
 export interface HarnessPermissionProfile {
   allowedTools: readonly string[];
@@ -74,18 +85,6 @@ export type HarnessQuestionResult =
 export type HarnessQuestionCallback = (
   request: HarnessQuestionRequest
 ) => Promise<HarnessQuestionResult>;
-
-export interface HarnessToolEvent {
-  activityId?: string;
-  agentId: string;
-  harness: string;
-  inputSummary: string;
-  outcome: "started" | "ran" | "refused" | "failed";
-  reason?: string;
-  sessionId: string;
-  toolCallId: string;
-  toolName: string;
-}
 
 export interface HarnessCapabilities {
   interruption: boolean;
@@ -176,31 +175,4 @@ export interface DriverSessionSettings extends HarnessAuthoritySettings {
   question?: HarnessQuestionCallback;
   sessionId?: string;
   tools?: ToolSet;
-}
-
-/** Full snapshots, with IDs scoped to the native process/environment generation.
- * Completion of the parent turn says nothing about these activities. */
-export interface HarnessActivity {
-  actions?: readonly "stop"[];
-  id: string;
-  kind: "subagent" | "task" | "watch" | "schedule";
-  lifetime: "session" | "sandbox";
-  nativeId?: string;
-  parentId?: string;
-  status:
-    | "running"
-    | "waiting"
-    | "complete"
-    | "failed"
-    | "cancelled"
-    | "unknown";
-  summary?: string;
-  title: string;
-}
-
-export interface HarnessActivityEvent extends HarnessActivity {
-  agentId: string;
-  harness: string;
-  revision: number;
-  sessionId: string;
 }

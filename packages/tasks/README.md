@@ -170,6 +170,13 @@ nothing, deletes first. The store enforces nothing; every rule is checked
 before a write reaches it, and values crossing the seam are detached. Reads
 list records in the order first put.
 
+A store reads a write once, when `commit` is called. Both stores here take
+one `structuredClone` of the whole write then, before the commit waits its
+turn, and check, store and hand on (to `onCommit`) only that copy, through
+a transaction's view as well. A caller that changes its write after the
+call changes nothing, even while the commit is still queued. A write the
+clone refuses, such as one holding a function, rejects and writes nothing.
+
 | Path                           | Holds                                                     |
 | ------------------------------ | --------------------------------------------------------- |
 | `@foundry/tasks/store`         | `TaskStore` and the write and snapshot types.             |
@@ -231,6 +238,14 @@ open the same file with a second SQLite library in the process either
 (`bun:sqlite` or `node:sqlite` beside libSQL): SQLite's file locks are per
 process, so the two libraries do not see each other's locks at all.
 Connection settings such as WAL and the busy timeout are the host's.
+
+A defect of `@libsql/client` 0.18.0, which the store cannot work around: a
+client whose `BEGIN` fails with `SQLITE_BUSY` keeps the failed statement
+open, and its next transaction fails at `COMMIT` with "SQL statements in
+progress". In rollback-journal mode the file can stay blocked even for a
+fresh client; in WAL mode a fresh client works. The store cannot reset a
+client it was handed. So a host should put the database in WAL mode, and
+replace its client after a `SQLITE_BUSY`.
 
 A storage limit of the SQLite store, not a rule of the package: SQLite does
 not give back every JavaScript string as it was bound. libSQL reads text

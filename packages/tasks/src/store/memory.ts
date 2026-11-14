@@ -24,9 +24,21 @@ export class MemoryTaskStore implements TaskStore {
   private readonly dependencies = new Map<string, TaskDependency>();
   private readonly turns = new Turns(REENTRY);
 
+  /**
+   * Takes the write as it stands now: one `structuredClone` of it, made
+   * before the commit waits its turn, so a caller changing the write later
+   * changes nothing. A write the clone refuses rejects whole and changes
+   * nothing. A transaction's view commits the same way.
+   */
   commit(write: TaskStoreWrite): Promise<void> {
+    let owned: TaskStoreWrite;
+    try {
+      owned = structuredClone(write);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     return this.turns.run(() => {
-      this.apply(write);
+      this.apply(owned);
       return Promise.resolve();
     });
   }
@@ -75,26 +87,19 @@ export class MemoryTaskStore implements TaskStore {
     replaceEntries(this.dependencies, draft.dependencies);
   }
 
+  /** Applies `write`, the store's own copy, which its records then hold. */
   private apply(write: TaskStoreWrite): void {
-    // Copy first so a value that cannot be copied refuses the whole write.
-    const putTasks = (write.putTasks ?? []).map((task): [TaskId, Task] => [
-      task.id,
-      structuredClone(task),
-    ]);
-    const putDependencies = (write.putDependencies ?? []).map(
-      (edge): [string, TaskDependency] => [edgeKey(edge), { ...edge }]
-    );
     for (const id of write.deleteTasks ?? []) {
       this.tasks.delete(id);
     }
     for (const edge of write.deleteDependencies ?? []) {
       this.dependencies.delete(edgeKey(edge));
     }
-    for (const [id, task] of putTasks) {
-      this.tasks.set(id, task);
+    for (const task of write.putTasks ?? []) {
+      this.tasks.set(task.id, task);
     }
-    for (const [key, edge] of putDependencies) {
-      this.dependencies.set(key, edge);
+    for (const edge of write.putDependencies ?? []) {
+      this.dependencies.set(edgeKey(edge), edge);
     }
   }
 }

@@ -1,12 +1,5 @@
 import { spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionPart, SessionStore } from "@foundry/agents/session";
 import { processAlive } from "@foundry/lib/file-lock";
@@ -21,6 +14,7 @@ import { sessionLines } from "~/sessions/list";
 import type { MockBindings } from "./helpers/bindings";
 import { bindMock } from "./helpers/bindings";
 import { launch } from "./helpers/launch";
+import { temporaryDirectory } from "./helpers/temporary";
 
 let mock: MockBindings | undefined;
 
@@ -42,7 +36,7 @@ function bind(sessions: SessionStore) {
 
 describe("JsonSessionStore", () => {
   it("survives a new process: a fresh store over the same dir sees the turns", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const dir = temporaryDirectory("marbles-sessions-");
     bind(new JsonSessionStore(dir));
     const reviewer = agent({ prompt: "Review." });
     const ask = step("ask")
@@ -71,7 +65,7 @@ describe("JsonSessionStore", () => {
   });
 
   it("compacts a session whose history outgrows a tiny window, in one write", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const dir = temporaryDirectory("marbles-sessions-");
     const store = new JsonSessionStore(dir);
     bind(store);
     const chatty = agent({ prompt: "Talk." });
@@ -102,7 +96,7 @@ describe("JsonSessionStore", () => {
 
 describe("JsonSessionStore session ids", () => {
   it("refuses an id that is not a single file name, writing nothing", async () => {
-    const parent = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const parent = temporaryDirectory("marbles-sessions-");
     const dir = join(parent, "sessions");
     const store = new JsonSessionStore(dir);
 
@@ -119,7 +113,7 @@ describe("JsonSessionStore session ids", () => {
   });
 
   it("lists past a stray file whose name no session id could make", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const dir = temporaryDirectory("marbles-sessions-");
     const store = new JsonSessionStore(dir);
     await store.createSession({ id: "valid" });
     const message = await store.appendMessage({
@@ -143,7 +137,7 @@ describe("JsonSessionStore across instances", () => {
   const parts: SessionPart[] = [{ text: "hi", type: "text" }];
 
   it("does not lose messages two stores on one directory append", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const dir = temporaryDirectory("marbles-sessions-");
     // Two hosts, one created before the session existed: the dashboard and a
     // scheduled roll share <state>/sessions.
     const dashboard = new JsonSessionStore(dir);
@@ -171,7 +165,7 @@ describe("JsonSessionStore across instances", () => {
   });
 
   it("updates a message another store appended", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const dir = temporaryDirectory("marbles-sessions-");
     const writer = new JsonSessionStore(dir);
     const other = new JsonSessionStore(dir);
     await writer.createSession({ id: "s" });
@@ -194,7 +188,7 @@ describe("JsonSessionStore across instances", () => {
   });
 
   it("skips a corrupt session file with a warning instead of failing", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const dir = temporaryDirectory("marbles-sessions-");
     await new JsonSessionStore(dir).createSession({ id: "good" });
     writeFileSync(join(dir, "broken.json"), "{not json");
     writeFileSync(join(dir, "wrong.json"), JSON.stringify({ session: {} }));
@@ -217,7 +211,7 @@ describe("JsonSessionStore across instances", () => {
   });
 
   it("never replaces an unreadable file with a fresh session", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const dir = temporaryDirectory("marbles-sessions-");
     const path = join(dir, "nightly.json");
     writeFileSync(path, "{damaged");
     const store = new JsonSessionStore(dir);
@@ -231,7 +225,7 @@ describe("JsonSessionStore across instances", () => {
   });
 
   it("resumes, not resets, a session two stores both found missing", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const dir = temporaryDirectory("marbles-sessions-");
     const first = new JsonSessionStore(dir);
     const second = new JsonSessionStore(dir);
     const created = await first.createSession({ id: "s", title: "first" });
@@ -248,7 +242,7 @@ describe("JsonSessionStore across instances", () => {
   });
 
   it("builds on what another process wrote to the file", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const dir = temporaryDirectory("marbles-sessions-");
     const path = join(dir, "s.json");
     const store = new JsonSessionStore(dir);
     const message = (id: string, createdAt: number) => ({
@@ -295,7 +289,7 @@ describe("JsonSessionStore across instances", () => {
   });
 
   it("takes over a lock left by a process that exited", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const dir = temporaryDirectory("marbles-sessions-");
     const store = new JsonSessionStore(dir);
     await store.createSession({ id: "s" });
     const { pid } = spawnSync(process.execPath, ["-e", ""]);
@@ -311,7 +305,7 @@ describe("JsonSessionStore across instances", () => {
 describe("sessionLines", () => {
   it("lists id, count, updated, and summary flag, newest first", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const dir = temporaryDirectory("marbles-sessions-");
     const store = new JsonSessionStore(dir);
     const parts: SessionPart[] = [{ text: "hi", type: "text" }];
 
