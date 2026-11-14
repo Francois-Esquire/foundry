@@ -29,8 +29,6 @@ export interface Lock {
 /** A lock someone else has; `holder` says who, for people: `pid 1234`, `this process`. */
 export interface HeldLock {
   readonly holder: string;
-  /** The pid the lock records, when it records one: `process.pid` when this process took it some other way. */
-  readonly pid?: number;
 }
 
 export function acquireLock(dir: string, name: string): Lock | HeldLock {
@@ -39,10 +37,7 @@ export function acquireLock(dir: string, name: string): Lock | HeldLock {
   const attempt = tryFileLock(path, { breakStale: true });
   return "release" in attempt
     ? attempt
-    : {
-        holder: describeHolder(path, attempt),
-        ...(attempt.holder === undefined ? {} : { pid: attempt.holder }),
-      };
+    : { holder: describeHolder(path, attempt) };
 }
 
 function describeHolder(
