@@ -8,13 +8,16 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
+import { createClient } from "@libsql/client";
 import { count, sql } from "drizzle-orm";
+import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 import { describe, expect, it } from "vitest";
 import { MIGRATIONS } from "~/database/migrate";
 import type { StoreDatabase } from "~/database/open";
 import { openDatabase } from "~/database/open";
 import { marblesWorkspaces } from "~/database/tables";
+import { transaction } from "~/database/transaction";
 
 const SRC = resolve("src");
 const NEWER = /migrated by a newer Marbles/;
@@ -91,6 +94,30 @@ describe("the Marbles database", () => {
     }
   });
 
+  it("opens a migrated database while another connection is writing", async () => {
+    const file = join(scratch(), "marbles.db");
+    (await openDatabase(file)).close();
+    // A writer this process's queue does not know of, as another process is.
+    const writer = createClient({ url: `file:${file}` });
+    const held = await writer.transaction("write");
+    try {
+      await held.execute(
+        "INSERT INTO marbles_workspaces (id, root, first_seen, last_seen) VALUES ('w', '/w', 'x', 'x')"
+      );
+      // Up to date, so opening only reads: it neither waits for the lock
+      // nor sees the uncommitted row.
+      const reader = await openDatabase(file, { busyTimeout: 50 });
+      try {
+        expect(await rows(reader.database)).toBe(0);
+      } finally {
+        reader.close();
+      }
+    } finally {
+      await held.rollback();
+      writer.close();
+    }
+  });
+
   it("applies a migration added since the database was made", async () => {
     const dir = scratch();
     const folder = join(dir, "migrations");
@@ -156,6 +183,46 @@ describe("the Marbles database", () => {
     } finally {
       a.close();
       b.close();
+    }
+  });
+
+  it("hands a package store a transaction to commit inside", async () => {
+    // A domain package's store: it names no driver, and commits with one
+    // `database.transaction(...)` of its own, whatever it was handed.
+    class PackageStore {
+      readonly #database: BaseSQLiteDatabase<"async", unknown>;
+      constructor(options: {
+        readonly database: BaseSQLiteDatabase<"async", unknown>;
+      }) {
+        this.#database = options.database;
+      }
+      async commit(ids: readonly string[]): Promise<void> {
+        await this.#database.transaction(async (tx) => {
+          for (const id of ids) {
+            await tx.insert(marblesWorkspaces).values(workspaceRow(id));
+          }
+        });
+      }
+    }
+    const opened = await openDatabase(join(scratch(), "marbles.db"));
+    try {
+      await new PackageStore({ database: opened.database }).commit(["a"]);
+      await expect(
+        transaction(opened.database, async (tx) => {
+          await new PackageStore({ database: tx }).commit(["b", "c"]);
+          throw new Error("the host's own write failed");
+        })
+      ).rejects.toThrow("the host's own write failed");
+      await transaction(opened.database, async (tx) => {
+        await new PackageStore({ database: tx }).commit(["d"]);
+        await tx.insert(marblesWorkspaces).values(workspaceRow("e"));
+      });
+      const ids = await opened.database
+        .select({ id: marblesWorkspaces.id })
+        .from(marblesWorkspaces);
+      expect(ids.map(({ id }) => id).sort()).toEqual(["a", "d", "e"]);
+    } finally {
+      opened.close();
     }
   });
 
@@ -266,8 +333,10 @@ opened.close();
         "sqlite",
         "--schema",
         "./src/database/schema.ts",
+        // drizzle-kit prefixes `./` to an absolute path, fails to find the
+        // snapshots there, and still exits 0.
         "--out",
-        out,
+        relative(resolve("."), out),
       ],
       { cwd: resolve("."), stdio: ["ignore", "pipe", "pipe"] }
     );
@@ -280,6 +349,7 @@ opened.close();
     });
     const code = await new Promise((settle) => generated.once("exit", settle));
     expect(code, output).toBe(0);
+    expect(output).toContain("No schema changes");
     expect(readdirSync(out).sort(), output).toEqual(before);
   }, 60_000);
 });

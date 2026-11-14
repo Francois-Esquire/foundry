@@ -70,8 +70,10 @@ Five buckets, each importing only what sits below it:
   one `export *` line per package; `bun run db:generate` writes the next
   migration from it, and a test fails when one is missing. Marbles' own
   stores sit beside the tables (`workspaces.ts`, the workspace registry).
-  A store takes `{ database }`, the database or one of its transactions;
-  a package store also takes `scope`, which is the workspace id. Open one
+  A store takes `{ database }` (`StoreDatabase`, the type a package store
+  declares too), the database or one of its transactions; a package store
+  also takes `scope`, which is the workspace id. `transaction.ts` runs
+  several stores' writes in one transaction by handing each the same `tx`. Open one
   handle per process and pass it down. It imports `lib/`, `layout.ts`, and
   third-party packages; every tier above `lib/` may import it.
 - `src/authoring/` owns definition instance methods and runtime routing as

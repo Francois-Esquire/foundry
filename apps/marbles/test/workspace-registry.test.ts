@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MarblesDatabase } from "~/database/open";
 import { openDatabase } from "~/database/open";
+import { transaction } from "~/database/transaction";
 import { recordedWorkspaces, WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import { workspaceState } from "~/lib/state/workspace";
@@ -90,6 +91,23 @@ describe("WorkspaceRegistry", () => {
     opened = await openDatabase(stateDatabase(state));
     const reopened = new WorkspaceRegistry({ database: opened.database });
     expect((await reopened.read(workspace.id))?.root).toBe(workspace.root);
+  });
+
+  it("writes inside a transaction it is handed, and rolls back with it", async () => {
+    const kept = workspaceState(state, scratch("marbles-ws-"));
+    const dropped = workspaceState(state, scratch("marbles-ws-"));
+    await transaction(opened.database, (tx) =>
+      new WorkspaceRegistry({ database: tx }).touch(kept, null)
+    );
+    await expect(
+      transaction(opened.database, async (tx) => {
+        await new WorkspaceRegistry({ database: tx }).touch(dropped, null);
+        throw new Error("the change failed");
+      })
+    ).rejects.toThrow("the change failed");
+    expect((await registry.list()).map((record) => record.id)).toEqual([
+      kept.id,
+    ]);
   });
 
   it("leaves out a workspace whose directory links out of the state root", async () => {

@@ -5,6 +5,8 @@ import { sql } from "drizzle-orm";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 
+import type { StoreDatabase } from "~/database/open";
+
 /**
  * The migrations `drizzle-kit generate` writes from `schema.ts`, committed
  * beside this module. The build copies the folder to `dist/migrations`, next
@@ -19,13 +21,15 @@ export const MIGRATIONS = fileURLToPath(
 const APPLIED = "__drizzle_migrations";
 
 /**
- * Bring the database up to the newest migration in `folder`. Drizzle's own
- * libSQL migrator reads what was applied before its transaction opens, so
- * two processes opening a new file at once would both apply everything.
- * Here the read and the writes share one write transaction (`BEGIN
- * IMMEDIATE`), so the second process waits and then finds nothing to do.
+ * Bring the database up to the newest migration in `folder`. A database
+ * already there is found with a plain read, so opening it takes no write
+ * lock. Otherwise the check and the writes share one write transaction
+ * (`BEGIN IMMEDIATE`). Drizzle's own libSQL migrator reads what was applied
+ * before its transaction opens, so two processes opening a new file at once
+ * would both apply everything; here the second waits, then finds nothing
+ * left to do.
  *
- * Foreign keys are off while it runs, as `drizzle-kit`'s table rebuilds
+ * Foreign keys are off while it writes, as `drizzle-kit`'s table rebuilds
  * need, and a violation they leave behind fails the whole migration. A
  * database migrated by a newer Marbles is refused rather than written to.
  */
@@ -36,20 +40,18 @@ export async function migrate(
 ): Promise<void> {
   const migrations = readMigrationFiles({ migrationsFolder: folder });
   const newest = migrations.at(-1)?.folderMillis ?? 0;
+  if (current(await lastApplied(database), newest)) {
+    return;
+  }
   await client.execute("PRAGMA foreign_keys = OFF");
   try {
     await database.transaction(async (tx) => {
       await tx.run(
         sql`CREATE TABLE IF NOT EXISTS ${sql.identifier(APPLIED)} (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`
       );
-      const [last] = await tx.values<[number]>(
-        sql`SELECT created_at FROM ${sql.identifier(APPLIED)} ORDER BY created_at DESC LIMIT 1`
-      );
-      const applied = Number(last?.[0] ?? 0);
-      if (applied > newest) {
-        throw new Error(
-          "the Marbles database was migrated by a newer Marbles; upgrade this one to open it"
-        );
+      const applied = (await lastApplied(tx)) ?? 0;
+      if (current(applied, newest)) {
+        return;
       }
       for (const migration of migrations) {
         if (migration.folderMillis <= applied) {
@@ -72,4 +74,30 @@ export async function migrate(
   } finally {
     await client.execute("PRAGMA foreign_keys = ON");
   }
+}
+
+/** When the newest applied migration was made; undefined before the first. */
+async function lastApplied(
+  database: StoreDatabase
+): Promise<number | undefined> {
+  const [table] = await database.values(
+    sql`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ${APPLIED}`
+  );
+  if (table === undefined) {
+    return;
+  }
+  const [last] = await database.values<[number]>(
+    sql`SELECT created_at FROM ${sql.identifier(APPLIED)} ORDER BY created_at DESC LIMIT 1`
+  );
+  return last === undefined ? undefined : Number(last[0]);
+}
+
+/** Whether nothing is left to apply; a database newer than `newest` is refused. */
+function current(applied: number | undefined, newest: number): boolean {
+  if (applied !== undefined && applied > newest) {
+    throw new Error(
+      "the Marbles database was migrated by a newer Marbles; upgrade this one to open it"
+    );
+  }
+  return applied === newest;
 }

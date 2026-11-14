@@ -2,7 +2,6 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { ResultSet } from "@libsql/client";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
@@ -11,14 +10,12 @@ import { serialClient } from "~/database/client";
 import { MIGRATIONS, migrate } from "~/database/migrate";
 
 /**
- * What a store is handed: the database, or one of its transactions, so a
- * caller can run several stores' writes in one transaction by handing each
- * the transaction. `commit` is one `database.transaction(...)`, which on
- * libSQL begins `IMMEDIATE`: the write lock is taken up front, never
- * upgraded to halfway, so a writer in another process waits instead of
- * failing on a stale snapshot.
+ * What a store is handed: the database, or one of its transactions
+ * (`transaction` in `~/database/transaction`). It is the type a domain
+ * package's SQLite store declares, which names no driver: libSQL's run
+ * result is `unknown` here, so a package never imports `@libsql/client`.
  */
-export type StoreDatabase = BaseSQLiteDatabase<"async", ResultSet>;
+export type StoreDatabase = BaseSQLiteDatabase<"async", unknown>;
 
 /** One open handle on the Marbles database. Open one per process and pass it down. */
 export interface MarblesDatabase {
