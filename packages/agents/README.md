@@ -415,14 +415,15 @@ and inside JSON alike, as JSON writes it: `{ summarized: undefined }` reads
 back as `{}`. The memory store keeps the property, so the two differ only
 under a check that tells the two apart, such as `toStrictEqual`.
 
-SQLite keeps a value of at most `SQLITE_MAX_LENGTH` bytes, 1,000,000,000 by
-default, and the store binds each message's `parts` and `metadata` as one JSON
-text value each. Before that, the runtime limits a string's length: Node to
-536,870,888 UTF-16 code units, Bun to 2,147,483,647. A commit whose value fails
-at either limit fails as a whole and leaves nothing. The tests keep a message
-of 32 MiB of text and thousands of parts whole. A commit of many messages
-is batched under SQLite's limit of 32,766 bound parameters per statement,
-inside its one transaction.
+The store binds each message's `parts` and `metadata` as one JSON text value
+each. SQLite documents a default `SQLITE_MAX_LENGTH` of 1,000,000,000 bytes
+for one value; the host's build may set another. Before that, the runtime
+limits the length of the JSON text: Node 26 to 536,870,888 UTF-16 code units,
+Bun 1.3 to 2,147,483,647. The tests keep a message of 32 MiB of text and
+thousands of parts whole; they do not reach either limit. A statement that
+fails rolls the whole commit back, as the tests show for a failure injected
+mid-commit. A commit of many messages is batched under SQLite's limit of
+32,766 bound parameters per statement, inside its one transaction.
 
 Each store takes one call at a time, so a call to the store itself from
 inside its own transaction's `work`, or from `onCommit`, could only wait for
