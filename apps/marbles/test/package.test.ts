@@ -227,6 +227,15 @@ if (readProcess(stateDir) !== undefined) throw new Error("Release must clear the
 console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing", listed);
 `
     );
+    // A prompt is written with the package's own tags: nothing else is installed.
+    writeFileSync(
+      join(consumer, "prompt.ts"),
+      `
+import { type Prompt, prompts, ref } from "@foundry.sh/marbles";
+const review: Prompt = prompts.claude\`/code-review, then ask \${ref.agent("reviewer")}.\`;
+console.log(String(review), "|", String(prompts.codex\`Use \${ref.skill("review")}\`));
+`
+    );
     // An embedded host (an Electron main process) takes the narrow entry:
     // the engine and its host tasks, without the CLI harness providers.
     writeFileSync(
@@ -281,8 +290,12 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
         "types.ts",
         "host.ts",
         "embedded.ts",
+        "prompt.ts",
       ],
       consumer
+    );
+    expect(run("bun", ["prompt.ts"], consumer)).toContain(
+      '/code-review, then ask @"reviewer (agent)". | Use $review'
     );
     expect(run("bun", ["host.ts"], consumer)).toContain(
       "Hello host sees files packed-workflow,host-inventory"

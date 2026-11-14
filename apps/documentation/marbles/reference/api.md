@@ -645,6 +645,11 @@ exports these types:
 | Triggers | `Schedule`, `ScheduleBuilder`, `MonitorBuilder`, `CalendarSlot`, `Weekday`, `Trigger`, `MonitorContext`, `MonitorHandler`, `Change`, `FileChange`, `HttpChange` |
 | Usage | `Snapshot`, `Identity`, `Limit`, `Window`, `SpendCap`, `Balance`, `CreditBalance`, `Headroom`, `Money`, `Credits`, `Duration`, `Span`, `Consumption`, `SessionConsumption`, `Quantities`, `Charge`, `QueryOptions`, `QueryAllOptions`, `DurationText` |
 
+The main entry also exports `prompts` and `ref`, with `PromptError` and
+the `Prompt` type beside them: a tag per harness (`prompts.claude`,
+`prompts.codex`, `prompts.pi`) that writes each reference in that harness's
+notation. See [Prompts](/prompts).
+
 The main entry also exports `tasks`, the workspace's backlog, with the
 `Tasks` class, `MemoryTaskStore`, and `TaskError` beside it. A module imports
 `tasks` to track what there is to do, what is ready, and what is done, or
