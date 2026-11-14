@@ -67,15 +67,16 @@ describe("Sessions", () => {
   it("resumes, not resets, a session created again under its id", async () => {
     const sessions = new Sessions();
     const first = await sessions.createSession({ id: "known", title: "Hello" });
-    await sessions.appendMessage({
+    const kept = await sessions.appendMessage({
       parts: text("kept"),
       role: "user",
       sessionId: "known",
     });
 
+    // The append stamped the session; nothing else about it changed.
     await expect(
       sessions.createSession({ id: "known", title: "Other" })
-    ).resolves.toEqual(first);
+    ).resolves.toEqual({ ...first, updatedAt: kept.createdAt });
     await expect(sessions.listMessages("known")).resolves.toHaveLength(1);
   });
 
@@ -204,6 +205,44 @@ describe("Sessions", () => {
     expect(session.parentSessionId).toBeNull();
     expect(session.parentMessageId).toBeNull();
     expect(session.recursionDepth).toBeUndefined();
+  });
+});
+
+describe("Sessions rules", () => {
+  it("stamps the session's updatedAt with each message it appends or folds", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const sessions = new Sessions();
+      vi.setSystemTime(1000);
+      await sessions.createSession({ id: "s" });
+      vi.setSystemTime(2000);
+      const first = await sessions.appendMessage({
+        parts: text("m1"),
+        role: "user",
+        sessionId: "s",
+      });
+      expect((await sessions.getSession("s"))?.updatedAt).toBe(2000);
+
+      vi.setSystemTime(3000);
+      const second = await sessions.appendMessage({
+        parts: text("m2"),
+        role: "user",
+        sessionId: "s",
+      });
+      vi.setSystemTime(4000);
+      await sessions.updateMessage(first.id, { status: "error" });
+      expect((await sessions.getSession("s"))?.updatedAt).toBe(3000);
+
+      vi.setSystemTime(5000);
+      await sessions.summarize({
+        messageId: second.id,
+        sessionId: "s",
+        summary: { parts: text("S") },
+      });
+      expect((await sessions.getSession("s"))?.updatedAt).toBe(5000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -75,7 +75,8 @@ export interface SessionsOptions {
  * Sessions and their messages: the one place that writes a session store.
  *
  * Holds every rule — a message needs its session, a session is filed once,
- * a summary folds the history before it — and builds each change as one
+ * appending or folding a message touches its session, a summary folds the
+ * history before it — and builds each change as one
  * {@link SessionStore.commit}. Reads project the store. Mutations serialize
  * per instance; when the store offers a `transaction`, each runs in one, so
  * no write from another `Sessions` over the store lands between its reads
@@ -131,14 +132,21 @@ export class Sessions {
     });
   }
 
-  /** Appends a message to its session; rejects when the session is unknown. */
+  /**
+   * Appends a message to its session and stamps the session's `updatedAt`
+   * with the message's `createdAt`; rejects when the session is unknown.
+   */
   appendMessage(input: CreateMessageInput): Promise<SessionMessage> {
     return this.#mutation(async (store) => {
-      if (!(await store.getSession(input.sessionId))) {
+      const session = await store.getSession(input.sessionId);
+      if (!session) {
         throw new Error(`[sessions] unknown session: ${input.sessionId}`);
       }
       const message = newSessionMessage(input);
-      await store.commit({ putMessages: [message] });
+      await store.commit({
+        putMessages: [message],
+        putSessions: [touched(session, message)],
+      });
       return message;
     });
   }
@@ -164,13 +172,15 @@ export class Sessions {
    * not at all. A summary only means "these messages are folded" if every
    * message it covers is flipped; a partial write would read back as a
    * corrupt history — duplicated or dropped context on the next compaction.
-   * `null` when nothing new precedes the marker.
+   * The summary is appended like any message. `null` when nothing new
+   * precedes the marker.
    */
   summarize(input: SummarizeInput): Promise<SummarizeResult | null> {
     return this.#mutation(async (store) => {
+      const session = await store.getSession(input.sessionId);
       const messages = await store.listMessages(input.sessionId);
       const fold = foldSet(messages, input.messageId);
-      if (fold.length === 0) {
+      if (!session || fold.length === 0) {
         return null;
       }
       const summary = newSessionMessage({
@@ -184,7 +194,10 @@ export class Sessions {
       const folded = fold.map((m) =>
         patchSessionMessage(m, { summarized: true })
       );
-      await store.commit({ putMessages: [...folded, summary] });
+      await store.commit({
+        putMessages: [...folded, summary],
+        putSessions: [touched(session, summary)],
+      });
       return { summarizedIds: fold.map((m) => m.id), summary };
     });
   }
@@ -208,6 +221,14 @@ export class Sessions {
     );
     return run;
   }
+}
+
+/** `session` as of `message` landing in it. */
+function touched(
+  session: SessionRecord,
+  message: SessionMessage
+): SessionRecord {
+  return { ...session, updatedAt: message.createdAt };
 }
 
 /** Real messages before `messageId` (exclusive): non-summarized, non-summary. */

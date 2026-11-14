@@ -92,7 +92,7 @@ describe("SessionHarness — session identity", () => {
     await harness.generate("go");
 
     expect(
-      commit.mock.calls.filter(([write]) => write.putSessions !== undefined)
+      commit.mock.calls.filter(([write]) => write.putMessages === undefined)
     ).toEqual([]);
     expect(await store.getSession("filed")).toMatchObject({ title: "host" });
     expect((await store.listMessages("filed")).map((m) => m.role)).toEqual([

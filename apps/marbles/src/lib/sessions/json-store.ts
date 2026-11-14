@@ -33,10 +33,6 @@ import { isRecord } from "~/lib/state/json";
  * instances, and across processes under `<sessionId>.json.lock`, which holds
  * the writer's pid. The store attempts to replace stale locks.
  *
- * A message new to the file stamps the session's `updatedAt` with its
- * `createdAt`, so {@link JsonSessionStore.sessions} lists the most recently
- * appended first.
- *
  * `transaction` holds one session file's turn and lock across a whole
  * read-modify-write, so creating a missing session or updating one is a
  * single locked unit against every other store over the directory.
@@ -403,16 +399,13 @@ function sessionOf(write: SessionStoreWrite): string | undefined {
   return [...ids][0];
 }
 
-/**
- * `file` with `write` merged in by id: a put replaces what it names, and a
- * message new to the file goes last and stamps the session's `updatedAt`.
- */
+/** `file` with `write` merged in by id: a put replaces what it names, and a new message goes last. */
 function merge(
   id: string,
   file: SessionFile | undefined,
   write: SessionStoreWrite
 ): SessionFile {
-  let session = write.putSessions?.at(-1) ?? file?.session;
+  const session = write.putSessions?.at(-1) ?? file?.session;
   if (!session) {
     throw new Error(
       `[json-session-store] no session ${id} to file its messages under`
@@ -423,7 +416,6 @@ function merge(
     const index = messages.findIndex((known) => known.id === message.id);
     if (index === -1) {
       messages.push(message);
-      session = { ...session, updatedAt: message.createdAt };
     } else {
       messages[index] = message;
     }

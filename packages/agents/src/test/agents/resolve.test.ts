@@ -330,8 +330,12 @@ describe("createAgentPreset", () => {
   it("binds domain context in both harnesses without constructing a Session for an operation", async () => {
     const store = new InMemorySessionStore();
     const commit = vi.spyOn(store, "commit");
+    // Filing a session is the one write that carries a session and no message.
     const filed = () =>
-      commit.mock.calls.filter(([write]) => write.putSessions !== undefined);
+      commit.mock.calls.filter(
+        ([write]) =>
+          write.putSessions !== undefined && write.putMessages === undefined
+      );
     const seen: unknown[] = [];
     const preset = createAgentPreset(
       { id: "domain", prompt: "Shared instructions" },

@@ -200,11 +200,13 @@ describe("native driver session", () => {
       closed = true;
     });
     await vi.waitFor(() =>
-      expect(commit).toHaveBeenCalledWith({
-        putMessages: [
-          expect.objectContaining({ role: "assistant", status: "error" }),
-        ],
-      })
+      expect(commit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          putMessages: [
+            expect.objectContaining({ role: "assistant", status: "error" }),
+          ],
+        })
+      )
     );
     expect(closed).toBe(false);
     release();
