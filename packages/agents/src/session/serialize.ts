@@ -81,8 +81,9 @@ function unkeptPath(
   }
   ancestors.push(current);
   try {
+    // Indices from the length alone: reading an element is the guarded read below.
     const keys = Array.isArray(current)
-      ? current.map((_, index) => index)
+      ? Array.from({ length: current.length }, (_, index) => index)
       : Object.keys(current);
     for (const key of keys) {
       const path =
