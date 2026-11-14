@@ -17,7 +17,7 @@ import { Workspace } from "../instance";
 import { MemoryWorkspaceStore } from "../memory-store";
 import { WithDirectory } from "../node";
 import type { GitPathStatus } from "../node/git";
-import { Git, git as gitLayer, WithGit } from "../node/git";
+import { Git, git as gitLayer, WithGit, Worktree } from "../node/git";
 import { directorySystem } from "./helpers/directory-system";
 import { hostWorkspace, seed } from "./helpers/fixtures";
 
@@ -470,6 +470,22 @@ describe("WithGit", () => {
       expect(cut.startsWith(await realpath(home))).toBe(true);
     } finally {
       await rm(home, { force: true, recursive: true });
+    }
+  });
+
+  it("leaves an existing checkout alone when the runner only pretends", async () => {
+    const root = await makeRepository({ "README.md": "hello" });
+    const existing = await mkdtemp(join(tmpdir(), "existing-checkout-"));
+    await writeFile(join(existing, "existing.txt"), "kept");
+    try {
+      const checkout = new Worktree(existing, root, null, {
+        run: () => Promise.resolve(""),
+      });
+      await checkout.remove();
+
+      expect(await readdir(existing)).toEqual(["existing.txt"]);
+    } finally {
+      await rm(existing, { force: true, recursive: true });
     }
   });
 
