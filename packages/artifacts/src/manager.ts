@@ -5,7 +5,7 @@ import { runAfterCommit } from "@foundry/core/storage";
 
 import type { BlobFiles } from "./blob";
 import { readBlob, requireBlob } from "./blob-repository";
-import { abandonStaging, BlobStaging } from "./blob-staging";
+import { abandonStaging, BlobStaging, StagingTurns } from "./blob-staging";
 import { ArtifactChange } from "./change";
 import { MAX_FILE_BYTES, MAX_TREE_BYTES } from "./constants";
 import { ArtifactApplicationError, TransactionRolledBackError } from "./errors";
@@ -104,6 +104,7 @@ export class ArtifactManager implements Artifacts {
   readonly #observers = new Set<ArtifactObserver>();
   readonly #scope = new AsyncLocalStorage<TransactionScope>();
   #tail: Promise<unknown> = Promise.resolve();
+  readonly #stagingTurns = new StagingTurns();
   /** Per Artifact, the latest change whose place in call order is not yet secured. */
   readonly #ordered = new Map<ArtifactId, Promise<void>>();
 
@@ -649,7 +650,7 @@ export class ArtifactManager implements Artifacts {
   }
 
   #staging(): BlobStaging {
-    return new BlobStaging(this.#limits);
+    return new BlobStaging(this.#limits, this.#stagingTurns);
   }
 
   /**

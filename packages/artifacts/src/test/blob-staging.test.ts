@@ -12,6 +12,7 @@ import { lockHolder } from "@foundry/lib/file-lock";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { BlobFiles } from "../blob";
+import { MAX_STAGING_STREAMS } from "../blob-staging";
 import { CHUNK_BYTES } from "../constants";
 import {
   ArtifactNotFoundError,
@@ -696,7 +697,7 @@ describe.each(["memory", "json"] as const)(
       await settled();
     });
 
-    it("leave no staged file when the tree limit, checked inside the change, refuses it", async () => {
+    it("leave no staged file when the tree limit refuses it", async () => {
       const { blobs, manager, settled } = await storage(kind);
       const seen: { staged?: number } = {};
       async function* source(): AsyncIterable<Uint8Array> {
@@ -923,3 +924,62 @@ describe.each(["memory", "json"] as const)(
     });
   }
 );
+
+describe("Staging bounds", () => {
+  it("refuses a change once its staged bytes alone exceed the tree limit, before later streams end", async () => {
+    const { blobs, manager } = await storage("memory");
+    const artifacts = manager({ maxTreeBytes: CHUNK_BYTES });
+    const stalled = gated([text("over")], []);
+    try {
+      const creating = artifacts.create({
+        entries: {
+          "a.bin": { bytes: chunk(11) },
+          "b.bin": { source: stalled.source },
+        },
+        name: "Too big",
+        type: "application/octet-stream",
+      });
+      expect(await within(creating)).toBe("rejected");
+      await expect(creating).rejects.toBeInstanceOf(FileTooLargeError);
+      expect(await stagedFiles(blobs)).toEqual([]);
+    } finally {
+      stalled.release();
+    }
+  });
+
+  it("reads at most MAX_STAGING_STREAMS streams of one manager at once", async () => {
+    const { manager } = await storage("memory");
+    const artifacts = manager();
+    const gates = Array.from({ length: MAX_STAGING_STREAMS + 1 }, () =>
+      gated([], [text("x")])
+    );
+    const opened = gates.map(() => false);
+    gates.forEach((gate, index) => {
+      gate.waiting.then(() => {
+        opened[index] = true;
+      });
+    });
+    const creating = gates.map((gate, index) =>
+      artifacts.create({
+        entries: { "f.txt": { source: gate.source } },
+        name: `Stream ${String(index)}`,
+        type: "text/plain",
+      })
+    );
+    try {
+      await Promise.all(
+        gates.slice(0, MAX_STAGING_STREAMS).map((g) => g.waiting)
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(opened.filter(Boolean)).toHaveLength(MAX_STAGING_STREAMS);
+      required(gates[0]).release();
+      expect(await within(required(gates.at(-1)).waiting)).toBe("resolved");
+    } finally {
+      for (const gate of gates) {
+        gate.release();
+      }
+    }
+    await Promise.all(creating);
+    expect((await artifacts.list()).total).toBe(MAX_STAGING_STREAMS + 1);
+  });
+});

@@ -50,6 +50,40 @@ export interface StagedBytes {
 interface StagingLimits {
   readonly files?: BlobFiles;
   readonly maxFileBytes: number;
+  /** Absent: the tree limit is checked only inside the change. */
+  readonly maxTreeBytes?: number;
+}
+
+/** How many streams one manager takes in ahead of its changes at once. */
+export const MAX_STAGING_STREAMS = 8;
+
+/**
+ * Turns for streams staged ahead, shared by one manager's changes, so a
+ * burst of slow sources holds at most `MAX_STAGING_STREAMS` of them open.
+ */
+export class StagingTurns {
+  #free = MAX_STAGING_STREAMS;
+  readonly #waiting: (() => void)[] = [];
+
+  async run<T>(work: () => Promise<T>): Promise<T> {
+    if (this.#free > 0) {
+      this.#free -= 1;
+    } else {
+      await new Promise<void>((resolve) => {
+        this.#waiting.push(resolve);
+      });
+    }
+    try {
+      return await work();
+    } finally {
+      const next = this.#waiting.shift();
+      if (next) {
+        next();
+      } else {
+        this.#free += 1;
+      }
+    }
+  }
 }
 
 /**
@@ -69,6 +103,8 @@ export class BlobStaging {
   readonly #files: BlobFiles | undefined;
   readonly #area: BlobStagingArea | undefined;
   readonly #maxFileBytes: number;
+  readonly #maxTreeBytes: number | undefined;
+  readonly #turns: StagingTurns;
   readonly #ahead = new Map<
     string,
     { readonly input: ByteInput; readonly bytes: StagedBytes }
@@ -78,8 +114,11 @@ export class BlobStaging {
   /** The ownership each path showed when the change was first checked. */
   readonly #ownership = new Map<string, Ownership | null>();
 
-  constructor(limits: StagingLimits) {
+  /** `turns` bound the streams staged at once; one manager shares them. */
+  constructor(limits: StagingLimits, turns: StagingTurns = new StagingTurns()) {
     this.#files = limits.files;
+    this.#maxTreeBytes = limits.maxTreeBytes;
+    this.#turns = turns;
     this.#area = limits.files?.staging;
     this.#maxFileBytes = limits.maxFileBytes;
   }
@@ -108,11 +147,25 @@ export class BlobStaging {
   }
 
   /** Takes in every byte input of `entries` that can wait outside the change. */
+  /**
+   * Takes in every byte input of `entries` that can wait outside the change.
+   * Their sizes add up as they arrive: once the total alone exceeds the tree
+   * limit, the change could only fail, so staging stops there. Each stream
+   * takes one of the manager's staging turns while it is read.
+   */
   async stageAll(entries: EntryInputs | undefined): Promise<void> {
+    const tree = { bytes: 0 };
+    const count = (bytes: number) => {
+      tree.bytes += bytes;
+      if (this.#maxTreeBytes !== undefined && tree.bytes > this.#maxTreeBytes) {
+        throw new FileTooLargeError(null, tree.bytes, this.#maxTreeBytes);
+      }
+    };
     for (const [path, input] of byteInputs(entries)) {
       if (this.#canStageAhead(input)) {
+        const stage = () => this.#stage(path, input, { ahead: true, count });
         this.#ahead.set(path, {
-          bytes: await this.#stage(path, input, { ahead: true }),
+          bytes: await ("source" in input ? this.#turns.run(stage) : stage()),
           input,
         });
       }
@@ -186,7 +239,7 @@ export class BlobStaging {
     path: string,
     input: ByteInput,
     how:
-      | { readonly ahead: true }
+      | { readonly ahead: true; readonly count: (bytes: number) => void }
       | {
           readonly ahead: false;
           readonly publish: (bytes: Uint8Array) => Promise<string>;
@@ -198,7 +251,14 @@ export class BlobStaging {
       if (input.bytes !== undefined) {
         checkSize(path, input.bytes, this.#maxFileBytes);
       }
-      pieces = split(checked(path, input.source, this.#maxFileBytes));
+      pieces = split(
+        checked(
+          path,
+          input.source,
+          this.#maxFileBytes,
+          how.ahead ? how.count : undefined
+        )
+      );
       declared = input.bytes;
     } else {
       const bytes =
@@ -206,6 +266,9 @@ export class BlobStaging {
           ? new TextEncoder().encode(input.bytes)
           : input.bytes;
       checkSize(path, bytes.byteLength, this.#maxFileBytes);
+      if (how.ahead) {
+        how.count(bytes.byteLength);
+      }
       pieces = split([bytes]);
       declared = bytes.byteLength;
     }
@@ -314,12 +377,14 @@ function isByteInput(entry: EntryInput): entry is ByteInput {
 async function* checked(
   path: string,
   source: AsyncIterable<Uint8Array>,
-  max: number
+  max: number,
+  count?: (bytes: number) => void
 ): AsyncIterable<Uint8Array> {
   let size = 0;
   for await (const bytes of source) {
     size += bytes.byteLength;
     checkSize(path, size, max);
+    count?.(bytes.byteLength);
     yield bytes;
   }
 }
