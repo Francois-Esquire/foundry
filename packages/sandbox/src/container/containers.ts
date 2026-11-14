@@ -155,15 +155,15 @@ export function createContainers(options: CreateContainersOptions): Containers {
     }
   };
 
+  /**
+   * Remove an old VM by its native name. A stop or remove that fails may mean
+   * the VM is gone (the expected case) or that it is stuck, and the runtime
+   * cannot say which, so the name is kept for `sweep` and `shutdown`: their
+   * inventory drops it if it is gone and retries it if it is not.
+   */
   const removeNative = async (name: string): Promise<void> => {
-    // Best effort: a VM that was already gone is the expected case, and a
-    // stop that fails is taken to say so.
     try {
       await runtime.stopResource(name);
-    } catch {
-      return;
-    }
-    try {
       await runtime.removeResource(name);
     } catch {
       abandoned.add(name);
@@ -171,19 +171,29 @@ export function createContainers(options: CreateContainersOptions): Containers {
   };
 
   /**
-   * Retry every abandoned VM against the runtime's inventory: remove those it
-   * still lists, forget those it does not. Returns the names removed; rejects,
-   * keeping the rest, if any would not go.
+   * Read the runtime's inventory, then retry the VMs that were abandoned
+   * before it was read: remove those it lists, forget those it does not. A
+   * name abandoned while the inventory was being read is left for the next
+   * call, as the inventory may predate its VM. Returns the inventory and the
+   * names removed; rejects, keeping the rest, if any would not go.
    */
   const reclaim = async (
-    resources: readonly ContainerResourceSummary[]
-  ): Promise<string[]> => {
+    signal: AbortSignal | undefined
+  ): Promise<{
+    readonly removed: string[];
+    readonly resources: readonly ContainerResourceSummary[];
+  }> => {
+    const candidates = [...abandoned];
+    const resources = await enumerate(runtime, selection, signal);
     const listed = new Map(
       resources.map((resource) => [resource.name, resource])
     );
     const removed: string[] = [];
     let failure: { readonly error: unknown } | undefined;
-    for (const name of [...abandoned]) {
+    for (const name of candidates) {
+      if (!abandoned.has(name)) {
+        continue;
+      }
       const resource = listed.get(name);
       try {
         if (resource !== undefined) {
@@ -198,11 +208,11 @@ export function createContainers(options: CreateContainersOptions): Containers {
     if (failure !== undefined) {
       throw new SandboxError(
         "provider-failed",
-        `could not remove ${[...abandoned].join(", ")}`,
+        `could not remove ${candidates.filter((name) => abandoned.has(name)).join(", ")}`,
         { cause: failure.error }
       );
     }
-    return removed;
+    return { removed, resources };
   };
 
   const rowOrThrow = async (
@@ -324,7 +334,9 @@ export function createContainers(options: CreateContainersOptions): Containers {
         options.mountTargetRoot
       );
       sandbox = await startContainerSandbox(
-        await provisionContainerSandbox(config, { runtime }, mounts)
+        await provisionContainerSandbox(config, { runtime }, mounts),
+        // The VM exists and would not go: keep it for `sweep` and `shutdown`.
+        { onLeftBehind: () => abandoned.add(nativeId) }
       );
     } catch (error: unknown) {
       // The boot's own error is the one to report; the row is best effort.
@@ -570,7 +582,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         releases = await Promise.allSettled([...live.values()].map(release));
       }
       if (abandoned.size > 0) {
-        await reclaim(await enumerate(runtime, selection, undefined));
+        await reclaim(undefined);
       }
       const failed = releases.find((result) => result.status === "rejected");
       if (failed !== undefined) {
@@ -586,8 +598,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
     },
     async sweep(signal) {
       assertOpen();
-      const resources = await enumerate(runtime, selection, signal);
-      const swept = await reclaim(resources);
+      const { removed: swept, resources } = await reclaim(signal);
       for (const resource of resources) {
         assertNotAborted(signal, "container sweep was cancelled");
         if (swept.includes(resource.name)) {
