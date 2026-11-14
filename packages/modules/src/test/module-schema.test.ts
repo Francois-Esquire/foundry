@@ -104,6 +104,7 @@ describe("Module record schemas", () => {
     for (const grant of context?.grants ?? []) {
       expect(exactly(installationGrantSchema).parse(grant)).toEqual(grant);
     }
+    expect(exactly(storedInstallationSchema).parse(context)).toEqual(context);
   });
 
   it("keep the owning Module with a retained manifest", async () => {
