@@ -79,7 +79,10 @@ interface TransactionScope {
  * Blob bytes never wait on the commit. `create`, `write` and `revise` take
  * their bytes in before the change takes the store's exclusion; inside it,
  * the change only resolves dedup and promotes the staged files it keeps.
- * Changes this manager makes to one Artifact commit in call order.
+ * Changes this manager makes to one Artifact commit in call order. A
+ * stream that never ends holds back later changes to its own Artifact
+ * through this manager for as long as it is pending; there is no timeout,
+ * and the caller ends it by ending or erroring the source.
  * Inline bytes travel inside the blob record. Bytes for `files` wait as
  * staged files, or are published inside the change when it cannot stage
  * them (a stream given inside `transaction`, or a `BlobFiles` without

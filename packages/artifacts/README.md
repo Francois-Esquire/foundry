@@ -295,7 +295,9 @@ an Artifact waits for an earlier stream change to it to settle. A stalled stream
 therefore delays later changes to that Artifact only; other Artifacts, reads and other
 managers go on. Changes named by Content (`freeze`, `tag`, `setMetadata`, `deleteContent`, `fork`)
 take their place in their Artifact's order while a stream change is pending. Order
-across managers is not promised, nor for calls made inside `transaction(work)`.
+across managers is not promised, nor for calls made inside `transaction(work)`. A stream that never ends holds back later
+changes to its own Artifact through that manager for as long as it is pending; there is no
+timeout, and the caller ends it by ending or erroring the source.
 
 Staged files a change does not keep are discarded when it settles. Each `blobFiles`
 instance stages under its own directory and refreshes it whenever it stages a file; a
