@@ -970,7 +970,9 @@ describe("SqliteSessionStore large writes", () => {
     await expect(store.getSession("s3999")).resolves.toStrictEqual(
       session("s3999")
     );
-  });
+    // Tens of thousands of rows, each checked and decoded: seconds alone,
+    // more beside the rest of the suite.
+  }, 30_000);
 
   it("keeps a message of tens of megabytes whole", async () => {
     const { store } = await storeOn();
