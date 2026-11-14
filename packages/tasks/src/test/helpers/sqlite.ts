@@ -19,10 +19,16 @@ export interface LibsqlDatabases {
    */
   readonly connect: (
     database: LibSQLDatabase,
-    options?: { readonly busyTimeout?: number }
+    options?: {
+      readonly busyTimeout?: number;
+      /** Called with each statement's SQL just before it runs. */
+      readonly onQuery?: (query: string) => void;
+    }
   ) => LibSQLDatabase;
   /** A new database holding the tasks tables. */
   readonly open: () => Promise<LibSQLDatabase>;
+  /** The file `database` lives in. */
+  readonly path: (database: LibSQLDatabase) => string;
   /** Closes `database`'s connection and connects to the same database again. */
   readonly reopen: (database: LibSQLDatabase) => Promise<LibSQLDatabase>;
 }
@@ -61,13 +67,20 @@ export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
     return `file:${join(await directory, `tasks-${count}.db`)}`;
   }
 
-  function connect(at: string, busyTimeout?: number): LibSQLDatabase {
+  function connect(
+    at: string,
+    busyTimeout?: number,
+    onQuery?: (query: string) => void
+  ): LibSQLDatabase {
     const client = createClient({
       url: at,
       ...(busyTimeout === undefined ? {} : { timeout: busyTimeout }),
     });
     clients.push(client);
-    const database = drizzle(client);
+    const database =
+      onQuery === undefined
+        ? drizzle(client)
+        : drizzle(client, { logger: { logQuery: onQuery } });
     connections.set(database, { client, url: at });
     return database;
   }
@@ -82,12 +95,19 @@ export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
 
   return {
     connect(database, options = {}) {
-      return connect(fileOf(database).url, options.busyTimeout);
+      return connect(
+        fileOf(database).url,
+        options.busyTimeout,
+        options.onQuery
+      );
     },
     async open() {
       const database = connect(await url());
       await createTables(database, [tasks, taskDependencies]);
       return database;
+    },
+    path(database) {
+      return fileOf(database).url.slice("file:".length);
     },
     reopen(database) {
       const connection = fileOf(database);

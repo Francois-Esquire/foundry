@@ -206,9 +206,9 @@ const tasks = new Tasks({ store });
 
 Each `commit` is one transaction, and a throwing `onCommit` rolls it back.
 `onCommit` uses the `transaction` it is given; a call to the store itself
-from the hook is refused (see below). A libSQL
-database reads `snapshot()` in one batch, a deferred read transaction that
-takes no write lock.
+from the hook is refused (see below). `snapshot()` reads both tables in one
+database transaction, so it is one state; on libSQL that transaction holds
+the write lock while it reads, as every Drizzle transaction there does.
 
 Two `Tasks` over one `SqliteTaskStore` are kept apart (see `transaction`
 below). In this process the store's calls take turns, so one made while a

@@ -11,7 +11,10 @@ import type { Task, TaskId } from "../schema";
 import { SqliteTaskStore } from "../store/sqlite";
 import { Tasks } from "../tasks";
 import { libsqlDatabases } from "./helpers/sqlite";
+import { execInAnotherProcess } from "./helpers/sqlite-process";
 
+/** What SQLite says when a lock it needs is held. */
+const LOCKED = /locked|busy/i;
 const clock = () => new Date("2026-11-01T00:00:00.000Z");
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
@@ -85,6 +88,41 @@ describe.each([
     });
   }
 );
+
+describe("a snapshot against another connection to its file", () => {
+  test("is one state: a commit cannot land between its two reads", async () => {
+    const database = await files.open();
+    let attempted: string | undefined;
+    const reader = files.connect(database, {
+      onQuery: (query) => {
+        // Just before the second read, another process adds a task and an
+        // edge on it in one commit.
+        if (
+          attempted === undefined &&
+          query.includes('from "task_dependencies"')
+        ) {
+          attempted = execInAnotherProcess(files.path(database), [
+            "BEGIN IMMEDIATE",
+            `INSERT INTO tasks (created_at, description, id, metadata, parent_id, position, scope, settled_at, status, tags, title, updated_at)
+                VALUES ('2026-11-01T00:00:00.000Z', NULL, 'b', '{}', NULL, 2, 's', NULL, 'open', '[]', 'b', '2026-11-01T00:00:00.000Z')`,
+            "INSERT INTO task_dependencies (depends_on_id, position, scope, task_id) VALUES ('b', 1, 's', 'a')",
+            "COMMIT",
+          ]);
+        }
+      },
+    });
+    const store = new SqliteTaskStore({ database, scope: "s" });
+    await store.commit({ putTasks: [task("a")] });
+
+    const snapshot = await new SqliteTaskStore({
+      database: reader,
+      scope: "s",
+    }).snapshot();
+
+    expect(attempted).toMatch(LOCKED);
+    expect(snapshot).toEqual({ dependencies: [], tasks: [task("a")] });
+  });
+});
 
 describe("a transaction against another connection to its file", () => {
   test("a second client in this process is refused, and lands nothing", async () => {
