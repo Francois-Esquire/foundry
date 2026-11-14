@@ -135,7 +135,7 @@ await host.close();
     expect(lockHolder(processLock(state))).toBeUndefined();
   });
 
-  it("holds the state root's lock while it migrates and records", async () => {
+  it("holds the state root's lock while it migrates, and lets it go before it records", async () => {
     const state = join(scratch(), "state");
     const workspace = workspaceState(state, scratch());
     const seen: (number | undefined)[] = [];
@@ -148,7 +148,9 @@ await host.close();
       return touch.apply(this, args);
     });
     await recordWorkspace(state, workspace, null);
-    expect(seen).toEqual([process.pid]);
+    // It made and migrated the database, under the lock no one else held.
+    expect((await readWorkspace(state, workspace.id))?.id).toBe(workspace.id);
+    expect(seen).toEqual([undefined]);
     expect(lockHolder(processLock(state))).toBeUndefined();
   });
 

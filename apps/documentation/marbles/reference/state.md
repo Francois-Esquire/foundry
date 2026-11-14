@@ -106,15 +106,18 @@ its existing spelling and records the authoring folder or single-module path.
 A workspace is recorded in the database when it is attached to the Marbles
 process (`run`, `roll`, the dashboard, or the MCP server), which sets
 `hosted: true`, and by a program that hosts it itself; `list`, `status`,
-`sessions`, `watch`, and anything under `--dry-run` leave an empty state
-root empty. Only a process holding `locks/process` at the state root
-creates the database and applies the migrations its Marbles ships: the
-Marbles process, which holds it while it runs, or a program hosting a
-workspace itself, which takes it only while it records the workspace, so a
-Marbles process can still start beside it. When another process holds the
-lock, such a program waits up to five seconds for the database to be
-current and otherwise fails to start. The workers and the CLI write only
-to a database that is there and current. `status`, the MCP server, and every
+`sessions`, `watch`, a task read, and anything under `--dry-run` leave an
+empty state root empty. Only a process holding `locks/process` at the state
+root creates the database and applies the migrations its Marbles ships:
+the Marbles process, which holds it while it runs, or another writer of a
+workspace's state, which takes it only while it makes the database
+current: a program hosting a workspace itself, as it starts, and a task
+change from the CLI or the MCP server with no Marbles process running. A
+Marbles process can still start beside either once that moment has passed.
+When another process holds the lock, such a writer waits up to five
+seconds for the database to be current and otherwise fails. The workers,
+and the CLI and the MCP server while a Marbles process runs, write only to
+a database that is there and current. `status`, every task read, and every
 other reader open it read-only: they never create, migrate, or change it,
 and never switch its journal mode. A reader that meets the last writer
 closing at the moment it opens can leave an empty `marbles.db-wal`; it

@@ -162,43 +162,10 @@ const HOST_RETRY_MS = 50;
  * current, waiting up to `wait` for the holder to make it so, and otherwise
  * throws `IncompatibleDatabaseError`. The caller closes the handle.
  */
-export function openHostDatabase(
+export async function openHostDatabase(
   state: string,
   options: HostDatabaseOptions = {}
 ): Promise<MarblesDatabase> {
-  return asHost(state, (opened) => Promise.resolve(opened), options);
-}
-
-/**
- * Run `work` on the database as a writer of a workspace's state, under the
- * rule `openHostDatabase` keeps, and close it after. When this process
- * takes the state root's lock to make or migrate the database, `work` runs
- * under it too, and the lock goes once the database is closed.
- */
-export function writeAsHost<T>(
-  state: string,
-  work: (database: StoreDatabase) => Promise<T>,
-  options: HostDatabaseOptions = {}
-): Promise<T> {
-  return asHost(
-    state,
-    async (opened) => {
-      try {
-        return await work(opened.database);
-      } finally {
-        opened.close();
-      }
-    },
-    options
-  );
-}
-
-/** Open the database as `openHostDatabase` says and `use` it, under the lock when this process took it. */
-async function asHost<T>(
-  state: string,
-  use: (opened: MarblesDatabase) => Promise<T>,
-  options: HostDatabaseOptions
-): Promise<T> {
   const root = resolve(state);
   const file = stateDatabase(root);
   const deadline = Date.now() + (options.wait ?? HOST_WAIT_MS);
@@ -206,7 +173,7 @@ async function asHost<T>(
     const claim = acquireLock(root, PROCESS_LOCK);
     if ("release" in claim) {
       try {
-        return await use(await initializeDatabase(file, options));
+        return await initializeDatabase(file, options);
       } finally {
         claim.release();
       }
@@ -223,7 +190,7 @@ async function asHost<T>(
       }
     }
     if (opened !== undefined) {
-      return use(opened);
+      return opened;
     }
     if (Date.now() >= deadline) {
       throw new IncompatibleDatabaseError(
@@ -231,5 +198,24 @@ async function asHost<T>(
       );
     }
     await new Promise((settle) => setTimeout(settle, HOST_RETRY_MS));
+  }
+}
+
+/**
+ * Run `work` on the database as a writer of a workspace's state, opened
+ * under the rule `openHostDatabase` keeps, and close it after. The state
+ * root's lock, when this process takes it, is held only while the
+ * database is made current, never while `work` runs.
+ */
+export async function writeAsHost<T>(
+  state: string,
+  work: (database: StoreDatabase) => Promise<T>,
+  options: HostDatabaseOptions = {}
+): Promise<T> {
+  const opened = await openHostDatabase(state, options);
+  try {
+    return await work(opened.database);
+  } finally {
+    opened.close();
   }
 }
