@@ -125,66 +125,92 @@ export class SqliteTaskStore implements TaskStore {
     transaction: TaskTransaction,
     ids: readonly TaskId[]
   ): Promise<void> {
-    if (ids.length === 0) {
-      return;
-    }
-    await transaction
-      .delete(tasks)
-      .where(and(eq(tasks.scope, this.#scope), inArray(tasks.id, [...ids])));
+    await inOrder(batches(ids, MAX_PARAMETERS - 1), (batch) =>
+      transaction
+        .delete(tasks)
+        .where(and(eq(tasks.scope, this.#scope), inArray(tasks.id, batch)))
+    );
   }
 
   async #deleteDependencies(
     transaction: TaskTransaction,
     edges: readonly TaskDependency[]
   ): Promise<void> {
-    if (edges.length === 0) {
-      return;
-    }
-    await transaction
-      .delete(taskDependencies)
-      .where(
-        and(
-          eq(taskDependencies.scope, this.#scope),
-          or(
-            ...edges.map((edge) =>
-              and(
-                eq(taskDependencies.taskId, edge.taskId),
-                eq(taskDependencies.dependsOnId, edge.dependsOnId)
+    // Each edge is one more `OR`, and each `OR` one more level of depth.
+    await inOrder(batches(edges, MAX_EXPRESSION_DEPTH / 2), (batch) =>
+      transaction
+        .delete(taskDependencies)
+        .where(
+          and(
+            eq(taskDependencies.scope, this.#scope),
+            or(
+              ...batch.map((edge) =>
+                and(
+                  eq(taskDependencies.taskId, edge.taskId),
+                  eq(taskDependencies.dependsOnId, edge.dependsOnId)
+                )
               )
             )
           )
         )
-      );
+    );
   }
 
-  /** One statement; rows insert in order, so a new task's rowid is its place. */
+  /** Rows insert in order, so a new task's rowid is its place. */
   async #putTasks(
     transaction: TaskTransaction,
     records: readonly Task[]
   ): Promise<void> {
-    if (records.length === 0) {
-      return;
-    }
-    await transaction
-      .insert(tasks)
-      .values(records.map((task) => ({ ...task, scope: this.#scope })))
-      .onConflictDoUpdate({
-        set: replaceTask,
-        target: [tasks.scope, tasks.id],
-      });
+    const columns = Object.keys(getTableColumns(tasks)).length;
+    await inOrder(batches(records, MAX_PARAMETERS / columns), (batch) =>
+      transaction
+        .insert(tasks)
+        .values(batch.map((task) => ({ ...task, scope: this.#scope })))
+        .onConflictDoUpdate({
+          set: replaceTask,
+          target: [tasks.scope, tasks.id],
+        })
+    );
   }
 
   async #putDependencies(
     transaction: TaskTransaction,
     edges: readonly TaskDependency[]
   ): Promise<void> {
-    if (edges.length === 0) {
-      return;
-    }
-    await transaction
-      .insert(taskDependencies)
-      .values(edges.map((edge) => ({ ...edge, scope: this.#scope })))
-      .onConflictDoNothing();
+    const columns = Object.keys(getTableColumns(taskDependencies)).length;
+    await inOrder(batches(edges, MAX_PARAMETERS / columns), (batch) =>
+      transaction
+        .insert(taskDependencies)
+        .values(batch.map((edge) => ({ ...edge, scope: this.#scope })))
+        .onConflictDoNothing()
+    );
+  }
+}
+
+/** SQLite's default limit on the parameters one statement binds. */
+const MAX_PARAMETERS = 32_766;
+
+/** SQLite's default limit on the depth of one expression. */
+const MAX_EXPRESSION_DEPTH = 1000;
+
+/** `items` in order, at most `size` at a time; none when `items` is empty. */
+function batches<T>(items: readonly T[], size: number): T[][] {
+  const length = Math.max(1, Math.floor(size));
+  const result: T[][] = [];
+  for (let start = 0; start < items.length; start += length) {
+    result.push(items.slice(start, start + length));
+  }
+  return result;
+}
+
+/** Runs one statement per batch, each after the one before. */
+async function inOrder<T>(
+  items: readonly T[],
+  run: (item: T) => PromiseLike<unknown>
+): Promise<void> {
+  for (const item of items) {
+    // In sequence: deletes precede puts, and put order sets rowid order.
+    await run(item);
   }
 }
 

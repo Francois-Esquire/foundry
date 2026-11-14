@@ -2,7 +2,7 @@ import { eq, getTableColumns, sql } from "drizzle-orm";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, expectTypeOf, test } from "vitest";
 import type { z } from "zod";
-import type { Task, TaskDependency, TaskStoreWrite } from "../schema";
+import type { Task, TaskDependency, TaskId, TaskStoreWrite } from "../schema";
 import { taskDependencySchema, taskSchema } from "../schema";
 import { SqliteTaskStore } from "../store/sqlite";
 import { taskDependencies, tasks } from "../store/tables";
@@ -61,6 +61,28 @@ describe("SqliteTaskStore", () => {
     });
   });
 
+  test("onCommit runs for a write that changed nothing, which has no event", async () => {
+    const writes: TaskStoreWrite[] = [];
+    const store = new SqliteTaskStore({
+      database: await memory.open(),
+      onCommit: (_transaction, write) => {
+        writes.push(write);
+        return Promise.resolve();
+      },
+      scope: "host",
+    });
+    const backlog = new Tasks({ clock, store });
+    const task = await backlog.create({ title: "a" });
+    await backlog.change({
+      operations: [
+        { kind: "task.set_status", status: "open", task: { id: task.id } },
+      ],
+    });
+
+    expect(writes).toHaveLength(2);
+    expect(writes[1]).not.toHaveProperty("event");
+  });
+
   test("a throwing onCommit rolls back the store's statements and its own", async () => {
     const database = await withChanges();
     const store = new SqliteTaskStore({
@@ -97,6 +119,41 @@ describe("SqliteTaskStore", () => {
     expect(
       await new SqliteTaskStore({ database, scope: "s" }).snapshot()
     ).toEqual({ dependencies: [], tasks: [] });
+  });
+
+  test("one write can carry thousands of tasks and edges", async () => {
+    const store = new SqliteTaskStore({
+      database: await memory.open(),
+      scope: "s",
+    });
+    const records = Array.from({ length: 4000 }, (_, index) => ({
+      createdAt: "2026-11-01T00:00:00.000Z",
+      description: null,
+      id: `t${index}` as TaskId,
+      metadata: {},
+      parentId: null,
+      settledAt: null,
+      status: "open" as const,
+      tags: [],
+      title: `t${index}`,
+      updatedAt: "2026-11-01T00:00:00.000Z",
+    }));
+    const edges = records.slice(1).map((task) => ({
+      dependsOnId: records[0]?.id as TaskId,
+      taskId: task.id,
+    }));
+    await store.commit({ putDependencies: edges, putTasks: records });
+    const stored = await store.snapshot();
+    expect(stored.tasks.map((task) => task.id)).toEqual(
+      records.map((task) => task.id)
+    );
+    expect(stored.dependencies).toHaveLength(edges.length);
+    await store.commit({
+      deleteDependencies: edges,
+      deleteTasks: records.map((task) => task.id),
+    });
+
+    expect(await store.snapshot()).toEqual({ dependencies: [], tasks: [] });
   });
 
   test("a file database keeps its records for the next connection", async () => {

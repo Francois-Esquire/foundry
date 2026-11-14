@@ -7,6 +7,9 @@ import { TASK_STATUSES } from "../schema";
  * its own schema and migrations. Each holds the matching record from
  * `@foundry/tasks/schema` field for field, as the record holds it, plus
  * `scope`: an opaque partition key the host chooses, first in every key.
+ *
+ * The store lists rows by `rowid`, the order they were first inserted, so
+ * both must stay rowid tables: not `WITHOUT ROWID`.
  */
 
 /** One row per `Task`. */

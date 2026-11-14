@@ -182,8 +182,9 @@ list records in the order first put.
 composes the tables from `./store/tables` into its own schema and owns the
 migrations; `drizzle-orm` is an optional peer dependency, needed only on the
 two SQLite paths. Every row carries a `scope`, an opaque partition the host
-chooses (Marbles uses the workspace id), and a store reads and writes only
-its own:
+chooses (a workspace id, say), and a store reads and writes only its own.
+Reads order by SQLite's `rowid`, so keep both tables rowid tables (not
+`WITHOUT ROWID`); a `VACUUM` may renumber rowids.
 
 ```ts
 import { Tasks } from "@foundry/tasks";
@@ -193,8 +194,11 @@ const store = new SqliteTaskStore({
   database, // a drizzle-orm/libsql database, or a transaction on one
   scope: workspaceId,
   // Optional: runs in the commit's transaction, after the store's statements.
+  // It runs for every commit; a write that changed nothing has no event.
   onCommit: async (transaction, write) => {
-    await transaction.insert(changes).values({ event: write.event });
+    if (write.event !== undefined) {
+      await transaction.insert(changes).values({ event: write.event });
+    }
   },
 });
 const tasks = new Tasks({ store });
