@@ -123,6 +123,22 @@ function tsconfigReferences(reader: FoldReader, tsconfigFile: string): unknown {
 }
 
 /**
+ * Fold inputs for a derivation with no fold opportunity, from which planning
+ * reads nothing: no source, no destination, and workspace patterns that
+ * were not read.
+ */
+export function noFoldInputs(root: string): FoldInputs {
+  return {
+    destinations: new Map(),
+    root,
+    sources: new Map(),
+    workspacePatterns: {
+      error: new Error("Workspace patterns were not read: no fold to plan"),
+    },
+  };
+}
+
+/**
  * Read the fold planner's inputs through `reader`: each source package's
  * walk and configuration files, each destination name's boundary and its
  * manifest, tsconfig and `src` entries, and the root's workspace patterns.

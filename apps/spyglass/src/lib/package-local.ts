@@ -7,6 +7,7 @@ import {
   packagePathAliases,
   resolveBoundary,
 } from "./boundary";
+import { ownerResult } from "./boundary-model";
 import type { AnalysisConfig } from "./config";
 import type { PreparedPackageSource } from "./package-local-analysis";
 import {
@@ -50,7 +51,7 @@ export function preparePackageLocalSource(
     },
     entrypoints: boundaryEntrypoints(boundary),
     files: packageSourceFiles(root, boundary).map((path) => ({
-      owner: ownerBoundary(root, path),
+      ...ownerResult((file) => ownerBoundary(root, file), path),
       path,
       text: readFileSync(path, "utf8"),
     })),

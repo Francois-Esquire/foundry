@@ -2,15 +2,18 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveBoundary } from "../../src/lib/boundary";
 import type { Boundary } from "../../src/lib/boundary-model";
+import { analyzeFileMap } from "../../src/lib/file-map-analysis";
 import { buildFoldPlans, readFoldInputs } from "../../src/lib/fold-plan";
 import type { FoldInputs } from "../../src/lib/fold-planning";
 import { analyzePackageLocal } from "../../src/lib/package-local";
@@ -39,9 +42,12 @@ import type { WorkspaceSurfaceDerivation } from "../../src/lib/workspace-derive-
 const guard = vi.hoisted(() => {
   const blocked = new Set<string>();
   const attempts: string[] = [];
+  /** Each fold read: its source directories and destination names. */
+  const foldReads: { destinations: string[]; sources: string[] }[] = [];
   return {
     attempts,
     blocked,
+    foldReads,
     /**
      * Directory listing order. `native` is whatever the file system and
      * runtime give: Node sorts `readdirSync` (libuv's scandir), Bun returns
@@ -112,6 +118,21 @@ vi.mock("../../src/lib/boundary", async (importOriginal) => {
     ),
   };
 });
+vi.mock("../../src/lib/fold-inputs", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("../../src/lib/fold-inputs")>();
+  return {
+    ...original,
+    readFoldInputsWith: ((reader, ignorer, root, sources, destinations) => {
+      const names = [...destinations];
+      guard.foldReads.push({
+        destinations: names,
+        sources: sources.map((boundary) => boundary.relPath),
+      });
+      return original.readFoldInputsWith(reader, ignorer, root, sources, names);
+    }) satisfies typeof original.readFoldInputsWith,
+  };
+});
 vi.mock("../../src/lib/ignore", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("../../src/lib/ignore")>();
@@ -177,6 +198,7 @@ const tempRoots: string[] = [];
 beforeEach(() => {
   guard.blocked.clear();
   guard.attempts.length = 0;
+  guard.foldReads.length = 0;
   guard.order = "native";
 });
 
@@ -229,6 +251,23 @@ const consume = (specifier: string, name: string) =>
  * listed explicitly in the root workspaces and folds into `@f/plain`,
  * which has `src` but no `src/lone`, declares nothing and has no tsconfig.
  */
+/** Every file below `root`, root-relative, as a file map records it. */
+function fileMapOf(root: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const absolute = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(absolute);
+      } else {
+        files[relative(root, absolute)] = readFileSync(absolute, "utf8");
+      }
+    }
+  };
+  walk(root);
+  return files;
+}
+
 function foldWorkspace(): string {
   return workspace("fold-prepared-", {
     ".gitignore": "generated/\n*.local.ts\n",
@@ -633,6 +672,98 @@ describe("fold inputs", () => {
         sources: inputs.sources,
       })
     ).toThrow("No prepared src/sat entry for fold destination @f/host");
+  });
+});
+
+describe("native derivation reads only the folds it plans", () => {
+  it("reads no fold input when no package has a fold opportunity", async () => {
+    // Nothing consumes `@n/solo`, so it has no primary consumer to fold into;
+    // its asset and doc trees are what a needless walk would enumerate.
+    const files: Record<string, string> = {
+      "package.json": JSON.stringify({
+        private: true,
+        workspaces: ["packages/*"],
+      }),
+      "packages/solo/package.json": JSON.stringify({
+        exports: { ".": "./src/index.ts" },
+        name: "@n/solo",
+      }),
+      "packages/solo/src/index.ts":
+        "export function twice(x: number): number {\n  return x * 2;\n}\n",
+    };
+    for (let index = 0; index < 5; index += 1) {
+      files[`packages/solo/assets/${index}.txt`] = "asset\n";
+      files[`packages/solo/docs/${index}.md`] = "doc\n";
+    }
+    const root = workspace("fold-none-", files);
+    const locals = [analyzePackageLocal({ root, target: "packages/solo" })];
+    const derived = await deriveWorkspaceSurface(locals, { now, root });
+    expect(guard.foldReads).toEqual([]);
+    const facts = derived.packages["packages/solo"];
+    expect(facts?.plans.map((plan) => plan.operation)).not.toContain(
+      "fold-package"
+    );
+    expect(
+      facts?.opportunities.map((opportunity) => opportunity.operation)
+    ).not.toContain("fold-package");
+  });
+
+  it("reads exactly each fold's source and destination, as full preparation plans", async () => {
+    const root = foldWorkspace();
+    const locals = FOLD_TARGETS.map((target) =>
+      analyzePackageLocal({ root, target })
+    );
+    const derived = await deriveWorkspaceSurface(locals, { now, root });
+    expect(guard.foldReads).toEqual([
+      {
+        destinations: ["@f/plain", "@f/host"],
+        sources: ["libs/lone", "packages/sat"],
+      },
+    ]);
+    guard.foldReads.length = 0;
+    const prepared = await prepareWorkspaceDerivation(locals, { now, root });
+    // Full preparation reads every package for any destination.
+    expect(guard.foldReads.map((read) => read.sources)).toEqual([FOLD_TARGETS]);
+    expect(comparable(analyzePreparedWorkspace(locals, prepared))).toBe(
+      comparable(derived)
+    );
+    expect(Object.keys(foldPlans(derived))).toEqual([
+      "libs/lone",
+      "packages/sat",
+    ]);
+  });
+
+  it("reads a file map's fold inputs only for the folds it plans", async () => {
+    const files = fileMapOf(foldWorkspace());
+    const folded = await analyzeFileMap({ files, now, root: "/fold-map" });
+    expect(guard.foldReads).toEqual([
+      {
+        destinations: ["@f/plain", "@f/host"],
+        sources: ["libs/lone", "packages/sat"],
+      },
+    ]);
+    expect(Object.keys(foldPlans(folded.derivation))).toEqual([
+      "libs/lone",
+      "packages/sat",
+    ]);
+    expect(folded.timing.foldInputsMs).toBeTypeOf("number");
+
+    guard.foldReads.length = 0;
+    const solo = await analyzeFileMap({
+      files: {
+        "package.json": JSON.stringify({ workspaces: ["packages/*"] }),
+        "packages/solo/package.json": JSON.stringify({
+          exports: { ".": "./src/index.ts" },
+          name: "@n/solo",
+        }),
+        "packages/solo/src/index.ts": "export const solo = 1;\n",
+      },
+      now,
+      root: "/fold-map",
+    });
+    expect(guard.foldReads).toEqual([]);
+    expect(Object.keys(foldPlans(solo.derivation))).toEqual([]);
+    expect(solo.timing.foldInputsMs).toBeTypeOf("number");
   });
 });
 

@@ -7,14 +7,16 @@ import type {
 import type { DatasetAssemblyOutcome } from "./dataset-assembly";
 import { requireDeclared } from "./discovery-rules";
 import type { FileMapAnalysisInput } from "./file-map-analysis";
-import { prepareFileMap } from "./file-map-preparation";
+import {
+  analyzeFileMapWorkspace,
+  prepareFileMap,
+} from "./file-map-preparation";
 import type { InMemoryDataset } from "./in-memory-dataset";
 import { assembleInMemoryDataset } from "./in-memory-dataset";
 import type { LensSettings } from "./lenses/lens-types";
 import { analyzePreparedPackageLocal } from "./package-local-analysis";
 import type { PackageLocalReport } from "./package-local-types";
 import type { SemanticsPhase } from "./semantics-types";
-import { analyzePreparedWorkspace } from "./workspace-analysis";
 
 // INTERNAL composition: a recorded repository file map to an in-memory
 // dataset read through the existing `datasetReader`. It prepares the map
@@ -132,11 +134,11 @@ function originOf(
       };
 }
 
-/** A phase every `prepareFileMap` call records. */
+/** A phase every file-map preparation and workspace analysis records. */
 function phaseMs(timing: Record<string, number>, phase: string): number {
   const ms = timing[phase];
   if (ms === undefined) {
-    throw new Error(`The file-map preparation recorded no ${phase}.`);
+    throw new Error(`The file-map run recorded no ${phase}.`);
   }
   return ms;
 }
@@ -202,13 +204,12 @@ export async function fileMapDataset(
   }
 
   onProgress?.({ phase: "derive", stage: "start" });
-  let at = performance.now();
-  const derivation = analyzePreparedWorkspace(
+  const derivation = analyzeFileMapWorkspace(
+    prepared,
     locals,
-    prepared.prepared,
-    input.config
+    input.config,
+    timing
   );
-  timing.workspaceAnalysisMs = performance.now() - at;
   onProgress?.({ phase: "derive", stage: "end" });
   timing.totalMs = Object.entries(timing)
     .filter(([phase]) => phase !== "totalMs")
@@ -227,9 +228,9 @@ export async function fileMapDataset(
   }) satisfies DatasetAssemblyOutcome[];
   const discoverMs =
     phaseMs(timing, "validateAndMapMs") + phaseMs(timing, "discoveryMs");
-  const deriveMs = timing.workspaceAnalysisMs;
+  const deriveMs = phaseMs(timing, "workspaceAnalysisMs");
   const command = input.command ?? "fileMapDataset";
-  at = performance.now();
+  const at = performance.now();
   const dataset = await assembleInMemoryDataset({
     beforePhase: async (step) => {
       await boundary();

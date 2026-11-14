@@ -11,6 +11,7 @@ import type { SourceOwner } from "./boundary-model";
 import { EXCLUDED_DIRS, toPosix } from "./boundary-model";
 import type { AnalysisConfig } from "./config";
 import { cruiseWorkspace } from "./dependencies";
+import { noFoldInputs } from "./fold-inputs";
 import { readFoldInputs } from "./fold-plan";
 import type { GitHistory } from "./git-history";
 import { collectGitHistory } from "./git-history";
@@ -19,8 +20,16 @@ import { cruisedPaths } from "./module-graph";
 import type { PackageLocalReport } from "./package-local-types";
 import { createProject } from "./project";
 import type { AnalysisProfile } from "./types";
-import type { PreparedWorkspaceDerivation } from "./workspace-analysis";
-import { analyzePreparedWorkspace, lap } from "./workspace-analysis";
+import type {
+  PreparedWorkspaceDerivation,
+  PreparedWorkspaceInputs,
+} from "./workspace-analysis";
+import {
+  analyzeWorkspaceToFolds,
+  completeWorkspace,
+  foldRequests,
+  lap,
+} from "./workspace-analysis";
 import type { WorkspaceSurfaceDerivation } from "./workspace-derive-types";
 import {
   emptyOwnerTable,
@@ -49,8 +58,17 @@ export async function deriveWorkspaceSurface(
   options: DeriveWorkspaceOptions = {}
 ): Promise<WorkspaceSurfaceDerivation> {
   const started = performance.now();
-  const prepared = await prepareWorkspaceDerivation(locals, options);
-  const derivation = analyzePreparedWorkspace(locals, prepared, options.config);
+  const prepared = await prepareWorkspaceInputs(locals, options);
+  // Fold planning's reads wait for the opportunities: only a package with a
+  // fold opportunity, and the consumer it targets, are read.
+  const stage = analyzeWorkspaceToFolds(locals, prepared, options.config);
+  const { destinations, sources } = foldRequests(stage);
+  const derivation = completeWorkspace(
+    stage,
+    sources.length === 0
+      ? noFoldInputs(prepared.root)
+      : readFoldInputs(prepared.root, sources, destinations)
+  );
   derivation.timing.totalMs = Math.round(performance.now() - started);
   return derivation;
 }
@@ -60,11 +78,32 @@ function isIncluded(file: string): boolean {
   return !file.split("/").some((segment) => EXCLUDED_DIRS.includes(segment));
 }
 
-/** Acquire a derivation's native inputs: boundaries, program, ownership, graph and history. */
+/**
+ * Acquire a derivation's native inputs: boundaries, program, ownership,
+ * graph and history, and fold planning's inputs for every package and every
+ * destination an owner lookup can name, so `analyzePreparedWorkspace` reads
+ * nothing else. `deriveWorkspaceSurface` reads only the folds it plans.
+ */
 export async function prepareWorkspaceDerivation(
   locals: readonly PackageLocalReport[],
   options: Omit<DeriveWorkspaceOptions, "config"> = {}
 ): Promise<PreparedWorkspaceDerivation> {
+  const prepared = await prepareWorkspaceInputs(locals, options);
+  return {
+    ...prepared,
+    fold: readFoldInputs(
+      prepared.root,
+      prepared.packages.map((entry) => entry.boundary),
+      foldDestinationCandidates(prepared.owners)
+    ),
+  };
+}
+
+/** Acquire a derivation's native inputs but fold planning's. */
+async function prepareWorkspaceInputs(
+  locals: readonly PackageLocalReport[],
+  options: Omit<DeriveWorkspaceOptions, "config">
+): Promise<PreparedWorkspaceInputs> {
   const root = realpathSync(
     options.root ? resolve(options.root) : findRepoRoot(process.cwd())
   );
@@ -130,14 +169,7 @@ export async function prepareWorkspaceDerivation(
     }
   }
 
-  const fold = readFoldInputs(
-    root,
-    packages.map((entry) => entry.boundary),
-    foldDestinationCandidates(table.owners)
-  );
-
   return {
-    fold,
     history,
     moduleGraph: { ignored, modules },
     now,

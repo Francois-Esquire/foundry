@@ -100,6 +100,28 @@ export function classifySpecifier(
 /** The workspace boundary name owning an absolute source path. */
 export type SourceOwner = (filePath: string) => string;
 
+/**
+ * One path's owner, or exactly the value its lookup threw (a manifest that
+ * does not parse, say), told apart by key so a thrown `undefined` is kept.
+ * Analysis raises the error only when it asks for that path's owner, as the
+ * lookup threw only when asked.
+ */
+export type OwnerResult =
+  | { readonly owner: string }
+  | { readonly ownerError: unknown };
+
+/** Ask `ownerOf` for `filePath`'s owner, keeping what it throws instead. */
+export function ownerResult(
+  ownerOf: SourceOwner,
+  filePath: string
+): OwnerResult {
+  try {
+    return { owner: ownerOf(filePath) };
+  } catch (error) {
+    return { ownerError: error };
+  }
+}
+
 /** The owner a file gets when no workspace boundary encloses it. */
 export const ROOT_OWNER = "<root>";
 

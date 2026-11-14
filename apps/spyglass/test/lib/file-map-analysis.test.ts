@@ -22,6 +22,7 @@ import {
 } from "../../src/lib/file-map-preparation";
 import type { CruisedModule } from "../../src/lib/module-graph";
 import { analyzePackageLocal } from "../../src/lib/package-local";
+import { analyzePreparedPackageLocal } from "../../src/lib/package-local-analysis";
 import { createProject } from "../../src/lib/project";
 import { discoverSemanticsUnits } from "../../src/lib/semantics-discover";
 import { DEFAULT_CONFIGURATION } from "../../src/lib/spyglass-config";
@@ -663,6 +664,39 @@ describe("history, roots and native parity", () => {
       withoutRuntime(native.derivation)
     );
   }, 120_000);
+
+  it("defers a package source's owner error to package-local analysis, as natively", async () => {
+    // The source's owner lookup meets a nested manifest that does not parse
+    // and is no workspace member; this package's analysis never asks it.
+    const input: RepositoryFileMapInput = {
+      files: {
+        "package.json": JSON.stringify({
+          private: true,
+          workspaces: ["packages/*"],
+        }),
+        "packages/a/package.json": JSON.stringify({
+          exports: "./src/nested/index.ts",
+          name: "@fixture/a",
+          private: true,
+        }),
+        "packages/a/src/nested/index.ts":
+          "export function twice(x: number) { return x * 2; }\n",
+        "packages/a/src/nested/package.json": "{broken",
+      },
+      now: NOW,
+      root: ROOT,
+    };
+    const root = materialize(input);
+    const prepared = await prepareFileMap({ ...input, root });
+    const [local] = prepared.locals;
+    if (local === undefined) {
+      throw new Error("the map's package was not prepared");
+    }
+    expect(local.files.map((file) => "ownerError" in file)).toEqual([true]);
+    expect(withoutRuntime(analyzePreparedPackageLocal(local))).toEqual(
+      withoutRuntime(analyzePackageLocal({ root, target: "packages/a" }))
+    );
+  }, 60_000);
 
   it("equals native preparation of the typed workspace under its tsconfig, edges included", async () => {
     const input = { ...TYPED, tsconfig: "tsconfig.json" };

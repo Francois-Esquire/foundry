@@ -1,6 +1,6 @@
 import type { Project } from "ts-morph";
-import type { DirectoryOwnership, SourceOwner } from "./boundary-model";
-import { ROOT_OWNER } from "./boundary-model";
+import type { SourceOwner } from "./boundary-model";
+import { ownerResult, ROOT_OWNER } from "./boundary-model";
 
 // Steps of workspace-derivation preparation that read nothing themselves:
 // which owners to table, with their deferred errors, and which destination
@@ -31,28 +31,23 @@ export function tableOwner(
   if (table.owners.has(filePath) || table.errors.has(filePath)) {
     return;
   }
-  try {
-    table.owners.set(filePath, ownerOf(filePath));
-  } catch (error) {
-    table.errors.set(filePath, error);
+  const result = ownerResult(ownerOf, filePath);
+  if ("ownerError" in result) {
+    table.errors.set(filePath, result.ownerError);
+  } else {
+    table.owners.set(filePath, result.owner);
   }
 }
 
 /**
  * Every name analysis can give a package's primary consumer, which a fold
- * plan resolves as its destination: the owners tabled, the owners the
- * directory snapshot can answer when one is prepared, and `<root>`.
+ * plan resolves as its destination: the owners tabled and `<root>`. Full
+ * native preparation reads a destination for each.
  */
 export function foldDestinationCandidates(
-  owners: ReadonlyMap<string, string>,
-  directories?: DirectoryOwnership
+  owners: ReadonlyMap<string, string>
 ): Set<string> {
   const names = new Set<string>(owners.values());
-  for (const verdict of directories?.verdicts.values() ?? []) {
-    if ("owner" in verdict) {
-      names.add(verdict.owner);
-    }
-  }
   names.add(ROOT_OWNER);
   return names;
 }

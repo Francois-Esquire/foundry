@@ -376,6 +376,50 @@ it("scan.package rejects a name with no package the workspace declares", async (
   );
 });
 
+/**
+ * A declared package whose only source sits below a nested `package.json`
+ * that does not parse and is no workspace member, so asking that source's
+ * owner throws.
+ */
+function brokenNestedManifest(into: string, source: string): string {
+  const target = join(directory, into);
+  const files: Record<string, string> = {
+    "package.json": JSON.stringify({
+      private: true,
+      workspaces: ["packages/*"],
+    }),
+    "packages/a/package.json": JSON.stringify({
+      exports: "./src/nested/index.ts",
+      name: "@fixture/a",
+      private: true,
+    }),
+    "packages/a/src/nested/index.ts": source,
+    "packages/a/src/nested/package.json": "{broken",
+  };
+  for (const [file, text] of Object.entries(files)) {
+    mkdirSync(join(target, file, ".."), { recursive: true });
+    writeFileSync(join(target, file), text);
+  }
+  return realpathSync(target);
+}
+
+it("scan.package analyzes a package whose analysis never asks a broken manifest's owner", async () => {
+  const broken = brokenNestedManifest(
+    "broken-owner-function",
+    "export function twice(x: number) { return x * 2; }\n"
+  );
+  const internals = await scan.package(broken, "@fixture/a");
+  expect(internals.topology.package.id).toBe("@fixture/a");
+});
+
+it("scan.package raises a broken manifest's error once analysis asks that owner", async () => {
+  const broken = brokenNestedManifest(
+    "broken-owner-type",
+    "export interface Item { value: number }\n"
+  );
+  await expect(scan.package(broken, "@fixture/a")).rejects.toThrow(SyntaxError);
+});
+
 it("scans a standalone package into a viewer dataset with internals", async () => {
   const standalone = join(directory, "standalone");
   cpSync(join(root, "apps/a"), standalone, { recursive: true });

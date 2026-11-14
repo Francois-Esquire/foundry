@@ -71,6 +71,45 @@ function selfAliasWorkspace(): string {
   return root;
 }
 
+/**
+ * A declared package whose one source sits below a nested `package.json`
+ * that does not parse and is no workspace member: that source's owner
+ * lookup throws.
+ */
+function brokenOwnerWorkspace(source: string): string {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "package-owner-")));
+  tempRoots.push(root);
+  const files: Record<string, string> = {
+    "package.json": JSON.stringify({
+      private: true,
+      workspaces: ["packages/*"],
+    }),
+    "packages/a/package.json": JSON.stringify({
+      exports: "./src/nested/index.ts",
+      name: "@fixture/a",
+      private: true,
+    }),
+    "packages/a/src/nested/index.ts": source,
+    "packages/a/src/nested/package.json": "{broken",
+  };
+  for (const [file, text] of Object.entries(files)) {
+    const target = join(root, file);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, text);
+  }
+  return root;
+}
+
+/** What `run` threw, told apart from returning even when it threw `undefined`. */
+function thrownBy(run: () => unknown): { value: unknown } | undefined {
+  try {
+    run();
+  } catch (value) {
+    return { value };
+  }
+  return undefined;
+}
+
 function relocate(source: PreparedPackageSource): PreparedPackageSource {
   const move = (path: string) => {
     expect(path.startsWith(source.root)).toBe(true);
@@ -117,9 +156,9 @@ describe("prepared package-local analysis", () => {
     expect(prepared.compilerPaths["@s/b"]).toEqual([
       join(prepared.root, "packages/b/src/index.ts"),
     ]);
-    expect(prepared.files.map((file) => file.owner)).toEqual(
-      prepared.files.map(() => "@s/b")
-    );
+    expect(
+      prepared.files.map((file) => ("owner" in file ? file.owner : file))
+    ).toEqual(prepared.files.map(() => "@s/b"));
 
     expect(
       JSON.stringify(analyzePreparedPackageLocal(relocate(prepared)))
@@ -174,6 +213,56 @@ describe("prepared package-local analysis", () => {
         )
       )
     ).toBe(JSON.stringify(native));
+  });
+
+  it("defers an owner lookup's error to analysis, which raises that value off disk", () => {
+    const root = brokenOwnerWorkspace(
+      "export interface Item { value: number }\n"
+    );
+    const prepared = preparePackageLocalSource({ root, target: "packages/a" });
+    const [file] = prepared.files;
+    if (file === undefined || !("ownerError" in file)) {
+      throw new Error("the nested source's owner lookup did not fail");
+    }
+    expect(file.ownerError).toBeInstanceOf(SyntaxError);
+    rmSync(root, { force: true, recursive: true });
+    const result = thrownBy(() => analyzePreparedPackageLocal(prepared));
+    expect(result).toBeDefined();
+    expect(result?.value).toBe(file.ownerError);
+  });
+
+  it("analyzes a package whose analysis never asks a failed lookup's owner", () => {
+    const root = brokenOwnerWorkspace(
+      "export function twice(x: number) { return x * 2; }\n"
+    );
+    const prepared = preparePackageLocalSource({ root, target: "packages/a" });
+    expect(prepared.files.every((file) => "ownerError" in file)).toBe(true);
+    rmSync(root, { force: true, recursive: true });
+    expect(
+      analyzePreparedPackageLocal(prepared).symbols.map((symbol) => symbol.name)
+    ).toEqual(["twice"]);
+  });
+
+  it.each([
+    ["undefined", undefined],
+    ["null", null],
+    ["false", false],
+    ["0", 0],
+    ["an empty string", ""],
+  ])("raises a deferred owner error of %s exactly", (_label, thrown) => {
+    const prepared = relocate(
+      preparePackageLocalSource({ root: fixture, target: "packages/b" })
+    );
+    const files = prepared.files.map(({ path, text }) => ({
+      ownerError: thrown,
+      path,
+      text,
+    }));
+    const result = thrownBy(() =>
+      analyzePreparedPackageLocal({ ...prepared, files })
+    );
+    expect(result).toBeDefined();
+    expect(result?.value).toBe(thrown);
   });
 
   it("reads file ownership from the prepared sources", () => {

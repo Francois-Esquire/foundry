@@ -4,10 +4,12 @@ import type {
   PreparedFileMap,
   RepositoryFileMapInput,
 } from "./file-map-preparation";
-import { prepareFileMap } from "./file-map-preparation";
+import {
+  analyzeFileMapWorkspace,
+  prepareFileMap,
+} from "./file-map-preparation";
 import { analyzePreparedPackageLocal } from "./package-local-analysis";
 import type { PackageLocalReport } from "./package-local-types";
-import { analyzePreparedWorkspace } from "./workspace-analysis";
 import type { WorkspaceSurfaceDerivation } from "./workspace-derive-types";
 
 // INTERNAL fixture-proof entry: prepares a recorded repository file map
@@ -38,18 +40,17 @@ export async function analyzeFileMap(
   const started = performance.now();
   const prepared = await prepareFileMap(input);
   const timing: Record<string, number> = { ...prepared.timing };
-  let mark = performance.now();
+  const mark = performance.now();
   const locals = prepared.locals.map((source) =>
     analyzePreparedPackageLocal(source, input.config)
   );
   timing.localAnalysisMs = performance.now() - mark;
-  mark = performance.now();
-  const derivation = analyzePreparedWorkspace(
+  const derivation = analyzeFileMapWorkspace(
+    prepared,
     locals,
-    prepared.prepared,
-    input.config
+    input.config,
+    timing
   );
-  timing.workspaceAnalysisMs = performance.now() - mark;
   timing.totalMs = performance.now() - started;
   derivation.timing.totalMs = Math.round(timing.totalMs);
   return {

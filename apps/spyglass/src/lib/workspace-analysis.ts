@@ -34,7 +34,7 @@ import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG, ANALYSIS_POLICY_VERSION } from "./config";
 import { analyzeEvolutionaryPressure } from "./evolutionary-pressure";
 import type { FoldInputs } from "./fold-planning";
-import { planFolds } from "./fold-planning";
+import { foldOpportunity, planFolds } from "./fold-planning";
 import type { GitHistory } from "./git-history";
 import { analyzeDependencyGravity } from "./gravity";
 import { analyzeHotspots } from "./hotspots";
@@ -60,6 +60,7 @@ import { collectSymbols } from "./symbols";
 import type {
   AnalysisProfile,
   LocalComplexityReport,
+  SurfaceDependencies,
   SurfaceReport,
   SurfaceSymbol,
 } from "./types";
@@ -102,9 +103,11 @@ export interface PreparedWorkspaceDerivation {
    */
   directories?: DirectoryOwnership;
   /**
-   * Fold planning's repository answers: every package's walk and
-   * configuration files, and every boundary name an owner lookup can return
-   * as a destination.
+   * Fold planning's repository answers, covering every source and
+   * destination `foldRequests` can name for these inputs: here every
+   * package's walk and configuration files and every boundary name an owner
+   * lookup can return. A wrapper that runs `analyzeWorkspaceToFolds` first
+   * reads only the requested ones for `completeWorkspace` instead.
    */
   fold: FoldInputs;
   history: GitHistory;
@@ -150,6 +153,38 @@ interface PackageState {
   symbols: SurfaceSymbol[];
   usage: Record<string, ExternalUsage>;
 }
+
+/** A package's dependencies and reduction opportunities, which fold planning reads. */
+type PackageReductions = ReturnType<typeof buildOpportunities> & {
+  dependencies: SurfaceDependencies;
+};
+
+/**
+ * A derivation analyzed up to fold planning: every fact a fold plan reads
+ * besides the fold inputs, so the native wrapper can read exactly the fold
+ * sources and destinations `foldRequests` names before `completeWorkspace`.
+ */
+export interface WorkspaceFoldStage {
+  readonly config: AnalysisConfig;
+  readonly overlapIndex: ReturnType<typeof buildConceptOverlapIndex>;
+  readonly ownerOf: SourceOwner;
+  readonly prepared: PreparedWorkspaceInputs;
+  readonly reductions: readonly PackageReductions[];
+  readonly started: number;
+  readonly states: readonly PackageState[];
+  /** Phase times so far; `normalizeMs` is counted into `cruiseMs`. */
+  readonly timing: Pick<
+    WorkspaceDerivationTiming,
+    | "conceptsMs"
+    | "overlapIndexMs"
+    | "packagesMs"
+    | "referencesMs"
+    | "symbolsMs"
+  > & { normalizeMs: number };
+}
+
+/** A workspace derivation's prepared inputs before fold planning's are read. */
+export type PreparedWorkspaceInputs = Omit<PreparedWorkspaceDerivation, "fold">;
 
 function ratio(numerator: number, denominator: number): number {
   return denominator === 0 ? 0 : numerator / denominator;
@@ -217,17 +252,50 @@ export function analyzePreparedWorkspace(
   prepared: PreparedWorkspaceDerivation,
   config: AnalysisConfig = ANALYSIS_CONFIG
 ): WorkspaceSurfaceDerivation {
+  return completeWorkspace(
+    analyzeWorkspaceToFolds(locals, prepared, config),
+    prepared.fold
+  );
+}
+
+/**
+ * The fold sources and destinations a stage's plans read: each package with
+ * a fold opportunity and the consumer it targets, as `buildFoldPlans` reads
+ * them natively. Empty when no package has a fold opportunity.
+ */
+export function foldRequests(stage: WorkspaceFoldStage): {
+  destinations: string[];
+  sources: Boundary[];
+} {
+  const destinations = new Set<string>();
+  const sources: Boundary[] = [];
+  for (const [index, state] of stage.states.entries()) {
+    const reductions = stage.reductions[index] as PackageReductions;
+    const target = foldOpportunity(reductions.opportunities)?.target;
+    if (target !== undefined) {
+      sources.push(state.boundary);
+      destinations.add(target.name);
+    }
+  }
+  return { destinations: [...destinations], sources };
+}
+
+/**
+ * Workspace derivation over prepared inputs up to fold planning: references,
+ * edges, concepts, the overlap index, and each package's dependencies and
+ * opportunities. Reads only `prepared`, as `analyzePreparedWorkspace` does.
+ */
+export function analyzeWorkspaceToFolds(
+  locals: readonly PackageLocalReport[],
+  prepared: PreparedWorkspaceInputs,
+  config: AnalysisConfig = ANALYSIS_CONFIG
+): WorkspaceFoldStage {
   const started = performance.now();
-  const { history, moduleGraph, now, profile, project, root } = prepared;
+  const { moduleGraph, profile, project, root } = prepared;
   const temporal = profile === "temporal";
   if (prepared.packages.length !== locals.length) {
     throw new Error(
       `prepared ${prepared.packages.length} boundaries for ${locals.length} local reports`
-    );
-  }
-  if (prepared.fold.root !== root) {
-    throw new Error(
-      `prepared fold inputs are for ${prepared.fold.root}, not ${root}`
     );
   }
   const { directories, ownerErrors, owners } = prepared;
@@ -388,18 +456,65 @@ export function analyzePreparedWorkspace(
   const overlapIndexMs = done();
 
   done = lap();
-  const packages: Record<string, WorkspaceDerivedPackageFacts> = {};
-  for (const state of states) {
-    packages[state.local.package.path] = derivePackage(state, {
-      config,
-      fold: prepared.fold,
-      history,
-      overlapIndex,
-      ownerOf,
-      project,
-    });
-  }
+  const reductions = states.map((state) => {
+    const dependencies = buildDependencies(state.symbols, state.edges, config);
+    return {
+      dependencies,
+      ...buildOpportunities(
+        state.boundary,
+        state.symbols,
+        dependencies,
+        config
+      ),
+    };
+  });
   const packagesMs = done();
+
+  return {
+    config,
+    overlapIndex,
+    ownerOf,
+    prepared,
+    reductions,
+    started,
+    states,
+    timing: {
+      conceptsMs,
+      normalizeMs,
+      overlapIndexMs,
+      packagesMs,
+      referencesMs,
+      symbolsMs,
+    },
+  };
+}
+
+/**
+ * Complete a fold stage with fold planning's inputs, which must cover every
+ * source and destination `foldRequests(stage)` names; planning throws for
+ * one they do not.
+ */
+export function completeWorkspace(
+  stage: WorkspaceFoldStage,
+  fold: FoldInputs
+): WorkspaceSurfaceDerivation {
+  const { config, overlapIndex, ownerOf, prepared, started, states } = stage;
+  const { history, now, profile, project, root } = prepared;
+  if (fold.root !== root) {
+    throw new Error(`prepared fold inputs are for ${fold.root}, not ${root}`);
+  }
+  const done = lap();
+  const packages: Record<string, WorkspaceDerivedPackageFacts> = {};
+  for (const [index, state] of states.entries()) {
+    packages[state.local.package.path] = derivePackage(
+      state,
+      stage.reductions[index] as PackageReductions,
+      { config, fold, history, overlapIndex, ownerOf, project }
+    );
+  }
+  const { conceptsMs, normalizeMs, overlapIndexMs, referencesMs, symbolsMs } =
+    stage.timing;
+  const packagesMs = stage.timing.packagesMs + done();
 
   return {
     analyzedAt: now.toISOString(),
@@ -438,23 +553,18 @@ interface DeriveInputs {
 
 function derivePackage(
   state: PackageState,
+  reductions: PackageReductions,
   inputs: DeriveInputs
 ): WorkspaceDerivedPackageFacts {
   const { project, history, overlapIndex, config, ownerOf, fold } = inputs;
   const { local, boundary, entrypoints, symbols, edges, nodesById } = state;
+  const { dependencies, ineligibleOperations, opportunities } = reductions;
   const exported = symbols.filter((symbol) => symbol.exported);
   const packagePublic = symbols.filter((symbol) => symbol.packagePublic);
   const used = packagePublic.filter(
     (symbol) => symbol.externalReferences + symbol.externalImportSites > 0
   );
 
-  const dependencies = buildDependencies(symbols, edges, config);
-  const { opportunities, ineligibleOperations } = buildOpportunities(
-    boundary,
-    symbols,
-    dependencies,
-    config
-  );
   const plans = [
     ...planFolds(boundary, symbols, dependencies, opportunities, config, fold),
     ...buildInternalizationPlans(

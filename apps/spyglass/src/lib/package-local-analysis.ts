@@ -5,6 +5,7 @@ import { anchorFor } from "./anchors";
 import type {
   Boundary,
   BoundaryEntrypoint,
+  OwnerResult,
   SourceOwner,
 } from "./boundary-model";
 import { toPosix } from "./boundary-model";
@@ -92,20 +93,23 @@ export function tsconfigPathsInto(
   return inside;
 }
 
-/** One package-owned source, read before analysis. */
-interface PreparedPackageFile {
-  /** Workspace boundary owning the file, as `ownerBoundary` names it. */
-  owner: string;
+/**
+ * One package-owned source, read before analysis, with the workspace
+ * boundary owning it as `ownerBoundary` names it, or the error that lookup
+ * threw.
+ */
+type PreparedPackageFile = OwnerResult & {
   /** Absolute path under the prepared root. */
   path: string;
   text: string;
-}
+};
 
 /**
  * Everything package-local analysis reads from the file system, read up
  * front: sources in analysis order, manifest entrypoints, the compiler
- * `paths` into the package, and each file's owning boundary. Analysis of a
- * prepared package performs no file system reads.
+ * `paths` into the package, and each file's owning boundary or the error
+ * its lookup threw. Analysis of a prepared package performs no file system
+ * reads.
  */
 export interface PreparedPackageSource {
   boundary: Boundary;
@@ -142,18 +146,22 @@ function createLocalProject(source: PreparedPackageSource): {
     useInMemoryFileSystem: true,
   });
   // Keyed by the project's own path spelling; an unprepared path is a broken
-  // invariant, not a reason to look ownership up on disk.
-  const owners = new Map<string, string>();
+  // invariant, not a reason to look ownership up on disk. A deferred lookup
+  // error is raised as the value thrown, only for the path asked.
+  const owners = new Map<string, OwnerResult>();
   for (const file of source.files) {
     const created = project.createSourceFile(file.path, file.text);
-    owners.set(created.getFilePath(), file.owner);
+    owners.set(created.getFilePath(), file);
   }
   const ownerOf: SourceOwner = (filePath) => {
-    const owner = owners.get(filePath);
-    if (owner === undefined) {
+    const prepared = owners.get(filePath);
+    if (prepared !== undefined && "ownerError" in prepared) {
+      throw prepared.ownerError;
+    }
+    if (typeof prepared?.owner !== "string") {
       throw new Error(`No prepared owner for ${filePath}`);
     }
-    return owner;
+    return prepared.owner;
   };
   return { ownerOf, project };
 }

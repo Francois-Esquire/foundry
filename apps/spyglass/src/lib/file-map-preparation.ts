@@ -17,7 +17,8 @@ import type {
   DirectoryVerdict,
   SourceOwner,
 } from "./boundary-model";
-import { toPosix } from "./boundary-model";
+import { ownerResult, toPosix } from "./boundary-model";
+import type { AnalysisConfig } from "./config";
 import type { FileMapCapabilities } from "./dataset-analysis";
 import type { DependencyInventory } from "./dependency-inventory-types";
 import {
@@ -27,13 +28,14 @@ import {
 import { discoverUnitsWith, workspaceRootName } from "./discovery-rules";
 import { cruiseFileMap, TsconfigRefusedError } from "./file-map-cruise";
 import type { FoldReader } from "./fold-inputs";
-import { readFoldInputsWith } from "./fold-inputs";
+import { noFoldInputs, readFoldInputsWith } from "./fold-inputs";
 import type { GitHistory } from "./git-history";
 import type { Ignorer } from "./ignore-rules";
 import { createIgnorerFrom } from "./ignore-rules";
 import { cruisedPaths } from "./module-graph";
 import type { PreparedPackageSource } from "./package-local-analysis";
 import { tsconfigPathsInto } from "./package-local-analysis";
+import type { PackageLocalReport } from "./package-local-types";
 import type { SemanticsDiscovery } from "./semantics-types";
 import {
   defaultWorkspaceCompilerOptions,
@@ -43,10 +45,15 @@ import {
   workspaceSourceGlobs,
 } from "./source-files";
 import type { AnalysisProfile } from "./types";
-import type { PreparedWorkspaceDerivation } from "./workspace-analysis";
+import type { PreparedWorkspaceInputs } from "./workspace-analysis";
+import {
+  analyzeWorkspaceToFolds,
+  completeWorkspace,
+  foldRequests,
+} from "./workspace-analysis";
+import type { WorkspaceSurfaceDerivation } from "./workspace-derive-types";
 import {
   emptyOwnerTable,
-  foldDestinationCandidates,
   tableOwner,
   tableProgramOwners,
 } from "./workspace-preparation";
@@ -106,6 +113,11 @@ export interface PreparedFileMap {
   /** Native discovery's rules over the map; its units are the `targets`. */
   discovery: SemanticsDiscovery;
   /**
+   * The map's fold reads, which `analyzeFileMapWorkspace` makes only for the
+   * folds analysis plans.
+   */
+  foldReads: { ignorer: Ignorer; reader: FoldReader };
+  /**
    * The dependency inventory with its graph resolved against the map's
    * `bun.lock`, by the native rules; undefined when discovery finds no
    * workspace declaration or standalone package, where a scan stops.
@@ -114,7 +126,7 @@ export interface PreparedFileMap {
   /** Package-local inputs, aligned with `targets`. */
   locals: PreparedPackageSource[];
   /** Workspace-derivation inputs; `project` is the in-memory shared program. */
-  prepared: PreparedWorkspaceDerivation;
+  prepared: PreparedWorkspaceInputs;
   /** Repository-relative directories of discovery's units, in discovery order. */
   targets: string[];
   timing: Record<string, number>;
@@ -749,12 +761,48 @@ function prepareLocal(
       globber.getFileSystem(),
       ignorer
     ).map((path) => ({
-      owner: ownerOf(path),
+      ...ownerResult(ownerOf, path),
       path,
       text: reader.readFile(path),
     })),
     root,
   };
+}
+
+/**
+ * Derive the workspace over a prepared file map, reading from the map only
+ * the fold sources and destinations analysis plans, between its phases.
+ * Records `foldInputsMs` and `workspaceAnalysisMs` (the analysis without
+ * the fold reads) in `timing`.
+ */
+export function analyzeFileMapWorkspace(
+  map: PreparedFileMap,
+  locals: readonly PackageLocalReport[],
+  config: AnalysisConfig | undefined,
+  timing: Record<string, number>
+): WorkspaceSurfaceDerivation {
+  const { root } = map.prepared;
+  let at = performance.now();
+  const stage = analyzeWorkspaceToFolds(locals, map.prepared, config);
+  let analysisMs = performance.now() - at;
+  at = performance.now();
+  const { destinations, sources } = foldRequests(stage);
+  const fold =
+    sources.length === 0
+      ? noFoldInputs(root)
+      : readFoldInputsWith(
+          map.foldReads.reader,
+          map.foldReads.ignorer,
+          root,
+          sources,
+          destinations
+        );
+  timing.foldInputsMs = performance.now() - at;
+  at = performance.now();
+  const derivation = completeWorkspace(stage, fold);
+  analysisMs += performance.now() - at;
+  timing.workspaceAnalysisMs = analysisMs;
+  return derivation;
 }
 
 /**
@@ -893,15 +941,6 @@ export async function prepareFileMap(
   }
   lap("ownersMs");
 
-  const fold = readFoldInputsWith(
-    reader,
-    ignorer,
-    root,
-    packages.map((entry) => entry.boundary),
-    foldDestinationCandidates(table.owners, directories)
-  );
-  lap("foldInputsMs");
-
   const relFiles = Object.keys(input.files).sort();
   const compilerOptions = project.getCompilerOptions();
   const capabilities: FileMapCapabilities = {
@@ -944,11 +983,11 @@ export async function prepareFileMap(
   return {
     capabilities,
     discovery,
+    foldReads: { ignorer, reader },
     inventory,
     locals,
     prepared: {
       directories,
-      fold,
       history,
       moduleGraph: { ignored, modules },
       now,
