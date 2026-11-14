@@ -11,14 +11,9 @@ import type {
   ModuleVersion,
 } from "../domain";
 import type { ModuleManifest } from "../manifest";
+import type { InstallationGrant, RetainedManifest } from "../schema";
 
-/** One approved capability of an Installation. Revoke is delete. */
-export interface InstallationGrant {
-  readonly capability: string;
-  readonly constraintsDigest: string;
-  readonly createdAt: Date;
-  readonly version: number;
-}
+export type { InstallationGrant, RetainedManifest } from "../schema";
 
 export interface ModuleGatewayContext {
   readonly grants: readonly InstallationGrant[];
@@ -27,16 +22,6 @@ export interface ModuleGatewayContext {
 
 export interface RegisterModuleInput {
   readonly module: Module;
-}
-
-/**
- * A manifest the Content cannot supply itself: an output-only import, or a
- * legacy row whose stored manifest differs from its embedded source. It is
- * the only copy, and it outranks the embedded one when both exist.
- */
-export interface RetainedManifest {
-  readonly contentId: ContentId;
-  readonly manifest: ModuleManifest;
 }
 
 export interface RetainManifestInput extends RetainedManifest {

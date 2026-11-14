@@ -14,6 +14,7 @@ import {
   ModuleManifestValidationError,
   parseModuleManifest,
 } from "./manifest";
+import type { Installation, Module } from "./schema";
 
 export const installationIdSchema = z
   .string()
@@ -48,18 +49,10 @@ export const INSTALLATION_STATUSES = [
  */
 export type InstallationStatus = (typeof INSTALLATION_STATUSES)[number];
 
+export type { Installation, Module } from "./schema";
+
 /** Consecutive failed starts before boot recovery stops retrying. */
 export const MAX_START_ATTEMPTS = 3;
-
-/**
- * Stable control-plane identity with one immutable backing Artifact.
- * ModuleId and ArtifactId name different entities even though the Store
- * enforces a one-to-one relationship between them.
- */
-export interface Module {
-  readonly artifactId: ArtifactId;
-  readonly id: ModuleId;
-}
 
 /**
  * One version of a Module: a frozen Content of its Artifact with a SemVer tag,
@@ -73,20 +66,6 @@ export interface ModuleVersion {
   readonly manifest: ModuleManifest;
   readonly moduleId: ModuleId;
   readonly tag: string;
-}
-
-export interface Installation {
-  readonly containerId: string | null;
-  readonly contentId: ContentId;
-  readonly createdAt: Date;
-  /** The only concurrency token; a running program is bound to the one it saw. */
-  readonly generation: number;
-  readonly id: InstallationId;
-  readonly moduleId: ModuleId;
-  /** Failed starts since the last `active`; reset by a user enable or a version change. */
-  readonly startAttempts: number;
-  readonly status: InstallationStatus;
-  readonly updatedAt: Date;
 }
 
 export function defineModule(input: {

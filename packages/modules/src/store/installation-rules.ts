@@ -2,6 +2,7 @@ import { byCodeUnit } from "@foundry/lib/ordering";
 
 import type { Installation, InstallationId, Module } from "../domain";
 import { createDisabledInstallation } from "../domain";
+import type { StoredInstallation } from "../schema";
 import type {
   BeginInstallationTransitionInput,
   CreateInstallationInput,
@@ -22,11 +23,7 @@ import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "./contract";
  * id) and save.
  */
 
-/** One Installation and its Grants, as a store keeps them. */
-export interface StoredInstallation {
-  readonly grants: readonly InstallationGrant[];
-  readonly installation: Installation;
-}
+export type { StoredInstallation } from "../schema";
 
 /** What a rule produced: the record to save, and the operation's result. */
 export interface InstallationChange<Result> {
