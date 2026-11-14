@@ -424,18 +424,22 @@
       },
       "devDependencies": {
         "@foundry/tsconfig": "workspace:*",
+        "@libsql/client": "^0.18.0",
         "@parcel/watcher": "^2.5.1",
         "@types/bun": "1.3.14",
         "@types/node": "^26.4.1",
         "@vitest/coverage-v8": "^4.1.9",
+        "drizzle-orm": "^0.45.4",
         "typescript": "^6.0.3",
         "vitest": "^4.1.9",
       },
       "peerDependencies": {
         "@parcel/watcher": "^2.5.1",
+        "drizzle-orm": "^0.45.4",
       },
       "optionalPeers": [
         "@parcel/watcher",
+        "drizzle-orm",
       ],
     },
     "tooling/linting": {
