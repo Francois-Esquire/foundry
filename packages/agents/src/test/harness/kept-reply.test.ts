@@ -129,7 +129,7 @@ describe("a reply the store refuses", () => {
       );
       expect(onFinish).not.toHaveBeenCalled();
       expect(events.map((event) => event.type)).not.toContain("finish");
-      await expect(turn.outcome).resolves.toBe("complete");
+      await expect(turn.outcome).resolves.toBe("failed");
       // Only the input is kept; no reply is stored as if it had landed.
       expect(
         (await inner.listMessages("s")).map((m) => [m.role, m.status])

@@ -529,6 +529,36 @@ describe("transformStream", () => {
     expect(await stream.outcome).toBe("awaiting-approval");
   });
 
+  it.each([
+    ["no approval", false],
+    ["a pending approval", true],
+  ])(
+    "reports a failed outcome for a reply with %s that could not be kept",
+    async (_case, approval) => {
+      const parts: StreamPart[] = [
+        ...(approval
+          ? [
+              {
+                approvalId: "appr-1",
+                capability: { kind: "mcp.tool", serverId: "s", tool: "t" },
+                toolCall: toolCall("call-1", "t", { x: 1 }),
+                type: "tool-approval-request",
+              } as StreamPart,
+            ]
+          : []),
+        textDelta("hi"),
+        finish(flatUsage),
+      ];
+      const stream = transformStream(source(parts), {
+        commit: () => Promise.reject(new Error("db down")),
+      });
+      await collect(stream);
+
+      expect(await stream.outcome).toBe("failed");
+      expect((await stream.message).status).toBe("error");
+    }
+  );
+
   it("reports a complete outcome when no approval is requested", async () => {
     const stream = transformStream(source(textParts));
     await collect(stream);

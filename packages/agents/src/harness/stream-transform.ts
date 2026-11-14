@@ -249,11 +249,7 @@ export function transformStream<OUTPUT extends Output.Output = never>(
       // A segment with an unresolved approval request is still a complete
       // Session message — it just reports "awaiting-approval" so a caller
       // (e.g. a workflow execution adapter) knows not to treat the turn as done.
-      resolveOutcome(
-        committed.status === "complete" && hasApprovalRequest
-          ? "awaiting-approval"
-          : "complete"
-      );
+      resolveOutcome(outcomeOf(kept, hasApprovalRequest));
       // Emit the terminal event in the same tick as the resolves, so a consumer
       // awaiting `text`/`message` without iterating still observes the
       // finish/error handler having fired (no intervening microtask boundary).
@@ -598,6 +594,19 @@ function assembleMessage(
     status,
     updatedAt: now,
   };
+}
+
+/** A reply not kept failed; a kept one awaits its approval checkpoint, if it holds one. */
+function outcomeOf(
+  kept: { readonly error?: Error; readonly message: SessionMessage },
+  hasApprovalRequest: boolean
+): SessionTurnOutcome {
+  if (kept.error) {
+    return "failed";
+  }
+  return kept.message.status === "complete" && hasApprovalRequest
+    ? "awaiting-approval"
+    : "complete";
 }
 
 /**
