@@ -315,8 +315,9 @@ bunx vitest run test/task-pipeline.test.ts test/task-pipeline-restart.test.ts te
 bun run typecheck
 ```
 
-The tests use model doubles. `task-pipeline-stdio.test.ts` drives a real
-STDIO MCP server under `--dry-run`: create over `change_tasks`, refinement,
+The tests use model doubles. `task-pipeline-stdio.test.ts` drives the MCP
+tools over STDIO, on a workspace a test helper hosts under `--dry-run`,
+since `marbles mcp` hosts nothing: create over `change_tasks`, refinement,
 `prepare`, `blocked` without a model, a user `reroute` that runs, `accept`,
 and a `requireReady` start refused with `not_ready`.
 `task-pipeline-restart.test.ts` runs real host processes over one state
