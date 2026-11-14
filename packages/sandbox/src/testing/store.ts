@@ -55,38 +55,6 @@ function unreadableSecond(values: readonly [string, string]): string[] {
   return list;
 }
 
-/**
- * `base` with a `spec` that reads `reads` times and then throws. A store that
- * reads a row more often than that fails partway through applying a write,
- * after whatever it did before that read.
- */
-function readableFor(reads: number, base: ContainerRow): ContainerRow {
-  const copy = { ...base };
-  let left = reads;
-  Object.defineProperty(copy, "spec", {
-    enumerable: true,
-    get(): string {
-      if (left === 0) {
-        throw new Error("spec read too often");
-      }
-      left -= 1;
-      return base.spec;
-    },
-  });
-  return copy;
-}
-
-/** How a commit settled. */
-function settlement(commit: Promise<void>): Promise<"applied" | "refused"> {
-  return commit.then(
-    () => "applied" as const,
-    () => "refused" as const
-  );
-}
-
-/** How many reads of a row's field a store may make before one fails. */
-const READ_BUDGETS = [1, 2, 3];
-
 /** Lets every other queued callback run, so a missing exclusion would show. */
 function yieldTurn(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -242,7 +210,9 @@ export function describeContainerStore(
       await target.commit({ putContainers: [row("kept")] });
       // Every store reads each field of a row it keeps, so a `spec` that
       // throws on read fails a write that also carries a delete and a valid
-      // put.
+      // put. The memory store has applied both to its copy by then; a store
+      // that runs statements may fail before running any, so it should also
+      // fail a commit partway through its statements in its own tests.
       const unreadable = row("bad");
       Object.defineProperty(unreadable, "spec", {
         enumerable: true,
@@ -290,50 +260,6 @@ export function describeContainerStore(
       });
       expect(ids(await target.list())).toEqual(["a", "b", "c1"]);
     });
-
-    for (const reads of READ_BUDGETS) {
-      it(`applies a write wholly or not at all when a row fails on read ${reads + 1}`, async () => {
-        const target = await store();
-        await target.commit({ putContainers: [row("a"), row("b")] });
-        // The delete and the first put may already have been applied when
-        // the last row fails; a refused write must leave none of them.
-        const result = await settlement(
-          target.commit({
-            deleteContainers: ["a"],
-            putContainers: [row("c"), readableFor(reads, row("d"))],
-          })
-        );
-        expect(await target.list()).toStrictEqual(
-          result === "refused"
-            ? [row("a"), row("b")]
-            : [row("b"), row("c"), row("d")]
-        );
-      });
-
-      it(`keeps a transaction's other commits when work survives a commit that fails on read ${reads + 1}`, async ({
-        skip,
-      }) => {
-        const target = await store();
-        const transaction = transactionOf(target, skip);
-        await target.commit({ putContainers: [row("a"), row("b")] });
-        const result = await transaction(async (view) => {
-          await view.commit({ putContainers: [row("c1")] });
-          const settled = await settlement(
-            view.commit({
-              deleteContainers: ["a"],
-              putContainers: [row("c2"), readableFor(reads, row("c3"))],
-            })
-          );
-          await view.commit({ putContainers: [row("c4")] });
-          return settled;
-        });
-        expect(ids(await target.list())).toEqual(
-          result === "refused"
-            ? ["a", "b", "c1", "c4"]
-            : ["b", "c1", "c2", "c3", "c4"]
-        );
-      });
-    }
 
     it("detaches the rows it is given from the rows it keeps", async () => {
       const target = await store();

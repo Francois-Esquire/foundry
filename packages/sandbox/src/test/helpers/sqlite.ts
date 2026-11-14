@@ -23,8 +23,13 @@ export interface LibsqlDatabases {
     database: LibSQLDatabase,
     options?: { readonly busyTimeout?: number }
   ) => LibSQLDatabase;
-  /** A new database holding the sandbox tables. */
-  readonly open: () => Promise<LibSQLDatabase>;
+  /**
+   * A new database holding the sandbox tables. `onQuery` is called with each
+   * statement's SQL just before it runs; a throw fails that statement.
+   */
+  readonly open: (options?: {
+    readonly onQuery?: (query: string) => void;
+  }) => Promise<LibSQLDatabase>;
   /** The file `database` lives in. */
   readonly path: (database: LibSQLDatabase) => string;
   /** Closes `database`'s connection and connects to the same database again. */
@@ -67,13 +72,20 @@ export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
     return `file:${join(await directory, name)}`;
   }
 
-  function connect(at: string, busyTimeout?: number): LibSQLDatabase {
+  function connect(
+    at: string,
+    busyTimeout?: number,
+    onQuery?: (query: string) => void
+  ): LibSQLDatabase {
     const client = createClient({
       url: at,
       ...(busyTimeout === undefined ? {} : { timeout: busyTimeout }),
     });
     clients.push(client);
-    const database = drizzle(client);
+    const database =
+      onQuery === undefined
+        ? drizzle(client)
+        : drizzle(client, { logger: { logQuery: onQuery } });
     connections.set(database, { client, url: at });
     return database;
   }
@@ -90,8 +102,8 @@ export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
     connect(database, options = {}) {
       return connect(fileOf(database).url, options.busyTimeout);
     },
-    async open() {
-      const database = connect(await url());
+    async open(options = {}) {
+      const database = connect(await url(), undefined, options.onQuery);
       await createTables(database, [sandboxContainers]);
       return database;
     },

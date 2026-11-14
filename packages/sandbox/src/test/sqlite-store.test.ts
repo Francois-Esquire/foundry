@@ -377,3 +377,81 @@ describe("the sandbox_containers table", () => {
     >().toEqualTypeOf<string | null>();
   });
 });
+
+/** What a commit's delete and insert into the table begin with. */
+const DELETE = 'delete from "sandbox_containers"';
+const INSERT = 'insert into "sandbox_containers"';
+
+describe.each([
+  ["memory", memory],
+  ["file", files],
+] as const)("a commit that fails as it runs (%s)", (_location, databases) => {
+  /**
+   * A store whose next insert into its table, once armed, fails as it runs,
+   * after the statements before it in the same commit have run. `ran` lists
+   * the statements that ran while it was armed.
+   */
+  async function failingInsert() {
+    let armed = false;
+    const ran: string[] = [];
+    const database = await databases.open({
+      onQuery: (query) => {
+        if (!armed) {
+          return;
+        }
+        if (query.startsWith(INSERT)) {
+          armed = false;
+          throw new Error("insert failed");
+        }
+        ran.push(query);
+      },
+    });
+    return {
+      arm() {
+        armed = true;
+      },
+      ran,
+      store: createSqliteContainerStore({ database, scope: "s" }),
+    };
+  }
+
+  it("rolls back the statements before the one that failed", async () => {
+    const { arm, ran, store } = await failingInsert();
+    await store.commit({ putContainers: [row("a"), row("b")] });
+    arm();
+
+    await expect(
+      store.commit({ deleteContainers: ["a"], putContainers: [row("c")] })
+    ).rejects.toThrow("insert failed");
+
+    expect(ran.some((query) => query.startsWith(DELETE))).toBe(true);
+    expect(await store.list()).toStrictEqual([row("a"), row("b")]);
+  });
+
+  it("rolls back only a view commit that work catches, keeping the transaction's others", async () => {
+    const { arm, ran, store } = await failingInsert();
+    await store.commit({ putContainers: [row("a"), row("b")] });
+
+    await store.transaction?.(async (view) => {
+      await view.commit({ putContainers: [row("c1")] });
+      arm();
+      await expect(
+        view.commit({ deleteContainers: ["a"], putContainers: [row("c2")] })
+      ).rejects.toThrow("insert failed");
+      expect(ran.some((query) => query.startsWith(DELETE))).toBe(true);
+      expect((await view.list()).map((kept) => kept.id)).toEqual([
+        "a",
+        "b",
+        "c1",
+      ]);
+      await view.commit({ putContainers: [row("c4")] });
+    });
+
+    expect((await store.list()).map((kept) => kept.id)).toEqual([
+      "a",
+      "b",
+      "c1",
+      "c4",
+    ]);
+  });
+});
