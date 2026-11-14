@@ -16,6 +16,7 @@ import type { Args, ArgsOf, Command, Flags } from "~/args";
 import { parseArgs, UsageError } from "~/args";
 import type { Triggers } from "~/create";
 import { writeDatabase } from "~/database/open";
+import { transaction } from "~/database/transaction";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { layout, stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
@@ -378,12 +379,19 @@ async function detachWorkspace(
   const { config, workspace } = opened;
   const where = `${workspace.root} (${workspace.id})`;
   const forget = async (): Promise<void> => {
-    await writeDatabase(stateDatabase(args.state), async (database) => {
-      const registry = new WorkspaceRegistry({ database, state: args.state });
-      if ((await registry.read(workspace.id))?.hosted === true) {
-        await registry.touch(workspace, config, { hosted: false });
-      }
-    });
+    // One write transaction: a Marbles process attaching it meanwhile
+    // either sees the record cleared or clears nothing it wrote.
+    await writeDatabase(stateDatabase(args.state), (database) =>
+      transaction(database, async (tx) => {
+        const registry = new WorkspaceRegistry({
+          database: tx,
+          state: args.state,
+        });
+        if ((await registry.read(workspace.id))?.hosted === true) {
+          await registry.touch(workspace, config, { hosted: false });
+        }
+      })
+    );
   };
   const client = await joinProcess(args);
   if (client === undefined) {

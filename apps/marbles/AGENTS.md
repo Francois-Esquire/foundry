@@ -74,7 +74,9 @@ Five buckets, each importing only what sits below it:
   own (`tables.ts`) and each domain package's `@foundry/<pkg>/store/tables`,
   one `export *` line per package; `bun run db:generate` writes the next
   migration from it, and a test fails when one is missing. Marbles' own
-  stores sit beside the tables (`workspaces.ts`, the workspace registry).
+  stores sit beside the tables (`workspaces.ts`, the workspace registry,
+  which leaves out any workspace whose `<state>/<id>` is a link, for every
+  reader alike).
   A store takes `{ database }` (`StoreDatabase`, the type a package store
   declares too), the database or one of its transactions; a package store
   also takes `scope`, which is the workspace id. `transaction.ts` runs

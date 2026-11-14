@@ -72,13 +72,15 @@ export async function initializeDatabase(
   const path = resolve(file);
   const busyTimeout = options.busyTimeout ?? BUSY_TIMEOUT_MS;
   mkdirSync(dirname(path), { recursive: true });
+  // Keyed first: a key that cannot be had must not leave a connection open.
+  const key = canonicalFile(path);
   const client = serialClient(
     createClient({
       concurrency: 1,
       timeout: busyTimeout,
       url: pathToFileURL(path).href,
     }),
-    canonicalFile(path),
+    key,
     busyTimeout
   );
   try {
@@ -188,6 +190,8 @@ function existing(
   options: OpenDatabaseOptions
 ): Client {
   const busyTimeout = options.busyTimeout ?? BUSY_TIMEOUT_MS;
+  // Keyed first: a key that cannot be had must not leave a connection open.
+  const key = canonicalFile(path);
   return serialClient(
     _createClient({
       authority: undefined,
@@ -206,7 +210,7 @@ function existing(
       timeout: busyTimeout,
       tls: false,
     }),
-    canonicalFile(path),
+    key,
     busyTimeout
   );
 }
