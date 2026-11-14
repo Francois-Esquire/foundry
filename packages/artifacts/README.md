@@ -272,16 +272,24 @@ nothing; the manager checks every rule before a write reaches it. Artifact listi
 take the filter, cursor and limit, so a page never loads the catalogue. An optional
 `transaction(work)` keeps other managers over the same store from writing between a
 change's reads and its commit; a plain commit waits for it, and a failed `work` keeps
-none of its commits. The manager runs every change, and every read of several records,
-through it.
+none of its commits. Inside `work`, call the view: a `commit` or `transaction` on the
+store itself from there rejects at once rather than waiting on itself. The manager runs
+every change, and every read of several records, through it.
+
+Known limit: a change ingests blob bytes inside that exclusion, so a slow or stalled
+blob source holds the store (and, with `JsonArtifactStore`, the cross-process file
+lock) until it finishes. A follow-up change stages the bytes before entering the
+transaction.
 
 Blob bytes commit as records: inline bytes inside the blob, or the name of an
 immutable file `blobFiles` published before the commit. When a commit fails, the
 manager removes those files only once the store shows the write absent; a commit that
 failed after its write landed (a failed directory sync, say) keeps them.
 `JsonArtifactStore` from `@foundry/artifacts/node` keeps every record in one JSON file,
-rewritten per commit under a `<path>.lock` file so several processes can share it. It
-is interim and goes when a SQLite store lands. Pair it with `blobFiles` for bytes.
+rewritten per commit under a `<path>.lock` file so several processes can share it.
+Manager reads take that lock too: they need a writable directory, create it and a
+transient lock file, can wait on another process, and can throw `FileLockTimeoutError`.
+It is interim and goes when a SQLite store lands. Pair it with `blobFiles` for bytes.
 The in-memory store does not import Node or SQLite.
 
 ## Development

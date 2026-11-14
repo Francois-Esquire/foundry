@@ -39,6 +39,11 @@ export interface JsonArtifactStoreOptions {
  * `<path>.lock`, reloads the file, and replaces it by temp-and-rename, so it
  * never commits against stale records. Reads outside a transaction reload
  * when the file changed.
+ *
+ * The manager runs its reads through `transaction` too, so they take the
+ * lock: they need a writable directory, create it and a transient
+ * `<path>.lock` file, wait while another process holds the lock, and throw
+ * `FileLockTimeoutError` once `lockTimeoutMs` passes.
  * The whole file is rewritten per commit, which suits a local feed's scale
  * rather than a large catalogue.
  *
