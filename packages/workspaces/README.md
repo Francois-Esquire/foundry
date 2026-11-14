@@ -107,9 +107,9 @@ store without it, a second system can still interleave.
 | `@foundry/workspaces/store/tables`  | The Drizzle tables it uses: `workspaces`, `workspace_entries`.      |
 | `@foundry/workspaces/testing/store` | `describeWorkspaceStore`, the suite every store passes.             |
 
-Reads answer in fixed orders, the same in both stores: registrations by
-creation time, then by id in code-point order (the order SQLite gives text);
-entries by path in code-unit order, then by id. No read answers in the order
+Both stores read in the same fixed orders. Registrations sort by creation
+time, then by id in code-point order, which is how SQLite compares text.
+Entries sort by path in code-unit order, then by id. No read answers in the order
 rows were put, so the tables have no `position` column. `listWorkspaces`
 pages by offset; its cursor must be a nonnegative safe integer. A write's
 entry deletes name entries of its own Workspace; each put is filed under the
@@ -123,8 +123,8 @@ all of its rows go in one commit.
 host composes the tables from `./store/tables` into its own schema and owns
 the migrations; `drizzle-orm` is an optional peer dependency, needed only on
 the two SQLite paths. Every row carries a `scope`, an opaque partition the
-host chooses (Marbles passes its workspace id), first in every key; a store
-reads and writes only its own.
+host chooses, first in every key. Marbles passes its workspace id. A store
+reads and writes only its own scope.
 
 ```ts
 import { WorkspaceSystem } from "@foundry/workspaces";
@@ -195,14 +195,16 @@ give back as it was bound, with a `RangeError` naming the field, such as
 `putEntries[0].path` or `workspace.source.path`; commits through a
 transaction's view are checked the same way:
 
-- text holding U+0000 (libSQL reads text back cut at its first NUL), or
-  text that is not well-formed UTF-16 (a lone surrogate is bound as U+FFFD
-  on Node and as nothing on Bun, so it reads back changed and could match
-  another row's key), in any text field: ids, names, paths, the source, the
-  type, and a file's digest, extension, kind, and MIME type;
-- a `bytes` that is `-0` (the schema accepts it; SQLite gives back `0`) or
-  not a safe integer;
-- a `Date` that is not valid.
+- Text holding U+0000, in any text field. libSQL reads text back cut at its
+  first NUL.
+- Text that is not well-formed UTF-16, in any text field. A lone surrogate
+  is bound as U+FFFD on Node and as nothing on Bun, so it reads back changed
+  and could match another row's key. The text fields are the ids, names,
+  paths, the source, the type, and a file's digest, extension, kind, and
+  MIME type.
+- A `bytes` of `-0`. The schema accepts it, and SQLite gives back `0`. A
+  `bytes` that is not a safe integer is refused too.
+- A `Date` that is not valid.
 
 A read or delete by a key no row can hold finds nothing, and the constructor
 refuses such a `scope`.
@@ -286,8 +288,8 @@ the resulting `Git`.
 
 A new `WorkspaceStore` proves itself against the conformance suite on
 `@foundry/workspaces/testing/store`: `describeWorkspaceStore(name, open)`
-registers Vitest tests. `open()` returns fresh, empty storage (or a promise
-of it) as a function `(scope: string) => WorkspaceStore`; two scopes over one
+registers Vitest tests. `open()` returns fresh, empty storage, or a promise
+of it, as a function `(scope: string) => WorkspaceStore`. Two scopes over one
 storage must never see each other's records. The package runs it against
 the memory store and against the SQLite store on libSQL, in memory and on a
 file, with tables created from `./store/tables` by `createTables` from
