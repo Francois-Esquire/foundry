@@ -79,10 +79,11 @@ Enable storage observation to refresh automatically.
 
 ## Persistence
 
-`WorkspaceStore` is the persistence seam: it keeps registrations and their
-entries and applies one write atomically, and enforces nothing else.
-`MemoryWorkspaceStore` is the default. Supply another store to persist
-elsewhere:
+`WorkspaceStore` (on `@foundry/workspaces/store`) is the persistence seam: it
+keeps registrations and their entries and applies one write atomically, and
+enforces nothing else. `MemoryWorkspaceStore` (on
+`@foundry/workspaces/store/memory`) is the default. Supply another store to
+persist elsewhere:
 
 ```ts
 const workspaces = new WorkspaceSystem({ store, onError: log });
@@ -93,8 +94,10 @@ one Workspace per canonical root and per source reference, entries owned by
 their Workspace, a valid tree after every change, and each change applied
 whole or refused. A store implementation therefore only persists; those rules
 come with the system. Catalog mutations and per-Workspace observations, saves,
-and removals each run one at a time in-process; a second system over the same
-store can still interleave.
+and removals each run one at a time in-process. Each catalog mutation reads
+and commits inside the store's optional `transaction`, so a second system over
+the same store cannot write between them; `MemoryWorkspaceStore` offers one.
+Over a store without it, a second system can still interleave.
 
 Storage observation is optional. `directory({ filesystem, observer })` uses an
 explicit `StorageObserver`, or the filesystem's own `watch` capability when
@@ -160,8 +163,10 @@ Git is opt-in on `@foundry/workspaces/git`: the `git()` layer, plus
 `Git.at(root)`, `Git.open(root)`, `Git.isRepository(root)`, and worktrees on
 the resulting `Git`.
 
-A store conformance suite for new `WorkspaceStore` implementations lives in
-`src/test/helpers/store-conformance.ts`.
+A new `WorkspaceStore` proves itself against the conformance suite on
+`@foundry/workspaces/testing/store`: `describeWorkspaceStore(name, open)`
+registers Vitest tests. `open()` returns fresh, empty storage as a function
+`(scope: string) => WorkspaceStore`.
 
 Tests live in `src/test/`. The build emits declarations; runtime exports resolve
 to TypeScript source. Run lint and formatting checks from the repository root.

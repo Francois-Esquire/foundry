@@ -8,8 +8,8 @@ import {
   WorkspaceNotFoundError,
   WorkspaceSourceUnavailableError,
 } from "../errors";
-import { MemoryWorkspaceStore } from "../memory-store";
 import { nodeFileSystem } from "../node";
+import { MemoryWorkspaceStore } from "../store/memory";
 import type { WorkspaceFileSystem, WorkspaceId } from "../types";
 
 import { directorySystem } from "./helpers/directory-system";

@@ -1,11 +1,8 @@
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  directory,
-  MemoryWorkspaceStore,
-  WorkspaceSystem,
-} from "@foundry/workspaces";
+import { directory, WorkspaceSystem } from "@foundry/workspaces";
+import { MemoryWorkspaceStore } from "@foundry/workspaces/store/memory";
 import { onTestFinished } from "vitest";
 import { ArtifactManager } from "../../manager";
 import { InMemoryArtifactStore } from "../../memory";

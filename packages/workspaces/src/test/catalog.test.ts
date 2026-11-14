@@ -1,12 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { WorkspaceCatalog } from "../catalog";
-import { MemoryWorkspaceStore } from "../memory-store";
-import type {
-  WorkspaceCatalogChange,
-  WorkspaceChange,
-  WorkspaceEntry,
-  WorkspaceFile,
-} from "../types";
+import type { WorkspaceStore } from "../store";
+import { MemoryWorkspaceStore } from "../store/memory";
 import {
   artifactWorkspace,
   directoryRecord,
@@ -15,7 +10,13 @@ import {
   newRoot,
   newWorkspaceEntryId,
   newWorkspaceId,
-} from "./helpers/fixtures";
+} from "../testing/records";
+import type {
+  WorkspaceCatalogChange,
+  WorkspaceChange,
+  WorkspaceEntry,
+  WorkspaceFile,
+} from "../types";
 
 const EDITED_DIGEST =
   "1fb9f4097256db2d7b1e13aff79cee44339891a31c556b9cf6093885773b3618";
@@ -415,3 +416,124 @@ describe("WorkspaceCatalog", () => {
     ).toMatchObject({ kind: "conflict" });
   });
 });
+
+describe("WorkspaceCatalog over a store shared with another catalog", () => {
+  function sharedFixture() {
+    const store = new MemoryWorkspaceStore();
+    const publish = (): undefined => undefined;
+    return {
+      first: new WorkspaceCatalog(store, publish),
+      second: new WorkspaceCatalog(store, publish),
+      store,
+    };
+  }
+
+  test("removes a Workspace whole while another catalog writes to it", async () => {
+    const { first, second, store } = sharedFixture();
+    const workspace = hostWorkspace({ path: newRoot("shared") });
+    await first.create({
+      entries: [fileRecord(workspace.id, { path: "a.md" })],
+      workspace,
+    });
+    const paused = pauseAfterFirst(store, "listEntries");
+
+    const removal = first.remove(workspace.id);
+    await paused.reached;
+    const insert = second.applyChange({
+      change: change({
+        inserted: [fileRecord(workspace.id, { path: "b.md" })],
+      }),
+      workspaceId: workspace.id,
+    });
+    paused.release();
+
+    expect(await removal).toEqual({ kind: "removed" });
+    expect(await insert).toEqual({ kind: "workspace-not-found" });
+    expect(await store.getWorkspace(workspace.id)).toBeNull();
+    expect(await store.listEntries(workspace.id)).toEqual([]);
+  });
+
+  test("registers one Workspace per root across catalogs", async () => {
+    const { first, second, store } = sharedFixture();
+    const root = newRoot("shared");
+    const winner = hostWorkspace({ path: root });
+    const loser = hostWorkspace({ path: root });
+    const paused = pauseAfterFirst(store, "findWorkspaceByPath");
+
+    const created = first.create({ entries: [], workspace: winner });
+    await paused.reached;
+    const duplicate = second.create({ entries: [], workspace: loser });
+    paused.release();
+
+    expect(await created).toEqual({ kind: "committed" });
+    expect(await duplicate).toEqual({
+      existingId: winner.id,
+      kind: "workspace-exists",
+    });
+    expect((await store.listWorkspaces()).items).toEqual([winner]);
+  });
+
+  test("checks a change against rows another catalog just wrote", async () => {
+    const { first, second, store } = sharedFixture();
+    const workspace = hostWorkspace({ path: newRoot("shared") });
+    await first.create({ entries: [], workspace });
+    const ours = fileRecord(workspace.id, { path: "c.md" });
+    const theirs = fileRecord(workspace.id, { path: "c.md" });
+    const paused = pauseAfterFirst(store, "listEntries");
+
+    const mine = first.applyChange({
+      change: change({ inserted: [ours] }),
+      workspaceId: workspace.id,
+    });
+    await paused.reached;
+    const other = second.applyChange({
+      change: change({ inserted: [theirs] }),
+      workspaceId: workspace.id,
+    });
+    paused.release();
+
+    expect(await mine).toEqual({ kind: "committed" });
+    expect(await other).toMatchObject({ kind: "conflict" });
+    expect(await store.listEntries(workspace.id)).toEqual([ours]);
+  });
+});
+
+/**
+ * Holds the first call to one store read after it answers, until released,
+ * so a test can act while a mutation is between its read and its commit. The
+ * read is held whether it goes to the store or to a transaction's view.
+ */
+function pauseAfterFirst(
+  store: WorkspaceStore,
+  method: "findWorkspaceByPath" | "listEntries"
+) {
+  type Read = (...args: unknown[]) => Promise<unknown>;
+  const reached = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  let armed = true;
+  const hold =
+    (read: Read): Read =>
+    async (...args) => {
+      const answer = await read(...args);
+      if (armed) {
+        armed = false;
+        reached.resolve(undefined);
+        await release.promise;
+      }
+      return answer;
+    };
+  const readOf = (target: WorkspaceStore): Read =>
+    (target[method] as Read).bind(target);
+  const transaction = store.transaction?.bind(store);
+  Object.assign(store, {
+    [method]: hold(readOf(store)),
+    ...(transaction && {
+      transaction: <T>(work: (view: WorkspaceStore) => Promise<T>) =>
+        transaction((view) => work({ ...view, [method]: hold(readOf(view)) })),
+    }),
+  });
+  return {
+    reached: reached.promise,
+    release: () => release.resolve(undefined),
+  };
+}

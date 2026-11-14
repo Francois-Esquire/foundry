@@ -46,8 +46,9 @@ export interface CatalogChangeInput {
  * One Workspace per canonical root and per source reference; entries belong
  * to their Workspace; every change leaves a valid tree and lands whole or not
  * at all. Mutations run one at a time, so a rule checked against what the
- * store holds still holds when the write lands. In-process only: a second
- * catalog over the same store can still interleave.
+ * store holds still holds when the write lands. Across catalogs over one
+ * store, that holds when the store offers `transaction`; without it, a second
+ * catalog can still interleave.
  */
 export class WorkspaceCatalog {
   private readonly store: WorkspaceStore;
@@ -98,11 +99,13 @@ export class WorkspaceCatalog {
     readonly workspace: WorkspaceRegistration;
     readonly entries: readonly WorkspaceEntry[];
   }): Promise<CommitCreateResult> {
-    return this.exclusive(async () => {
+    return this.mutation<CommitCreateResult>(async (store) => {
       const { workspace, entries } = input;
-      const incumbent = await this.claimant(workspace);
+      const incumbent = await claimant(store, workspace);
       if (incumbent) {
-        return { existingId: incumbent.id, kind: "workspace-exists" };
+        return {
+          result: { existingId: incumbent.id, kind: "workspace-exists" },
+        };
       }
       const foreign = entries.find(
         (entry) => entry.workspaceId !== workspace.id
@@ -113,9 +116,11 @@ export class WorkspaceCatalog {
         );
       }
       storageTree(entries);
-      await this.store.commit({ putEntries: entries, workspace });
-      this.publish(entries.map((entry) => ({ action: "add", entry })));
-      return { kind: "committed" };
+      await store.commit({ putEntries: entries, workspace });
+      return {
+        changes: entries.map((entry) => ({ action: "add", entry })),
+        result: { kind: "committed" },
+      };
     });
   }
 
@@ -125,24 +130,24 @@ export class WorkspaceCatalog {
    * Workspace does not hold, or an insert over an existing id, is a conflict.
    */
   applyChange(input: CatalogChangeInput): Promise<CommitChangeResult> {
-    return this.exclusive(async () => {
-      const workspace = await this.store.getWorkspace(input.workspaceId);
+    return this.mutation<CommitChangeResult>(async (store) => {
+      const workspace = await store.getWorkspace(input.workspaceId);
       if (!workspace) {
-        return { kind: "workspace-not-found" };
+        return { result: { kind: "workspace-not-found" } };
       }
-      const current = await this.store.listEntries(workspace.id);
+      const current = await store.listEntries(workspace.id);
       const next = nextCatalog(workspace.id, current, input.change);
       if (typeof next === "string") {
-        return { kind: "conflict", reason: next };
+        return { result: { kind: "conflict", reason: next } };
       }
       try {
         storageTree(next.values());
       } catch (error) {
-        return { kind: "conflict", reason: String(error) };
+        return { result: { kind: "conflict", reason: String(error) } };
       }
 
       const { change } = input;
-      await this.store.commit({
+      await store.commit({
         deleteEntries: change.deleted.map((entry) => entry.id),
         putEntries: [...change.updated, ...change.inserted],
         workspace: {
@@ -161,18 +166,23 @@ export class WorkspaceCatalog {
         },
       });
       const byId = new Map(current.map((entry) => [entry.id, entry]));
-      this.publish([
-        ...change.deleted.map((entry) => ({
-          action: "delete" as const,
-          entry: byId.get(entry.id) ?? entry,
-        })),
-        ...change.updated.map((entry) => ({
-          action: "change" as const,
-          entry,
-        })),
-        ...change.inserted.map((entry) => ({ action: "add" as const, entry })),
-      ]);
-      return { kind: "committed" };
+      return {
+        changes: [
+          ...change.deleted.map((entry) => ({
+            action: "delete" as const,
+            entry: byId.get(entry.id) ?? entry,
+          })),
+          ...change.updated.map((entry) => ({
+            action: "change" as const,
+            entry,
+          })),
+          ...change.inserted.map((entry) => ({
+            action: "add" as const,
+            entry,
+          })),
+        ],
+        result: { kind: "committed" },
+      };
     });
   }
 
@@ -181,46 +191,63 @@ export class WorkspaceCatalog {
     name: string,
     updatedAt: Date
   ): Promise<WorkspaceRegistration | null> {
-    return this.exclusive(async () => {
-      const workspace = await this.store.getWorkspace(workspaceId);
+    return this.mutation<WorkspaceRegistration | null>(async (store) => {
+      const workspace = await store.getWorkspace(workspaceId);
       if (!workspace || workspace.name === name) {
-        return workspace;
+        return { result: workspace };
       }
       const renamed = { ...workspace, name, updatedAt };
-      await this.store.commit({ workspace: renamed });
-      return renamed;
+      await store.commit({ workspace: renamed });
+      return { result: renamed };
     });
   }
 
   /** Forgets one Workspace and its catalog; the source is never touched. */
   remove(workspaceId: WorkspaceId): Promise<RemoveWorkspaceResult> {
-    return this.exclusive(async () => {
-      if (!(await this.store.getWorkspace(workspaceId))) {
-        return { kind: "not-found" };
+    return this.mutation<RemoveWorkspaceResult>(async (store) => {
+      if (!(await store.getWorkspace(workspaceId))) {
+        return { result: { kind: "not-found" } };
       }
-      const entries = await this.store.listEntries(workspaceId);
-      await this.store.removeWorkspace(workspaceId);
-      this.publish(entries.map((entry) => ({ action: "delete", entry })));
-      return { kind: "removed" };
+      const entries = await store.listEntries(workspaceId);
+      await store.commit({
+        deleteEntries: entries.map((entry) => entry.id),
+        removeWorkspace: workspaceId,
+      });
+      return {
+        changes: entries.map((entry) => ({ action: "delete", entry })),
+        result: { kind: "removed" },
+      };
     });
   }
 
   /**
-   * Root first, then source reference — not one pass testing both. A
-   * candidate can collide with one incumbent on its root and another on its
-   * reference, and the root's owner is the answer either way.
+   * One read-modify-write: serialized in this catalog, and exclusive in the
+   * store when it offers transactions, so another catalog over the same store
+   * cannot write between the reads and the commit. Changes are published once
+   * the write has landed, outside the store's transaction.
    */
-  private async claimant(
-    workspace: WorkspaceRegistration
-  ): Promise<WorkspaceRegistration | null> {
-    const byPath = await this.store.findWorkspaceByPath(workspace.source.path);
-    if (byPath || workspace.source.sourceId === null) {
-      return byPath;
-    }
-    return this.store.findWorkspaceBySourceId(workspace.source.sourceId);
+  private mutation<T>(
+    work: (store: WorkspaceStore) => Promise<Mutation<T>>
+  ): Promise<T> {
+    return this.serialized(async () => {
+      const { changes, result } = await this.transaction(work);
+      if (changes) {
+        this.publish(changes);
+      }
+      return result;
+    });
   }
 
-  private exclusive<T>(task: () => Promise<T>): Promise<T> {
+  private transaction<T>(
+    work: (store: WorkspaceStore) => Promise<T>
+  ): Promise<T> {
+    const { store } = this;
+    return store.transaction === undefined
+      ? work(store)
+      : store.transaction(work);
+  }
+
+  private serialized<T>(task: () => Promise<T>): Promise<T> {
     const run = this.queue.then(task);
     this.queue = run.then(
       () => undefined,
@@ -228,6 +255,28 @@ export class WorkspaceCatalog {
     );
     return run;
   }
+}
+
+/** What one mutation answers, and the changes it publishes once committed. */
+interface Mutation<T> {
+  readonly changes?: readonly WorkspaceChange[];
+  readonly result: T;
+}
+
+/**
+ * Root first, then source reference — not one pass testing both. A
+ * candidate can collide with one incumbent on its root and another on its
+ * reference, and the root's owner is the answer either way.
+ */
+async function claimant(
+  store: WorkspaceStore,
+  workspace: WorkspaceRegistration
+): Promise<WorkspaceRegistration | null> {
+  const byPath = await store.findWorkspaceByPath(workspace.source.path);
+  if (byPath || workspace.source.sourceId === null) {
+    return byPath;
+  }
+  return store.findWorkspaceBySourceId(workspace.source.sourceId);
 }
 
 function nextCatalog(
