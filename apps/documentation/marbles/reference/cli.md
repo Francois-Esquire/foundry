@@ -353,7 +353,8 @@ itself, and the instance is available once that variable is set. Any other
 setting is an error. Its models are the ones its server lists at
 `GET <baseURL>/models`. Marbles asks when it starts, when `providers.json`
 changes, and when Airplane Mode turns off, and never while Airplane Mode is
-on. Each listed id is a text model. Its capabilities and limits are unknown,
+on. Each listed id is a text model. Name the model, or set the entry's
+`defaults`; otherwise the first listed id is used. Its capabilities and limits are unknown,
 and its price comes from models.dev when that knows the id. A model the
 server does not list is refused. A server that gives no list within 5
 seconds, or answers with an error, leaves the gateway with no models. Marbles

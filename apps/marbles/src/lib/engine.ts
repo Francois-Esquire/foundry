@@ -1178,10 +1178,11 @@ export class Engine {
    * rejects: a problem is printed, and the set loaded before is kept.
    */
   async #listModels(): Promise<void> {
-    if (!this.providers?.configured) {
-      return;
-    }
     try {
+      // `configured` reads the files too, so it is inside the guard.
+      if (!this.providers?.configured) {
+        return;
+      }
       for (const problem of await this.providers.refresh()) {
         this.#print(`[providers] ${problem}`);
       }

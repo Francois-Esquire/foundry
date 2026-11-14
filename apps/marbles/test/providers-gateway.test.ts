@@ -1,4 +1,10 @@
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -6,10 +12,20 @@ import { join } from "node:path";
 import type { Provider } from "@foundry/models";
 import { ModelManager } from "@foundry/models";
 import { streamText } from "ai";
-import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
+import { dispose, instanceRuntime } from "~/authoring/runtime";
 import { createEngine } from "~/create";
+import type { Engine } from "~/lib/engine";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { ProviderPlugin } from "~/lib/providers/plugins";
 import { gatewayPlugin, registered } from "~/lib/providers/plugins";
@@ -20,6 +36,8 @@ const UNSERVED = /openai\/gpt-5-mini/;
 const NOT_LISTED = /^"gw" has no models; its models could not be listed: /;
 const UNLISTED = /^its models could not be listed: /;
 const DROPPED = /served\/chat/;
+const PRINTED =
+  /^\[providers\] "gw" has no models; its models could not be listed: /;
 
 /** What the stub serves, how many times it was asked, and whether it answers. */
 let served: string[] = [];
@@ -98,6 +116,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   rmSync(state, { force: true, recursive: true });
 });
 
@@ -337,5 +356,95 @@ it("lists the gateway's models when the engine starts", async () => {
     expect(engine.models.resolve("text", "gw/served/chat").provider).toBe("gw");
   } finally {
     await engine.dispose();
+  }
+});
+
+it("adds a gateway entry and serves what its server lists", async () => {
+  const { configuration: configured, models } = configuration();
+  try {
+    await configured.add(
+      {
+        id: "gw",
+        plugin: "gateway",
+        settings: { apiKey: "GW_KEY", baseURL },
+      },
+      { scope: "machine" }
+    );
+    expect(entry(configured, "gw")?.state).toBe("ready");
+    expect(models.resolve("text", "gw/served/chat").model).toBe("served/chat");
+  } finally {
+    await configured.dispose();
+  }
+});
+
+function engineOver(print: (line: string) => void): Engine {
+  return createEngine({
+    catalog,
+    dry: false,
+    environment: { machine: ENV, workspace: {} },
+    plugins: [registered(gatewayPlugin), registered(other)],
+    print,
+    root: state,
+    stateRoot: state,
+    workspaceId: "ws",
+  });
+}
+
+it("starts when the gateway gives no list, and prints why", async () => {
+  configure(closedURL);
+  const lines: string[] = [];
+  const engine = engineOver((line) => lines.push(line));
+  try {
+    await engine.start();
+    expect(lines.filter((line) => line.startsWith("[providers]"))).toEqual([
+      expect.stringMatching(PRINTED),
+    ]);
+    expect(engine.models.providers.map((provider) => provider.id)).toEqual([
+      "other",
+    ]);
+  } finally {
+    await engine.dispose();
+  }
+});
+
+it("starts when providers.json became unreadable after the engine was built", async () => {
+  const file = configure(baseURL);
+  const lines: string[] = [];
+  const engine = engineOver((line) => lines.push(line));
+  try {
+    writeFileSync(file, "not json");
+    await engine.start();
+    expect(lines.some((line) => line.startsWith("[providers]"))).toBe(true);
+  } finally {
+    await engine.dispose();
+  }
+});
+
+it("lists the gateway's models for definitions called outside a run", async () => {
+  const home = join(state, "home");
+  mkdirSync(join(home, "marbles"), { recursive: true });
+  writeFileSync(
+    join(home, "marbles", "providers.json"),
+    JSON.stringify({
+      providers: [
+        {
+          enabled: true,
+          id: "gw",
+          plugin: "gateway",
+          settings: { apiKey: "GW_KEY", baseURL },
+        },
+      ],
+      version: 1,
+    })
+  );
+  vi.stubEnv("FOUNDRY_HOME", home);
+  vi.stubEnv("GW_KEY", "secret");
+  try {
+    const runtime = (await instanceRuntime()) as Engine;
+    expect(runtime.models.resolve("text", "gw/served/chat").provider).toBe(
+      "gw"
+    );
+  } finally {
+    await dispose();
   }
 });
