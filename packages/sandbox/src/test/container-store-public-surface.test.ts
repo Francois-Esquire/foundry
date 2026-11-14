@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { CONTAINER_ROW_STATUSES } from "../container/constants";
 import { createMemoryContainerStore } from "../container/store";
+import type { ParsedImport } from "./helpers/boundary-scan";
 import { importSites, REPO_ROOT, sourceFiles } from "./helpers/boundary-scan";
 
 const MISSING_CONTAINER_ERROR = /does not exist/;
@@ -14,10 +15,16 @@ const CONTRACTS_ROOT = join(
   "packages/sandbox/src/container/store.ts"
 );
 
+/** The record definitions the contract may name, as types only. */
+const RECORDS_SCHEMA = join(REPO_ROOT, "packages/sandbox/src/schema.ts");
+
 /** Anything that would tie the contracts to a host runtime or a provider. */
 const RUNTIME_SPECIFIERS = ["ignore", "just-bash", "microsandbox", "zod"];
 
-function isRuntimeImport(fromPath: string, specifier: string): boolean {
+function isRuntimeImport(
+  fromPath: string,
+  { specifier, typeOnly }: ParsedImport
+): boolean {
   if (specifier.startsWith("node:")) {
     return true;
   }
@@ -28,6 +35,9 @@ function isRuntimeImport(fromPath: string, specifier: string): boolean {
     return false;
   }
   const target = resolve(dirname(fromPath), specifier);
+  if (typeOnly && `${target}.ts` === RECORDS_SCHEMA) {
+    return false;
+  }
   return relative(CONTRACTS_ROOT, target).startsWith("..");
 }
 
@@ -48,9 +58,7 @@ describe("container store contract", () => {
     const files = sourceFiles(CONTRACTS_ROOT);
     expect(files.length).toBeGreaterThan(0);
     const violations = importSites(files)
-      .filter(({ path, import: parsed }) =>
-        isRuntimeImport(path, parsed.specifier)
-      )
+      .filter(({ path, import: parsed }) => isRuntimeImport(path, parsed))
       .map(
         ({ relativePath, import: parsed }) =>
           `${relativePath}:${parsed.line} imports ${parsed.specifier}`

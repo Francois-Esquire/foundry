@@ -1,37 +1,16 @@
 /**
  * Persistence contract for the containers registry. Runtime-free so storage
- * adapters can implement it without loading a microVM provider.
+ * adapters can implement it without loading a microVM provider. The records
+ * it carries are defined once, in `../schema`, and imported as types only.
  */
 
-/**
- * Status of the persisted row, distinct from a runtime's live VM status.
- */
-export type ContainerRowStatus =
-  | "starting"
-  | "running"
-  | "restarting"
-  | "missing"
-  | "stopped"
-  | "failed";
+import type { ContainerRow, ContainerRowPatch } from "../schema";
 
-export interface ContainerRow {
-  readonly createdAt: number;
-  readonly id: string;
-  /** The runtime's name for the VM realizing this row. Undefined until the first start. */
-  readonly nativeId: string | undefined;
-  /**
-   * The approved container constraints as JSON. Opaque here: parsing needs
-   * the constraints schema from `./constraints`, which would break the
-   * runtime-free rule. The registry parses; the store carries bytes.
-   */
-  readonly spec: string;
-  readonly status: ContainerRowStatus;
-  readonly updatedAt: number;
-}
-
-export type ContainerRowPatch = Partial<
-  Pick<ContainerRow, "nativeId" | "spec" | "status" | "updatedAt">
->;
+export type {
+  ContainerRow,
+  ContainerRowPatch,
+  ContainerRowStatus,
+} from "../schema";
 
 export interface ContainerStore {
   get(id: string): Promise<ContainerRow | undefined>;
