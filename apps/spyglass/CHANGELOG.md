@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.4](https://github.com/Francois-Esquire/foundry/compare/spyglass-v0.0.3...spyglass-v0.0.4) (2026-11-14)
+
+
+### Features
+
+* **modules:** centralize the reusable Module library ([#53](https://github.com/Francois-Esquire/foundry/issues/53)) ([3e5548c](https://github.com/Francois-Esquire/foundry/commit/3e5548c300f576caaf01fcdc34b08389cf01a498))
+
 ## [0.0.3](https://github.com/Francois-Esquire/foundry/compare/spyglass-v0.0.2...spyglass-v0.0.3) (2026-11-09)
 
 
