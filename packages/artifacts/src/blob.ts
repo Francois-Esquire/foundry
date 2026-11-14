@@ -1,45 +1,8 @@
 const BLOB_DIGEST = /^[a-f0-9]{64}$/;
 
-import type { FileNode, StorageNode } from "@foundry/core/storage";
+import type { Blob } from "./schema";
 
-import type { BlobId } from "./ref";
-
-export type BlobSource =
-  | {
-      readonly bytes: Uint8Array;
-      readonly path?: never;
-      readonly chunks?: never;
-    }
-  | { readonly path: string; readonly bytes?: never; readonly chunks?: never }
-  | {
-      readonly chunks: readonly BlobId[];
-      readonly bytes?: never;
-      readonly path?: never;
-    };
-
-/**
- * A stored object. File entries reference it by `id`; `digest` and
- * `byteLength` describe the bytes it holds now. An object referenced by one
- * file entry alone is rewritten in place when that entry's bytes change, so
- * its id stays stable. A shared object is never rewritten: the editing entry
- * gets a new object, which keeps frozen Content immutable.
- *
- * Large objects hold `chunks`: immutable leaf blobs of at most `CHUNK_BYTES` each.
- */
-export type Blob = BlobSource & {
-  readonly id: BlobId;
-  readonly digest: string;
-  readonly byteLength: number;
-  readonly createdAt: Date;
-};
-
-export interface StoredFile extends FileNode {
-  readonly blobId: BlobId;
-}
-
-export type ContentTree = Readonly<
-  Record<string, StoredFile | Exclude<StorageNode, FileNode>>
->;
+export type { Blob, BlobSource, ContentTree, StoredFile } from "./schema";
 
 /** Paths are store-owned, immutable backing files, never editable working files. */
 export interface BlobFiles {

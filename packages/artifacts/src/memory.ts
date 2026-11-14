@@ -8,6 +8,7 @@ import { validateBlob } from "./blob";
 import type { ArtifactCursor } from "./listing";
 import { artifactCursor, normalizeArtifactQuery } from "./listing";
 import type { ArtifactId, BlobId, ContentId } from "./ref";
+import type { ArtifactRecords } from "./schema";
 import type { ArtifactStore, ArtifactStoreTransaction } from "./store";
 import type {
   Artifact,
@@ -22,12 +23,7 @@ interface Records {
   readonly contents: Map<ContentId, Content>;
 }
 
-/** A store's records as plain arrays: what a persistent host loads and saves. */
-export interface ArtifactRecords {
-  readonly artifacts: readonly Artifact[];
-  readonly blobs: readonly Blob[];
-  readonly contents: readonly Content[];
-}
+export type { ArtifactRecords } from "./schema";
 
 export interface InMemoryArtifactStoreOptions {
   /**
