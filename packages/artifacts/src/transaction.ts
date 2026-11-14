@@ -42,6 +42,7 @@ import type {
   ContentSummary,
   CreateArtifactInput,
   EntryInput,
+  EntryInputs,
   FileRangeResolved,
   FileResolved,
   FreezeOption,
@@ -102,8 +103,9 @@ export class ArtifactTransaction implements ArtifactOperations {
 
   /**
    * The refusals `create` makes before it reads a byte: blank names, an id
-   * already taken, invalid paths. The manager runs them before staging a
-   * stream, and `create` runs them again inside the change.
+   * already taken, invalid paths, references to blobs that do not exist.
+   * The manager runs them before staging any byte, and `create` runs them
+   * again inside the change.
    */
   async checkCreate(input: CreateArtifactInput): Promise<void> {
     nonEmpty("name", input.name);
@@ -112,6 +114,7 @@ export class ArtifactTransaction implements ArtifactOperations {
       throw new ArtifactExistsError(input.id);
     }
     assertStoragePaths({ put: input.entries ?? {} });
+    await this.#checkReferences(input.entries);
   }
 
   /** The refusals `write` makes before it reads a byte; see `checkCreate`. */
@@ -123,6 +126,7 @@ export class ArtifactTransaction implements ArtifactOperations {
       throw new ContentStateError(active.id, active.state, "write");
     }
     assertStoragePaths(input.changes);
+    await this.#checkReferences(input.changes.put);
     return artifact;
   }
 
@@ -141,7 +145,17 @@ export class ArtifactTransaction implements ArtifactOperations {
       throw new ContentStateError(source.id, source.state, "revise");
     }
     assertStoragePaths(input.changes ?? {});
+    await this.#checkReferences(input.changes?.put);
     return { artifact, source };
+  }
+
+  /** Every reference in `entries` names an existing blob within the size limit. */
+  async #checkReferences(entries: EntryInputs | undefined): Promise<void> {
+    for (const [path, entry] of Object.entries(entries ?? {})) {
+      if (!isStructural(entry) && isReferenceInput(entry)) {
+        await this.#blobs.resolve(path, entry);
+      }
+    }
   }
 
   async create(input: CreateArtifactInput): Promise<ArtifactResolved> {

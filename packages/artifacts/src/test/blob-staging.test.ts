@@ -16,12 +16,13 @@ import { CHUNK_BYTES } from "../constants";
 import {
   ArtifactNotFoundError,
   FileTooLargeError,
+  InvalidArtifactInputError,
   StaleContentError,
 } from "../errors";
 import { ArtifactManager } from "../manager";
 import { blobFiles, JsonArtifactStore } from "../node";
 import { STAGING_ABANDONED_AFTER_MS } from "../node/staging";
-import { artifactIdSchema, contentIdSchema } from "../ref";
+import { artifactIdSchema, blobIdSchema, contentIdSchema } from "../ref";
 import type { ArtifactStore } from "../store";
 import { InMemoryArtifactStore } from "../store/memory";
 import type { Content, FileInput } from "../substrate";
@@ -786,5 +787,68 @@ describe("Staging another owner left", () => {
     const owners = await readdir(join(blobs, ".staging"));
     expect(owners).not.toContain(old);
     expect(owners).toContain(fresh);
+  });
+});
+
+describe("A reference to a missing blob", () => {
+  /** A source that notes whether it was ever read. */
+  function watched(fail?: () => never) {
+    const read = { pulled: false };
+    async function* source(): AsyncIterable<Uint8Array> {
+      read.pulled = true;
+      if (fail) {
+        fail();
+      }
+      yield await new Promise<Uint8Array>(() => {
+        // Never yields: a stalled source.
+      });
+    }
+    return { read, source: source() };
+  }
+  const missingBlob = () => ({
+    blobId: blobIdSchema.parse(crypto.randomUUID()),
+  });
+
+  it("refuses a change before its stalled stream is read", async () => {
+    const { manager } = await storage("memory");
+    const { read, source } = watched();
+    const creating = manager().create({
+      entries: { "a.bin": { source }, "b.txt": missingBlob() },
+      name: "Missing",
+      type: "application/octet-stream",
+    });
+    expect(await within(creating)).toBe("rejected");
+    await expect(creating).rejects.toBeInstanceOf(InvalidArtifactInputError);
+    expect(read.pulled).toBe(false);
+  });
+
+  it("wins over a source error and a byte limit", async () => {
+    const { manager } = await storage("memory");
+    const artifacts = manager({ maxFileBytes: 4 });
+    const created = await artifacts.create({
+      name: "Target",
+      type: "text/plain",
+    });
+    const { read, source } = watched(() => {
+      throw new Error("source failed");
+    });
+    await expect(
+      artifacts.write({
+        artifactId: created.id,
+        changes: { put: { "a.bin": { source }, "b.txt": missingBlob() } },
+      })
+    ).rejects.toBeInstanceOf(InvalidArtifactInputError);
+    expect(read.pulled).toBe(false);
+    await expect(
+      artifacts.write({
+        artifactId: created.id,
+        changes: {
+          put: {
+            "a.txt": { bytes: "far too long" },
+            "b.txt": { bytes: 3, digest: "0".repeat(64) },
+          },
+        },
+      })
+    ).rejects.toBeInstanceOf(InvalidArtifactInputError);
   });
 });
