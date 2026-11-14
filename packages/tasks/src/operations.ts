@@ -1,3 +1,4 @@
+import { canonicalizeJson } from "@foundry/lib/json";
 import { z } from "zod";
 import type { JsonObject, Task, TaskId, TaskStatus } from "./types";
 import { TASK_STATUSES } from "./types";
@@ -103,8 +104,27 @@ export const MAX_OPERATIONS_PER_CHANGE = 100;
 
 const taskStatusSchema = z.enum(TASK_STATUSES);
 const nonEmpty = z.string().min(1);
-/** On update, a `null` value removes its key; see `UpdateTaskInput`. */
-export const taskMetadataSchema = z.record(z.string(), z.json());
+/**
+ * A JSON object, checked in place: `z.record` and `z.json` drop a
+ * `__proto__` key at any depth, and metadata keeps every key it is given.
+ * On update, a `null` value removes its key; see `UpdateTaskInput`.
+ */
+export const taskMetadataSchema = z
+  .unknown()
+  .refine(isJsonObject, "Expected a JSON object")
+  .meta({ type: "object" }) as z.ZodType<JsonObject, JsonObject>;
+
+function isJsonObject(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  try {
+    canonicalizeJson(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
 const tagsSchema = z.array(z.string()).readonly();
 
 export const taskRefSchema: z.ZodType<TaskRef, TaskRef> = z.union([

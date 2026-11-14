@@ -88,4 +88,34 @@ describe("taskChangeSchema", () => {
       expect(taskChangeSchema.safeParse(change).success).toBe(false);
     }
   });
+
+  test("keeps a __proto__ metadata key at any depth", () => {
+    // A quoted `__proto__` in an object literal sets the prototype; parsed
+    // JSON defines the key.
+    const metadata = JSON.parse('{"__proto__":null,"x":{"__proto__":1}}');
+    const parsed = taskChangeSchema.parse({
+      operations: [
+        { kind: "task.update", patch: { metadata }, task: { id: "t" } },
+      ],
+    });
+    const [operation] = parsed.operations;
+    const patch = operation?.kind === "task.update" ? operation.patch : {};
+    expect(JSON.stringify(patch.metadata)).toBe(
+      '{"__proto__":null,"x":{"__proto__":1}}'
+    );
+
+    const hidden = JSON.parse('{"x":{"__proto__":1}}');
+    Object.defineProperty(hidden.x, "__proto__", {
+      enumerable: true,
+      value: () => 1,
+    });
+    for (const bad of [[], "text", hidden]) {
+      const change = {
+        operations: [
+          { kind: "task.update", patch: { metadata: bad }, task: { id: "t" } },
+        ],
+      };
+      expect(taskChangeSchema.safeParse(change).success).toBe(false);
+    }
+  });
 });
