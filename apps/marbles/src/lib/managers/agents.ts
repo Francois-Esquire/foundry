@@ -15,6 +15,7 @@ import type {
 } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import { composeTools } from "@foundry/agents/tools/compose";
+import { canonicalizeJson } from "@foundry/lib/json";
 import type { ModelManager, ModelSelection, Resolution } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
@@ -549,29 +550,108 @@ async function interactionOptions(
 }
 
 type DefinitionBuilder = (
-  route: AgentRoute
+  route: AgentRoute,
+  input: unknown
 ) => Promise<AgentDefinition<Output.Output>>;
 
 /**
  * The definition a session opens with. A plain definition is itself. An
  * agent declared with a function builds one now, once for this session,
- * and the route it is given is kept: a session recorded on one provider
- * continues on it when its body runs again.
+ * and the route and input it is given are kept: a session recorded on one
+ * provider continues on it when its body runs again. The input is the
+ * agent's own unless one is given.
  */
 export async function buildDefinition<OUTPUT extends Output.Output>(
   agent: AgentLike<OUTPUT>,
-  route: AgentRoute = {}
+  route: AgentRoute = {},
+  input: unknown = (agent as { readonly input?: unknown }).input
 ): Promise<AgentDefinition<OUTPUT>> {
   const build = Reflect.get(agent, AGENT_DEFINITION) as
     | DefinitionBuilder
     | undefined;
   if (build) {
-    return (await build(route)) as AgentDefinition<OUTPUT>;
+    return (await build(route, input)) as AgentDefinition<OUTPUT>;
   }
   if (typeof agent.prompt !== "string") {
     throw new Error(`agent "${agent.id}" has no prompt`);
   }
   return agent as AgentDefinition<OUTPUT>;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value === "object" && value !== null) {
+    for (const child of Object.values(value)) {
+      deepFreeze(child);
+    }
+    Object.freeze(value);
+  }
+  return value;
+}
+
+/** Throws at the first missing index of an array, at any depth. */
+function rejectHoles(value: unknown): void {
+  if (typeof value !== "object" || value === null) {
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      if (!(index in value)) {
+        throw new Error(`an array has no item at index ${index}`);
+      }
+      rejectHoles(value[index]);
+    }
+    return;
+  }
+  for (const child of Object.values(value)) {
+    rejectHoles(child);
+  }
+}
+
+/**
+ * An agent's input as a session keeps it: copied into its JSON form and
+ * frozen, so neither the caller nor the agent's function can change it
+ * after it is recorded. Anything JSON would not carry back unchanged, such
+ * as an array with holes, throws.
+ */
+export function inputSnapshot(value: unknown): unknown {
+  rejectHoles(value);
+  return deepFreeze(JSON.parse(canonicalizeJson(value)));
+}
+
+/** What a session ref keeps of the input its agent opened with. */
+type KeptInput = Pick<SessionRef, "input" | "noInput">;
+
+/**
+ * The input an agent declared with a function opens a session with, as
+ * its ref keeps it: the one `extend` gave it, else the one the session
+ * kept, else `noInput` for none. Nothing for any other agent. A kept
+ * session reopened with another input, or with one when it opened with
+ * none, would not be built the same, so that fails. A ref that kept
+ * neither (only an id) takes the agent's.
+ */
+function sessionInput(
+  agent: AgentLike<Output.Output>,
+  kept: SessionRef | undefined
+): KeptInput {
+  if (!Reflect.has(agent, AGENT_DEFINITION)) {
+    return {};
+  }
+  const given = (agent as { readonly input?: unknown }).input;
+  if (given === undefined) {
+    return kept?.input === undefined
+      ? { noInput: true }
+      : { input: inputSnapshot(kept.input) };
+  }
+  if (
+    kept?.noInput === true ||
+    (kept?.input !== undefined &&
+      canonicalizeJson(kept.input) !== canonicalizeJson(given))
+  ) {
+    throw new Error(
+      `agent "${agent.id}": session ${kept.id} was opened with another input; open a new session for this one`
+    );
+  }
+  return { input: given };
 }
 
 /**
@@ -766,9 +846,14 @@ async function openSession<OUTPUT extends Output.Output>(
   options: SessionOptions
 ): Promise<Session<OUTPUT>> {
   const recordedOn = site.recorded?.provider;
+  const input = sessionInput(
+    agent,
+    site.recorded ?? (options.session ? refOf(options.session) : undefined)
+  );
   const definition = await buildDefinition(
     agent,
-    recordedOn === undefined ? {} : { provider: recordedOn }
+    recordedOn === undefined ? {} : { provider: recordedOn },
+    input.input
   );
   site.signal().throwIfAborted();
   if (options.sandbox && definition.mcp?.length) {
@@ -783,7 +868,7 @@ async function openSession<OUTPUT extends Output.Output>(
   try {
     // Connecting can take a while; a step cancelled meanwhile opens nothing.
     site.signal().throwIfAborted();
-    return await openBuilt(deps, site, definition, options, mcp);
+    return await openBuilt(deps, site, definition, options, mcp, input);
   } catch (error) {
     // Retained, but a direct session's site would hold them to dispose.
     await Promise.allSettled(mcp.map((client) => client.close()));
@@ -796,7 +881,8 @@ async function openBuilt<OUTPUT extends Output.Output>(
   site: SessionSite,
   definition: AgentDefinition<OUTPUT>,
   options: SessionOptions,
-  mcp: readonly McpClient[]
+  mcp: readonly McpClient[],
+  input: KeptInput
 ): Promise<Session<OUTPUT>> {
   deps.requireProviders?.();
   const pinned =
@@ -863,7 +949,7 @@ async function openBuilt<OUTPUT extends Output.Output>(
       ...definition.settings,
       ...(limit?.kind === "steps" ? { stopWhen: limit.stopWhen } : {}),
     },
-    stamp
+    { ...stamp, input }
   );
 }
 
@@ -1006,9 +1092,11 @@ function retainSession<OUTPUT extends Output.Output>(
   settings: AgentDefinition<OUTPUT>["settings"],
   {
     implementation,
+    input,
     instance,
   }: {
     readonly implementation: string | undefined;
+    readonly input: KeptInput;
     readonly instance: string | undefined;
   }
 ): Session<OUTPUT> {
@@ -1033,6 +1121,7 @@ function retainSession<OUTPUT extends Output.Output>(
   const ref: SessionRef = {
     id,
     ...(implementation === undefined ? {} : { implementation }),
+    ...input,
     ...(instance === undefined ? {} : { instance }),
     model: harness.route.id,
     provider: harness.route.provider,

@@ -58,20 +58,23 @@ function claimAgentId(
 }
 
 /** An agent declared with a function: claimed now, built as each session opens. */
-function agentFromFunction<OUTPUT extends Output.Output>(
-  define: DefineAgent<OUTPUT>
-): DeferredAgent<OUTPUT> {
+function agentFromFunction<OUTPUT extends Output.Output, INPUT>(
+  define: DefineAgent<OUTPUT, INPUT>
+): DeferredAgent<OUTPUT, INPUT> {
   const digest = createHash("sha256")
     .update(canonicalizeJson(["function", define.toString()]))
     .digest("hex");
   const id = claimAgentId(undefined, digest, define);
-  const definition = recipeInstance<OUTPUT>({
-    define: define as unknown as DefineAgent<Output.Output>,
+  const definition = recipeInstance<OUTPUT, INPUT>({
+    define: define as unknown as DefineAgent<Output.Output, unknown>,
     id,
     route: {},
     settings: [],
   });
-  catalog.agents.set(id, definition as DeferredAgent<Output.Output>);
+  catalog.agents.set(
+    id,
+    definition as unknown as DeferredAgent<Output.Output, unknown>
+  );
   return definition;
 }
 
@@ -82,14 +85,15 @@ export function agent<OUTPUT extends Output.Output = never>(
 /**
  * An agent from a function that returns its definition as each session
  * opens: it can read `usage`, pick a route, and choose skills and MCP
- * servers for it. Until then it is not a definition.
+ * servers for it. Until then it is not a definition. Its second parameter
+ * is the input `extend({ input })` gives it.
  */
-export function agent<OUTPUT extends Output.Output = never>(
-  define: DefineAgent<OUTPUT>
-): DeferredAgent<OUTPUT>;
-export function agent<OUTPUT extends Output.Output = never>(
-  spec: AgentDeclaration<OUTPUT> | DefineAgent<OUTPUT>
-): Agent<OUTPUT> | DeferredAgent<OUTPUT> {
+export function agent<OUTPUT extends Output.Output = never, INPUT = undefined>(
+  define: DefineAgent<OUTPUT, INPUT>
+): DeferredAgent<OUTPUT, INPUT>;
+export function agent<OUTPUT extends Output.Output = never, INPUT = undefined>(
+  spec: AgentDeclaration<OUTPUT> | DefineAgent<OUTPUT, INPUT>
+): Agent<OUTPUT> | DeferredAgent<OUTPUT, INPUT> {
   if (typeof spec === "function") {
     return agentFromFunction(spec);
   }
@@ -172,7 +176,7 @@ function skillSet(ops: readonly SkillOp[]): SkillSet {
 }
 
 export const skills = {
-  /** The global and workspace skills. Chain `.add(glob)` and `.pick(...)`. */
+  /** The skills in the home and workspace skill folders. Chain `.add(glob)` and `.pick(...)`. */
   load(): SkillSet {
     return skillSet([{ kind: "load" }]);
   },

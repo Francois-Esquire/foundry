@@ -3,10 +3,12 @@ import type { RunStatus } from "@foundry/workflows/types";
 import type { Output } from "ai";
 import type { Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
+import { AGENT_DEFINITION } from "~/lib/handles";
 import { buildDefinition } from "~/lib/managers/agents";
 import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
 import type {
   AgentDefinition,
+  AgentLike,
   AgentRoute,
   Context,
   Session,
@@ -20,6 +22,31 @@ import type {
 } from "~/model/connection";
 
 const AGENT_DISPATCH = "agent-dispatch";
+
+/**
+ * A declared agent as a dispatch opens it, its definition changed by
+ * `overlay`. One declared with a function is built as the session opens,
+ * for the route asked for, so it chooses its skills and servers for that
+ * route, and a continued session gives it the input it kept.
+ */
+async function dispatched(
+  declared: AgentLike<Output.Output>,
+  route: AgentRoute,
+  overlay: (
+    definition: AgentDefinition<Output.Output>
+  ) => AgentDefinition<Output.Output>
+): Promise<AgentLike<Output.Output>> {
+  if (!Reflect.has(declared, AGENT_DEFINITION)) {
+    return overlay(await buildDefinition(declared, route));
+  }
+  const agent = { id: declared.id, kind: "agent" as const, ...route };
+  Object.defineProperty(agent, AGENT_DEFINITION, {
+    value: async (kept: AgentRoute, input: unknown) =>
+      overlay(await buildDefinition(declared, { ...kept, ...route }, input)),
+  });
+  // Opening a session reads only the data and the builder, never the calls.
+  return agent as unknown as AgentLike<Output.Output>;
+}
 interface AgentInput extends DispatchOptions {
   readonly session: SessionRef;
 }
@@ -130,16 +157,9 @@ export class BackgroundRuns {
       ...(options.model === undefined ? {} : { model: options.model }),
       ...(options.provider === undefined ? {} : { provider: options.provider }),
     };
-    // A declared agent's definition is built for the route asked for, so
-    // one declared with a function chooses its skills and servers for it.
-    const base: AgentDefinition<Output.Output> = declared
-      ? await buildDefinition(declared, route)
-      : {
-          id: `agent-${crypto.randomUUID()}`,
-          kind: "agent",
-          prompt: "Complete the user's task.",
-        };
-    const definition: AgentDefinition<Output.Output> = {
+    const overlay = (
+      base: AgentDefinition<Output.Output>
+    ): AgentDefinition<Output.Output> => ({
       ...base,
       ...(options.instructions === undefined
         ? {}
@@ -149,7 +169,14 @@ export class BackgroundRuns {
               .join("\n\n"),
           }),
       ...route,
-    };
+    });
+    const agent = declared
+      ? await dispatched(declared, route, overlay)
+      : overlay({
+          id: `agent-${crypto.randomUUID()}`,
+          kind: "agent",
+          prompt: "Complete the user's task.",
+        });
     const sessionOptions: SessionOptions = {
       ...(options.compaction === undefined
         ? {}
@@ -160,10 +187,7 @@ export class BackgroundRuns {
       ...(options.maxTurns === undefined ? {} : { maxTurns: options.maxTurns }),
       ...(options.session === undefined ? {} : { session: options.session }),
     };
-    const session = await this.#engine.agents.session(
-      definition,
-      sessionOptions
-    );
+    const session = await this.#engine.agents.session(agent, sessionOptions);
     this.#closing.signal.throwIfAborted();
     if (this.#sessions.has(session.ref.id)) {
       throw new Error("this session already has an active agent dispatch");
@@ -176,7 +200,7 @@ export class BackgroundRuns {
       });
       return await this.#track(
         launched,
-        { kind: "agent", name: definition.id, session: session.ref },
+        { kind: "agent", name: agent.id, session: session.ref },
         (value, record) => {
           record.text = value.text;
           record.output = value.output;

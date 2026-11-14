@@ -55,7 +55,7 @@ import { createLog, type LogLevel, type LogOrigin } from "~/lib/log";
 import { AgentsManager } from "~/lib/managers/agents";
 import { ArtifactsManager } from "~/lib/managers/artifacts";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
-import { globalSkillsDir, skillResolver } from "~/lib/managers/skills";
+import { skillResolver } from "~/lib/managers/skills";
 import type { Catalogue, GitOptions } from "~/lib/managers/workspaces";
 import { WorkspacesManager } from "~/lib/managers/workspaces";
 import type { ProviderConfiguration } from "~/lib/providers/configuration";
@@ -140,7 +140,7 @@ export interface EngineOptions {
    * scanning it, and the root workspace stays unread until a step needs it.
    */
   readonly git?: GitOptions;
-  /** The user's home, for skills shared across workspaces; the OS home by default. */
+  /** The user's home, whose skill folders `skills.load()` reads; the OS home by default. */
   readonly home?: string;
   /**
    * Where definitions' own `log(...)` lines go, with where each came from:
@@ -458,7 +458,7 @@ export class Engine {
       requireProviders: () => options.providers?.require(),
       root,
       sessions,
-      skills: skillResolver({ global: globalSkillsDir(home), workspace: root }),
+      skills: skillResolver({ home, workspace: root }),
       usage: { ledger: this.usage, workspaceId },
       warn: (message) => print(`[agents] ${message}`),
     });

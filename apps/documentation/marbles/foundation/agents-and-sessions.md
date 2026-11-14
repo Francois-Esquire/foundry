@@ -102,8 +102,8 @@ what each Claude Code and Codex login has left.
 
 ## Define the agent with a function
 
-`agent(async (route) => definition)` declares an agent whose definition is
-built when each session opens. The function returns what `agent({ ... })`
+`agent(async (route, input) => definition)` declares an agent whose
+definition is built when each session opens. The function returns what `agent({ ... })`
 takes, except `name`: `prompt`, `model`, `provider`, `settings`, `skills`,
 and `mcp`. The result is an ordinary agent. `generate`, `stream`,
 `agents.session`, and `extend` work as they do on any other agent.
@@ -123,6 +123,17 @@ and `mcp`. The result is an ordinary agent. `generate`, `stream`,
   not set the route: if the function picks another provider than the one
   the conversation was opened on, a new session starts, with a warning, as
   it does for any agent.
+- **The input it is given.** `extend({ input })` sets a value the function
+  receives as its second parameter, so one agent can vary its prompt or
+  skills per call. Without one, `input` is `undefined`. It is not the
+  prompt of a turn, which `generate` and `stream` take. The input must be
+  JSON, and `null` is an input too. `extend` keeps a frozen copy of it, and
+  a later `extend` with an `input` replaces it. The session keeps it, or
+  that it had none: a replayed step, and `{ session: ref }` with that ref,
+  give the function the same input again, and an agent with a different
+  input fails the opening. A ref with only an `id` keeps no input. An MCP
+  agent dispatch cannot set an input, but one that continues a session
+  gives the function the input that session kept.
 - **What `extend` changes.** Each `extend` adds to the route the function
   is given, and its `settings` merge over the settings the function
   returns, in order, as they merge for a plain agent.
@@ -257,9 +268,12 @@ settings, and compaction, see [Agent sessions](/marbles/reference/agent-sessions
 ## Skills and sandbox sessions
 
 Skills supply reusable instructions and files to an agent. `skills.load()`
-collects them from `~/.foundry/skills` and the project's `skills/` folder;
-`.add(glob)` adds directories and `.pick(...names)` narrows the set. Pass
-that set as the agent's `skills`.
+collects them from `.agents/skills`, `.claude/skills`, and `skills/` in the
+project, and from the same three folders in the home directory, with
+`.foundry/skills` in place of `skills/`. A project skill wins over a home
+skill with the same name. `.add(glob)` adds directories, such as
+`.add(".claude/skills/*")`, and `.pick(...names)` narrows the set. Pass that
+set as the agent's `skills`.
 
 Host sessions work in a local directory. `agents.session(def, { sandbox: box })`
 opens the conversation in the sandbox introduced on the previous page;
