@@ -341,10 +341,13 @@ export class Engine {
       },
       set: (enabled) => {
         airplane.set(enabled);
+        this.providers?.setOffline(enabled);
         if (enabled) {
           this.#releasePrices();
         } else if (!this.#disposing) {
           this.#prices ??= holdModelsDev();
+          // Back online, the servers are asked for their models again.
+          this.#listModels();
         }
       },
     };
@@ -690,6 +693,8 @@ export class Engine {
     const askable = this.#askable;
     const feed = this.#publisher;
     const print = this.#print;
+    // Before anything runs, so a listed model can be named from the first turn.
+    await this.#listModels();
     const config = new Config();
     contributeQueueConfig(config, {
       concurrency: ORCHESTRATOR_CONCURRENCY,
@@ -1166,6 +1171,26 @@ export class Engine {
     signal?: AbortSignal
   ): ReadableStream<ChannelMessage> | undefined {
     return this.#running?.held.workflow(runId)?.root.subscribe(signal);
+  }
+
+  /**
+   * Ask the providers that list their models for them, and reload. Never
+   * rejects: a problem is printed, and the set loaded before is kept.
+   */
+  async #listModels(): Promise<void> {
+    try {
+      // `configured` reads the files too, so it is inside the guard.
+      if (!this.providers?.configured) {
+        return;
+      }
+      for (const problem of await this.providers.refresh()) {
+        this.#print(`[providers] ${problem}`);
+      }
+    } catch (error) {
+      this.#print(
+        `[providers] ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   /** Give up the models.dev load; one still fetching is aborted when no other engine holds it. */

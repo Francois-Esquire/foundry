@@ -63,7 +63,8 @@ function setup(
   return {
     env,
     id: "gw",
-    models: gatewayPlugin.catalog(settings),
+    // What a server listed: the plugin supplies no models of its own.
+    models: [{ id: "served/chat", kind: "text", modelId: "served/chat" }],
     scope: "machine",
     settings,
   };
@@ -81,6 +82,7 @@ describe("gatewayPlugin", () => {
     expect(unknown.success).toBe(false);
     expect(unknown.error?.issues[0]?.code).toBe("unrecognized_keys");
     expect(gatewayPlugin.secrets).toEqual(["apiKey"]);
+    expect(gatewayPlugin.catalog({ baseURL })).toEqual([]);
   });
 
   it("builds an instance under its id, available once the named key is set", () => {

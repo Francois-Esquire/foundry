@@ -3,16 +3,13 @@ import type {
   Provider,
   ProviderModelDefinition,
 } from "@foundry/models";
-import {
-  GATEWAY_DEFAULT_MODELS,
-  VERCEL_DEFAULT_MODELS,
-} from "@foundry/models/catalog/defaults";
+import { VERCEL_DEFAULT_MODELS } from "@foundry/models/catalog/defaults";
 import {
   CLAUDE_CODE_DEFAULT_MODELS,
   claudeCodeProvider,
 } from "@foundry/models/claude-code";
 import { CODEX_DEFAULT_MODELS, codexProvider } from "@foundry/models/codex";
-import { gatewayProvider } from "@foundry/models/gateway";
+import { gatewayModels, gatewayProvider } from "@foundry/models/gateway";
 import { PI_DEFAULT_MODELS, piProvider } from "@foundry/models/pi";
 import { vercelProvider } from "@foundry/models/vercel";
 import { z } from "zod";
@@ -88,6 +85,19 @@ export interface ProviderPlugin<S = unknown> {
   }): S | null;
   readonly id: string;
   readonly label: string;
+  /**
+   * The models the instance's own server reports, in place of `catalog`.
+   * The configuration calls it before it builds the instance, never while
+   * Airplane Mode is on. It stops waiting at the timeout, at disposal, or
+   * when Airplane Mode turns on, aborts `signal`, and ignores a later
+   * answer. A rejection leaves the entry with no models and the reason as
+   * its problem.
+   */
+  list?(context: {
+    readonly env: Readonly<Record<string, string>>;
+    readonly settings: S;
+    readonly signal: AbortSignal;
+  }): Promise<readonly ProviderModelDefinition[]>;
   /** Settings keys holding the name of an environment variable, never a value. */
   readonly secrets?: readonly string[];
   readonly settings: z.ZodType<S>;
@@ -287,16 +297,25 @@ const GATEWAY = z.strictObject({
   baseURL: z.string(),
 });
 
+/** The gateway's own config: its base URL, and its key when the named variable is set. */
+function gatewayConfig(
+  settings: z.infer<typeof GATEWAY>,
+  env: Readonly<Record<string, string>>
+) {
+  return {
+    baseURL: settings.baseURL,
+    ...(settings.apiKey && env[settings.apiKey] !== undefined
+      ? { apiKey: env[settings.apiKey] }
+      : {}),
+  };
+}
+
 export const gatewayPlugin: ProviderPlugin<z.infer<typeof GATEWAY>> = {
-  catalog: () => GATEWAY_DEFAULT_MODELS,
+  // Nothing is supplied: the models are what the server lists.
+  catalog: () => [],
   create: ({ defaults, env, id, models, settings }) => ({
     provider: gatewayProvider({
-      config: {
-        baseURL: settings.baseURL,
-        ...(settings.apiKey && env[settings.apiKey] !== undefined
-          ? { apiKey: env[settings.apiKey] }
-          : {}),
-      },
+      config: gatewayConfig(settings, env),
       id,
       models: [...models],
       ...(defaults ? { defaults } : {}),
@@ -304,6 +323,8 @@ export const gatewayPlugin: ProviderPlugin<z.infer<typeof GATEWAY>> = {
   }),
   id: "gateway",
   label: "OpenAI-compatible gateway",
+  list: ({ env, settings, signal }) =>
+    gatewayModels(gatewayConfig(settings, env), { signal }),
   secrets: ["apiKey"],
   settings: GATEWAY,
 };

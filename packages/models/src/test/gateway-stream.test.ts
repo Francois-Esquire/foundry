@@ -67,7 +67,12 @@ afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
 describe("gatewayProvider streaming", () => {
   it("asks for usage on a stream and reports the turn's tokens", async () => {
-    const provider = gatewayProvider({ config: { apiKey: "k", baseURL } });
+    const provider = gatewayProvider({
+      config: { apiKey: "k", baseURL },
+      models: [
+        { id: "openai/gpt-5-mini", kind: "text", modelId: "openai/gpt-5-mini" },
+      ],
+    });
     const result = streamText({
       model: provider.languageModel("openai/gpt-5-mini"),
       prompt: "hello",

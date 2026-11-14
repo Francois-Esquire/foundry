@@ -33,22 +33,3 @@ export const VERCEL_DEFAULT_MODELS: ProviderModelDefinition[] = [
     vendor: "openai",
   },
 ];
-
-export const GATEWAY_DEFAULT_MODELS: ProviderModelDefinition[] = [
-  {
-    capabilities: { functionCalling: true },
-    id: "openai/gpt-5-mini",
-    kind: "text",
-    label: "OpenAI GPT-5 mini",
-    limits: { maxInputTokens: 272_000 },
-    modelId: "openai/gpt-5-mini",
-    vendor: "openai",
-  },
-  {
-    id: "openai/text-embedding-3-small",
-    kind: "embedding",
-    label: "OpenAI text-embedding-3-small",
-    modelId: "openai/text-embedding-3-small",
-    vendor: "openai",
-  },
-];

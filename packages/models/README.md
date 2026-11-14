@@ -88,7 +88,9 @@ configures: `vercelProvider` (`@foundry/models/vercel`), `gatewayProvider`
 `claudeCodeProvider` (`/claude-code`), `codexProvider` (`/codex`), and
 `piProvider` (`/pi`). Each takes `id` and `models`, so one factory can build
 several instances; all but FAL and Replicate also take `defaults`. The root
-entry exports no provider.
+entry exports no provider. `gatewayProvider` has no models of its own and
+requires `models`. `gatewayModels(config)` reads them from the server's
+`GET <baseURL>/models`, each id as a text model with nothing else known.
 
 | Subpath | What it holds |
 | --- | --- |

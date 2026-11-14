@@ -1,7 +1,12 @@
 import { createHmac } from "node:crypto";
 import { existsSync, readdirSync, unwatchFile, watchFile } from "node:fs";
 import { join } from "node:path";
-import type { ModelKind, ModelManager, Provider } from "@foundry/models";
+import type {
+  ModelKind,
+  ModelManager,
+  Provider,
+  ProviderModelDefinition,
+} from "@foundry/models";
 import {
   accountPatterns,
   ambientProblem,
@@ -73,6 +78,16 @@ const ID = /^[a-z0-9][a-z0-9-]*$/;
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
 const FILE = "providers.json";
 const POLL_MS = 500;
+/** How long a plugin's `list` may take before the entry is left without models. */
+const LIST_TIMEOUT_MS = 5000;
+
+/** What a plugin's `list` last answered for one entry's settings and environment. */
+type Listing =
+  | {
+      readonly models: readonly ProviderModelDefinition[];
+      readonly problem?: undefined;
+    }
+  | { readonly models?: undefined; readonly problem: string };
 
 type Built =
   | { readonly entry: ProviderEntry; readonly instance?: undefined }
@@ -101,6 +116,14 @@ export class ProviderConfiguration {
   #identities = new Map<string, { digest?: string; material: unknown }>();
   #key: Buffer | undefined;
   readonly #owned = new ProviderInstances();
+  /** Keyed by what `list` reads: the plugin, its settings, and the environment. */
+  readonly #listings = new Map<string, Listing>();
+  /** The latest `list` started per key, so an older answer never lands. */
+  readonly #listed = new Map<string, number>();
+  /** Aborted at dispose: no answer lands after it. */
+  readonly #lists = new AbortController();
+  /** Aborted when Airplane Mode turns on, so no list in flight lands; replaced when it turns off. */
+  #online = new AbortController();
 
   constructor(options: ProviderConfigurationOptions) {
     this.#options = options;
@@ -204,8 +227,35 @@ export class ProviderConfiguration {
     this.#identities = identities;
   }
 
+  /**
+   * Ask each enabled entry whose plugin lists its models for them, then
+   * {@link load}. Resolves with why each list that failed did, for the host
+   * to report. A file that cannot be read rejects, as `load` throws. While
+   * offline nothing is asked and the last lists stay.
+   */
+  async refresh(): Promise<readonly string[]> {
+    const problems = await this.#listAll();
+    if (!this.#lists.signal.aborted) {
+      this.load();
+    }
+    return problems;
+  }
+
+  /**
+   * Airplane Mode: while on, no plugin is asked for its models, and turning
+   * it on aborts each list in flight and drops its answer.
+   */
+  setOffline(offline: boolean): void {
+    if (offline) {
+      this.#online.abort();
+    } else if (this.#online.signal.aborted) {
+      this.#online = new AbortController();
+    }
+  }
+
   /** Dispose the instances this configuration built that the manager never took. */
   dispose(): Promise<void> {
+    this.#lists.abort();
     return this.#owned.dispose();
   }
 
@@ -218,7 +268,12 @@ export class ProviderConfiguration {
     const drafts: Drafts = new Map();
     try {
       if (await write(drafts)) {
-        this.#load(drafts);
+        // An entry's new settings may need their own list before it builds.
+        await this.#listAll();
+        // Disposed meanwhile: the drafts are discarded below, and nothing loads.
+        if (!this.#lists.signal.aborted) {
+          this.#load(drafts);
+        }
       }
     } finally {
       this.#owned.discard(drafts.values());
@@ -494,11 +549,14 @@ export class ProviderConfiguration {
       (path): path is string => path !== undefined
     );
     const reload = () => {
-      try {
-        this.load();
-      } catch (error) {
-        report(error instanceof Error ? error.message : String(error));
-      }
+      this.refresh().then(
+        (problems) => {
+          for (const problem of problems) {
+            report(problem);
+          }
+        },
+        (error: unknown) => report(messageOf(error))
+      );
     };
     // Polled, not evented: platform file events miss or coalesce changes,
     // and a poll also sees a file replaced by rename.
@@ -688,7 +746,12 @@ export class ProviderConfiguration {
     }
     let catalog: ReturnType<RegisteredPlugin["catalog"]>;
     try {
-      catalog = plugin.catalog(parsed.data);
+      const listed = this.#listingOf(plugin, parsed.data, scope);
+      // Defaults are checked against a list once the server gave one.
+      if (plugin.list && !listed?.models) {
+        return undefined;
+      }
+      catalog = listed?.models ?? plugin.catalog(parsed.data);
     } catch (error) {
       return `"${entry.plugin}" could not list its catalog: ${messageOf(error)}`;
     }
@@ -727,9 +790,7 @@ export class ProviderConfiguration {
         count.set(entry.id, (count.get(entry.id) ?? 0) + 1);
       }
     }
-    const ids = scoped.map(({ entry }) => entry.id);
-    // Once each: a disabled entry repeats its id, and a later copy would move it.
-    const order = [...new Set(workspace?.order ?? ids)];
+    const order = effectiveOrder(machine, workspace);
     const keep = new Map<Built, Built>();
     const cache = new Map<string, ProviderInstance>();
     const results = scoped.map(({ entry, scope }): Built => {
@@ -800,11 +861,26 @@ export class ProviderConfiguration {
     if (ambient) {
       return report("unavailable", ambient);
     }
-    const key = JSON.stringify([scope, entry, env]);
+    const listed = this.#listingOf(plugin, settings, scope);
+    if (plugin.list && !listed?.models) {
+      return report(
+        "unavailable",
+        listed?.problem ?? "its models have not been listed yet"
+      );
+    }
+    const models = listed?.models ?? plugin.catalog(settings);
+    // A changed list is a new instance, with the models it lists.
+    const key = JSON.stringify([scope, entry, env, listed?.models ?? null]);
     const instance =
       this.#owned.get(key) ??
       take(drafts, key) ??
-      this.#instantiate(plugin, entry, scope, settings, env, patterns);
+      this.#instantiate(plugin, entry, {
+        env,
+        models,
+        patterns,
+        scope,
+        settings,
+      });
     if (typeof instance === "string") {
       return report("unloadable", instance);
     }
@@ -835,14 +911,18 @@ export class ProviderConfiguration {
   #instantiate(
     plugin: RegisteredPlugin,
     entry: ProviderEntryRecord,
-    scope: ProviderScope,
-    settings: unknown,
-    env: Readonly<Record<string, string>>,
-    patterns: readonly string[]
+    built: {
+      readonly env: Readonly<Record<string, string>>;
+      readonly models: readonly ProviderModelDefinition[];
+      readonly patterns: readonly string[];
+      readonly scope: ProviderScope;
+      readonly settings: unknown;
+    }
   ): ProviderInstance | string {
+    const { env, patterns } = built;
     let created: ProviderInstance;
     try {
-      created = this.#create(plugin, entry, scope, settings, env);
+      created = this.#create(plugin, entry, built);
     } catch (error) {
       return `"${entry.plugin}" could not build it: ${messageOf(error)}`;
     }
@@ -862,11 +942,18 @@ export class ProviderConfiguration {
   #create(
     plugin: RegisteredPlugin,
     entry: ProviderEntryRecord,
-    scope: ProviderScope,
-    settings: unknown,
-    env: Readonly<Record<string, string>>
+    {
+      env,
+      models,
+      scope,
+      settings,
+    }: {
+      readonly env: Readonly<Record<string, string>>;
+      readonly models: readonly ProviderModelDefinition[];
+      readonly scope: ProviderScope;
+      readonly settings: unknown;
+    }
   ): ProviderInstance {
-    const models = plugin.catalog(settings);
     return plugin.create({
       ...(entry.defaults
         ? { defaults: entry.defaults as Partial<Record<ModelKind, string>> }
@@ -900,6 +987,111 @@ export class ProviderConfiguration {
       .update(JSON.stringify(material))
       .digest("hex")
       .slice(0, 32);
+  }
+
+  /** What `plugin` last listed for these settings at `scope`, if it lists. */
+  #listingOf(
+    plugin: RegisteredPlugin,
+    settings: unknown,
+    scope: ProviderScope
+  ): Listing | undefined {
+    return plugin.list
+      ? this.#listings.get(listingKey(plugin, settings, this.#envFor(scope)))
+      : undefined;
+  }
+
+  /**
+   * Ask each entry the effective set could use whose plugin lists its
+   * models, at once, each bounded by {@link LIST_TIMEOUT_MS}, with why each
+   * failure did. A failed list keeps the last good one; with none, the
+   * failure is the entry's problem. A file that cannot be read lists
+   * nothing; `load` reports it. Offline or disposed, nothing is asked.
+   */
+  async #listAll(): Promise<readonly string[]> {
+    if (
+      this.#lists.signal.aborted ||
+      this.#online.signal.aborted ||
+      this.#options.fixed !== undefined
+    ) {
+      return [];
+    }
+    let files: (ProvidersFile | undefined)[];
+    try {
+      files = [this.#workspace?.read(), this.#machine.read()];
+    } catch {
+      return [];
+    }
+    const [workspace, machine] = files;
+    const enabled = [
+      ...(workspace?.providers ?? []),
+      ...(machine?.providers ?? []),
+    ].filter((entry) => entry.enabled);
+    // Only what `load` could use: in the workspace's order, its id not clashing.
+    const order = effectiveOrder(machine, workspace);
+    const eligible = (id: string) =>
+      order.includes(id) &&
+      enabled.filter((entry) => entry.id === id).length === 1;
+    const scopes: ProviderScope[] = ["workspace", "machine"];
+    const asked = files.flatMap((file, index) =>
+      (file?.providers ?? []).flatMap((entry) => {
+        const plugin = this.#plugins.get(entry.plugin);
+        const parsed = plugin?.settings.safeParse(entry.settings ?? {});
+        if (
+          !(
+            entry.enabled &&
+            plugin?.list &&
+            parsed?.success &&
+            eligible(entry.id)
+          )
+        ) {
+          return [];
+        }
+        const scope = scopes[index] as ProviderScope;
+        return [this.#list(entry.id, plugin, parsed.data, this.#envFor(scope))];
+      })
+    );
+    const problems = await Promise.all(asked);
+    return problems.filter((problem) => problem !== undefined);
+  }
+
+  /** One entry's list, kept under its key unless a newer one started meanwhile. */
+  async #list(
+    id: string,
+    plugin: RegisteredPlugin,
+    settings: unknown,
+    env: Readonly<Record<string, string>>
+  ): Promise<string | undefined> {
+    const key = listingKey(plugin, settings, env);
+    const started = (this.#listed.get(key) ?? 0) + 1;
+    this.#listed.set(key, started);
+    // Disposal, Airplane Mode, or the timeout ends the wait, whatever the plugin does.
+    const ended = AbortSignal.any([this.#lists.signal, this.#online.signal]);
+    const signal = AbortSignal.any([
+      ended,
+      AbortSignal.timeout(LIST_TIMEOUT_MS),
+    ]);
+    let listing: Listing;
+    try {
+      const models = await untilAborted(
+        Promise.resolve(plugin.list?.({ env, settings, signal })),
+        signal
+      );
+      listing = { models: models ?? [] };
+    } catch (error) {
+      listing = { problem: `its models could not be listed: ${reason(error)}` };
+    }
+    if (ended.aborted || this.#listed.get(key) !== started) {
+      return undefined;
+    }
+    if (listing.problem === undefined) {
+      this.#listings.set(key, listing);
+      return undefined;
+    }
+    if (this.#listings.get(key)?.models) {
+      return `"${id}" kept its last model list; ${listing.problem}`;
+    }
+    this.#listings.set(key, listing);
+    return `"${id}" has no models; ${listing.problem}`;
   }
 
   /** Machine scope sees the machine environment; workspace scope, it overlaid by the workspace's values. */
@@ -945,6 +1137,52 @@ function invalid(message: string): ConfigurationError {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Why a list failed, briefly: never a response body. */
+function reason(error: unknown): string {
+  if (error instanceof Error && error.name === "TimeoutError") {
+    return `no answer within ${LIST_TIMEOUT_MS / 1000} s`;
+  }
+  return messageOf(error);
+}
+
+/** The ids the effective set may hold, in order: the workspace's `order`, else every entry's, once each. */
+function effectiveOrder(
+  machine: ProvidersFile | undefined,
+  workspace: ProvidersFile | undefined
+): readonly string[] {
+  const ids = [
+    ...(workspace?.providers ?? []),
+    ...(machine?.providers ?? []),
+  ].map((entry) => entry.id);
+  // Once each: a disabled entry repeats its id, and a later copy would move it.
+  return [...new Set(workspace?.order ?? ids)];
+}
+
+/** `promise`, or a rejection with the signal's reason once it aborts, whichever comes first. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    // Handled even when it loses, so a late rejection is never unhandled.
+    promise.then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", abort);
+    });
+    if (signal.aborted) {
+      abort();
+    } else {
+      signal.addEventListener("abort", abort, { once: true });
+    }
+  });
+}
+
+/** The key a list is kept under: everything a plugin's `list` reads. */
+function listingKey(
+  plugin: RegisteredPlugin,
+  settings: unknown,
+  env: Readonly<Record<string, string>>
+): string {
+  return JSON.stringify([plugin.id, settings, env]);
 }
 
 /** The draft for `key`, taken out of `drafts` so only one owner keeps it. */
