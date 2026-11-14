@@ -9,63 +9,28 @@ import type {
   StorageReader,
   StorageTree,
 } from "@foundry/core/storage";
-import type {
-  FileClassification,
-  FileKind,
-} from "@foundry/lib/file-classification";
+import type { FileClassification } from "@foundry/lib/file-classification";
 import type { Ignore } from "ignore";
 import type { WorkspaceCatalog } from "./catalog";
 import type { Workspace } from "./instance";
+import type {
+  WorkspaceEntry,
+  WorkspaceEntryId,
+  WorkspaceId,
+  WorkspaceRegistration,
+} from "./schema";
 
-export type WorkspaceId = string & { readonly __brand: "WorkspaceId" };
-
-export type WorkspaceEntryId = string & {
-  readonly __brand: "WorkspaceEntryId";
-};
-
-/**
- * Where a Workspace's bytes come from. `kind` is the string a layer claims
- * when it registers with the system.
- */
-export interface WorkspaceSource {
-  readonly kind: string;
-  /** The canonical root for a directory, a resource URI for anything else. */
-  readonly path: string;
-  readonly sourceId: string | null;
-}
-
-/** The durable registration of one source, exactly as the store holds it. */
-export interface WorkspaceRegistration {
-  readonly createdAt: Date;
-  readonly id: WorkspaceId;
-  /** The last successful complete source observation, including an empty diff. */
-  readonly lastReconciledAt: Date;
-  readonly name: string;
-  readonly source: WorkspaceSource;
-  readonly updatedAt: Date;
-}
+export type {
+  WorkspaceEntry,
+  WorkspaceEntryId,
+  WorkspaceFile,
+  WorkspaceId,
+  WorkspaceRegistration,
+  WorkspaceSource,
+} from "./schema";
 
 /** What a layer's `identify` produces; the system adds identity and time. */
 export type WorkspaceIdentity = Pick<WorkspaceRegistration, "name" | "source">;
-
-interface WorkspaceEntryMetadata {
-  readonly createdAt: Date;
-  readonly id: WorkspaceEntryId;
-  readonly name: string;
-  readonly updatedAt: Date;
-  readonly workspaceId: WorkspaceId;
-}
-
-export interface WorkspaceFile
-  extends FileRepresentation,
-    WorkspaceEntryMetadata {
-  readonly extension: string | null;
-  readonly kind: FileKind;
-}
-
-export type WorkspaceEntry =
-  | WorkspaceFile
-  | (Exclude<StorageEntry, { readonly type: "file" }> & WorkspaceEntryMetadata);
 
 /** A committed catalog change. Deletes carry the last known entry. */
 export interface WorkspaceChange {
