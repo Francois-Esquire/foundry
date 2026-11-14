@@ -11,7 +11,7 @@ import { SessionHarness } from "../../harness/session-harness";
 import { toolAuthorizationContext } from "../../harness/tool-compiler";
 import { tagTool } from "../../harness/types";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../session/store";
+import { InMemorySessionStore } from "../../store/memory";
 import { fakeAuthorizer } from "../helpers/authorizer";
 import {
   createScriptedMockModel,

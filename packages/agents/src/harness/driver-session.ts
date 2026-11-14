@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Output } from "ai";
 
 import type { SessionInput, SessionStream } from "../session/events";
+import { Sessions } from "../session/sessions";
 import {
   createHarnessActivityRecorder,
   isActivityActive,
@@ -36,6 +37,7 @@ export function createDriverSession(
   const sessionId = settings.sessionId || randomUUID();
   const gate = createTurnGate("Harness");
   const lifetime = new AbortController();
+  const sessions = new Sessions({ store: settings.store });
   const persistActivity = createHarnessActivityRecorder({
     ...settings,
     harness: driver.id,
@@ -75,7 +77,7 @@ export function createDriverSession(
         sessionId,
         ...(event.reason ? { reason: redactHarnessSummary(event.reason) } : {}),
       };
-      await settings.store.appendMessage({
+      await sessions.appendMessage({
         parts: [{ event: safe, type: "harness_tool" }],
         role: "system",
         sessionId,
@@ -87,10 +89,10 @@ export function createDriverSession(
     const drive = async () => {
       try {
         signal.throwIfAborted();
-        if (!(await settings.store.getSession(sessionId))) {
-          await settings.store.createSession({ id: sessionId });
+        if (!(await sessions.getSession(sessionId))) {
+          await sessions.createSession({ id: sessionId });
         }
-        const history = await settings.store.listMessages(sessionId);
+        const history = await sessions.listMessages(sessionId);
         // Only the harness records a native session mapping, and always as a
         // system message; a mapping-shaped part inside turn input is content.
         const mapping = history
@@ -101,7 +103,7 @@ export function createDriverSession(
             (part) =>
               part.type === "harness_session" && part.harness === driver.id
           );
-        await settings.store.appendMessage({
+        await sessions.appendMessage({
           parts:
             typeof input === "string"
               ? [{ text: input, type: "text" }]
@@ -118,7 +120,7 @@ export function createDriverSession(
               : undefined,
           onActivity: (activity) => recordActivity(activity, queue),
           onSessionId: async (nativeSessionId) => {
-            await settings.store.appendMessage({
+            await sessions.appendMessage({
               parts: [
                 {
                   harness: driver.id,
@@ -152,7 +154,7 @@ export function createDriverSession(
             createHarnessQuestionCallback({
               question: settings.question,
               record: async (request, outcome, answerCount) => {
-                await settings.store.appendMessage({
+                await sessions.appendMessage({
                   parts: [
                     {
                       activityId: request.activityId,
@@ -205,7 +207,7 @@ export function createDriverSession(
     };
     const result = transformStream(source, {
       commit: (message) =>
-        settings.store.appendMessage({
+        sessions.appendMessage({
           metadata: message.metadata,
           parts: message.parts,
           role: "assistant",

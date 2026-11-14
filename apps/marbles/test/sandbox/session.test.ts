@@ -4,7 +4,8 @@ import {
   createInMemoryAgentAuthorizer,
 } from "@foundry/agents/authorization";
 import { resolveHarnessApproval } from "@foundry/agents/harness";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import { Sessions } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Container } from "@foundry/sandbox/container/containers";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
@@ -159,9 +160,10 @@ describe("built-in sandbox session factory", () => {
     async (mode) => {
       guest();
       const store = new InMemorySessionStore();
-      await store.createSession({ id: "session" });
+      const sessions = new Sessions({ store });
+      await sessions.createSession({ id: "session" });
       for (const role of ["user", "assistant"] as const) {
-        await store.appendMessage({
+        await sessions.appendMessage({
           parts: [{ text: "history ".repeat(1000), type: "text" }],
           role,
           sessionId: "session",

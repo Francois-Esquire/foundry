@@ -3,10 +3,11 @@ import type { LanguageModel, ModelMessage } from "ai";
 import { generateText, pruneMessages } from "ai";
 
 import type { TokenCounter } from "../contexts/types";
+import type { SessionStore } from "../store";
 import { toModelMessages } from "./converter";
 import { stringifyValue } from "./serialize";
-import type { SummarizableStore, SummarizeResult } from "./store";
-import { foldSet } from "./store";
+import type { SummarizeResult } from "./sessions";
+import { foldSet, Sessions } from "./sessions";
 import type { SessionMessage } from "./types";
 
 type ModelMessagePart = Exclude<ModelMessage["content"], string>[number];
@@ -93,11 +94,11 @@ function renderPart(part: ModelMessagePart): string {
 }
 
 /**
- * Summarize the messages before `messageId` and fold them via the store's own
- * primitive. No-op (`null`) when there's nothing to fold.
+ * Summarize the messages before `messageId` and fold them under the summary
+ * in one write. No-op (`null`) when there's nothing to fold.
  */
 export async function compact(
-  store: SummarizableStore,
+  store: SessionStore,
   summarizer: Summarizer,
   sessionId: string,
   messageId: string
@@ -109,7 +110,7 @@ export async function compact(
   }
 
   const text = await summarizer.summarize(fold);
-  return store.summarize({
+  return new Sessions({ store }).summarize({
     messageId,
     sessionId,
     summary: { parts: [{ text, type: "text" }] },
@@ -132,12 +133,12 @@ export interface CompactionOptions {
  * No-op (`null`) when under budget or there's no clean boundary to fold at.
  */
 export async function maybeCompact(
-  store: SummarizableStore,
+  store: SessionStore,
   summarizer: Summarizer,
   sessionId: string,
   opts: CompactionOptions
 ): Promise<SummarizeResult | null> {
-  const active = await store.activeMessages(sessionId);
+  const active = await new Sessions({ store }).activeMessages(sessionId);
   if (contextTokens(active, opts.counter) <= opts.limit) {
     return null;
   }

@@ -9,7 +9,7 @@ import { SessionHarness } from "../../harness/session-harness";
 import type { StreamPart } from "../../harness/stream-transform";
 import { transformStream } from "../../harness/stream-transform";
 import type { HarnessTurnDriver } from "../../harness/turn-driver";
-import { InMemorySessionStore } from "../../session/store";
+import { InMemorySessionStore } from "../../store/memory";
 import type { StreamResult } from "../helpers/mock-language-model";
 import { routed } from "../helpers/mock-language-model";
 import { finish, textDelta, toolCall, usage } from "../helpers/stream-parts";

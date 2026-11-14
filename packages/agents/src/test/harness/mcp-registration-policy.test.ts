@@ -8,7 +8,8 @@ import { SessionHarness } from "../../harness/session-harness";
 import { metaOf } from "../../harness/types";
 import { McpClient } from "../../mcp/client";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
+import { InMemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   textStreamResult,
@@ -208,13 +209,14 @@ describe("MCP registrations through the harness policy", () => {
     }
 
     const store = new InMemorySessionStore();
-    await store.createSession({ id: "s" });
-    await store.appendMessage({
+    const sessions = new Sessions({ store });
+    await sessions.createSession({ id: "s" });
+    await sessions.appendMessage({
       parts: [{ text: "do it", type: "text" }],
       role: "user",
       sessionId: "s",
     });
-    await store.appendMessage({
+    await sessions.appendMessage({
       parts: [
         {
           input: { target: "prod" },

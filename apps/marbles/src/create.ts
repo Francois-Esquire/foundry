@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { SessionStore } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts } from "@foundry/artifacts";
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";

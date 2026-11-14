@@ -2,28 +2,17 @@ import { mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type {
-  CreateMessageInput,
-  CreateSessionInput,
   MessageMetadata,
   SessionMessage,
   SessionPart,
   SessionRecord,
-  SummarizeInput,
-  SummarizeResult,
-  UpdateMessageInput,
-  UpdateSessionInput,
 } from "@foundry/agents/session";
 import {
-  AbstractSessionStore,
-  foldSet,
   MESSAGE_STATUSES,
-  newSessionMessage,
-  newSessionRecord,
-  patchSessionMessage,
-  patchSessionRecord,
   SESSION_ROLES,
   SESSION_STATUSES,
 } from "@foundry/agents/session";
+import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 import { FileLockTimeoutError, withFileLock } from "@foundry/lib/file-lock";
 import { KeyedQueue } from "@foundry/lib/keyed-queue";
@@ -34,22 +23,23 @@ import { isRecord } from "~/lib/state/json";
  * Durable sessions as one JSON file each: `<dir>/<sessionId>.json` holding
  * the record and every message.
  *
- * The files are the truth, not this object: every read and every mutation
+ * The files are the truth, not this object: every read and every commit
  * reads the session's file again, so a session another process (the
- * dashboard or `roll`) wrote is seen, and appending here does not
- * overwrite what it appended. Each mutation is one read-change-write of one
- * file through a temp-and-rename, which is what makes `summarize` atomic.
- * Mutations of one file take turns: queued within this process across store
+ * dashboard or `roll`) wrote is seen, and a commit here does not overwrite
+ * what it appended: the write is merged by id into the file as read. Each
+ * commit is one read-merge-write of one file through a temp-and-rename,
+ * which is what makes it atomic, so a write may change one session only.
+ * Commits to one file take turns: queued within this process across store
  * instances, and across processes under `<sessionId>.json.lock`, which holds
  * the writer's pid. The store attempts to replace stale locks.
  *
- * A file that exists but does not read as a session is never overwritten:
- * reads skip it (and say so through `warn`), and mutations, `createSession`
- * included, throw until someone repairs or removes it.
+ * A message new to the file stamps the session's `updatedAt` with its
+ * `createdAt`, so {@link JsonSessionStore.sessions} lists the most recently
+ * appended first.
  *
- * `createSession` with the id of a session that exists returns that session
- * unchanged, like `InMemorySessionStore`: two hosts that both saw it missing
- * must not reset each other's history.
+ * A file that exists but does not read as a session is never overwritten:
+ * reads skip it (and say so through `warn`), and commits throw until someone
+ * repairs or removes it.
  */
 
 interface SessionFile {
@@ -110,22 +100,13 @@ type Read =
   | { readonly kind: "unreadable"; readonly reason: string }
   | { readonly kind: "session"; readonly file: SessionFile };
 
-type Change<T> = (file: SessionFile | undefined) =>
-  | {
-      /** The file to write; absent when nothing changed. */
-      readonly file?: SessionFile;
-      readonly result: T;
-    }
-  | undefined;
-
-export class JsonSessionStore extends AbstractSessionStore {
+export class JsonSessionStore implements SessionStore {
   readonly #dir: string;
   readonly #warn: (line: string) => void;
   /** Message id → its session, as last seen here. A hint: always checked against the file. */
   readonly #owners = new Map<string, string>();
 
   constructor(dir: string, options: JsonSessionStoreOptions = {}) {
-    super();
     this.#dir = resolve(dir);
     this.#warn = options.warn ?? (() => undefined);
     mkdirSync(this.#dir, { recursive: true });
@@ -173,93 +154,42 @@ export class JsonSessionStore extends AbstractSessionStore {
     });
   }
 
-  /** Creates the session, or returns the one already filed under `input.id`. */
-  async createSession(input: CreateSessionInput = {}): Promise<SessionRecord> {
-    const session = newSessionRecord(input);
-    const created = await this.#change(session.id, (file) =>
-      file
-        ? { result: file.session }
-        : { file: { messages: [], session }, result: session }
-    );
-    return created ?? session;
+  /** Merges `write` into its session's file; a write may change one session only. */
+  async commit(write: SessionStoreWrite): Promise<void> {
+    const ids = new Set([
+      ...(write.putSessions ?? []).map((session) => session.id),
+      ...(write.putMessages ?? []).map((message) => message.sessionId),
+    ]);
+    if (ids.size > 1) {
+      throw new Error(
+        `[json-session-store] a write changes one session; this one changes ${[...ids].join(", ")}`
+      );
+    }
+    const [id] = ids;
+    if (id === undefined) {
+      return;
+    }
+    await this.#change(id, (file) => merge(id, file, write));
   }
 
   async getSession(id: string): Promise<SessionRecord | null> {
     return (await this.#readable(id))?.session ?? null;
   }
 
-  async updateSession(
-    id: string,
-    patch: UpdateSessionInput
-  ): Promise<SessionRecord | null> {
-    const updated = await this.#change(id, (file) => {
-      if (!file) {
-        return;
-      }
-      const session = patchSessionRecord(file.session, patch);
-      return { file: { messages: file.messages, session }, result: session };
-    });
-    return updated ?? null;
-  }
-
-  async appendMessage(input: CreateMessageInput): Promise<SessionMessage> {
-    const appended = await this.#change(input.sessionId, (file) => {
-      if (!file) {
-        return;
-      }
-      const message = newSessionMessage(input);
-      return {
-        file: {
-          messages: [...file.messages, message],
-          session: { ...file.session, updatedAt: message.createdAt },
-        },
-        result: message,
-      };
-    });
-    if (!appended) {
-      throw new Error(
-        `[json-session-store] unknown session: ${input.sessionId}`
-      );
-    }
-    return appended;
-  }
-
-  async updateMessage(
-    id: string,
-    patch: UpdateMessageInput
-  ): Promise<SessionMessage | null> {
-    const update: Change<SessionMessage> = (file) => {
-      const current = file?.messages.find((message) => message.id === id);
-      if (!(file && current)) {
-        return;
-      }
-      const next = patchSessionMessage(current, patch);
-      const messages = file.messages.map((message) =>
-        message === current ? next : message
-      );
-      return { file: { messages, session: file.session }, result: next };
-    };
+  async getMessage(id: string): Promise<SessionMessage | null> {
     const owner = this.#owners.get(id);
-    if (owner !== undefined) {
-      const updated = await this.#change(owner, update);
-      if (updated) {
-        return updated;
-      }
-    }
-    for (const sessionId of this.#ids()) {
-      if (sessionId === owner) {
-        continue;
-      }
+    const candidates = [
+      ...(owner === undefined ? [] : [owner]),
+      ...this.#ids().filter((sessionId) => sessionId !== owner),
+    ];
+    for (const sessionId of candidates) {
       const read = await this.#read(sessionId);
-      if (
-        read.kind !== "session" ||
-        !read.file.messages.some((message) => message.id === id)
-      ) {
-        continue;
-      }
-      const updated = await this.#change(sessionId, update);
-      if (updated) {
-        return updated;
+      const found =
+        read.kind === "session"
+          ? read.file.messages.find((message) => message.id === id)
+          : undefined;
+      if (found) {
+        return found;
       }
     }
     return null;
@@ -267,44 +197,6 @@ export class JsonSessionStore extends AbstractSessionStore {
 
   async listMessages(sessionId: string): Promise<SessionMessage[]> {
     return [...((await this.#readable(sessionId))?.messages ?? [])];
-  }
-
-  /** The base implementation is a loop of writes; this is one. */
-  override async summarize(
-    input: SummarizeInput
-  ): Promise<SummarizeResult | null> {
-    const result = await this.#change(input.sessionId, (file) => {
-      if (!file) {
-        return;
-      }
-      const fold = new Set(
-        foldSet(file.messages, input.messageId).map((m) => m.id)
-      );
-      if (fold.size === 0) {
-        return;
-      }
-      const summary = newSessionMessage({
-        metadata: input.summary.metadata,
-        parts: input.summary.parts,
-        role: "summary",
-        sessionId: input.sessionId,
-        status: input.summary.status,
-        summarized: false,
-      });
-      const messages = file.messages.map((message) =>
-        fold.has(message.id)
-          ? patchSessionMessage(message, { summarized: true })
-          : message
-      );
-      return {
-        file: {
-          messages: [...messages, summary],
-          session: { ...file.session, updatedAt: summary.createdAt },
-        },
-        result: { summarizedIds: [...fold], summary },
-      };
-    });
-    return result ?? null;
   }
 
   /** The session's file, which is always directly inside the store's directory. */
@@ -375,12 +267,15 @@ export class JsonSessionStore extends AbstractSessionStore {
   }
 
   /**
-   * Read the session's file afresh, apply `change`, and write what it returns,
-   * taking turns with every other change to that file (see the module
-   * comment). Resolves to the change's result, or `undefined` when it
-   * declined. Throws, writing nothing, when the file exists but is unreadable.
+   * Read the session's file afresh, apply `change`, and write the file it
+   * returns, taking turns with every other change to that file (see the
+   * module comment). Throws, writing nothing, when the file exists but is
+   * unreadable.
    */
-  #change<T>(id: string, change: Change<T>): Promise<T | undefined> {
+  #change(
+    id: string,
+    change: (file: SessionFile | undefined) => SessionFile
+  ): Promise<void> {
     const path = this.#path(id);
     return queue.run(path, () =>
       this.#locked(id, path, async () => {
@@ -390,14 +285,11 @@ export class JsonSessionStore extends AbstractSessionStore {
             `[json-session-store] ${path} is not a readable session (${read.reason}); repair or remove it`
           );
         }
-        const outcome = change(read.kind === "session" ? read.file : undefined);
-        if (outcome?.file) {
-          await writeFileAtomic(path, JSON.stringify(outcome.file, null, 2));
-          for (const message of outcome.file.messages) {
-            this.#owners.set(message.id, id);
-          }
+        const file = change(read.kind === "session" ? read.file : undefined);
+        await writeFileAtomic(path, JSON.stringify(file, null, 2));
+        for (const message of file.messages) {
+          this.#owners.set(message.id, id);
         }
-        return outcome?.result;
       })
     );
   }
@@ -424,4 +316,32 @@ export class JsonSessionStore extends AbstractSessionStore {
       );
     }
   }
+}
+
+/**
+ * `file` with `write` merged in by id: a put replaces what it names, and a
+ * message new to the file goes last and stamps the session's `updatedAt`.
+ */
+function merge(
+  id: string,
+  file: SessionFile | undefined,
+  write: SessionStoreWrite
+): SessionFile {
+  let session = write.putSessions?.at(-1) ?? file?.session;
+  if (!session) {
+    throw new Error(
+      `[json-session-store] no session ${id} to file its messages under`
+    );
+  }
+  const messages = [...(file?.messages ?? [])];
+  for (const message of write.putMessages ?? []) {
+    const index = messages.findIndex((known) => known.id === message.id);
+    if (index === -1) {
+      messages.push(message);
+      session = { ...session, updatedAt: message.createdAt };
+    } else {
+      messages[index] = message;
+    }
+  }
+  return { messages, session };
 }

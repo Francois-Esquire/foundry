@@ -7,7 +7,8 @@ import type {
   HarnessTurnDriver,
 } from "../../harness/turn-driver";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
+import { InMemorySessionStore } from "../../store/memory";
 import { textDelta } from "../helpers/stream-parts";
 
 function settings(
@@ -129,7 +130,7 @@ describe("native driver session", () => {
       expect.objectContaining({ nativeSessionId: undefined })
     );
 
-    await config.store.appendMessage({
+    await new Sessions({ store: config.store }).appendMessage({
       parts: [
         {
           harness: "native",
@@ -167,18 +168,18 @@ describe("native driver session", () => {
     const config = settings();
     config.profile = { ...config.profile, mode: "attended", unresolved: "ask" };
     config.approve = vi.fn(() => new Promise<never>(() => undefined));
-    const original = config.store.appendMessage.bind(config.store);
+    const original = config.store.commit.bind(config.store);
     let release!: () => void;
     const persist = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const append = vi
-      .spyOn(config.store, "appendMessage")
-      .mockImplementation(async (input) => {
-        if (input.role === "assistant") {
+    const commit = vi
+      .spyOn(config.store, "commit")
+      .mockImplementation(async (write) => {
+        if (write.putMessages?.some((m) => m.role === "assistant")) {
           await persist;
         }
-        return original(input);
+        return original(write);
       });
     const native = driver();
     native.run = async (options) => {
@@ -199,9 +200,11 @@ describe("native driver session", () => {
       closed = true;
     });
     await vi.waitFor(() =>
-      expect(append).toHaveBeenCalledWith(
-        expect.objectContaining({ role: "assistant", status: "error" })
-      )
+      expect(commit).toHaveBeenCalledWith({
+        putMessages: [
+          expect.objectContaining({ role: "assistant", status: "error" }),
+        ],
+      })
     );
     expect(closed).toBe(false);
     release();

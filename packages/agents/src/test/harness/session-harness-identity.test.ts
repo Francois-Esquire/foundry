@@ -8,7 +8,8 @@ import type {
 } from "../../authorization/authorization";
 import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
 import { SessionHarness } from "../../harness/session-harness";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
+import { InMemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   textStreamResult,
@@ -79,8 +80,8 @@ describe("SessionHarness — session identity", () => {
 
   it("adopts an id the host already filed without creating the session again", async () => {
     const store = new InMemorySessionStore();
-    await store.createSession({ id: "filed", title: "host" });
-    const create = vi.spyOn(store, "createSession");
+    await new Sessions({ store }).createSession({ id: "filed", title: "host" });
+    const commit = vi.spyOn(store, "commit");
     const harness = new SessionHarness({
       instructions: "x",
       model: createScriptedMockModel({ stream: [textStreamResult("hi")] }),
@@ -90,7 +91,9 @@ describe("SessionHarness — session identity", () => {
 
     await harness.generate("go");
 
-    expect(create).not.toHaveBeenCalled();
+    expect(
+      commit.mock.calls.filter(([write]) => write.putSessions !== undefined)
+    ).toEqual([]);
     expect(await store.getSession("filed")).toMatchObject({ title: "host" });
     expect((await store.listMessages("filed")).map((m) => m.role)).toEqual([
       "user",

@@ -1,4 +1,5 @@
-import type { SessionMessage, SessionStore } from "@foundry/agents/session";
+import type { SessionMessage } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
 
 import { isRecord } from "~/lib/state/json";
 import type {

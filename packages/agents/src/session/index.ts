@@ -31,23 +31,13 @@ export { normalizeMessageMetadata } from "./metadata";
 export type {
   CreateMessageInput,
   CreateSessionInput,
-  SessionStore,
-  SummarizableStore,
+  SessionsOptions,
   SummarizeInput,
   SummarizeResult,
   UpdateMessageInput,
   UpdateSessionInput,
-} from "./store";
-export {
-  AbstractSessionStore,
-  foldSet,
-  InMemorySessionStore,
-  messagesToSummarize,
-  newSessionMessage,
-  newSessionRecord,
-  patchSessionMessage,
-  patchSessionRecord,
-} from "./store";
+} from "./sessions";
+export { foldSet, messagesToSummarize, Sessions } from "./sessions";
 export type { SummarizeSessionDeps, Summary, SummaryStore } from "./summary";
 export { createSummaryStore, summarizeSession } from "./summary";
 export type {

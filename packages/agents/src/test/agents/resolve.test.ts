@@ -20,8 +20,8 @@ import { AgentHarness } from "../../harness/agent-harness";
 import { SessionHarness } from "../../harness/session-harness";
 import type { ToolEffectPort } from "../../harness/types";
 import { tagTool } from "../../harness/types";
-import { InMemorySessionStore } from "../../session/store";
 import type { Skill } from "../../skills/types";
+import { InMemorySessionStore } from "../../store/memory";
 import { fakeAuthorizer } from "../helpers/authorizer";
 import {
   createScriptedMockModel,
@@ -132,7 +132,7 @@ describe("createAgentPreset", () => {
     async (factory) => {
       const requests: AgentAuthorizationRequest[] = [];
       const store = new InMemorySessionStore();
-      const create = vi.spyOn(store, "createSession");
+      const commit = vi.spyOn(store, "commit");
       const mesh = createMesh();
       const observe = vi.fn(() => null);
       const spec: AgentSpec = {
@@ -156,7 +156,7 @@ describe("createAgentPreset", () => {
         expect.objectContaining({ sessionId: "existing-session" })
       );
       expect(requests[0]).toMatchObject({ scopeId: "existing-session" });
-      expect(create).not.toHaveBeenCalled();
+      expect(commit).not.toHaveBeenCalled();
       expect(mesh.list()).toHaveLength(0);
     }
   );
@@ -329,7 +329,9 @@ describe("createAgentPreset", () => {
 
   it("binds domain context in both harnesses without constructing a Session for an operation", async () => {
     const store = new InMemorySessionStore();
-    const create = vi.spyOn(store, "createSession");
+    const commit = vi.spyOn(store, "commit");
+    const filed = () =>
+      commit.mock.calls.filter(([write]) => write.putSessions !== undefined);
     const seen: unknown[] = [];
     const preset = createAgentPreset(
       { id: "domain", prompt: "Shared instructions" },
@@ -369,13 +371,13 @@ describe("createAgentPreset", () => {
       surfaceContext: { artifactId: "a" },
     });
     await direct.generate({ prompt: "go" });
-    expect(create).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
     const session = await preset.createSession({
       execution,
       surfaceContext: { artifactId: "b" },
     });
     await session.generate("go");
-    expect(create).toHaveBeenCalledOnce();
+    expect(filed()).toHaveLength(1);
     expect(seen).toEqual([
       expect.objectContaining({ artifactId: "a", db: "bound-db", execution }),
       expect.objectContaining({ artifactId: "b", db: "bound-db", execution }),

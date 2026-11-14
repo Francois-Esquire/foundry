@@ -13,7 +13,7 @@ import type {
   HarnessQuestionResult,
   HarnessTurnDriver,
 } from "../../harness/turn-driver";
-import { InMemorySessionStore } from "../../session/store";
+import { InMemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   textStreamResult,

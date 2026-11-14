@@ -5,10 +5,8 @@ import type {
   HarnessQuestionResult,
   HarnessSession,
 } from "@foundry/agents/harness";
-import {
-  InMemorySessionStore,
-  type SessionMessage,
-} from "@foundry/agents/session";
+import type { SessionMessage } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Container } from "@foundry/sandbox/container/containers";
 import type { ToolSet } from "ai";
 import { tool as createTool } from "ai";

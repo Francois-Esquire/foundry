@@ -1,8 +1,8 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Sessions } from "@foundry/agents/session";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 
 const writes = vi.hoisted(() => ({
@@ -44,18 +44,19 @@ describe("session disk write ordering", () => {
     const directory = await mkdtemp(join(tmpdir(), "marbles-session-order-"));
     directories.push(directory);
     const store = new JsonSessionStore(directory);
-    await store.createSession({ id: "session" });
+    const sessions = new Sessions({ store });
+    await sessions.createSession({ id: "session" });
     writes.started = 0;
     let release!: () => void;
     writes.pause = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const first = store.appendMessage({
+    const first = sessions.appendMessage({
       parts: [{ text: "tool attempted", type: "text" }],
       role: "system",
       sessionId: "session",
     });
-    const second = store.appendMessage({
+    const second = sessions.appendMessage({
       parts: [{ text: "approval required", type: "text" }],
       role: "system",
       sessionId: "session",
@@ -82,16 +83,17 @@ describe("session disk write ordering", () => {
     const directory = await mkdtemp(join(tmpdir(), "marbles-session-order-"));
     directories.push(directory);
     const store = new JsonSessionStore(directory);
-    await store.createSession({ id: "session" });
+    const sessions = new Sessions({ store });
+    await sessions.createSession({ id: "session" });
     writes.fail = true;
     await expect(
-      store.appendMessage({
+      sessions.appendMessage({
         parts: [{ text: "first", type: "text" }],
         role: "system",
         sessionId: "session",
       })
     ).rejects.toThrow("injected write failure");
-    await store.appendMessage({
+    await sessions.appendMessage({
       parts: [{ text: "second", type: "text" }],
       role: "system",
       sessionId: "session",

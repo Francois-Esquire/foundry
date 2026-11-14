@@ -1,8 +1,8 @@
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { SessionHarness } from "../../harness/session-harness";
-import { InMemorySessionStore } from "../../session/store";
 import { createSkillRegistry } from "../../skills/registry";
+import { InMemorySessionStore } from "../../store/memory";
 import { textStreamResult } from "../helpers/mock-language-model";
 
 function capturingModel() {

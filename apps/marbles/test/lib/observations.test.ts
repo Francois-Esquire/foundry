@@ -17,7 +17,7 @@ import type {
   SessionStream,
   SessionUsage,
 } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";

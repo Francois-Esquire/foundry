@@ -1,12 +1,6 @@
 /** Wraps a session store and provides a separate context estimate for a turn. */
-import type {
-  CreateMessageInput,
-  CreateSessionInput,
-  SessionStore,
-  UpdateMessageInput,
-  UpdateSessionInput,
-} from "../session/store";
 import type { SessionMessage, SessionRecord } from "../session/types";
+import type { SessionStore, SessionStoreWrite } from "../store";
 import { effectiveLimit, resolveBudget } from "./budget";
 import { estimatingCounter } from "./counter";
 import { prepareContext } from "./prepare";
@@ -35,30 +29,16 @@ export class SessionWindow implements SessionStore {
     this.#highWaterRatio = options.highWaterRatio ?? DEFAULT_HIGH_WATER_RATIO;
   }
 
-  createSession(input?: CreateSessionInput): Promise<SessionRecord> {
-    return this.#store.createSession(input);
+  commit(write: SessionStoreWrite): Promise<void> {
+    return this.#store.commit(write);
+  }
+
+  getMessage(id: string): Promise<SessionMessage | null> {
+    return this.#store.getMessage(id);
   }
 
   getSession(id: string): Promise<SessionRecord | null> {
     return this.#store.getSession(id);
-  }
-
-  updateSession(
-    id: string,
-    patch: UpdateSessionInput
-  ): Promise<SessionRecord | null> {
-    return this.#store.updateSession(id, patch);
-  }
-
-  appendMessage(input: CreateMessageInput): Promise<SessionMessage> {
-    return this.#store.appendMessage(input);
-  }
-
-  updateMessage(
-    id: string,
-    patch: UpdateMessageInput
-  ): Promise<SessionMessage | null> {
-    return this.#store.updateMessage(id, patch);
   }
 
   /** Raw history, insertion order — the unchanged `SessionStore` contract. */

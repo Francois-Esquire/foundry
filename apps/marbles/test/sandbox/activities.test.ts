@@ -5,7 +5,7 @@ import type {
   HarnessActivityEvent,
   HarnessSession,
 } from "@foundry/agents/harness";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { afterEach, expect, it, vi } from "vitest";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 

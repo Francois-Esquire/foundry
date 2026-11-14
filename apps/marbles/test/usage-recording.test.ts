@@ -10,15 +10,10 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  CreateMessageInput,
-  CreateSessionInput,
-  SessionMessage,
-  SessionStore,
-  UpdateMessageInput,
-  UpdateSessionInput,
-} from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import type { SessionMessage } from "@foundry/agents/session";
+import { Sessions } from "@foundry/agents/session";
+import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { ArtifactManager } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -677,7 +672,7 @@ it("a transcript that failed to read is read again at the same stamp, keeps only
   let stamp: string | null = "unchanged";
   let fail = false;
   const sessions = new InMemorySessionStore();
-  await sessions.createSession({ id: "s" });
+  await new Sessions({ store: sessions }).createSession({ id: "s" });
   const evidence = new UsageEvidence({
     recordedOf: () => ({
       ledger: { "marbles:flow|agents.session|0": { id: "deleted" } },
@@ -983,6 +978,7 @@ it("a saved marker's own attribution goes to the recovered leaf, which replaces 
 
 it("attributes a run's turn only on per-turn proof, a one-turn call's message, never on the session it was filed under or the run's window", async () => {
   const sessions = new InMemorySessionStore();
+  const written = new Sessions({ store: sessions });
   // A step named `a.b` is not `a`'s child `b`; a record kept before its path proves the run, no step.
   expect(
     ledgerNames({
@@ -1007,7 +1003,7 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
   });
   // Finished a second ago unless told otherwise: before any reader below was made.
   const turn = (sessionId: string, completedAt = Date.now() - 1000) =>
-    sessions.appendMessage({
+    written.appendMessage({
       metadata: {
         timing: {
           completedAt,
@@ -1020,24 +1016,24 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
       role: "assistant",
       sessionId,
     });
-  await sessions.createSession({ id: "run-session", title: "run" });
-  await sessions.createSession({
+  await written.createSession({ id: "run-session", title: "run" });
+  await written.createSession({
     id: "opened",
     parentSessionId: "run-session",
   });
-  await sessions.createSession({
+  await written.createSession({
     id: "one-turn",
     parentSessionId: "run-session",
   });
   // Opened before the run, outside any: the run only continued it.
-  await sessions.createSession({ id: "continued" });
+  await written.createSession({ id: "continued" });
   // A delegated child's: its parent's turn reports none of it.
-  await sessions.createSession({
+  await written.createSession({
     id: "child",
     parentSessionId: "opened",
     recursionDepth: 1,
   });
-  await sessions.appendMessage({
+  await written.appendMessage({
     parts: [],
     role: "user",
     sessionId: "opened",
@@ -1770,12 +1766,12 @@ class UnlistedSessions implements SessionStore {
     this.#inner = new JsonSessionStore(dir);
   }
 
-  appendMessage(input: CreateMessageInput) {
-    return this.#inner.appendMessage(input);
+  commit(write: SessionStoreWrite) {
+    return this.#inner.commit(write);
   }
 
-  createSession(input?: CreateSessionInput) {
-    return this.#inner.createSession(input);
+  getMessage(id: string) {
+    return this.#inner.getMessage(id);
   }
 
   getSession(id: string) {
@@ -1784,14 +1780,6 @@ class UnlistedSessions implements SessionStore {
 
   listMessages(sessionId: string) {
     return this.#inner.listMessages(sessionId);
-  }
-
-  updateMessage(id: string, patch: UpdateMessageInput) {
-    return this.#inner.updateMessage(id, patch);
-  }
-
-  updateSession(id: string, patch: UpdateSessionInput) {
-    return this.#inner.updateSession(id, patch);
   }
 }
 

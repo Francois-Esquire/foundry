@@ -1,4 +1,4 @@
-import { InMemorySessionStore } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { beforeEach, expect, it, vi } from "vitest";
 import { CODEX } from "~/lib/harnesses";
 import type { AgentsDeps } from "~/lib/managers/agents";

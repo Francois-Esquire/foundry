@@ -5,7 +5,8 @@ import { z } from "zod";
 import type { Capability } from "../../authorization/capability";
 import { SessionHarness } from "../../harness/session-harness";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
+import { InMemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   textStreamResult,
@@ -32,13 +33,14 @@ async function seedPendingApproval(
   store: InMemorySessionStore,
   sessionId: string
 ) {
-  await store.createSession({ id: sessionId });
-  await store.appendMessage({
+  const sessions = new Sessions({ store });
+  await sessions.createSession({ id: sessionId });
+  await sessions.appendMessage({
     parts: [{ text: "do it", type: "text" }],
     role: "user",
     sessionId,
   });
-  await store.appendMessage({
+  await sessions.appendMessage({
     parts: [
       {
         input: { target: "prod" },
@@ -127,7 +129,8 @@ describe("SessionHarness — approval responses", () => {
 
   it("rejects an approval response with no matching request, before touching the model or the store", async () => {
     const store = new InMemorySessionStore();
-    await store.createSession({ id: "s2" });
+    const sessions = new Sessions({ store });
+    await sessions.createSession({ id: "s2" });
     let modelCalled = false;
     const model = createScriptedMockModel({});
     const originalDoStream = model.doStream.bind(model);
@@ -160,8 +163,9 @@ describe("SessionHarness — approval responses", () => {
 
   it("rejects a duplicate response for an already-resolved approval", async () => {
     const store = new InMemorySessionStore();
+    const sessions = new Sessions({ store });
     await seedPendingApproval(store, "s3");
-    await store.appendMessage({
+    await sessions.appendMessage({
       parts: [
         { approvalId: "a1", approved: true, type: "tool_approval_response" },
       ],

@@ -3,8 +3,9 @@ import type { ToolLoopAgent } from "ai";
 import { tool } from "ai";
 import { z } from "zod";
 
-import type { SessionStore } from "../session/store";
+import { Sessions } from "../session/sessions";
 import type { SessionRecord } from "../session/types";
+import type { SessionStore } from "../store";
 import { collapseFinalText } from "./last-text";
 import type { AgentCompatibilityProjection, AgentEntry } from "./registry";
 import { resolveAgentEntry } from "./registry";
@@ -63,7 +64,9 @@ export function createSpawnTool(deps: SpawnDeps) {
         return { ok: false, reason: "unknown-kind" };
       }
 
-      const childSession = await deps.store.createSession({
+      const childSession = await new Sessions({
+        store: deps.store,
+      }).createSession({
         parentMessageId: deps.parentMessageId,
         parentSessionId: deps.parentSession.id,
         recursionDepth: parentDepth + 1,

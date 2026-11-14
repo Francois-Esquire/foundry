@@ -1,13 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  InMemorySessionStore,
   messagesToSummarize,
   newSessionMessage,
   newSessionRecord,
   patchSessionMessage,
   patchSessionRecord,
-} from "../../session/store";
+  Sessions,
+} from "../../session/sessions";
 import type { SessionMessage, SessionPart } from "../../session/types";
+import { InMemorySessionStore } from "../../store/memory";
 
 const UNKNOWN_SESSION_PATTERN = /unknown session/;
 
@@ -21,13 +22,13 @@ function req<T>(value: T | undefined): T {
 }
 
 async function seedMessages(
-  store: InMemorySessionStore,
+  sessions: Sessions,
   labels: string[]
 ): Promise<{ sessionId: string; ids: string[] }> {
-  const session = await store.createSession();
+  const session = await sessions.createSession();
   const ids: string[] = [];
   for (const label of labels) {
-    const m = await store.appendMessage({
+    const m = await sessions.appendMessage({
       parts: text(label),
       role: "user",
       sessionId: session.id,
@@ -40,70 +41,73 @@ async function seedMessages(
 const labelOf = (m: SessionMessage): string =>
   m.parts[0]?.type === "text" ? m.parts[0].text : "";
 
-describe("InMemorySessionStore", () => {
+describe("Sessions", () => {
   it("creates a session with defaults and reads it back", async () => {
-    const store = new InMemorySessionStore();
-    const session = await store.createSession();
+    const sessions = new Sessions();
+    const session = await sessions.createSession();
 
     expect(session.id).toBeTruthy();
     expect(session.status).toBe("active");
     expect(session.title).toBeNull();
-    expect(await store.getSession(session.id)).toEqual(session);
+    expect(await sessions.getSession(session.id)).toEqual(session);
   });
 
   it("adopts a provided id (for resume) and an optional title", async () => {
-    const store = new InMemorySessionStore();
-    const session = await store.createSession({ id: "known", title: "Hello" });
+    const sessions = new Sessions();
+    const session = await sessions.createSession({
+      id: "known",
+      title: "Hello",
+    });
 
     expect(session.id).toBe("known");
     expect(session.title).toBe("Hello");
   });
 
   it("resumes, not resets, a session created again under its id", async () => {
-    const store = new InMemorySessionStore();
-    const first = await store.createSession({ id: "known", title: "Hello" });
-    await store.appendMessage({
+    const sessions = new Sessions();
+    const first = await sessions.createSession({ id: "known", title: "Hello" });
+    await sessions.appendMessage({
       parts: text("kept"),
       role: "user",
       sessionId: "known",
     });
 
     await expect(
-      store.createSession({ id: "known", title: "Other" })
+      sessions.createSession({ id: "known", title: "Other" })
     ).resolves.toEqual(first);
-    await expect(store.listMessages("known")).resolves.toHaveLength(1);
+    await expect(sessions.listMessages("known")).resolves.toHaveLength(1);
   });
 
   it("returns null for an unknown session", async () => {
-    const store = new InMemorySessionStore();
-    expect(await store.getSession("nope")).toBeNull();
+    const sessions = new Sessions();
+    expect(await sessions.getSession("nope")).toBeNull();
   });
 
   it("appends messages and lists them in insertion order", async () => {
-    const store = new InMemorySessionStore();
-    const session = await store.createSession();
+    const sessions = new Sessions();
+    const session = await sessions.createSession();
 
-    const first = await store.appendMessage({
+    const first = await sessions.appendMessage({
       parts: [{ text: "hi", type: "text" }],
       role: "user",
       sessionId: session.id,
     });
-    const second = await store.appendMessage({
+    const second = await sessions.appendMessage({
       parts: [{ text: "hello", type: "text" }],
       role: "assistant",
       sessionId: session.id,
     });
 
-    const list = await store.listMessages(session.id);
+    const list = await sessions.listMessages(session.id);
     expect(list.map((m) => m.id)).toEqual([first.id, second.id]);
     expect(list[0]?.role).toBe("user");
     expect(list[1]?.parts).toEqual([{ text: "hello", type: "text" }]);
   });
 
   it("defaults message status to complete and stamps timestamps", async () => {
-    const store = new InMemorySessionStore();
-    const session = await store.createSession();
-    const message = await store.appendMessage({
+    const sessions = new Sessions();
+    const session = await sessions.createSession();
+    const message = await sessions.appendMessage({
       parts: [],
       role: "user",
       sessionId: session.id,
@@ -115,23 +119,23 @@ describe("InMemorySessionStore", () => {
   });
 
   it("rejects an append to an unknown session", async () => {
-    const store = new InMemorySessionStore();
+    const sessions = new Sessions();
     await expect(
-      store.appendMessage({ parts: [], role: "user", sessionId: "ghost" })
+      sessions.appendMessage({ parts: [], role: "user", sessionId: "ghost" })
     ).rejects.toThrow(UNKNOWN_SESSION_PATTERN);
   });
 
   it("updates a streaming message's parts and status", async () => {
-    const store = new InMemorySessionStore();
-    const session = await store.createSession();
-    const message = await store.appendMessage({
+    const sessions = new Sessions();
+    const session = await sessions.createSession();
+    const message = await sessions.appendMessage({
       parts: [{ text: "", type: "text" }],
       role: "assistant",
       sessionId: session.id,
       status: "streaming",
     });
 
-    const updated = await store.updateMessage(message.id, {
+    const updated = await sessions.updateMessage(message.id, {
       parts: [{ text: "done", type: "text" }],
       status: "complete",
     });
@@ -141,17 +145,17 @@ describe("InMemorySessionStore", () => {
   });
 
   it("returns null when updating a message that does not exist", async () => {
-    const store = new InMemorySessionStore();
+    const sessions = new Sessions();
     expect(
-      await store.updateMessage("nope", { status: "complete" })
+      await sessions.updateMessage("nope", { status: "complete" })
     ).toBeNull();
   });
 
   it("patches a session's title and status", async () => {
-    const store = new InMemorySessionStore();
-    const session = await store.createSession();
+    const sessions = new Sessions();
+    const session = await sessions.createSession();
 
-    const updated = await store.updateSession(session.id, {
+    const updated = await sessions.updateSession(session.id, {
       status: "archived",
       title: "Renamed",
     });
@@ -161,40 +165,40 @@ describe("InMemorySessionStore", () => {
   });
 
   it("isolates messages by session", async () => {
-    const store = new InMemorySessionStore();
-    const a = await store.createSession();
-    const b = await store.createSession();
-    await store.appendMessage({
+    const sessions = new Sessions();
+    const a = await sessions.createSession();
+    const b = await sessions.createSession();
+    await sessions.appendMessage({
       parts: text("a"),
       role: "user",
       sessionId: a.id,
     });
 
-    expect(await store.listMessages(b.id)).toEqual([]);
+    expect(await sessions.listMessages(b.id)).toEqual([]);
   });
 
   it("writes and round-trips the parent linkage", async () => {
-    const store = new InMemorySessionStore();
-    const session = await store.createSession({
+    const sessions = new Sessions();
+    const session = await sessions.createSession({
       parentMessageId: "m1",
       parentSessionId: "p1",
     });
 
     expect(session.parentSessionId).toBe("p1");
     expect(session.parentMessageId).toBe("m1");
-    expect(await store.getSession(session.id)).toEqual(session);
+    expect(await sessions.getSession(session.id)).toEqual(session);
   });
 
   it("freezes a provided recursion depth", async () => {
-    const store = new InMemorySessionStore();
-    const session = await store.createSession({ recursionDepth: 2 });
+    const sessions = new Sessions();
+    const session = await sessions.createSession({ recursionDepth: 2 });
 
     expect(session.recursionDepth).toBe(2);
   });
 
   it("defaults linkage to null and recursion depth to undefined", async () => {
-    const store = new InMemorySessionStore();
-    const session = await store.createSession();
+    const sessions = new Sessions();
+    const session = await sessions.createSession();
 
     expect(session.parentSessionId).toBeNull();
     expect(session.parentMessageId).toBeNull();
@@ -264,17 +268,17 @@ describe("messagesToSummarize", () => {
   });
 });
 
-describe("AbstractSessionStore.summarize", () => {
+describe("Sessions.summarize", () => {
   it("marks the messages before the marker and creates a summary block", async () => {
-    const store = new InMemorySessionStore();
-    const { sessionId, ids } = await seedMessages(store, [
+    const sessions = new Sessions();
+    const { sessionId, ids } = await seedMessages(sessions, [
       "m1",
       "m2",
       "m3",
       "m4",
     ]);
 
-    const result = await store.summarize({
+    const result = await sessions.summarize({
       messageId: req(ids[2]),
       sessionId,
       summary: { parts: text("SUMMARY") },
@@ -288,7 +292,7 @@ describe("AbstractSessionStore.summarize", () => {
     expect(result.summary.summarized).toBe(false);
 
     const flags = new Map(
-      (await store.listMessages(sessionId)).map((m) => [
+      (await sessions.listMessages(sessionId)).map((m) => [
         m.id,
         m.summarized ?? false,
       ])
@@ -299,11 +303,11 @@ describe("AbstractSessionStore.summarize", () => {
   });
 
   it("skips already-summarized messages", async () => {
-    const store = new InMemorySessionStore();
-    const { sessionId, ids } = await seedMessages(store, ["m1", "m2", "m3"]);
-    await store.updateMessage(req(ids[0]), { summarized: true });
+    const sessions = new Sessions();
+    const { sessionId, ids } = await seedMessages(sessions, ["m1", "m2", "m3"]);
+    await sessions.updateMessage(req(ids[0]), { summarized: true });
 
-    const result = await store.summarize({
+    const result = await sessions.summarize({
       messageId: req(ids[2]),
       sessionId,
       summary: { parts: text("S") },
@@ -312,12 +316,49 @@ describe("AbstractSessionStore.summarize", () => {
     expect(result?.summarizedIds).toEqual([ids[1]]);
   });
 
-  it("returns null when nothing precedes the marker", async () => {
+  it("writes the summary and every flip it stands for as one commit", async () => {
     const store = new InMemorySessionStore();
-    const { sessionId, ids } = await seedMessages(store, ["m1", "m2"]);
+    const sessions = new Sessions({ store });
+    const { sessionId, ids } = await seedMessages(sessions, ["m1", "m2", "m3"]);
+    const commit = vi.spyOn(store, "commit");
+
+    const result = await sessions.summarize({
+      messageId: req(ids[2]),
+      sessionId,
+      summary: { parts: text("S") },
+    });
+
+    expect(commit).toHaveBeenCalledOnce();
+    expect(commit.mock.calls[0]?.[0].putMessages?.map((m) => m.id)).toEqual([
+      ids[0],
+      ids[1],
+      result?.summary.id,
+    ]);
+  });
+
+  it("leaves history unfolded when the summary write fails", async () => {
+    const store = new InMemorySessionStore();
+    const sessions = new Sessions({ store });
+    const { sessionId, ids } = await seedMessages(sessions, ["m1", "m2", "m3"]);
+    const before = await sessions.listMessages(sessionId);
+    vi.spyOn(store, "commit").mockRejectedValueOnce(new Error("disk full"));
+
+    await expect(
+      sessions.summarize({
+        messageId: req(ids[2]),
+        sessionId,
+        summary: { parts: text("S") },
+      })
+    ).rejects.toThrow("disk full");
+    await expect(sessions.listMessages(sessionId)).resolves.toEqual(before);
+  });
+
+  it("returns null when nothing precedes the marker", async () => {
+    const sessions = new Sessions();
+    const { sessionId, ids } = await seedMessages(sessions, ["m1", "m2"]);
 
     expect(
-      await store.summarize({
+      await sessions.summarize({
         messageId: req(ids[0]),
         sessionId,
         summary: { parts: text("S") },
@@ -326,31 +367,31 @@ describe("AbstractSessionStore.summarize", () => {
   });
 });
 
-describe("AbstractSessionStore.activeMessages", () => {
+describe("Sessions.activeMessages", () => {
   it("prepends the latest summary and drops summarized + summary-type rows", async () => {
-    const store = new InMemorySessionStore();
-    const { sessionId, ids } = await seedMessages(store, [
+    const sessions = new Sessions();
+    const { sessionId, ids } = await seedMessages(sessions, [
       "m1",
       "m2",
       "m3",
       "m4",
     ]);
-    await store.summarize({
+    await sessions.summarize({
       messageId: req(ids[2]),
       sessionId,
       summary: { parts: text("SUMMARY") },
     });
 
-    const active = await store.activeMessages(sessionId);
+    const active = await sessions.activeMessages(sessionId);
     expect(active.map((m) => m.role)).toEqual(["summary", "user", "user"]);
     expect(active.map(labelOf)).toEqual(["SUMMARY", "m3", "m4"]);
   });
 
   it("returns the raw active messages when there is no summary", async () => {
-    const store = new InMemorySessionStore();
-    const { sessionId } = await seedMessages(store, ["m1", "m2"]);
+    const sessions = new Sessions();
+    const { sessionId } = await seedMessages(sessions, ["m1", "m2"]);
 
-    expect((await store.activeMessages(sessionId)).map(labelOf)).toEqual([
+    expect((await sessions.activeMessages(sessionId)).map(labelOf)).toEqual([
       "m1",
       "m2",
     ]);

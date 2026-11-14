@@ -7,7 +7,8 @@ import type { AgentEntry } from "../../agents/registry";
 import { createAgentCompatibilityRegistry } from "../../agents/registry";
 import type { RunAgent, SpawnDeps } from "../../agents/spawn";
 import { createSpawnTool } from "../../agents/spawn";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
+import { InMemorySessionStore } from "../../store/memory";
 
 function uiTextRun(...texts: string[]) {
   const chunks: UIMessageChunk[] = texts.flatMap((t, i) => [
@@ -23,7 +24,8 @@ function uiTextRun(...texts: string[]) {
 describe("createSpawnTool", () => {
   it("case 1: foreground spawn mints a linked, depth-frozen child and returns only the collapsed artifact", async () => {
     const store = new InMemorySessionStore();
-    const parent = await store.createSession();
+    const sessions = new Sessions({ store });
+    const parent = await sessions.createSession();
     const registry = createAgentCompatibilityRegistry();
     const stubAgent = {} as unknown as AgentEntry;
     registry.register("worker", stubAgent);
@@ -65,7 +67,8 @@ describe("createSpawnTool", () => {
 
   it("case 2: delegation prompt is the only parent→child channel", async () => {
     const store = new InMemorySessionStore();
-    const parent = await store.createSession();
+    const sessions = new Sessions({ store });
+    const parent = await sessions.createSession();
     const registry = createAgentCompatibilityRegistry();
     registry.register("worker", {} as unknown as AgentEntry);
 
@@ -97,7 +100,8 @@ describe("createSpawnTool", () => {
 
   it("case 3: unknown kind returns a modeled miss without throwing or minting a child", async () => {
     const store = new InMemorySessionStore();
-    const parent = await store.createSession();
+    const sessions = new Sessions({ store });
+    const parent = await sessions.createSession();
     const registry = createAgentCompatibilityRegistry();
 
     let captured: Parameters<RunAgent>[1] | undefined;
