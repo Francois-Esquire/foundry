@@ -6,7 +6,7 @@ import { isStoragePath, withParentDirectories } from "@foundry/core/storage";
 import type { Blob, BlobFiles, ContentTree, StoredFile } from "./blob";
 import type { BlobEffects } from "./blob-repository";
 import { BlobRepository } from "./blob-repository";
-import type { ByteInput } from "./blob-staging";
+import type { ByteInput, Ownership } from "./blob-staging";
 import { BlobStaging, isReferenceInput } from "./blob-staging";
 import type { ArtifactChange } from "./change";
 import type { ContentMetadata } from "./content";
@@ -87,6 +87,7 @@ export class ArtifactTransaction implements ArtifactOperations {
   readonly #effects: OperationEffects;
   readonly #blobs: BlobRepository;
   readonly #maxTreeBytes: number;
+  readonly #staging: BlobStaging;
 
   /** `staging` holds the bytes staged ahead of this change; none when omitted. */
   constructor(
@@ -99,6 +100,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     this.#effects = effects;
     this.#blobs = new BlobRepository(change, effects, { ...limits, staging });
     this.#maxTreeBytes = limits.maxTreeBytes;
+    this.#staging = staging;
   }
 
   /**
@@ -127,6 +129,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     }
     assertStoragePaths(input.changes);
     await this.#checkReferences(input.changes.put);
+    await this.#checkOwnership(artifact, input.changes.put);
     return artifact;
   }
 
@@ -147,6 +150,45 @@ export class ArtifactTransaction implements ArtifactOperations {
     assertStoragePaths(input.changes ?? {});
     await this.#checkReferences(input.changes?.put);
     return { artifact, source };
+  }
+
+  /**
+   * The ownership of each object an in-place write may replace, recorded
+   * the first time this write is checked (before its bytes are staged) and
+   * confirmed each time after. An object shared or freed meanwhile refuses
+   * the write as stale: the bytes were taken in against ownership that no
+   * longer holds.
+   */
+  async #checkOwnership(
+    artifact: ArtifactResolved,
+    entries: EntryInputs | undefined
+  ): Promise<void> {
+    const active = artifact.content;
+    for (const [path, entry] of Object.entries(entries ?? {})) {
+      if (isStructural(entry) || isReferenceInput(entry)) {
+        continue;
+      }
+      const previous =
+        active && Object.hasOwn(active.tree, path)
+          ? active.tree[path]
+          : undefined;
+      const now: Ownership | null =
+        active && previous?.type === "file"
+          ? {
+              blobId: previous.blobId,
+              exclusive: !(await this.#change.isBlobReferenced(
+                previous.blobId,
+                { contentId: active.id, path }
+              )),
+            }
+          : null;
+      if (!this.#staging.expectOwnership(path, now)) {
+        throw new StaleContentError(artifact.id, {
+          contentId: artifact.contentId,
+          updatedAt: active?.updatedAt ?? null,
+        });
+      }
+    }
   }
 
   /** Every reference in `entries` names an existing blob within the size limit. */

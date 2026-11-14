@@ -4,6 +4,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import type { BlobFiles, BlobStagingArea } from "./blob";
 import { CHUNK_BYTES } from "./constants";
 import { FileTooLargeError, InvalidArtifactInputError } from "./errors";
+import type { BlobId } from "./ref";
 import type { EntryInput, EntryInputs, FileInput } from "./substrate";
 
 /** File inputs that name an existing object instead of supplying bytes. */
@@ -27,6 +28,16 @@ export type StagedChunk = {
   /** Already published, inside the change, to this path. */
   | { readonly published: string }
 );
+
+/**
+ * Who holds the object a file entry names before a change replaces it: the
+ * entry alone (`exclusive`), so the change may rewrite it in place, or more
+ * than one reference.
+ */
+export interface Ownership {
+  readonly blobId: BlobId;
+  readonly exclusive: boolean;
+}
 
 /** A file's bytes, taken in, hashed and held for the change that stores them. */
 export interface StagedBytes {
@@ -64,11 +75,29 @@ export class BlobStaging {
   >();
   /** Staged files not yet promoted or discarded. */
   readonly #waiting = new Set<string>();
+  /** The ownership each path showed when the change was first checked. */
+  readonly #ownership = new Map<string, Ownership | null>();
 
   constructor(limits: StagingLimits) {
     this.#files = limits.files;
     this.#area = limits.files?.staging;
     this.#maxFileBytes = limits.maxFileBytes;
+  }
+
+  /**
+   * Records the ownership `path` showed the first time the change is
+   * checked, before its bytes are staged. Afterwards, whether the ownership
+   * shown now is still that one.
+   */
+  expectOwnership(path: string, now: Ownership | null): boolean {
+    if (!this.#ownership.has(path)) {
+      this.#ownership.set(path, now);
+      return true;
+    }
+    const expected = this.#ownership.get(path) ?? null;
+    return (
+      expected?.blobId === now?.blobId && expected?.exclusive === now?.exclusive
+    );
   }
 
   /** Whether `entries` hold a stream this staging takes in ahead of the change. */

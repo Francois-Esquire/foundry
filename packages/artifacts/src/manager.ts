@@ -520,7 +520,7 @@ export class ArtifactManager implements Artifacts {
     }
     const staging = this.#staging();
     const prepare = async () => {
-      await this.#check(check);
+      await this.#check(check, staging);
       await staging.stageAll(entries);
     };
     if (!staging.streamsAhead(entries)) {
@@ -538,11 +538,13 @@ export class ArtifactManager implements Artifacts {
   /**
    * `check` over the records as they are now, read without taking a turn,
    * so it can run inside this manager's own turn. The change runs its
-   * checks again inside the store's exclusion; this only spares staging the
-   * bytes of a change already refused.
+   * checks again inside the store's exclusion, over `staging`, where this
+   * first check records what it saw (the ownership of objects the change
+   * may rewrite); it also spares staging the bytes of a refused change.
    */
   async #check(
-    check: (artifacts: ArtifactTransaction) => Promise<unknown>
+    check: (artifacts: ArtifactTransaction) => Promise<unknown>,
+    staging: BlobStaging
   ): Promise<void> {
     const change = new ArtifactChange(this.#store, { readOnly: true });
     try {
@@ -551,7 +553,7 @@ export class ArtifactManager implements Artifacts {
           change,
           operationEffects(),
           this.#limits,
-          this.#staging()
+          staging
         )
       );
     } finally {

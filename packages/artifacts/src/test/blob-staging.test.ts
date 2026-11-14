@@ -272,7 +272,7 @@ describe.each(["memory", "json"] as const)(
       await settled();
     });
 
-    it("recompute ownership inside the change: a blob shared meanwhile is not rewritten", async () => {
+    it("refuse a change whose object became shared while its bytes were staged", async () => {
       const { manager, settled } = await storage(kind);
       const writer = manager();
       const other = manager();
@@ -301,17 +301,14 @@ describe.each(["memory", "json"] as const)(
       } finally {
         gate.release();
       }
-      const written = await writing;
-      expect(file(written, "file.txt").blobId).not.toBe(shared);
-      expect(file(required(copy).content, "copy.txt").blobId).toBe(shared);
+      await expect(writing).rejects.toBeInstanceOf(StaleContentError);
+      const kept = await other.get(seed.id);
+      expect(file(kept?.content, "file.txt").blobId).toBe(shared);
       expect(
         decoded(
           (await other.readFile(required(copy?.contentId), "copy.txt"))?.blob
         )
       ).toBe("old");
-      expect(
-        decoded((await other.readFile(written.id, "file.txt"))?.blob)
-      ).toBe("new");
       await settled();
     });
 
