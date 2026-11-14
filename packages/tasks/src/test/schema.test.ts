@@ -5,8 +5,8 @@ import {
   taskSnapshotSchema,
   taskStoreWriteSchema,
 } from "../schema";
-import type { TaskStoreWrite } from "../store";
-import { MemoryTaskStore } from "../store";
+import type { TaskStoreWrite } from "../store/index";
+import { MemoryTaskStore } from "../store/memory";
 import { Tasks } from "../tasks";
 
 const clock = () => new Date("2026-10-29T00:00:00.000Z");

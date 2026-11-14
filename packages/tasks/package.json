@@ -27,9 +27,14 @@
       "default": "./src/schema.ts"
     },
     "./store": {
-      "types": "./dist/store.d.ts",
-      "import": "./src/store.ts",
-      "default": "./src/store.ts"
+      "types": "./dist/store/index.d.ts",
+      "import": "./src/store/index.ts",
+      "default": "./src/store/index.ts"
+    },
+    "./store/memory": {
+      "types": "./dist/store/memory.d.ts",
+      "import": "./src/store/memory.ts",
+      "default": "./src/store/memory.ts"
     }
   },
   "files": [

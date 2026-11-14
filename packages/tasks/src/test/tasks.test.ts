@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { TaskError } from "../errors";
 import type { TaskOperation, TaskToken } from "../operations";
-import { MemoryTaskStore } from "../store";
+import { MemoryTaskStore } from "../store/memory";
 import { Tasks } from "../tasks";
 
 /** A fixed clock; `Tasks` keeps instants strictly increasing on its own. */
