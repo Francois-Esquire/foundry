@@ -3,22 +3,14 @@
  * {@link import("./container/store").ContainerStore} interface. Each schema is
  * the single definition of its record; the TypeScript types are inferred.
  *
- * Imports nothing but Zod, so the runtime-free store contract can import these
- * types without loading a provider.
+ * Imports only Zod and plain constants, so the runtime-free store contract can
+ * import these types without loading a provider.
  */
 import { z } from "zod";
 
-/**
- * Status of the persisted row, distinct from a runtime's live VM status.
- */
-export const containerRowStatusSchema = z.enum([
-  "starting",
-  "running",
-  "restarting",
-  "missing",
-  "stopped",
-  "failed",
-]);
+import { CONTAINER_ROW_STATUSES } from "./container/constants";
+
+export const containerRowStatusSchema = z.enum(CONTAINER_ROW_STATUSES);
 
 export type ContainerRowStatus = z.infer<typeof containerRowStatusSchema>;
 
