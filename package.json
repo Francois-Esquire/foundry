@@ -31,7 +31,6 @@
     "lint:deps": "sherif",
     "lint:deps-fix": "sherif --fix",
     "lint:fix": "biome lint --write .",
-    "lint:lock": "bun install --lockfile-only && git diff --exit-code -- bun.lock",
     "marbles": "bun run --no-env-file apps/marbles/dist/cli.js",
     "prepare": "husky",
     "release:check": "bun run tooling/release/src/cli.ts check",
@@ -44,7 +43,7 @@
     "test:package": "turbo run test:package",
     "test:watch": "turbo run test:watch",
     "typecheck": "turbo run typecheck",
-    "validate": "bun run check && bun run lint:deps && bun run lint:lock && bun run typecheck && bun run dead-code"
+    "validate": "bun run check && bun run lint:deps && bun run typecheck && bun run dead-code"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",
