@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 
 import { isRecord, readJson, writeJson } from "~/lib/state/json";
@@ -60,13 +60,28 @@ export function recordedState(
   const listed = readdirSync(state, { withFileTypes: true }).some(
     (entry) => entry.name === id && entry.isDirectory()
   );
-  const dir = join(state, id);
-  // A real directory, and the same one once every link above it resolves.
-  if (!listed || realpathSync(dir) !== join(realpathSync(state), id)) {
+  if (!(listed && insideState(state, id))) {
     return;
   }
-  const record = readWorkspace(dir);
+  const record = readWorkspace(join(state, id));
   return record?.id === id ? placed(state, id, record.root) : undefined;
+}
+
+/**
+ * Whether `<state>/<id>` keeps what is written under it inside `state`:
+ * nothing is there yet, so it is made there on first use, or it is a real
+ * directory, the same one once every link above it resolves. A symlink,
+ * even a dangling one, is neither.
+ */
+export function insideState(state: string, id: string): boolean {
+  const dir = join(state, id);
+  const stat = lstatSync(dir, { throwIfNoEntry: false });
+  if (stat === undefined) {
+    return true;
+  }
+  return (
+    stat.isDirectory() && realpathSync(dir) === join(realpathSync(state), id)
+  );
 }
 
 function placed(state: string, id: string, root: string): Workspace {

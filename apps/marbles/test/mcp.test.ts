@@ -651,6 +651,54 @@ it("starts without a source and serves the stored tasks of every recorded worksp
   }
 }, 60_000);
 
+it("refuses its own workspace's tasks when its state links out of the state root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mr-"));
+  const state = join(root, "s");
+  const here = join(root, "a");
+  const outside = join(root, "outside");
+  await mkdir(here);
+  await mkdir(outside);
+  await mkdir(state);
+  const own = workspaceState(state, here);
+  await symlink(outside, own.dir);
+  const transport = new StdioClientTransport({
+    args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--state", state],
+    command: "bun",
+    cwd: here,
+    stderr: "pipe",
+  });
+  let diagnostics = "";
+  transport.stderr?.on("data", (chunk: Buffer) => {
+    diagnostics += chunk.toString();
+  });
+  const client = new Client({ name: "marbles-test", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    // The default target, then the same workspace named by its id.
+    for (const target of [{}, { workspace: own.id }]) {
+      const changed = await client.callTool({
+        arguments: {
+          ...target,
+          operations: [
+            { input: { title: "Outside" }, key: "o", kind: "task.create" },
+          ],
+        },
+        name: "change_tasks",
+      });
+      expect(changed.isError, JSON.stringify(target)).toBe(true);
+      expect(JSON.stringify(changed.content)).toContain(
+        "is not a directory inside"
+      );
+    }
+    expect(await readdir(outside)).toEqual([]);
+  } catch (error) {
+    throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
+  } finally {
+    await client.close();
+    await rm(root, { force: true, recursive: true });
+  }
+}, 60_000);
+
 it("serves a workspace the Marbles process hosts, by default and by id", async () => {
   // Short on purpose: the state root holds a Unix socket, whose path is
   // limited to about a hundred bytes.
