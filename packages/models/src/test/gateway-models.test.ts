@@ -38,8 +38,6 @@ describe("gatewayModels", () => {
           { id: "served/one", object: "model", owned_by: "someone" },
           { id: "served/two", object: "model" },
           { id: "served/one", object: "model" },
-          { object: "model" },
-          { id: 7 },
         ],
         object: "list",
       }),
@@ -58,6 +56,23 @@ describe("gatewayModels", () => {
       authorization: "Bearer secret",
       url: "/v1/models?v=1",
     });
+  });
+
+  it("lists nothing when the server serves nothing", async () => {
+    answer = { body: '{"data":[],"object":"list"}', status: 200 };
+    expect(await gatewayModels({ baseURL })).toEqual([]);
+  });
+
+  it.each([
+    '{"data":[{"id":7}]}',
+    '{"data":[{"id":"served/one"},{"object":"model"}]}',
+    '{"data":[{"id":"served/one"},null]}',
+    '{"data":[{"id":""}]}',
+  ])("rejects a list with a model it cannot name: %s", async (body) => {
+    answer = { body, status: 200 };
+    await expect(gatewayModels({ baseURL })).rejects.toThrow(
+      "GET /models answered a model without an id"
+    );
   });
 
   it("rejects with the status when the server refuses", async () => {

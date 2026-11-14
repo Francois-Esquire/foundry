@@ -42,8 +42,8 @@ function headersFor(config: GatewayProviderConfig): Record<string, string> {
  * The models the gateway's own server lists, from the standard
  * OpenAI-compatible `GET <baseURL>/models`. The list carries ids only, so
  * each is a text model whose capabilities, limits, and prices are unknown.
- * Rejects with a short reason when the server cannot be read or answers
- * with anything but a model list.
+ * Rejects with a short reason when the server cannot be read, answers
+ * with anything but a model list, or lists a model without an id.
  */
 export async function gatewayModels(
   config: GatewayProviderConfig,
@@ -61,9 +61,13 @@ export async function gatewayModels(
   if (!Array.isArray(data)) {
     throw new Error("GET /models answered without a model list");
   }
-  const ids = data.flatMap((model: unknown) => {
+  const ids = data.map((model: unknown) => {
     const id = (model as { id?: unknown } | null)?.id;
-    return typeof id === "string" && id !== "" ? [id] : [];
+    // One row it cannot read makes the whole list unreliable.
+    if (typeof id !== "string" || id === "") {
+      throw new Error("GET /models answered a model without an id");
+    }
+    return id;
   });
   return [...new Set(ids)].map((id) => ({ id, kind: "text", modelId: id }));
 }
