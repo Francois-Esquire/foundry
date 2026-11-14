@@ -48,9 +48,8 @@ claude.details?.anthropic?.extraUsage;
   default account (the machine's default Claude Code or Codex login) and
   adds it when it looks signed in or has history. It asks no provider for
   limits, and an API key in the environment is never a default account. It
-  starts loading the list prices consumption is priced at. It returns the
-  default accounts now added, whoever added them: each `Account` named after
-  its provider.
+  returns the default accounts now added, whoever added them: each `Account`
+  named after its provider.
 - **`usage.query(name, options?)`** reads one account; an unknown name
   rejects. **`usage.query(options?)`** reads every added account in
   parallel, a snapshot each; `options.provider` narrows to one provider.
@@ -228,10 +227,11 @@ account get a snapshot each, with the same `identity.id`.
 Consumption comes from the history each client already writes under its
 config directory, so work done outside Foundry counts too. A login's work
 runs on an allowance, so its charges are `notional`: list prices from
-models.dev, which `@foundry/models` fetches once per process. A history read
-waits for that fetch to settle. When models.dev cannot be read, a model it
-does not list exactly, and work at a fast or priority tier, have no charge. An API key has
-no local history, so its `consumption` is absent.
+models.dev, which a host loads with `holdModelsDev()` from `@foundry/models`
+(a Marbles engine holds it while it runs). A history read never waits for
+it. Until it has loaded, when it cannot be read, for a model it does not
+list exactly, and for work at a fast or priority tier, there is no charge.
+An API key has no local history, so its `consumption` is absent.
 
 ## Writing a provider
 
@@ -325,8 +325,8 @@ adds `headroom`, `resetsIn` and `exhausted`.
 For consumption, the kit has `consumptionOf(works, since, price, basis)`,
 which groups `Work` (one response: `at`, `model`, `quantities`, `session`,
 `standardSpeed`) per session and model, pricing each piece on its own;
-`listPrices(vendor)`, list prices from models.dev, which a provider's
-`history` runs after loading; and
+`listPrices(vendor)`, list prices from models.dev once a host has loaded
+it; and
 `quantities(counts)`, which drops zero counts.
 
 What only one provider reports goes in `details`, translated, never the raw

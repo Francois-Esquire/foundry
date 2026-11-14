@@ -1,8 +1,5 @@
 import { enrichFromModelsDev } from "@foundry/models/catalog/models-dev";
-import {
-  loadedModelsDev,
-  loadModelsDev,
-} from "@foundry/models/catalog/models-dev-source";
+import { loadedModelsDev } from "@foundry/models/catalog/models-dev-source";
 import { costFromUsage } from "@foundry/models/cost";
 
 import type { Credits, Money } from "./limit";
@@ -64,8 +61,9 @@ type Rates = Parameters<typeof costFromUsage>[0];
 /**
  * List prices for one vendor's models from models.dev, which `@foundry/models`
  * reads at run time, matched exactly, so a model it does not list is
- * unpriced. Before models.dev has loaded, or when it could not be read,
- * nothing is priced; a provider's history waits for the load. Rates are looked up
+ * unpriced. Nothing waits for models.dev: until a host has loaded it
+ * (`holdModelsDev` in `@foundry/models`), and when it could not be read,
+ * nothing is priced. Rates are looked up
  * once per model per returned function, once the catalog is there.
  */
 export const listPrices = (vendor: string): Price => {
@@ -100,14 +98,6 @@ export const listPrices = (vendor: string): Price => {
     });
     return { amount: { amount: total, unit: "usd" }, basis: "priced" };
   };
-};
-
-/**
- * Starts loading the list prices {@link listPrices} reads, or joins the load
- * already started, and resolves when it settles. Never rejects.
- */
-export const pricesLoaded = async (): Promise<void> => {
-  await loadModelsDev();
 };
 
 /** Quantities with only positive values. */

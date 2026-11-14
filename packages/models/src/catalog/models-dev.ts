@@ -78,12 +78,73 @@ function firstPartyCost(
   const provider = providers[key.slice(0, slash)];
   const models = isObject(provider) ? provider.models : undefined;
   const entry = isObject(models) ? models[key.slice(slash + 1)] : undefined;
-  const cost = isObject(entry) ? entry.cost : undefined;
-  return isObject(cost) &&
-    typeof cost.input === "number" &&
-    typeof cost.output === "number"
-    ? (cost as unknown as ModelsDevCost)
-    : undefined;
+  return isObject(entry) ? validCost(entry.cost) : undefined;
+}
+
+const isRate = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+const optionalRate = (value: unknown): boolean =>
+  value === undefined || isRate(value);
+
+/**
+ * A price whose every field has the right type, rebuilt from those fields,
+ * or `undefined`. One bad field drops the whole price rather than part of
+ * it: a turn with no price keeps its tokens, a half price misstates them.
+ */
+function validCost(value: unknown): ModelsDevCost | undefined {
+  if (
+    !(
+      isObject(value) &&
+      isRate(value.input) &&
+      isRate(value.output) &&
+      optionalRate(value.cache_read) &&
+      optionalRate(value.cache_write)
+    )
+  ) {
+    return;
+  }
+  const tiers: NonNullable<ModelsDevCost["tiers"]> = [];
+  if (value.tiers !== undefined) {
+    if (!Array.isArray(value.tiers)) {
+      return;
+    }
+    for (const tier of value.tiers) {
+      const bracket = isObject(tier) ? tier.tier : undefined;
+      if (
+        !(
+          isObject(tier) &&
+          isRate(tier.input) &&
+          isRate(tier.output) &&
+          optionalRate(tier.cache_read) &&
+          isObject(bracket) &&
+          isRate(bracket.size) &&
+          typeof bracket.type === "string"
+        )
+      ) {
+        return;
+      }
+      tiers.push({
+        input: tier.input,
+        output: tier.output,
+        ...(tier.cache_read === undefined
+          ? {}
+          : { cache_read: tier.cache_read as number }),
+        tier: { size: bracket.size, type: bracket.type },
+      });
+    }
+  }
+  return {
+    input: value.input,
+    output: value.output,
+    ...(value.cache_read === undefined
+      ? {}
+      : { cache_read: value.cache_read as number }),
+    ...(value.cache_write === undefined
+      ? {}
+      : { cache_write: value.cache_write as number }),
+    ...(tiers.length > 0 ? { tiers } : {}),
+  };
 }
 
 /** The fields a catalog row can use, each kept only when it has the right type. */

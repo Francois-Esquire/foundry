@@ -343,6 +343,73 @@ describe("modelsDevCatalog", () => {
     });
   });
 
+  it("drops a price with any malformed field, and keeps the model's other facts", () => {
+    const catalog = modelsDevCatalog({
+      models: {
+        "a/cached": { name: "Cached" },
+        "a/negative": { name: "Negative" },
+        "a/tiered": { name: "Tiered" },
+      },
+      providers: {
+        a: {
+          models: {
+            cached: { cost: { cache_read: "0.1", input: 1, output: 2 } },
+            negative: { cost: { input: -1, output: 2 } },
+            tiered: { cost: { input: 1, output: 2, tiers: [{}] } },
+          },
+        },
+      },
+    });
+    expect(catalog?.["a/tiered"]).toEqual({ name: "Tiered" });
+    expect(catalog?.["a/cached"]).toEqual({ name: "Cached" });
+    expect(catalog?.["a/negative"]).toEqual({ name: "Negative" });
+    // Unpriced, so a turn keeps its tokens and has no charge; nothing throws.
+    const [tiered] = enrichFromModelsDev(
+      [row({ id: "tiered", modelId: "tiered", vendor: "a" })],
+      catalog ?? {}
+    );
+    expect(tiered?.costs).toBeUndefined();
+  });
+
+  it("keeps only the price fields it knows", () => {
+    const catalog = modelsDevCatalog({
+      models: { "a/m": {} },
+      providers: {
+        a: {
+          models: {
+            m: {
+              cost: {
+                context_over_200k: { input: 9, output: 9 },
+                input: 1,
+                output: 2,
+                tiers: [
+                  {
+                    cache_read: 0.5,
+                    input: 3,
+                    output: 4,
+                    tier: { size: 1000, type: "context" },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(catalog?.["a/m"]?.cost).toEqual({
+      input: 1,
+      output: 2,
+      tiers: [
+        {
+          cache_read: 0.5,
+          input: 3,
+          output: 4,
+          tier: { size: 1000, type: "context" },
+        },
+      ],
+    });
+  });
+
   it("reads nothing from a payload without a models map", () => {
     expect(modelsDevCatalog(null)).toBeUndefined();
     expect(modelsDevCatalog({ models: [] })).toBeUndefined();

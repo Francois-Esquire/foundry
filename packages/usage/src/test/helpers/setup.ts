@@ -1,4 +1,5 @@
 /** A test setup file: see the vitest configuration. */
+import { holdModelsDev } from "@foundry/models/catalog/models-dev-source";
 import { vi } from "vitest";
 
 /** The models.dev entries these tests price, trimmed from `https://models.dev/catalog.json`. */
@@ -39,7 +40,8 @@ const PAYLOAD = {
 
 /**
  * Every test file starts with this: models.dev answers with {@link PAYLOAD},
- * and any other request is refused, so no test reaches the network.
+ * and any other request is refused, so no test reaches the network. The
+ * prices are then loaded, as a host would load them, before any test runs.
  */
 vi.stubGlobal(
   "fetch",
@@ -49,3 +51,5 @@ vi.stubGlobal(
       : Promise.reject(new Error(`unexpected fetch of ${String(url)}`))
   )
 );
+
+await holdModelsDev().loaded;

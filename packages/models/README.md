@@ -101,11 +101,14 @@ entry exports no provider.
 | `/embeddings/*` | Chunking, embedding, and ranking |
 | `/model-option`, `/cost` | Pure leaves; see below |
 
-**models.dev at run time.** `loadModelsDev()` (`/catalog/models-dev-source`)
-fetches `https://models.dev/catalog.json` once per process and keeps it.
-It never rejects: when the fetch fails there is no catalog, and a price that
-needs it is absent. `loadedModelsDev()` returns what has loaded, without
-fetching. `FOUNDRY_MODELS_DEV_URL` names another source; an empty value
+**models.dev at run time.** `holdModelsDev()` (`/catalog/models-dev-source`)
+starts fetching `https://models.dev/catalog.json`, or joins the fetch already
+running, and returns a hold whose `loaded` never rejects. The catalog is
+kept for the life of the process. Release the hold when the host stops:
+when the last hold is released before the fetch finishes, it is aborted, so
+it never keeps a finished process open. Nothing waits for it: until it has
+loaded, and when it fails, a price that needs it is absent.
+`loadedModelsDev()` returns what has loaded, without fetching. `FOUNDRY_MODELS_DEV_URL` names another source; an empty value
 loads nothing. `enrichFromModelsDev(rows, catalog)` (`/catalog/models-dev`)
 fills a row's absent facts from it and never overrides what the row states.
 

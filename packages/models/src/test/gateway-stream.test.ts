@@ -55,7 +55,11 @@ beforeAll(async () => {
       response.end("data: [DONE]\n\n");
     });
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  // Port 0: the system picks a free port. A bind error fails the hook at once.
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
   baseURL = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
 });
 

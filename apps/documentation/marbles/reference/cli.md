@@ -176,7 +176,8 @@ Marbles shows Catalog; focusing Runs shows Overview.
 Usage is recorded once per agent turn inside a run, from the token counts the
 harness reports. A cost is estimated at the catalog's list price when the
 model has one, else at the models.dev list price for it, which Marbles
-fetches once when the workspace opens, and keeps that price with the turn;
+fetches once while an engine runs and not in Airplane Mode, and keeps that
+price with the turn;
 `~` marks an estimate. The first turn of a Claude Code session that runs in
 this process records the cost Claude Code reports, its `total_cost_usd`,
 as `reported`. Claude Code computes that figure from its own price table on

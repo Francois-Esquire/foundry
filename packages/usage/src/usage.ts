@@ -1,5 +1,4 @@
 import type { Consumption } from "./consumption";
-import { pricesLoaded } from "./consumption";
 import type { Duration } from "./limit";
 import {
   accountWide,
@@ -50,9 +49,8 @@ export interface Usage {
   add(account: Account): string;
   /**
    * Adds each registered provider's default account that looks signed in or
-   * has history, under the provider's id, unless that name is taken. Asks for no limits,
-   * and starts loading the list prices consumption is priced at. Returns
-   * every default account now added, whoever added it.
+   * has history, under the provider's id, unless that name is taken. Asks for no limits.
+   * Returns every default account now added, whoever added it.
    */
   initialize(): Promise<readonly Account[]>;
   query(name: string, options?: QueryOptions): Promise<Snapshot>;
@@ -154,8 +152,6 @@ export const createUsage = (): Usage => {
   return {
     add,
     initialize: async () => {
-      // Started now so the list prices are there when history is first read.
-      pricesLoaded().catch(() => undefined);
       const free = [...providers.values()].filter(
         ({ id }) => !accounts.has(id)
       );
