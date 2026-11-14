@@ -84,10 +84,10 @@ Shared project MCP entries are not installed. To connect a chosen MCP host,
 launch `marbles mcp` with `--source` and the absolute path to
 `.foundry/marbles`. Host loading and cwd behavior still need verification.
 
-Normal startup joins or starts the machine-level Marbles daemon and can
-replace one running another version. Attaching the workspace loads its source,
-environment configuration, and schedules; hosting continues after the client
-disconnects. The MCP server exposes general Marbles operations, not just review.
+The server starts nothing. Host the workspace first with `marbles attach`,
+which starts the machine-level Marbles daemon when none runs and loads the
+workspace's source, environment configuration, and schedules in a worker.
+Hosting continues after the client disconnects. The MCP server exposes general Marbles operations, not just review.
 Once connected from an MCP client:
 
 1. `list_config` names `adversarial-review` and its input schema.

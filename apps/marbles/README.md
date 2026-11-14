@@ -123,18 +123,23 @@ From this checkout, without a build, run `bun --no-env-file
 /absolute/path/to/foundry/apps/marbles/src/cli.ts mcp` with the same flags.
 
 `--source` accepts a file or directory and defaults to `.foundry/marbles`
-under `cwd`. The server attaches that workspace to the Marbles process, one
-per machine, which starts when none runs and hosts the workspace in a
-worker of its own. The worker loads the workspace's Varlock environment,
-then the source modules, which execute when loaded; it watches the
-authoring folder and reloads itself on an edit, so no restart is needed.
+under `cwd`. The server reads and writes that workspace's stored state and
+drives the Marbles process when one runs. Outside `--dry-run` it never
+starts the process, never attaches the workspace, and runs none of its
+source; under `--dry-run` it hosts the workspace in its own process. The task tools
+work without a process: a worker that hosts the workspace answers, or the
+server opens the stored tasks for the call. `list_config`, the dispatch
+tools, `get_run`, and `cancel_run` need a worker that hosts the workspace,
+and return an error that names `marbles attach` without one. That worker
+loads the workspace's Varlock environment and source modules and reloads
+itself on an edit.
 
 The server offers `list_workspaces`, `list_config`, `dispatch_workflow`,
 `dispatch_agent`, `get_run`, and `cancel_run`, plus the task tools
 `list_tasks`, `ready_tasks`, `get_task`, `task_dependencies`, and
 `change_tasks`. Every tool but
 `list_workspaces` takes an optional `workspace` id, from `list_workspaces`,
-to address another workspace the process hosts instead of the attached one.
+to address another workspace the process hosts instead of the server's own.
 `list_config` returns workflow and step names with input schemas, agent
 IDs and model routes, and declared schedules and monitors. `dispatch_workflow`
 takes `name` and optional `input`, launches in the background, and returns
@@ -178,9 +183,8 @@ Poll `get_run` with
 an `error`. Status follows the engine: `queued`, `running`, `suspended`,
 `completed`, `failed`, or `cancelled`. `cancel_run` takes the same run ID and requests cancellation.
 Dispatched runs belong to the workspace's worker, so closing the MCP
-connection detaches the server and leaves them running. `get_run` looks a
-run up in that worker's memory: any server attached to the same workspace
-sees it, and a source reload or `marbles stop` forgets it, though its saved
+connection ends only the server and leaves them running. `get_run` looks a
+run up in that worker's memory: any server for the same workspace sees it, and a source reload or `marbles stop` forgets it, though its saved
 output stays watchable.
 
 ### Watch a run

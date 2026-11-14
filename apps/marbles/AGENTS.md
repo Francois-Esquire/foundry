@@ -37,7 +37,7 @@ to the declaration bundler through the explicit mappings in `tsup.config.ts`.
 
 # Marbles source layout
 
-Four buckets, each importing only what sits below it:
+Five buckets, each importing only what sits below it:
 
 - `src/lib/` is the engine and imports nothing outside `src/lib/`: no
   authoring words, no views, no CLI. The `Engine` constructor takes the
@@ -88,14 +88,22 @@ Four buckets, each importing only what sits below it:
   (`instance.ts`). Apart from the worker it imports only `lib/`,
   `layout.ts`, `model/` and the pure discovery in `workspace/source.ts`,
   so the daemon never loads an authoring module and survives any of them.
+- `src/access/` is how a command reaches its workspace, shared by the CLI
+  and the MCP server (`workspace.ts`): through stored state, with an engine
+  it never starts; through a running instance, joining the Marbles process
+  without starting it (`NotHostedError` when no worker hosts the
+  workspace); or by starting and hosting it, which only the CLI does. It
+  imports `workspace/`, `process/`, `lib/`, `layout.ts` and `model/`, and
+  nothing from the app.
 - The app sits on top and may import anything: `src/cli.ts`, `src/args.ts`
   (which parses a command line completely, before anything loads),
   `src/dashboard/`, `src/views/`, `src/components/`, `src/mcp/`,
-  `src/status/`, `src/sessions/`. `src/mcp/stdio.ts` (`marbles mcp`, which
-  `cli.ts` loads only when that command runs, since it takes stdout over for
-  the protocol) and the dashboard are clients of the process; under
-  `--dry-run` they host the workspace in their own process through
-  `hostWorkspace` instead, since nothing is persisted.
+  `src/status/`, `src/sessions/`. The dashboard is a client of the process.
+  `src/mcp/stdio.ts` is `marbles mcp`, which `cli.ts` loads only when that
+  command runs, since it takes stdout over for the protocol. It reaches the
+  workspace through `access/` and never starts the process or attaches a
+  workspace. Under `--dry-run` both host the workspace in their own process
+  through `hostWorkspace` instead, since nothing is persisted.
 
 `src/layout.ts` decides where things live: the Foundry home
 (`$FOUNDRY_HOME`, else `~/.foundry`), the Marbles state root under it, the

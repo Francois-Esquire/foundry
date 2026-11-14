@@ -367,7 +367,8 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
         "stopped Marbles process"
       );
     }
-    // The installed bin serves MCP over STDIO, and stdout carries only frames.
+    // The installed bin serves MCP over STDIO, stdout carries only frames,
+    // and serving starts no Marbles process.
     const mcpState = mkdtempSync(join(tmpdir(), "mp-"));
     try {
       const session = await rawMcpSession(
@@ -394,7 +395,9 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
       });
       expect(strayLines(ended.stdout)).toEqual([]);
     } finally {
-      run(cli, ["stop", "--state", mcpState], consumer);
+      expect(run(cli, ["stop", "--state", mcpState], consumer)).toContain(
+        "no Marbles process is running"
+      );
       rmSync(mcpState, { force: true, recursive: true });
     }
     writeFileSync(join(standalone, "workspace-marker.txt"), "workspace root");

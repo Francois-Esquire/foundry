@@ -1,12 +1,19 @@
 import { Console } from "node:console";
+import { resolve } from "node:path";
 import { Writable } from "node:stream";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  hostHere,
+  joinProcess,
+  withRunningWorkspace,
+  withTasks,
+} from "~/access/workspace";
 import type { Flags } from "~/args";
-import { layout } from "~/layout";
 import { createMcpServer, type McpServerOptions } from "~/mcp/server";
 import type { WorkspaceSummary } from "~/model/connection";
-import { connect } from "~/process/client";
-import { hostWorkspace } from "~/workspace/host";
+import { readStatus } from "~/status/model";
+import type { WorkspaceHost } from "~/workspace/host";
+import { findWorkspace } from "~/workspace/open";
 import { resolveSource } from "~/workspace/source";
 
 // Imported source and workflow bodies may print. Only the transport writes
@@ -36,88 +43,118 @@ const print = (line: string): void => {
 
 /** What the server answers for, and how to let go of it. */
 interface Served extends McpServerOptions {
+  /** The source that defines the workspace, or null without one. */
+  readonly config: string | null;
   /** Where the source is, or would be; named when nothing loads there. */
   readonly configPath: string;
   readonly release: () => Promise<void>;
 }
 
-/** Host the workspace here: nothing persists, so no process is involved. */
+/** Under `--dry-run` nothing persists, so the workspace is hosted here. */
 async function serveInProcess(flags: Flags): Promise<Served> {
-  const host = await hostWorkspace({
-    artifacts: flags.artifacts,
-    askable: false,
-    dry: flags.dry,
-    env: "require",
-    print,
-    source: flags.config,
-    state: flags.state,
-  });
+  const host = await hostHere(flags, { askable: false, env: "require", print });
+  const only = (id: string): WorkspaceHost => {
+    if (id !== host.id) {
+      throw new Error(
+        `only workspace "${host.id}" is available under --dry-run`
+      );
+    }
+    return host;
+  };
   return {
-    attached: host,
+    config: host.config,
     configPath: host.configPath,
+    hosted: (id, work) => work(only(id)),
+    id: host.id,
     release: () => host.close(),
+    tasks: (command, id = host.id) => only(id).tasks(command),
+    workspaces: () =>
+      Promise.resolve([
+        { config: host.config, id: host.id, root: host.root, state: "ready" },
+      ]),
   };
 }
 
 /**
- * Attach the workspace to the Marbles process and answer from there. The
- * process keeps hosting it after this server closes; any other workspace
- * it hosts can be named by id, resolved through the last listing.
+ * Answer from stored state and the running Marbles process, joined per
+ * call and never started. Tasks work either way; everything that runs or
+ * reads a run needs a worker that hosts the workspace.
  */
-async function serveFromProcess(flags: Flags): Promise<Served> {
-  const client = await connect({
-    layout: layout({ artifacts: flags.artifacts, state: flags.state }),
-  });
-  const source = resolveSource(flags.config);
-  let summary: WorkspaceSummary;
-  try {
-    summary = await client.attach(source, { root: process.cwd() });
-  } catch (error) {
-    client.close();
-    throw error;
-  }
-  const known = new Map<string, WorkspaceSummary>([[summary.id, summary]]);
-  const unsubscribe = client.subscribe(summary.id, { line: print });
+function serveFromState(flags: Flags): Served {
+  const opened = findWorkspace(flags);
+  const own = opened.workspace;
+  // Each stored-state call holds the tasks until it ends, so calls a client
+  // sends together take turns rather than refuse each other.
+  let turn: Promise<unknown> = Promise.resolve();
+  const inTurn = <T>(work: () => Promise<T>): Promise<T> => {
+    const next = turn.then(work, work);
+    turn = next.catch(() => undefined);
+    return next;
+  };
   return {
-    attached: client.workspace(summary),
-    configPath: summary.config ?? source,
-    release: () => {
-      unsubscribe();
-      client.close();
-      return Promise.resolve();
-    },
-    workspace(id) {
-      const found = known.get(id);
-      if (found === undefined) {
-        throw new Error(
-          `no workspace "${id}" is hosted; list_workspaces names the hosted ones`
-        );
-      }
-      return client.workspace(found);
-    },
+    config: opened.config,
+    configPath: opened.configPath,
+    hosted: (id, work) => withRunningWorkspace(flags, id, work),
+    id: own.id,
+    release: () => Promise.resolve(),
+    tasks: (command, id = own.id) =>
+      id === own.id
+        ? inTurn(() => withTasks(flags, opened, print, (run) => run(command)))
+        : withRunningWorkspace(flags, id, (workspace) =>
+            workspace.tasks(command)
+          ),
     async workspaces() {
-      const summaries = await client.workspaces();
-      for (const entry of summaries) {
-        known.set(entry.id, entry);
+      const client = await joinProcess(flags);
+      let listed: readonly WorkspaceSummary[];
+      if (client === undefined) {
+        listed = storedWorkspaces(flags.state);
+      } else {
+        try {
+          listed = await client.workspaces();
+        } finally {
+          client.close();
+        }
       }
-      return summaries;
+      // This server's own workspace is always there to address.
+      return listed.some((entry) => entry.id === own.id)
+        ? listed
+        : [
+            {
+              config: opened.config,
+              id: own.id,
+              root: own.root,
+              state: "stopped",
+            },
+            ...listed,
+          ];
     },
   };
 }
 
-/** Attach or host the workspace, and serve it until the client leaves. */
+/** The workspaces kept under the state root; none is hosted while no process runs. */
+function storedWorkspaces(state: string): WorkspaceSummary[] {
+  return readStatus(resolve(state)).workspaces.map(({ config, id, root }) => ({
+    config,
+    id,
+    root,
+    state: "stopped",
+  }));
+}
+
+/** Serve the workspace until the client leaves. */
 async function serve(flags: Flags): Promise<void> {
   const configPath = resolveSource(flags.config);
-  const served = await (flags.dry ? serveInProcess : serveFromProcess)(
-    flags
-  ).catch((error: unknown) => {
+  let served: Served;
+  try {
+    served = flags.dry ? await serveInProcess(flags) : serveFromState(flags);
+  } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
       `could not open the workspace for "${configPath}": ${reason}`,
       { cause: error }
     );
-  });
-  if (served.attached.config === null) {
+  }
+  if (served.config === null) {
     await served.release();
     throw new Error(`no Marbles source at "${served.configPath}"`);
   }
