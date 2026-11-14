@@ -16,7 +16,7 @@ import type {
  * seam are detached — a store never hands out or retains a caller's objects.
  */
 export interface WorkspaceStore {
-  /** Writes the registration and the entry changes beside it, all or nothing. */
+  /** Applies one save or removal, all or nothing. */
   commit: (write: WorkspaceStoreWrite) => Promise<void>;
   /** The oldest registration over this canonical root. */
   findWorkspaceByPath: (path: string) => Promise<WorkspaceRegistration | null>;
