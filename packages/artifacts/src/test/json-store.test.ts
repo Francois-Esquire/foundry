@@ -15,7 +15,14 @@ afterAll(() => rm(root, { force: true, recursive: true }));
 const recordsPath = () => join(root, crypto.randomUUID(), "records.json");
 const store = () => new JsonArtifactStore({ path: recordsPath() });
 
-describeArtifactStore("JSON", store);
+/** Fresh storage: one directory, a records file per scope. */
+function jsonStorage() {
+  const directory = join(root, crypto.randomUUID());
+  return (scope: string) =>
+    new JsonArtifactStore({ path: join(directory, scope, "records.json") });
+}
+
+describeArtifactStore("JSON", jsonStorage);
 describeArtifactManager("JSON", store);
 
 describe("JSON Artifact store persistence", () => {
@@ -101,34 +108,6 @@ describe("JSON Artifact store persistence", () => {
     });
     const artifact = await reopened.get(created.id);
     expect(artifact?.content?.metadata).toMatchObject(metadata);
-  });
-
-  it("runs post-commit work after releasing the store, so it can write again", async () => {
-    const records = new JsonArtifactStore({ path: recordsPath() });
-    const order: string[] = [];
-    await records.transaction(async (transaction) => {
-      transaction.afterCommit(async () => {
-        await records.transaction(async () => {
-          order.push("nested write");
-        });
-      });
-      order.push("outer write");
-    });
-    expect(order).toEqual(["outer write", "nested write"]);
-  }, 2000);
-
-  it("discards post-commit work when the write fails", async () => {
-    const records = new JsonArtifactStore({ path: recordsPath() });
-    let ran = false;
-    await expect(
-      records.transaction(async (transaction) => {
-        transaction.afterCommit(async () => {
-          ran = true;
-        });
-        throw new Error("rolled back");
-      })
-    ).rejects.toThrow("rolled back");
-    expect(ran).toBe(false);
   });
 
   it("applies commits to a bound directory before the mutation returns", async () => {

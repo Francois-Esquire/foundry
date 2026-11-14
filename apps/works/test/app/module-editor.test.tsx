@@ -1,5 +1,5 @@
 import "../helpers/mock-module-source";
-import { InMemoryArtifactStore } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,

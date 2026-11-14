@@ -1,9 +1,6 @@
 import type { Stats } from "node:fs";
 import { lstat, open, rename, unlink } from "node:fs/promises";
-
-export function hasErrorCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
-}
+import { hasErrorCode } from "@foundry/lib/atomic-file";
 
 export async function lstatOrNull(path: string): Promise<Stats | null> {
   try {
@@ -18,28 +15,22 @@ export async function lstatOrNull(path: string): Promise<Stats | null> {
 
 /**
  * Write `data` to `temporary`, sync it, then rename it over `target`. The
- * temporary file is removed on a best-effort basis when a step fails.
+ * temporary file is removed on a best-effort basis when a step fails. Lib's
+ * `writeFileAtomic` takes whole contents and names its own temporary; this
+ * one streams, into a temporary the caller hides from directory scans.
  */
 export async function writeAtomically(
   target: string,
   temporary: string,
-  data: string | Uint8Array | AsyncIterable<Uint8Array>,
-  options: { readonly readOnly?: boolean } = {}
+  data: AsyncIterable<Uint8Array>
 ): Promise<void> {
   try {
     const file = await open(temporary, "wx", 0o600);
     try {
-      if (typeof data === "string" || data instanceof Uint8Array) {
-        await file.writeFile(data);
-      } else {
-        for await (const part of data) {
-          await file.writeFile(part);
-        }
+      for await (const part of data) {
+        await file.writeFile(part);
       }
       await file.sync();
-      if (options.readOnly) {
-        await file.chmod(0o400);
-      }
     } finally {
       await file.close();
     }

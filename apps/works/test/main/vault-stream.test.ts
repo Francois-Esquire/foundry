@@ -1,5 +1,5 @@
 import { MessageChannel, type MessagePort } from "node:worker_threads";
-import { InMemoryArtifactStore } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/message-port";
 import { RPCHandler } from "@orpc/server/message-port";

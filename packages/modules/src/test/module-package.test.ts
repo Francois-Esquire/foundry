@@ -1,9 +1,6 @@
 import type { FileInputs } from "@foundry/artifacts";
-import {
-  ArtifactManager,
-  digestTree,
-  InMemoryArtifactStore,
-} from "@foundry/artifacts";
+import { ArtifactManager, digestTree } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import type { StorageNode, StorageTree } from "@foundry/core/storage";
 import { storageTree, withParentDirectories } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
