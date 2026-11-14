@@ -1,6 +1,6 @@
 import type { Page, PageInput } from "@foundry/core/pagination";
-import { byCodeUnit } from "@foundry/lib/ordering";
 import { pageLimit, sliceRanked } from "@foundry/lib/pagination";
+import { Turns } from "@foundry/lib/turns";
 import type {
   WorkspaceEntry,
   WorkspaceEntryId,
@@ -8,45 +8,52 @@ import type {
   WorkspaceRegistration,
 } from "../types";
 import type { WorkspaceStore, WorkspaceStoreWrite } from "./index";
+import { byCodePoint, byPathThenId, pageOffset } from "./order";
+
+/** Why a call from inside the store's own transaction is refused. */
+const REENTRY =
+  "MemoryWorkspaceStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
 /**
- * The default store: plain maps in this process. Commits and transactions
- * take turns in one queue, so a commit from outside a transaction waits for
- * it to end. A transaction works on a staged copy of the maps that replaces
- * them only when its work succeeds.
+ * The default store: plain maps in this process. Every call takes a turn, so
+ * a commit made while a transaction runs lands after it, and a call made from
+ * inside a transaction's work is refused. A transaction works on a staged
+ * copy of the maps that replaces them only when its work succeeds.
  */
 export class MemoryWorkspaceStore implements WorkspaceStore {
   private storage = new Storage();
-  private tail: Promise<void> = Promise.resolve();
+  private readonly turns = new Turns(REENTRY);
 
   commit(write: WorkspaceStoreWrite): Promise<void> {
-    return this.queued(() => this.storage.apply(write));
+    return this.inTurn((storage) => storage.apply(write));
   }
 
   transaction<T>(work: (view: WorkspaceStore) => Promise<T>): Promise<T> {
-    return this.queued(async () => {
+    return this.turns.run(async () => {
       const staged = this.storage.copy();
       let open = true;
+      const onStaged = <R>(answer: (storage: Storage) => R): Promise<R> =>
+        new Promise((resolve) => resolve(answer(staged)));
       const view: WorkspaceStore = {
         commit: (write) =>
-          new Promise((resolve) => {
+          onStaged((storage) => {
             if (!open) {
               throw new Error("This transaction has ended");
             }
-            resolve(staged.apply(write));
+            storage.apply(write);
           }),
         findWorkspaceByPath: (path) =>
-          Promise.resolve(staged.findWorkspaceByPath(path)),
+          onStaged((storage) => storage.findWorkspaceByPath(path)),
         findWorkspaceBySourceId: (sourceId) =>
-          Promise.resolve(staged.findWorkspaceBySourceId(sourceId)),
+          onStaged((storage) => storage.findWorkspaceBySourceId(sourceId)),
         getEntry: (workspaceId, entryId) =>
-          Promise.resolve(staged.getEntry(workspaceId, entryId)),
+          onStaged((storage) => storage.getEntry(workspaceId, entryId)),
         getWorkspace: (workspaceId) =>
-          Promise.resolve(staged.getWorkspace(workspaceId)),
+          onStaged((storage) => storage.getWorkspace(workspaceId)),
         listEntries: (workspaceId) =>
-          Promise.resolve(staged.listEntries(workspaceId)),
+          onStaged((storage) => storage.listEntries(workspaceId)),
         listWorkspaces: (input) =>
-          Promise.resolve(staged.listWorkspaces(input)),
+          onStaged((storage) => storage.listWorkspaces(input)),
       };
       try {
         const result = await work(view);
@@ -61,43 +68,41 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
   getWorkspace(
     workspaceId: WorkspaceId
   ): Promise<WorkspaceRegistration | null> {
-    return Promise.resolve(this.storage.getWorkspace(workspaceId));
+    return this.inTurn((storage) => storage.getWorkspace(workspaceId));
   }
 
   findWorkspaceByPath(path: string): Promise<WorkspaceRegistration | null> {
-    return Promise.resolve(this.storage.findWorkspaceByPath(path));
+    return this.inTurn((storage) => storage.findWorkspaceByPath(path));
   }
 
   findWorkspaceBySourceId(
     sourceId: string
   ): Promise<WorkspaceRegistration | null> {
-    return Promise.resolve(this.storage.findWorkspaceBySourceId(sourceId));
+    return this.inTurn((storage) => storage.findWorkspaceBySourceId(sourceId));
   }
 
   listWorkspaces(
     input?: PageInput<number>
   ): Promise<Page<WorkspaceRegistration, number>> {
-    return Promise.resolve(this.storage.listWorkspaces(input));
+    return this.inTurn((storage) => storage.listWorkspaces(input));
   }
 
   getEntry(
     workspaceId: WorkspaceId,
     entryId: WorkspaceEntryId
   ): Promise<WorkspaceEntry | null> {
-    return Promise.resolve(this.storage.getEntry(workspaceId, entryId));
+    return this.inTurn((storage) => storage.getEntry(workspaceId, entryId));
   }
 
   listEntries(workspaceId: WorkspaceId): Promise<readonly WorkspaceEntry[]> {
-    return Promise.resolve(this.storage.listEntries(workspaceId));
+    return this.inTurn((storage) => storage.listEntries(workspaceId));
   }
 
-  private queued<T>(work: () => T | Promise<T>): Promise<T> {
-    const run = this.tail.then(work);
-    this.tail = run.then(
-      () => undefined,
-      () => undefined
+  /** One turn over the maps as they stand when the turn comes. */
+  private inTurn<R>(answer: (storage: Storage) => R): Promise<R> {
+    return this.turns.run(
+      () => new Promise((resolve) => resolve(answer(this.storage)))
     );
-    return run;
   }
 }
 
@@ -127,7 +132,11 @@ class Storage {
     return new Storage(new Map(this.workspaces), new Map(this.entries));
   }
 
-  /** Clones first, so a write holding a value that cannot be cloned changes nothing. */
+  /**
+   * Deletes the named entries of the write's Workspace, then files each put
+   * under its own `workspaceId`. Clones first, so a write holding a value
+   * that cannot be cloned changes nothing.
+   */
   apply(write: WorkspaceStoreWrite): void {
     const workspace =
       write.workspace === undefined ? null : structuredClone(write.workspace);
@@ -135,28 +144,36 @@ class Storage {
       write.workspace === undefined
         ? write.removeWorkspace
         : write.workspace.id;
-    const puts = (write.putEntries ?? []).map(
-      (entry): [WorkspaceEntryId, WorkspaceEntry] => [
-        entry.id,
-        structuredClone(entry),
-      ]
+    const puts = (write.putEntries ?? []).map((entry) =>
+      structuredClone(entry)
     );
-    const entries = new Map(this.entries.get(workspaceId));
+    const changed = new Map<
+      WorkspaceId,
+      Map<WorkspaceEntryId, WorkspaceEntry>
+    >();
+    const entriesOf = (id: WorkspaceId) => {
+      const found = changed.get(id) ?? new Map(this.entries.get(id));
+      changed.set(id, found);
+      return found;
+    };
+    const owned = entriesOf(workspaceId);
     for (const id of write.deleteEntries ?? []) {
-      entries.delete(id);
+      owned.delete(id);
     }
-    for (const [id, entry] of puts) {
-      entries.set(id, entry);
+    for (const entry of puts) {
+      entriesOf(entry.workspaceId).set(entry.id, entry);
     }
     if (workspace) {
       this.workspaces.set(workspaceId, workspace);
     } else {
       this.workspaces.delete(workspaceId);
     }
-    if (entries.size > 0) {
-      this.entries.set(workspaceId, entries);
-    } else {
-      this.entries.delete(workspaceId);
+    for (const [id, entries] of changed) {
+      if (entries.size > 0) {
+        this.entries.set(id, entries);
+      } else {
+        this.entries.delete(id);
+      }
     }
   }
 
@@ -179,7 +196,7 @@ class Storage {
     const page = sliceRanked(
       this.ordered(),
       pageLimit(input.limit),
-      input.cursor ?? 0
+      pageOffset(input.cursor)
     );
     return {
       ...page,
@@ -197,7 +214,7 @@ class Storage {
 
   listEntries(workspaceId: WorkspaceId): readonly WorkspaceEntry[] {
     return [...(this.entries.get(workspaceId)?.values() ?? [])]
-      .sort(byCodeUnit((entry) => entry.path))
+      .sort(byPathThenId)
       .map((entry) => structuredClone(entry));
   }
 
@@ -213,12 +230,10 @@ class Storage {
   }
 }
 
-const byId = byCodeUnit((workspace: WorkspaceRegistration) => workspace.id);
-
 function byCreatedAtThenId(
   a: WorkspaceRegistration,
   b: WorkspaceRegistration
 ): number {
   const byTime = a.createdAt.getTime() - b.createdAt.getTime();
-  return byTime === 0 ? byId(a, b) : byTime;
+  return byTime === 0 ? byCodePoint(a.id, b.id) : byTime;
 }

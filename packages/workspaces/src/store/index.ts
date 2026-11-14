@@ -31,9 +31,13 @@ export interface WorkspaceStore {
   getWorkspace: (
     workspaceId: WorkspaceId
   ) => Promise<WorkspaceRegistration | null>;
-  /** One Workspace's entries in code-unit path order. */
+  /** One Workspace's entries in code-unit path order, then by id. */
   listEntries: (workspaceId: WorkspaceId) => Promise<readonly WorkspaceEntry[]>;
-  /** Registrations ordered by creation time, then id. */
+  /**
+   * Registrations ordered by creation time, then by id in code-point order
+   * (SQLite's order for text). The cursor is the offset of the next page;
+   * anything but a nonnegative safe integer is refused with a `RangeError`.
+   */
   listWorkspaces: (
     input?: PageInput<number>
   ) => Promise<Page<WorkspaceRegistration, number>>;
@@ -50,7 +54,8 @@ export interface WorkspaceStore {
 
 /**
  * One atomic write to one Workspace: a save or a removal. Entry deletes apply
- * before entry puts.
+ * before entry puts. A delete names an entry of the write's Workspace; a put
+ * files the entry under its own `workspaceId`.
  */
 export type WorkspaceStoreWrite = WorkspaceRemoval | WorkspaceSave;
 
