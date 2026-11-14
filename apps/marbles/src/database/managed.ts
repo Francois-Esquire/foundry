@@ -1,5 +1,5 @@
 import { dirname, resolve } from "node:path";
-import type { TaskStore } from "@foundry/tasks";
+import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import type { MarblesDatabase } from "~/database/open";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import type { HostDatabaseOptions } from "~/database/workspaces";
@@ -88,8 +88,16 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
     this.#options = options;
     const store = async () => (await this.#records()).taskStore;
     this.taskStore = {
-      commit: (write) =>
-        this.#gate.run(async () => (await store()).commit(write)),
+      commit: (write) => {
+        // The write as it stands now: the database may still be opening.
+        let owned: TaskStoreWrite;
+        try {
+          owned = structuredClone(write);
+        } catch (error) {
+          return Promise.reject(error);
+        }
+        return this.#gate.run(async () => (await store()).commit(owned));
+      },
       get: (id) => this.#gate.run(async () => (await store()).get(id)),
       snapshot: () => this.#gate.run(async () => (await store()).snapshot()),
       transaction: (work) =>

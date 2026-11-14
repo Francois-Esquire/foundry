@@ -98,6 +98,23 @@ export class RecordsGate {
   }
 }
 
+/**
+ * Run `work` on a copy of `write` taken now, when the caller hands it
+ * over; a write the copy refuses rejects without running `work`.
+ */
+function owning(
+  write: TaskStoreWrite,
+  work: (owned: TaskStoreWrite) => Promise<void>
+): Promise<void> {
+  let owned: TaskStoreWrite;
+  try {
+    owned = structuredClone(write);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  return work(owned);
+}
+
 /** Who to tell that a call recorded a change, and the telling. */
 export class EmitListeners {
   readonly #listeners = new Set<() => void>();
@@ -133,13 +150,18 @@ export class MemoryWorkspaceRecords implements WorkspaceRecords {
 
   constructor() {
     const store = new MemoryTaskStore();
-    /** Commit `write`, then keep its change in `into`. */
+    /**
+     * Commit `owned`, then keep its change in `into`: both from the one
+     * copy each `commit` takes when it is called (`owning`), so a caller
+     * changing its write later, while the commit waits its turn or after,
+     * changes neither.
+     */
     const recorded =
       (target: TaskStore, into: TaskEvent[]) =>
-      async (write: TaskStoreWrite): Promise<void> => {
-        await target.commit(write);
-        if (write.event !== undefined) {
-          into.push(structuredClone(write.event));
+      async (owned: TaskStoreWrite): Promise<void> => {
+        await target.commit(owned);
+        if (owned.event !== undefined) {
+          into.push(owned.event);
         }
       };
     const settle = (events: readonly TaskEvent[]): void => {
@@ -152,11 +174,13 @@ export class MemoryWorkspaceRecords implements WorkspaceRecords {
     };
     this.taskStore = {
       commit: (write) =>
-        this.#gate.run(async () => {
-          const events: TaskEvent[] = [];
-          await recorded(store, events)(write);
-          settle(events);
-        }),
+        owning(write, (owned) =>
+          this.#gate.run(async () => {
+            const events: TaskEvent[] = [];
+            await recorded(store, events)(owned);
+            settle(events);
+          })
+        ),
       get: (id) => this.#gate.run(() => store.get(id)),
       snapshot: () => this.#gate.run(() => store.snapshot()),
       transaction: (work) =>
@@ -164,7 +188,7 @@ export class MemoryWorkspaceRecords implements WorkspaceRecords {
           const events: TaskEvent[] = [];
           const result = await store.transaction((view) =>
             work({
-              commit: recorded(view, events),
+              commit: (write) => owning(write, recorded(view, events)),
               get: (id) => view.get(id),
               snapshot: () => view.snapshot(),
             })
