@@ -1,5 +1,6 @@
 import { layout } from "~/layout";
 import { RecordsHeldError } from "~/lib/events/records";
+import { insideState } from "~/lib/state/workspace";
 import type { WorkspaceConnection } from "~/model/connection";
 import type {
   TaskCommand,
@@ -127,9 +128,15 @@ export async function withTasks<T>(
   print: (line: string) => void,
   work: (tasks: TaskRunner) => Promise<T>
 ): Promise<T> {
-  const hosted = args.dry
-    ? undefined
-    : await hostingWorker(args, opened.workspace.id);
+  const { dir, id } = opened.workspace;
+  const { state } = machine(args);
+  // A link there would put the tasks, locks and sessions somewhere else.
+  if (!(args.dry || insideState(state, id))) {
+    throw new Error(
+      `the state of workspace ${id} at ${dir} is not a directory inside ${state}`
+    );
+  }
+  const hosted = args.dry ? undefined : await hostingWorker(args, id);
   if (hosted === undefined) {
     return withStoredTasks(args, opened, print, work);
   }

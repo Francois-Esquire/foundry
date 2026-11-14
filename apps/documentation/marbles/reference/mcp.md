@@ -89,7 +89,8 @@ Every tool but `list_workspaces` takes an optional `workspace`: an id from
 `list_workspaces`, defaulting to the server's own workspace. The task
 tools reach any workspace recorded under the state root, even one whose
 checkout is gone; an id with no record is a tool error. A symlink under
-the state root is not a record. The other tools reach a workspace only through the
+the state root is not a record, and the server's own workspace is refused
+when its state directory is a symlink. The other tools reach a workspace only through the
 worker that hosts it: an id that is not hosted is a tool error, and a call
 to a workspace whose worker is not `ready` fails with its state. Under `--dry-run` only the server's own
 workspace exists.
@@ -190,7 +191,9 @@ external work. Cancellation cannot undo completed side effects.
 A dispatched run belongs to the workspace's worker, not to the MCP
 connection. Closing stdin, ending the `marbles mcp` process, or SIGINT or
 SIGTERM ends the server and nothing else. Shutdown takes a few seconds at
-most; work that does not stop in time is cut off. In every case the Marbles process keeps hosting the workspace, its triggers
+most; work that does not stop in time is cut off. One case has no bound:
+if the `marbles mcp` process gets SIGKILL while workspace code blocks the
+server's event loop, the server runs until that code returns. In every case the Marbles process keeps hosting the workspace, its triggers
 keep running, and runs already dispatched run to completion. Several MCP
 clients can run at once against one process. `get_run` and `cancel_run`
 look a run up in the worker that hosts its workspace, so any server for
