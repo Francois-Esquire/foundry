@@ -10,6 +10,7 @@ import { Tasks } from "../tasks";
 import { libsqlDatabases } from "./helpers/sqlite";
 
 const clock = () => new Date("2026-11-01T00:00:00.000Z");
+const id = (value: string) => value as TaskId;
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
 
@@ -30,6 +31,59 @@ describe("SqliteTaskStore", () => {
     expect(() => new SqliteTaskStore({ database, scope: "" })).toThrow(
       RangeError
     );
+  });
+
+  test("refuses, before writing anything, text holding U+0000, naming the field", async () => {
+    let committed = 0;
+    const store = new SqliteTaskStore({
+      database: await memory.open(),
+      onCommit: () => {
+        committed += 1;
+        return Promise.resolve();
+      },
+      scope: "s",
+    });
+    const backlog = new Tasks({ clock, store });
+    const kept = await backlog.create({ title: "kept" });
+    const before = await store.snapshot();
+    const nul = (value: string) => `${value}\u0000tail`;
+    const refusals: [TaskStoreWrite, string][] = [
+      [{ putTasks: [{ ...kept, title: nul("title") }] }, "putTasks[0].title"],
+      [
+        { putTasks: [kept, { ...kept, description: nul("d"), id: id("b") }] },
+        "putTasks[1].description",
+      ],
+      [{ putTasks: [{ ...kept, id: id(nul("id")) }] }, "putTasks[0].id"],
+      [
+        { putTasks: [{ ...kept, parentId: id(nul("parent")) }] },
+        "putTasks[0].parentId",
+      ],
+      [
+        {
+          deleteTasks: [kept.id],
+          putDependencies: [{ dependsOnId: id(nul("t")), taskId: kept.id }],
+        },
+        "putDependencies[0].dependsOnId",
+      ],
+    ];
+    for (const [write, field] of refusals) {
+      await expect(store.commit(write)).rejects.toThrow(
+        `cannot store U+0000 (NUL) in ${field}`
+      );
+    }
+    await expect(backlog.create({ title: nul("via Tasks") })).rejects.toThrow(
+      RangeError
+    );
+
+    expect(committed).toBe(1);
+    expect(await store.snapshot()).toEqual(before);
+    // JSON columns escape it, so metadata and tags keep it.
+    const json = await backlog.create({
+      metadata: { note: nul("m") },
+      tags: [nul("t")],
+      title: "json",
+    });
+    expect(await store.get(json.id)).toEqual(json);
   });
 
   test("onCommit runs inside the commit, after the store's statements, with the whole write", async () => {

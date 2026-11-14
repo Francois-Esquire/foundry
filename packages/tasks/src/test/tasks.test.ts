@@ -541,34 +541,36 @@ describe.each(stores)("Tasks over the %s store", (storeName, open) => {
     expect(stale.code).toBe("conflict");
   });
 
-  // libSQL reads text back cut at the first NUL character, so the SQLite
-  // store cannot yet hold these ids.
-  test.skipIf(storeName === "SQLite")(
-    "ids may contain any character without edges colliding",
-    async () => {
+  // Every store but SQLite takes U+0000 too; the SQLite store refuses it,
+  // a storage limit of libSQL (see sqlite-store.test.ts).
+  const separators = ["\u0001", "\u001f", '"', ",", "\u{1F600}"];
+  test.each(storeName === "SQLite" ? separators : ["\u0000", ...separators])(
+    "ids may contain any character without edges colliding (%j)",
+    async (separator) => {
       const tasks = new Tasks({ clock, store: await open() });
-      for (const id of ["x", "y\u0000z", "x\u0000y", "z"]) {
+      const joined = (a: string, b: string) => `${a}${separator}${b}`;
+      for (const id of ["x", joined("y", "z"), joined("x", "y"), "z"]) {
         await tasks.create({ id, title: id });
       }
       await tasks.change({
         operations: [
           {
-            dependsOn: { id: "y\u0000z" },
+            dependsOn: { id: joined("y", "z") },
             kind: "dependency.add",
             task: { id: "x" },
           },
           {
             dependsOn: { id: "z" },
             kind: "dependency.add",
-            task: { id: "x\u0000y" },
+            task: { id: joined("x", "y") },
           },
         ],
       });
       expect(
         (await tasks.dependencies("x")).dependsOn.map((t) => t.id)
-      ).toEqual(["y\u0000z"]);
+      ).toEqual([joined("y", "z")]);
       expect(
-        (await tasks.dependencies("x\u0000y")).dependsOn.map((t) => t.id)
+        (await tasks.dependencies(joined("x", "y"))).dependsOn.map((t) => t.id)
       ).toEqual(["z"]);
     }
   );

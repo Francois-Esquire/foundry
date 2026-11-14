@@ -90,7 +90,19 @@ export class SqliteTaskStore implements TaskStore {
     this.#onCommit = options.onCommit;
   }
 
+  /**
+   * Rejects, before writing anything, a write that puts text SQLite would
+   * not return intact; see {@link nulField}.
+   */
   commit(write: TaskStoreWrite): Promise<void> {
+    const field = nulField(write);
+    if (field !== undefined) {
+      return Promise.reject(
+        new RangeError(
+          `SqliteTaskStore cannot store U+0000 (NUL) in ${field}: libSQL reads text back cut at the first NUL`
+        )
+      );
+    }
     return this.#database.transaction(async (transaction) => {
       await this.#deleteTasks(transaction, write.deleteTasks ?? []);
       await this.#deleteDependencies(
@@ -217,6 +229,42 @@ export class SqliteTaskStore implements TaskStore {
       .from(table)
       .where(eq(table.scope, this.#scope));
     return (last?.position ?? 0) + 1;
+  }
+}
+
+/** The record fields each table keeps as plain text; JSON text is escaped. */
+const taskTextFields = textFields(taskColumns);
+const dependencyTextFields = textFields(dependencyColumns);
+
+function textFields(columns: Record<string, SQLiteColumn>): string[] {
+  return Object.entries(columns)
+    .filter(([, column]) => column.columnType === "SQLiteText")
+    .map(([field]) => field);
+}
+
+/**
+ * The first field a write would put as text holding U+0000, as a path such
+ * as `putTasks[2].title`. libSQL stores such text whole but reads it back cut
+ * at the NUL, so storing it would lose data without a word. A storage limit
+ * of this store, not a rule of the domain: deletes bind ids only to match
+ * rows, and no stored row holds a NUL.
+ */
+function nulField(write: TaskStoreWrite): string | undefined {
+  const puts = [
+    ["putTasks", write.putTasks ?? [], taskTextFields],
+    ["putDependencies", write.putDependencies ?? [], dependencyTextFields],
+  ] as const;
+  for (const [list, records, fields] of puts) {
+    for (const [index, record] of records.entries()) {
+      const values: Readonly<Record<string, unknown>> = record;
+      const field = fields.find((name) => {
+        const value = values[name];
+        return typeof value === "string" && value.includes("\u0000");
+      });
+      if (field !== undefined) {
+        return `${list}[${index}].${field}`;
+      }
+    }
   }
 }
 

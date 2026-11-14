@@ -208,8 +208,14 @@ Each `commit` is one transaction, and a throwing `onCommit` rolls it back.
 `snapshot()` is two reads outside a transaction, so on a database with more
 than one connection another commit can land between them. The store has no
 `transaction(work)`, so two `Tasks` over it are not excluded from each
-other. libSQL reads text back only up to its first NUL character, so ids,
-titles, and descriptions containing `\u0000` do not survive it.
+other.
+
+A storage limit of the SQLite store, not a rule of the package: libSQL reads
+text back cut at its first NUL character (U+0000), so `commit` refuses,
+before writing anything, a write that puts one in a text field (an id, a
+parent id, a title, a description, a dependency's ids). It rejects with a
+`RangeError` naming the field, such as `putTasks[0].title`. Metadata and
+tags are JSON, which escapes the character, so they keep it.
 
 `@foundry/tasks/schema` defines every record that crosses the seam as a Zod
 schema: the task, the dependency edge, the snapshot, the write, and the
