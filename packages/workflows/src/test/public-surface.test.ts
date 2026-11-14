@@ -217,7 +217,9 @@ const expectedExportKeys = [
   "./types",
   "./executable",
   "./store",
+  "./store/memory",
   "./schema",
+  "./testing/store",
   "./logger",
 ];
 
