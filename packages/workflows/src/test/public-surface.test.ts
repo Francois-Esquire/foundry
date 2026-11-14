@@ -218,6 +218,8 @@ const expectedExportKeys = [
   "./executable",
   "./store",
   "./store/memory",
+  "./store/sqlite",
+  "./store/tables",
   "./schema",
   "./testing/store",
   "./logger",
