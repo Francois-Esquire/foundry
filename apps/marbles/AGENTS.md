@@ -103,7 +103,10 @@ Five buckets, each importing only what sits below it:
   only when that command runs. `src/mcp/relay.ts` runs it in a child
   process whose stdout is the relay's stderr. Protocol frames go out on
   descriptor 3, which the relay copies to its own stdout, so nothing
-  printed to stdout reaches the protocol. The server reaches the
+  printed to stdout reaches the protocol. Descriptor 4 is a pipe the
+  relay holds; it ends when the relay exits, and the server shuts down.
+  The server exits when its shutdown deadline passes, and the relay kills
+  a server that outlives a later one. The server reaches the
   workspace through `access/` and never starts the process or attaches a
   workspace. Under `--dry-run` both host the workspace in their own process
   through `hostWorkspace` instead, since nothing is persisted.

@@ -9,7 +9,7 @@ import {
 } from "~/access/workspace";
 import type { Flags } from "~/args";
 import { listWorkspaces } from "~/lib/state/workspace";
-import { protocolOutput } from "~/mcp/relay";
+import { onRelayGone, protocolOutput, SHUTDOWN_GRACE_MS } from "~/mcp/relay";
 import { createMcpServer, type McpServerOptions } from "~/mcp/server";
 import type { WorkspaceSummary } from "~/model/connection";
 import type { WorkspaceHost } from "~/workspace/host";
@@ -166,17 +166,30 @@ async function serve(flags: Flags): Promise<void> {
     }
   };
   // A terminal signals the relay and this process together, and the relay
-  // passes its copy on, so a repeat is expected and changes nothing.
+  // passes its copy on, so a repeat is expected and changes nothing. Work
+  // that ignores cancellation cannot hold the shutdown past its deadline.
   let closing = false;
   const shutdown = (): void => {
     if (closing) {
       return;
     }
     closing = true;
-    close().catch((error: unknown) => {
-      print(error instanceof Error ? error.message : String(error));
-      process.exitCode = 1;
-    });
+    setTimeout(() => {
+      print(
+        `marbles mcp: shutdown did not finish within ${SHUTDOWN_GRACE_MS}ms; exiting`
+      );
+      process.exit(1);
+    }, SHUTDOWN_GRACE_MS).unref();
+    close()
+      .catch((error: unknown) => {
+        print(error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+      })
+      .finally(() => {
+        // The relay's pipe and stdin may still be open; neither holds the
+        // process once every frame is out.
+        output.end(() => process.exit());
+      });
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
@@ -187,6 +200,7 @@ async function serve(flags: Flags): Promise<void> {
     await close();
     throw error;
   }
+  onRelayGone(shutdown);
 }
 
 /**
