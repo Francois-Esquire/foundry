@@ -233,21 +233,3 @@ async function asHost<T>(
     await new Promise((settle) => setTimeout(settle, HOST_RETRY_MS));
   }
 }
-
-/**
- * Record a sight of `workspace` for a program that hosts it, under the
- * rule `openHostDatabase` keeps.
- */
-export function recordWorkspace(
-  state: string,
-  workspace: Workspace,
-  config: string | null,
-  options: HostDatabaseOptions = {}
-): Promise<void> {
-  return writeAsHost(
-    state,
-    (database) =>
-      new WorkspaceRegistry({ database, state }).touch(workspace, config),
-    options
-  );
-}

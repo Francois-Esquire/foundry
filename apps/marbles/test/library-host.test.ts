@@ -13,13 +13,13 @@ import { sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IncompatibleDatabaseError, MIGRATIONS } from "~/database/migrate";
 import { initializeDatabase, readDatabase } from "~/database/open";
-import { recordWorkspace, WorkspaceRegistry } from "~/database/workspaces";
+import { WorkspaceRegistry } from "~/database/workspaces";
 import { layout, stateDatabase } from "~/layout";
 import { acquireLock, PROCESS_LOCK } from "~/lib/state/locks";
 import { workspaceState } from "~/lib/state/workspace";
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { claimProcess } from "~/process/instance";
-import { readWorkspace } from "./helpers/registry";
+import { readWorkspace, recordWorkspace } from "./helpers/registry";
 
 const SRC = resolve("src");
 const daemons: Daemon[] = [];
@@ -197,7 +197,7 @@ await host.close();
       writeFileSync(
         script,
         `import { existsSync } from "node:fs";
-import { recordWorkspace } from ${JSON.stringify(join(SRC, "database/workspaces.ts"))};
+import { recordWorkspace } from ${JSON.stringify(resolve("test/helpers/registry.ts"))};
 import { workspaceState } from ${JSON.stringify(join(SRC, "lib/state/workspace.ts"))};
 process.stdout.write("ready\\n");
 while (!existsSync(${JSON.stringify(go)})) {

@@ -56,8 +56,10 @@ const READ_ATTEMPTS = 3;
  * Three ways in, one per role:
  *
  * - `initializeDatabase`, for whoever holds the state root's process lock:
- *   the Marbles process for its lifetime, or a program hosting a workspace
- *   itself for as long as it records it (`recordWorkspace`). Creates the
+ *   the Marbles process for its lifetime, or another writer of a
+ *   workspace's state (a program hosting it itself, a task change with no
+ *   process running) while it makes the database current
+ *   (`openHostDatabase`). Creates the
  *   file, puts it in WAL mode, and migrates it. Nothing else migrates, so
  *   no two processes migrate at once.
  * - `openDatabase` and `writeDatabase`, for writes by a process without

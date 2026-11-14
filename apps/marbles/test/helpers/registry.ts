@@ -1,8 +1,8 @@
 import type { StoreDatabase } from "~/database/open";
 import { initializeDatabase, readDatabase } from "~/database/open";
 import { marblesWorkspaces } from "~/database/tables";
-import type { TouchOptions } from "~/database/workspaces";
-import { WorkspaceRegistry } from "~/database/workspaces";
+import type { HostDatabaseOptions, TouchOptions } from "~/database/workspaces";
+import { WorkspaceRegistry, writeAsHost } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import type { Workspace, WorkspaceRecord } from "~/lib/state/workspace";
 
@@ -38,6 +38,24 @@ export function touchWorkspace(
 ): Promise<void> {
   return asProcess(state, (database) =>
     new WorkspaceRegistry({ database, state }).touch(workspace, config, options)
+  );
+}
+
+/**
+ * Record a sight of `workspace` under `state` as a program hosting it does:
+ * a writer under the state root's lock rule (`writeAsHost`).
+ */
+export function recordWorkspace(
+  state: string,
+  workspace: Workspace,
+  config: string | null,
+  options: HostDatabaseOptions = {}
+): Promise<void> {
+  return writeAsHost(
+    state,
+    (database) =>
+      new WorkspaceRegistry({ database, state }).touch(workspace, config),
+    options
   );
 }
 

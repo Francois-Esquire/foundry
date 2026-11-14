@@ -391,6 +391,11 @@ it("binds tasks to the workspace a worker hosts, and hands its records to the wo
     expect(existsSync(join(machine.state, summary.id, "locks", "tasks"))).toBe(
       false
     );
+    // Detaching stops hosting the workspace; its tasks stay.
+    expect((await stored(machine.state)).titles).toEqual([
+      "hosted",
+      "reloaded",
+    ]);
   } finally {
     client.close();
   }
