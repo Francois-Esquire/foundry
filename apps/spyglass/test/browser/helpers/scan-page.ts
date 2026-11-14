@@ -1,5 +1,10 @@
 import { resolve } from "node:path";
-import type { Browser, BrowserContext, Page } from "playwright-core";
+import {
+  type Browser,
+  type BrowserContext,
+  chromium,
+  type Page,
+} from "playwright-core";
 import { expect } from "vitest";
 import { serveStatic } from "./static-site";
 
@@ -89,6 +94,70 @@ const INIT = `
   });
 })();
 `;
+
+/**
+ * Chromium for the suite: the full build in its new headless mode. The
+ * default headless shell has no GPU process, so WebGPU there finds no
+ * adapter and the viewer cannot draw; the full build reaches the machine's
+ * GPU (Metal on macOS) without extra flags.
+ */
+export function launchChromium(): Promise<Browser> {
+  return chromium.launch({ channel: "chromium" });
+}
+
+/**
+ * Fails before any scan unless this browser gives the site a hardware
+ * WebGPU adapter, so a missing GPU reads as an environment problem rather
+ * than as the viewer's controls never enabling. Returns the adapter found.
+ */
+export async function expectWebGpuAdapter(
+  browser: Browser,
+  origin: string
+): Promise<{ architecture: string; browser: string; vendor: string }> {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await page.goto(`${origin}${SCAN_PATH}`);
+    const { adapter, api } = await page.evaluate(async () => {
+      const { gpu } = navigator as unknown as {
+        gpu?: {
+          requestAdapter: () => Promise<{
+            info: {
+              architecture: string;
+              isFallbackAdapter?: boolean;
+              vendor: string;
+            };
+          } | null>;
+        };
+      };
+      const found = await gpu?.requestAdapter();
+      return {
+        adapter: found
+          ? {
+              architecture: found.info.architecture,
+              fallback: found.info.isFallbackAdapter === true,
+              vendor: found.info.vendor,
+            }
+          : null,
+        api: gpu !== undefined,
+      };
+    });
+    if (adapter === null || adapter.fallback) {
+      throw new Error(
+        `This Chromium (${browser.version()}) has no hardware WebGPU adapter ` +
+          `(${JSON.stringify({ adapter, api })}), so the map cannot draw. ` +
+          "Run the suite on a machine with a GPU Chromium can use."
+      );
+    }
+    return {
+      architecture: adapter.architecture,
+      browser: browser.version(),
+      vendor: adapter.vendor,
+    };
+  } finally {
+    await context.close();
+  }
+}
 
 export interface ScanPage {
   context: BrowserContext;

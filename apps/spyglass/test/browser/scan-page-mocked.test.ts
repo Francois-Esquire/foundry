@@ -1,4 +1,4 @@
-import { type Browser, chromium } from "playwright-core";
+import type { Browser } from "playwright-core";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { FakeRepository } from "../lib/helpers/github-fake";
 import { deferred, fakeGitHub } from "../lib/helpers/github-fake";
@@ -6,6 +6,7 @@ import { routeGitHub } from "./helpers/github-route";
 import {
   alert,
   expectOnlyOfficialOrigins,
+  launchChromium,
   openScanPage,
   resultPanel,
   SCAN_PATH,
@@ -63,7 +64,7 @@ const opened: ScanPage[] = [];
 
 beforeAll(async () => {
   site = serveScanSite();
-  browser = await chromium.launch();
+  browser = await launchChromium();
 });
 
 // Each page draws the map continuously; one open at a time keeps timing honest.

@@ -1,10 +1,12 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Browser, chromium } from "playwright-core";
+import type { Browser } from "playwright-core";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   expectOnlyOfficialOrigins,
+  expectWebGpuAdapter,
+  launchChromium,
   measurements,
   openScanPage,
   resultPanel,
@@ -22,7 +24,6 @@ import {
 
 const EVIDENCE = join(tmpdir(), "spyglass-browser-acceptance");
 const READ_FILES = /Read(\d+) files/;
-const MAP_MODE = /^Show (belonging|files)$/;
 const TIMING = /Downloaded in [\d.]+ s, analysed in [\d.]+ s/;
 
 const REPOSITORIES = [
@@ -46,7 +47,8 @@ const measured: Record<string, unknown> = {};
 beforeAll(async () => {
   mkdirSync(EVIDENCE, { recursive: true });
   site = serveScanSite();
-  browser = await chromium.launch();
+  browser = await launchChromium();
+  measured.webgpu = await expectWebGpuAdapter(browser, site.origin);
 });
 
 afterEach(async () => {
@@ -110,7 +112,12 @@ describe.each(REPOSITORIES)(
         .poll(() => page.locator("canvas").count())
         .toBeGreaterThan(0);
       await page.getByRole("button", { exact: true, name: "Zoom in" }).click();
-      await page.getByRole("button", { name: MAP_MODE }).click();
+      const labels = page.getByRole("button", { exact: true, name: "Labels" });
+      const shown = await labels.getAttribute("aria-pressed");
+      await labels.click();
+      await expect
+        .poll(() => labels.getAttribute("aria-pressed"))
+        .toBe(shown === "true" ? "false" : "true");
       await page.getByRole("button", { exact: true, name: "Legend" }).click();
       await expect.poll(() => page.getByRole("dialog").isVisible()).toBe(true);
       await page.keyboard.press("Escape");
@@ -120,11 +127,17 @@ describe.each(REPOSITORIES)(
       await page.screenshot({ path: join(EVIDENCE, `${label}.png`) });
       expect(errors).toEqual([]);
 
+      const firstFrame = await page.evaluate(
+        () => performance.getEntriesByName("spyglass:first-frame")[0]?.startTime
+      );
+      expect(firstFrame).toBeGreaterThan(0);
+
       const page_ = await measurements(page);
       expect(page_.workerAttempts).toBe(0);
       measured[name] = {
         apiRequests: api.length,
         commit,
+        firstFrameMs: Math.round(firstFrame ?? 0),
         rateLimitRemaining: scanPage.rateRemaining(),
         rawRequests: raw.length,
         readFiles: read,
