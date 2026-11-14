@@ -16,6 +16,7 @@ import {
   artifactContents,
   artifacts,
 } from "../store/tables";
+import { required } from "./helpers/required";
 import { libsqlDatabases } from "./helpers/sqlite";
 
 const AT = new Date("2026-01-01T00:00:00.000Z");
@@ -944,5 +945,113 @@ describe.each([
       (await store.listArtifacts({ limit: 10 })).artifacts.map((row) => row.id)
     ).toEqual(["first", "last", "owner"]);
     expect(await store.getContent(version.id)).toEqual(version);
+  });
+});
+
+describe("what onCommit learns of a change", () => {
+  async function recorded() {
+    const writes: ArtifactStoreWrite[] = [];
+    const store = new SqliteArtifactStore({
+      database: await memory.open(),
+      onCommit: (_transaction, write) => {
+        writes.push(structuredClone(write));
+        return Promise.resolve();
+      },
+      scope: "s",
+    });
+    /** Which lists the writes `run` committed fill, and how full. */
+    const shapes = async (run: () => Promise<unknown>) => {
+      const before = writes.length;
+      await run();
+      return writes.slice(before).map((write) =>
+        Object.fromEntries(
+          Object.entries(write)
+            .map(([list, rows]) => [list, (rows as unknown[]).length])
+            .filter(([, rows]) => rows !== 0)
+        )
+      );
+    };
+    return { manager: new ArtifactManager({ store }), shapes, store, writes };
+  }
+
+  test("each operation is one write of whole records put and ids deleted", async () => {
+    const { manager, shapes } = await recorded();
+    let created = await manager.create({ name: "A", type: "text/plain" });
+    expect(
+      await shapes(async () => {
+        created = await manager.create({
+          entries: { "a.txt": { bytes: "a" } },
+          name: "B",
+          type: "text/plain",
+        });
+      })
+    ).toEqual([{ putArtifacts: 1, putBlobs: 1, putContents: 1 }]);
+    const { id } = created;
+    // A blob only this file names is rewritten in place: the same id, put again.
+    expect(
+      await shapes(() =>
+        manager.write({
+          artifactId: id,
+          changes: { put: { "a.txt": { bytes: "b" } } },
+        })
+      )
+    ).toEqual([{ putArtifacts: 1, putBlobs: 1, putContents: 1 }]);
+    expect(await shapes(() => manager.rename(id, "C"))).toEqual([
+      { putArtifacts: 1 },
+    ]);
+    const first = required(created.contentId);
+    expect(await shapes(() => manager.setMetadata(first, { n: 1 }))).toEqual([
+      { putContents: 1 },
+    ]);
+    expect(await shapes(() => manager.freeze(first))).toEqual([
+      { putArtifacts: 1, putContents: 1 },
+    ]);
+    expect(await shapes(() => manager.tag(first, "v1"))).toEqual([
+      { putContents: 1 },
+    ]);
+    expect(await shapes(() => manager.fork({ contentId: first }))).toEqual([
+      { putArtifacts: 1, putContents: 1 },
+    ]);
+    // Deleting an Artifact names its Contents; the shared blob stays.
+    expect(await shapes(() => manager.delete(id))).toEqual([
+      { deleteArtifacts: 1, deleteContents: 1 },
+    ]);
+  });
+
+  test("a transaction of several operations arrives as one net write", async () => {
+    const { manager, shapes, writes } = await recorded();
+    expect(
+      await shapes(() =>
+        manager.transaction(async (transaction) => {
+          const made = await transaction.create({
+            name: "T",
+            type: "text/plain",
+          });
+          await transaction.rename(made.id, "Renamed");
+        })
+      )
+    ).toEqual([{ putArtifacts: 1 }]);
+    expect(writes.at(-1)?.putArtifacts?.[0]?.name).toBe("Renamed");
+  });
+
+  test("a record put and deleted in one change arrives as a delete of an id the store never held", async () => {
+    const { manager, shapes, store } = await recorded();
+    expect(
+      await shapes(() =>
+        manager.transaction(async (transaction) => {
+          const made = await transaction.create({
+            entries: { "z.txt": { bytes: "z" } },
+            name: "Gone",
+            type: "text/plain",
+          });
+          await transaction.delete(made.id);
+        })
+      )
+    ).toEqual([{ deleteArtifacts: 1, deleteBlobs: 1, deleteContents: 1 }]);
+    expect(await everything(store)).toEqual({
+      artifacts: [],
+      blobs: [],
+      contents: [],
+    });
   });
 });

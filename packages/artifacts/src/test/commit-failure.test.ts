@@ -99,7 +99,16 @@ async function harness(open: (root: string) => ArtifactStore) {
     (await readdir(blobs).catch(() => [])).filter((name) =>
       PUBLISHED_BLOB.test(name)
     );
-  return { artifacts, create, files, id };
+  /** Files waiting in the staging area, under any owner. */
+  const staged = async () => {
+    const area = join(blobs, ".staging");
+    const found: string[] = [];
+    for (const owner of await readdir(area).catch(() => [])) {
+      found.push(...(await readdir(join(area, owner)).catch(() => [])));
+    }
+    return found;
+  };
+  return { artifacts, create, files, id, staged };
 }
 
 const refuse: CommitInterceptor = () =>
@@ -295,6 +304,50 @@ describe("A SQLite commit that fails", () => {
     expect(await files()).toEqual([]);
     // Read on another connection: libSQL leaves the refused BEGIN in
     // progress on this one, so its next COMMIT fails until it is reopened.
+    expect(
+      await new SqliteArtifactStore({
+        database: sqlite.connect(database),
+        scope: "s",
+      }).getArtifact(id)
+    ).toBeNull();
+  });
+
+  it("at BEGIN, after its check passed and its bytes were staged, publishes nothing", async () => {
+    const database = await sqlite.open();
+    const { artifacts, files, id, staged } = await harness(
+      () => new SqliteArtifactStore({ database, scope: "s" })
+    );
+    const arriving = Promise.withResolvers<void>();
+    const proceed = Promise.withResolvers<void>();
+    async function* source() {
+      yield new TextEncoder().encode("first ");
+      arriving.resolve();
+      await proceed.promise;
+      yield new TextEncoder().encode("last");
+    }
+
+    const created = artifacts.create({
+      entries: { "entry.md": { source: source() } },
+      id,
+      name: "Streamed",
+      type: "text/markdown",
+    });
+    // The check has run; while the bytes arrive, another connection takes
+    // the write lock the change will need.
+    await arriving.promise;
+    const writer = await sqlite
+      .client(sqlite.connect(database))
+      .transaction("write");
+    proceed.resolve();
+    const failure = await created.then(
+      () => "landed",
+      (error: unknown) => String(error)
+    );
+    writer.close();
+
+    expect(failure).toMatch(LOCKED);
+    expect(await staged()).toEqual([]);
+    expect(await files()).toEqual([]);
     expect(
       await new SqliteArtifactStore({
         database: sqlite.connect(database),
