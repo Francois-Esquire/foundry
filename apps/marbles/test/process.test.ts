@@ -2,12 +2,10 @@ import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -18,9 +16,10 @@ import {
   ProcessHeldError,
   readProcess,
 } from "~/process/instance";
+import { temporaryDirectory } from "./helpers/temporary";
 
 function stateDir() {
-  return mkdtempSync(join(tmpdir(), "marbles-process-"));
+  return temporaryDirectory("marbles-process-");
 }
 
 /** A pid obtained from an exited process; the OS may reuse it. */
