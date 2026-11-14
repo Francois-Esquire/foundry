@@ -498,12 +498,16 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
       await timeout(exited, STOP_TIMEOUT_MS, "the worker's exit");
     } catch (error) {
-      print(
-        `[${worker.summary.id}] ${error instanceof Error ? error.message : String(error)}; killing it`
-      );
-      // SIGTERM would only ask it to drain again.
-      child.kill("SIGKILL");
-      await exited;
+      try {
+        print(
+          `[${worker.summary.id}] ${error instanceof Error ? error.message : String(error)}; killing it`
+        );
+      } finally {
+        // Killed even when saying so fails. SIGTERM would only ask it to
+        // drain again.
+        child.kill("SIGKILL");
+        await exited;
+      }
     }
   }
 

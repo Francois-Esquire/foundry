@@ -13,11 +13,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
+import type { Client } from "@libsql/client";
 import { createClient } from "@libsql/client";
 import { count, sql } from "drizzle-orm";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 import { describe, expect, it } from "vitest";
-import { fileIdentity, queuedFiles } from "~/database/client";
+import { fileIdentity, queuedFiles, serialClient } from "~/database/client";
 import { MIGRATIONS } from "~/database/migrate";
 import type { StoreDatabase } from "~/database/open";
 import {
@@ -309,6 +310,20 @@ Bun.gc(true);
     } finally {
       holder.close();
     }
+  });
+
+  it("closes a client whose file it cannot identify, and keeps no queue for it", () => {
+    const missing = join(scratch(), "gone", "marbles.db");
+    let closed = 0;
+    const client = {
+      close() {
+        closed += 1;
+      },
+    } as unknown as Client;
+    const before = queuedFiles().length;
+    expect(() => serialClient(client, missing, 1000)).toThrow();
+    expect(closed).toBe(1);
+    expect(queuedFiles()).toHaveLength(before);
   });
 
   it("keeps a file's queue only while a handle is open or a turn is pending", async () => {

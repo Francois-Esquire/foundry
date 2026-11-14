@@ -1,3 +1,4 @@
+import { ChildProcess } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -12,7 +13,7 @@ import { createRequire } from "node:module";
 import { connect as connectSocket, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
+import { processAlive } from "@foundry/lib/file-lock";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fileIdentity, queuedFiles } from "~/database/client";
 import { WorkspaceRegistry } from "~/database/workspaces";
@@ -22,6 +23,7 @@ import type {
   WorkspaceState,
   WorkspaceSummary,
 } from "~/model/connection";
+import { Channel } from "~/process/channel";
 import {
   connect,
   NoProcessError,
@@ -30,7 +32,7 @@ import {
 } from "~/process/client";
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { ProcessHeldError, readProcess } from "~/process/instance";
-import { RemoteError } from "~/process/protocol";
+import { RemoteError, WORKER_METHODS } from "~/process/protocol";
 import { readWorkspace, touchWorkspace } from "./helpers/registry";
 
 /**
@@ -736,6 +738,54 @@ export const hold = step("hold").do(async () => {
     const next = await daemonFor(machine);
     expect(next.pid).toBe(process.pid);
   }, 30_000);
+
+  it("kills a worker that would not stop even when saying so fails", async () => {
+    const { home, machine, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, greeter("greet"));
+    const printing: { fails: boolean } = { fails: false };
+    const daemon = await startDaemon({
+      layout: machine,
+      print: () => {
+        if (printing.fails) {
+          throw new Error("print failed");
+        }
+      },
+    });
+    const client = await connect({ layout: machine, start: false });
+    const { pid } = await client.attach(source);
+    client.close();
+    if (pid === undefined) {
+      throw new Error("the worker has no pid");
+    }
+    // The worker does not answer the stop: the daemon has to kill it.
+    const { request } = Channel.prototype;
+    vi.spyOn(Channel.prototype, "request").mockImplementation(function (
+      this: Channel,
+      method,
+      ...rest
+    ) {
+      return method === WORKER_METHODS.stop
+        ? Promise.reject(new Error("the worker would not stop"))
+        : request.call(this, method, ...rest);
+    });
+    // It may also leave once its connection drops; the kill must be sent anyway.
+    const kill = vi.spyOn(ChildProcess.prototype, "kill");
+    printing.fails = true;
+    try {
+      await expect(daemon.close()).rejects.toThrow("print failed");
+      expect(kill).toHaveBeenCalledWith("SIGKILL");
+      await vi.waitFor(() => expect(processAlive(pid)).toBe(false), {
+        timeout: 5000,
+      });
+      expect(readProcess(machine.state)?.alive).not.toBe(true);
+    } finally {
+      vi.restoreAllMocks();
+      if (processAlive(pid)) {
+        process.kill(pid, "SIGKILL");
+      }
+    }
+  }, 60_000);
 
   it("refuses a second daemon on the same state root, and a client with none to start", async () => {
     const { home, machine } = fixture();
