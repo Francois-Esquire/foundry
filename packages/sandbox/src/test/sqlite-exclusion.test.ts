@@ -54,7 +54,11 @@ describe("a transaction against another connection to its file", () => {
   });
 
   it("another process's write is held off, then lands after it commits", async () => {
-    const database = await files.open();
+    const opened = await files.open();
+    // A busy timeout, as a host sets one: the other process holds a shared
+    // lock now and then while it waits for the write lock, and a commit
+    // without one would fail with SQLITE_BUSY in that moment.
+    const database = files.connect(opened, { busyTimeout: 5000 });
     const store = createSqliteContainerStore({ database, scope: "s" });
     await store.commit({ putContainers: [row("a")] });
     let writer: ChildScript | undefined;
