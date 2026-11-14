@@ -349,18 +349,67 @@ describe("JsonSessionStore across instances", () => {
     ]);
   });
 
-  it("takes over a lock left by a process that exited", async () => {
+  it("writes nothing to disk when a transaction's work throws, however much it committed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const store = new JsonSessionStore(dir);
+    const sessions = new Sessions({ store });
+    await sessions.createSession({ id: "a" });
+    await sessions.appendMessage({ parts, role: "user", sessionId: "a" });
+    await sessions.createSession({ id: "b" });
+    const disk = () =>
+      readdirSync(dir)
+        .sort()
+        .map((name) => [name, readFileSync(join(dir, name), "utf8")]);
+    const before = disk();
+
+    await expect(
+      store.transaction(async (view) => {
+        const a = await view.getSession("a");
+        const [kept] = await view.listMessages("a");
+        if (!(a && kept)) {
+          throw new Error("seeded sessions missing");
+        }
+        await view.commit({
+          putMessages: [{ ...kept, summarized: true }],
+          putSessions: [{ ...a, title: "changed" }],
+        });
+        await view.commit({
+          putMessages: [{ ...kept, id: "new", sessionId: "b" }],
+        });
+        await view.commit({ putSessions: [{ ...a, id: "c" }] });
+        throw new Error("work failed");
+      })
+    ).rejects.toThrow("work failed");
+
+    expect(disk()).toEqual(before);
+  });
+
+  it("holds the directory lock for a transaction that touches nothing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const store = new JsonSessionStore(dir);
+
+    const held = await store.transaction(() =>
+      Promise.resolve(existsSync(join(dir, ".lock")))
+    );
+
+    expect(held).toBe(true);
+    expect(existsSync(join(dir, ".lock"))).toBe(false);
+  });
+
+  it("takes over the directory lock left by a process that exited", async () => {
     const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
     const store = new JsonSessionStore(dir);
     const sessions = new Sessions({ store });
     await sessions.createSession({ id: "s" });
     const { pid } = spawnSync(process.execPath, ["-e", ""]);
     expect(pid !== undefined && processAlive(pid)).toBe(false);
-    writeFileSync(join(dir, "s.json.lock"), String(pid));
+    writeFileSync(join(dir, ".lock"), String(pid));
 
     await sessions.appendMessage({ parts, role: "user", sessionId: "s" });
     await expect(store.listMessages("s")).resolves.toHaveLength(1);
-    expect(existsSync(join(dir, "s.json.lock"))).toBe(false);
+    expect(existsSync(join(dir, ".lock"))).toBe(false);
+    // The lock is not a session file.
+    expect(store.sessions().map((record) => record.id)).toEqual(["s"]);
   });
 });
 

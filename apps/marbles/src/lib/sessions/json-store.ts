@@ -24,18 +24,23 @@ import { isRecord } from "~/lib/state/json";
  * the record and every message.
  *
  * The files are the truth, not this object: every read and every commit
- * reads the session's file again, so a session another process (the
- * dashboard or `roll`) wrote is seen, and a commit here does not overwrite
- * what it appended: the write is merged by id into the file as read. Each
- * commit is one read-merge-write of one file through a temp-and-rename,
- * which is what makes it atomic, so a write may change one session only.
- * Commits to one file take turns: queued within this process across store
- * instances, and across processes under `<sessionId>.json.lock`, which holds
- * the writer's pid. The store attempts to replace stale locks.
+ * reads the files again, so a session another process (the dashboard or
+ * `roll`) wrote is seen, and a commit here does not overwrite what it
+ * appended: a write is merged by id into each file as read.
  *
- * `transaction` holds one session file's turn and lock across a whole
- * read-modify-write, so creating a missing session or updating one is a
- * single locked unit against every other store over the directory.
+ * Every commit and every transaction holds the directory's turn: queued
+ * within this process across store instances, and across processes under
+ * `<dir>/.lock`, which holds the writer's pid. The store attempts to replace
+ * a stale lock. A transaction stages its commits in memory and writes
+ * nothing until `work` returns, so a `work` that throws leaves the files as
+ * they were.
+ *
+ * What a commit or transaction changed is then published file by file, each
+ * through a temp-and-rename. A change to one session file is atomic. A
+ * change to several is atomic against every reader that takes the
+ * directory's turn, but a crash part way through publishing can leave some
+ * files written and others not. There is no journal: this store is
+ * temporary, and the limit ends when sessions move to the Marbles database.
  *
  * A file that exists but does not read as a session is never overwritten:
  * reads skip it (and say so through `warn`), and commits throw until someone
@@ -87,9 +92,11 @@ const SUFFIX = ".json";
 /** A separator or NUL: an id holding one would not be a single file name. */
 const NOT_A_FILE_NAME = /[/\\\0]/;
 const LOCK_WAIT_MS = 10_000;
+/** The directory's lock; not a session file, since it lacks the suffix. */
+const LOCK = ".lock";
 
 /**
- * Mutations queued per file path. Process-wide on purpose: two stores over
+ * Commits and transactions queued per directory. Process-wide on purpose: two stores over
  * one directory must still take turns, and the file lock they also take is
  * not reentrant, so it cannot order writers within one process.
  */
@@ -154,84 +161,27 @@ export class JsonSessionStore implements SessionStore {
     });
   }
 
-  /** Merges `write` into its session's file; a write may change one session only. */
-  async commit(write: SessionStoreWrite): Promise<void> {
-    const id = sessionOf(write);
-    if (id === undefined) {
-      return;
-    }
-    const path = this.#path(id);
-    await queue.run(path, () =>
-      this.#locked(id, path, () => this.#write(id, write))
-    );
+  /** Merges `write` into the files it changes, holding the directory's turn. */
+  commit(write: SessionStoreWrite): Promise<void> {
+    return this.#exclusive(async () => {
+      const draft = new Draft(this.#file);
+      await draft.commit(write);
+      await this.#publish(draft);
+    });
   }
 
   /**
-   * Runs `work` holding one session file's lock, so its reads and its commit
-   * are one locked unit against every other store over the directory, in
-   * any process. The lock is taken on the first session `view` touches and
-   * held until `work` settles; `view` touches that session only.
+   * Runs `work` holding the directory's turn, taken before `work` starts.
+   * Its commits are staged in memory, read back through `view`, and
+   * published only once `work` returns; a throw leaves the files as they were.
    */
-  async transaction<T>(work: (view: SessionStore) => Promise<T>): Promise<T> {
-    const done = Promise.withResolvers<void>();
-    let held: { readonly id: string; readonly entered: Promise<void> } | null =
-      null;
-    let released: Promise<void> | undefined;
-    const enter = (id: string): Promise<void> => {
-      if (held) {
-        return held.id === id
-          ? held.entered
-          : Promise.reject(
-              new Error(
-                `[json-session-store] a transaction touches one session; this one touched ${held.id} and ${id}`
-              )
-            );
-      }
-      const path = this.#path(id);
-      const entered = Promise.withResolvers<void>();
-      released = queue.run(path, () =>
-        this.#locked(id, path, () => {
-          entered.resolve();
-          return done.promise;
-        })
-      );
-      // A lock that cannot be taken reaches `work` through `entered`.
-      released.catch((error: unknown) => entered.reject(error));
-      held = { entered: entered.promise, id };
-      return entered.promise;
-    };
-    const view: SessionStore = {
-      commit: async (write) => {
-        const id = sessionOf(write);
-        if (id !== undefined) {
-          await enter(id);
-          await this.#write(id, write);
-        }
-      },
-      getMessage: async (id) => {
-        const owner = await this.#ownerOf(id);
-        if (owner === undefined) {
-          return null;
-        }
-        await enter(owner);
-        const file = await this.#readable(owner);
-        return file?.messages.find((message) => message.id === id) ?? null;
-      },
-      getSession: async (id) => {
-        await enter(id);
-        return this.getSession(id);
-      },
-      listMessages: async (sessionId) => {
-        await enter(sessionId);
-        return this.listMessages(sessionId);
-      },
-    };
-    try {
-      return await work(view);
-    } finally {
-      done.resolve();
-      await released?.catch(() => undefined);
-    }
+  transaction<T>(work: (view: SessionStore) => Promise<T>): Promise<T> {
+    return this.#exclusive(async () => {
+      const draft = new Draft(this.#file);
+      const result = await work(draft);
+      await this.#publish(draft);
+      return result;
+    });
   }
 
   async getSession(id: string): Promise<SessionRecord | null> {
@@ -337,40 +287,39 @@ export class JsonSessionStore implements SessionStore {
     return { file: parsed.data, kind: "session" };
   }
 
-  /**
-   * Merge `write` into the session's file as it is now. The caller holds the
-   * file's turn and lock (see the module comment). Throws, writing nothing,
-   * when the file exists but is unreadable.
-   */
-  async #write(id: string, write: SessionStoreWrite): Promise<void> {
-    const path = this.#path(id);
-    const read = await this.#read(id);
-    if (read.kind === "unreadable") {
-      throw new Error(
-        `[json-session-store] ${path} is not a readable session (${read.reason}); repair or remove it`
-      );
-    }
-    const file = merge(
-      id,
-      read.kind === "session" ? read.file : undefined,
-      write
-    );
-    await writeFileAtomic(path, JSON.stringify(file, null, 2));
-    for (const message of file.messages) {
-      this.#owners.set(message.id, id);
+  /** A session's file as it is on disk now, for a draft over this store. */
+  readonly #file: FileSource = {
+    find: (id) => this.#ownerOf(id),
+    path: (id) => this.#path(id),
+    read: async (id) => {
+      const read = await this.#read(id);
+      if (read.kind === "unreadable") {
+        this.#skipped(id, read.reason);
+      }
+      return read;
+    },
+  };
+
+  /** Writes every file `draft` changed, one after another, each atomically. */
+  async #publish(draft: Draft): Promise<void> {
+    for (const [id, file] of draft.changed()) {
+      await writeFileAtomic(this.#path(id), file.text);
+      for (const message of file.messages) {
+        this.#owners.set(message.id, id);
+      }
     }
   }
 
-  async #locked<T>(
-    id: string,
-    path: string,
-    operation: () => Promise<T>
-  ): Promise<T> {
+  /** Runs `operation` holding the directory's turn and lock (see the module comment). */
+  async #exclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const lock = join(this.#dir, LOCK);
     try {
-      return await withFileLock(`${path}.lock`, operation, {
-        breakStale: true,
-        waitMs: LOCK_WAIT_MS,
-      });
+      return await queue.run(this.#dir, () =>
+        withFileLock(lock, operation, {
+          breakStale: true,
+          waitMs: LOCK_WAIT_MS,
+        })
+      );
     } catch (error) {
       if (!(error instanceof FileLockTimeoutError)) {
         throw error;
@@ -378,25 +327,128 @@ export class JsonSessionStore implements SessionStore {
       const holder =
         error.holder === undefined ? "" : ` by process ${String(error.holder)}`;
       throw new Error(
-        `[json-session-store] session ${id} is locked${holder}. If no Marbles process is using it, remove ${error.path} (and ${error.path}.break, if present) and retry.`,
+        `[json-session-store] sessions in ${this.#dir} are locked${holder}. If no Marbles process is using them, remove ${error.path} (and ${error.path}.break, if present) and retry.`,
         { cause: error }
       );
     }
   }
 }
 
-/** The one session `write` changes; refuses a write that changes more. */
-function sessionOf(write: SessionStoreWrite): string | undefined {
-  const ids = new Set([
-    ...(write.putSessions ?? []).map((session) => session.id),
-    ...(write.putMessages ?? []).map((message) => message.sessionId),
-  ]);
-  if (ids.size > 1) {
-    throw new Error(
-      `[json-session-store] a write changes one session; this one changes ${[...ids].join(", ")}`
-    );
+/** How a draft reads a store's files. */
+interface FileSource {
+  /** The session whose file on disk holds message `id`. */
+  readonly find: (id: string) => Promise<string | undefined>;
+  readonly path: (id: string) => string;
+  readonly read: (id: string) => Promise<Read>;
+}
+
+/** A staged file: its record and messages, and the text it will be written as. */
+interface StagedFile extends SessionFile {
+  readonly text: string;
+}
+
+/**
+ * The files as one commit or transaction leaves them, staged in memory over
+ * what is on disk. Reads see the staged files first. A commit stages every
+ * file it changes or none.
+ */
+class Draft implements SessionStore {
+  readonly #files: FileSource;
+  readonly #staged = new Map<string, StagedFile>();
+
+  constructor(files: FileSource) {
+    this.#files = files;
   }
-  return [...ids][0];
+
+  async commit(write: SessionStoreWrite): Promise<void> {
+    const next = new Map<string, StagedFile>();
+    for (const [id, change] of bySession(write)) {
+      const file = merge(id, await this.#base(id), change);
+      // Encoding now refuses a value that cannot be written before anything is staged.
+      const text = JSON.stringify(file, null, 2);
+      next.set(id, { ...(JSON.parse(text) as SessionFile), text });
+    }
+    for (const [id, file] of next) {
+      this.#staged.set(id, file);
+    }
+  }
+
+  async getMessage(id: string): Promise<SessionMessage | null> {
+    for (const file of this.#staged.values()) {
+      const found = file.messages.find((message) => message.id === id);
+      if (found) {
+        return structuredClone(found);
+      }
+    }
+    const owner = await this.#files.find(id);
+    if (owner === undefined || this.#staged.has(owner)) {
+      return null;
+    }
+    const file = await this.#readable(owner);
+    return file?.messages.find((message) => message.id === id) ?? null;
+  }
+
+  async getSession(id: string): Promise<SessionRecord | null> {
+    return (await this.#readable(id))?.session ?? null;
+  }
+
+  async listMessages(sessionId: string): Promise<SessionMessage[]> {
+    return [...((await this.#readable(sessionId))?.messages ?? [])];
+  }
+
+  /** The staged files, in the order they were first changed. */
+  changed(): ReadonlyMap<string, StagedFile> {
+    return this.#staged;
+  }
+
+  /** A session as this draft holds it: staged, else on disk; unreadable reads as absent. */
+  async #readable(id: string): Promise<SessionFile | undefined> {
+    const staged = this.#staged.get(id);
+    if (staged) {
+      return structuredClone({
+        messages: staged.messages,
+        session: staged.session,
+      });
+    }
+    const read = await this.#files.read(id);
+    return read.kind === "session" ? read.file : undefined;
+  }
+
+  /** What a commit merges into: the staged file, else the one on disk. */
+  async #base(id: string): Promise<SessionFile | undefined> {
+    const staged = this.#staged.get(id);
+    if (staged) {
+      return staged;
+    }
+    const path = this.#files.path(id);
+    const read = await this.#files.read(id);
+    if (read.kind === "unreadable") {
+      throw new Error(
+        `[json-session-store] ${path} is not a readable session (${read.reason}); repair or remove it`
+      );
+    }
+    return read.kind === "session" ? read.file : undefined;
+  }
+}
+
+/** `write` split into the part each session's file takes, in the order sessions appear. */
+function bySession(write: SessionStoreWrite): Map<string, SessionStoreWrite> {
+  const changes = new Map<
+    string,
+    { putMessages: SessionMessage[]; putSessions: SessionRecord[] }
+  >();
+  const changeOf = (id: string) => {
+    const change = changes.get(id) ?? { putMessages: [], putSessions: [] };
+    changes.set(id, change);
+    return change;
+  };
+  for (const session of write.putSessions ?? []) {
+    changeOf(session.id).putSessions.push(session);
+  }
+  for (const message of write.putMessages ?? []) {
+    changeOf(message.sessionId).putMessages.push(message);
+  }
+  return changes;
 }
 
 /** `file` with `write` merged in by id: a put replaces what it names, and a new message goes last. */
