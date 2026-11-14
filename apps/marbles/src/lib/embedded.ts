@@ -17,7 +17,7 @@ export { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 export { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 export type { Provider } from "@foundry/models";
 export { ModelManager } from "@foundry/models";
-export { gatewayProvider } from "@foundry/models/gateway";
+export { gatewayModels, gatewayProvider } from "@foundry/models/gateway";
 export { vercelProvider } from "@foundry/models/vercel";
 export type { Containers } from "@foundry/sandbox/container/containers";
 

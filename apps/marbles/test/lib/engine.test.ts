@@ -794,6 +794,29 @@ describe("lib2 through the engine", () => {
     await engine.stop();
   });
 
+  it("records a cancelled run as cancelled when its body rejects with its own error", async () => {
+    step("wait").do(
+      ({ signal }) =>
+        new Promise((_, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new Error("aborted inside")),
+            { once: true }
+          );
+        })
+    );
+    const engine = await startEngine({ print: () => undefined, root });
+    const launched = await engine.launch("wait", {});
+    const failure = launched.result.catch((error: unknown) => error);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await engine.cancel(launched.id);
+    const reason = String(await failure);
+    expect(reason).toMatch(CANCELLED_PATTERN);
+    expect(reason).not.toContain("aborted inside");
+    expect(engine.executions.get(launched.id)?.status).toBe("cancelled");
+    await engine.stop();
+  });
+
   it("a parallel child that asks parks the run and its sibling finishes", async () => {
     const sibling: string[] = [];
     const asks = step("asks").do(async ({ ask }) =>

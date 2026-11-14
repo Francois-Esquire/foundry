@@ -194,6 +194,33 @@ it("commits, returns, and filters tags over a workspace's own records", async ()
   expect((await other.get(tagged?.id ?? ""))?.tags).toEqual([]);
 });
 
+it("publishes metadata as a JSON object and refuses a __proto__ key in it", async () => {
+  const { client, tasks } = await connect();
+  const { tools } = await client.listTools();
+  const change = tools.find(({ name }) => name === "change_tasks");
+  // Typed as JSON on create and update; the `__proto__` refusal is not in
+  // the JSON Schema, so the server answers it.
+  const published = JSON.stringify(change?.inputSchema);
+  const typed =
+    '"metadata":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{"$ref":';
+  expect(published.split(typed)).toHaveLength(3);
+
+  const task = await tasks.create({ metadata: { keep: 1 }, title: "proto" });
+  // A quoted `__proto__` in an object literal sets the prototype; parsed
+  // JSON defines the key.
+  const metadata = JSON.parse('{"x":{"__proto__":1}}');
+  const result = await call(client, "change_tasks", {
+    operations: [
+      { kind: "task.update", patch: { metadata }, task: { id: task.id } },
+    ],
+  });
+  expect(result.isError).toBe(true);
+  expect(textOf(result)).toContain(
+    '"__proto__" is not allowed as a metadata key'
+  );
+  expect((await tasks.get(task.id))?.metadata).toEqual({ keep: 1 });
+});
+
 it("creates, reads, and changes tasks through the shared command language", async () => {
   const { client, tasks } = await connect();
   const created = await call(client, "change_tasks", {

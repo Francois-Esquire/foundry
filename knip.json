@@ -45,6 +45,7 @@
       "entry": [
         "examples/**/*.ts",
         "templates/**/*.ts",
+        "test/helpers/dry-mcp-host.ts",
         "vitest.package.config.ts"
       ]
     },

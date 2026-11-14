@@ -9,6 +9,7 @@ import type { AnyDefinition } from "~/lib/definition";
 import { AGENT_DEFINITION, SANDBOX_HANDLE } from "~/lib/handles";
 import { deferredStream } from "~/lib/managers/agent-turns";
 import type { AgentTurns } from "~/lib/managers/agents";
+import { inputSnapshot } from "~/lib/managers/agents";
 import { WORKSPACE_METHODS } from "~/lib/managers/workspaces";
 import { current } from "~/lib/run-scope";
 import type {
@@ -229,16 +230,24 @@ export interface AgentSpec<OUTPUT extends Output.Output = never>
  * The function an agent is declared with. It runs as each session opens,
  * and is given the route that session must keep: the one `extend` set, or
  * the one a recorded session was opened on. Fields of that route it
- * leaves out are filled in; one it sets otherwise fails the opening.
+ * leaves out are filled in; one it sets otherwise fails the opening. It is
+ * also given the input `extend` set, or the one the session kept, and
+ * `undefined` when there is neither.
  */
-export type DefineAgent<OUTPUT extends Output.Output = never> = (
-  route: AgentRoute
+export type DefineAgent<
+  OUTPUT extends Output.Output = never,
+  INPUT = undefined,
+> = (
+  route: AgentRoute,
+  input: INPUT | undefined
 ) => AgentSpec<OUTPUT> | Promise<AgentSpec<OUTPUT>>;
 
 /** An agent declared with a function, and what its extensions changed. */
 interface AgentRecipe {
-  readonly define: DefineAgent<Output.Output>;
+  readonly define: DefineAgent<Output.Output, unknown>;
   readonly id: string;
+  /** The input the latest extension set; JSON, so a session can keep it. */
+  readonly input?: unknown;
   /** The route the extensions set, the latest on top. */
   readonly route: AgentRoute;
   /** Each extension's settings, merged in turn over what the function returns. */
@@ -270,10 +279,11 @@ function checkedSpec(id: string, value: unknown): AgentSpec<Output.Output> {
  */
 async function buildRecipe(
   recipe: AgentRecipe,
-  kept: AgentRoute
+  kept: AgentRoute,
+  input: unknown
 ): Promise<AgentDefinition<Output.Output>> {
   const route = { ...pinned(kept), ...pinned(recipe.route) };
-  const spec = checkedSpec(recipe.id, await recipe.define(route));
+  const spec = checkedSpec(recipe.id, await recipe.define(route, input));
   for (const key of ROUTE_KEYS) {
     const wanted = route[key];
     const returned = spec[key];
@@ -297,31 +307,67 @@ async function buildRecipe(
 }
 
 /**
- * An agent declared with a function. Its data is its id and the route its
- * extensions set; the rest comes from the function each time a session
- * opens, so nothing it reads is read on import or on `extend`.
+ * The input an extension sets, else the one before it. It must be JSON,
+ * so a session can keep it; it is kept as a frozen copy, so changing the
+ * object given does not change it.
  */
-export function recipeInstance<OUTPUT extends Output.Output>(
+function inputOf(
+  id: string,
+  changes: { readonly input?: unknown },
+  prior: unknown
+): unknown {
+  if (!Object.hasOwn(changes, "input")) {
+    return prior;
+  }
+  if (changes.input === undefined) {
+    return;
+  }
+  try {
+    return inputSnapshot(changes.input);
+  } catch (error) {
+    throw new Error(
+      `agent "${id}": extend's input must be JSON, so a session can keep it (${error instanceof Error ? error.message : String(error)})`,
+      { cause: error }
+    );
+  }
+}
+
+/**
+ * An agent declared with a function. Its data is its id, and the route and
+ * input its extensions set; the rest comes from the function each time a
+ * session opens, so nothing it reads is read on import or on `extend`.
+ */
+export function recipeInstance<OUTPUT extends Output.Output, INPUT>(
   recipe: AgentRecipe
-): DeferredAgent<OUTPUT> {
+): DeferredAgent<OUTPUT, INPUT> {
   const extend = <NEXT extends Output.Output = OUTPUT>(
-    changes: AgentChanges<NEXT>
-  ): DeferredAgent<NEXT> =>
-    recipeInstance<NEXT>({
-      ...recipe,
+    changes: AgentChanges<NEXT> & { readonly input?: INPUT }
+  ): DeferredAgent<NEXT, INPUT> => {
+    const input = inputOf(recipe.id, changes, recipe.input);
+    return recipeInstance<NEXT, INPUT>({
+      define: recipe.define,
+      id: recipe.id,
+      ...(input === undefined ? {} : { input }),
       route: { ...recipe.route, ...routeOf(changes) },
       settings: [
         ...recipe.settings,
         changes.settings as AgentSettings<Output.Output> | undefined,
       ],
     });
-  const data = { id: recipe.id, kind: "agent", ...pinned(recipe.route) };
+  };
+  const data = {
+    id: recipe.id,
+    ...(recipe.input === undefined ? {} : { input: recipe.input }),
+    kind: "agent",
+    ...pinned(recipe.route),
+  };
   Object.defineProperty(data, AGENT_DEFINITION, {
-    value: (kept: AgentRoute) => buildRecipe(recipe, kept),
+    value: (kept: AgentRoute, input: unknown) =>
+      buildRecipe(recipe, kept, input),
   });
-  return invocable<DeferredAgent<OUTPUT>>(
+  return invocable<DeferredAgent<OUTPUT, INPUT>>(
     data,
-    extend as (changes: AgentChanges) => DeferredAgent<Output.Output>
+    extend as (changes: AgentChanges) => DeferredAgent<Output.Output, INPUT>
   );
 }
 

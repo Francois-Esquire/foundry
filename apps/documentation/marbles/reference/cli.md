@@ -18,6 +18,7 @@ their triggers running after the command that attached them exits.
 replace one that runs another Marbles version; `marbles stop` ends it.
 `--dry-run` is the exception: it hosts the workspace in the calling
 process, persists nothing, and never touches the Marbles process.
+`marbles mcp --dry-run` hosts nothing.
 
 ## Commands
 
@@ -30,7 +31,8 @@ process, persists nothing, and never touches the Marbles process.
 | `roll <name-or-key> [--input <json>]` | Attach this workspace and dispatch one step, workflow, schedule, or monitor in its worker now; print the lines it logged and its result as JSON, and exit. The workspace stays hosted. |
 | `status` | Read the state root: the Marbles process (pid, version, socket) and every workspace with whether it is hosted, its worker's pid, schedules, recent runs, and session count. Reads files only: needs no running process and loads no module. |
 | `watch <runId>` | Replay saved output, follow new output, and exit when an agent or workflow run finishes. |
-| `tasks <action> [--json]` | Read or change this workspace's tasks: `list`, `ready`, `get`, `deps`, `create`, `update`, `start`, `complete`, `cancel`, `reopen`, `move`, `depend`, `undepend`, or `change --input <json>` for one atomic batch. `marbles help` lists each action's options. A worker that already hosts the workspace answers; otherwise the command opens the tasks itself. Loads no module and never starts the Marbles process. |
+| `mcp` | Serve this workspace to an MCP client over stdin and stdout; stdout carries only MCP messages. Never starts the Marbles process or attaches the workspace: task tools work without one, and dispatch tools need a process that hosts the workspace. Under `--dry-run` it hosts nothing, keeps its tasks in memory, and refuses the dispatch tools. See [the MCP server](/marbles/reference/mcp). |
+| `tasks <action> [--json]` | Read or change this workspace's tasks: `list`, `ready`, `get`, `deps`, `create`, `update`, `start`, `complete`, `cancel`, `reopen`, `move`, `depend`, `undepend`, or `change --input <json>` for one atomic batch. `marbles help` lists each action's options. `create` and `update` take `--metadata <json>`; on update each key is set over the stored metadata and a `null` value removes its key. A `__proto__` key at any depth is refused. A worker that already hosts the workspace answers; otherwise the command opens the tasks itself. Loads no module and never starts the Marbles process. |
 | `sessions` | List the current workspace's agent sessions: id, message count, last update, and whether a compaction summary exists. Loads no module. |
 | `daemon` | Run the Marbles process in the foreground until interrupted, for launchd, systemd, or a terminal you keep open. Refused with the holder's pid when one already runs on this state root. |
 | `stop` | Stop the Marbles process, whatever version it runs, and return once it has drained every worker and exited; prints `no Marbles process is running` otherwise. While it stops, it refuses new attaches, reloads, and calls that would start work (`roll`, launches, dispatches, resumes); reads, answers, and cancels still go through, so a run holding up the drain can be cut short. Prints `stopping Marbles process pid N; waiting for its workers to drain` first, then `stopped Marbles process pid N`. |
@@ -46,10 +48,10 @@ to stderr and exit 1 before importing modules or touching state.
 `list` imports the discovered modules in the calling process; `run` and
 `roll` have the workspace's worker import them, or import them here under
 `--dry-run`; `help`, `init`, `status`, `sessions`, `tasks`, `watch`,
-`daemon`, and `stop` import nothing. Keep module scope to declarations: importing the
-file must not do work. Attaching (`run`, `roll`, the dashboard, and the
-[MCP server](/marbles/reference/mcp)) records the workspace in
-`workspace.json` with `hosted: true`; nothing is recorded under `--dry-run`.
+`mcp`, `daemon`, and `stop` import nothing. Keep module scope to declarations: importing the
+file must not do work. Attaching (`attach`, `run`, `roll`, and the dashboard) records the
+workspace in `workspace.json` with `hosted: true`; nothing is recorded
+under `--dry-run`. The [MCP server](/marbles/reference/mcp) never attaches.
 
 ### Watch a background run
 
@@ -134,7 +136,7 @@ dashboard, where the question can be answered as it comes.
 | `--state <dir>` | `~/.foundry/marbles` | Root directory for the Marbles process's files and every workspace's state. Each root has its own process. |
 | `--artifacts <dir>` | `~/.foundry/artifacts`, or `artifacts/` beside a custom `--state` | Shared artifact store holding declared artifacts and feed entries from every workspace. Fixed when the Marbles process starts: a command naming another store than the running process's is refused with both paths; `marbles stop` first to change it. |
 | `--input <json>` | A schedule's input, or none | Input for `roll`, or the batch for `tasks change`. Overrides a schedule's recorded input. |
-| `--dry-run` | Off | Host the workspace in this process, echo agent turns, git mutations, and sandbox commands instead of running them, and write no state. Never touches the Marbles process. See [safety and limits](/marbles/reference/safety). |
+| `--dry-run` | Off | Host the workspace in this process, echo agent turns, git mutations, and sandbox commands instead of running them, and write no state. Never touches the Marbles process. `mcp` hosts nothing under it. See [safety and limits](/marbles/reference/safety). |
 
 `FOUNDRY_HOME` moves the whole home (default `~/.foundry`): the state root,
 the artifact store, and the process socket under it. `--state` and
@@ -174,11 +176,29 @@ Each tab except Settings shows its count, capped at 99+. Focusing Triggers or
 Marbles shows Catalog; focusing Runs shows Overview.
 
 Usage is recorded once per agent turn inside a run, from the token counts the
-harness reports. A cost is estimated at the catalog's list price when the
-model has one and keeps that price with the turn; `~` marks an estimate. A
-turn without a price is counted as unpriced, never as zero, and a run with no
-recorded turns shows "no usage recorded". A step's total includes its
-descendants' turns once.
+harness reports. A cost is estimated at the list price the model's catalog
+row states, when a server or the configuration gave one, else at the
+models.dev list price for it, and keeps that price with the turn; `~` marks
+an estimate. Marbles fetches models.dev when an engine starts and when
+Airplane Mode turns off, keeps it once it loads, and never waits for it. A
+fetch that fails is tried again while the engine runs and Airplane Mode is off:
+after 30 s, then twice as long each time, up to 10 minutes.
+
+Claude Code reports `total_cost_usd`, a running total for its CLI session.
+Marbles records it only for a turn that made one model call and resumed no
+session: in practice the first turn each time Marbles opens a Claude Code
+session on this machine, when the provider's settings name no `resume`,
+`continue`, `sessionId` or `extraArgs`. Every later turn resumes the CLI
+session, so its figure may include earlier turns; that turn is priced from
+its tokens like any other, or its cost stays unknown. A turn in a sandbox never gets the figure. The
+CLI computes it from its own price table, so it is stored as Claude Code's
+own figure and shown as an estimate (`~`). On an API key it estimates what
+the API bills. On a subscription nothing is billed per token, so it is what
+the work would cost at API prices.
+
+A turn without a price is counted as unpriced, never as zero, and a run
+with no recorded turns shows "no usage recorded". A step's total includes
+its descendants' turns once.
 
 A committed turn whose usage was not saved is found again in its session
 transcript: its tokens count, its cost is unknown, and the total says "not
@@ -327,3 +347,19 @@ architecture, verify its SHA-256, and use Marbles' permission-controlled coding
 tools. Supply a session API key or sign in with Pi on the host for the selected
 `provider/model`; the host resolves the current key, and only that key enters
 the guest environment. Refresh credentials remain on the host.
+
+An OpenAI-compatible gateway is configured with the `gateway` plugin:
+`{ "id": "gw", "plugin": "gateway", "enabled": true, "settings": { "baseURL": "https://gateway.example/v1", "apiKey": "GATEWAY_API_KEY" } }`.
+`apiKey` names the environment variable that holds the key, never the key
+itself, and the instance is available once that variable is set. Any other
+setting is an error. Its models are the ones its server lists at
+`GET <baseURL>/models`. Marbles asks when it starts, when `providers.json`
+changes, and when Airplane Mode turns off, and never while Airplane Mode is
+on. Each listed id is a text model. Name the model, or set the entry's
+`defaults`; otherwise the first listed id is used. Its capabilities and limits are unknown,
+and its price comes from models.dev when that knows the id. A model the
+server does not list is refused. A server that gives no list within 5
+seconds, or answers with an error, leaves the gateway with no models. Marbles
+prints why in a `[providers]` line, and the other providers still start. When a later
+list fails, the gateway keeps the list it had. A streamed turn asks the
+gateway for usage, so it records its tokens.

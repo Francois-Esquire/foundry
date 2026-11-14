@@ -77,6 +77,9 @@ export interface WorktreeOptions {
 
 const runWithSimpleGit: GitRun = (cwd, args) => simpleGit(cwd).raw([...args]);
 
+/** Worktrees whose directory `Git.worktree()` cut, and so may remove. */
+const cut = new WeakSet<Worktree>();
+
 export class Git {
   readonly root: string;
   protected readonly run: GitRun;
@@ -216,9 +219,11 @@ export class Git {
       await rm(root, { force: true, recursive: true }).catch(() => undefined);
       throw error;
     }
-    return new Worktree(root, this.root, options.branch ?? null, {
+    const worktree = new Worktree(root, this.root, options.branch ?? null, {
       run: this.run,
     });
+    cut.add(worktree);
+    return worktree;
   }
 
   /** Run `body` in a worktree and remove it afterwards, however `body` ends. */
@@ -252,6 +257,12 @@ export class Worktree extends Git {
     this.branch = branch;
   }
 
+  /**
+   * Remove the checkout. Git removes its directory itself; a runner that
+   * only echoes the command would leave behind a directory `worktree()`
+   * cut, so that one is removed here too. Any other checkout's directory
+   * is left to git.
+   */
   async remove(): Promise<void> {
     await this.run(this.repository, [
       "worktree",
@@ -259,6 +270,9 @@ export class Worktree extends Git {
       "--force",
       this.root,
     ]);
+    if (cut.has(this)) {
+      await rm(this.root, { force: true, recursive: true });
+    }
   }
 }
 

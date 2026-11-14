@@ -9,11 +9,11 @@ export interface Money {
  * at all means nothing was recorded, which is not a zero cost either.
  */
 export interface UsageTotal {
-  /** Tokens at list prices, per currency. */
+  /** Estimates, per currency: tokens at list prices, and a provider's figure it marks as its own estimate. */
   readonly estimated: readonly Money[];
   /** Turns that ran but whose usage was not recorded (lost, or recovered from a transcript): never priced, never read as zero. */
   readonly missing: number;
-  /** Providers' own figures, per currency. */
+  /** Providers' own figures that are not estimates, per currency. */
   readonly reported: readonly Money[];
   /** Summed over the turns that reported tokens; `input` includes cache reads and writes. */
   readonly tokens: {

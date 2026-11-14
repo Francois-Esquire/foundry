@@ -11,7 +11,7 @@ import type { Account, Provider } from "./usage";
 interface ProviderDefinition<Id extends string, O extends object, C> {
   /** Routing data from the caller's options (without `name`), such as an absolute config dir. */
   credential(options: O): C;
-  /** The default account's options when it looks signed in; presence only, no limits. */
+  /** The default account's options when it looks signed in or has history; presence only, no limits. */
   detect?(): Promise<NoInfer<O> | undefined>;
   /** Throw to report `consumptionFailed`. Absent: no consumption. */
   history?(credential: C, since: Date): Promise<Consumption | undefined>;

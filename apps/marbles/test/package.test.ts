@@ -25,6 +25,7 @@ import {
 } from "typescript";
 import { expect, test } from "vitest";
 
+import { rawMcpSession, strayLines } from "./helpers/mcp-stdio";
 import { inspectDashboard } from "./helpers/terminal";
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
@@ -227,6 +228,16 @@ if (readProcess(stateDir) !== undefined) throw new Error("Release must clear the
 console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing", listed);
 `
     );
+    // A prompt is written with the package's own tags: nothing else is installed.
+    writeFileSync(
+      join(consumer, "prompt.ts"),
+      `
+import { Prompt, prompts, ref } from "@foundry.sh/marbles";
+const review: Prompt = prompts.claude\`/code-review, then ask \${ref.agent("reviewer")}.\`;
+// Prompt is a class at run time too, as the declarations say.
+console.log(String(review), "|", String(prompts.codex\`Use \${ref.skill("review")}\`), "|", review instanceof Prompt);
+`
+    );
     // An embedded host (an Electron main process) takes the narrow entry:
     // the engine and its host tasks, without the CLI harness providers.
     writeFileSync(
@@ -281,8 +292,12 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
         "types.ts",
         "host.ts",
         "embedded.ts",
+        "prompt.ts",
       ],
       consumer
+    );
+    expect(run("bun", ["prompt.ts"], consumer)).toContain(
+      '/code-review, then ask @"reviewer (agent)". | Use $review | true'
     );
     expect(run("bun", ["host.ts"], consumer)).toContain(
       "Hello host sees files packed-workflow,host-inventory"
@@ -352,6 +367,39 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
       expect(run(cli, ["stop", "--state", state], consumer)).toContain(
         "stopped Marbles process"
       );
+    }
+    // The installed bin serves MCP over STDIO, stdout carries only frames,
+    // and serving starts no Marbles process.
+    const mcpState = mkdtempSync(join(tmpdir(), "mp-"));
+    try {
+      const session = await rawMcpSession(
+        cli,
+        [
+          "mcp",
+          "--source",
+          join(consumer, "marbles.config.ts"),
+          "--state",
+          mcpState,
+        ],
+        { cwd: consumer }
+      );
+      const listed = await session.request("tools/list");
+      const ended = await session.close();
+      expect(ended.code, ended.stderr).toBe(0);
+      expect(listed).toMatchObject({
+        result: {
+          tools: expect.arrayContaining([
+            expect.objectContaining({ name: "dispatch_workflow" }),
+            expect.objectContaining({ name: "list_tasks" }),
+          ]),
+        },
+      });
+      expect(strayLines(ended.stdout)).toEqual([]);
+    } finally {
+      expect(run(cli, ["stop", "--state", mcpState], consumer)).toContain(
+        "no Marbles process is running"
+      );
+      rmSync(mcpState, { force: true, recursive: true });
     }
     writeFileSync(join(standalone, "workspace-marker.txt"), "workspace root");
     const authoring = join(standalone, ".foundry", "marbles");

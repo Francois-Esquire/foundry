@@ -68,6 +68,7 @@
         "@foundry/core": "workspace:*",
         "@foundry/lib": "workspace:*",
         "@foundry/models": "workspace:*",
+        "@foundry/prompts": "workspace:*",
         "@foundry/sandbox": "workspace:*",
         "@foundry/tasks": "workspace:*",
         "@foundry/tsconfig": "workspace:*",
@@ -297,7 +298,6 @@
         "zod": "^4.4.3",
       },
       "devDependencies": {
-        "@biomejs/biome": "2.5.12",
         "@foundry/tsconfig": "workspace:*",
         "@types/bun": "1.3.14",
         "@types/node": "^26.4.1",

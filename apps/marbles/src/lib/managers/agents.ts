@@ -15,6 +15,7 @@ import type {
 } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import { composeTools } from "@foundry/agents/tools/compose";
+import { canonicalizeJson } from "@foundry/lib/json";
 import type { ModelManager, ModelSelection, Resolution } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
@@ -32,8 +33,14 @@ import type { HarnessActivities } from "~/lib/sandbox/activities";
 import type { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { SandboxSessionOptions } from "~/lib/sandbox/session";
 import { createSandboxSession } from "~/lib/sandbox/session";
-import type { RecordedUsageFact, TurnSource, UsageLedger } from "~/lib/usage";
-import { catalogPrices, lostFact, usageFact } from "~/lib/usage";
+import type {
+  CostMeter,
+  RecordedUsageFact,
+  ReportedCost,
+  TurnSource,
+  UsageLedger,
+} from "~/lib/usage";
+import { catalogPrices, costMeter, lostFact, usageFact } from "~/lib/usage";
 import type { ManagerArgs } from "../bindings";
 import { AGENT_DEFINITION, SANDBOX_HANDLE } from "../handles";
 import type { LiveSession } from "../run-scope";
@@ -184,7 +191,8 @@ interface SessionSite extends Omit<SessionTurnSite, "consumed"> {
   readonly consume?: (
     message: SessionMessage,
     usage: SessionUsage | undefined,
-    route: SessionRef
+    route: SessionRef,
+    reported?: ReportedCost
   ) => void;
   /** The working directory when neither the call nor a worktree names one: the run's root, or the workspace root. */
   readonly cwd: string;
@@ -233,15 +241,16 @@ function consumer(
     return;
   }
   const price = catalogPrices(deps.models);
-  return (message, reported, route) => {
+  return (message, counted, route, reported) => {
     let fact: RecordedUsageFact;
     try {
       fact = usageFact(
         {
           message,
+          ...(reported ? { reported } : {}),
           route,
           source,
-          ...(reported ? { usage: reported } : {}),
+          ...(counted ? { usage: counted } : {}),
           workspaceId: usage.workspaceId,
         },
         price
@@ -549,29 +558,128 @@ async function interactionOptions(
 }
 
 type DefinitionBuilder = (
-  route: AgentRoute
+  route: AgentRoute,
+  input: unknown
 ) => Promise<AgentDefinition<Output.Output>>;
 
 /**
  * The definition a session opens with. A plain definition is itself. An
  * agent declared with a function builds one now, once for this session,
- * and the route it is given is kept: a session recorded on one provider
- * continues on it when its body runs again.
+ * and the route and input it is given are kept: a session recorded on one
+ * provider continues on it when its body runs again. The input is the
+ * agent's own unless one is given.
  */
 export async function buildDefinition<OUTPUT extends Output.Output>(
   agent: AgentLike<OUTPUT>,
-  route: AgentRoute = {}
+  route: AgentRoute = {},
+  input: unknown = (agent as { readonly input?: unknown }).input
 ): Promise<AgentDefinition<OUTPUT>> {
   const build = Reflect.get(agent, AGENT_DEFINITION) as
     | DefinitionBuilder
     | undefined;
   if (build) {
-    return (await build(route)) as AgentDefinition<OUTPUT>;
+    return (await build(route, input)) as AgentDefinition<OUTPUT>;
   }
   if (typeof agent.prompt !== "string") {
     throw new Error(`agent "${agent.id}" has no prompt`);
   }
   return agent as AgentDefinition<OUTPUT>;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value === "object" && value !== null) {
+    for (const child of Object.values(value)) {
+      deepFreeze(child);
+    }
+    Object.freeze(value);
+  }
+  return value;
+}
+
+/** Throws at the first missing index of an array, at any depth. */
+function rejectHoles(value: unknown): void {
+  if (typeof value !== "object" || value === null) {
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      if (!(index in value)) {
+        throw new Error(`an array has no item at index ${index}`);
+      }
+      rejectHoles(value[index]);
+    }
+    return;
+  }
+  for (const child of Object.values(value)) {
+    rejectHoles(child);
+  }
+}
+
+/**
+ * An agent's input as a session keeps it: copied into its JSON form and
+ * frozen, so neither the caller nor the agent's function can change it
+ * after it is recorded. Anything JSON would not carry back unchanged, such
+ * as an array with holes, throws.
+ */
+export function inputSnapshot(value: unknown): unknown {
+  rejectHoles(value);
+  return deepFreeze(JSON.parse(canonicalizeJson(value)));
+}
+
+/** What a session ref keeps of the input its agent opened with. */
+type KeptInput = Pick<SessionRef, "input" | "noInput">;
+
+/**
+ * What a kept ref says of its input, unchanged. A ref that keeps both an
+ * input and `noInput` was not returned by a session, so it fails.
+ */
+function keptInput(kept: SessionRef | undefined): KeptInput {
+  if (kept === undefined) {
+    return {};
+  }
+  const hasInput = kept.input !== undefined;
+  if (hasInput && kept.noInput === true) {
+    throw new Error(
+      `session ${kept.id} keeps both an input and noInput; pass back the session ref unchanged`
+    );
+  }
+  if (hasInput) {
+    return { input: inputSnapshot(kept.input) };
+  }
+  return kept.noInput === true ? { noInput: true } : {};
+}
+
+/**
+ * The input a session opens with, as its ref keeps it. An agent declared
+ * with a function takes the one `extend` gave it, else the one the
+ * session kept, else `noInput` for none. Any other agent keeps what the
+ * session kept, so a later reopening is still held to it. A kept session
+ * reopened with another input, or with one when it opened with none,
+ * would not be built the same, so that fails. A ref that kept neither
+ * (only an id) takes the agent's.
+ */
+function sessionInput(
+  agent: AgentLike<Output.Output>,
+  kept: SessionRef | undefined
+): KeptInput {
+  const held = keptInput(kept);
+  if (!Reflect.has(agent, AGENT_DEFINITION)) {
+    return held;
+  }
+  const given = (agent as { readonly input?: unknown }).input;
+  if (given === undefined) {
+    return "input" in held ? held : { noInput: true };
+  }
+  if (
+    kept?.noInput === true ||
+    (kept?.input !== undefined &&
+      canonicalizeJson(kept.input) !== canonicalizeJson(given))
+  ) {
+    throw new Error(
+      `agent "${agent.id}": session ${kept.id} was opened with another input; open a new session for this one`
+    );
+  }
+  return { input: given };
 }
 
 /**
@@ -766,9 +874,14 @@ async function openSession<OUTPUT extends Output.Output>(
   options: SessionOptions
 ): Promise<Session<OUTPUT>> {
   const recordedOn = site.recorded?.provider;
+  const input = sessionInput(
+    agent,
+    site.recorded ?? (options.session ? refOf(options.session) : undefined)
+  );
   const definition = await buildDefinition(
     agent,
-    recordedOn === undefined ? {} : { provider: recordedOn }
+    recordedOn === undefined ? {} : { provider: recordedOn },
+    input.input
   );
   site.signal().throwIfAborted();
   if (options.sandbox && definition.mcp?.length) {
@@ -783,7 +896,7 @@ async function openSession<OUTPUT extends Output.Output>(
   try {
     // Connecting can take a while; a step cancelled meanwhile opens nothing.
     site.signal().throwIfAborted();
-    return await openBuilt(deps, site, definition, options, mcp);
+    return await openBuilt(deps, site, definition, options, mcp, input);
   } catch (error) {
     // Retained, but a direct session's site would hold them to dispose.
     await Promise.allSettled(mcp.map((client) => client.close()));
@@ -796,7 +909,8 @@ async function openBuilt<OUTPUT extends Output.Output>(
   site: SessionSite,
   definition: AgentDefinition<OUTPUT>,
   options: SessionOptions,
-  mcp: readonly McpClient[]
+  mcp: readonly McpClient[],
+  input: KeptInput
 ): Promise<Session<OUTPUT>> {
   deps.requireProviders?.();
   const pinned =
@@ -847,6 +961,9 @@ async function openBuilt<OUTPUT extends Output.Output>(
     site,
     skills: await deps.skills(definition.skills),
   };
+  // Only a model in this process can be metered for the cost it reports.
+  const meter =
+    site.consume && !(options.sandbox && !deps.dry) ? costMeter() : undefined;
   const harness =
     options.sandbox && !deps.dry
       ? await openSandboxSession(
@@ -854,7 +971,7 @@ async function openBuilt<OUTPUT extends Output.Output>(
           { ...opening, options },
           await startedSandbox(options.sandbox)
         )
-      : await openLocalSession(deps, opening);
+      : await openLocalSession(deps, opening, meter);
   return retainSession(
     harness,
     id,
@@ -863,7 +980,7 @@ async function openBuilt<OUTPUT extends Output.Output>(
       ...definition.settings,
       ...(limit?.kind === "steps" ? { stopWhen: limit.stopWhen } : {}),
     },
-    stamp
+    { ...stamp, input, meter }
   );
 }
 
@@ -964,13 +1081,15 @@ async function openLocalSession(
     route,
     site,
     skills,
-  }: Opening
+  }: Opening,
+  meter: CostMeter | undefined
 ): Promise<SessionHarness> {
   const { modelId, provider } = route;
-  const model = heldText(resolution, site, {
+  const opened = heldText(resolution, site, {
     ...(limit?.kind === "native" ? { nativeMaxTurns: limit.turns } : {}),
     workingDirectory: options.cwd ?? workingDirectory(site.cwd),
   });
+  const model = meter ? meter.wrap(opened) : opened;
   const spec: AgentSpec = {
     id: definition.id,
     ...(mcp.length === 0 ? {} : { mcp: mcp.map((client) => client.id) }),
@@ -1006,10 +1125,15 @@ function retainSession<OUTPUT extends Output.Output>(
   settings: AgentDefinition<OUTPUT>["settings"],
   {
     implementation,
+    input,
     instance,
+    meter,
   }: {
     readonly implementation: string | undefined;
+    readonly input: KeptInput;
     readonly instance: string | undefined;
+    /** What the session's model reports each turn cost, when it is metered. */
+    readonly meter: CostMeter | undefined;
   }
 ): Session<OUTPUT> {
   const close =
@@ -1033,6 +1157,7 @@ function retainSession<OUTPUT extends Output.Output>(
   const ref: SessionRef = {
     id,
     ...(implementation === undefined ? {} : { implementation }),
+    ...input,
     ...(instance === undefined ? {} : { instance }),
     model: harness.route.id,
     provider: harness.route.provider,
@@ -1045,7 +1170,10 @@ function retainSession<OUTPUT extends Output.Output>(
     {
       ...site,
       ...(consume
-        ? { consumed: (message, usage) => consume(message, usage, ref) }
+        ? {
+            consumed: (message, usage) =>
+              consume(message, usage, ref, meter?.take()),
+          }
         : {}),
       track: (tracked) => {
         live = tracked;

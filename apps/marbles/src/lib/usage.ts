@@ -1,10 +1,19 @@
 import type {
+  LanguageModelV4Middleware,
+  LanguageModelV4StreamPart,
+} from "@ai-sdk/provider";
+import type { AgentModel } from "@foundry/agents/harness";
+import type {
   MessageMetadata,
   SessionMessage,
   SessionUsage,
 } from "@foundry/agents/session";
 import type { ModelCosts, ModelManager } from "@foundry/models";
 import { costFromUsage } from "@foundry/models";
+import { enrichFromModelsDev } from "@foundry/models/catalog/models-dev";
+import { loadedModelsDev } from "@foundry/models/catalog/models-dev-source";
+import { claudeCodeCallCost } from "@foundry/models/cost";
+import { wrapLanguageModel } from "ai";
 
 import { isRecord } from "~/lib/state/json";
 import type { HeldLock, Lock } from "~/lib/state/locks";
@@ -46,15 +55,18 @@ export interface UsageTokens {
 
 /** The list price a turn was estimated at, kept with the fact so later price changes do not rewrite it. */
 export interface PriceBasis {
-  /** USD per million tokens, copied from the catalog when the turn finished. */
+  /** USD per million tokens, copied from the catalog or models.dev when the turn finished. */
   readonly rates: ModelCosts;
-  /** Which catalog row: `@foundry/models <provider>/<model>`. */
+  /** Which price: `@foundry/models <provider>/<model>` for a catalog row, `models.dev <provider>/<model>` for a models.dev rate. */
   readonly reference: string;
 }
 
 /**
- * What a turn cost. `reported` is a provider's own figure; `estimated` is
- * tokens at a list price; `unknown` is neither, and is never read as zero.
+ * What a turn cost. `reported` is a provider's own figure, with `estimate`
+ * set when the provider says the figure is its own estimate rather than a
+ * bill; `estimated` is tokens at a list price; `unknown` is neither, and is
+ * never read as zero. Where a figure came from is the kind and its
+ * reference; whether it is an estimate is `estimate` or the `estimated` kind.
  */
 export type UsageCost =
   | { readonly kind: "unknown"; readonly reason: string }
@@ -62,6 +74,9 @@ export type UsageCost =
       readonly kind: "reported";
       readonly amount: number;
       readonly currency: string;
+      /** The provider computed the figure itself, from its own price table. */
+      readonly estimate?: true;
+      /** Which figure: the harness and its field. */
       readonly reference: string;
     }
   | {
@@ -131,16 +146,32 @@ export type PriceLookup = (
   model: string
 ) => PriceBasis | undefined;
 
-/** List prices from the routes the engine's models registered; pricing stays in `@foundry/models`. */
+/**
+ * List prices a route's own catalog row states (one a server reported or a
+ * caller supplied), else the models.dev rate for the row's model once
+ * models.dev has loaded (the engine holds that load). Pricing stays in
+ * `@foundry/models`.
+ */
 export function catalogPrices(models: ModelManager): PriceLookup {
   return (provider, model) => {
     const row = models.providers
       .find((entry) => entry.id === provider)
       ?.models.find((entry) => entry.id === model || entry.modelId === model);
-    return row?.costs
+    if (row?.costs) {
+      return {
+        rates: structuredClone(row.costs),
+        reference: `@foundry/models ${provider}/${model}`,
+      };
+    }
+    const catalog = loadedModelsDev();
+    if (!(row && catalog)) {
+      return;
+    }
+    const [listed] = enrichFromModelsDev([row], catalog);
+    return listed?.costs
       ? {
-          rates: structuredClone(row.costs),
-          reference: `@foundry/models ${provider}/${model}`,
+          rates: structuredClone(listed.costs),
+          reference: `models.dev ${provider}/${model}`,
         }
       : undefined;
   };
@@ -164,11 +195,101 @@ function tokensOf(usage: SessionUsage): UsageTokens | undefined {
   };
 }
 
+/** A turn's cost as the harness itself reported it, in USD. */
+export interface ReportedCost {
+  readonly amount: number;
+  /** The harness computed it from its own price table. */
+  readonly estimate?: true;
+  /** Which figure: the harness and its field. */
+  readonly reference: string;
+}
+
+/** Meters what a session's model reports its calls cost. */
+export interface CostMeter {
+  /** What the turn since the last take reported, when that figure is the turn's own. */
+  take(): ReportedCost | undefined;
+  /** The session's model, metered; it keeps the model's route and limits. */
+  wrap(model: AgentModel): AgentModel;
+}
+
+/**
+ * A meter for one session's model. Claude Code's `total_cost_usd` is a
+ * running total for its CLI session, so it is a call's own cost only on a
+ * call that resumed no session, which the Claude Code provider marks from
+ * the call's settings. A turn gets the figure only when it made exactly one
+ * call and that call is marked; every other turn reports none. The CLI
+ * computes the figure from its own price table, so it is an estimate.
+ */
+export function costMeter(): CostMeter {
+  let calls = 0;
+  let taken = 0;
+  let last: number | undefined;
+  const call = () => {
+    calls += 1;
+    last = undefined;
+  };
+  const middleware: LanguageModelV4Middleware = {
+    specificationVersion: "v4",
+    async wrapGenerate({ doGenerate }) {
+      call();
+      const result = await doGenerate();
+      last = claudeCodeCallCost(result.providerMetadata);
+      return result;
+    },
+    async wrapStream({ doStream }) {
+      call();
+      const result = await doStream();
+      return {
+        ...result,
+        stream: result.stream.pipeThrough(
+          new TransformStream<
+            LanguageModelV4StreamPart,
+            LanguageModelV4StreamPart
+          >({
+            transform(part, controller) {
+              if (part.type === "finish") {
+                last = claudeCodeCallCost(part.providerMetadata);
+              }
+              controller.enqueue(part);
+            },
+          })
+        ),
+      };
+    },
+  };
+  return {
+    take: () => {
+      const own = calls - taken === 1 ? last : undefined;
+      taken = calls;
+      return own === undefined
+        ? undefined
+        : { amount: own, estimate: true, reference: CLAUDE_CODE_REPORTED };
+    },
+    wrap: (model) =>
+      Object.assign(wrapLanguageModel({ middleware, model }), {
+        ...(model.limits ? { limits: model.limits } : {}),
+        ...(model.route ? { route: model.route } : {}),
+      }),
+  };
+}
+
+const CLAUDE_CODE_REPORTED = "claude-code total_cost_usd";
+
 function costOf(
   tokens: UsageTokens | undefined,
   route: { readonly model?: string; readonly provider?: string },
-  price: PriceLookup
+  price: PriceLookup,
+  reported: ReportedCost | undefined
 ): UsageCost {
+  if (reported) {
+    return {
+      amount: reported.amount,
+      currency: "USD",
+      kind: "reported",
+      ...(reported.estimate ? { estimate: true } : {}),
+      reference: reported.reference,
+    };
+  }
   if (!tokens) {
     return { kind: "unknown", reason: "the harness reported no token usage" };
   }
@@ -219,10 +340,15 @@ function scopeOf(
     : { scope: "direct" };
 }
 
-/** One committed turn as a fact, priced from the catalog when it lists the model. */
+/**
+ * One committed turn as a fact: at the cost the harness reported, else
+ * priced from the catalog or models.dev when either lists the model.
+ */
 export function usageFact(
   turn: {
     readonly message: SessionMessage;
+    /** What the harness reported this turn cost, when that figure is the turn's own. */
+    readonly reported?: ReportedCost;
     readonly route: {
       readonly implementation?: string;
       readonly model?: string;
@@ -247,7 +373,7 @@ export function usageFact(
   return {
     agentId: source.agentId,
     completedAt: timing?.completedAt ?? message.updatedAt,
-    cost: costOf(tokens, route, price),
+    cost: costOf(tokens, route, price, turn.reported),
     ...(timing ? { durationMs: timing.durationMs } : {}),
     ...(turn.route.implementation === undefined
       ? {}
@@ -449,6 +575,7 @@ function decodeCost(value: unknown): UsageCost | undefined {
       ? {
           amount: value.amount,
           currency: value.currency,
+          ...(value.estimate === true ? { estimate: true } : {}),
           kind: "reported",
           reference: value.reference,
         }

@@ -1,15 +1,18 @@
+import { z } from "zod";
 import { type AvailabilityOptions, availabilityIn } from "./availability";
 import { edgeKey } from "./edges";
 import { TaskError } from "./errors";
-import type {
-  ChangedTask,
-  TaskChange,
-  TaskOperation,
-  TaskRef,
-  TaskToken,
+import {
+  type ChangedTask,
+  type TaskChange,
+  type TaskOperation,
+  type TaskRef,
+  type TaskToken,
+  taskMetadataSchema,
 } from "./operations";
 import type { TaskSnapshot, TaskStoreWrite } from "./store";
 import type {
+  JsonObject,
   Task,
   TaskDelta,
   TaskDependency,
@@ -169,7 +172,7 @@ class Batch {
       createdAt: now,
       description: input.description ?? null,
       id,
-      metadata: input.metadata ?? {},
+      metadata: checkedMetadata(input.metadata ?? {}),
       parentId,
       settledAt: isSettled(status) ? now : null,
       status,
@@ -194,7 +197,14 @@ class Batch {
       ...(patch.description === undefined
         ? {}
         : { description: patch.description }),
-      ...(patch.metadata === undefined ? {} : { metadata: patch.metadata }),
+      ...(patch.metadata === undefined
+        ? {}
+        : {
+            metadata: mergedMetadata(
+              current.metadata,
+              checkedMetadata(patch.metadata)
+            ),
+          }),
       ...(patch.tags === undefined ? {} : { tags: uniqueTags(patch.tags) }),
       updatedAt: this.now(),
     });
@@ -423,6 +433,36 @@ export function changeEvent(
     return;
   }
   return { dependencies: { added, removed }, kind: "tasks.changed", tasks };
+}
+
+/**
+ * `stored` with each top-level key in `patch` set over it, and each key
+ * whose patch value is `null` removed. A nested value replaces the stored
+ * one whole.
+ */
+function mergedMetadata(stored: JsonObject, patch: JsonObject): JsonObject {
+  // `checkedMetadata` refuses a `__proto__` key; spread and `fromEntries`
+  // define own properties, so one could not reach the prototype setter here.
+  return Object.fromEntries(
+    Object.entries({ ...stored, ...patch }).filter(
+      ([key, value]) => value !== null || !Object.hasOwn(patch, key)
+    )
+  );
+}
+
+/**
+ * Metadata as `taskChangeSchema` takes it, for callers that skip the schema:
+ * a fresh copy of plain JSON, with no `__proto__` key at any depth.
+ */
+function checkedMetadata(metadata: JsonObject): JsonObject {
+  const checked = taskMetadataSchema.safeParse(metadata);
+  if (!checked.success) {
+    throw new TaskError(
+      "invalid_operation",
+      `metadata: ${z.prettifyError(checked.error)}`
+    );
+  }
+  return checked.data;
 }
 
 /** Each tag once, where it first appears. Tags are exact strings. */

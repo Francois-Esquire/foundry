@@ -378,6 +378,53 @@ describe("observing tasks", () => {
     await reopened.close();
   });
 
+  it("refuses a __proto__ metadata key before it is stored, and reads one written by hand without it", async () => {
+    const state = stateDir();
+    const records = new WorkspaceRecords({ dir: state });
+    const tasks = new Tasks({ store: records.taskStore });
+    // A quoted `__proto__` in an object literal sets the prototype; parsed
+    // JSON defines the key.
+    const proto = JSON.parse(
+      '{"__proto__":{"owner":"alice"},"nested":{"__proto__":{"ok":1}}}'
+    );
+    const PROTO = '"__proto__" is not allowed as a metadata key';
+    await expect(
+      tasks.create({ metadata: proto, title: "No" })
+    ).rejects.toThrow(PROTO);
+    const task = await tasks.create({
+      metadata: { nested: { owner: "alice" } },
+      title: "Kept",
+    });
+    await expect(tasks.update(task.id, { metadata: proto })).rejects.toThrow(
+      PROTO
+    );
+    await records.close();
+
+    const reopened = new WorkspaceRecords({ dir: state });
+    const [kept] = (await reopened.taskStore.snapshot()).tasks;
+    expect(kept?.metadata).toEqual({ nested: { owner: "alice" } });
+    const items = await reopened.pending();
+    expect(items).toHaveLength(1);
+    expect(JSON.stringify(items[0]?.payload)).toContain(
+      '"metadata":{"nested":{"owner":"alice"}}'
+    );
+    await reopened.close();
+
+    // No write stores the key, so only a hand-edited file can hold one.
+    const path = join(state, "tasks.json");
+    const document = JSON.parse(readFileSync(path, "utf8"));
+    document.tasks[0].metadata = JSON.parse(
+      '{"__proto__":{"x":1},"nested":{"__proto__":2,"owner":"alice"}}'
+    );
+    writeFileSync(path, JSON.stringify(document));
+    expect(readFileSync(path, "utf8")).toContain('"__proto__":2');
+    const edited = new WorkspaceRecords({ dir: state });
+    const [read] = (await edited.taskStore.snapshot()).tasks;
+    expect(read?.metadata).toEqual({ nested: { owner: "alice" } });
+    expect(Object.getPrototypeOf(read?.metadata)).toBe(Object.prototype);
+    await edited.close();
+  });
+
   it("a handler can change tasks without a deadlock, and that change is delivered too", async () => {
     const seen: TaskEvent[] = [];
     let follow: Tasks | undefined;

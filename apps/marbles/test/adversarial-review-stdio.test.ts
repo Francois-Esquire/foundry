@@ -26,10 +26,12 @@ const run = z.object({
 });
 
 /**
- * The workflow as an MCP client sees it: a real STDIO server over a
- * throwaway repository. `--dry-run` echoes agent turns, so each structured
- * reply is the smallest value its schema accepts: no findings, nothing to
- * challenge. That proves the wiring and the packet, not review quality.
+ * The workflow as an MCP client sees it: the MCP tools over STDIO, on a
+ * throwaway repository hosted under `--dry-run` by a test helper, since
+ * `marbles mcp` hosts nothing. The dry run echoes agent turns, so each
+ * structured reply is the smallest value its schema accepts: no findings,
+ * nothing to challenge. That proves the wiring and the packet, not review
+ * quality.
  */
 it("dispatches adversarial-review over STDIO MCP and reads both axes back", async () => {
   const root = await realpath(await seedRepository());
@@ -47,13 +49,7 @@ it("dispatches adversarial-review over STDIO MCP and reads both axes back", asyn
   await git("commit", "-m", "change");
 
   const transport = new StdioClientTransport({
-    args: [
-      "--no-env-file",
-      resolve("src/mcp/stdio.ts"),
-      "--source",
-      source,
-      "--dry-run",
-    ],
+    args: ["--no-env-file", resolve("test/helpers/dry-mcp-host.ts"), source],
     command: "bun",
     cwd: root,
     // The run's Foundry home, with its provider configuration.
