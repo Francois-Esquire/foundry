@@ -44,6 +44,8 @@ const ROUTE_CONFLICT =
 const NO_NAME = /cannot name it/;
 const SANDBOX_MCP = /sandbox session cannot reach/;
 const ANOTHER_FUNCTION = /already declared by another function/;
+const NOT_JSON = /extend's input must be JSON/;
+const ANOTHER_INPUT = /was opened with another input/;
 
 /** How much of the fixture Claude login's week is used; tests move it. */
 let claudeWeekUsed = 40;
@@ -581,6 +583,196 @@ describe("replay", () => {
       .generate(reviewer, "Look.");
     expect(replayed.text).toBe(first.text);
     expect(define).toHaveBeenCalledOnce();
+  });
+});
+
+describe("input", () => {
+  /** A reviewer told who did the work; the session keeps who that was. */
+  function reviewerOf(seen: unknown[] = []) {
+    return agent((_route, input?: { readonly implementer: string }) => {
+      seen.push(input);
+      return {
+        prompt: `Review what ${input?.implementer ?? "someone"} did.`,
+      };
+    });
+  }
+
+  it("gives the function the input extend set, and undefined without one", async () => {
+    hostEngine();
+    const seen: unknown[] = [];
+    const reviewer = reviewerOf(seen);
+    const ofCodex = reviewer.extend({ input: { implementer: "codex" } });
+    expect(ofCodex.id).toBe(reviewer.id);
+    expect({ ...ofCodex }).toEqual({
+      id: reviewer.id,
+      input: { implementer: "codex" },
+      kind: "agent",
+    });
+
+    expect(parse((await ofCodex.generate("Look.")).text).prompt).toContain(
+      "Review what codex did."
+    );
+    await reviewer.generate("Look.");
+    expect(seen).toEqual([{ implementer: "codex" }, undefined]);
+  });
+
+  it("keeps the input through a later extend, replaces it, and clears it with undefined", async () => {
+    const reviewer = reviewerOf();
+    const ofCodex = reviewer.extend({ input: { implementer: "codex" } });
+    const routed = ofCodex.extend({ provider: "codex" });
+    expect(routed.input).toEqual({ implementer: "codex" });
+    expect(routed.extend({ input: { implementer: "claude" } }).input).toEqual({
+      implementer: "claude",
+    });
+    const cleared = routed.extend({ input: undefined });
+    expect(Object.keys({ ...cleared }).sort()).toEqual([
+      "id",
+      "kind",
+      "provider",
+    ]);
+    expect(
+      (await buildDefinition(routed.extend({ input: { implementer: "pi" } })))
+        .prompt
+    ).toBe("Review what pi did.");
+  });
+
+  it("must be JSON, so a session can keep it", () => {
+    const reviewer = agent((_route, input?: Record<string, unknown>) => ({
+      prompt: `Review ${Object.keys(input ?? {}).join(", ")}.`,
+    }));
+    expect(() => reviewer.extend({ input: { at: new Date() } })).toThrow(
+      NOT_JSON
+    );
+    expect(() => reviewer.extend({ input: { later: undefined } })).toThrow(
+      NOT_JSON
+    );
+    expect(() => reviewer.extend({ input: { run: () => 0 } })).toThrow(
+      NOT_JSON
+    );
+  });
+
+  it("is kept with the session, so a parked run gives the function the same input", async () => {
+    const deps = managerDeps();
+    const a = args();
+    const seen: unknown[] = [];
+    const reviewer = reviewerOf(seen);
+    const ofCodex = reviewer.extend({ input: { implementer: "codex" } });
+    const first = await new AgentsManager(deps).scoped(a).session(ofCodex);
+    expect(first.ref.input).toEqual({ implementer: "codex" });
+
+    // The run parks: its ledger is written as JSON, and a later process
+    // rebuilds the scope from it. The body runs again without the input.
+    const restored = new RunScope(
+      a.scope.id,
+      a.scope.cwd,
+      {},
+      {
+        ledger: JSON.parse(JSON.stringify(a.scope.ledger)),
+        session: a.scope.session,
+      }
+    );
+    const again: ManagerArgs = {
+      frame: restored.frame(["root", "review"]),
+      scope: restored,
+      write: () => 0,
+    };
+    const replayed = await new AgentsManager(deps)
+      .scoped(again)
+      .session(reviewer);
+    expect(replayed.ref).toEqual(first.ref);
+    expect(seen).toEqual([{ implementer: "codex" }, { implementer: "codex" }]);
+  });
+
+  it("replays a body that gives the same input again, in any key order", async () => {
+    const deps = managerDeps();
+    const a = args();
+    const reviewer = agent(
+      (
+        _route,
+        input?: { readonly implementer: string; readonly round: number }
+      ) => ({
+        prompt: `Review round ${input?.round} by ${input?.implementer}.`,
+      })
+    );
+    const first = await new AgentsManager(deps)
+      .scoped(a)
+      .session(reviewer.extend({ input: { implementer: "codex", round: 2 } }));
+    const restored = new RunScope(
+      a.scope.id,
+      a.scope.cwd,
+      {},
+      {
+        ledger: JSON.parse(JSON.stringify(a.scope.ledger)),
+        session: a.scope.session,
+      }
+    );
+    const replayed = await new AgentsManager(deps)
+      .scoped({
+        frame: restored.frame(["root", "review"]),
+        scope: restored,
+        write: () => 0,
+      })
+      .session(reviewer.extend({ input: { implementer: "codex", round: 2 } }));
+    expect(replayed.ref).toEqual(first.ref);
+  });
+
+  it("is given again when a kept session reopens, and another input fails it", async () => {
+    const deps = managerDeps();
+    const seen: unknown[] = [];
+    const reviewer = reviewerOf(seen);
+    const first = await new AgentsManager(deps)
+      .scoped(args())
+      .session(reviewer.extend({ input: { implementer: "codex" } }));
+
+    const reopened = await new AgentsManager(deps)
+      .scoped(args())
+      .session(reviewer, { session: first.ref });
+    expect(reopened.ref.input).toEqual({ implementer: "codex" });
+    expect(seen.at(-1)).toEqual({ implementer: "codex" });
+
+    await expect(
+      new AgentsManager(deps)
+        .scoped(args())
+        .session(reviewer.extend({ input: { implementer: "claude" } }), {
+          session: first.ref,
+        })
+    ).rejects.toThrow(ANOTHER_INPUT);
+
+    // A ref that kept no input takes the one the agent has.
+    const byId = await new AgentsManager(deps)
+      .scoped(args())
+      .session(reviewer.extend({ input: { implementer: "claude" } }), {
+        session: { id: first.ref.id },
+      });
+    expect(byId.ref.input).toEqual({ implementer: "claude" });
+  });
+
+  it("types the input from the function's parameter", () => {
+    const reviewer = reviewerOf();
+    expectTypeOf(reviewer).toEqualTypeOf<
+      DeferredAgent<never, { readonly implementer: string }>
+    >();
+    expectTypeOf(reviewer.extend({ provider: "codex" })).toEqualTypeOf<
+      DeferredAgent<never, { readonly implementer: string }>
+    >();
+    // @ts-expect-error The input is the type the function takes.
+    reviewer.extend({ input: { implementer: 1 } });
+    const routed = agent(() => ({ prompt: "Review." }));
+    expectTypeOf(routed).toEqualTypeOf<DeferredAgent<never>>();
+    // @ts-expect-error A function that takes no input is given none.
+    routed.extend({ input: { implementer: "codex" } });
+    const plain = agent({ prompt: "Review." });
+    // @ts-expect-error A definition object has no function to give an input.
+    plain.extend({ input: { implementer: "codex" } });
+    const typed = agent<typeof verdict, { readonly implementer: string }>(
+      (_route, input) => ({
+        prompt: `Judge ${input?.implementer}.`,
+        settings: { output: verdict },
+      })
+    );
+    expectTypeOf(typed.input).toEqualTypeOf<
+      { readonly implementer: string } | undefined
+    >();
   });
 });
 

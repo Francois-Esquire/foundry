@@ -102,8 +102,8 @@ what each Claude Code and Codex login has left.
 
 ## Define the agent with a function
 
-`agent(async (route) => definition)` declares an agent whose definition is
-built when each session opens. The function returns what `agent({ ... })`
+`agent(async (route, input) => definition)` declares an agent whose
+definition is built when each session opens. The function returns what `agent({ ... })`
 takes, except `name`: `prompt`, `model`, `provider`, `settings`, `skills`,
 and `mcp`. The result is an ordinary agent. `generate`, `stream`,
 `agents.session`, and `extend` work as they do on any other agent.
@@ -123,6 +123,15 @@ and `mcp`. The result is an ordinary agent. `generate`, `stream`,
   not set the route: if the function picks another provider than the one
   the conversation was opened on, a new session starts, with a warning, as
   it does for any agent.
+- **The input it is given.** `extend({ input })` sets a value the function
+  receives as its second parameter, so one agent can vary its prompt or
+  skills per call. Without one, `input` is `undefined`. It is not the
+  prompt of a turn, which `generate` and `stream` take. The input must be
+  JSON, and a later `extend` with an `input` replaces it. The session keeps
+  it: a replayed step, and `{ session: ref }` with a ref that holds it, give
+  the function the same input again, and an agent with a different input
+  fails the opening. A ref with only an `id` keeps no input. An MCP agent
+  dispatch gives no input.
 - **What `extend` changes.** Each `extend` adds to the route the function
   is given, and its `settings` merge over the settings the function
   returns, in order, as they merge for a plain agent.

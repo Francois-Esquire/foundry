@@ -34,7 +34,7 @@ import {
 
 | Factory | Declaration | Purpose |
 | --- | --- | --- |
-| `agent` | `agent({ name?, prompt, model?, provider?, settings?, skills?, mcp? })` or `agent(async (route) => ({ prompt, … }))` | Who does model work, with defaults; a function builds the definition as each session opens. |
+| `agent` | `agent({ name?, prompt, model?, provider?, settings?, skills?, mcp? })` or `agent(async (route, input) => ({ prompt, … }))` | Who does model work, with defaults; a function builds the definition as each session opens. |
 | `workspace` | `workspace({ path })` | Another directory to work on. The current workspace is implicit. |
 | `sandbox` | `sandbox({ image, mount?, target?, … })` or `sandbox({ files, image?, … })` | An isolated place to run commands. |
 | `artifact` | `artifact({ name, type })` | A named output; each write adds a version. |
@@ -97,6 +97,35 @@ const claudeReview = reviewer("claude"); // id "review-claude"
 
 Without `name`, each agent's id is a digest of its prompt, which moves when
 the prompt changes.
+
+### Agent inputs
+
+An agent declared with a function takes an input as its second parameter.
+`extend({ input })` sets it, and the extended agent keeps the same id:
+
+```ts
+const reviewer = agent(async (route, input?: { implementer: string }) => ({
+  prompt: `Review the change ${input?.implementer ?? "someone"} made. Do not edit.`,
+}));
+
+step("review")
+  .input(z.object({ implementer: z.string() }))
+  .do(async ({ input }) => {
+    const ofImplementer = reviewer.extend({
+      input: { implementer: input.implementer },
+    });
+    const reply = await ofImplementer.generate("Review.");
+    return reply.text;
+  });
+```
+
+The input is `undefined` until `extend` sets one. It must be JSON. A later
+`extend` with an `input` replaces it, `input: undefined` clears it, and an
+`extend` without one keeps it. `session.ref.input` holds the input a session
+opened with. A replayed step, or `{ session: ref }` with that ref, gives the
+function the same input again; an agent with a different input fails the
+opening. A ref with only an `id` keeps no input, so the agent's own is used.
+A definition object has no function, so its `extend` takes no input.
 
 ### Workspace settings
 
@@ -165,7 +194,7 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
 
 | Instance | Operations | Context equivalent |
 | --- | --- | --- |
-| `agent` | `generate(input, turn?)`, `stream(input, turn?)`; `extend({ model?, provider?, settings? })` | `agents.session(def)`, one turn |
+| `agent` | `generate(input, turn?)`, `stream(input, turn?)`; `extend({ model?, provider?, settings?, input? })` | `agents.session(def)`, one turn |
 | `step`, `workflow` | `run(input?)` | Direct execution within the current process; no separate dashboard run. |
 | `workspace` | `root`, `files()`, `git` | `workspaces.load(def)` |
 | `sandbox` | `exec`, `close`, and the container's `commands`, `filesystem`, `processes`, `shell`, `ports`, `services`, `volumes`; started by the first call | `sandboxes.start(def)` |
