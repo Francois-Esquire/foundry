@@ -330,16 +330,20 @@ are kept:
 
 A value with no JSON form (a `bigint`, a value that contains itself, a getter
 that throws) is refused, naming its path, such as `parts[0].input.count`. So
-is a message whose JSON form is no message: a part that became `null`, a
-required field left out, a token count that became `null`. The append or
-update rejects and writes nothing.
+are parts or metadata a caller supplies whose JSON form is no message: a part
+that became `null`, a required field left out, a token count that became
+`null`. The append or update rejects and writes nothing. What a store already
+holds is not checked again, so a message filed by another writer, in a shape
+the vocabulary no longer has, can still be folded or have its status set.
 
 A tool output with no JSON form fails the turn with an error that names the
 tool. A reply the session cannot keep, because `Sessions` refuses it or the
 store's commit rejects, fails the turn the same way. The reply is reported
 with status `error` and an error part saying why, `onError` hears it, no
-`finish` is emitted, a requested `output` rejects, and nothing reports
-`complete` for a reply that is not in the history.
+`finish` is emitted, and a requested `output` rejects. `outcome` says only
+whether an approval checkpoint is pending, so it resolves `complete` here, as
+it does for every failed turn: read the message's status to know the reply
+failed.
 
 ### Storage
 
