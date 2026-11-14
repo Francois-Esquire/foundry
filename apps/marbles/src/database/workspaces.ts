@@ -2,11 +2,15 @@ import { resolve } from "node:path";
 
 import { and, asc, eq } from "drizzle-orm";
 import { IncompatibleDatabaseError } from "~/database/migrate";
-import type { OpenDatabaseOptions, StoreDatabase } from "~/database/open";
+import type {
+  MarblesDatabase,
+  OpenDatabaseOptions,
+  StoreDatabase,
+} from "~/database/open";
 import {
   initializeDatabase,
+  openDatabase,
   readDatabase,
-  writeDatabase,
 } from "~/database/open";
 import { marblesWorkspaces } from "~/database/tables";
 import { stateDatabase } from "~/layout";
@@ -131,7 +135,7 @@ export async function recordedWorkspaces(
   return records ?? [];
 }
 
-export interface RecordWorkspaceOptions extends OpenDatabaseOptions {
+export interface HostDatabaseOptions extends OpenDatabaseOptions {
   /**
    * How long to wait, while another process holds the state root, for the
    * database to be current; 5 s when omitted.
@@ -139,61 +143,77 @@ export interface RecordWorkspaceOptions extends OpenDatabaseOptions {
   readonly wait?: number;
 }
 
-const RECORD_WAIT_MS = 5000;
-const RECORD_RETRY_MS = 50;
+const HOST_WAIT_MS = 5000;
+const HOST_RETRY_MS = 50;
 
 /**
- * Record a sight of `workspace` for a program that hosts it: a worker of
- * the Marbles process, or a program hosting it itself. Such a host is a
- * writer, and may make and migrate the database, but only while it holds
- * the state root's process lock, the one the Marbles process claims for its
- * lifetime (`PROCESS_LOCK`). It takes it atomically, makes or migrates the
- * database and records the workspace under it, and lets it go: held only
- * that long, so a Marbles process can start beside a host that runs for
- * hours, as it always could, while no two processes ever migrate at once.
+ * The database for a program that writes a workspace's state: a worker of
+ * the Marbles process, a program hosting a workspace itself, or a command
+ * changing a workspace's tasks with no worker hosting it. Such a writer may
+ * make and migrate the database, but only while it holds the state root's
+ * process lock, the one the Marbles process claims for its lifetime
+ * (`PROCESS_LOCK`). It takes it atomically, makes or migrates the database
+ * under it, and lets it go: held only that long, so a Marbles process can
+ * start beside a host that runs for hours, as it always could, while no
+ * two processes ever migrate at once.
  *
- * When another process holds the lock (the Marbles process, or a host
- * doing the same), this one never migrates: it records the workspace in a
- * database that is current, waiting up to `wait` for the holder to make it
- * so, and otherwise throws `IncompatibleDatabaseError`.
+ * When another process holds the lock (the Marbles process, or a writer
+ * doing the same), this one never migrates: it opens a database that is
+ * current, waiting up to `wait` for the holder to make it so, and otherwise
+ * throws `IncompatibleDatabaseError`. The caller closes the handle.
  */
-export async function recordWorkspace(
+export function openHostDatabase(
   state: string,
-  workspace: Workspace,
-  config: string | null,
-  options: RecordWorkspaceOptions = {}
-): Promise<void> {
+  options: HostDatabaseOptions = {}
+): Promise<MarblesDatabase> {
+  return asHost(state, (opened) => Promise.resolve(opened), options);
+}
+
+/**
+ * Run `work` on the database as a writer of a workspace's state, under the
+ * rule `openHostDatabase` keeps, and close it after. When this process
+ * takes the state root's lock to make or migrate the database, `work` runs
+ * under it too, and the lock goes once the database is closed.
+ */
+export function writeAsHost<T>(
+  state: string,
+  work: (database: StoreDatabase) => Promise<T>,
+  options: HostDatabaseOptions = {}
+): Promise<T> {
+  return asHost(
+    state,
+    async (opened) => {
+      try {
+        return await work(opened.database);
+      } finally {
+        opened.close();
+      }
+    },
+    options
+  );
+}
+
+/** Open the database as `openHostDatabase` says and `use` it, under the lock when this process took it. */
+async function asHost<T>(
+  state: string,
+  use: (opened: MarblesDatabase) => Promise<T>,
+  options: HostDatabaseOptions
+): Promise<T> {
   const root = resolve(state);
   const file = stateDatabase(root);
-  const touch = (database: StoreDatabase) =>
-    new WorkspaceRegistry({ database, state: root }).touch(workspace, config);
-  const deadline = Date.now() + (options.wait ?? RECORD_WAIT_MS);
+  const deadline = Date.now() + (options.wait ?? HOST_WAIT_MS);
   for (;;) {
     const claim = acquireLock(root, PROCESS_LOCK);
     if ("release" in claim) {
       try {
-        const opened = await initializeDatabase(file, options);
-        try {
-          await touch(opened.database);
-        } finally {
-          opened.close();
-        }
+        return await use(await initializeDatabase(file, options));
       } finally {
         claim.release();
       }
-      return;
     }
-    let recorded = false;
+    let opened: MarblesDatabase | undefined;
     try {
-      recorded =
-        (await writeDatabase(
-          file,
-          async (database) => {
-            await touch(database);
-            return true;
-          },
-          options
-        )) === true;
+      opened = await openDatabase(file, options);
     } catch (error) {
       if (!(error instanceof IncompatibleDatabaseError)) {
         throw error;
@@ -202,14 +222,32 @@ export async function recordWorkspace(
         throw error;
       }
     }
-    if (recorded) {
-      return;
+    if (opened !== undefined) {
+      return use(opened);
     }
     if (Date.now() >= deadline) {
       throw new IncompatibleDatabaseError(
         `there is no Marbles database at ${file} yet, and ${claim.holder} holds the state root, so this host does not make one; start the Marbles process, or retry once it is up`
       );
     }
-    await new Promise((settle) => setTimeout(settle, RECORD_RETRY_MS));
+    await new Promise((settle) => setTimeout(settle, HOST_RETRY_MS));
   }
+}
+
+/**
+ * Record a sight of `workspace` for a program that hosts it, under the
+ * rule `openHostDatabase` keeps.
+ */
+export function recordWorkspace(
+  state: string,
+  workspace: Workspace,
+  config: string | null,
+  options: HostDatabaseOptions = {}
+): Promise<void> {
+  return writeAsHost(
+    state,
+    (database) =>
+      new WorkspaceRegistry({ database, state }).touch(workspace, config),
+    options
+  );
 }

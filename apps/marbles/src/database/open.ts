@@ -60,10 +60,12 @@ const READ_ATTEMPTS = 3;
  *   itself for as long as it records it (`recordWorkspace`). Creates the
  *   file, puts it in WAL mode, and migrates it. Nothing else migrates, so
  *   no two processes migrate at once.
- * - `writeDatabase`, for a write by a process without that lock (a
- *   worker's record, a detach with no process running): opens only a file
- *   that is there, never creates or migrates one, and refuses a schema
- *   that is not current.
+ * - `openDatabase` and `writeDatabase`, for writes by a process without
+ *   that lock (a worker hosting a workspace, a detach with no process
+ *   running): open only a file that is there, never create or migrate
+ *   one, and refuse a schema that is not current. `openDatabase` keeps the
+ *   handle open for the caller; `writeDatabase` closes it after one piece
+ *   of work.
  * - `readDatabase`, for every reader: a read-only connection that never
  *   creates the file, migrates it, or changes its content.
  */
@@ -105,17 +107,18 @@ export async function initializeDatabase(
 }
 
 /**
- * Run `work` on the database at `file` if the Marbles process has made it,
- * and close it after. Undefined, and `work` not run, when there is no file
- * or nothing was ever migrated into it. A schema that is not exactly the
- * one this Marbles ships is refused (`IncompatibleDatabaseError`): only the
- * Marbles process migrates.
+ * Open the database at `file` as a writer, if the Marbles process (or a
+ * host under the state root's process lock) has made it: for a process
+ * that writes to it for as long as it runs, such as one hosting a
+ * workspace. Undefined when there is no file or nothing was ever migrated
+ * into it. A schema that is not exactly the one this Marbles ships is
+ * refused (`IncompatibleDatabaseError`): only the holder of that lock
+ * migrates. The caller closes the handle.
  */
-export async function writeDatabase<T>(
+export async function openDatabase(
   file: string,
-  work: (database: StoreDatabase) => Promise<T>,
   options: OpenDatabaseOptions = {}
-): Promise<T | undefined> {
+): Promise<MarblesDatabase | undefined> {
   const path = resolve(file);
   if (!existsSync(path)) {
     return;
@@ -125,11 +128,34 @@ export async function writeDatabase<T>(
     await client.execute("PRAGMA foreign_keys = ON");
     const database = drizzle({ client });
     if (!(await usable(database, path, options))) {
+      client.close();
       return;
     }
-    return await work(database);
-  } finally {
+    return { close: () => client.close(), database, file: path };
+  } catch (error) {
     client.close();
+    throw error;
+  }
+}
+
+/**
+ * Run `work` on the database at `file` if the Marbles process has made it,
+ * and close it after (`openDatabase`). Undefined, and `work` not run, when
+ * there is no file or nothing was ever migrated into it.
+ */
+export async function writeDatabase<T>(
+  file: string,
+  work: (database: StoreDatabase) => Promise<T>,
+  options: OpenDatabaseOptions = {}
+): Promise<T | undefined> {
+  const opened = await openDatabase(file, options);
+  if (opened === undefined) {
+    return;
+  }
+  try {
+    return await work(opened.database);
+  } finally {
+    opened.close();
   }
 }
 

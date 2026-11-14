@@ -10,6 +10,37 @@ import type {
 } from "@libsql/client";
 
 /**
+ * The database stayed busy past the wait: in this process, its turn was not
+ * given in time (`serialClient`); from another, SQLite's busy timeout ran
+ * out (`SQLITE_BUSY`, which `busyError` turns into this).
+ */
+export class DatabaseBusyError extends Error {
+  override readonly name = "DatabaseBusyError";
+}
+
+/**
+ * `error` as a `DatabaseBusyError` when it, or anything in its causes, is
+ * SQLite refusing a lock after its busy timeout; undefined otherwise.
+ */
+export function busyError(error: unknown): DatabaseBusyError | undefined {
+  for (let cause = error; cause instanceof Error; cause = cause.cause) {
+    if (cause instanceof DatabaseBusyError) {
+      return cause;
+    }
+    if (
+      "code" in cause &&
+      typeof cause.code === "string" &&
+      cause.code.startsWith("SQLITE_BUSY")
+    ) {
+      return new DatabaseBusyError(
+        "the Marbles database is busy: another process held its write lock longer than the busy timeout; retry",
+        { cause: error }
+      );
+    }
+  }
+}
+
+/**
  * A libSQL client whose operations take turns. The native driver is
  * synchronous: a connection that waits for the write lock blocks the whole
  * thread in SQLite's busy handler, so a second transaction in the same
@@ -207,7 +238,7 @@ function fifo(file: string, idle: () => void): Queue & { join(): void } {
         const timer = setTimeout(() => {
           refused = true;
           refuse(
-            new Error(
+            new DatabaseBusyError(
               `the Marbles database at ${file} stayed busy for ${String(wait)} ms in this process; a transaction may be waiting on itself`
             )
           );
