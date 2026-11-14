@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import {
   mkdir,
@@ -268,6 +268,56 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     expect(refused.status).toBe(1);
     expect(refused.stderr).toContain("is not a directory inside");
     expect(await readdir(outside)).toEqual([]);
+  });
+
+  it("keeps two workspaces' tasks apart under one state root", async () => {
+    const state = join(root, "state");
+    const inProject = (project: string, ...argv: readonly string[]) =>
+      spawnSync("bun", cliArgs(...argv, "--state", state), {
+        cwd: project,
+        encoding: "utf8",
+        timeout: 15_000,
+      });
+    const [a, b] = [join(root, "a"), join(root, "b")];
+    await mkdir(a);
+    await mkdir(b);
+    expect(inProject(a, "tasks", "create", "Only in A").status).toBe(0);
+    expect(inProject(b, "tasks", "create", "Only in B").status).toBe(0);
+    const titles = (project: string) =>
+      JSON.parse(
+        inProject(project, "tasks", "list", "--json").stdout
+      ).items.map((task: { title: string }) => task.title);
+    expect(titles(a)).toEqual(["Only in A"]);
+    expect(titles(b)).toEqual(["Only in B"]);
+  });
+
+  it("lets several commands change the tasks at once with no Marbles process running", async () => {
+    const state = join(root, "state");
+    const titles = ["One", "Two", "Three", "Four"];
+    const results = await Promise.all(
+      titles.map(
+        (title) =>
+          new Promise<{ code: number | null; stderr: string }>((done) => {
+            const child = spawn(
+              "bun",
+              cliArgs("tasks", "create", title, "--state", state),
+              { cwd: root }
+            );
+            let stderr = "";
+            child.stderr?.on("data", (chunk: Buffer) => {
+              stderr += chunk.toString();
+            });
+            child.once("exit", (code) => done({ code, stderr }));
+          })
+      )
+    );
+    for (const result of results) {
+      expect(result.code, result.stderr).toBe(0);
+    }
+    const listed = JSON.parse(marbles("tasks", "list", "--json").stdout);
+    expect(
+      listed.items.map((task: { title: string }) => task.title).sort()
+    ).toEqual([...titles].sort());
   });
 
   it("makes the database with no Marbles process running, and leaves the state root free", () => {

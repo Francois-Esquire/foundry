@@ -234,9 +234,11 @@ export async function readTasks<T>(
   scope: string,
   work: (tasks: Tasks) => Promise<T>
 ): Promise<T> {
-  const read = await readDatabase(stateDatabase(state), async (database) => ({
-    value: await work(tasksOver(database, scope)),
-  }));
+  const read = await busyAsMarbles(
+    readDatabase(stateDatabase(state), async (database) => ({
+      value: await work(tasksOver(database, scope)),
+    }))
+  );
   return read === undefined ? work(new Tasks()) : read.value;
 }
 
@@ -252,18 +254,29 @@ export function changeTasks<T>(
   work: (tasks: Tasks) => Promise<T>,
   options: HostDatabaseOptions = {}
 ): Promise<T> {
-  return writeAsHost(
-    state,
-    async (database) => {
-      const records = new DatabaseWorkspaceRecords({ database, scope });
-      try {
-        return await work(new Tasks({ store: records.taskStore }));
-      } finally {
-        await records.close();
-      }
-    },
-    options
+  return busyAsMarbles(
+    writeAsHost(
+      state,
+      async (database) => {
+        const records = new DatabaseWorkspaceRecords({ database, scope });
+        try {
+          return await work(new Tasks({ store: records.taskStore }));
+        } finally {
+          await records.close();
+        }
+      },
+      options
+    )
   );
+}
+
+/** `opening`, with a lock SQLite waited too long for while it opened or migrated as a `DatabaseBusyError`. */
+async function busyAsMarbles<T>(opening: Promise<T>): Promise<T> {
+  try {
+    return await opening;
+  } catch (error) {
+    throw busyError(error) ?? error;
+  }
 }
 
 function tasksOver(database: StoreDatabase, scope: string): Tasks {
