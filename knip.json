@@ -74,6 +74,9 @@
         "!.foundry/marbles/**/_*/**"
       ]
     },
+    "modules/documents": {
+      "entry": ["src/program.ts", "src/view.ts", "src/workflows.ts"]
+    },
     "modules/sheets": {
       "entry": ["src/program.ts", "src/view.tsx"]
     }

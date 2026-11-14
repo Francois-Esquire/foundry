@@ -111,6 +111,16 @@ try {
       [path.join(userData, "theme-profile")],
       240_000
     );
+    await run(
+      "module-editor.smoke.cjs",
+      [path.join(userData, "editor-profile")],
+      240_000
+    );
+    await run(
+      "module-workflows.smoke.cjs",
+      [path.join(userData, "workflows-profile")],
+      240_000
+    );
   }
 } finally {
   await rm(userData, {
