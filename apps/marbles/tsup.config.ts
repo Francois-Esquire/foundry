@@ -7,6 +7,7 @@ const INTERNAL = [
   "core",
   "lib",
   "models",
+  "prompts",
   "sandbox",
   "tasks",
   "usage",

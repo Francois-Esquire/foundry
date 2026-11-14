@@ -1,10 +1,10 @@
 # Foundry Prompts for VS Code
 
 Highlights what a prompt references: skills, agents, files, commands,
-templates, arguments, harness variables, and shell. It works inside
-`@foundry/prompts` tags and in Claude skill files. References use standard
-TextMate scopes, so stock themes colour them. The extension is grammars only
-for now: no extension code runs.
+templates, arguments, harness variables, and shell. It works inside the
+`prompts` tags that `@foundry.sh/marbles` exports and in Claude skill
+files. References use standard TextMate scopes, so stock themes colour
+them. The extension is grammars only for now: no extension code runs.
 
 | Where | Read as |
 | --- | --- |
