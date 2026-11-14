@@ -119,6 +119,7 @@ const refuse: CommitInterceptor = () =>
 function bound(store: ArtifactStore): ArtifactStore {
   return {
     commit: (write) => store.commit(write),
+    ...(store.durability === undefined ? {} : { durability: store.durability }),
     findBlobs: (digest) => store.findBlobs(digest),
     findReferences: (id) => store.findReferences(id),
     getArtifact: (id) => store.getArtifact(id),

@@ -28,6 +28,16 @@ export interface ArtifactListing {
   readonly total: number;
 }
 
+/**
+ * When a commit that resolved is there for good.
+ *
+ * - `"commit"`: at once. The store's own transaction is the whole of it.
+ * - `"host"`: only once a transaction the store sits inside, which someone
+ *   else owns, commits; until then that owner may still roll it back, and
+ *   the records the commit replaced come back.
+ */
+export type ArtifactStoreDurability = "commit" | "host";
+
 /** A store that offers `transaction`, as every Artifact store does. */
 export type TransactionalArtifactStore = ArtifactStore &
   Required<Pick<ArtifactStore, "transaction">>;
@@ -57,6 +67,13 @@ export interface ArtifactStoreWrite {
  */
 export interface ArtifactStore {
   commit(write: ArtifactStoreWrite): Promise<void>;
+  /**
+   * When a commit that resolved is there for good; `"commit"` when absent.
+   * Over a `"host"` store the package removes no file in line that a
+   * commit stopped naming, since a rollback would name it again: it marks
+   * the file retired and leaves it for `recover` (see `BlobFiles.retire`).
+   */
+  readonly durability?: ArtifactStoreDurability;
   /** The blobs holding bytes with this digest, in no particular order. */
   findBlobs(digest: string): Promise<readonly Blob[]>;
   /** The records naming the blob, in no particular order. */

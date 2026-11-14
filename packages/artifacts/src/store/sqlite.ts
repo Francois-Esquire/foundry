@@ -7,15 +7,13 @@ import {
   eq,
   getTableColumns,
   inArray,
+  is,
   ne,
   or,
   sql,
 } from "drizzle-orm";
-import type {
-  BaseSQLiteDatabase,
-  SQLiteColumn,
-  SQLiteTransaction,
-} from "drizzle-orm/sqlite-core";
+import type { BaseSQLiteDatabase, SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 
 import type { ArtifactCursor } from "../listing";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
@@ -24,6 +22,7 @@ import type {
   ArtifactListing,
   ArtifactListQuery,
   ArtifactStore,
+  ArtifactStoreDurability,
   ArtifactStoreWrite,
   BlobListing,
   BlobReferences,
@@ -61,6 +60,16 @@ export type ArtifactDatabaseTransaction = SQLiteTransaction<
 export interface SqliteArtifactStoreOptions {
   /** Opened, migrated, and owned by the host; the store never closes it. */
   readonly database: ArtifactDatabase;
+  /**
+   * When a commit that resolved is there for good (see
+   * `ArtifactStoreDurability`). A Drizzle transaction handed in as
+   * `database` is one the host owns and may roll back, so the store is
+   * `"host"` over it whatever this says, and refuses `"commit"`. Over a
+   * plain database the default is `"commit"`; pass `"host"` when the host
+   * has begun a transaction of its own on the connection (a raw `BEGIN`),
+   * which the store cannot see.
+   */
+  readonly durability?: ArtifactStoreDurability;
   /**
    * Runs inside the commit's transaction after the store's own statements,
    * so the host can record the change atomically with it. A throw rolls the
@@ -133,6 +142,7 @@ const SETTLED = "Artifact store transaction has settled";
  * `transaction` takes the database's write lock (see there).
  */
 export class SqliteArtifactStore implements ArtifactStore {
+  readonly durability: ArtifactStoreDurability;
   readonly #database: ArtifactDatabase;
   readonly #scope: string;
   readonly #onCommit: SqliteArtifactStoreOptions["onCommit"];
@@ -147,6 +157,13 @@ export class SqliteArtifactStore implements ArtifactStore {
         "scope must be a nonempty string with no U+0000 and no lone surrogate"
       );
     }
+    const joined = is(options.database, SQLiteTransaction);
+    if (joined && options.durability === "commit") {
+      throw new RangeError(
+        'database is a transaction the host owns, which it may roll back: a commit is durable only when the host\'s is, so durability cannot be "commit"'
+      );
+    }
+    this.durability = joined ? "host" : (options.durability ?? "commit");
     this.#database = options.database;
     this.#scope = options.scope;
     this.#onCommit = options.onCommit;

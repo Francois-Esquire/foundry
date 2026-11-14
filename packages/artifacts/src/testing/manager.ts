@@ -61,6 +61,9 @@ function pausable(store: ArtifactStore) {
   function wrap(target: ArtifactStore): ArtifactStore {
     return {
       commit: (write) => target.commit(write),
+      ...(target.durability === undefined
+        ? {}
+        : { durability: target.durability }),
       findBlobs: (digest) => gate("findBlobs", target.findBlobs(digest)),
       findReferences: (id) => gate("findReferences", target.findReferences(id)),
       getArtifact: (id) => gate("getArtifact", target.getArtifact(id)),
