@@ -41,7 +41,8 @@ export interface SqliteTaskStoreOptions {
   /**
    * Runs inside the commit's transaction after the store's own statements,
    * so the host can record the change (`write.event`) atomically with it. A
-   * throw rolls the whole commit back.
+   * throw rolls the whole commit back. It receives the store's own copy of
+   * the write, the one its rows were made from, not the caller's object.
    */
   readonly onCommit?: (
     transaction: TaskTransaction,
@@ -106,12 +107,25 @@ export class SqliteTaskStore implements TaskStore {
   }
 
   /**
+   * Takes the write as it stands when `commit` is called: one
+   * `structuredClone` of the whole write, as the memory store takes it, made
+   * before the commit waits its turn. That copy alone is checked, made into
+   * every row, and handed to `onCommit`, so a caller changing its write
+   * later changes nothing. A write the clone refuses rejects with the
+   * clone's error, as in the memory store.
+   *
    * Rejects, before writing anything, a write that puts text SQLite would
    * not return intact; see {@link storable}. A delete of such a key does
    * nothing, as no stored row can hold it.
    */
   commit(write: TaskStoreWrite): Promise<void> {
-    const field = unstorableField(write);
+    let owned: TaskStoreWrite;
+    try {
+      owned = structuredClone(write);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const field = unstorableField(owned);
     if (field !== undefined) {
       return Promise.reject(
         new RangeError(
@@ -123,17 +137,17 @@ export class SqliteTaskStore implements TaskStore {
       this.#database.transaction(async (transaction) => {
         await this.#deleteTasks(
           transaction,
-          (write.deleteTasks ?? []).filter(storable)
+          (owned.deleteTasks ?? []).filter(storable)
         );
         await this.#deleteDependencies(
           transaction,
-          (write.deleteDependencies ?? []).filter(
+          (owned.deleteDependencies ?? []).filter(
             (edge) => storable(edge.taskId) && storable(edge.dependsOnId)
           )
         );
-        await this.#putTasks(transaction, write.putTasks ?? []);
-        await this.#putDependencies(transaction, write.putDependencies ?? []);
-        await this.#onCommit?.(transaction, write);
+        await this.#putTasks(transaction, owned.putTasks ?? []);
+        await this.#putDependencies(transaction, owned.putDependencies ?? []);
+        await this.#onCommit?.(transaction, owned);
       })
     );
   }

@@ -211,6 +211,59 @@ export function describeTaskStore(
       });
     });
 
+    test("takes a write as it stands when commit is called, though the caller changes it at once", async () => {
+      const target = await store();
+      const kept = task("kept");
+      await target.commit({ putTasks: [kept] });
+      const write = callerWrite(kept);
+      const expected = storedAfter(write, kept);
+
+      const landing = target.commit(write);
+      scramble(write, kept);
+      await landing;
+
+      expect(await target.snapshot()).toEqual(expected);
+    });
+
+    test("takes a write as it stands when commit is called, though it waits behind a transaction", async () => {
+      const target = await store();
+      const kept = task("kept");
+      await target.commit({ putTasks: [kept] });
+      const write = callerWrite(kept);
+      const expected = storedAfter(write, kept);
+      const entered = Promise.withResolvers<void>();
+      const held = Promise.withResolvers<void>();
+      const running = transactionOf(target)(async () => {
+        entered.resolve();
+        await held.promise;
+      });
+      await entered.promise;
+
+      const landing = target.commit(write);
+      scramble(write, kept);
+      held.resolve();
+      await Promise.all([running, landing]);
+
+      expect(await target.snapshot()).toEqual(expected);
+    });
+
+    test("takes a write through a transaction's view as it stands when commit is called", async () => {
+      const target = await store();
+      const kept = task("kept");
+      await target.commit({ putTasks: [kept] });
+      const write = callerWrite(kept);
+      const expected = storedAfter(write, kept);
+
+      await transactionOf(target)(async (view) => {
+        const committed = view.commit(write);
+        scramble(write, kept);
+        await committed;
+        expect(await view.snapshot()).toEqual(expected);
+      });
+
+      expect(await target.snapshot()).toEqual(expected);
+    });
+
     test("two scopes on one storage never see each other", async () => {
       const stores = await open();
       const [first, second] = [stores("scope-a"), stores("scope-b")];
@@ -413,6 +466,56 @@ function task(name: string, overrides: Partial<Task> = {}): Task {
 
 function dependency(from: Task, on: Task): TaskDependency {
   return { dependsOnId: on.id, taskId: from.id };
+}
+
+/**
+ * A write as a caller holds it: one task and one edge to put beside `kept`,
+ * an event, and an empty list of deletes, every part of it open to change.
+ */
+function callerWrite(kept: Task) {
+  const added = task("added", { metadata: { list: ["x"] }, tags: ["t"] });
+  const edge = dependency(added, kept);
+  return {
+    deleteDependencies: [] as TaskDependency[],
+    deleteTasks: [] as TaskId[],
+    event: {
+      dependencies: { added: [{ ...edge }], removed: [] },
+      kind: "tasks.changed",
+      tasks: [{ after: structuredClone(added), before: null, id: added.id }],
+    } satisfies TaskEvent,
+    putDependencies: [edge],
+    putTasks: [added],
+  };
+}
+
+/** What a store holds once `write`, as it stands now, lands beside `kept`. */
+function storedAfter(write: ReturnType<typeof callerWrite>, kept: Task) {
+  return structuredClone({
+    dependencies: write.putDependencies,
+    tasks: [kept, ...write.putTasks],
+  });
+}
+
+/**
+ * Changes, in place, every value `write` holds, as a caller might once
+ * `commit` has returned: each field of the task it puts, its metadata and
+ * tags, its edge and event, a further task and edge put, and `kept`
+ * deleted.
+ */
+function scramble(write: ReturnType<typeof callerWrite>, kept: Task): void {
+  for (const put of write.putTasks) {
+    mutable(put).title = "changed";
+    (put.metadata.list as string[]).push("changed");
+    (put.tags as string[]).push("changed");
+  }
+  for (const edge of write.putDependencies) {
+    mutable(edge).dependsOnId = id("changed");
+  }
+  mutable(write.event).kind = "changed" as "tasks.changed";
+  write.putTasks.push(task("late"));
+  write.putDependencies.push(dependency(kept, kept));
+  write.deleteTasks.push(kept.id);
+  write.deleteDependencies.push(...write.putDependencies);
 }
 
 /** Metadata that throws when read, so no store can copy or encode it. */
