@@ -2,14 +2,12 @@ import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Step } from "@foundry/workflows/step";
 import { describe, expect, it } from "vitest";
@@ -25,6 +23,7 @@ import {
 } from "~/lib/state/workspace";
 import type { Schedule } from "~/lib/triggers";
 import { testEngine } from "./helpers/engine";
+import { temporaryDirectory } from "./helpers/temporary";
 
 const SKIPPED_RUNS_RN_BAD_JSON_PATTERN =
   /^\[state\] skipped runs\/rn-bad\.json: /;
@@ -81,7 +80,7 @@ function readJson(path: string): Record<string, unknown> {
 
 describe("run files", () => {
   it("writes one file per settled run and lists them across processes", async () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const state = temporaryDirectory("marbles-state-");
     const { lines, print } = collector();
 
     const first = await engineIn(state, print);
@@ -107,7 +106,7 @@ describe("run files", () => {
   });
 
   it("survives a run that returns nothing", async () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const state = temporaryDirectory("marbles-state-");
     const { lines, print } = collector();
     const engine = await engineIn(state, print);
     await engine.run<undefined>("quiet", undefined);
@@ -117,7 +116,7 @@ describe("run files", () => {
   });
 
   it("skips a corrupt file with a warning instead of failing to start", async () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const state = temporaryDirectory("marbles-state-");
     mkdirSync(join(state, "runs"));
     writeFileSync(join(state, "runs", "rn-bad.json"), "{ not json");
     writeFileSync(join(state, "runs", "rn-hollow.json"), '{"pid": 1}');
@@ -138,9 +137,9 @@ describe("run files", () => {
 
 describe("workspace", () => {
   it("derives one id per root and upserts workspace.json", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
-    const a = mkdtempSync(join(tmpdir(), "marbles-ws-a-"));
-    const b = mkdtempSync(join(tmpdir(), "marbles-ws-b-"));
+    const state = temporaryDirectory("marbles-state-");
+    const a = temporaryDirectory("marbles-ws-a-");
+    const b = temporaryDirectory("marbles-ws-b-");
 
     const first = workspaceState(state, a);
     expect(workspaceState(state, a).id).toBe(first.id);
@@ -166,13 +165,13 @@ describe("workspace", () => {
   });
 
   it("finds a recorded workspace only in a real directory under the state root", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
-    const root = mkdtempSync(join(tmpdir(), "marbles-ws-"));
+    const state = temporaryDirectory("marbles-state-");
+    const root = temporaryDirectory("marbles-ws-");
     const recorded = workspaceState(state, root);
     recorded.touch(null);
     expect(recordedState(state, recorded.id)?.dir).toBe(recorded.dir);
     // A symlinked entry whose target carries a matching record is not one.
-    const outside = mkdtempSync(join(tmpdir(), "marbles-outside-"));
+    const outside = temporaryDirectory("marbles-outside-");
     writeFileSync(
       join(outside, "workspace.json"),
       JSON.stringify({ id: "abc", root: outside })
@@ -187,7 +186,7 @@ describe("workspace", () => {
 
 describe("locks", () => {
   it("yields to a live holder and replaces a dead one", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const state = temporaryDirectory("marbles-state-");
     mkdirSync(join(state, "locks"));
 
     writeFileSync(join(state, "locks", "s"), String(process.pid));
@@ -209,7 +208,7 @@ describe("locks", () => {
   });
 
   it("waits out a lock being taken, and breaks one left empty", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const state = temporaryDirectory("marbles-state-");
     mkdirSync(join(state, "locks"));
     const path = join(state, "locks", "s");
     writeFileSync(path, "");
@@ -226,7 +225,7 @@ describe("locks", () => {
   });
 
   it("never breaks a lock that is not a pid, and says how to clear it", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const state = temporaryDirectory("marbles-state-");
     mkdirSync(join(state, "locks"));
     const path = join(state, "locks", "s");
     writeFileSync(path, "by hand");
@@ -238,7 +237,7 @@ describe("locks", () => {
   });
 
   it("releases only a lock it still holds", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const state = temporaryDirectory("marbles-state-");
     const lock = acquireLock(state, "s");
     if (!("release" in lock)) {
       throw new Error("expected the lock");
@@ -261,7 +260,7 @@ describe("schedule state", () => {
   };
 
   it("records each tick and skips while another process holds the lock", async () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const state = temporaryDirectory("marbles-state-");
     const { lines, print } = collector();
     const engine = await engineIn(state, print);
 
@@ -298,7 +297,7 @@ describe("schedule state", () => {
   });
 
   it("seeds the loop from the recorded finish so a restart keeps cadence", async () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const state = temporaryDirectory("marbles-state-");
     mkdirSync(join(state, "schedules"));
     writeFileSync(
       join(state, "schedules", "s.json"),
@@ -345,7 +344,7 @@ describe("schedule state", () => {
 describe.each([
   [
     "JsonStateStore",
-    () => new JsonStateStore(mkdtempSync(join(tmpdir(), "marbles-store-"))),
+    () => new JsonStateStore(temporaryDirectory("marbles-store-")),
     `pid ${String(process.pid)}`,
   ],
   ["InMemoryStateStore", () => new InMemoryStateStore(), "this process"],
@@ -432,7 +431,7 @@ describe.each([
 
 describe("JsonStateStore", () => {
   it("keeps the layout status reads, and lists an unreadable document with its error", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-store-"));
+    const state = temporaryDirectory("marbles-store-");
     const store = new JsonStateStore(state);
     store.write("schedules", "s", { lastFinish: "x", version: 1 });
     expect(readJson(join(state, "schedules", "s.json"))).toEqual({
