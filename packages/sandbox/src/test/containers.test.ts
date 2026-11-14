@@ -36,16 +36,19 @@ const SPEC: ContainerSandboxConstraints = {
   ports: [3000],
 };
 
-const databases = libsqlDatabases("memory");
+const databases = {
+  file: libsqlDatabases("file"),
+  memory: libsqlDatabases("memory"),
+};
 
 /**
- * A SQLite store on a new `:memory:` database, usable at once: each call
- * waits for the tables. It refuses re-entry as the memory store does, so
- * the whole suite runs over a store that would catch the registry calling
- * it from inside its own transaction.
+ * A SQLite store on a new database, usable at once: each call waits for the
+ * tables. It refuses re-entry as the memory store does, so the whole suite
+ * runs over a store that would catch the registry calling it from inside
+ * its own transaction.
  */
-function sqliteStore(): ContainerStore {
-  const ready = databases
+function sqliteStore(location: keyof typeof databases): ContainerStore {
+  const ready = databases[location]
     .open()
     .then((database) => createSqliteContainerStore({ database, scope: "s" }));
   return {
@@ -65,7 +68,8 @@ function sqliteStore(): ContainerStore {
 /** Every store the registry is tested over. */
 const STORES: [string, () => ContainerStore][] = [
   ["the memory store", createMemoryContainerStore],
-  ["the SQLite store", sqliteStore],
+  ["the SQLite store in memory", () => sqliteStore("memory")],
+  ["the SQLite store on a file", () => sqliteStore("file")],
 ];
 
 /** The store under test, set by each run of the suite. */

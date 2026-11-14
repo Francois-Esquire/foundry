@@ -166,6 +166,20 @@ export function describeContainerStore(
       expect(ids(await target.list())).toEqual(["b", "a", "c", "d"]);
     });
 
+    it("keeps the last of one id put twice in a write, in the first one's place", async () => {
+      const target = await store();
+      await target.commit({ putContainers: [row("a")] });
+      const last = row("b", { status: "running", updatedAt: 2 });
+      await target.commit({
+        putContainers: [row("b"), row("c"), last, row("a", { updatedAt: 3 })],
+      });
+      expect(await target.list()).toStrictEqual([
+        row("a", { updatedAt: 3 }),
+        last,
+        row("c"),
+      ]);
+    });
+
     it("applies deletes before puts, so a row deleted and put again moves last", async () => {
       const target = await store();
       await target.commit({ putContainers: [row("a"), row("b"), row("c")] });

@@ -61,8 +61,10 @@ export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
       return ":memory:";
     }
     directory ??= mkdtemp(join(tmpdir(), "foundry-sandbox-"));
+    // Taken before the await, so databases opened at once get their own.
     count += 1;
-    return `file:${join(await directory, `sandbox-${count}.db`)}`;
+    const name = `sandbox-${count}.db`;
+    return `file:${join(await directory, name)}`;
   }
 
   function connect(at: string, busyTimeout?: number): LibSQLDatabase {
