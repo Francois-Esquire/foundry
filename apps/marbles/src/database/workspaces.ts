@@ -14,15 +14,28 @@ export interface TouchOptions {
   readonly hosted?: boolean;
 }
 
+export interface WorkspaceRegistryOptions {
+  readonly database: StoreDatabase;
+  /** The state root the records' directories are under. */
+  readonly state: string;
+}
+
 /**
  * Every workspace this machine has run, in the Marbles database: the
  * registry of the ids every package's rows are scoped by.
+ *
+ * A record counts only while `<state>/<id>` keeps what is written there
+ * inside the state root (`insideState`): a link there names nothing, so
+ * whatever lists, looks up, or restores workspaces through the registry
+ * leaves it out, and none of them can disagree on which.
  */
 export class WorkspaceRegistry {
   readonly #database: StoreDatabase;
+  readonly #state: string;
 
-  constructor(options: { readonly database: StoreDatabase }) {
+  constructor(options: WorkspaceRegistryOptions) {
     this.#database = options.database;
+    this.#state = resolve(options.state);
   }
 
   /**
@@ -58,35 +71,39 @@ export class WorkspaceRegistry {
       });
   }
 
-  /** The record of `id`, or undefined when none was ever made. */
+  /** The record of `id`; undefined when none was made, or its directory is a link. */
   async read(id: string): Promise<WorkspaceRecord | undefined> {
     const [record] = await this.#database
       .select()
       .from(marblesWorkspaces)
       .where(eq(marblesWorkspaces.id, id));
-    return record;
+    return record !== undefined && this.#counts(record) ? record : undefined;
   }
 
-  /** Every record, by id. */
-  list(): Promise<readonly WorkspaceRecord[]> {
-    return this.#database
+  /** Every record, by id, but those whose directory is a link. */
+  async list(): Promise<readonly WorkspaceRecord[]> {
+    const records = await this.#database
       .select()
       .from(marblesWorkspaces)
       .orderBy(asc(marblesWorkspaces.id));
+    return records.filter((record) => this.#counts(record));
+  }
+
+  #counts(record: WorkspaceRecord): boolean {
+    return insideState(this.#state, record.id);
   }
 }
 
 /**
- * Every workspace recorded under the state root, by id, leaving out any
- * whose `<state>/<id>` is a link. Read only: a state root without a
- * database has none and is left without one.
+ * Every workspace recorded under the state root (`WorkspaceRegistry.list`).
+ * Read only: a state root without a database has none and is left
+ * without one.
  */
 export async function recordedWorkspaces(
   state: string
 ): Promise<readonly WorkspaceRecord[]> {
-  const root = resolve(state);
-  const records = await readDatabase(stateDatabase(root), (database) =>
-    new WorkspaceRegistry({ database }).list()
+  const records = await readDatabase(stateDatabase(state), (database) =>
+    new WorkspaceRegistry({ database, state }).list()
   );
-  return (records ?? []).filter((record) => insideState(root, record.id));
+  return records ?? [];
 }

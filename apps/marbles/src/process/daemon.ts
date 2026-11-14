@@ -182,7 +182,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     claim.release();
     throw error;
   }
-  const registry = new WorkspaceRegistry({ database: database.database });
+  // Its records leave out a workspace whose directory links out of the
+  // state root, so none is hosted again at boot.
+  const registry = new WorkspaceRegistry({
+    database: database.database,
+    state: layout.state,
+  });
   const workers = new Map<string, Worker>();
   const clients = new Set<Client>();
   /** Every open connection, clients and workers alike: closing destroys them. */

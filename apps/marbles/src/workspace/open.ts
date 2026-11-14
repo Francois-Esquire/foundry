@@ -14,11 +14,7 @@ import type { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
-import {
-  insideState,
-  workspaceAt,
-  workspaceState,
-} from "~/lib/state/workspace";
+import { workspaceAt, workspaceState } from "~/lib/state/workspace";
 import type { WorkspaceEnvironment } from "~/workspace/env";
 import { loadEnvironment } from "~/workspace/env";
 import {
@@ -150,10 +146,9 @@ export async function recordedWorkspace(
 ): Promise<OpenedWorkspace | undefined> {
   const state = resolve(args.state);
   const record = await readDatabase(stateDatabase(state), (database) =>
-    new WorkspaceRegistry({ database }).read(id)
+    new WorkspaceRegistry({ database, state }).read(id)
   );
-  // A linked `<state>/<id>` would put what is written there somewhere else.
-  if (record === undefined || !insideState(state, id)) {
+  if (record === undefined) {
     return;
   }
   const workspace = workspaceAt(state, id, record.root);
@@ -275,7 +270,10 @@ export async function touchWorkspace(
     // The Marbles process makes the database; a program hosting the
     // workspace itself on a machine where it never ran records nothing.
     await writeDatabase(stateDatabase(args.state), (database) =>
-      new WorkspaceRegistry({ database }).touch(workspace, config)
+      new WorkspaceRegistry({ database, state: args.state }).touch(
+        workspace,
+        config
+      )
     );
   }
 }

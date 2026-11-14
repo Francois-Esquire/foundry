@@ -379,7 +379,7 @@ async function detachWorkspace(
   const where = `${workspace.root} (${workspace.id})`;
   const forget = async (): Promise<void> => {
     await writeDatabase(stateDatabase(args.state), async (database) => {
-      const registry = new WorkspaceRegistry({ database });
+      const registry = new WorkspaceRegistry({ database, state: args.state });
       if ((await registry.read(workspace.id))?.hosted === true) {
         await registry.touch(workspace, config, { hosted: false });
       }

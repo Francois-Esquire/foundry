@@ -22,7 +22,7 @@ describe("WorkspaceRegistry", () => {
   beforeEach(async () => {
     state = scratch("marbles-state-");
     opened = await initializeDatabase(stateDatabase(state));
-    registry = new WorkspaceRegistry({ database: opened.database });
+    registry = new WorkspaceRegistry({ database: opened.database, state });
   });
 
   afterEach(() => {
@@ -89,7 +89,10 @@ describe("WorkspaceRegistry", () => {
     await registry.touch(workspace, null);
     opened.close();
     opened = await initializeDatabase(stateDatabase(state));
-    const reopened = new WorkspaceRegistry({ database: opened.database });
+    const reopened = new WorkspaceRegistry({
+      database: opened.database,
+      state,
+    });
     expect((await reopened.read(workspace.id))?.root).toBe(workspace.root);
   });
 
@@ -97,11 +100,14 @@ describe("WorkspaceRegistry", () => {
     const kept = workspaceState(state, scratch("marbles-ws-"));
     const dropped = workspaceState(state, scratch("marbles-ws-"));
     await transaction(opened.database, (tx) =>
-      new WorkspaceRegistry({ database: tx }).touch(kept, null)
+      new WorkspaceRegistry({ database: tx, state }).touch(kept, null)
     );
     await expect(
       transaction(opened.database, async (tx) => {
-        await new WorkspaceRegistry({ database: tx }).touch(dropped, null);
+        await new WorkspaceRegistry({ database: tx, state }).touch(
+          dropped,
+          null
+        );
         throw new Error("the change failed");
       })
     ).rejects.toThrow("the change failed");

@@ -2,8 +2,10 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
@@ -27,7 +29,7 @@ import {
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { ProcessHeldError, readProcess } from "~/process/instance";
 import { RemoteError } from "~/process/protocol";
-import { readWorkspace } from "./helpers/registry";
+import { readWorkspace, touchWorkspace } from "./helpers/registry";
 
 /**
  * The daemon runs here, under the test runner; the workers it spawns run
@@ -315,6 +317,51 @@ describe("the Marbles process", () => {
       { interval: 250, timeout: 30_000 }
     );
     again.close();
+  }, 60_000);
+
+  it("hosts again at boot only the recorded workspaces kept under the state root", async () => {
+    const { home, machine } = fixture();
+    homes.push(home);
+    const [kept, linked, dangling] = await Promise.all(
+      ["kept", "linked", "dangling"].map(async (name) => {
+        const root = join(home, name);
+        mkdirSync(root);
+        const config = join(root, "marbles.config.ts");
+        writeFileSync(config, greeter(name));
+        const workspace = machine.workspace(root);
+        await touchWorkspace(machine.state, workspace, config, {
+          hosted: true,
+        });
+        return workspace;
+      })
+    );
+    if (!(kept && linked && dangling)) {
+      throw new Error("the workspaces were not recorded");
+    }
+    // A worker would write its runs and claim through these links.
+    const outside = join(home, "outside");
+    mkdirSync(outside);
+    symlinkSync(outside, linked.dir);
+    symlinkSync(join(home, "missing"), dangling.dir);
+    const lines: string[] = [];
+    await daemonFor(machine, lines);
+    const client = await connect({ layout: machine, start: false });
+    try {
+      await vi.waitFor(
+        async () => {
+          expect(await client.workspaces()).toEqual([
+            expect.objectContaining({ id: kept.id, state: "ready" }),
+          ]);
+        },
+        { interval: 250, timeout: 30_000 }
+      );
+      expect(readdirSync(outside)).toEqual([]);
+      expect(existsSync(join(home, "missing"))).toBe(false);
+      expect(lines.join("\n")).not.toContain(linked.id);
+      expect(lines.join("\n")).not.toContain(dangling.id);
+    } finally {
+      client.close();
+    }
   }, 60_000);
 
   it("stops itself once the claim at the state root is gone, leaving a successor's socket", async () => {

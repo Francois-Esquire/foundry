@@ -37,7 +37,7 @@ export function touchWorkspace(
   options?: TouchOptions
 ): Promise<void> {
   return asProcess(state, (database) =>
-    new WorkspaceRegistry({ database }).touch(workspace, config, options)
+    new WorkspaceRegistry({ database, state }).touch(workspace, config, options)
   );
 }
 
@@ -47,6 +47,6 @@ export function readWorkspace(
   id: string
 ): Promise<WorkspaceRecord | undefined> {
   return readDatabase(stateDatabase(state), (database) =>
-    new WorkspaceRegistry({ database }).read(id)
+    new WorkspaceRegistry({ database, state }).read(id)
   );
 }
