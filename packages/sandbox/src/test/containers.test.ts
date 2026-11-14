@@ -382,6 +382,27 @@ describe("containers registry", () => {
     }
   );
 
+  it("keeps the memory store when given none", async () => {
+    const containers = createContainers({
+      instanceLabel: "instance-a",
+      runtime: createFakeContainerRuntime(),
+    });
+    const c = await containers.start(SPEC);
+    expect((await containers.list()).map((row) => row.status)).toEqual([
+      "running",
+    ]);
+    await c.close();
+    expect((await containers.list())[0]?.status).toBe("stopped");
+  });
+
+  it("refuses to write back a row deleted under a live handle", async () => {
+    const { store, containers } = fixture();
+    const c = await containers.start(SPEC);
+    await store.commit({ deleteContainers: [c.id] });
+    await expect(c.close()).rejects.toThrow(MISSING_CONTAINER_ERROR);
+    expect(await store.get(c.id)).toBeUndefined();
+  });
+
   it("remove deletes a closed row and refuses a live one", async () => {
     const { runtime, store, containers } = fixture();
     const c = await containers.start(SPEC);
