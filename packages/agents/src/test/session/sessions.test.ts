@@ -248,6 +248,39 @@ describe("Sessions rules", () => {
 });
 
 describe("Sessions stamps against a clock that steps back", () => {
+  it("never moves updatedAt backwards when a session or a message is updated", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const sessions = new Sessions();
+      vi.setSystemTime(10);
+      await sessions.createSession({ id: "s" });
+      const message = await sessions.appendMessage({
+        parts: text("m1"),
+        role: "user",
+        sessionId: "s",
+      });
+      vi.setSystemTime(100);
+      await sessions.updateSession("s", { title: "first" });
+      await sessions.updateMessage(message.id, { status: "error" });
+      vi.setSystemTime(50);
+      const session = await sessions.updateSession("s", { title: "second" });
+      const updated = await sessions.updateMessage(message.id, {
+        status: "complete",
+      });
+
+      expect(session).toMatchObject({ title: "second", updatedAt: 100 });
+      expect(updated).toMatchObject({ status: "complete", updatedAt: 100 });
+      await expect(sessions.getSession("s")).resolves.toMatchObject({
+        updatedAt: 100,
+      });
+      await expect(sessions.listMessages("s")).resolves.toMatchObject([
+        { updatedAt: 100 },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("never moves a session's updatedAt backwards", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {

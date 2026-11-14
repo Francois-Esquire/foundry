@@ -308,7 +308,7 @@ export function newSessionRecord(
   };
 }
 
-/** `current` with the fields `patch` sets, stamped `updatedAt: now`. */
+/** `current` with the fields `patch` sets, stamped `now` unless already later. */
 export function patchSessionRecord(
   current: SessionRecord,
   patch: UpdateSessionInput,
@@ -318,7 +318,7 @@ export function patchSessionRecord(
     ...current,
     ...(patch.title === undefined ? {} : { title: patch.title }),
     ...(patch.status === undefined ? {} : { status: patch.status }),
-    updatedAt: now,
+    updatedAt: Math.max(current.updatedAt, now),
   };
 }
 
@@ -340,7 +340,7 @@ export function newSessionMessage(
   };
 }
 
-/** `current` with the fields `patch` sets, stamped `updatedAt: now`. */
+/** `current` with the fields `patch` sets, stamped `now` unless already later. */
 export function patchSessionMessage(
   current: SessionMessage,
   patch: UpdateMessageInput,
@@ -352,6 +352,6 @@ export function patchSessionMessage(
     ...(patch.status === undefined ? {} : { status: patch.status }),
     ...(patch.metadata === undefined ? {} : { metadata: patch.metadata }),
     ...(patch.summarized === undefined ? {} : { summarized: patch.summarized }),
-    updatedAt: now,
+    updatedAt: Math.max(current.updatedAt, now),
   };
 }
