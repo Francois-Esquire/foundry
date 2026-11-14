@@ -178,8 +178,11 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
  * `marbles_task_changes_scope_position` index), keeps those that fewer of
  * `query.handlers` completed than there are handlers (the deliveries'
  * primary key, scope first, answers each count), and stops at
- * `query.limit`. A change every handler completed is passed over, so a
- * pass reads only what is left to deliver, however long the history is.
+ * `query.limit`. A change every handler completed is passed over but still
+ * walked, so the work is the span from `query.after` to the last change
+ * returned: delivery passes the position below which its observers have
+ * completed everything (`Delivery`'s floor), which keeps that span to
+ * what is left to deliver.
  */
 export function pendingChanges(
   database: StoreDatabase,

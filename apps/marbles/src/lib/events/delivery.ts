@@ -103,6 +103,14 @@ export class Delivery {
    * it handed out; -1 until the first pass, which covers the backlog.
    */
   #seen = -1;
+  /**
+   * The position up to which every observer here has completed every
+   * change, as the last pass found it: the next pass reads from there, so
+   * its work follows what is left to deliver, not the whole history. 0 at
+   * the start, so an observer declared since the last process receives
+   * the history once.
+   */
+  #floor = 0;
   #timer: ReturnType<typeof setInterval> | undefined;
   /** The last problem a tick printed, so a lasting one is printed once. */
   #problem: string | undefined;
@@ -288,25 +296,32 @@ export class Delivery {
     }
     const held = new Set<Observer>();
     const handlers = this.#observers.map((observer) => observer.hash);
-    let after = 0;
+    const read = (after: number) =>
+      this.#records.pending({ after, handlers, limit: PENDING_BATCH });
+    let batch = await read(this.#floor);
+    // Everything before the first change some observer has not completed
+    // is done for all of them; with none, everything up to `head` is.
+    const [oldest] = batch;
+    this.#floor = oldest === undefined ? head : oldest.position - 1;
     for (;;) {
-      const batch = await this.#records.pending({
-        after,
-        handlers,
-        limit: PENDING_BATCH,
-      });
       for (const item of batch) {
-        after = item.position;
         this.#seen = Math.max(this.#seen, item.position);
         if (!(await this.#deliverItem(item, held))) {
           return;
         }
       }
-      if (batch.length < PENDING_BATCH) {
+      const last = batch.at(-1);
+      if (last === undefined || batch.length < PENDING_BATCH) {
         break;
       }
+      batch = await read(last.position);
     }
     this.#seen = Math.max(this.#seen, head);
+    // Every observer completed everything this pass handed out, and the
+    // rest it covered was complete already.
+    if (held.size === 0) {
+      this.#floor = this.#seen;
+    }
   }
 
   /** Hand `item` to every observer that has not completed it; false once stopped. */

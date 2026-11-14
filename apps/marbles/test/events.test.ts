@@ -17,6 +17,8 @@ import {
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import type { Engine } from "~/lib/engine";
 import { DELIVERY_POLL_MS } from "~/lib/events/delivery";
+import type { WorkspaceRecords } from "~/lib/events/records";
+import { MemoryWorkspaceRecords, PENDING_BATCH } from "~/lib/events/records";
 import type { Handler } from "~/lib/events/source";
 import { TASKS } from "~/lib/events/source";
 import { testEngine } from "./helpers/engine";
@@ -882,5 +884,103 @@ setInterval(() => undefined, 1000);
     await vi.waitFor(() => expect(titles(seen)).toEqual(["Waiting"]), {
       timeout: DELIVERY_POLL_MS * 5,
     });
+  });
+});
+
+describe("the work of a pass", () => {
+  it("reads from the first change an observer has not completed, not from the start of the history", async () => {
+    const memory = new MemoryWorkspaceRecords();
+    const reads: number[] = [];
+    const records: WorkspaceRecords = {
+      close: () => memory.close(),
+      deliver: (id, hash) => memory.deliver(id, hash),
+      latest: () => memory.latest(),
+      pending: (query) => {
+        reads.push(query.after ?? 0);
+        return memory.pending(query);
+      },
+      taskStore: memory.taskStore,
+      watch: (listener) => memory.watch(listener),
+    };
+    let delivered = 0;
+    const engine = testEngine({ print: () => undefined, records });
+    engines.push(engine);
+    engine.observe(TASKS, () => {
+      delivered += 1;
+    });
+    const tasks = new Tasks({ store: engine.taskStore });
+    const history = PENDING_BATCH * 2 + 50;
+    for (let index = 0; index < history; index += 1) {
+      await tasks.create({ title: `T${String(index)}` });
+    }
+    await engine.start();
+    await vi.waitFor(() => expect(delivered).toBe(history));
+    reads.length = 0;
+    await tasks.create({ title: "One more" });
+    await vi.waitFor(() => expect(delivered).toBe(history + 1));
+    expect(reads.length).toBeGreaterThan(0);
+    expect(Math.min(...reads)).toBeGreaterThanOrEqual(history);
+  });
+});
+
+describe("the delivery timer", () => {
+  it("does not keep a process alive", async () => {
+    const dir = stateDir();
+    const script = join(dir, "never-stopped.ts");
+    writeFileSync(
+      script,
+      `import { Delivery } from ${JSON.stringify(resolvePath("src/lib/events/delivery.ts"))};
+import { MemoryWorkspaceRecords } from ${JSON.stringify(resolvePath("src/lib/events/records.ts"))};
+import { TASKS } from ${JSON.stringify(resolvePath("src/lib/events/source.ts"))};
+const delivery = new Delivery({ print: () => undefined, records: new MemoryWorkspaceRecords(), state: ${JSON.stringify(dir)} });
+delivery.observe(TASKS, () => undefined);
+await delivery.start();
+process.stdout.write("started\\n");
+`
+    );
+    const started = Date.now();
+    const child = spawn("bun", [script], { cwd: resolvePath(".") });
+    let output = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    // A process the timer keeps alive is killed, and fails the exit check.
+    const deadline = setTimeout(
+      () => child.kill("SIGKILL"),
+      DELIVERY_POLL_MS * 10
+    );
+    const code = await new Promise((settle) => child.once("exit", settle));
+    clearTimeout(deadline);
+    expect(output).toContain("started");
+    expect(code).toBe(0);
+    expect(Date.now() - started).toBeLessThan(DELIVERY_POLL_MS * 10);
+  });
+
+  it("reads nothing once delivery has stopped", async () => {
+    const memory = new MemoryWorkspaceRecords();
+    let reads = 0;
+    const records: WorkspaceRecords = {
+      close: () => memory.close(),
+      deliver: (id, hash) => memory.deliver(id, hash),
+      latest: () => {
+        reads += 1;
+        return memory.latest();
+      },
+      pending: (query) => memory.pending(query),
+      taskStore: memory.taskStore,
+      watch: (listener) => memory.watch(listener),
+    };
+    const engine = testEngine({ print: () => undefined, records });
+    engines.push(engine);
+    engine.observe(TASKS, () => undefined);
+    await engine.start();
+    // Running, it polls.
+    await vi.waitFor(() => expect(reads).toBeGreaterThan(1), {
+      timeout: DELIVERY_POLL_MS * 5,
+    });
+    await engine.stop();
+    const after = reads;
+    await new Promise((settle) => setTimeout(settle, DELIVERY_POLL_MS * 3));
+    expect(reads).toBe(after);
   });
 });
