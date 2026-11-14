@@ -21,13 +21,6 @@ export type { Blob, BlobSource, ContentTree, StoredFile } from "./schema";
  * source yields them.
  */
 export interface BlobFiles {
-  /**
-   * Whether the file has gone unchanged, since it was published or last
-   * retired, for as long as staging takes to count as abandoned, so no
-   * transaction still running can be about to name it again. A file
-   * already gone counts as abandoned.
-   */
-  abandoned?(path: string): Promise<boolean>;
   list(): AsyncIterable<string>;
   publish(bytes: Uint8Array): Promise<string>;
   read(
@@ -35,12 +28,6 @@ export interface BlobFiles {
     range: { readonly start: number; readonly end: number }
   ): AsyncIterable<Uint8Array>;
   remove(path: string): Promise<void>;
-  /**
-   * Marks a published file as retired now, keeping it: a change over a
-   * `"host"` store stopped naming it, and the host may yet roll the change
-   * back. Required, with `abandoned`, for a manager over such a store.
-   */
-  retire?(path: string): Promise<void>;
   readonly staging?: BlobStagingArea;
 }
 

@@ -69,9 +69,9 @@ export interface ArtifactStore {
   commit(write: ArtifactStoreWrite): Promise<void>;
   /**
    * When a commit that resolved is there for good; `"commit"` when absent.
-   * Over a `"host"` store the package removes no file in line that a
-   * commit stopped naming, since a rollback would name it again: it marks
-   * the file retired and leaves it for `recover` (see `BlobFiles.retire`).
+   * Over a `"host"` store the package never removes a file a commit stopped
+   * naming, since a rollback would name it again, and refuses `recover`: a
+   * manager over the durable store reclaims such files.
    */
   readonly durability?: ArtifactStoreDurability;
   /** The blobs holding bytes with this digest, in no particular order. */

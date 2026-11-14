@@ -1,12 +1,10 @@
-import { mkdtemp, readdir, rm, utimes } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test, vi } from "vitest";
 
-import type { BlobFiles } from "../blob";
 import { ArtifactManager } from "../manager";
 import { blobFiles } from "../node";
-import { STAGING_ABANDONED_AFTER_MS } from "../node/staging";
 import type { ArtifactDatabase } from "../store/sqlite";
 import { SqliteArtifactStore } from "../store/sqlite";
 import { interceptCommits } from "../testing";
@@ -21,6 +19,18 @@ afterAll(() =>
 
 /** What a host transaction that rolls back throws, and the test expects. */
 const ROLLED_BACK = "host rolled back";
+/** What a manager over a "host" store says when asked to recover. */
+const REFUSED_RECOVER = "cannot recover over a store whose commits a host";
+/** What SQLite, or libSQL's single in-memory connection, says when held. */
+const HELD = /SQLITE_BUSY|locked|TRANSACTION_ACTIVE|single connection/i;
+
+const fileDatabases = libsqlDatabases("file");
+const memoryDatabases = libsqlDatabases("memory");
+
+/** A blob root's published files, staging aside. */
+async function publishedIn(root: string): Promise<string[]> {
+  return (await readdir(root)).filter((name) => !name.startsWith(".")).sort();
+}
 
 /**
  * An Artifact holding `a.txt` ("before") over a file-backed blob root, made
@@ -41,16 +51,8 @@ async function setup(databases: LibsqlDatabases) {
     name: "A",
     type: "text/plain",
   });
-  const published = async () =>
-    (await readdir(root)).filter((name) => !name.startsWith(".")).sort();
+  const published = () => publishedIn(root);
   const original = await published();
-  /** Every published file, dated as if untouched for twice the guard. */
-  const age = async () => {
-    const then = new Date(Date.now() - 2 * STAGING_ABANDONED_AFTER_MS);
-    for (const name of await published()) {
-      await utimes(join(root, name), then, then);
-    }
-  };
   const read = async (manager: ArtifactManager = durable) => {
     const artifact = required(await manager.get(created.id));
     const file = await manager.readFile(required(artifact.contentId), "a.txt");
@@ -67,13 +69,12 @@ async function setup(databases: LibsqlDatabases) {
    */
   const inHost = async (
     outcome: "commit" | "rollback",
-    work: (joined: ArtifactManager) => Promise<unknown>,
-    joinedFiles: BlobFiles = files
+    work: (joined: ArtifactManager) => Promise<unknown>
   ) => {
     try {
       await database.transaction(async (transaction) => {
         const joined = new ArtifactManager({
-          files: joinedFiles,
+          files,
           store: new SqliteArtifactStore({ database: transaction, scope: "s" }),
         });
         await work(joined);
@@ -88,7 +89,6 @@ async function setup(databases: LibsqlDatabases) {
     }
   };
   return {
-    age,
     database,
     durable,
     files,
@@ -97,7 +97,6 @@ async function setup(databases: LibsqlDatabases) {
     published,
     read,
     rewrite,
-    root,
   };
 }
 
@@ -119,59 +118,32 @@ describe.each([
       expect(await published()).toEqual(expect.arrayContaining(original));
     });
 
-    test("keeps a retired file from a recover run through the host's own transaction", async () => {
-      const { age, inHost, read, rewrite } = await setup(databases);
-      // Old enough to count as abandoned, but for the change retiring it.
-      await age();
+    test("refuses recover, however long ago its files changed, so a rollback still reads the original", async () => {
+      const { inHost, original, published, read, rewrite } =
+        await setup(databases);
       await inHost("rollback", async (joined) => {
         await rewrite(joined);
-        // Reads the host's uncommitted records, which no longer name it.
-        await joined.recover();
+        const now = Date.now();
+        const clock = vi
+          .spyOn(Date, "now")
+          .mockReturnValue(now + 25 * 60 * 60 * 1000);
+        try {
+          await expect(joined.recover()).rejects.toThrow(REFUSED_RECOVER);
+        } finally {
+          clock.mockRestore();
+        }
       });
 
       expect(await read()).toBe("before");
+      expect(await published()).toEqual(expect.arrayContaining(original));
     });
 
-    test("leaves a retired file once the host commits, for recover to reclaim when it has aged", async () => {
-      const {
-        age,
-        files,
-        inHost,
-        original,
-        published,
-        read,
-        rewrite,
-        database,
-      } = await setup(databases);
-      await age();
-      await inHost("commit", rewrite);
-      expect(await read()).toBe("after");
-      // Not removed in line: the manager could not know the host would commit.
-      expect(await published()).toEqual(expect.arrayContaining(original));
-
-      const held = new ArtifactManager({
-        files,
-        store: new SqliteArtifactStore({
-          database,
-          durability: "host",
-          scope: "s",
-        }),
-      });
-      await held.recover();
-      // Retired just now, so a host-held recover keeps it ...
-      expect(await published()).toEqual(expect.arrayContaining(original));
-      await age();
-      await held.recover();
-      // ... until it has gone unchanged as long as abandoned staging.
-      expect(await published()).not.toEqual(expect.arrayContaining(original));
-      expect(await published()).toHaveLength(1);
-      expect(await read()).toBe("after");
-    });
-
-    test("a durable manager's recover reclaims a file a committed host change retired, at once", async () => {
+    test("after a host commit, a durable recover reclaims the file the change retired", async () => {
       const { durable, inHost, original, published, read, rewrite } =
         await setup(databases);
       await inHost("commit", rewrite);
+      // Not removed in line: the manager could not know the host would commit.
+      expect(await published()).toEqual(expect.arrayContaining(original));
 
       await durable.recover();
       expect(await published()).not.toEqual(expect.arrayContaining(original));
@@ -179,25 +151,15 @@ describe.each([
       expect(await read()).toBe("after");
     });
 
-    test("reclaims a file a rolled-back host change published, once it has aged", async () => {
-      const { age, database, files, inHost, original, published, rewrite } =
+    test("after a host rollback, a durable recover reclaims what the change published and keeps the original", async () => {
+      const { durable, inHost, original, published, read, rewrite } =
         await setup(databases);
       await inHost("rollback", rewrite);
       expect(await published()).toHaveLength(original.length + 1);
 
-      const held = new ArtifactManager({
-        files,
-        store: new SqliteArtifactStore({
-          database,
-          durability: "host",
-          scope: "s",
-        }),
-      });
-      await held.recover();
-      expect(await published()).toHaveLength(original.length + 1);
-      await age();
-      await held.recover();
+      await durable.recover();
       expect(await published()).toEqual(original);
+      expect(await read()).toBe("before");
     });
 
     test("keeps the retired file through a store wrapped by interceptCommits", async () => {
@@ -212,6 +174,7 @@ describe.each([
               (write, land) => land(write)
             ),
           });
+          await expect(joined.recover()).rejects.toThrow(REFUSED_RECOVER);
           await rewrite(joined);
           throw new Error(ROLLED_BACK);
         });
@@ -222,29 +185,119 @@ describe.each([
       expect(await read()).toBe("before");
       expect(await published()).toEqual(expect.arrayContaining(original));
     });
+  }
+);
 
-    test("fails a change whose retirement mark fails, before it commits", async () => {
-      const { files, inHost, original, published, read, rewrite } =
-        await setup(databases);
-      const failing: BlobFiles = {
-        abandoned: (path) => required(files.abandoned)(path),
-        list: () => files.list(),
-        publish: (bytes) => files.publish(bytes),
-        read: (path, range) => files.read(path, range),
-        remove: (path) => files.remove(path),
-        retire: () => Promise.reject(new Error("retire failed")),
-      };
-      await inHost(
-        "commit",
-        async (joined) => {
-          await expect(rewrite(joined)).rejects.toThrow("retire failed");
-        },
-        failing
+describe("a durable recover while a host transaction on its database is open", () => {
+  test("on a file, is refused by the write lock the host holds, and removes nothing", async () => {
+    const databases = fileDatabases;
+    const { database, files, inHost, original, published, read, rewrite } =
+      await setup(databases);
+    // Another connection, as a durable manager elsewhere would hold. After
+    // SQLITE_BUSY at BEGIN libSQL cannot commit on it again; it is not reused.
+    const elsewhere = new ArtifactManager({
+      files,
+      store: new SqliteArtifactStore({
+        database: databases.connect(database),
+        scope: "s",
+      }),
+    });
+    await inHost("rollback", async (joined) => {
+      await rewrite(joined);
+      await expect(elsewhere.recover()).rejects.toThrow(HELD);
+      expect(await published()).toHaveLength(original.length + 1);
+    });
+
+    expect(await read()).toBe("before");
+    expect(await published()).toHaveLength(original.length + 1);
+  });
+
+  test("in memory, is refused while the host holds the only connection, and removes nothing", async () => {
+    const { durable, inHost, original, published, read, rewrite } =
+      await setup(memoryDatabases);
+    await inHost("rollback", async (joined) => {
+      await rewrite(joined);
+      await expect(durable.recover()).rejects.toThrow(HELD);
+    });
+
+    expect(await published()).toHaveLength(original.length + 1);
+    expect(await read()).toBe("before");
+  });
+});
+
+describe.each(STORE_KINDS)(
+  "a durable recover started while a %s store's transaction runs",
+  (kind) => {
+    async function running(outcome: "commit" | "rollback") {
+      const store = await openStore(kind);
+      const root = await mkdtemp(join(tmpdir(), "artifact-queued-"));
+      roots.push(root);
+      const files = blobFiles(root);
+      const durable = new ArtifactManager({ files, store });
+      const created = await durable.create({
+        entries: { "a.txt": { bytes: "before" } },
+        name: "A",
+        type: "text/plain",
+      });
+      const original = await publishedIn(root);
+      const written = Promise.withResolvers<void>();
+      const proceed = Promise.withResolvers<void>();
+      const transaction = required(store.transaction?.bind(store));
+      const settled = transaction(async (view) => {
+        await new ArtifactManager({ files, store: view }).write({
+          artifactId: created.id,
+          changes: { put: { "a.txt": { bytes: "after" } } },
+        });
+        written.resolve();
+        await proceed.promise;
+        if (outcome === "rollback") {
+          throw new Error(ROLLED_BACK);
+        }
+      }).catch((error: unknown) => {
+        if (!(error instanceof Error && error.message === ROLLED_BACK)) {
+          throw error;
+        }
+      });
+      await written.promise;
+      // An independent caller, while the transaction is open and unsettled.
+      let recovered = false;
+      const recovering = durable.recover().then(() => {
+        recovered = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const waited = !recovered;
+      const during = await publishedIn(root);
+      proceed.resolve();
+      await settled;
+      await recovering;
+      const artifact = required(await durable.get(created.id));
+      const file = await durable.readFile(
+        required(artifact.contentId),
+        "a.txt"
       );
+      return {
+        after: await publishedIn(root),
+        during,
+        original,
+        text: new TextDecoder().decode(required(file).blob),
+        waited,
+      };
+    }
 
-      expect(await read()).toBe("before");
-      // The file the change published for "after" went with it.
-      expect(await published()).toEqual(original);
+    test("waits for it to roll back, then keeps the original and reclaims what it published", async () => {
+      const outcome = await running("rollback");
+      expect(outcome.waited).toBe(true);
+      expect(outcome.during).toHaveLength(outcome.original.length + 1);
+      expect(outcome.after).toEqual(outcome.original);
+      expect(outcome.text).toBe("before");
+    });
+
+    test("waits for it to commit, then reclaims the file it retired", async () => {
+      const outcome = await running("commit");
+      expect(outcome.waited).toBe(true);
+      expect(outcome.after).toHaveLength(1);
+      expect(outcome.after).not.toEqual(outcome.original);
+      expect(outcome.text).toBe("after");
     });
   }
 );
@@ -280,37 +333,6 @@ describe("a store's durability", () => {
         ).toBe("host");
       });
     });
-  });
-
-  test("refuses a host-held manager whose BlobFiles cannot mark or age a file", async () => {
-    const database = await databases.open();
-    const root = await mkdtemp(join(tmpdir(), "artifact-host-files-"));
-    roots.push(root);
-    const full = blobFiles(root);
-    const bare: BlobFiles = {
-      list: () => full.list(),
-      publish: (bytes) => full.publish(bytes),
-      read: (path, range) => full.read(path, range),
-      remove: (path) => full.remove(path),
-    };
-    const store = new SqliteArtifactStore({
-      database,
-      durability: "host",
-      scope: "s",
-    });
-    expect(() => new ArtifactManager({ files: bare, store })).toThrow(
-      "needs BlobFiles with retire and abandoned"
-    );
-    // Without files, bytes stay inline in the records: nothing to retire.
-    expect(() => new ArtifactManager({ store })).not.toThrow();
-    // Over a durable store, files need neither.
-    expect(
-      () =>
-        new ArtifactManager({
-          files: bare,
-          store: new SqliteArtifactStore({ database, scope: "s" }),
-        })
-    ).not.toThrow();
   });
 });
 

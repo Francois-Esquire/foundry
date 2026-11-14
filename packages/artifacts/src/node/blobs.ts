@@ -1,18 +1,10 @@
 import { constants } from "node:fs";
-import {
-  mkdir,
-  open,
-  readdir,
-  realpath,
-  stat,
-  unlink,
-  utimes,
-} from "node:fs/promises";
+import { mkdir, open, readdir, realpath, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 
 import type { BlobFiles } from "../blob";
-import { STAGING_ABANDONED_AFTER_MS, stagingArea } from "./staging";
+import { stagingArea } from "./staging";
 
 /**
  * A published blob, or a temporary left beside one: `<id>.<uuid>.tmp` from
@@ -37,18 +29,6 @@ export function blobFiles(root: string): BlobFiles {
     return path;
   }
   return {
-    /** By the file's modification time, against staging's own limit. */
-    async abandoned(path) {
-      try {
-        const { mtimeMs } = await stat(join(await ready(), filename(path)));
-        return mtimeMs < Date.now() - STAGING_ABANDONED_AFTER_MS;
-      } catch (error) {
-        if (hasErrorCode(error, "ENOENT")) {
-          return true;
-        }
-        throw error;
-      }
-    },
     async *list() {
       for (const entry of await readdir(await ready(), {
         withFileTypes: true,
@@ -100,17 +80,6 @@ export function blobFiles(root: string): BlobFiles {
     async remove(path) {
       try {
         await unlink(join(await ready(), filename(path)));
-      } catch (error) {
-        if (!hasErrorCode(error, "ENOENT")) {
-          throw error;
-        }
-      }
-    },
-    /** Refreshes the file's times: retirement counts from now. */
-    async retire(path) {
-      const now = new Date();
-      try {
-        await utimes(join(await ready(), filename(path)), now, now);
       } catch (error) {
         if (!hasErrorCode(error, "ENOENT")) {
           throw error;

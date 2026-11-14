@@ -95,13 +95,14 @@ interface TransactionScope {
  *
  * Over a store whose durability is `"host"` (it writes inside a transaction
  * someone else owns, which may yet roll back), a landed commit is not
- * known to last, so the manager removes no retired file in line: it marks
- * each one retired (`BlobFiles.retire`) before the commit, and `recover`
- * removes a file no record names only once it has gone unchanged as long
- * as abandoned staging (`BlobFiles.abandoned`). A rolled-back change then
- * still finds every file it retired. Bindings, observers and after-commit
- * effects still run once the store's commit resolves, before the host's
- * outcome is known.
+ * known to last, so the manager never removes a file committed records may
+ * name: not the files a change retired, and not in `recover`, which it
+ * refuses. A rolled-back change then still finds every file it retired.
+ * Reclaiming is a durable manager's `recover`, over a `"commit"` store
+ * outside the host's transaction: it reads committed records under the
+ * store's exclusion, so it sees the host's outcome. Bindings, observers and
+ * after-commit effects still run once the store's commit resolves, before
+ * the host's outcome is known.
  *
  * Inside a `transaction` operation, every call on the manager joins that
  * transaction: a read sees its uncommitted writes and a nested `transaction`
@@ -134,15 +135,6 @@ export class ArtifactManager implements Artifacts {
   constructor(options: ArtifactManagerOptions = {}) {
     this.#store = options.store ?? new InMemoryArtifactStore();
     this.#held = this.#store.durability === "host";
-    if (
-      this.#held &&
-      options.files &&
-      !(options.files.retire && options.files.abandoned)
-    ) {
-      throw new TypeError(
-        'ArtifactManager over a store whose commits a host transaction may roll back (durability "host") needs BlobFiles with retire and abandoned, so a rolled-back change still finds the files it retired'
-      );
-    }
     this.#limits = {
       ...(options.files ? { files: options.files } : {}),
       maxFileBytes: options.maxFileBytes ?? MAX_FILE_BYTES,
@@ -247,7 +239,6 @@ export class ArtifactManager implements Artifacts {
             await transaction.reclaim();
             attempted = change.write();
             if (attempted) {
-              await this.#markRetired(effects.retired);
               await store.commit(attempted);
             }
             return value;
@@ -479,7 +470,19 @@ export class ArtifactManager implements Artifacts {
     return this.transaction((artifacts) => artifacts.sweep(input));
   }
 
+  /**
+   * Removes staging and backing files no committed record names, then
+   * reapplies every Artifact to bindings and observers. Refused over a
+   * `"host"` store: the records it would read may yet be rolled back, and a
+   * rollback names again files it would have removed. Run it from a manager
+   * over the durable store instead, outside the host's transaction.
+   */
   async recover(): Promise<void> {
+    if (this.#held) {
+      throw new Error(
+        'ArtifactManager cannot recover over a store whose commits a host transaction may roll back (durability "host"): files its records stop naming may be named again. Run recover from a manager over the durable store, outside the host\'s transaction.'
+      );
+    }
     const { files } = this.#limits;
     if (files) {
       // Staging whose owner is gone; live owners' bytes stay where they wait.
@@ -492,7 +495,7 @@ export class ArtifactManager implements Artifacts {
           )
         );
         for await (const path of files.list()) {
-          if (!retained.has(path) && (await this.#reclaimable(path))) {
+          if (!retained.has(path)) {
             await files.remove(path);
           }
         }
@@ -810,39 +813,11 @@ export class ArtifactManager implements Artifacts {
     if (failure) {
       throw failure;
     }
+    // Over a "host" store a rollback could name them again: they wait for
+    // a durable manager's recover.
     if (!this.#held) {
       await this.#removeFiles(effects.retired);
     }
-  }
-
-  /**
-   * Over a `"host"` store, marks each file the change stopped naming as
-   * retired, before the commit: a `recover` reading the host's transaction
-   * then sees it as just retired and keeps it, so a rollback that names it
-   * again finds it. A mark that fails fails the change before it commits.
-   */
-  async #markRetired(paths: ReadonlySet<string>): Promise<void> {
-    const { files } = this.#limits;
-    if (!(this.#held && files?.retire)) {
-      return;
-    }
-    for (const path of paths) {
-      await files.retire(path);
-    }
-  }
-
-  /**
-   * Whether `recover` may remove a file no record names. Over a store whose
-   * commits are durable at once, it reads committed records under the
-   * store's exclusion, so yes. Over a `"host"` store, the records it reads
-   * may yet be rolled back, so only a file that has gone unchanged as long
-   * as abandoned staging has; never, without `abandoned` to tell.
-   */
-  async #reclaimable(path: string): Promise<boolean> {
-    if (!this.#held) {
-      return true;
-    }
-    return (await this.#limits.files?.abandoned?.(path)) ?? false;
   }
 
   #notify(ids: Iterable<ArtifactId>, cause: ArtifactChangeCause): void {
