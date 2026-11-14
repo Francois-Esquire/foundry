@@ -205,7 +205,8 @@ const tasks = new Tasks({ store });
 ```
 
 Each `commit` is one transaction, and a throwing `onCommit` rolls it back.
-`onCommit` must use the `transaction` it is given, never the store. A libSQL
+`onCommit` uses the `transaction` it is given; a call to the store itself
+from the hook is refused (see below). A libSQL
 database reads `snapshot()` in one batch, a deferred read transaction that
 takes no write lock.
 
@@ -260,6 +261,16 @@ through `view`, and the store lets no other write land in between, from any
 `Tasks` over it. A throw from `work` leaves nothing it committed through
 `view`. Without it, two `Tasks` instances over one store can still
 interleave; serialization is per instance.
+
+Each store takes one call at a time, so a call to the store itself from
+inside its own transaction's `work` (or from `onCommit`) could only wait for
+itself. It is refused at once with a `ReentrantCallError` from
+`@foundry/lib/turns` that says to use the view, or the transaction, instead.
+A caller that is merely concurrent with a transaction still waits its turn.
+The stores tell the two apart by asynchronous context, with
+`AsyncLocalStorage` from `node:async_hooks`. The package therefore needs a
+runtime that provides it: Node, Bun, Deno, or a worker runtime with Node
+compatibility, not a plain browser.
 
 ## Correlation with workflows
 

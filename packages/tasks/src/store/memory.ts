@@ -1,4 +1,4 @@
-import { KeyedQueue } from "@foundry/lib/keyed-queue";
+import { Turns } from "@foundry/lib/turns";
 import { edgeKey } from "../edges";
 import type {
   Task,
@@ -9,22 +9,23 @@ import type {
 } from "../schema";
 import type { TaskStore } from "./index";
 
-/** The one key of a store's turns: the whole store takes them. */
-const STORE = "store";
+/** Why a call from inside the store's own transaction is refused. */
+const REENTRY =
+  "MemoryTaskStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
 /**
  * The default store: plain maps in this process. Reads list records in the
  * order they were first put; a put over a stored record keeps its place.
- * Commits and transactions take turns, so a commit made while a transaction
- * runs lands after it.
+ * Every call takes a turn, so a commit made while a transaction runs lands
+ * after it, and a call made from inside a transaction's work is refused.
  */
 export class MemoryTaskStore implements TaskStore {
   private readonly tasks = new Map<TaskId, Task>();
   private readonly dependencies = new Map<string, TaskDependency>();
-  private readonly turns = new KeyedQueue();
+  private readonly turns = new Turns(REENTRY);
 
   commit(write: TaskStoreWrite): Promise<void> {
-    return this.turns.run(STORE, () => {
+    return this.turns.run(() => {
       this.apply(write);
       return Promise.resolve();
     });
@@ -35,7 +36,7 @@ export class MemoryTaskStore implements TaskStore {
    * succeeds, so a throw after a commit through `view` leaves nothing.
    */
   transaction<T>(work: (view: TaskStore) => Promise<T>): Promise<T> {
-    return this.turns.run(STORE, async () => {
+    return this.turns.run(async () => {
       const draft = this.draft();
       const result = await work(draft);
       this.adopt(draft);
@@ -44,17 +45,21 @@ export class MemoryTaskStore implements TaskStore {
   }
 
   get(id: TaskId): Promise<Task | null> {
-    const task = this.tasks.get(id);
-    return Promise.resolve(task ? structuredClone(task) : null);
+    return this.turns.run(() => {
+      const task = this.tasks.get(id);
+      return Promise.resolve(task ? structuredClone(task) : null);
+    });
   }
 
   snapshot(): Promise<TaskSnapshot> {
-    return Promise.resolve({
-      dependencies: [...this.dependencies.values()].map((edge) => ({
-        ...edge,
-      })),
-      tasks: [...this.tasks.values()].map((task) => structuredClone(task)),
-    });
+    return this.turns.run(() =>
+      Promise.resolve({
+        dependencies: [...this.dependencies.values()].map((edge) => ({
+          ...edge,
+        })),
+        tasks: [...this.tasks.values()].map((task) => structuredClone(task)),
+      })
+    );
   }
 
   /** A store holding what this one holds; records are never changed in place. */

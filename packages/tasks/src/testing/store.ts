@@ -284,23 +284,99 @@ export function describeTaskStore(
       await target.commit({ putTasks: [a] });
       const outside = { ...a, title: "outside" };
       const inside = { ...a, title: "inside" };
-      let landed: Promise<void> = Promise.resolve();
+      const read = Promise.withResolvers<void>();
+      const proceed = Promise.withResolvers<void>();
 
-      const seen = await transactionOf(target)(async (view) => {
+      const running = transactionOf(target)(async (view) => {
         const before = await view.get(a.id);
-        landed = target.commit({ putTasks: [outside] });
-        // Time enough for a write that is not held back to land.
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        read.resolve();
+        await proceed.promise;
         const after = await view.get(a.id);
         await view.commit({ putTasks: [inside] });
         return { after, before };
       });
-      await landed;
+      await read.promise;
+      // An independent caller, while the transaction sits between its read
+      // and its commit, given time enough to land if nothing held it back.
+      const landed = target.commit({ putTasks: [outside] });
+      await pause(20);
+      proceed.resolve();
 
-      expect(seen).toEqual({ after: a, before: a });
+      expect(await running).toEqual({ after: a, before: a });
+      await landed;
       expect(await target.get(a.id)).toEqual(outside);
     });
+
+    test("a call to the store from inside its own transaction is refused at once", async () => {
+      const target = await store();
+      const a = task("a");
+      const calls: Record<string, () => Promise<unknown>> = {
+        commit: () => target.commit({ putTasks: [a] }),
+        get: () => target.get(a.id),
+        snapshot: () => target.snapshot(),
+        transaction: () => transactionOf(target)(() => Promise.resolve()),
+      };
+      const { promise: ended, resolve: end } = Promise.withResolvers<void>();
+      let later: Promise<unknown> = Promise.resolve();
+
+      const refusals = await transactionOf(target)(async (view) => {
+        const outcomes: Record<string, string> = {};
+        for (const [method, call] of Object.entries(calls)) {
+          outcomes[method] = await settlesWithin(call(), 1000);
+        }
+        // Scheduled from inside, but run once the transaction has ended.
+        later = ended.then(() => target.commit({ putTasks: [a] }));
+        await view.commit({ putTasks: [task("b")] });
+        return outcomes;
+      });
+      end();
+
+      for (const outcome of Object.values(refusals)) {
+        expect(outcome).toMatch(REFUSAL);
+      }
+      await later;
+      expect((await target.snapshot()).tasks.map((t) => t.id)).toEqual([
+        "b",
+        "a",
+      ]);
+    });
   });
+}
+
+/** What a store's refusal of a call from inside its own transaction says. */
+const REFUSAL = /refused: .*use the view/;
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
+ * How `promise` settled, as `refused: <message>` or `resolved`, or
+ * `still pending` after `ms`: a hang becomes a failed assertion, not a
+ * stalled suite.
+ */
+async function settlesWithin(
+  promise: Promise<unknown>,
+  ms: number
+): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<string>((resolve) => {
+    timer = setTimeout(() => resolve("still pending"), ms);
+  });
+  try {
+    return await Promise.race([
+      promise.then(
+        () => "resolved",
+        (error: unknown) =>
+          `refused: ${error instanceof Error ? error.message : String(error)}`
+      ),
+      timeout,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** The store's `transaction`; every store this suite describes has one. */

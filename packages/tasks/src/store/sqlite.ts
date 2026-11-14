@@ -1,4 +1,4 @@
-import { KeyedQueue } from "@foundry/lib/keyed-queue";
+import { Turns } from "@foundry/lib/turns";
 import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
 import { and, eq, getTableColumns, inArray, max, or, sql } from "drizzle-orm";
 import type { BatchItem, BatchResponse } from "drizzle-orm/batch";
@@ -73,8 +73,9 @@ const replaceTask = Object.fromEntries(
   Object.entries(taskColumns).map(([key, column]) => [key, excluded(column)])
 );
 
-/** The one key of a store's turns: the whole store takes them. */
-const STORE = "store";
+/** Why a call from inside the store's own transaction or hook is refused. */
+const REENTRY =
+  "SqliteTaskStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead";
 
 /**
  * A `TaskStore` over the host's SQLite database, in the tables from
@@ -92,7 +93,7 @@ export class SqliteTaskStore implements TaskStore {
   readonly #database: TaskDatabase;
   readonly #scope: string;
   readonly #onCommit: SqliteTaskStoreOptions["onCommit"];
-  readonly #turns = new KeyedQueue();
+  readonly #turns = new Turns(REENTRY);
 
   constructor(options: SqliteTaskStoreOptions) {
     if (options.scope.length === 0) {
@@ -116,7 +117,7 @@ export class SqliteTaskStore implements TaskStore {
         )
       );
     }
-    return this.#turns.run(STORE, () =>
+    return this.#turns.run(() =>
       this.#database.transaction(async (transaction) => {
         await this.#deleteTasks(transaction, write.deleteTasks ?? []);
         await this.#deleteDependencies(
@@ -131,7 +132,7 @@ export class SqliteTaskStore implements TaskStore {
   }
 
   get(id: TaskId): Promise<Task | null> {
-    return this.#turns.run(STORE, async () => {
+    return this.#turns.run(async () => {
       const [task] = await this.#database
         .select(taskColumns)
         .from(tasks)
@@ -149,7 +150,7 @@ export class SqliteTaskStore implements TaskStore {
    * between them.
    */
   snapshot(): Promise<TaskSnapshot> {
-    return this.#turns.run(STORE, async () => {
+    return this.#turns.run(async () => {
       const tasksQuery = this.#database
         .select(taskColumns)
         .from(tasks)
@@ -180,7 +181,7 @@ export class SqliteTaskStore implements TaskStore {
    * `SQLITE_BUSY`; it never lands between `work`'s reads and its commit.
    */
   transaction<T>(work: (view: TaskStore) => Promise<T>): Promise<T> {
-    return this.#turns.run(STORE, () =>
+    return this.#turns.run(() =>
       this.#database.transaction((transaction) =>
         work(
           new SqliteTaskStore({

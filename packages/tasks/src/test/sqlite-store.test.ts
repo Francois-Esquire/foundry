@@ -137,6 +137,45 @@ describe("SqliteTaskStore", () => {
     expect(writes[1]).not.toHaveProperty("event");
   });
 
+  test("onCommit calling the store it belongs to is refused at once", async () => {
+    const outcomes: string[] = [];
+    let store: SqliteTaskStore | undefined;
+    const attempt = async (call: () => Promise<unknown>) => {
+      const result = await Promise.race([
+        call().then(
+          () => "resolved",
+          (error: unknown) => String(error)
+        ),
+        new Promise<string>((resolve) => {
+          setTimeout(() => resolve("still pending"), 1000);
+        }),
+      ]);
+      outcomes.push(result);
+    };
+    store = new SqliteTaskStore({
+      database: await memory.open(),
+      onCommit: async (transaction) => {
+        const outer = store as SqliteTaskStore;
+        await attempt(() => outer.get(id("a")));
+        await attempt(() => outer.snapshot());
+        await attempt(() => outer.commit({}));
+        await attempt(() => outer.transaction(() => Promise.resolve()));
+        // The transaction it is given is the way in.
+        await transaction.select().from(tasks);
+      },
+      scope: "s",
+    });
+
+    const created = await new Tasks({ clock, store }).create({ title: "a" });
+
+    expect(outcomes).toHaveLength(4);
+    for (const outcome of outcomes) {
+      expect(outcome).toContain("ReentrantCallError");
+      expect(outcome).toContain("the transaction passed to onCommit");
+    }
+    expect(await store.get(created.id)).toEqual(created);
+  });
+
   test("a throwing onCommit rolls back the store's statements and its own", async () => {
     const database = await withChanges();
     const store = new SqliteTaskStore({
