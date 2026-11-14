@@ -1,12 +1,9 @@
+import type { Summary } from "../schema";
 import type { Summarizer } from "./compactor";
 import type { SessionStore } from "./store";
 import type { SessionMessage } from "./types";
 
-/** A cross-session digest. Subject = exactly one session; digest-shaped, NOT a fact-memory. */
-export interface Summary {
-  digestText: string;
-  subjectSessionId: string;
-}
+export type { Summary } from "../schema";
 
 /** Session-keyed rolling store of digests. */
 export interface SummaryStore {

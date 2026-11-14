@@ -14,7 +14,7 @@ import { z } from "zod";
 
 import type { AgentSubject } from "./authorization";
 import { AGENT_SUBJECT_NAMESPACE } from "./authorization";
-import type { Capability } from "./capability";
+import type { Capability, ToolSource } from "./capability";
 
 const toolSources = z.enum([
   "declared",
@@ -57,6 +57,11 @@ const subject = z.strictObject({
   namespace: z.literal(AGENT_SUBJECT_NAMESPACE),
   version: z.int().nonnegative().optional(),
 });
+
+/** A saved {@link ToolSource}. */
+export const toolSourceSchema: z.ZodType<
+  Exactly<z.infer<typeof toolSources>, ToolSource>
+> = toolSources;
 
 /** A saved {@link Capability}. */
 export const capabilitySchema: z.ZodType<
