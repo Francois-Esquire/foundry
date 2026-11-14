@@ -122,8 +122,8 @@ export class ProviderConfiguration {
   readonly #listed = new Map<string, number>();
   /** Aborted at dispose: no answer lands after it. */
   readonly #lists = new AbortController();
-  /** Airplane Mode, as the engine last set it. */
-  #offline: boolean | undefined;
+  /** Aborted when Airplane Mode turns on, so no list in flight lands; replaced when it turns off. */
+  #online = new AbortController();
 
   constructor(options: ProviderConfigurationOptions) {
     this.#options = options;
@@ -241,9 +241,16 @@ export class ProviderConfiguration {
     return problems;
   }
 
-  /** Airplane Mode: while on, no plugin is asked for its models. */
+  /**
+   * Airplane Mode: while on, no plugin is asked for its models, and turning
+   * it on aborts each list in flight and drops its answer.
+   */
   setOffline(offline: boolean): void {
-    this.#offline = offline;
+    if (offline) {
+      this.#online.abort();
+    } else if (this.#online.signal.aborted) {
+      this.#online = new AbortController();
+    }
   }
 
   /** Dispose the instances this configuration built that the manager never took. */
@@ -263,7 +270,10 @@ export class ProviderConfiguration {
       if (await write(drafts)) {
         // An entry's new settings may need their own list before it builds.
         await this.#listAll();
-        this.#load(drafts);
+        // Disposed meanwhile: the drafts are discarded below, and nothing loads.
+        if (!this.#lists.signal.aborted) {
+          this.#load(drafts);
+        }
       }
     } finally {
       this.#owned.discard(drafts.values());
@@ -780,9 +790,7 @@ export class ProviderConfiguration {
         count.set(entry.id, (count.get(entry.id) ?? 0) + 1);
       }
     }
-    const ids = scoped.map(({ entry }) => entry.id);
-    // Once each: a disabled entry repeats its id, and a later copy would move it.
-    const order = [...new Set(workspace?.order ?? ids)];
+    const order = effectiveOrder(machine, workspace);
     const keep = new Map<Built, Built>();
     const cache = new Map<string, ProviderInstance>();
     const results = scoped.map(({ entry, scope }): Built => {
@@ -1000,7 +1008,7 @@ export class ProviderConfiguration {
    * reports it.
    */
   async #listAll(): Promise<readonly string[]> {
-    if (this.#offline || this.#options.fixed !== undefined) {
+    if (this.#online.signal.aborted || this.#options.fixed !== undefined) {
       return [];
     }
     let files: (ProvidersFile | undefined)[];
@@ -1009,12 +1017,29 @@ export class ProviderConfiguration {
     } catch {
       return [];
     }
+    const [workspace, machine] = files;
+    const enabled = [
+      ...(workspace?.providers ?? []),
+      ...(machine?.providers ?? []),
+    ].filter((entry) => entry.enabled);
+    // Only what `load` could use: in the workspace's order, its id not clashing.
+    const order = effectiveOrder(machine, workspace);
+    const eligible = (id: string) =>
+      order.includes(id) &&
+      enabled.filter((entry) => entry.id === id).length === 1;
     const scopes: ProviderScope[] = ["workspace", "machine"];
     const asked = files.flatMap((file, index) =>
       (file?.providers ?? []).flatMap((entry) => {
         const plugin = this.#plugins.get(entry.plugin);
         const parsed = plugin?.settings.safeParse(entry.settings ?? {});
-        if (!(entry.enabled && plugin?.list && parsed?.success)) {
+        if (
+          !(
+            entry.enabled &&
+            plugin?.list &&
+            parsed?.success &&
+            eligible(entry.id)
+          )
+        ) {
           return [];
         }
         const scope = scopes[index] as ProviderScope;
@@ -1035,21 +1060,23 @@ export class ProviderConfiguration {
     const key = listingKey(plugin, settings, env);
     const started = (this.#listed.get(key) ?? 0) + 1;
     this.#listed.set(key, started);
+    // Disposal, Airplane Mode, or the timeout ends the wait, whatever the plugin does.
+    const ended = AbortSignal.any([this.#lists.signal, this.#online.signal]);
+    const signal = AbortSignal.any([
+      ended,
+      AbortSignal.timeout(LIST_TIMEOUT_MS),
+    ]);
     let listing: Listing;
     try {
-      const models = await plugin.list?.({
-        env,
-        settings,
-        signal: AbortSignal.any([
-          this.#lists.signal,
-          AbortSignal.timeout(LIST_TIMEOUT_MS),
-        ]),
-      });
+      const models = await untilAborted(
+        Promise.resolve(plugin.list?.({ env, settings, signal })),
+        signal
+      );
       listing = { models: models ?? [] };
     } catch (error) {
       listing = { problem: `its models could not be listed: ${reason(error)}` };
     }
-    if (this.#lists.signal.aborted || this.#listed.get(key) !== started) {
+    if (ended.aborted || this.#listed.get(key) !== started) {
       return undefined;
     }
     if (listing.problem === undefined) {
@@ -1114,6 +1141,33 @@ function reason(error: unknown): string {
     return `no answer within ${LIST_TIMEOUT_MS / 1000} s`;
   }
   return messageOf(error);
+}
+
+/** The ids the effective set may hold, in order: the workspace's `order`, else every entry's, once each. */
+function effectiveOrder(
+  machine: ProvidersFile | undefined,
+  workspace: ProvidersFile | undefined
+): readonly string[] {
+  const ids = [
+    ...(workspace?.providers ?? []),
+    ...(machine?.providers ?? []),
+  ].map((entry) => entry.id);
+  // Once each: a disabled entry repeats its id, and a later copy would move it.
+  return [...new Set(workspace?.order ?? ids)];
+}
+
+/** `promise`, or a rejection with the signal's reason once it aborts, whichever comes first. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason);
+  }
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", abort);
+    });
+  });
 }
 
 /** The key a list is kept under: everything a plugin's `list` reads. */

@@ -88,8 +88,10 @@ export interface ProviderPlugin<S = unknown> {
   /**
    * The models the instance's own server reports, in place of `catalog`.
    * The configuration calls it before it builds the instance, never while
-   * Airplane Mode is on, and bounds the wait; a rejection leaves the entry
-   * with no models and the reason as its problem.
+   * Airplane Mode is on. It stops waiting at the timeout, at disposal, or
+   * when Airplane Mode turns on, aborts `signal`, and ignores a later
+   * answer. A rejection leaves the entry with no models and the reason as
+   * its problem.
    */
   list?(context: {
     readonly env: Readonly<Record<string, string>>;

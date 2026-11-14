@@ -27,7 +27,7 @@ import { dispose, instanceRuntime } from "~/authoring/runtime";
 import { createEngine } from "~/create";
 import type { Engine } from "~/lib/engine";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
-import type { ProviderPlugin } from "~/lib/providers/plugins";
+import type { ProviderPlugin, RegisteredPlugin } from "~/lib/providers/plugins";
 import { gatewayPlugin, registered } from "~/lib/providers/plugins";
 
 const ENV = { GW_KEY: "secret" };
@@ -159,7 +159,10 @@ function configure(url: string, defaults?: Record<string, string>): string {
   return file;
 }
 
-function configuration(): {
+function configuration(
+  extra: readonly RegisteredPlugin[] = [],
+  workspace?: string
+): {
   readonly configuration: ProviderConfiguration;
   readonly models: ModelManager;
 } {
@@ -168,11 +171,42 @@ function configuration(): {
     configuration: new ProviderConfiguration({
       environment: { machine: ENV, workspace: {} },
       models,
-      plugins: [registered(gatewayPlugin), registered(other)],
+      plugins: [registered(gatewayPlugin), registered(other), ...extra],
       state,
+      ...(workspace
+        ? { workspace: { dir: workspace, id: "ws", root: state } }
+        : {}),
     }),
     models,
   };
+}
+
+/** A plugin named "slow" whose models come from `list`. */
+function lister(
+  list: NonNullable<ProviderPlugin<Record<string, never>>["list"]>
+): RegisteredPlugin {
+  return registered({
+    ...other,
+    catalog: () => [],
+    id: "slow",
+    label: "slow",
+    list,
+  });
+}
+
+/** The machine file with these enabled entries, each its plugin's own id. */
+function configureOnly(...plugins: string[]): void {
+  writeFileSync(
+    join(state, "providers.json"),
+    JSON.stringify({
+      providers: plugins.map((plugin) => ({
+        enabled: true,
+        id: plugin,
+        plugin,
+      })),
+      version: 1,
+    })
+  );
 }
 
 /** The model a selection routes to now, or undefined while it is refused. */
@@ -446,5 +480,108 @@ it("lists the gateway's models for definitions called outside a run", async () =
     );
   } finally {
     await dispose();
+  }
+});
+
+it("drops a list still in flight when Airplane Mode turns on", async () => {
+  configureOnly("slow", "other");
+  let answer: (
+    models: { id: string; kind: "text"; modelId: string }[]
+  ) => void = () => undefined;
+  let signal: AbortSignal | undefined;
+  const { configuration: configured, models } = configuration([
+    lister(({ signal: given }) => {
+      signal = given;
+      return new Promise((resolve) => {
+        answer = resolve;
+      });
+    }),
+  ]);
+  try {
+    const refreshed = configured.refresh();
+    await expect.poll(() => signal).toBeDefined();
+    configured.setOffline(true);
+    expect(signal?.aborted).toBe(true);
+    // A server that answers anyway is not heard.
+    answer([{ id: "late", kind: "text", modelId: "late" }]);
+    expect(await refreshed).toEqual([]);
+    expect(entry(configured, "slow")?.state).toBe("unavailable");
+    expect(models.providers.map((provider) => provider.id)).toEqual(["other"]);
+  } finally {
+    await configured.dispose();
+  }
+});
+
+it("loads nothing for an edit that was still listing when it was disposed", async () => {
+  configureOnly("other");
+  let listing = false;
+  const { configuration: configured, models } = configuration([
+    lister(
+      ({ signal }) =>
+        new Promise((_, reject) => {
+          listing = true;
+          signal.addEventListener("abort", () => reject(signal.reason));
+        })
+    ),
+  ]);
+  const added = configured
+    .add({ id: "slow", plugin: "slow" }, { scope: "machine" })
+    .catch(() => undefined);
+  await expect.poll(() => listing).toBe(true);
+  await configured.dispose();
+  await added;
+  expect(models.providers).toEqual([]);
+});
+
+it("stops waiting for a plugin whose list never settles when disposed", {
+  timeout: 2000,
+}, async () => {
+  configureOnly("slow", "other");
+  let listing = false;
+  const { configuration: configured } = configuration([
+    lister(() => {
+      listing = true;
+      return new Promise(() => undefined);
+    }),
+  ]);
+  const refreshed = configured.refresh();
+  await expect.poll(() => listing).toBe(true);
+  await configured.dispose();
+  expect(await refreshed).toEqual([]);
+});
+
+it("gives up on a plugin whose list never settles", {
+  timeout: 15_000,
+}, async () => {
+  configureOnly("slow", "other");
+  const { configuration: configured } = configuration([
+    lister(() => new Promise(() => undefined)),
+  ]);
+  try {
+    expect(await configured.refresh()).toEqual([
+      '"slow" has no models; its models could not be listed: no answer within 5 s',
+    ]);
+    expect(entry(configured, "other")?.state).toBe("ready");
+  } finally {
+    await configured.dispose();
+  }
+});
+
+it("asks no gateway the workspace's order leaves out", async () => {
+  configure(baseURL);
+  const workspace = join(state, "workspace");
+  mkdirSync(workspace);
+  writeFileSync(
+    join(workspace, "providers.json"),
+    JSON.stringify({ order: ["other"], providers: [], version: 1 })
+  );
+  const { configuration: configured, models } = configuration([], workspace);
+  try {
+    expect(await configured.refresh()).toEqual([]);
+    expect(asked).toBe(0);
+    expect(entry(configured, "gw")?.state).toBe("excluded");
+    expect(models.providers.map((provider) => provider.id)).toEqual(["other"]);
+  } finally {
+    await configured.dispose();
   }
 });
