@@ -800,41 +800,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       .catch(() => undefined);
   }
 
-  if (existsSync(layout.socket)) {
-    // We hold the lock, so whoever listened here is gone.
-    rmSync(layout.socket, { force: true });
-  }
-  const server: Server = createServer(onConnection);
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(layout.socket, () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
-  // Whoever can connect can run workflows and agents as this user.
-  chmodSync(layout.socket, 0o600);
-  print(`[daemon] pid ${String(process.pid)} · ${layout.socket}`);
-
-  for (const record of await registry.list()) {
-    if (
-      record.hosted &&
-      record.config !== null &&
-      sourceFiles(record.config) !== undefined
-    ) {
-      // One workspace that cannot be hosted again leaves the rest hosted.
-      attach(record.config).catch((error: unknown) => {
-        print(
-          `[${record.id}] not hosted again: ${error instanceof Error ? error.message : String(error)}`
-        );
-      });
-    }
-  }
-
   let resolveClosed: () => void = () => undefined;
   const closed = new Promise<void>((resolve) => {
     resolveClosed = resolve;
   });
+  const server: Server = createServer(onConnection);
 
   // The claim is the daemon's reason to run: a state root that was removed,
   // or a lock someone else now holds, means this process answers for nothing.
@@ -845,6 +815,44 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
   }, CLAIM_CHECK_MS);
   claimCheck.unref();
+
+  // From here on a failure is a shutdown: whatever started is stopped, the
+  // server closed, the database closed, and the claim released, in that
+  // order, as `close` does.
+  try {
+    if (existsSync(layout.socket)) {
+      // We hold the lock, so whoever listened here is gone.
+      rmSync(layout.socket, { force: true });
+    }
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(layout.socket, () => {
+        server.off("error", reject);
+        resolve();
+      });
+    });
+    // Whoever can connect can run workflows and agents as this user.
+    chmodSync(layout.socket, 0o600);
+    print(`[daemon] pid ${String(process.pid)} · ${layout.socket}`);
+
+    for (const record of await registry.list()) {
+      if (
+        record.hosted &&
+        record.config !== null &&
+        sourceFiles(record.config) !== undefined
+      ) {
+        // One workspace that cannot be hosted again leaves the rest hosted.
+        attach(record.config).catch((error: unknown) => {
+          print(
+            `[${record.id}] not hosted again: ${error instanceof Error ? error.message : String(error)}`
+          );
+        });
+      }
+    }
+  } catch (error) {
+    await close();
+    throw error;
+  }
 
   function close({ claimLost = false } = {}): Promise<void> {
     closing ??= (async () => {
@@ -870,6 +878,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
           // Node). Leave both alone; the process exits around the listener.
           server.unref();
         } else {
+          // A server that never listened answers at once, with an error.
           await new Promise<void>((resolve) => server.close(() => resolve()));
           rmSync(layout.socket, { force: true });
         }

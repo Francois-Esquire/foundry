@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { canonicalFile, queuedFiles } from "~/database/client";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { type Layout, layout } from "~/layout";
 import type {
@@ -630,6 +631,25 @@ export const hold = step("hold").do(async () => {
       client.close();
     }
   }, 60_000);
+
+  it("lets go of everything it took when it cannot listen", async () => {
+    const { home, machine } = fixture();
+    homes.push(home);
+    // The socket's directory is not there, so listening fails.
+    const deaf: Layout = {
+      ...machine,
+      socket: join(home, "no-such-dir", "marbles.sock"),
+    };
+    const started = Date.now();
+    await expect(startDaemon({ layout: deaf })).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(readProcess(machine.state)?.alive).not.toBe(true);
+    // Its database handle is closed: no client in this process holds it.
+    expect(queuedFiles()).not.toContain(canonicalFile(machine.database));
+    // Nothing is left that would refuse the next Marbles process.
+    const daemon = await daemonFor(machine);
+    expect(daemon.pid).toBe(process.pid);
+  }, 30_000);
 
   it("refuses a second daemon on the same state root, and a client with none to start", async () => {
     const { home, machine } = fixture();
