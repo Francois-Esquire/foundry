@@ -313,9 +313,33 @@ describeSessionStore("MyStore", () => {
 });
 ```
 
-A session keeps tool outputs and structured outputs in their JSON form, the
-form every durable store writes. A tool output with no JSON form (a BigInt, a
-cycle) fails the turn with an error that names the tool.
+A session keeps every message in its JSON form, the form every durable
+store writes and a model is sent, so every store keeps and gives back the
+same values. `Sessions`, the one writer, puts each message's `parts` and
+`metadata` through that form before it commits, and leaves out every field
+holding `undefined`, on messages and session records alike. JSON's changes
+are kept:
+
+- `-0` becomes `0`; NaN and the infinities become `null`.
+- A property holding `undefined`, a function or a symbol is left out; in an
+  array, or as a hole in one, it becomes `null`.
+- A value with a `toJSON` (a `Date`, a `URL`) becomes what it returns; any
+  other object (a `Map`, a class instance) keeps its own enumerable
+  properties, as a plain object.
+- Strings are kept as they are, U+0000 and lone surrogates included.
+
+A value with no JSON form (a `bigint`, a value that contains itself, a getter
+that throws) is refused, naming its path, such as `parts[0].input.count`. So
+is a message whose JSON form is no message: a part that became `null`, a
+required field left out, a token count that became `null`. The append or
+update rejects and writes nothing.
+
+A tool output with no JSON form fails the turn with an error that names the
+tool. A reply the session cannot keep, because `Sessions` refuses it or the
+store's commit rejects, fails the turn the same way. The reply is reported
+with status `error` and an error part saying why, `onError` hears it, no
+`finish` is emitted, a requested `output` rejects, and nothing reports
+`complete` for a reply that is not in the history.
 
 ### Storage
 
@@ -361,6 +385,15 @@ another session, goes after the last message there. The index
 lookup of a session's last position, which reads one entry. Neither scans
 other sessions or sorts.
 
+Reads take `parts` and `metadata` as JSON text and `summarized` as an
+integer, and one decoder turns a row back into a record, without Zod. It
+refuses a row the store would not have written: JSON that does not parse,
+parts or metadata that are not a message (a part of no known type, a field
+its type requires left out, a field of the wrong type), a `summarized` that
+is not 0, 1 or NULL, or a column of the wrong type. The error names the
+scope, session, message and field. One such row rejects its session's whole
+`listMessages`.
+
 Each `commit` is one transaction, and a throwing `onCommit` rolls it back.
 `onCommit` receives the write as given: every session and message put, whole,
 in order. It does not learn which put filed a record and which replaced one,
@@ -404,16 +437,21 @@ or `putMessages[2].parts[1].output.items[3]`:
   an infinity, `-0`, or beyond `Number.MAX_SAFE_INTEGER` either way.
 - A `parentSessionId` or `parentMessageId` left out. The record tells a
   field left out from `null`, and one nullable column cannot; `Sessions`
-  always writes `null` for a root session.
+  always writes `null` for a root session. An importer that moves records
+  from another store into this one must write `null` for a left-out link:
+  Marbles' JSON session store accepts the left-out form, and its tests
+  write such a record (`apps/marbles/test/sessions.test.ts`).
+- A property holding `undefined`, at the top of a record or inside `parts`
+  or `metadata`.
 - In `parts` or `metadata`: NaN, an infinity, `-0`, `undefined` or a hole
   in an array, a `bigint`, a function, a symbol, a value that contains
   itself, or an object that is not plain (a `Date`, a `Map`, a class
   instance). JSON would change each of these, or refuse it.
+- Parts or metadata the decoder would not read back as a message.
 
-A property holding `undefined` is stored as left out, at the top of a record
-and inside JSON alike, as JSON writes it: `{ summarized: undefined }` reads
-back as `{}`. The memory store keeps the property, so the two differ only
-under a check that tells the two apart, such as `toStrictEqual`.
+`Sessions` never hands a store any of these but the text and integer cases:
+it writes messages in their JSON form. These refusals are the last line of
+defence against a caller that writes past it.
 
 The store binds each message's `parts` and `metadata` as one JSON text value
 each. SQLite documents a default `SQLITE_MAX_LENGTH` of 1,000,000,000 bytes
@@ -424,6 +462,12 @@ thousands of parts whole; they do not reach either limit. A statement that
 fails rolls the whole commit back, as the tests show for a failure injected
 mid-commit. A commit of many messages is batched under SQLite's limit of
 32,766 bound parameters per statement, inside its one transaction.
+
+`listMessages` reads and parses a session's whole history, as the memory and
+JSON stores do, and `Sessions` and `SessionWindow` read it whole for each
+turn. A long session costs a read of every message it holds. The follow-up
+is a bounded read of the active history (the latest summary and what it did
+not fold), added to `SessionStore` and every implementation together.
 
 Each store takes one call at a time, so a call to the store itself from
 inside its own transaction's `work`, or from `onCommit`, could only wait for
