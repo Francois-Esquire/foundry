@@ -4,18 +4,25 @@
  * record; the record types are inferred from it.
  *
  * Nothing parses through these today; `validateBlob` checks a blob's fields
- * with the components below. Invariants that span records or fields (a
- * pointer naming the Artifact's own Content, a blob's inline bytes matching
- * its `byteLength`, a tree entry's parent directory) stay with the store,
- * `validateBlob` and Core's `validateStorageTree`.
+ * with the components below.
+ *
+ * Metadata objects and record maps (`entries`, a Content tree) are checked
+ * where they stand and come back as the same value, not a Zod copy: Zod's
+ * object and record parsing drops an own `__proto__` key, which the store
+ * keeps, and converts a non-plain object before any check could see it.
+ *
+ * Invariants that span records or fields (a pointer naming the Artifact's own
+ * Content, a blob's inline bytes matching its `byteLength`, a tree entry's
+ * parent directory) stay with the store, `validateBlob` and Core's
+ * `validateStorageTree`.
  */
 
 import type { FileNode, StorageNode } from "@foundry/core/storage";
 import { isStoragePath } from "@foundry/core/storage";
-import { canonicalizeJson } from "@foundry/lib/json";
 import { z } from "zod";
 
 import { ARTIFACT_STATUSES, CONTENT_STATES } from "./constants";
+import { assertJsonMetadata } from "./content";
 import { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ref";
 
 /** A SHA-256 hex digest, as `digestTree` and blob hashing produce it. */
@@ -35,51 +42,107 @@ export type ArtifactLifecycleStatus = z.infer<
 export const contentStateSchema = z.enum(CONTENT_STATES);
 export type ContentState = z.infer<typeof contentStateSchema>;
 
-// ── Metadata ──
-// Open JSON objects: the named keys carry meaning to the package, and any
-// other key is kept as written. Values follow `assertJsonMetadata`: plain
-// JSON that `canonicalizeJson` accepts.
+// ── Checked in place ──
 
-function isCanonicalJson(value: unknown): boolean {
+/**
+ * A schema that checks the input itself and returns it unchanged, typed as
+ * `T`. Output is never a copy, so nothing the input owns is lost.
+ */
+function checkedInPlace<T>(
+  accepts: (value: unknown) => boolean,
+  message: string
+): z.ZodType<T> {
+  return z.custom<T>(accepts, message);
+}
+
+function passes(check: () => void): boolean {
   try {
-    canonicalizeJson(value);
+    check();
     return true;
   } catch {
     return false;
   }
 }
 
-const JSON_METADATA = "Metadata must be plain JSON";
-
-export const artifactMetadataSchema = z
-  .looseObject({ sessionId: z.string().optional() })
-  .refine(isCanonicalJson, JSON_METADATA)
-  .readonly();
-export type ArtifactMetadata = z.infer<typeof artifactMetadataSchema>;
-
-const failureFields = { code: z.string(), message: z.string() };
+/** A plain object, as Zod's record and object parsing would accept it. */
+function isPlainObject(value: unknown): value is object {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
 
 /**
- * Why Content failed. Typed by the keys the package reads; any other key a
- * host stores alongside them is kept as written.
+ * A map whose every own key and value is valid, including an own
+ * `__proto__` entry, which Zod's record parsing would skip unchecked.
  */
-const contentFailureSchema: z.ZodType<
-  Readonly<z.output<z.ZodObject<typeof failureFields>>>
-> = z.looseObject(failureFields).readonly();
+function recordInPlace<V extends z.ZodType>(
+  key: (key: string) => boolean,
+  value: V,
+  message: string
+): z.ZodType<Readonly<Record<string, z.output<V>>>> {
+  return checkedInPlace(
+    (input) =>
+      isPlainObject(input) &&
+      Object.entries(input).every(
+        ([name, entry]) => key(name) && value.safeParse(entry).success
+      ),
+    message
+  );
+}
 
-export const contentMetadataSchema = z
-  .looseObject({
-    entries: z.record(z.string(), z.string()).readonly().optional(),
-    entry: z.string().optional(),
-    failure: contentFailureSchema.optional(),
-    from: z.string().optional(),
-    messageId: z.string().optional(),
-    runId: z.string().optional(),
-    sessionId: z.string().optional(),
-    thumbnail: z.string().optional(),
-  })
-  .refine(isCanonicalJson, JSON_METADATA)
-  .readonly();
+// ── Metadata ──
+// Open JSON objects: the named keys carry meaning to the package, and any
+// other key is kept as written. The whole object, as given, must pass
+// `assertJsonMetadata` before its named keys are checked.
+
+/**
+ * Metadata described by `keys`: JSON by `assertJsonMetadata`, then valid for
+ * `keys`. Typed by `keys`; the value itself is what comes back.
+ */
+function jsonMetadataSchema<K extends z.ZodType>(
+  keys: K
+): z.ZodType<z.output<K>> {
+  return checkedInPlace(
+    (value) =>
+      isPlainObject(value) &&
+      passes(() => assertJsonMetadata(value)) &&
+      keys.safeParse(value).success,
+    "Metadata must be a plain JSON object with valid named keys"
+  );
+}
+
+export const artifactMetadataSchema = jsonMetadataSchema(
+  z.looseObject({ sessionId: z.string().optional() }).readonly()
+);
+export type ArtifactMetadata = z.infer<typeof artifactMetadataSchema>;
+
+/**
+ * Content metadata. `failure` is typed by the keys the package reads; any
+ * other key a host stores beside them is kept, since nothing is copied.
+ */
+export const contentMetadataSchema = jsonMetadataSchema(
+  z
+    .looseObject({
+      entries: recordInPlace(
+        () => true,
+        z.string(),
+        "Named entries must map names to paths"
+      ).optional(),
+      entry: z.string().optional(),
+      failure: z
+        .object({ code: z.string(), message: z.string() })
+        .readonly()
+        .optional(),
+      from: z.string().optional(),
+      messageId: z.string().optional(),
+      runId: z.string().optional(),
+      sessionId: z.string().optional(),
+      thumbnail: z.string().optional(),
+    })
+    .readonly()
+);
 export type ContentMetadata = z.infer<typeof contentMetadataSchema>;
 
 // ── Content tree ──
@@ -107,12 +170,11 @@ const structuralNodeSchema = z
   .readonly() satisfies z.ZodType<Exclude<StorageNode, FileNode>>;
 
 /** Keys are root-relative storage paths, as in Core's `StorageTree`. */
-export const contentTreeSchema = z
-  .record(
-    z.string().refine(isStoragePath, "Invalid storage path"),
-    z.union([storedFileSchema, structuralNodeSchema])
-  )
-  .readonly();
+export const contentTreeSchema = recordInPlace(
+  isStoragePath,
+  z.union([storedFileSchema, structuralNodeSchema]),
+  "A Content tree maps storage paths to storage nodes"
+);
 export type ContentTree = z.infer<typeof contentTreeSchema>;
 
 // ── Blob ──

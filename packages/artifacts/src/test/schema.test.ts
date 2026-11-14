@@ -1,12 +1,15 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, onTestFinished, test } from "vitest";
+import type { FileNode, StorageNode } from "@foundry/core/storage";
+import { describe, expect, expectTypeOf, onTestFinished, test } from "vitest";
 
 import { CHUNK_BYTES } from "../constants";
 import { ArtifactManager } from "../manager";
 import { InMemoryArtifactStore } from "../memory";
 import { blobFiles } from "../node";
+import type { BlobId } from "../ref";
+import type { ContentTree, StoredFile } from "../schema";
 import {
   artifactMetadataSchema,
   artifactRecordsSchema,
@@ -14,6 +17,23 @@ import {
   contentMetadataSchema,
   contentTreeSchema,
 } from "../schema";
+
+/** `fields` plus an own, enumerable `__proto__` property holding `value`. */
+function withOwnProto<T extends object>(fields: T, value: unknown): T {
+  return Object.defineProperty({ ...fields }, "__proto__", {
+    configurable: true,
+    enumerable: true,
+    value,
+    writable: true,
+  });
+}
+
+function ownProto(value: object | undefined): unknown {
+  if (value === undefined || !Object.hasOwn(value, "__proto__")) {
+    throw new Error("Expected an own __proto__ property");
+  }
+  return Object.getOwnPropertyDescriptor(value, "__proto__")?.value;
+}
 
 async function storedRecords(withFiles: boolean) {
   const store = new InMemoryArtifactStore();
@@ -88,6 +108,73 @@ describe("Artifact record schema", () => {
     expect(content?.metadata.failure).toStrictEqual(failure);
   });
 
+  test("returns own __proto__ keys the store keeps", async () => {
+    const store = new InMemoryArtifactStore();
+    const artifacts = new ArtifactManager({ store });
+    const created = await artifacts.create({
+      entries: withOwnProto(
+        { "index.html": { bytes: "<h1>Hi</h1>", mime: "text/html" } },
+        { type: "directory" }
+      ),
+      metadata: withOwnProto(
+        {
+          entries: withOwnProto({ home: "index.html" }, "index.html"),
+          entry: "index.html",
+        },
+        { nested: true }
+      ),
+      name: "Page",
+      type: "text/html",
+    });
+    const contentId = created.content?.id;
+    if (contentId === undefined) {
+      throw new Error("Expected Content");
+    }
+    await artifacts.setMetadata(contentId, {
+      failure: withOwnProto(
+        { code: "failed", message: "why", retryAfter: 30 },
+        "cause"
+      ),
+    });
+    await artifacts.patchArtifactMetadata(
+      created.id,
+      withOwnProto({ sessionId: "s" }, 1)
+    );
+    const records = await store.records();
+    const [stored] = records.contents;
+    // The store keeps every own __proto__ key; the schema must return them.
+    expect(ownProto(stored?.tree)).toStrictEqual({ type: "directory" });
+
+    const parsed = artifactRecordsSchema.parse(records);
+
+    expect(parsed).toStrictEqual(records);
+    const [artifact] = parsed.artifacts;
+    const [content] = parsed.contents;
+    expect(ownProto(artifact?.metadata)).toBe(1);
+    expect(ownProto(content?.metadata)).toStrictEqual({ nested: true });
+    expect(ownProto(content?.metadata.entries)).toBe("index.html");
+    expect(ownProto(content?.metadata.failure)).toBe("cause");
+    expect(content?.metadata.failure).toMatchObject({ retryAfter: 30 });
+    expect(ownProto(content?.tree)).toStrictEqual({ type: "directory" });
+  });
+
+  test("accepts a tree without a prototype, as the manager builds them", () => {
+    const tree = Object.assign(Object.create(null) as object, {
+      assets: { type: "directory" },
+    });
+
+    expect(contentTreeSchema.parse(tree)).toBe(tree);
+  });
+
+  test("checks an own __proto__ entry like any other", () => {
+    expect(
+      contentTreeSchema.safeParse(withOwnProto({}, { type: "bogus" })).success
+    ).toBe(false);
+    expect(
+      contentMetadataSchema.safeParse({ entries: withOwnProto({}, 1) }).success
+    ).toBe(false);
+  });
+
   test.each([
     ["a path that escapes the root", { "../escape": { type: "directory" } }],
     ["an empty path", { "": { type: "directory" } }],
@@ -113,5 +200,37 @@ describe("Artifact record schema", () => {
         failure: { code: "failed", message: "why", value },
       }).success
     ).toBe(false);
+  });
+
+  test.each([
+    ["a Date", new Date(0)],
+    ["a Map", new Map()],
+    ["an array", []],
+    ["null", null],
+  ])("refuses %s as metadata", (_, value) => {
+    expect(artifactMetadataSchema.safeParse(value).success).toBe(false);
+    expect(contentMetadataSchema.safeParse(value).success).toBe(false);
+  });
+
+  test("refuses non-plain objects nested in metadata", () => {
+    const dated = Object.assign(new Date(0), { code: "x", message: "y" });
+
+    expect(contentMetadataSchema.safeParse({ failure: dated }).success).toBe(
+      false
+    );
+    expect(
+      contentMetadataSchema.safeParse({ label: { at: new Date(0) } }).success
+    ).toBe(false);
+    expect(artifactMetadataSchema.safeParse({ owner: new Map() }).success).toBe(
+      false
+    );
+  });
+
+  test("restates Core's storage nodes exactly", () => {
+    expectTypeOf<Omit<StoredFile, "blobId">>().toEqualTypeOf<FileNode>();
+    expectTypeOf<StoredFile["blobId"]>().toEqualTypeOf<BlobId>();
+    expectTypeOf<Exclude<ContentTree[string], StoredFile>>().toEqualTypeOf<
+      Exclude<StorageNode, FileNode>
+    >();
   });
 });
