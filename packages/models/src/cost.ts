@@ -103,9 +103,9 @@ export function costFromUsage(
  * Where `@foundry/models` marks a Claude Code call that resumed no session:
  * `providerMetadata.foundry.claudeCodeFresh` is `true`. The Claude Code
  * provider sets it only when the model's settings name no `resume`,
- * `continue` or `sessionId` (default settings included) and no earlier call
- * ran on the same model instance, which would otherwise resume the session
- * that call captured.
+ * `continue`, `sessionId` or `extraArgs` (default settings included) and no
+ * earlier call ran on the same model instance, which would otherwise resume
+ * the session that call captured.
  */
 export const CLAUDE_CODE_FRESH = { field: "claudeCodeFresh", key: "foundry" };
 

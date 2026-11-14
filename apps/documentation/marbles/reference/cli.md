@@ -183,11 +183,11 @@ fetch that fails is tried again the next time.
 
 Claude Code reports `total_cost_usd`, a running total for its CLI session.
 Marbles records it only for a turn that made one model call and resumed no
-session: in practice the first turn of a Claude Code session on this
-machine, when the provider's settings name no `resume`, `continue` or
-`sessionId`. Every later turn resumes the session, so its figure may
-include earlier turns; that turn is priced from its tokens like any other,
-or its cost stays unknown. A turn in a sandbox never gets the figure. The
+session: in practice the first turn each time Marbles opens a Claude Code
+session on this machine, when the provider's settings name no `resume`,
+`continue`, `sessionId` or `extraArgs`. Every later turn resumes the CLI
+session, so its figure may include earlier turns; that turn is priced from
+its tokens like any other, or its cost stays unknown. A turn in a sandbox never gets the figure. The
 CLI computes it from its own price table, so it is stored as Claude Code's
 own figure and shown as an estimate (`~`). On an API key it estimates what
 the API bills. On a subscription nothing is billed per token, so it is what

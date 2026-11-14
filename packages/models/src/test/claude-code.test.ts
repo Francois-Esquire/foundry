@@ -188,6 +188,12 @@ describe("a Claude Code call that resumed no session", () => {
       "sdkOptions.continue",
       { continue: false, sdkOptions: { continue: true } },
     ],
+    [
+      "continue under sdkOptions",
+      { continue: true, sdkOptions: { continue: false } },
+    ],
+    ["extraArgs", { extraArgs: { resume: "earlier" } }],
+    ["sdkOptions.extraArgs", { sdkOptions: { extraArgs: { continue: null } } }],
     ["unreadable settings", undefined],
   ])("is never marked when %s may resume a session", async (_, settings) => {
     const model = opened(settings);

@@ -105,7 +105,8 @@ export function claudeCodeProvider(
 /**
  * Whether a call with these settings resumes nothing it was told to: no
  * `resume`, `continue` or `sessionId`, in the settings or their
- * `sdkOptions` overlay. Settings it cannot read prove nothing.
+ * `sdkOptions` overlay, and no `extraArgs`, which could pass the CLI a
+ * resume flag of their own. Settings it cannot read prove nothing.
  */
 function resumesNothing(settings: ClaudeCodeSettings | undefined): boolean {
   if (!settings) {
@@ -115,9 +116,12 @@ function resumesNothing(settings: ClaudeCodeSettings | undefined): boolean {
   return (
     settings.resume === undefined &&
     sdk?.resume === undefined &&
-    (sdk?.continue ?? settings.continue) !== true &&
+    settings.continue !== true &&
+    sdk?.continue !== true &&
     settings.sessionId === undefined &&
-    sdk?.sessionId === undefined
+    sdk?.sessionId === undefined &&
+    settings.extraArgs === undefined &&
+    sdk?.extraArgs === undefined
   );
 }
 

@@ -322,3 +322,49 @@ it("records no Claude Code cost when the settings resume a session", async () =>
     { kind: "unknown", reason: "no list price for claude-code/sonnet" },
   ]);
 });
+
+it("a meter gives a turn the marked figure only when the turn made exactly one call", async () => {
+  const { costMeter } = await pricing();
+  const marked = {
+    "claude-code": { costUsd: 0.12 },
+    foundry: { claudeCodeFresh: true },
+  };
+  let call = 0;
+  const vendor = new MockLanguageModelV4({
+    doGenerate: () => {
+      call += 1;
+      return Promise.resolve({
+        content: [],
+        finishReason: { raw: undefined, unified: "stop" },
+        // Only the first call resumed no session.
+        providerMetadata:
+          call === 1 ? marked : { "claude-code": { costUsd: 0.3 } },
+        usage: {
+          inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+          outputTokens: { reasoning: 0, text: 1, total: 1 },
+        },
+        warnings: [],
+      });
+    },
+  });
+  const options = { prompt: [] };
+
+  const meter = costMeter();
+  const model = meter.wrap(vendor);
+  await model.doGenerate(options);
+  await model.doGenerate(options);
+  // Two calls in one turn: the marked figure is not the turn's own.
+  expect(meter.take()).toBeUndefined();
+
+  call = 0;
+  const single = costMeter();
+  const alone = single.wrap(vendor);
+  await alone.doGenerate(options);
+  expect(single.take()).toEqual({
+    amount: 0.12,
+    estimate: true,
+    reference: "claude-code total_cost_usd",
+  });
+  await alone.doGenerate(options);
+  expect(single.take()).toBeUndefined();
+});
