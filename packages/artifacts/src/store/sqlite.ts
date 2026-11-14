@@ -706,10 +706,14 @@ function codeUnitOrder(id: string): Buffer {
  * holds U+0000 (libSQL reads it back cut at the NUL) or is not well-formed
  * UTF-16: a lone surrogate is bound as U+FFFD on Node and as nothing on Bun,
  * so it reads back changed, and a key holding one would match another key's
- * row. JSON columns are exempt: JSON escapes both.
+ * row. JSON columns are exempt: JSON escapes both. A key that is no string
+ * at all (`undefined` from a caller) is no key a row holds either, as no
+ * memory store's map holds one.
  */
-function storable(text: string): boolean {
-  return text.isWellFormed() && !text.includes("\u0000");
+function storable(text: unknown): text is string {
+  return (
+    typeof text === "string" && text.isWellFormed() && !text.includes("\u0000")
+  );
 }
 
 const TEXT =

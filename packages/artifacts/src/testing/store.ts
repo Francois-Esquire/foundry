@@ -162,6 +162,29 @@ export function describeArtifactStore(
       });
     });
 
+    it("finds nothing by a key that is no string, and deletes nothing by one", async () => {
+      const store = await fresh();
+      const kept = artifact();
+      const blob = inlineBlob();
+      await store.commit({ putArtifacts: [kept], putBlobs: [blob] });
+      const missing = undefined as never;
+      expect(await store.getArtifact(missing)).toBeNull();
+      expect(await store.getContent(missing)).toBeNull();
+      expect(await store.getBlob(missing)).toBeNull();
+      expect(await store.findBlobs(missing)).toEqual([]);
+      expect(await store.findReferences(missing)).toEqual({
+        blobIds: [],
+        contentIds: [],
+      });
+      await store.commit({
+        deleteArtifacts: [missing],
+        deleteBlobs: [missing],
+        deleteContents: [missing],
+      });
+      expect(await everyArtifact(store)).toEqual([kept]);
+      expect(await store.listBlobs()).toEqual([{ id: blob.id }]);
+    });
+
     it("lists one Artifact's Contents apart from another's", async () => {
       const store = await fresh();
       const first = artifact();
@@ -580,6 +603,8 @@ export function describeArtifactStore(
       const owner = artifact({
         archivedAt: later,
         metadata: {
+          // A computed key: an own property, not the prototype.
+          ["__proto__"]: { own: true },
           nested: { list: [1, -1.5, "two", null, true, { deep: [] }] },
           sessionId: "s",
           unicode: "\u0000 and \uD800 kept in JSON",
@@ -622,6 +647,7 @@ export function describeArtifactStore(
         state: "frozen",
         tag: "v1",
         tree: {
+          ["__proto__"]: { type: "directory" },
           "0.txt": {
             blobId: backed.id,
             bytes: 2,
@@ -657,11 +683,50 @@ export function describeArtifactStore(
         expect(await store.getBlob(blob.id)).toStrictEqual(blob);
       }
       expect(await store.findBlobs(OTHER_DIGEST)).toStrictEqual([backed]);
+      // An own `__proto__` key is kept as a key, in metadata and in a tree.
+      const read = await store.getContent(version.id);
+      expect(Object.hasOwn(read?.tree ?? {}, "__proto__")).toBe(true);
+      const owned = (await store.getArtifact(pointed.id))?.metadata;
+      expect(Object.hasOwn(owned ?? {}, "__proto__")).toBe(true);
+      expect(Object.getPrototypeOf(owned)).toBe(Object.prototype);
+    });
+
+    it("commits a tree naming thousands of blobs, and deletes tens of thousands of ids, in one write", async () => {
+      const store = await fresh();
+      const owner = artifact();
+      const files = 11_000;
+      const named = Array.from({ length: files }, () => blobId());
+      const version = content(owner.id, named);
+      await store.commit({ putArtifacts: [owner], putContents: [version] });
+      expect(await store.getContent(version.id)).toEqual(version);
+      expect(await store.findReferences(named[files - 1] as BlobId)).toEqual({
+        blobIds: [],
+        contentIds: [version.id],
+      });
+
+      // Far more ids than one statement binds; none of them is stored.
+      const absent = 33_000;
+      await store.commit({
+        deleteArtifacts: Array.from({ length: absent }, () => artifactId()),
+        deleteBlobs: Array.from({ length: absent }, () => blobId()),
+        deleteContents: [
+          ...Array.from({ length: absent }, () => contentId()),
+          version.id,
+        ],
+      });
+      expect(await store.getContent(version.id)).toBeNull();
+      expect(await store.findReferences(named[0] as BlobId)).toEqual({
+        blobIds: [],
+        contentIds: [],
+      });
+      expect(await everyArtifact(store)).toEqual([owner]);
     });
 
     it("commits and deletes thousands of records in one write", async () => {
       const store = await fresh();
-      const count = 3000;
+      // Past one statement's rows for each table: 2184 Artifacts, 2978
+      // Contents, 4095 blobs.
+      const count = 5000;
       const owners = Array.from({ length: count }, () => artifact());
       const blobs = owners.map(() => inlineBlob());
       const versions = owners.map((owner, index) =>
