@@ -385,10 +385,26 @@ Each `commit` is one transaction: the deletes, then the puts, then `onCommit`. A
 throwing `onCommit` rolls it back, and a call to the store itself from the hook is
 refused. The hook receives the write as committed, which is all it can learn of the
 change: each record put, whole, as it now stands, and only the id of each record
-deleted. It has no record as it stood before, and a deleted Content or blob does not
-say which Artifact it belonged to. Deleting an Artifact lists its Contents among the
-deletes; a blob a change stopped needing is a delete of its own. The manager makes no
-commit for a change that writes nothing.
+deleted. A put does not say whether the record is new or replaced, there is no record
+as it stood before, and a deleted Content or blob does not say which Artifact it
+belonged to. The manager makes one commit per change, and none for a change that
+writes nothing:
+
+| Change                                          | The write holds                                         |
+| ----------------------------------------------- | ------------------------------------------------------- |
+| `create`                                        | the Artifact; with entries, its Content and new blobs   |
+| `write`, `revise`                               | the Artifact, its Content(s), each blob put or rewritten |
+| `rename`, `archive`, `patchArtifactMetadata`, … | the Artifact                                            |
+| `setMetadata`, `tag`                            | the Content                                             |
+| `freeze`, `fork`, `select`                      | the Artifact(s) and Content(s) they change              |
+| `deleteContent`                                 | the Content's id, and blobs it alone named              |
+| `delete`                                        | the Artifact's id, its Contents' ids, blobs they alone named |
+| `sweep`                                         | the Contents' and blobs' ids it removes                 |
+| several operations in `transaction`             | one write: the net records of them all                  |
+
+A blob only one file names is rewritten in place, so a write can put a blob id that
+already exists. A record put and deleted within one change arrives as a delete of an
+id the store never held.
 
 `transaction(work)` runs `work` in one database transaction over a view; each commit
 through the view is a savepoint, and the view refuses calls once `work` settles. In this
@@ -408,8 +424,10 @@ needs to commit, so it blocks for the whole timeout and then fails with `SQLITE_
 Do not open the same file with a second SQLite library in the process either. Connection
 settings such as WAL and the busy timeout are the host's.
 
-A commit over SQLite either lands or throws having landed nothing, `SQLITE_BUSY`
-included: libSQL rolls back a transaction whose `COMMIT` fails. The manager then reads
+On a local libSQL file, a commit either lands or throws having landed nothing,
+`SQLITE_BUSY` included: libSQL rolls back a transaction whose `COMMIT` fails. (Over a
+remote connection, a failure reported after the commit reached the server could leave
+it landed; the read-back below covers that case too.) The manager then reads
 the store back, finds the write absent, and removes the files the change published.
 Only if that read fails too does it keep them, with no record naming them, until
 `recover` removes them.
@@ -437,10 +455,16 @@ read that meets it, naming the blob and the scope.
 
 Known limits:
 
-- After libSQL refuses a `BEGIN` with `SQLITE_BUSY`, that client's later commits fail
-  with "SQL statements in progress" until it is reopened: the refused statement stays
-  in progress on its connection. A host that sets a busy timeout meets this only once
-  the timeout runs out.
+- libSQL defect (`@libsql/client` 0.18.0): after it refuses a `BEGIN` with
+  `SQLITE_BUSY` (another process or connection holds the write lock), the refused
+  statement stays in progress on that client's connection, and the client's next
+  transactions fail at `COMMIT` with "SQL statements in progress". In the default
+  rollback-journal mode that failed transaction also leaves a lock behind that stops
+  every other connection's `COMMIT` to the file, in any process, and closing the client
+  did not release it in testing. In WAL mode only that client is affected, and a
+  new client works. Nothing lands either way, and the manager removes what such a change
+  published. A host meets this only once its busy timeout runs out; it should use WAL
+  and reopen a client that has reported `SQLITE_BUSY`.
 - Over a store whose database is a host transaction, the manager removes the files a
   change retired once its commit returns, before the host commits. A host that then
   rolls back keeps records naming removed files.
