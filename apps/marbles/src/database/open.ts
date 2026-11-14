@@ -50,6 +50,8 @@ export class UnreadableDatabaseError extends Error {
 }
 
 const BUSY_TIMEOUT_MS = 5000;
+/** Every writer's connection enforces foreign keys. */
+const FOREIGN_KEYS = "PRAGMA foreign_keys = ON";
 /** How many times a read starts again because the file changed under it. */
 const READ_ATTEMPTS = 3;
 
@@ -88,18 +90,19 @@ export async function initializeDatabase(
   const path = resolve(file);
   const busyTimeout = options.busyTimeout ?? BUSY_TIMEOUT_MS;
   mkdirSync(dirname(path), { recursive: true });
-  const client = serialClient(
+  const connect = () =>
     createClient({
       concurrency: 1,
       timeout: busyTimeout,
       url: pathToFileURL(path).href,
-    }),
-    path,
-    busyTimeout
-  );
+    });
+  // Applied before its first operation, and again to any client that
+  // replaces it (`serialClient`).
+  const client = serialClient(connect(), path, busyTimeout, {
+    connect,
+    settings: ["PRAGMA journal_mode = WAL", FOREIGN_KEYS],
+  });
   try {
-    await client.execute("PRAGMA journal_mode = WAL");
-    await client.execute("PRAGMA foreign_keys = ON");
     const folder = options.migrations ?? MIGRATIONS;
     await migrate(client, drizzle({ client }), path, folder);
     return writer(client, path, folder);
@@ -126,9 +129,8 @@ export async function openDatabase(
   if (!existsSync(path)) {
     return;
   }
-  const client = existing(path, "mode=rw", options);
+  const client = existing(path, "mode=rw", options, [FOREIGN_KEYS]);
   try {
-    await client.execute("PRAGMA foreign_keys = ON");
     if (!(await usable(drizzle({ client }), path, options))) {
       client.close();
       return;
@@ -276,10 +278,11 @@ function writer(client: Client, path: string, folder: string): MarblesDatabase {
 function existing(
   path: string,
   query: string,
-  options: OpenDatabaseOptions
+  options: OpenDatabaseOptions,
+  settings: readonly string[] = []
 ): Client {
   const busyTimeout = options.busyTimeout ?? BUSY_TIMEOUT_MS;
-  return serialClient(
+  const connect = () =>
     _createClient({
       authority: undefined,
       authToken: undefined,
@@ -296,10 +299,8 @@ function existing(
       syncUrl: undefined,
       timeout: busyTimeout,
       tls: false,
-    }),
-    path,
-    busyTimeout
-  );
+    });
+  return serialClient(connect(), path, busyTimeout, { connect, settings });
 }
 
 /**

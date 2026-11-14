@@ -40,6 +40,22 @@ export function busyError(error: unknown): DatabaseBusyError | undefined {
   }
 }
 
+/** How a `serialClient` opens, and opens again, its libSQL client. */
+export interface SerialClientOptions {
+  /**
+   * Opens a fresh client on the same file with the same configuration.
+   * With it, a client SQLite has answered `SQLITE_BUSY` is replaced; see
+   * `serialClient`.
+   */
+  readonly connect?: () => Client;
+  /**
+   * The connection settings (`PRAGMA`s) every client runs before anything
+   * else: the first before its first operation, and each replacement
+   * before the handle runs anything on it.
+   */
+  readonly settings?: readonly string[];
+}
+
 /**
  * A libSQL client whose operations take turns. The native driver is
  * synchronous: a connection that waits for the write lock blocks the whole
@@ -63,11 +79,35 @@ export function busyError(error: unknown): DatabaseBusyError | undefined {
  * A turn that is not given within `wait` ms is refused, as SQLite refuses a
  * lock after its busy timeout. That is also how code that uses the database
  * from inside one of its own transactions, and so waits for itself, fails.
+ *
+ * A connection SQLite answers `SQLITE_BUSY` (another process held the lock
+ * past the busy timeout), whether an operation, a transaction's `BEGIN`,
+ * one of its statements, or its `COMMIT` or `ROLLBACK`, is not used again:
+ * `@libsql/client` 0.18 leaves the failed statement open on it, so its next
+ * transaction fails at `COMMIT` ("SQL statements in progress"), and so
+ * would every later write on a handle kept open for hours. Given
+ * `options.connect`, the client is replaced before the turn is given back,
+ * so nothing runs on the failed one: a fresh client is opened, `settings`
+ * are applied to it, and the failed one is closed and its statements
+ * collected (`collect`). A refused `COMMIT` is rolled back on the failed
+ * client first, which releases its locks. The error still reaches the
+ * caller, and nothing is run again for it.
+ *
+ * Closing the failed client cannot release a lock another handle in this
+ * process holds on the file. It is closed inside the turn, and every
+ * client this process has on the file takes its turns on this same queue,
+ * so no other one is inside an operation or a transaction then. And
+ * SQLite itself keeps a descriptor open while another connection in the
+ * process holds a lock on the same file (it closes it once those locks
+ * go), and shares one `-shm` mapping per file among connections, so the
+ * POSIX rule that closing any descriptor drops the process's locks does
+ * not reach through it.
  */
 export function serialClient(
   client: Client,
   file: string,
-  wait: number
+  wait: number,
+  options: SerialClientOptions = {}
 ): Client {
   let identity: string;
   try {
@@ -77,22 +117,59 @@ export function serialClient(
     throw error;
   }
   const queue = queueFor(identity, file);
+  const settings = options.settings ?? [];
+  let current = client;
+  /** Whether `current` still needs `settings`. */
+  let unset = settings.length > 0;
   let closed = false;
   const turn = () => queue.next(wait);
-  async function inTurn<T>(work: () => Promise<T>): Promise<T> {
+  /** Inside a turn: apply `settings` to a client that has not had them. */
+  async function prepared(): Promise<Client> {
+    if (unset) {
+      for (const setting of settings) {
+        await current.execute(setting);
+      }
+      unset = false;
+    }
+    return current;
+  }
+  /** Inside a turn: replace the client if SQLite answered `error` with busy. */
+  async function recover(error: unknown): Promise<void> {
+    if (options.connect === undefined || closed || !nativeBusy(error)) {
+      return;
+    }
+    const failed = current;
+    current = options.connect();
+    unset = settings.length > 0;
+    try {
+      failed.close();
+    } catch {
+      // It is given up either way; the caller hears the original error.
+    }
+    collect();
+    try {
+      await prepared();
+    } catch {
+      // Left unset: the next turn applies them before anything else.
+    }
+  }
+  async function inTurn<T>(work: (client: Client) => Promise<T>): Promise<T> {
     const release = await turn();
     try {
-      return await work();
+      return await work(await prepared());
+    } catch (error) {
+      await recover(error);
+      throw error;
     } finally {
       release();
     }
   }
   return {
     batch: (stmts: Array<InStatement | [string, InArgs?]>, mode) =>
-      inTurn(() => client.batch(stmts, mode)),
+      inTurn((live) => live.batch(stmts, mode)),
     close() {
       try {
-        client.close();
+        current.close();
       } finally {
         if (!closed) {
           closed = true;
@@ -101,31 +178,68 @@ export function serialClient(
       }
     },
     get closed() {
-      return client.closed;
+      return current.closed;
     },
     execute: ((stmtOrSql: InStatement | string, args?: InArgs) =>
-      inTurn(() =>
+      inTurn((live) =>
         typeof stmtOrSql === "string"
-          ? client.execute(stmtOrSql, args)
-          : client.execute(stmtOrSql)
+          ? live.execute(stmtOrSql, args)
+          : live.execute(stmtOrSql)
       )) as Client["execute"],
-    executeMultiple: (sql: string) => inTurn(() => client.executeMultiple(sql)),
-    migrate: (stmts: InStatement[]) => inTurn(() => client.migrate(stmts)),
+    executeMultiple: (sql: string) =>
+      inTurn((live) => live.executeMultiple(sql)),
+    migrate: (stmts: InStatement[]) => inTurn((live) => live.migrate(stmts)),
     get protocol() {
-      return client.protocol;
+      return current.protocol;
     },
-    reconnect: () => client.reconnect(),
-    sync: () => inTurn(() => client.sync()),
+    reconnect: () => current.reconnect(),
+    sync: () => inTurn((live) => live.sync()),
     async transaction(mode?: TransactionMode): Promise<Transaction> {
       const release = await turn();
       try {
-        return heldUntilSettled(await client.transaction(mode), release);
+        const live = await prepared();
+        return heldUntilSettled(await live.transaction(mode), release, recover);
       } catch (error) {
-        release();
+        try {
+          await recover(error);
+        } finally {
+          release();
+        }
         throw error;
       }
     },
   };
+}
+
+/**
+ * Collect what is unreachable now. The native driver keeps the statement
+ * SQLite refused open, and a connection whose statement is open does not
+ * close until that statement is collected: it keeps holding a read lock
+ * that would stop the replacement, in this same process, from committing.
+ * Nothing else releases it, so the failed client's statements are
+ * collected at once, under Bun (`Bun.gc`), or under Node started with
+ * `--expose-gc`.
+ */
+function collect(): void {
+  const runtime = globalThis as {
+    readonly Bun?: { gc(force: boolean): void };
+    readonly gc?: () => void;
+  };
+  if (runtime.Bun === undefined) {
+    runtime.gc?.();
+  } else {
+    runtime.Bun.gc(true);
+  }
+}
+
+/** Whether `error` is SQLite refusing a lock, as the native driver reports it. */
+function nativeBusy(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    error.code.startsWith("SQLITE_BUSY")
+  );
 }
 
 /**
@@ -145,34 +259,91 @@ export function queuedFiles(): readonly string[] {
   return [...queues.keys()];
 }
 
-/** The transaction, giving its turn back once it commits, rolls back, or closes. */
+/**
+ * The transaction, giving its turn back once it commits, rolls back, or
+ * closes. When SQLite answered one of its statements, or its end, with
+ * busy, `recover` replaces the client first, still inside the turn.
+ */
 function heldUntilSettled(
   transaction: Transaction,
-  release: () => void
+  release: () => void,
+  recover: (error: unknown) => Promise<void>
 ): Transaction {
-  const settle = async <T>(end: () => Promise<T>): Promise<T> => {
+  let failure: unknown;
+  /** Whether the turn was given back: a later end runs outside it. */
+  let settled = false;
+  const watched = async <T>(work: () => Promise<T>): Promise<T> => {
     try {
-      return await end();
+      return await work();
+    } catch (error) {
+      failure ??= nativeBusy(error) ? error : undefined;
+      throw error;
+    }
+  };
+  /**
+   * A `COMMIT` SQLite refused leaves the transaction open, and with it the
+   * locks it took, on a connection that would not let go of them when
+   * closed while the failed statement is still open. Rolling it back first
+   * releases them, and leaves the change certainly not landed.
+   */
+  const abandon = async (): Promise<void> => {
+    try {
+      await transaction.rollback();
+    } catch {
+      // Closing the client discards what is left.
+    }
+  };
+  const settle = async (
+    end: () => Promise<void>,
+    committing = false
+  ): Promise<void> => {
+    if (settled) {
+      // A rollback after a `COMMIT` that failed (as Drizzle sends one): with
+      // the client replaced, closing it already discarded the transaction.
+      if (failure === undefined) {
+        await end();
+      }
+      return;
+    }
+    try {
+      await watched(end);
     } finally {
-      release();
+      settled = true;
+      try {
+        if (committing && failure !== undefined) {
+          await abandon();
+        }
+        await recover(failure);
+      } finally {
+        release();
+      }
     }
   };
   return {
     batch: (stmts: InStatement[]): Promise<ResultSet[]> =>
-      transaction.batch(stmts),
+      watched(() => transaction.batch(stmts)),
     close() {
       try {
         transaction.close();
       } finally {
-        release();
+        // Closing gives the turn back at once, or once the client is replaced.
+        if (!settled) {
+          settled = true;
+          if (failure === undefined) {
+            release();
+          } else {
+            recover(failure).finally(release);
+          }
+        }
       }
     },
     get closed() {
       return transaction.closed;
     },
-    commit: () => settle(() => transaction.commit()),
-    execute: (stmt: InStatement) => transaction.execute(stmt),
-    executeMultiple: (sql: string) => transaction.executeMultiple(sql),
+    commit: () => settle(() => transaction.commit(), true),
+    execute: (stmt: InStatement) => watched(() => transaction.execute(stmt)),
+    executeMultiple: (sql: string) =>
+      watched(() => transaction.executeMultiple(sql)),
     rollback: () => settle(() => transaction.rollback()),
   };
 }
