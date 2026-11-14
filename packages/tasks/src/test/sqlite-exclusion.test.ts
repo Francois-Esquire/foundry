@@ -1,15 +1,10 @@
-import { spawn } from "node:child_process";
-import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { LibSQLDatabase } from "drizzle-orm/libsql";
-import { afterAll, describe, expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import type { Task, TaskId } from "../schema";
 import { SqliteTaskStore } from "../store/sqlite";
 import { Tasks } from "../tasks";
+import { startScript } from "./helpers/child-script";
 import { libsqlDatabases } from "./helpers/sqlite";
 import { execInAnotherProcess } from "./helpers/sqlite-process";
 
@@ -18,11 +13,6 @@ const LOCKED = /locked|busy/i;
 const clock = () => new Date("2026-11-01T00:00:00.000Z");
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
-
-const pause = (ms: number) =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 
 function task(id: string, title = id): Task {
   return {
@@ -152,74 +142,64 @@ describe("a transaction against another connection to its file", () => {
     expect(await elsewhere.get(a.id)).toEqual(task("a", "inside"));
   });
 
-  test("another process's write waits on its busy timeout, then lands after", async () => {
+  test("another process's write is held off, then lands after it commits", async () => {
     const database = await files.open();
     const store = new SqliteTaskStore({ database, scope: "s" });
     const a = task("a");
     await store.commit({ putTasks: [a] });
+    const writer = await startScript(WRITER, [
+      pathToFileURL(createRequire(import.meta.url).resolve("@libsql/client"))
+        .href,
+      `file:${files.path(database)}`,
+      "outside",
+    ]);
 
-    const outcome = await store.transaction(async (view) => {
-      const writer = await writeFromAnotherProcess(database, {
-        busyTimeout: 10_000,
-        title: "outside",
+    try {
+      const outcome = await store.transaction(async (view) => {
+        // The other process has tried the write lock, with no busy timeout,
+        // while this transaction held it, and been refused.
+        const probe = await writer.line();
+        const after = await view.get(a.id);
+        await view.commit({ putTasks: [task("a", "inside")] });
+        return { after, probe };
       });
-      // Time enough for the other process to have tried its write.
-      await pause(300);
-      const after = await view.get(a.id);
-      await view.commit({ putTasks: [task("a", "inside")] });
-      return { after, writer };
-    });
 
-    expect(outcome.after).toEqual(a);
-    await outcome.writer.done;
-    expect(await store.get(a.id)).toEqual(task("a", "outside"));
+      expect(outcome.probe).toMatch(LOCKED);
+      expect(outcome.after).toEqual(a);
+      // Its retry, with a busy timeout, lands after this commit.
+      expect(await writer.line()).toBe("written");
+      await writer.exited();
+      expect(await store.get(a.id)).toEqual(task("a", "outside"));
+    } finally {
+      await writer.stop();
+    }
   });
-});
-
-const scripts = mkdtemp(join(tmpdir(), "foundry-tasks-writer-"));
-afterAll(async () => {
-  await rm(await scripts, { force: true, recursive: true });
 });
 
 /**
- * Starts a process that opens a write transaction on `database`'s file, the
- * way a `SqliteTaskStore` there would, and renames task `a`. Resolves once
- * the process is about to begin; `done` settles when it has committed.
+ * Another process's writer on a task file: it tries the write lock once
+ * with no busy timeout and prints `free` or the error, then takes it with
+ * a busy timeout, renames task `a`, and prints `written`.
  */
-async function writeFromAnotherProcess(
-  database: LibSQLDatabase,
-  options: { readonly busyTimeout: number; readonly title: string }
-): Promise<{ readonly done: Promise<void> }> {
-  const [main] = await database.all<{ url: string }>(
-    "SELECT 'file:' || file AS url FROM pragma_database_list WHERE name = 'main'"
-  );
-  if (main === undefined) {
-    throw new Error("the database has no main file");
-  }
-  const { url } = main;
-  const client = pathToFileURL(
-    createRequire(import.meta.url).resolve("@libsql/client")
-  ).href;
-  const script = join(await scripts, `writer-${Date.now()}.mjs`);
-  await writeFile(
-    script,
-    `const { createClient } = await import(${JSON.stringify(client)});
-const db = createClient({ url: ${JSON.stringify(url)}, timeout: ${options.busyTimeout} });
-console.log("begin");
-const tx = await db.transaction("write");
-await tx.execute({ sql: "UPDATE tasks SET title = ? WHERE scope = 's' AND id = 'a'", args: [${JSON.stringify(options.title)}] });
-await tx.commit();
-db.close();
-`
-  );
-  const child = spawn(process.execPath, [script], {
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-  const exited = once(child, "exit").then(([code]) => {
-    if (code !== 0) {
-      throw new Error(`writer exited with ${String(code)}`);
-    }
-  });
-  await once(child.stdout, "data");
-  return { done: exited };
+const WRITER = `const [client, url, title] = process.argv.slice(2);
+const { createClient } = await import(client);
+const probe = createClient({ url });
+try {
+  const attempt = await probe.transaction("write");
+  await attempt.rollback();
+  console.log("free");
+} catch (error) {
+  console.log(String(error));
+} finally {
+  probe.close();
 }
+const db = createClient({ url, timeout: 10000 });
+const transaction = await db.transaction("write");
+await transaction.execute({
+  sql: "UPDATE tasks SET title = ? WHERE scope = 's' AND id = 'a'",
+  args: [title],
+});
+await transaction.commit();
+db.close();
+console.log("written");
+`;
