@@ -415,3 +415,115 @@ describe("WorkspaceCatalog", () => {
     ).toMatchObject({ kind: "conflict" });
   });
 });
+
+describe("WorkspaceCatalog over a store shared with another catalog", () => {
+  function sharedFixture() {
+    const store = new MemoryWorkspaceStore();
+    const publish = (): undefined => undefined;
+    return {
+      first: new WorkspaceCatalog(store, publish),
+      second: new WorkspaceCatalog(store, publish),
+      store,
+    };
+  }
+
+  test("removes a Workspace whole while another catalog writes to it", async () => {
+    const { first, second, store } = sharedFixture();
+    const workspace = hostWorkspace({ path: newRoot("shared") });
+    await first.create({
+      entries: [fileRecord(workspace.id, { path: "a.md" })],
+      workspace,
+    });
+    const paused = pauseAfterFirst(store, "listEntries");
+
+    const removal = first.remove(workspace.id);
+    await paused.reached;
+    const insert = second.applyChange({
+      change: change({
+        inserted: [fileRecord(workspace.id, { path: "b.md" })],
+      }),
+      workspaceId: workspace.id,
+    });
+    paused.release();
+
+    expect(await removal).toEqual({ kind: "removed" });
+    expect(await insert).toEqual({ kind: "workspace-not-found" });
+    expect(await store.getWorkspace(workspace.id)).toBeNull();
+    expect(await store.listEntries(workspace.id)).toEqual([]);
+  });
+
+  test("registers one Workspace per root across catalogs", async () => {
+    const { first, second, store } = sharedFixture();
+    const root = newRoot("shared");
+    const winner = hostWorkspace({ path: root });
+    const loser = hostWorkspace({ path: root });
+    const paused = pauseAfterFirst(store, "findWorkspaceByPath");
+
+    const created = first.create({ entries: [], workspace: winner });
+    await paused.reached;
+    const duplicate = second.create({ entries: [], workspace: loser });
+    paused.release();
+
+    expect(await created).toEqual({ kind: "committed" });
+    expect(await duplicate).toEqual({
+      existingId: winner.id,
+      kind: "workspace-exists",
+    });
+    expect((await store.listWorkspaces()).items).toEqual([winner]);
+  });
+
+  test("checks a change against rows another catalog just wrote", async () => {
+    const { first, second, store } = sharedFixture();
+    const workspace = hostWorkspace({ path: newRoot("shared") });
+    await first.create({ entries: [], workspace });
+    const ours = fileRecord(workspace.id, { path: "c.md" });
+    const theirs = fileRecord(workspace.id, { path: "c.md" });
+    const paused = pauseAfterFirst(store, "listEntries");
+
+    const mine = first.applyChange({
+      change: change({ inserted: [ours] }),
+      workspaceId: workspace.id,
+    });
+    await paused.reached;
+    const other = second.applyChange({
+      change: change({ inserted: [theirs] }),
+      workspaceId: workspace.id,
+    });
+    paused.release();
+
+    expect(await mine).toEqual({ kind: "committed" });
+    expect(await other).toMatchObject({ kind: "conflict" });
+    expect(await store.listEntries(workspace.id)).toEqual([ours]);
+  });
+});
+
+/**
+ * Holds the first call to one store read after it answers, until released,
+ * so a test can act while a mutation is between its read and its commit.
+ */
+function pauseAfterFirst(
+  store: MemoryWorkspaceStore,
+  method: "findWorkspaceByPath" | "listEntries"
+) {
+  const reached = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  const read = store[method].bind(store) as (
+    ...args: unknown[]
+  ) => Promise<unknown>;
+  let armed = true;
+  (store as unknown as Record<string, unknown>)[method] = async (
+    ...args: unknown[]
+  ) => {
+    const answer = await read(...args);
+    if (armed) {
+      armed = false;
+      reached.resolve(undefined);
+      await release.promise;
+    }
+    return answer;
+  };
+  return {
+    reached: reached.promise,
+    release: () => release.resolve(undefined),
+  };
+}

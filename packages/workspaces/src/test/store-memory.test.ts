@@ -11,6 +11,19 @@ import { WorkspaceSystem } from "../workspace-system";
 
 describeWorkspaceStore("memory", () => new MemoryWorkspaceStore());
 
+describe("MemoryWorkspaceStore transactions", () => {
+  it("refuses a commit through a view after its transaction ends", async () => {
+    const store = new MemoryWorkspaceStore();
+    const workspace = hostWorkspace({ path: newRoot("ended") });
+    const view = await store.transaction((inside) => Promise.resolve(inside));
+
+    await expect(view.commit({ workspace })).rejects.toThrow(
+      "This transaction has ended"
+    );
+    expect(await store.getWorkspace(workspace.id)).toBeNull();
+  });
+});
+
 describe("WorkspaceSystem construction", () => {
   it("opens only the requested page and retains the catalog total", async () => {
     const store = new MemoryWorkspaceStore();

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { MemoryWorkspaceStore } from "../store/memory";
 import type { ObservedFacts, WorkspaceChange } from "../types";
-
 import { WorkspaceSystem } from "../workspace-system";
+import { interceptCommits } from "./helpers/commits";
 
 function fixture() {
   const store = new MemoryWorkspaceStore();
@@ -46,7 +46,7 @@ describe("workspace change delivery", () => {
     const { system, store, load } = fixture();
     const listener = vi.fn();
     system.on("change", listener);
-    vi.spyOn(store, "commit").mockRejectedValue(new Error("refused"));
+    interceptCommits(store).intercept.mockRejectedValue(new Error("refused"));
     await expect(load()).rejects.toThrow("refused");
     expect(listener).not.toHaveBeenCalled();
   });

@@ -27,6 +27,7 @@ export function describeWorkspaceStore(
     describeWrites(open);
     describeAtomicity(open);
     describeDetachment(open);
+    describeTransactions(open);
   });
 }
 
@@ -395,6 +396,91 @@ function describeDetachment(open: Open): void {
       });
       expect(await store.getEntry(workspace.id, file.id)).toEqual(file);
       expect(await store.listEntries(workspace.id)).toEqual([file]);
+    });
+  });
+}
+
+/** A store that offers no `transaction` skips these: it promises no exclusion. */
+function describeTransactions(open: Open): void {
+  describe("transactions", () => {
+    test("no outside write lands between a transaction's read and its commit", async ({
+      skip,
+    }) => {
+      const store = await open();
+      if (store.transaction === undefined) {
+        return skip();
+      }
+      const workspace = hostWorkspace({ path: newRoot("alpha") });
+      await seed(store, workspace);
+      const read = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
+
+      const inside = store.transaction(async (view) => {
+        const before = await view.getWorkspace(workspace.id);
+        read.resolve(undefined);
+        await release.promise;
+        const after = await view.getWorkspace(workspace.id);
+        await view.commit({ workspace: { ...workspace, name: "inside" } });
+        return { after, before };
+      });
+      await read.promise;
+      const outside = store.commit({
+        workspace: { ...workspace, name: "outside" },
+      });
+      release.resolve(undefined);
+
+      expect(await inside).toEqual({ after: workspace, before: workspace });
+      await outside;
+      expect((await store.getWorkspace(workspace.id))?.name).toBe("outside");
+    });
+
+    test("transactions over one store do not lose each other's writes", async ({
+      skip,
+    }) => {
+      const store = await open();
+      const { transaction } = store;
+      if (transaction === undefined) {
+        return skip();
+      }
+      const workspace = hostWorkspace({ name: "0", path: newRoot("alpha") });
+      await seed(store, workspace);
+      const increment = () =>
+        transaction.call(store, async (view) => {
+          const current = await view.getWorkspace(workspace.id);
+          // Yield so the other increment gets every chance to interleave.
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          await view.commit({
+            workspace: {
+              ...workspace,
+              name: String(Number(current?.name) + 1),
+            },
+          });
+        });
+
+      await Promise.all([increment(), increment(), increment()]);
+
+      expect((await store.getWorkspace(workspace.id))?.name).toBe("3");
+    });
+
+    test("answer with the work's result, and recover from its failure", async ({
+      skip,
+    }) => {
+      const store = await open();
+      if (store.transaction === undefined) {
+        return skip();
+      }
+      const workspace = hostWorkspace({ path: newRoot("alpha") });
+
+      await expect(
+        store.transaction(() => Promise.reject(new Error("refused")))
+      ).rejects.toThrow("refused");
+      expect(
+        await store.transaction(async (view) => {
+          await view.commit({ putEntries: [], workspace });
+          return "done";
+        })
+      ).toBe("done");
+      expect(await store.getWorkspace(workspace.id)).toEqual(workspace);
     });
   });
 }

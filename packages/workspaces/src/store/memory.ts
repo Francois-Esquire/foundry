@@ -9,17 +9,49 @@ import type {
 } from "../types";
 import type { WorkspaceStore, WorkspaceStoreWrite } from "./index";
 
-/** The default store: plain maps in this process. */
+/**
+ * The default store: plain maps in this process. Writes and transactions run
+ * one at a time, so a write from outside a transaction waits for it to end.
+ */
 export class MemoryWorkspaceStore implements WorkspaceStore {
   private readonly workspaces = new Map<WorkspaceId, WorkspaceRegistration>();
   private readonly entries = new Map<
     WorkspaceId,
     Map<WorkspaceEntryId, WorkspaceEntry>
   >();
+  private tail: Promise<void> = Promise.resolve();
+
+  commit(write: WorkspaceStoreWrite): Promise<void> {
+    return this.queued(() => this.apply(write));
+  }
+
+  transaction<T>(work: (view: WorkspaceStore) => Promise<T>): Promise<T> {
+    return this.queued(async () => {
+      let open = true;
+      const view: WorkspaceStore = {
+        commit: (write) =>
+          open
+            ? this.apply(write)
+            : Promise.reject(new Error("This transaction has ended")),
+        findWorkspaceByPath: (path) => this.findWorkspaceByPath(path),
+        findWorkspaceBySourceId: (sourceId) =>
+          this.findWorkspaceBySourceId(sourceId),
+        getEntry: (workspaceId, entryId) => this.getEntry(workspaceId, entryId),
+        getWorkspace: (workspaceId) => this.getWorkspace(workspaceId),
+        listEntries: (workspaceId) => this.listEntries(workspaceId),
+        listWorkspaces: (input) => this.listWorkspaces(input),
+      };
+      try {
+        return await work(view);
+      } finally {
+        open = false;
+      }
+    });
+  }
 
   // Async, and clones first, so a write holding a value that cannot be cloned
   // rejects whole instead of throwing partway.
-  async commit(write: WorkspaceStoreWrite): Promise<void> {
+  private async apply(write: WorkspaceStoreWrite): Promise<void> {
     const workspace =
       write.workspace === undefined ? null : structuredClone(write.workspace);
     const workspaceId =
@@ -97,6 +129,15 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
         .sort(byCodeUnit((entry) => entry.path))
         .map((entry) => structuredClone(entry))
     );
+  }
+
+  private queued<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.tail.then(work);
+    this.tail = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
   }
 
   private oldest(

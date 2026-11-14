@@ -9,11 +9,12 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, test, vi } from "vitest";
+import { afterAll, describe, expect, test } from "vitest";
 import { directory } from "../node";
 import { MemoryWorkspaceStore } from "../store/memory";
 import type { WorkspaceChange } from "../types";
 import { WorkspaceSystem } from "../workspace-system";
+import { interceptCommits } from "./helpers/commits";
 import { sha256Hex } from "./helpers/digest";
 
 function harness() {
@@ -153,14 +154,12 @@ describe("WorkspaceSystem public operations", () => {
     });
     const started = Promise.withResolvers<undefined>();
     const release = Promise.withResolvers<undefined>();
-    const commit = store.commit.bind(store);
-    const observation = vi
-      .spyOn(store, "commit")
-      .mockImplementation(async (input) => {
-        started.resolve(undefined);
-        await release.promise;
-        return commit(input);
-      });
+    const observation = interceptCommits(store);
+    observation.intercept.mockImplementation(async (input, next) => {
+      started.resolve(undefined);
+      await release.promise;
+      return next(input);
+    });
     try {
       const save = workspace.save({
         expectedDigest: file.digest,
@@ -175,7 +174,7 @@ describe("WorkspaceSystem public operations", () => {
       expect(events[1]?.entry).toEqual(events[0]?.entry);
     } finally {
       release.resolve(undefined);
-      observation.mockRestore();
+      observation.restore();
       stop();
     }
   });
@@ -205,9 +204,8 @@ describe("WorkspaceSystem public operations", () => {
     const stop = system.on("change", (change) => {
       events.push(change);
     });
-    const observation = vi
-      .spyOn(store, "commit")
-      .mockRejectedValueOnce(new Error("unavailable"));
+    const observation = interceptCommits(store);
+    observation.intercept.mockRejectedValueOnce(new Error("unavailable"));
     try {
       expect(
         await workspace.save({
@@ -222,7 +220,7 @@ describe("WorkspaceSystem public operations", () => {
         { action: "change", entry: (await workspace.files())[0] },
       ]);
     } finally {
-      observation.mockRestore();
+      observation.restore();
       stop();
     }
   });

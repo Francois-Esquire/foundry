@@ -19,6 +19,7 @@ import type { GitPathStatus } from "../node/git";
 import { Git, git as gitLayer, WithGit, Worktree } from "../node/git";
 import { MemoryWorkspaceStore } from "../store/memory";
 import { hostWorkspace, seed } from "../testing/records";
+import { interceptCommits } from "./helpers/commits";
 import { directorySystem } from "./helpers/directory-system";
 
 const inspectGit = (root: string) => Git.at(root).status();
@@ -514,21 +515,16 @@ describe("WithGit", () => {
     const store = new MemoryWorkspaceStore();
     const system = directorySystem({ store }).extend(gitLayer());
     const added = await system.load({ path: root });
-    const writes: string[] = [];
-    const commit = store.commit.bind(store);
-    store.commit = (change) => {
-      writes.push("commit");
-      return commit(change);
-    };
+    const { intercept } = interceptCommits(store);
 
     await added.git?.status();
-    expect(writes).toEqual([]);
+    expect(intercept).not.toHaveBeenCalled();
 
     // The probe's positive control. Without it an empty list would prove only
     // that the instrumentation never fired.
     await writeFile(join(root, "arrived.md"), "new file");
     await added.refresh();
-    expect(writes).toEqual(["commit"]);
+    expect(intercept).toHaveBeenCalledOnce();
   });
 });
 
