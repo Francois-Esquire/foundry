@@ -182,9 +182,11 @@ closed by `dispose()`:
 - Otherwise it is a database of the engine's own, `<state>/marbles.db`.
 
 The database is made and migrated only by a process holding
-`locks/process` beside it, taken for that moment alone; when another
-process holds it, the engine waits up to five seconds for the database to
-be current, and its first task call fails otherwise. Without `state` the
+`locks/process` beside it: the engine takes it for that moment alone, or
+uses it when this process already holds it (a host that claimed its own
+`state` with `claimProcess`). When another process holds it, the engine
+waits up to five seconds for the database to be current, and its first
+task call fails otherwise. Without `state` the
 tasks are in memory. A `tasks.json` an earlier Marbles left in `state` is
 ignored.
 

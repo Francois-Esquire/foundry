@@ -169,7 +169,9 @@ Known limits: nothing prunes `marbles_task_changes` or
 workspace's rows stay in the database after its directory or checkout is
 deleted, and after it is detached. A host that keeps the database open
 while another Marbles migrates it further refuses every write from then on
-with an error saying so; restart it with the newer Marbles.
+with an error saying so; restart it with the newer Marbles. Until then, if
+it is the one delivering, it keeps the delivery claim: each new change
+runs its observers again, and their completion cannot be recorded.
 
 Text the database cannot give back intact is refused before anything is
 written: a title, description, id, or time holding U+0000, or a lone
