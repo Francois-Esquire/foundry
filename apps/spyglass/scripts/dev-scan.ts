@@ -12,7 +12,8 @@ const root = resolve(import.meta.dirname, "..");
 const assets = resolve(root, ".cache", "scan-dev");
 await analysisAsset(resolve(assets, "analysis"));
 const server = await createServer({
-  configFile: resolve(root, "vite.scan.config.ts"),
+  configFile: resolve(root, "vite.config.ts"),
+  mode: "scan",
   publicDir: assets,
   server: { host: "127.0.0.1", port: DEFAULT_PORT + 1 },
 });

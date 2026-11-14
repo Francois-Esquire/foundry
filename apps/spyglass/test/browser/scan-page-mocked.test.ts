@@ -11,7 +11,6 @@ import {
   resultPanel,
   SCAN_PATH,
   type ScanPage,
-  SERVES_WEBSITE,
   scan,
   serveScanSite,
   statuses,
@@ -425,31 +424,40 @@ describe("scan page (mocked GitHub, real Chromium, no Worker)", () => {
       .toContain("octo/other");
   });
 
-  it.runIf(SERVES_WEBSITE)(
-    "foundry.sh keeps the scan unlisted, but its direct route remains available",
-    async () => {
-      const { page, requests } = await open();
-      await page.goto(`${site.origin}/`);
-      expect(await page.locator(`a[href="${SCAN_PATH}"]`).count()).toBe(0);
-      const sitemap = await page.request.get(`${site.origin}/sitemap.xml`);
-      expect(await sitemap.text()).not.toContain(SCAN_PATH);
-      expect(requests.some((url) => url.includes("/analysis/"))).toBe(false);
-      expect(githubRequests(requests)).toEqual([]);
-      await page.goto(`${site.origin}${SCAN_PATH}`);
-      expect(
-        await page.locator('meta[name="robots"]').getAttribute("content")
-      ).toBe("noindex");
-      expect(await page.title()).toBe("Spyglass: scan a repository");
-      await page.getByLabel("Public GitHub repository").waitFor();
-      // The page's own files only, all under the route; no engine yet.
-      const own = requests.filter(
-        (url) =>
-          new URL(url).origin === site.origin &&
-          new URL(url).pathname.startsWith(SCAN_PATH)
-      );
-      expect(own.length).toBeGreaterThan(0);
-      expect(requests.some((url) => url.includes("/analysis/"))).toBe(false);
-      expect(githubRequests(requests)).toEqual([]);
+  it("rejects encoded backslashes and malformed URL paths", async () => {
+    const { page } = await open();
+    for (const path of ["/%5c..%5c..%5cpackage.json", "/%zz"]) {
+      const response = await page.request.get(`${site.origin}${path}`);
+      expect(response.status()).toBe(400);
     }
-  );
+    const traversal = await page.request.get(
+      `${site.origin}/%2f..%2f..%2fpackage.json`
+    );
+    expect(traversal.status()).toBe(404);
+  });
+
+  it("is served at its route with noindex, linked from neither the home page nor the sitemap", async () => {
+    const { page, requests } = await open();
+    await page.goto(`${site.origin}/`);
+    expect(await page.locator(`a[href="${SCAN_PATH}"]`).count()).toBe(0);
+    const sitemap = await page.request.get(`${site.origin}/sitemap.xml`);
+    expect(await sitemap.text()).not.toContain(SCAN_PATH);
+    expect(requests.some((url) => url.includes("/analysis/"))).toBe(false);
+    expect(githubRequests(requests)).toEqual([]);
+    await page.goto(`${site.origin}${SCAN_PATH}`);
+    expect(
+      await page.locator('meta[name="robots"]').getAttribute("content")
+    ).toBe("noindex");
+    expect(await page.title()).toBe("Spyglass: scan a repository");
+    await page.getByLabel("Public GitHub repository").waitFor();
+    // The page's own files only, all under the route; no engine yet.
+    const own = requests.filter(
+      (url) =>
+        new URL(url).origin === site.origin &&
+        new URL(url).pathname.startsWith(SCAN_PATH)
+    );
+    expect(own.length).toBeGreaterThan(0);
+    expect(requests.some((url) => url.includes("/analysis/"))).toBe(false);
+    expect(githubRequests(requests)).toEqual([]);
+  });
 });

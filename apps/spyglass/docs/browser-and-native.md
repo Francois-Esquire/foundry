@@ -1,9 +1,8 @@
 # Browser and native scans
 
-Internal development reference. Browser repository scanning is available for testing
-but is not advertised in the website or published documentation. This file is
-outside the documentation build and the published package. The direct route is
-unlisted, not access-controlled.
+This file is outside the documentation build and the published package. The
+website and documentation do not link to the browser scan page, and the page
+asks search engines not to index it; its route is not access-controlled.
 
 Spyglass uses shared analysis and dataset assembly with different input and
 output adapters. The native adapter reads a local checkout and publishes a
@@ -13,8 +12,7 @@ viewer.
 
 The browser scan page is built for `/spyglass/scan/` on foundry.sh. This
 describes the implementation and its tested build, not whether a particular
-version has been deployed. The documentation site also includes the same page
-under its own base path.
+version has been deployed.
 
 ## The problem the shared pipeline solves
 
@@ -213,14 +211,14 @@ bun run build --filter=@foundry/website
 ```
 
 Then run `bun run preview` in `apps/website` and open
-`/spyglass/scan/` on the printed address. For scan-page development with hot
-reload:
+`/spyglass/scan/` on the printed address; `bun run dev` there serves the same
+route from Spyglass's `dist/scan`. For scan-page development with hot reload:
 
 ```sh
 bun run --cwd=apps/spyglass dev:scan
 ```
 
-The separate browser suite builds and tests the marketing site's actual output:
+The separate browser suite builds and tests the website's actual output:
 
 ```sh
 bun run turbo run test:browser --filter=@foundry.sh/spyglass
@@ -228,18 +226,14 @@ bun run turbo run test:browser --filter=@foundry.sh/spyglass
 
 It requires a matching Chromium installation. Its live tests need GitHub access
 and consume API budget, so this suite is separate from the default Vitest run.
-`SPYGLASS_SITE=docs` selects the built docs site and
-`SPYGLASS_SITE=package` selects the standalone scan artifact; unknown targets
-fail. Build the docs with `bun run docs:build` before choosing the docs target.
 See [Contributing](../../documentation/spyglass/contributing.md) for browser setup and the native test
 commands.
 
-## Internal build and acceptance setup
+## Build and acceptance setup
 
-`build` also writes the browser scan page to `dist/scan`, which the
-foundry.sh website's build (`apps/website`) copies into its output at
-`/spyglass/scan/`, and the documentation build copies to the same path
-under its own base: the page itself, and beside
+`build` also writes the browser scan page to `dist/scan` (`vite.config.ts`
+in `scan` mode), which the foundry.sh website's build (`apps/website`)
+copies into its output at `/spyglass/scan/`: the page itself, and beside
 it `analysis/spyglass-analysis.js`, one self-contained module holding the
 GitHub loader, TypeScript, ts-morph and dependency-cruiser, which the page
 loads by URL on its first scan. Neither is in the published package. `bun run
@@ -252,9 +246,7 @@ Chromium through `playwright-core`, with Workers disabled, against the
 website's built output at `/spyglass/scan/`: one file against a mocked
 GitHub, and one that scans pinned public repositories on GitHub. The second
 needs the network and spends about 3 of GitHub's 60 unauthenticated API
-requests an hour per scan, so neither runs in `test`. Set
-`SPYGLASS_SITE=docs` to serve the built documentation site (after
-`bun run docs:build`) or `SPYGLASS_SITE=package` to serve `dist/scan`
-alone. If Chromium is missing, install
+requests an hour per scan, so neither runs in `test`. If Chromium is
+missing, install
 the matching browser with `bunx --no-install playwright-core install chromium` from
 `apps/spyglass`.

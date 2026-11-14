@@ -1,21 +1,10 @@
 import { existsSync } from "node:fs";
-import { extname, join, normalize } from "node:path";
+import { join, posix } from "node:path";
 import { file as bunFile, serve } from "bun";
 
-// A static file host for a built site, mounted under a base path: `/` as
-// foundry.sh is served, or `/foundry/` as GitHub Pages mounts the
-// documentation site. Nothing is generated or proxied: a path is a file
-// under `directory` or a 404.
-
-const TYPES: Record<string, string> = {
-  ".css": "text/css",
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript",
-  ".json": "application/json",
-  ".svg": "image/svg+xml",
-  ".ttf": "font/ttf",
-  ".woff2": "font/woff2",
-};
+// A static file host for a built site. Nothing is generated or proxied: a
+// path is a file under `directory` (typed by Bun from its extension) or a
+// 404.
 
 export interface StaticSite {
   /** The site's origin, such as `http://127.0.0.1:51234`. */
@@ -23,26 +12,26 @@ export interface StaticSite {
   stop(): void;
 }
 
-/** Serves `directory` at `base` (which starts and ends with `/`). */
-export function serveStatic(directory: string, base: string): StaticSite {
+export function serveStatic(directory: string): StaticSite {
   if (!existsSync(directory)) {
     throw new Error(`${directory} does not exist; build it first.`);
   }
   const server = serve({
     async fetch(request) {
-      const { pathname } = new URL(request.url);
-      if (!pathname.startsWith(base)) {
-        return new Response("Not found", { status: 404 });
+      let decoded: string;
+      try {
+        decoded = decodeURIComponent(new URL(request.url).pathname);
+      } catch {
+        return new Response("Invalid path", { status: 400 });
       }
-      const relative = normalize(
-        decodeURIComponent(pathname.slice(base.length))
-      );
-      if (relative.startsWith("..")) {
-        return new Response("Not found", { status: 404 });
+      if (decoded.includes("\\")) {
+        return new Response("Invalid path", { status: 400 });
       }
+      // URL paths use forward slashes, including on Windows.
+      const relative = posix.normalize(decoded).slice(1);
       const path = join(
         directory,
-        relative.endsWith("/") || relative === "."
+        relative === "" || relative.endsWith("/")
           ? join(relative, "index.html")
           : relative
       );
@@ -50,11 +39,7 @@ export function serveStatic(directory: string, base: string): StaticSite {
       if (!(await file.exists())) {
         return new Response("Not found", { status: 404 });
       }
-      const type = TYPES[extname(path)];
-      return new Response(
-        file,
-        type === undefined ? {} : { headers: { "content-type": type } }
-      );
+      return new Response(file);
     },
     hostname: "127.0.0.1",
     port: 0,

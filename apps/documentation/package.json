@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "clean": "rm -rf .blume .cache .turbo dist public/spyglass/examples/foundry public/spyglass/scan",
+    "clean": "rm -rf .blume .cache .turbo dist public/spyglass/examples/foundry",
     "dev": "bun run docs:dev",
-    "docs:build": "bun scripts/build-example.ts && bun scripts/copy-scan.ts && blume build",
+    "docs:build": "bun scripts/build-example.ts && blume build",
     "docs:check": "blume validate --strict",
-    "docs:dev": "bun scripts/build-example.ts && bun scripts/copy-scan.ts && blume dev",
+    "docs:dev": "bun scripts/build-example.ts && blume dev",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

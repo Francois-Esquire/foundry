@@ -13,52 +13,8 @@ import { serveStatic } from "./static-site";
 // every request is recorded, and the page's status lines, long tasks and
 // errors are collected for assertions and the measurements a run logs.
 
-/**
- * Where the built page is served from, by `SPYGLASS_SITE`: `foundry.sh`
- * (the default) is the website's whole production output, which serves the
- * page at /spyglass/scan/; `docs` is the built documentation site, which
- * GitHub Pages mounts at /foundry/; `package` is this package's own
- * dist/scan, the files both sites copy, at the website's route. Each site
- * is built before the suite: `turbo run test:browser` builds this package
- * and the website; `docs` needs `bun run docs:build` first.
- */
-const TARGETS = {
-  docs: {
-    base: "/foundry/",
-    directory: "apps/documentation/dist",
-    page: "spyglass/scan/",
-  },
-  "foundry.sh": {
-    base: "/",
-    directory: "apps/website/dist",
-    page: "spyglass/scan/",
-  },
-  package: {
-    base: "/spyglass/scan/",
-    directory: "apps/spyglass/dist/scan",
-    page: "",
-  },
-} as const;
-
-type Target = keyof typeof TARGETS;
-
-function target(): (typeof TARGETS)[Target] {
-  const name = process.env.SPYGLASS_SITE || "foundry.sh";
-  if (!Object.hasOwn(TARGETS, name)) {
-    throw new Error(
-      `SPYGLASS_SITE=${name} is not a site; use one of ${Object.keys(TARGETS).join(", ")}.`
-    );
-  }
-  return TARGETS[name as Target];
-}
-
-const SITE = target();
-
-/** The page's path on the site being served. */
-export const SCAN_PATH = `${SITE.base}${SITE.page}`;
-
-/** Whether the served site is foundry.sh's whole production output. */
-export const SERVES_WEBSITE = SITE === TARGETS["foundry.sh"];
+/** The page's path on foundry.sh. */
+export const SCAN_PATH = "/spyglass/scan/";
 
 const INIT = `
 (() => {
@@ -289,10 +245,7 @@ export function expectOnlyOfficialOrigins(
   }
 }
 
-/** The built scan page, on the site `SPYGLASS_SITE` names (see `TARGETS`). */
+/** foundry.sh's whole built site (apps/website/dist). */
 export function serveScanSite() {
-  return serveStatic(
-    resolve(import.meta.dirname, "../../../../..", SITE.directory),
-    SITE.base
-  );
+  return serveStatic(resolve(import.meta.dirname, "../../../../website/dist"));
 }

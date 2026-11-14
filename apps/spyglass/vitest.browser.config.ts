@@ -6,8 +6,7 @@ import { defineConfig } from "vitest/config";
 // repositories from GitHub, unauthenticated, so it needs the network and
 // spends about 3 API requests a scan of GitHub's 60 an hour. Neither runs
 // in the default `test` task. The page is served from foundry.sh's whole
-// built site at /spyglass/scan/ unless `SPYGLASS_SITE` names another
-// (`docs` or `package`; see test/browser/helpers/scan-page.ts).
+// built site at /spyglass/scan/.
 export default defineConfig({
   test: {
     execArgv: ["--no-install"],

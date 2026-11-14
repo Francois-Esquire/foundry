@@ -23,8 +23,7 @@
     },
     "test:browser": {
       "cache": false,
-      "dependsOn": ["build", "@foundry/website#build"],
-      "env": ["SPYGLASS_SITE"]
+      "dependsOn": ["build", "@foundry/website#build"]
     }
   }
 }

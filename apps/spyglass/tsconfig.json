@@ -10,7 +10,6 @@
     "scripts",
     "test",
     "vite.config.ts",
-    "vite.scan.config.ts",
     "vitest.config.ts",
     "vitest.browser.config.ts"
   ],

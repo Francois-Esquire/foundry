@@ -165,6 +165,6 @@ if (import.meta.main) {
   await declare();
   await build({ configFile: resolve(root, "vite.config.ts") });
   // The scan page, then its asset beside it (the page's build empties dist/scan).
-  await build({ configFile: resolve(root, "vite.scan.config.ts") });
+  await build({ configFile: resolve(root, "vite.config.ts"), mode: "scan" });
   await analysisAsset(resolve(SCAN, "analysis"));
 }

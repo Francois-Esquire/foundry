@@ -10,7 +10,6 @@
         "vitest.package.config.ts",
         "src/lib/browser-analysis.ts",
         "src/web/scan/main.tsx",
-        "vite.scan.config.ts",
         "vitest.browser.config.ts",
         "test/browser/**/*.test.ts"
       ],
