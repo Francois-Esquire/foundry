@@ -23,7 +23,6 @@ import { errorToShape } from "./helpers";
 import { workflowEffectAccess } from "./internal/workflow-effect-access";
 import type { OrchestratorLogger, RunLifecycleEvent } from "./logger";
 import { BaseOrchestratorLogger } from "./logger";
-import type { PersistedWorkflow } from "./metadata-codec";
 import {
   decodeMetadataValue,
   encodePersistedMetadata,
@@ -41,6 +40,7 @@ import type {
   QueueSize,
   RecoverableRun,
 } from "./queue-types";
+import type { PersistedWorkflow } from "./schema";
 import type { OrchestratorStore, RunLinks, UpdateRunInput } from "./store";
 import { InMemoryOrchestratorStore } from "./store";
 import type { TelemetryState } from "./telemetry";

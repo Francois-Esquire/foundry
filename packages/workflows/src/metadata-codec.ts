@@ -1,81 +1,11 @@
-import { z } from "zod";
-
 import type { ChannelEvent } from "./channels";
 import { resolveInput } from "./helpers";
-import {
-  anyNumber,
-  readonlyArray,
-  recordOf,
-  stringList,
-  unknownRecord,
-} from "./record-fields";
-import {
-  ChannelEventSchema,
-  ErrorShapeSchema,
-  RunStatusSchema,
-  StepSnapshotSchema,
-  SuspensionStateSchema,
-  WorkflowSnapshotSchema,
-} from "./schema";
+import type { PersistedMetadata } from "./schema";
+import { PersistedMetadataSchema } from "./schema";
 import type { StepSnapshot, WorkflowSnapshot } from "./snapshot";
 import type { RecoverableRun, RunRecord } from "./store";
 import type { RunStatus } from "./types";
 import type { WorkflowPersistence, WorkflowState } from "./workflow";
-
-const TelemetrySchema = z.object({
-  logs: readonlyArray(
-    z.object({
-      at: z.string(),
-      level: z.enum(["debug", "info", "warn", "error"]),
-      message: z.string(),
-      metadata: unknownRecord.optional(),
-      path: stringList.optional(),
-      stepId: z.string().optional(),
-    })
-  ),
-  metrics: z.object({
-    updatedAt: z.string(),
-    values: recordOf(anyNumber),
-  }),
-});
-
-/**
- * The `metadata.workflow` blob: a {@link WorkflowState} fortified with the
- * `runId`/`step` ornaments the writer stamps. Most fields are optional because
- * the insert-time row carries only `{ input, steps, tree }` before the first
- * reactive write fills in the rest.
- */
-const PersistedWorkflowSchema = z.object({
-  attempt: anyNumber.optional(),
-  completedAt: z.string().optional(),
-  createdAt: z.string().optional(),
-  error: ErrorShapeSchema.optional(),
-  input: z.unknown().optional(),
-  metadata: unknownRecord.optional(),
-  output: z.unknown().optional(),
-  runId: z.string().optional(),
-  startedAt: z.string().optional(),
-  status: RunStatusSchema.optional(),
-  step: z.string().optional(),
-  steps: recordOf(StepSnapshotSchema).optional(),
-  suspendedAt: z.string().optional(),
-  suspension: SuspensionStateSchema.optional(),
-  tags: recordOf(z.string()).optional(),
-  telemetry: TelemetrySchema.optional(),
-  tree: WorkflowSnapshotSchema.nullable().optional(),
-});
-export type PersistedWorkflow = z.infer<typeof PersistedWorkflowSchema>;
-
-/**
- * Shared schema for the persisted run metadata blob. The writer validates it
- * with encodePersistedMetadata, and readers decode it through
- * decodeMetadataValue or workflowTraceFactsFromMetadata.
- */
-const PersistedMetadataSchema = z.object({
-  stream: readonlyArray(ChannelEventSchema).optional(),
-  workflow: PersistedWorkflowSchema.nullable().optional(),
-});
-type PersistedMetadata = z.infer<typeof PersistedMetadataSchema>;
 
 function decodePersistedMetadata(value: unknown): PersistedMetadata | null {
   const result = PersistedMetadataSchema.safeParse(value);

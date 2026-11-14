@@ -50,6 +50,7 @@ import type {
   QueueOptions,
 } from "../queue-types";
 import type { RunJournal } from "../run-journal";
+import type { PersistedMetadata, PersistedWorkflow } from "../schema";
 import type { StepSnapshot, StepStatus, WorkflowSnapshot } from "../snapshot";
 import type { StepContext, StepSpec } from "../step";
 import { Step } from "../step";
@@ -118,6 +119,8 @@ import type { WorkflowResult } from "../workflow";
 import { Workflow } from "../workflow";
 
 type PublicTypePins = [
+  PersistedMetadata,
+  PersistedWorkflow,
   Factory,
   DirectRunLinks,
   ObserveRunOptions,
@@ -262,6 +265,43 @@ describe("public surface", () => {
     expect(executablePublic).not.toHaveProperty("Executable");
     expect(Workflow).not.toHaveProperty("make");
     expect(Workflow).not.toHaveProperty("fromStep");
+  });
+
+  test("the schema entry defines every record and its embedded values", async () => {
+    const schemaPublic = await import("../schema");
+    const recordSchemas = [
+      "ChannelEventSchema",
+      "DefinitionReferenceSchema",
+      "ErrorShapeSchema",
+      "JobLinksSchema",
+      "JobRecordSchema",
+      "JobStatusSchema",
+      "JsonValueSchema",
+      "OrchestratorStoreSnapshotSchema",
+      "PersistedMetadataSchema",
+      "PersistedWorkflowSchema",
+      "QueueRecordSchema",
+      "QueueStatusSchema",
+      "RunFramePayloadSchema",
+      "RunFrameSchema",
+      "RunLinksSchema",
+      "RunRecordSchema",
+      "RunRecordShapeSchema",
+      "RunStatusSchema",
+      "SnapshotStateSchema",
+      "StepSnapshotSchema",
+      "StepStatusSchema",
+      "SuspensionRecordSchema",
+      "SuspensionStateSchema",
+      "SuspensionStatusSchema",
+      "WorkflowSnapshotSchema",
+      "WorkflowStepNodeSchema",
+    ] as const;
+
+    for (const name of recordSchemas) {
+      expect(typeof schemaPublic[name].safeParse).toBe("function");
+    }
+    expect(schemaPublic.ORCHESTRATOR_STORE_SNAPSHOT_VERSION).toBe(1);
   });
 
   test("exports map remains curated and targets existing files", () => {
