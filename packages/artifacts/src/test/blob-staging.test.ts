@@ -849,3 +849,77 @@ describe("A reference to a missing blob", () => {
     ).rejects.toBeInstanceOf(InvalidArtifactInputError);
   });
 });
+
+describe.each(["memory", "json"] as const)(
+  "%s store: call order per Artifact",
+  (kind) => {
+    it("checks a stream write after a create queued before it", async () => {
+      const { manager } = await storage(kind);
+      const artifacts = manager();
+      const id = artifactIdSchema.parse(crypto.randomUUID());
+      async function* source() {
+        yield await Promise.resolve(text("streamed"));
+      }
+      const creating = artifacts.create({
+        id,
+        name: "Ordered",
+        type: "text/plain",
+      });
+      const writing = artifacts.write({
+        artifactId: id,
+        changes: { put: { "f.txt": { source: source() } } },
+      });
+      await creating;
+      const written = await writing;
+      const read = await artifacts.readFile(written.id, "f.txt");
+      expect(decoded(read?.blob)).toBe("streamed");
+    });
+
+    it("commits a later write to the same Artifact after an earlier stalled stream", async () => {
+      const { manager } = await storage(kind);
+      const artifacts = manager();
+      const created = await artifacts.create({
+        entries: { "f.txt": { bytes: "start" } },
+        name: "Ordered",
+        type: "text/plain",
+      });
+      const other = await artifacts.create({
+        name: "Other",
+        type: "text/plain",
+      });
+      const gate = gated([], [text("earlier")]);
+      const streaming = artifacts.write({
+        artifactId: created.id,
+        changes: { put: { "f.txt": { source: gate.source } } },
+      });
+      let later: Promise<unknown> | undefined;
+      try {
+        expect(await within(gate.waiting)).toBe("resolved");
+        later = artifacts.write({
+          artifactId: created.id,
+          changes: { put: { "f.txt": { bytes: "later" } } },
+        });
+        // Held behind the stream on its Artifact, and only there.
+        expect(await within(later, 200)).toBe("pending");
+        expect(
+          await within(
+            artifacts.write({
+              artifactId: other.id,
+              changes: { put: { "g.txt": { bytes: "elsewhere" } } },
+            })
+          )
+        ).toBe("resolved");
+        expect(await within(artifacts.list())).toBe("resolved");
+      } finally {
+        gate.release();
+      }
+      await streaming;
+      await later;
+      const read = await artifacts.readFile(
+        required(created.contentId),
+        "f.txt"
+      );
+      expect(decoded(read?.blob)).toBe("later");
+    });
+  }
+);

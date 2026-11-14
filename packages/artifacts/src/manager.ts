@@ -104,6 +104,8 @@ export class ArtifactManager implements Artifacts {
   readonly #observers = new Set<ArtifactObserver>();
   readonly #scope = new AsyncLocalStorage<TransactionScope>();
   #tail: Promise<unknown> = Promise.resolve();
+  /** Per Artifact, the latest change whose place in call order is not yet secured. */
+  readonly #ordered = new Map<ArtifactId, Promise<void>>();
 
   constructor(options: ArtifactManagerOptions = {}) {
     this.#store = options.store ?? new InMemoryArtifactStore();
@@ -230,6 +232,7 @@ export class ArtifactManager implements Artifacts {
 
   create(input: CreateArtifactInput): Promise<ArtifactResolved> {
     return this.#staged(
+      input.id,
       input.entries,
       (artifacts) => artifacts.checkCreate(input),
       (artifacts) => artifacts.create(input)
@@ -247,39 +250,52 @@ export class ArtifactManager implements Artifacts {
   }
 
   rename(id: ArtifactId, name: string): Promise<Artifact> {
-    return this.transaction((artifacts) => artifacts.rename(id, name));
+    return this.#inOrder(id, false, () =>
+      this.transaction((artifacts) => artifacts.rename(id, name))
+    );
   }
 
   patchArtifactMetadata(
     id: ArtifactId,
     patch: Readonly<Record<string, unknown>>
   ): Promise<Artifact> {
-    return this.transaction((artifacts) =>
-      artifacts.patchArtifactMetadata(id, patch)
+    return this.#inOrder(id, false, () =>
+      this.transaction((artifacts) =>
+        artifacts.patchArtifactMetadata(id, patch)
+      )
     );
   }
 
   archive(id: ArtifactId): Promise<Artifact> {
-    return this.transaction((artifacts) => artifacts.archive(id));
+    return this.#inOrder(id, false, () =>
+      this.transaction((artifacts) => artifacts.archive(id))
+    );
   }
 
   unarchive(id: ArtifactId): Promise<Artifact> {
-    return this.transaction((artifacts) => artifacts.unarchive(id));
+    return this.#inOrder(id, false, () =>
+      this.transaction((artifacts) => artifacts.unarchive(id))
+    );
   }
 
   clearFailedContent(input: {
     readonly artifactId: ArtifactId;
     readonly expectedContentId: ContentId;
   }): Promise<ArtifactResolved> {
-    return this.transaction((artifacts) => artifacts.clearFailedContent(input));
+    return this.#inOrder(input.artifactId, false, () =>
+      this.transaction((artifacts) => artifacts.clearFailedContent(input))
+    );
   }
 
   delete(id: ArtifactId): Promise<boolean> {
-    return this.transaction((artifacts) => artifacts.delete(id));
+    return this.#inOrder(id, false, () =>
+      this.transaction((artifacts) => artifacts.delete(id))
+    );
   }
 
   write(input: WriteInput): Promise<ContentResolved> {
     return this.#staged(
+      input.artifactId,
       input.changes.put,
       (artifacts) => artifacts.checkWrite(input),
       (artifacts) => artifacts.write(input)
@@ -288,6 +304,7 @@ export class ArtifactManager implements Artifacts {
 
   revise(input: ReviseInput): Promise<ContentResolved> {
     return this.#staged(
+      input.artifactId,
       input.changes?.put,
       (artifacts) => artifacts.checkRevise(input),
       (artifacts) => artifacts.revise(input)
@@ -306,7 +323,9 @@ export class ArtifactManager implements Artifacts {
     readonly contentId: ContentId;
     readonly expectedContentId?: ContentId | null;
   }): Promise<ArtifactResolved> {
-    return this.transaction((artifacts) => artifacts.select(input));
+    return this.#inOrder(input.artifactId, false, () =>
+      this.transaction((artifacts) => artifacts.select(input))
+    );
   }
 
   fork(input: {
@@ -314,7 +333,9 @@ export class ArtifactManager implements Artifacts {
     readonly contentId: ContentId;
     readonly name?: string;
   }): Promise<ArtifactResolved> {
-    return this.transaction((artifacts) => artifacts.fork(input));
+    return this.#inOrder(input.id, false, () =>
+      this.transaction((artifacts) => artifacts.fork(input))
+    );
   }
 
   tag(id: ContentId, tag: string | null): Promise<Content> {
@@ -500,16 +521,22 @@ export class ArtifactManager implements Artifacts {
 
   /**
    * A change whose bytes are taken in first. Inside a `transaction` it joins
-   * that transaction and takes them in there. A change carrying a stream
-   * stages every input before it takes a turn, so a stalled source holds
-   * neither this manager's queue nor the store; a change that reaches the
-   * store sooner may commit before it. Any other change takes its turn at
-   * once, so changes without a stream commit in call order, and stages its
-   * bytes in that turn, before the store's exclusion. Either way `check`
-   * first refuses what the change would refuse before reading a byte; the
-   * change checks again inside, over the state it commits against.
+   * that transaction and takes them in there.
+   *
+   * A change carrying a stream stages every input before its change takes a
+   * turn, so a stalled source holds neither this manager's queue nor the
+   * store. Its check takes a turn of its own first, so it sees every change
+   * queued before it. Any other change takes its turn at once, and checks
+   * and stages in that turn, before the store's exclusion. Either way the
+   * check reads one consistent view, refuses what the change would refuse
+   * before reading a byte, and records what the change will confirm inside
+   * the store's exclusion (the ownership of objects it may rewrite).
+   *
+   * Changes on one Artifact commit in call order (see `#inOrder`); changes
+   * on other Artifacts, reads, and other managers are not held back.
    */
-  async #staged<T>(
+  #staged<T>(
+    id: ArtifactId | undefined,
     entries: EntryInputs | undefined,
     check: (artifacts: ArtifactTransaction) => Promise<unknown>,
     operation: (artifacts: ArtifactTransaction) => Promise<T>
@@ -519,15 +546,26 @@ export class ArtifactManager implements Artifacts {
       return this.transaction(() => operation(joined));
     }
     const staging = this.#staging();
-    const prepare = async () => {
-      await this.#check(check, staging);
-      await staging.stageAll(entries);
-    };
-    if (!staging.streamsAhead(entries)) {
-      return this.#change(operation, staging, prepare);
-    }
+    const streaming = staging.streamsAhead(entries);
+    return this.#inOrder(id, streaming, () =>
+      streaming
+        ? this.#streamed(entries, check, operation, staging)
+        : this.#change(operation, staging, async () => {
+            await this.#check(check, staging);
+            await staging.stageAll(entries);
+          })
+    );
+  }
+
+  async #streamed<T>(
+    entries: EntryInputs | undefined,
+    check: (artifacts: ArtifactTransaction) => Promise<unknown>,
+    operation: (artifacts: ArtifactTransaction) => Promise<T>,
+    staging: BlobStaging
+  ): Promise<T> {
     try {
-      await prepare();
+      await this.#exclusive((store) => this.#checkOver(store, check, staging));
+      await staging.stageAll(entries);
     } catch (error) {
       await staging.discard();
       throw error;
@@ -536,17 +574,66 @@ export class ArtifactManager implements Artifacts {
   }
 
   /**
-   * `check` over the records as they are now, read without taking a turn,
-   * so it can run inside this manager's own turn. The change runs its
-   * checks again inside the store's exclusion, over `staging`, where this
-   * first check records what it saw (the ownership of objects the change
-   * may rewrite); it also spares staging the bytes of a refused change.
+   * Call order for the changes this manager makes to Artifact `id`. A change
+   * that `streams` takes its turn only once its bytes are staged, so a later
+   * change to `id` starts only after it has settled; until then it waits
+   * outside the queue. A change with no such stream ahead of it starts at
+   * once, and the queue keeps its order. Changes with no `id`, and calls
+   * joined to an open transaction, are not held.
    */
-  async #check(
+  #inOrder<T>(
+    id: ArtifactId | undefined,
+    streams: boolean,
+    start: () => Promise<T>
+  ): Promise<T> {
+    if (id === undefined || this.#joined()) {
+      return start();
+    }
+    const before = this.#ordered.get(id);
+    if (before === undefined && !streams) {
+      return start();
+    }
+    let secured!: () => void;
+    const mine = new Promise<void>((resolve) => {
+      secured = resolve;
+    });
+    this.#ordered.set(id, mine);
+    mine.then(() => {
+      if (this.#ordered.get(id) === mine) {
+        this.#ordered.delete(id);
+      }
+    });
+    const begin = () => {
+      const result = start();
+      // A stream secures its place once it settles; any other change once queued.
+      (streams ? result : Promise.resolve()).then(secured, secured);
+      return result;
+    };
+    return before === undefined ? begin() : before.then(begin);
+  }
+
+  /** `check` in this manager's turn, over one consistent view of the store. */
+  #check(
     check: (artifacts: ArtifactTransaction) => Promise<unknown>,
     staging: BlobStaging
   ): Promise<void> {
-    const change = new ArtifactChange(this.#store, { readOnly: true });
+    const store = this.#store;
+    return store.transaction === undefined
+      ? this.#checkOver(store, check, staging)
+      : store.transaction((view) => this.#checkOver(view, check, staging));
+  }
+
+  /**
+   * `check` over `store`. The change runs its checks again inside the
+   * store's exclusion, over `staging`, where this first check records what
+   * it saw; it also spares staging the bytes of a refused change.
+   */
+  async #checkOver(
+    store: ArtifactStore,
+    check: (artifacts: ArtifactTransaction) => Promise<unknown>,
+    staging: BlobStaging
+  ): Promise<void> {
+    const change = new ArtifactChange(store, { readOnly: true });
     try {
       await check(
         new ArtifactTransaction(
