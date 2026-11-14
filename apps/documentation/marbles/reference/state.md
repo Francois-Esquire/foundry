@@ -154,9 +154,22 @@ One process delivers a workspace's changes to its observers at a time: the
 host that holds `locks/tasks` in the workspace's directory, from its start
 until it stops. A second host of the same workspace reads and writes its
 tasks but prints `[observe] not delivering here` and leaves delivery to the
-first. A change made in another process (a CLI command beside a program
-hosting the workspace itself) is delivered at the delivering host's next
-change or next start, not at once.
+first until it stops.
+
+Delivery is at least once per observer: a handler that completed but
+whose completion was not saved runs again. A handler that throws keeps its
+change and is handed nothing later until it completes that one; other
+handlers go on. The delivering host is woken at once by a change made
+through it and notices one made in another process within a second. When
+it stops, or its process exits, a host that was refused delivery takes it
+over within a second and delivers what was written meanwhile.
+
+Known limits: nothing prunes `marbles_task_changes` or
+`marbles_task_change_deliveries`, so they grow with every task change; a
+workspace's rows stay in the database after its directory or checkout is
+deleted, and after it is detached. A host that keeps the database open
+while another Marbles migrates it further refuses every write from then on
+with an error saying so; restart it with the newer Marbles.
 
 Text the database cannot give back intact is refused before anything is
 written: a title, description, id, or time holding U+0000, or a lone
