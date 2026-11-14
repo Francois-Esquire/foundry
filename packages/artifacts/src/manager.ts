@@ -5,6 +5,7 @@ import { runAfterCommit } from "@foundry/core/storage";
 
 import type { BlobFiles } from "./blob";
 import { readBlob, requireBlob } from "./blob-repository";
+import { abandonStaging, BlobStaging } from "./blob-staging";
 import { ArtifactChange } from "./change";
 import { MAX_FILE_BYTES, MAX_TREE_BYTES } from "./constants";
 import { ArtifactApplicationError, TransactionRolledBackError } from "./errors";
@@ -23,6 +24,7 @@ import type {
   ContentResolved,
   ContentSummary,
   CreateArtifactInput,
+  EntryInputs,
   FileRangeResolved,
   FileResolved,
   FreezeOption,
@@ -143,6 +145,23 @@ export class ArtifactManager implements Artifacts {
         throw error;
       }
     }
+    return this.#change(operation, this.#staging());
+  }
+
+  /**
+   * One change: `prepare` runs in this manager's turn, before the store's
+   * exclusion, then `operation` builds the change inside it over the bytes
+   * `staging` holds. Whatever `staging` still holds is discarded once the
+   * change settles.
+   */
+  async #change<T>(
+    operation: (
+      artifacts: ArtifactTransaction,
+      effects: CommitEffects
+    ) => Promise<T>,
+    staging: BlobStaging,
+    prepare: () => Promise<void> = () => Promise.resolve()
+  ): Promise<T> {
     const effects = operationEffects();
     const callbacks: (() => Promise<void>)[] = [() => this.#settle(effects)];
     let attempted: ArtifactStoreWrite | undefined;
@@ -154,7 +173,8 @@ export class ArtifactManager implements Artifacts {
           const transaction = new ArtifactTransaction(
             change,
             effects,
-            this.#limits
+            this.#limits,
+            staging
           );
           const scope: TransactionScope = {
             effects: {
@@ -186,7 +206,7 @@ export class ArtifactManager implements Artifacts {
         } finally {
           change.settle();
         }
-      });
+      }, prepare);
     } catch (error) {
       // Published files go only once the store shows the write absent. A
       // commit can fail after its write landed (syncing the replaced file);
@@ -195,6 +215,8 @@ export class ArtifactManager implements Artifacts {
         await this.#removeFiles(effects.published);
       }
       throw error;
+    } finally {
+      await staging.discard();
     }
     // Outside the change, so a callback (a binding) may start the next one.
     await runAfterCommit(callbacks);
@@ -202,7 +224,11 @@ export class ArtifactManager implements Artifacts {
   }
 
   create(input: CreateArtifactInput): Promise<ArtifactResolved> {
-    return this.transaction((artifacts) => artifacts.create(input));
+    return this.#staged(
+      input.entries,
+      (artifacts) => artifacts.checkCreate(input),
+      (artifacts) => artifacts.create(input)
+    );
   }
 
   get(id: ArtifactId): Promise<ArtifactResolved | null> {
@@ -248,11 +274,19 @@ export class ArtifactManager implements Artifacts {
   }
 
   write(input: WriteInput): Promise<ContentResolved> {
-    return this.transaction((artifacts) => artifacts.write(input));
+    return this.#staged(
+      input.changes.put,
+      (artifacts) => artifacts.checkWrite(input),
+      (artifacts) => artifacts.write(input)
+    );
   }
 
   revise(input: ReviseInput): Promise<ContentResolved> {
-    return this.transaction((artifacts) => artifacts.revise(input));
+    return this.#staged(
+      input.changes?.put,
+      (artifacts) => artifacts.checkRevise(input),
+      (artifacts) => artifacts.revise(input)
+    );
   }
 
   freeze(
@@ -369,6 +403,8 @@ export class ArtifactManager implements Artifacts {
   async recover(): Promise<void> {
     const { files } = this.#limits;
     if (files) {
+      // Staging whose owner is gone; live owners' bytes stay where they wait.
+      await abandonStaging(files);
       // Exclusive like a change, so a concurrent publish never lands mid-sweep.
       await this.#exclusive(async (store) => {
         const retained = new Set(
@@ -421,7 +457,12 @@ export class ArtifactManager implements Artifacts {
       const change = new ArtifactChange(store, { readOnly: true });
       try {
         return await operation(
-          new ArtifactTransaction(change, operationEffects(), this.#limits)
+          new ArtifactTransaction(
+            change,
+            operationEffects(),
+            this.#limits,
+            this.#staging()
+          )
         );
       } finally {
         change.settle();
@@ -453,11 +494,54 @@ export class ArtifactManager implements Artifacts {
   }
 
   /**
+   * A change whose bytes are taken in first. Inside a `transaction` it joins
+   * that transaction and takes them in there. A change carrying a stream
+   * stages every input before it takes a turn, so a stalled source holds
+   * neither this manager's queue nor the store; a change that reaches the
+   * store sooner may commit before it. Any other change takes its turn at
+   * once, so changes without a stream commit in call order, and stages its
+   * bytes in that turn, before the store's exclusion. `check` refuses what
+   * the change would refuse before reading a byte; the change checks again
+   * inside, over the state it commits against.
+   */
+  async #staged<T>(
+    entries: EntryInputs | undefined,
+    check: (artifacts: ArtifactTransaction) => Promise<unknown>,
+    operation: (artifacts: ArtifactTransaction) => Promise<T>
+  ): Promise<T> {
+    const joined = this.#joined();
+    if (joined) {
+      return this.transaction(() => operation(joined));
+    }
+    const staging = this.#staging();
+    if (!staging.streamsAhead(entries)) {
+      return this.#change(operation, staging, () => staging.stageAll(entries));
+    }
+    try {
+      await this.#read(check);
+      await staging.stageAll(entries);
+    } catch (error) {
+      await staging.discard();
+      throw error;
+    }
+    return this.#change(operation, staging);
+  }
+
+  #staging(): BlobStaging {
+    return new BlobStaging(this.#limits);
+  }
+
+  /**
    * One read-modify-write, or one read of several steps: serialized in this
    * manager, and exclusive in the store when it offers transactions.
+   * `prepare` runs in this manager's turn, before the store's exclusion.
    */
-  #exclusive<T>(work: (store: ArtifactStore) => Promise<T>): Promise<T> {
-    return this.#serialized(() => {
+  #exclusive<T>(
+    work: (store: ArtifactStore) => Promise<T>,
+    prepare: () => Promise<void> = () => Promise.resolve()
+  ): Promise<T> {
+    return this.#serialized(async () => {
+      await prepare();
       const store = this.#store;
       return store.transaction === undefined
         ? work(store)

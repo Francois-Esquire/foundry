@@ -12,7 +12,7 @@ import {
 import { ArtifactManager } from "../manager";
 import { InMemoryArtifactStore } from "../store/memory";
 import type { Content } from "../substrate";
-import { fixture } from "./helpers/directory";
+import { fixture, publishedFiles } from "./helpers/directory";
 import { required } from "./helpers/required";
 
 function file(content: Content, path = "a.txt"): StoredFile {
@@ -232,14 +232,12 @@ describe("ArtifactManager blob objects", () => {
       { "a.txt": { bytes: "old" } },
       true
     );
-    const { readdir } = await import("node:fs/promises");
-    const { join } = await import("node:path");
-    const before = await readdir(join(root, ".blobs"));
+    const before = await publishedFiles(root);
     const edited = await artifacts.write({
       artifactId: artifact.id,
       changes: { put: { "a.txt": { bytes: "new" } } },
     });
-    const after = await readdir(join(root, ".blobs"));
+    const after = await publishedFiles(root);
     expect(file(edited).blobId).toBe(file(required(artifact.content)).blobId);
     expect(after).toHaveLength(1);
     expect(after).not.toEqual(before);
@@ -271,9 +269,7 @@ describe("ArtifactManager operation boundaries", () => {
       { "a.txt": { bytes: "old" } },
       true
     );
-    const { readdir } = await import("node:fs/promises");
-    const { join } = await import("node:path");
-    const before = await readdir(join(root, ".blobs"));
+    const before = await publishedFiles(root);
     const changed = vi.fn();
     artifacts.observe(changed);
     await expect(
@@ -286,7 +282,7 @@ describe("ArtifactManager operation boundaries", () => {
       })
     ).rejects.toThrow("abort");
     expect(await artifacts.get(artifact.id)).toEqual(artifact);
-    expect(await readdir(join(root, ".blobs"))).toEqual(before);
+    expect(await publishedFiles(root)).toEqual(before);
     expect(await store.listBlobs()).toHaveLength(1);
     expect(changed).not.toHaveBeenCalled();
   });
@@ -366,7 +362,7 @@ describe("ArtifactManager operation boundaries", () => {
       { "a.txt": { bytes: "old" } },
       true
     );
-    const { writeFile, readFile, readdir } = await import("node:fs/promises");
+    const { writeFile, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
     const workspace = await load();
     const unbind = artifacts.bind(() =>
@@ -394,7 +390,7 @@ describe("ArtifactManager operation boundaries", () => {
     expect(await readFile(join(workspace.root, "a.txt"), "utf8")).toBe(
       "committed"
     );
-    expect(await readdir(join(root, ".blobs"))).toHaveLength(1);
+    expect(await publishedFiles(root)).toHaveLength(1);
   });
 
   it("tells observers of a commit whose application failed, and recovery as recovery", async () => {

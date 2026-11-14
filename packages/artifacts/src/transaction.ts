@@ -4,8 +4,10 @@ import type { StorageNode } from "@foundry/core/storage";
 import { isStoragePath, withParentDirectories } from "@foundry/core/storage";
 
 import type { Blob, BlobFiles, ContentTree, StoredFile } from "./blob";
-import type { BlobEffects, ByteInput } from "./blob-repository";
-import { BlobRepository, isReferenceInput } from "./blob-repository";
+import type { BlobEffects } from "./blob-repository";
+import { BlobRepository } from "./blob-repository";
+import type { BlobStaging, ByteInput } from "./blob-staging";
+import { isReferenceInput } from "./blob-staging";
 import type { ArtifactChange } from "./change";
 import type { ContentMetadata } from "./content";
 import {
@@ -85,24 +87,66 @@ export class ArtifactTransaction implements ArtifactOperations {
   readonly #blobs: BlobRepository;
   readonly #maxTreeBytes: number;
 
+  /** `staging` holds the bytes staged ahead of this change, if any. */
   constructor(
     change: ArtifactChange,
     effects: OperationEffects,
-    limits: TransactionLimits
+    limits: TransactionLimits,
+    staging: BlobStaging
   ) {
     this.#change = change;
     this.#effects = effects;
-    this.#blobs = new BlobRepository(change, effects, limits);
+    this.#blobs = new BlobRepository(change, effects, { ...limits, staging });
     this.#maxTreeBytes = limits.maxTreeBytes;
   }
 
-  async create(input: CreateArtifactInput): Promise<ArtifactResolved> {
+  /**
+   * The refusals `create` makes before it reads a byte: blank names, an id
+   * already taken, invalid paths. The manager runs them before staging a
+   * stream, and `create` runs them again inside the change.
+   */
+  async checkCreate(input: CreateArtifactInput): Promise<void> {
     nonEmpty("name", input.name);
     nonEmpty("type", input.type);
-    const id = input.id ?? artifactIdSchema.parse(crypto.randomUUID());
-    if (await this.#change.getArtifact(id)) {
-      throw new ArtifactExistsError(id);
+    if (input.id !== undefined && (await this.#change.getArtifact(input.id))) {
+      throw new ArtifactExistsError(input.id);
     }
+    assertStoragePaths({ put: input.entries ?? {} });
+  }
+
+  /** The refusals `write` makes before it reads a byte; see `checkCreate`. */
+  async checkWrite(input: WriteInput): Promise<ArtifactResolved> {
+    const artifact = await this.#requireArtifact(input.artifactId);
+    fence(artifact, input);
+    const active = artifact.content;
+    if (active && active.state !== "ready") {
+      throw new ContentStateError(active.id, active.state, "write");
+    }
+    assertStoragePaths(input.changes);
+    return artifact;
+  }
+
+  /** The refusals `revise` makes before it reads a byte; see `checkCreate`. */
+  async checkRevise(input: ReviseInput): Promise<{
+    readonly artifact: ArtifactResolved;
+    readonly source: Content;
+  }> {
+    const artifact = await this.#requireArtifact(input.artifactId);
+    const source = await this.#requireOwnContent(artifact, input.contentId);
+    fence(artifact, {
+      expectedContentId: input.contentId,
+      expectedUpdatedAt: input.expectedUpdatedAt,
+    });
+    if (!isUsableContent(source)) {
+      throw new ContentStateError(source.id, source.state, "revise");
+    }
+    assertStoragePaths(input.changes ?? {});
+    return { artifact, source };
+  }
+
+  async create(input: CreateArtifactInput): Promise<ArtifactResolved> {
+    await this.checkCreate(input);
+    const id = input.id ?? artifactIdSchema.parse(crypto.randomUUID());
     const now = new Date();
     await this.#change.putArtifact({
       archivedAt: null,
@@ -200,12 +244,8 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   async write(input: WriteInput): Promise<ContentResolved> {
-    const artifact = await this.#requireArtifact(input.artifactId);
-    fence(artifact, input);
+    const artifact = await this.checkWrite(input);
     const active = artifact.content;
-    if (active && active.state !== "ready") {
-      throw new ContentStateError(active.id, active.state, "write");
-    }
     const tree = await this.#applyChanges(
       active?.tree ?? {},
       input.changes,
@@ -235,15 +275,7 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   async revise(input: ReviseInput): Promise<ContentResolved> {
-    const artifact = await this.#requireArtifact(input.artifactId);
-    const source = await this.#requireOwnContent(artifact, input.contentId);
-    fence(artifact, {
-      expectedContentId: input.contentId,
-      expectedUpdatedAt: input.expectedUpdatedAt,
-    });
-    if (!isUsableContent(source)) {
-      throw new ContentStateError(source.id, source.state, "revise");
-    }
+    const { artifact, source } = await this.checkRevise(input);
     if (source.state === "ready") {
       await this.#markFrozen(source);
     }
@@ -551,16 +583,9 @@ export class ArtifactTransaction implements ArtifactOperations {
     changes: TreeChanges,
     owner?: ContentId
   ): Promise<ContentTree> {
+    assertStoragePaths(changes);
     const removed = changes.remove ?? [];
     const puts = Object.entries(changes.put ?? {});
-    for (const path of [...removed, ...Object.keys(changes.put ?? {})]) {
-      if (!isStoragePath(path)) {
-        throw new InvalidArtifactInputError(
-          "path",
-          `Invalid storage path: ${path}`
-        );
-      }
-    }
     const tree: Record<string, ContentTree[string]> = Object.create(null);
     if (!changes.replace) {
       for (const [path, node] of Object.entries(base)) {
@@ -782,6 +807,21 @@ async function collect(
     throw new Error(`Truncated file: ${path}`);
   }
   return bytes;
+}
+
+/** Throws unless every path `changes` names is a storage path. */
+function assertStoragePaths(changes: TreeChanges): void {
+  for (const path of [
+    ...(changes.remove ?? []),
+    ...Object.keys(changes.put ?? {}),
+  ]) {
+    if (!isStoragePath(path)) {
+      throw new InvalidArtifactInputError(
+        "path",
+        `Invalid storage path: ${path}`
+      );
+    }
+  }
 }
 
 function fence(artifact: ArtifactResolved, expected: WriteFence): void {
