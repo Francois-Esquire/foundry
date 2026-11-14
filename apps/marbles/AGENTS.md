@@ -61,8 +61,10 @@ Five buckets, each importing only what sits below it:
   facets.
 - `src/database/` is the Marbles database: one SQLite file at the state
   root, `<state>/marbles.db`, that every process on the machine opens at
-  once. `open.ts` has one way in per role: `initializeDatabase`, the
-  Marbles process's alone, creates it (WAL, busy timeout, foreign keys)
+  once. `open.ts` has one way in per role: `initializeDatabase`, for
+  whoever holds the state root's process lock (the Marbles process for its
+  lifetime, a program hosting a workspace itself only while it records it,
+  through `recordWorkspace`), creates it (WAL, busy timeout, foreign keys)
   and migrates it; `writeDatabase` writes only to a file that is there and
   current; `readDatabase` reads through a read-only connection and never
   creates the database file, migrates it, or changes its content. It

@@ -1,11 +1,16 @@
 import { resolve } from "node:path";
 
 import { and, asc, eq } from "drizzle-orm";
-
-import type { StoreDatabase } from "~/database/open";
-import { readDatabase } from "~/database/open";
+import { IncompatibleDatabaseError } from "~/database/migrate";
+import type { OpenDatabaseOptions, StoreDatabase } from "~/database/open";
+import {
+  initializeDatabase,
+  readDatabase,
+  writeDatabase,
+} from "~/database/open";
 import { marblesWorkspaces } from "~/database/tables";
 import { stateDatabase } from "~/layout";
+import { acquireLock, PROCESS_LOCK } from "~/lib/state/locks";
 import type { Workspace, WorkspaceRecord } from "~/lib/state/workspace";
 import { insideState } from "~/lib/state/workspace";
 
@@ -124,4 +129,87 @@ export async function recordedWorkspaces(
     new WorkspaceRegistry({ database, state }).list()
   );
   return records ?? [];
+}
+
+export interface RecordWorkspaceOptions extends OpenDatabaseOptions {
+  /**
+   * How long to wait, while another process holds the state root, for the
+   * database to be current; 5 s when omitted.
+   */
+  readonly wait?: number;
+}
+
+const RECORD_WAIT_MS = 5000;
+const RECORD_RETRY_MS = 50;
+
+/**
+ * Record a sight of `workspace` for a program that hosts it: a worker of
+ * the Marbles process, or a program hosting it itself. Such a host is a
+ * writer, and may make and migrate the database, but only while it holds
+ * the state root's process lock, the one the Marbles process claims for its
+ * lifetime (`PROCESS_LOCK`). It takes it atomically, makes or migrates the
+ * database and records the workspace under it, and lets it go: held only
+ * that long, so a Marbles process can start beside a host that runs for
+ * hours, as it always could, while no two processes ever migrate at once.
+ *
+ * When another process holds the lock (the Marbles process, or a host
+ * doing the same), this one never migrates: it records the workspace in a
+ * database that is current, waiting up to `wait` for the holder to make it
+ * so, and otherwise throws `IncompatibleDatabaseError`.
+ */
+export async function recordWorkspace(
+  state: string,
+  workspace: Workspace,
+  config: string | null,
+  options: RecordWorkspaceOptions = {}
+): Promise<void> {
+  const root = resolve(state);
+  const file = stateDatabase(root);
+  const touch = (database: StoreDatabase) =>
+    new WorkspaceRegistry({ database, state: root }).touch(workspace, config);
+  const deadline = Date.now() + (options.wait ?? RECORD_WAIT_MS);
+  for (;;) {
+    const claim = acquireLock(root, PROCESS_LOCK);
+    if ("release" in claim) {
+      try {
+        const opened = await initializeDatabase(file, options);
+        try {
+          await touch(opened.database);
+        } finally {
+          opened.close();
+        }
+      } finally {
+        claim.release();
+      }
+      return;
+    }
+    let recorded = false;
+    try {
+      recorded =
+        (await writeDatabase(
+          file,
+          async (database) => {
+            await touch(database);
+            return true;
+          },
+          options
+        )) === true;
+    } catch (error) {
+      if (!(error instanceof IncompatibleDatabaseError)) {
+        throw error;
+      }
+      if (Date.now() >= deadline) {
+        throw error;
+      }
+    }
+    if (recorded) {
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new IncompatibleDatabaseError(
+        `there is no Marbles database at ${file} yet, and ${claim.holder} holds the state root, so this host does not make one; start the Marbles process, or retry once it is up`
+      );
+    }
+    await new Promise((settle) => setTimeout(settle, RECORD_RETRY_MS));
+  }
 }

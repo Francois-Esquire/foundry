@@ -55,19 +55,22 @@ const READ_ATTEMPTS = 3;
 /*
  * Three ways in, one per role:
  *
- * - `initializeDatabase`, the Marbles process's: creates the file, puts it
- *   in WAL mode, and migrates it. Nothing else migrates.
- * - `writeDatabase`, for a write outside it (a worker's record, a detach
- *   with no process running): opens only a file that is there, never
- *   creates or migrates one, and refuses a schema that is not current.
- * - `readDatabase`, for every reader: a connection that cannot write or
- *   create, that changes neither the schema nor the journal mode, and that
- *   leaves no file behind that was not there.
+ * - `initializeDatabase`, for whoever holds the state root's process lock:
+ *   the Marbles process for its lifetime, or a program hosting a workspace
+ *   itself for as long as it records it (`recordWorkspace`). Creates the
+ *   file, puts it in WAL mode, and migrates it. Nothing else migrates, so
+ *   no two processes migrate at once.
+ * - `writeDatabase`, for a write by a process without that lock (a
+ *   worker's record, a detach with no process running): opens only a file
+ *   that is there, never creates or migrates one, and refuses a schema
+ *   that is not current.
+ * - `readDatabase`, for every reader: a read-only connection that never
+ *   creates the file, migrates it, or changes its content.
  */
 
 /**
- * Open the database at `file` as the Marbles process: create it and its
- * directory if need be, and migrate it. Several processes may hold it at
+ * Open the database at `file` holding the state root's process lock:
+ * create it and its directory if need be, and migrate it. Several processes may hold it at
  * once: it runs in WAL mode, so readers never wait for a writer, and a
  * writer waits up to the busy timeout for another. In this process,
  * everything opened on the file takes turns (`serialClient`). Foreign keys

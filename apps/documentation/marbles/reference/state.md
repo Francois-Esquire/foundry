@@ -103,14 +103,16 @@ own format. Version 1 run files still load. The persisted `config` field keeps
 its existing spelling and records the authoring folder or single-module path.
 A workspace is recorded in the database when it is attached to the Marbles
 process (`run`, `roll`, the dashboard, or the MCP server), which sets
-`hosted: true`, and by a program that hosts it itself once the Marbles
-process has made the database (a program hosting it on a machine where the
-process never ran records nothing, and one facing a database that is not
-current fails to start); `list`, `status`,
+`hosted: true`, and by a program that hosts it itself; `list`, `status`,
 `sessions`, `watch`, and anything under `--dry-run` leave an empty state
-root empty. Only the Marbles process creates the database and applies the
-migrations its Marbles ships. Its workers and the CLI write only to a
-database that is there and current. `status`, the MCP server, and every
+root empty. Only a process holding `locks/process` at the state root
+creates the database and applies the migrations its Marbles ships: the
+Marbles process, which holds it while it runs, or a program hosting a
+workspace itself, which takes it only while it records the workspace, so a
+Marbles process can still start beside it. When another process holds the
+lock, such a program waits up to five seconds for the database to be
+current and otherwise fails to start. The workers and the CLI write only
+to a database that is there and current. `status`, the MCP server, and every
 other reader open it read-only: they never create, migrate, or change it,
 and never switch its journal mode. A reader that meets the last writer
 closing at the moment it opens can leave an empty `marbles.db-wal`; it

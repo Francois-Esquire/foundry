@@ -7,8 +7,8 @@ import { expectHost, setHost } from "~/authoring/runtime";
 import { initializeUsage } from "~/authoring/usage";
 import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
-import { readDatabase, writeDatabase } from "~/database/open";
-import { WorkspaceRegistry } from "~/database/workspaces";
+import { readDatabase } from "~/database/open";
+import { recordWorkspace, WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
@@ -267,14 +267,9 @@ export async function touchWorkspace(
   { config, workspace }: OpenedWorkspace
 ): Promise<void> {
   if (engine.state !== undefined) {
-    // The Marbles process makes the database; a program hosting the
-    // workspace itself on a machine where it never ran records nothing.
-    await writeDatabase(stateDatabase(args.state), (database) =>
-      new WorkspaceRegistry({ database, state: args.state }).touch(
-        workspace,
-        config
-      )
-    );
+    // A host is a writer: it makes and migrates the database only under
+    // the state root's process lock (`recordWorkspace`).
+    await recordWorkspace(args.state, workspace, config);
   }
 }
 
