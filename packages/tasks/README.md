@@ -170,13 +170,13 @@ nothing, deletes first. The store enforces nothing; every rule is checked
 before a write reaches it, and values crossing the seam are detached. Reads
 list records in the order first put.
 
-| Path                          | Holds                                                     |
-| ----------------------------- | --------------------------------------------------------- |
-| `@foundry/tasks/store`        | `TaskStore` and the write and snapshot types.             |
-| `@foundry/tasks/store/memory` | `MemoryTaskStore`, the default `Tasks` uses.              |
-| `@foundry/tasks/store/sqlite` | `SqliteTaskStore`, over a host's Drizzle database.        |
-| `@foundry/tasks/store/tables` | The Drizzle tables it uses: `tasks`, `task_dependencies`. |
-| `@foundry/tasks/testing`      | `describeTaskStore`, the suite every store passes.        |
+| Path                           | Holds                                                     |
+| ------------------------------ | --------------------------------------------------------- |
+| `@foundry/tasks/store`         | `TaskStore` and the write and snapshot types.             |
+| `@foundry/tasks/store/memory`  | `MemoryTaskStore`, the default `Tasks` uses.              |
+| `@foundry/tasks/store/sqlite`  | `SqliteTaskStore`, over a host's Drizzle database.        |
+| `@foundry/tasks/store/tables`  | The Drizzle tables it uses: `tasks`, `task_dependencies`. |
+| `@foundry/tasks/testing/store` | `describeTaskStore`, the suite every store passes.        |
 
 `SqliteTaskStore` takes the host's database and never opens one. The host
 composes the tables from `./store/tables` into its own schema and owns the

@@ -1,13 +1,11 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createTables } from "@foundry/lib/testing/sqlite";
 import type { Client } from "@libsql/client";
 import { createClient } from "@libsql/client";
-import { sql } from "drizzle-orm";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 import { drizzle } from "drizzle-orm/libsql";
-import type { SQLiteTable } from "drizzle-orm/sqlite-core";
-import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { afterAll, afterEach } from "vitest";
 import { taskDependencies, tasks } from "../../store/tables";
 
@@ -66,9 +64,7 @@ export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
   return {
     async open() {
       const database = connect(await url());
-      for (const table of [tasks, taskDependencies]) {
-        await database.run(sql.raw(createTable(table)));
-      }
+      await createTables(database, [tasks, taskDependencies]);
       return database;
     },
     reopen(database) {
@@ -80,31 +76,4 @@ export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
       return Promise.resolve(connect(connection.url));
     },
   };
-}
-
-/**
- * `CREATE TABLE` for a table definition: its columns and primary key. A
- * host's migrations own the real schema; this only stands one up for tests,
- * and refuses a definition it would not reproduce whole.
- */
-function createTable(table: SQLiteTable): string {
-  const config = getTableConfig(table);
-  const unsupported =
-    config.indexes.length +
-    config.foreignKeys.length +
-    config.uniqueConstraints.length +
-    config.checks.length;
-  if (unsupported > 0) {
-    throw new Error(`${config.name}: only columns and a primary key supported`);
-  }
-  const quote = (name: string) => `"${name}"`;
-  const columns = config.columns.map(
-    (column) =>
-      `${quote(column.name)} ${column.getSQLType()}${column.notNull ? " NOT NULL" : ""}`
-  );
-  const keys = config.primaryKeys.map(
-    (key) =>
-      `PRIMARY KEY (${key.columns.map((column) => quote(column.name)).join(", ")})`
-  );
-  return `CREATE TABLE ${quote(config.name)} (${[...columns, ...keys].join(", ")})`;
 }

@@ -46,7 +46,7 @@
       "import": "./src/store/tables.ts",
       "default": "./src/store/tables.ts"
     },
-    "./testing": {
+    "./testing/store": {
       "types": "./dist/testing/store.d.ts",
       "import": "./src/testing/store.ts",
       "default": "./src/testing/store.ts"
