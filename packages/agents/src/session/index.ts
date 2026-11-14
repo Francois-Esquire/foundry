@@ -1,9 +1,14 @@
+// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/session public API.
+export {
+  MESSAGE_STATUSES,
+  SESSION_ROLES,
+  SESSION_STATUSES,
+} from "../schema";
 export type {
   CompactionOptions,
   ModelSummarizerOptions,
   Summarizer,
 } from "./compactor";
-// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/session public API.
 export {
   compact,
   createModelSummarizer,
@@ -43,7 +48,6 @@ export {
   patchSessionMessage,
   patchSessionRecord,
 } from "./store";
-
 export type { SummarizeSessionDeps, Summary, SummaryStore } from "./summary";
 export { createSummaryStore, summarizeSession } from "./summary";
 export type {
@@ -58,4 +62,3 @@ export type {
   ToolCallResult,
   ToolProvenance,
 } from "./types";
-export { MESSAGE_STATUSES, SESSION_ROLES, SESSION_STATUSES } from "./types";
