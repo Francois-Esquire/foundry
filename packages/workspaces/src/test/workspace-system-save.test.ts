@@ -15,22 +15,21 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { WorkspaceCatalog } from "../catalog";
 import { WorkspaceFileNotFoundError, WorkspaceNotFoundError } from "../errors";
-import { MemoryWorkspaceStore } from "../memory-store";
 import { nodeFileSystem } from "../node";
 import type { WorkspaceStore } from "../store";
+import { MemoryWorkspaceStore } from "../store/memory";
+import {
+  fileRecord,
+  hostWorkspace,
+  newWorkspaceEntryId,
+} from "../testing/records";
 import type {
   SaveFileResult,
   WorkspaceFileSystem,
   WorkspaceId,
 } from "../types";
 import { sha256Hex } from "./helpers/digest";
-
 import { directorySystem } from "./helpers/directory-system";
-import {
-  fileRecord,
-  hostWorkspace,
-  newWorkspaceEntryId,
-} from "./helpers/fixtures";
 
 const roots: string[] = [];
 

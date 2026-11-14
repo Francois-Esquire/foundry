@@ -1,12 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { WorkspaceCatalog } from "../catalog";
-import { MemoryWorkspaceStore } from "../memory-store";
-import type {
-  WorkspaceCatalogChange,
-  WorkspaceChange,
-  WorkspaceEntry,
-  WorkspaceFile,
-} from "../types";
+import { MemoryWorkspaceStore } from "../store/memory";
 import {
   artifactWorkspace,
   directoryRecord,
@@ -15,7 +9,13 @@ import {
   newRoot,
   newWorkspaceEntryId,
   newWorkspaceId,
-} from "./helpers/fixtures";
+} from "../testing/records";
+import type {
+  WorkspaceCatalogChange,
+  WorkspaceChange,
+  WorkspaceEntry,
+  WorkspaceFile,
+} from "../types";
 
 const EDITED_DIGEST =
   "1fb9f4097256db2d7b1e13aff79cee44339891a31c556b9cf6093885773b3618";

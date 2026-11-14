@@ -1,13 +1,13 @@
 import type { Page, PageInput } from "@foundry/core/pagination";
 import { byCodeUnit } from "@foundry/lib/ordering";
 import { pageLimit, sliceRanked } from "@foundry/lib/pagination";
-import type { WorkspaceStore, WorkspaceStoreWrite } from "./store";
 import type {
   WorkspaceEntry,
   WorkspaceEntryId,
   WorkspaceId,
   WorkspaceRegistration,
-} from "./types";
+} from "../types";
+import type { WorkspaceStore, WorkspaceStoreWrite } from "./index";
 
 /** The default store: plain maps in this process. */
 export class MemoryWorkspaceStore implements WorkspaceStore {

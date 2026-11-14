@@ -4,7 +4,7 @@ import type {
   WorkspaceEntryId,
   WorkspaceId,
   WorkspaceRegistration,
-} from "./types";
+} from "../types";
 
 /**
  * The persistence seam under the Workspace catalog.

@@ -10,8 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test, vi } from "vitest";
-import { MemoryWorkspaceStore } from "../memory-store";
 import { directory } from "../node";
+import { MemoryWorkspaceStore } from "../store/memory";
 import type { WorkspaceChange } from "../types";
 import { WorkspaceSystem } from "../workspace-system";
 import { sha256Hex } from "./helpers/digest";

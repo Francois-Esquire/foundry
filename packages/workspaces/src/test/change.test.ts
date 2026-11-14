@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { MemoryWorkspaceStore } from "../memory-store";
+import { MemoryWorkspaceStore } from "../store/memory";
 import type { ObservedFacts, WorkspaceChange } from "../types";
 
 import { WorkspaceSystem } from "../workspace-system";

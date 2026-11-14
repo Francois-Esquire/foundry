@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { WorkspaceStore } from "../../store";
+import type { WorkspaceStore } from "../store";
 import {
   artifactWorkspace,
   directoryRecord,
@@ -8,20 +8,20 @@ import {
   newRoot,
   newWorkspaceId,
   seed,
-} from "./fixtures";
+} from "./records";
 
 /**
  * What every `WorkspaceStore` must do. A store enforces no catalog rule, so
  * these cases pin only persistence: round trips, ordering, scoping, atomic
  * writes, and detached values.
  */
-export function describeWorkspaceStoreConformance(
+export function describeWorkspaceStore(
   name: string,
-  createStore: () => WorkspaceStore | Promise<WorkspaceStore>
+  open: () => WorkspaceStore | Promise<WorkspaceStore>
 ): void {
   describe(`${name} WorkspaceStore conformance`, () => {
     test("round-trips a registration and its entries in path order", async () => {
-      const store = await createStore();
+      const store = await open();
       const workspace = hostWorkspace({ path: newRoot("alpha") });
       const docs = directoryRecord(workspace.id, "docs");
       const readme = fileRecord(workspace.id, { path: "README.md" });
@@ -38,7 +38,7 @@ export function describeWorkspaceStoreConformance(
     });
 
     test("applies puts and deletes beside an updated registration", async () => {
-      const store = await createStore();
+      const store = await open();
       const workspace = hostWorkspace({ path: newRoot("alpha") });
       const kept = fileRecord(workspace.id, { path: "a.md" });
       const removed = fileRecord(workspace.id, { path: "b.md" });
@@ -58,7 +58,7 @@ export function describeWorkspaceStoreConformance(
     });
 
     test("scopes entries to their Workspace", async () => {
-      const store = await createStore();
+      const store = await open();
       const first = hostWorkspace({ path: newRoot("alpha") });
       const second = hostWorkspace({ path: newRoot("beta") });
       const firstReadme = fileRecord(first.id, { path: "README.md" });
@@ -76,7 +76,7 @@ export function describeWorkspaceStoreConformance(
     });
 
     test("finds the oldest registration by root or source reference", async () => {
-      const store = await createStore();
+      const store = await open();
       const artifactId = crypto.randomUUID();
       const older = artifactWorkspace(artifactId, newRoot("older"));
       const newer = {
@@ -93,7 +93,7 @@ export function describeWorkspaceStoreConformance(
     });
 
     test("lists registrations by creation time, then id, one page at a time", async () => {
-      const store = await createStore();
+      const store = await open();
       const first = hostWorkspace({
         createdAt: new Date(1000),
         path: newRoot("first"),
@@ -117,7 +117,7 @@ export function describeWorkspaceStoreConformance(
     });
 
     test("never shares objects with its callers", async () => {
-      const store = await createStore();
+      const store = await open();
       const workspace = hostWorkspace({ path: newRoot("detached") });
       const file = fileRecord(workspace.id, { path: "a.md" });
       await seed(store, workspace, [file]);
@@ -136,7 +136,7 @@ export function describeWorkspaceStoreConformance(
     });
 
     test("answers absent ids with nothing", async () => {
-      const store = await createStore();
+      const store = await open();
       const absent = newWorkspaceId();
       expect(await store.getWorkspace(absent)).toBeNull();
       expect(await store.listEntries(absent)).toEqual([]);

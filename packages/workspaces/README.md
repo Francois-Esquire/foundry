@@ -79,10 +79,11 @@ Enable storage observation to refresh automatically.
 
 ## Persistence
 
-`WorkspaceStore` is the persistence seam: it keeps registrations and their
-entries and applies one write atomically, and enforces nothing else.
-`MemoryWorkspaceStore` is the default. Supply another store to persist
-elsewhere:
+`WorkspaceStore` (on `@foundry/workspaces/store`) is the persistence seam: it
+keeps registrations and their entries and applies one write atomically, and
+enforces nothing else. `MemoryWorkspaceStore` (on
+`@foundry/workspaces/store/memory`) is the default. Supply another store to
+persist elsewhere:
 
 ```ts
 const workspaces = new WorkspaceSystem({ store, onError: log });
@@ -160,8 +161,9 @@ Git is opt-in on `@foundry/workspaces/git`: the `git()` layer, plus
 `Git.at(root)`, `Git.open(root)`, `Git.isRepository(root)`, and worktrees on
 the resulting `Git`.
 
-A store conformance suite for new `WorkspaceStore` implementations lives in
-`src/test/helpers/store-conformance.ts`.
+A new `WorkspaceStore` proves itself against the conformance suite on
+`@foundry/workspaces/testing`: `describeWorkspaceStore(name, open)` registers
+Vitest tests, and `open` returns a fresh empty store.
 
 Tests live in `src/test/`. The build emits declarations; runtime exports resolve
 to TypeScript source. Run lint and formatting checks from the repository root.

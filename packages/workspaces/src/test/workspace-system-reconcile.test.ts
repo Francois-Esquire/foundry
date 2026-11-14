@@ -5,13 +5,12 @@ import {
   WorkspacePersistenceError,
   WorkspaceSourceUnavailableError,
 } from "../errors";
-import { MemoryWorkspaceStore } from "../memory-store";
 import { nodeFileSystem } from "../node";
 import type { WorkspaceStore } from "../store";
+import { MemoryWorkspaceStore } from "../store/memory";
+import { fileRecord } from "../testing/records";
 import type { WorkspaceFileSystem } from "../types";
-
 import { directorySystem } from "./helpers/directory-system";
-import { fileRecord } from "./helpers/fixtures";
 import { makeRoot, systemOver } from "./helpers/temp-roots";
 
 describe("reconciliation", () => {

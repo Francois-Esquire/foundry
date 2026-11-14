@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { classifyFile } from "@foundry/lib/file-classification";
 import { afterAll, describe, expect, it } from "vitest";
 import { WorkspaceSourceUnavailableError } from "../errors";
-import { MemoryWorkspaceStore } from "../memory-store";
 import { nodeFileSystem } from "../node";
+import { MemoryWorkspaceStore } from "../store/memory";
 import type {
   FileContentResult,
   ObservedFacts,

@@ -14,12 +14,12 @@ import { promisify } from "node:util";
 import { afterAll, describe, expect, it } from "vitest";
 import { WorkspaceCatalog } from "../catalog";
 import { Workspace } from "../instance";
-import { MemoryWorkspaceStore } from "../memory-store";
 import { WithDirectory } from "../node";
 import type { GitPathStatus } from "../node/git";
 import { Git, git as gitLayer, WithGit, Worktree } from "../node/git";
+import { MemoryWorkspaceStore } from "../store/memory";
+import { hostWorkspace, seed } from "../testing/records";
 import { directorySystem } from "./helpers/directory-system";
-import { hostWorkspace, seed } from "./helpers/fixtures";
 
 const inspectGit = (root: string) => Git.at(root).status();
 

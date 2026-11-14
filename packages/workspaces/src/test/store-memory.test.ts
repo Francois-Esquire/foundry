@@ -3,14 +3,13 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it, vi } from "vitest";
-
-import { MemoryWorkspaceStore } from "../memory-store";
 import { directory } from "../node";
+import { MemoryWorkspaceStore } from "../store/memory";
+import { hostWorkspace, newRoot, seed } from "../testing/records";
+import { describeWorkspaceStore } from "../testing/store";
 import { WorkspaceSystem } from "../workspace-system";
-import { hostWorkspace, newRoot, seed } from "./helpers/fixtures";
-import { describeWorkspaceStoreConformance } from "./helpers/store-conformance";
 
-describeWorkspaceStoreConformance("memory", () => new MemoryWorkspaceStore());
+describeWorkspaceStore("memory", () => new MemoryWorkspaceStore());
 
 describe("WorkspaceSystem construction", () => {
   it("opens only the requested page and retains the catalog total", async () => {
@@ -63,17 +62,7 @@ describe("@foundry/workspaces dependencies", () => {
    * lint preference.
    */
   it("names no database, Electron, or app dependency", () => {
-    const manifest = JSON.parse(
-      readFileSync(
-        resolve(dirname(fileURLToPath(import.meta.url)), "../../package.json"),
-        "utf8"
-      )
-    ) as {
-      dependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-      peerDependencies?: Record<string, string>;
-    };
-
+    const manifest = readManifest();
     const declared = [
       ...Object.keys(manifest.dependencies ?? {}),
       ...Object.keys(manifest.devDependencies ?? {}),
@@ -94,3 +83,40 @@ describe("@foundry/workspaces dependencies", () => {
     ).toEqual([]);
   });
 });
+
+describe("@foundry/workspaces store paths", () => {
+  it("maps the store, memory store, and conformance suite to their files", () => {
+    const { exports } = readManifest();
+    expect(exports?.["./store"]?.import).toBe("./src/store/index.ts");
+    expect(exports?.["./store/memory"]?.import).toBe("./src/store/memory.ts");
+    expect(exports?.["./testing"]?.import).toBe("./src/testing/store.ts");
+  });
+
+  it("keeps every store implementation off the main entry", async () => {
+    const root = await import("../index");
+    const store = await import("../store/index");
+    const memory = await import("../store/memory");
+    const testing = await import("../testing/store");
+
+    expect(Object.keys(root)).not.toContain("MemoryWorkspaceStore");
+    expect(Object.keys(store)).toEqual([]);
+    expect(Object.keys(memory)).toEqual(["MemoryWorkspaceStore"]);
+    expect(Object.keys(testing)).toEqual(["describeWorkspaceStore"]);
+  });
+});
+
+interface Manifest {
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  exports?: Record<string, { import?: string }>;
+  peerDependencies?: Record<string, string>;
+}
+
+function readManifest(): Manifest {
+  return JSON.parse(
+    readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../../package.json"),
+      "utf8"
+    )
+  ) as Manifest;
+}

@@ -7,9 +7,9 @@ import {
   WorkspaceSourceUnsupportedError,
 } from "./errors";
 import { Workspace } from "./instance";
-import { MemoryWorkspaceStore } from "./memory-store";
 import { initialEntries } from "./reconcile";
 import type { WorkspaceStore } from "./store";
+import { MemoryWorkspaceStore } from "./store/memory";
 import type {
   AnyWorkspaceExtension,
   CapOf,
