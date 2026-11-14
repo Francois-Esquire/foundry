@@ -64,6 +64,11 @@ export async function relay(
     env: { ...process.env, [SERVER]: "1" },
     stdio: ["inherit", 2, "inherit", "pipe"],
   });
+  const protocol = child.stdio[PROTOCOL_FD];
+  if (!(protocol instanceof Readable)) {
+    child.kill("SIGTERM");
+    throw new Error("could not open the protocol pipe to the MCP server");
+  }
   const forward = (signal: NodeJS.Signals): void => {
     child.kill(signal);
   };
@@ -76,19 +81,15 @@ export async function relay(
       resolve(code ?? 128 + (signal === null ? 0 : constants.signals[signal]));
     });
   });
-  const protocol = child.stdio[PROTOCOL_FD];
-  const copied =
-    protocol instanceof Readable
-      ? pipeline(protocol, createWriteStream("", { fd: 1 })).catch(
-          (error: unknown) => {
-            // The client stopped reading; the server has nobody to answer.
-            process.stderr.write(
-              `marbles mcp: ${error instanceof Error ? error.message : String(error)}\n`
-            );
-            child.kill("SIGTERM");
-          }
-        )
-      : Promise.resolve();
+  const copied = pipeline(protocol, createWriteStream("", { fd: 1 })).catch(
+    (error: unknown) => {
+      // The client stopped reading; the server has nobody to answer.
+      process.stderr.write(
+        `marbles mcp: ${error instanceof Error ? error.message : String(error)}\n`
+      );
+      child.kill("SIGTERM");
+    }
+  );
   try {
     const [code] = await Promise.all([exited, copied]);
     process.exitCode = code;
