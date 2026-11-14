@@ -103,7 +103,8 @@ function serveFromState(flags: Flags): Served {
       }
     },
     id: own.id,
-    release: () => Promise.resolve(),
+    // A call already holding the tasks finishes before the server exits.
+    release: () => turn.then(() => undefined),
     tasks: (command, id = own.id) => {
       const target = recorded(id);
       return inTurn(() =>

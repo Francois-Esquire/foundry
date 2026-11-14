@@ -1,4 +1,5 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, it, vi } from "vitest";
@@ -94,12 +95,20 @@ async function start(
     : await rawMcpSession("bun", marbles, {
         cwd: root,
       });
-  const [, server, relay] = PIDS.exec(session.stderr()) ?? [];
-  if (server === undefined || relay === undefined) {
-    kill(session.pid);
-    throw new Error(`the server gave no pids:\n${session.stderr()}`);
-  }
-  return { relay: Number(relay), server: Number(server), session };
+  // Stderr is its own pipe, so it may trail the handshake's answer.
+  const pids = await vi
+    .waitFor(() => {
+      const [, server, relay] = PIDS.exec(session.stderr()) ?? [];
+      if (server === undefined || relay === undefined) {
+        throw new Error(`the server gave no pids:\n${session.stderr()}`);
+      }
+      return { relay: Number(relay), server: Number(server) };
+    })
+    .catch((error: unknown) => {
+      kill(session.pid);
+      throw error;
+    });
+  return { ...pids, session };
 }
 
 it("stops the server when the relay is killed and stdin stays open", async () => {
@@ -215,6 +224,37 @@ it("kills a server that does not stop after the relay's deadline", async () => {
   } finally {
     kill(started?.relay);
     kill(started?.server);
+    await rm(root, { force: true, recursive: true });
+  }
+}, 30_000);
+
+it("lets a stored-task call finish before it exits", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-turn-"));
+  const state = join(root, "state");
+  try {
+    const session = await rawMcpSession(
+      "bun",
+      ["--no-env-file", resolve("src/cli.ts"), "mcp", "--state", state],
+      { cwd: root }
+    );
+    session.notify("notifications/initialized");
+    for (const key of ["a", "b", "c"]) {
+      session
+        .request("tools/call", {
+          arguments: {
+            operations: [{ input: { title: key }, key, kind: "task.create" }],
+          },
+          name: "change_tasks",
+        })
+        .catch(() => undefined);
+    }
+    const ended = await within(session.close(), 10_000, "the exit");
+    expect(ended.code).toBe(0);
+    // No call was cut off holding the tasks.
+    for (const id of await readdir(state)) {
+      expect(existsSync(join(state, id, "locks", "tasks")), id).toBe(false);
+    }
+  } finally {
     await rm(root, { force: true, recursive: true });
   }
 }, 30_000);

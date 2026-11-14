@@ -95,6 +95,9 @@ export async function relay(
   held.resume();
   let killer: NodeJS.Timeout | undefined;
   const stop = (signal: NodeJS.Signals): void => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      return;
+    }
     child.kill(signal);
     killer ??= setTimeout(() => {
       process.stderr.write(
