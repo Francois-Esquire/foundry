@@ -1,17 +1,21 @@
 import type { Blob, BlobFiles, BlobSource } from "./blob";
 import type {
-  BlobStaging,
   ByteInput,
   ReferenceInput,
   StagedBytes,
   StagedChunk,
 } from "./blob-staging";
-import { checkSize } from "./blob-staging";
+import { BlobStaging, checkSize } from "./blob-staging";
 import type { ArtifactChange } from "./change";
 import { CHUNK_BYTES } from "./constants";
 import { InvalidArtifactInputError } from "./errors";
 import type { BlobId } from "./ref";
 import { blobIdSchema } from "./ref";
+
+// Kept at this path, where they lived before staging moved them.
+export type { ByteInput, ReferenceInput } from "./blob-staging";
+// biome-ignore lint/performance/noBarrelFile: A compatibility re-export at the path consumers imported it from.
+export { isReferenceInput } from "./blob-staging";
 
 /** What one operation did to backing storage, settled by the manager. */
 export interface BlobEffects {
@@ -112,14 +116,15 @@ export class BlobRepository implements BlobReader {
     options: {
       readonly files?: BlobFiles;
       readonly maxFileBytes: number;
-      readonly staging: BlobStaging;
+      /** The bytes staged ahead of the change; none when omitted. */
+      readonly staging?: BlobStaging;
     }
   ) {
     this.#change = change;
     this.#effects = effects;
     this.files = options.files;
     this.#maxFileBytes = options.maxFileBytes;
-    this.#staging = options.staging;
+    this.#staging = options.staging ?? new BlobStaging(options);
   }
 
   require(id: BlobId): Promise<Blob> {

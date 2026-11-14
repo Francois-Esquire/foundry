@@ -6,8 +6,8 @@ import { isStoragePath, withParentDirectories } from "@foundry/core/storage";
 import type { Blob, BlobFiles, ContentTree, StoredFile } from "./blob";
 import type { BlobEffects } from "./blob-repository";
 import { BlobRepository } from "./blob-repository";
-import type { BlobStaging, ByteInput } from "./blob-staging";
-import { isReferenceInput } from "./blob-staging";
+import type { ByteInput } from "./blob-staging";
+import { BlobStaging, isReferenceInput } from "./blob-staging";
 import type { ArtifactChange } from "./change";
 import type { ContentMetadata } from "./content";
 import {
@@ -87,12 +87,12 @@ export class ArtifactTransaction implements ArtifactOperations {
   readonly #blobs: BlobRepository;
   readonly #maxTreeBytes: number;
 
-  /** `staging` holds the bytes staged ahead of this change, if any. */
+  /** `staging` holds the bytes staged ahead of this change; none when omitted. */
   constructor(
     change: ArtifactChange,
     effects: OperationEffects,
     limits: TransactionLimits,
-    staging: BlobStaging
+    staging: BlobStaging = new BlobStaging(limits)
   ) {
     this.#change = change;
     this.#effects = effects;
