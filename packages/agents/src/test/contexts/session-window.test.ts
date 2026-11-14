@@ -45,6 +45,36 @@ describe("SessionWindow", () => {
     expect(updated?.title).toBe("t2");
   });
 
+  it("forwards the wrapped store's transaction, so two Sessions over it keep both updates", async () => {
+    const inner = new InMemorySessionStore();
+    const window = new SessionWindow(inner);
+    const a = new Sessions({ store: window });
+    const b = new Sessions({ store: window });
+    await a.createSession({ id: "s" });
+
+    await Promise.all([
+      a.updateSession("s", { title: "renamed" }),
+      b.updateSession("s", { status: "archived" }),
+    ]);
+
+    await expect(inner.getSession("s")).resolves.toMatchObject({
+      status: "archived",
+      title: "renamed",
+    });
+  });
+
+  it("offers no transaction over a store without one", () => {
+    const inner = new InMemorySessionStore();
+    const bare = new SessionWindow({
+      commit: (write) => inner.commit(write),
+      getMessage: (id) => inner.getMessage(id),
+      getSession: (id) => inner.getSession(id),
+      listMessages: (sessionId) => inner.listMessages(sessionId),
+    });
+
+    expect(bare.transaction).toBeUndefined();
+  });
+
   it("listMessages stays a raw full-history passthrough", async () => {
     const inner = new InMemorySessionStore();
     const window = new SessionWindow(inner);

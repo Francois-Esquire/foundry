@@ -21,12 +21,29 @@ export class SessionWindow implements SessionStore {
   readonly #options: SessionWindowOptions;
   readonly #highWaterRatio: number;
   readonly #state = new Map<string, WindowState>();
+  /**
+   * The wrapped store's transaction, when it has one, run over a window on
+   * the view it gives; without it two `Sessions` over this window would
+   * lose each other's updates.
+   */
+  readonly transaction?: <T>(
+    work: (view: SessionStore) => Promise<T>
+  ) => Promise<T>;
 
   constructor(store: SessionStore, options: SessionWindowOptions = {}) {
     this.#store = store;
     this.#options = options;
     this.#counter = options.counter ?? estimatingCounter;
     this.#highWaterRatio = options.highWaterRatio ?? DEFAULT_HIGH_WATER_RATIO;
+    if (store.transaction !== undefined) {
+      this.transaction = async <T>(
+        work: (view: SessionStore) => Promise<T>
+      ): Promise<T> =>
+        // Present, checked above; called on `store` so it keeps its `this`.
+        (await store.transaction?.((view) =>
+          work(new SessionWindow(view, options))
+        )) as T;
+    }
   }
 
   commit(write: SessionStoreWrite): Promise<void> {

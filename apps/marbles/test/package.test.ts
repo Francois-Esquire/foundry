@@ -247,15 +247,13 @@ import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, M
 import type { SessionStore, SessionStoreWrite } from "@foundry.sh/marbles/engine";
 // A host can wrap the store it hands the engine and still write sessions.
 const inner = new InMemorySessionStore();
-let commits = 0;
 const sessions: SessionStore = {
-  commit: (write: SessionStoreWrite) => {
-    commits += 1;
-    return inner.commit(write);
-  },
+  commit: (write: SessionStoreWrite) => inner.commit(write),
   getMessage: (id) => inner.getMessage(id),
   getSession: (id) => inner.getSession(id),
   listMessages: (sessionId) => inner.listMessages(sessionId),
+  // Forwarded, so writes from two Sessions over this store still exclude each other.
+  transaction: (work) => inner.transaction(work),
 };
 const written = new Sessions({ store: sessions });
 await written.createSession({ id: "host" });
@@ -282,7 +280,7 @@ const value = await engine.run<number>("host-save", { n: 1 });
 const [recorded] = engine.executions.list();
 await engine.dispose();
 console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.observations.length);
-console.log("host sessions", (await sessions.listMessages("host")).length, commits);
+console.log("host sessions", (await sessions.listMessages("host")).length, typeof sessions.transaction);
 `
     );
     // Loading the engine entry loads no CLI SDK: they sit behind dynamic imports.
@@ -321,7 +319,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, commi
     );
     const embedded = run("bun", ["embedded.ts"], consumer);
     expect(embedded).toContain("embedded 2 system complete 1");
-    expect(embedded).toContain("host sessions 1 2");
+    expect(embedded).toContain("host sessions 1 function");
     const cli = join(consumer, "node_modules/.bin/marbles");
     for (const command of [[], ["run"]]) {
       const terminal = await inspectDashboard(cli, consumer, command);

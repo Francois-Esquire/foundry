@@ -1781,6 +1781,10 @@ class UnlistedSessions implements SessionStore {
   listMessages(sessionId: string) {
     return this.#inner.listMessages(sessionId);
   }
+
+  transaction<T>(work: (view: SessionStore) => Promise<T>) {
+    return this.#inner.transaction(work);
+  }
 }
 
 it("a store that cannot list sessions and outlives the process says every total may be incomplete, since a session only a lost marker named is never found", async () => {
