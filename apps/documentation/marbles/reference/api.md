@@ -84,6 +84,20 @@ and a digest of its prompt. Two agents with one id and different prompts
 fail at load with `already declared … with a different prompt`; the same
 agent declared twice is fine, on any route.
 
+An agent made inside a factory function has no `const` of its own. Pass
+`name` so each agent the factory makes keeps its id:
+
+```ts
+const reviewer = (who: string) =>
+  agent({ name: `review-${who}`, prompt: `Review the work ${who} did.` });
+
+const codexReview = reviewer("codex"); // id "review-codex"
+const claudeReview = reviewer("claude"); // id "review-claude"
+```
+
+Without `name`, each agent's id is a digest of its prompt, which moves when
+the prompt changes.
+
 ### Workspace settings
 
 A workspace declaration selects a directory. It creates no dashboard entry
@@ -114,8 +128,14 @@ A declared artifact keeps its identity across runs; each
 
 ### Skills
 
-`skills.load()` is the global set under `~/.foundry/skills`
-plus the workspace's `skills/` folder; `skills.none()` starts empty.
+`skills.load()` reads six folders. In the home directory it reads
+`~/.agents/skills`, `~/.claude/skills`, and `~/.foundry/skills`. In the
+workspace it reads `.agents/skills`, `.claude/skills`, and `skills/`. Each
+skill is a folder directly under one of them that holds a `SKILL.md`; a
+symlinked folder counts. When two folders hold a skill with the same name,
+the workspace copy wins over the home copy. Within the home or the
+workspace, `skills/` or `.foundry/skills` wins over `.claude/skills`, which
+wins over `.agents/skills`. `skills.none()` starts empty.
 `.add(glob)` appends every folder matching the glob that holds a
 `SKILL.md`, and `.add(skill)` appends a skill defined in code with
 `defineSkill({ manifest, files? })`, exported from `@foundry.sh/marbles`.

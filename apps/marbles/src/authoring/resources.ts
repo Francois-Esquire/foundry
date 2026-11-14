@@ -172,7 +172,7 @@ function skillSet(ops: readonly SkillOp[]): SkillSet {
 }
 
 export const skills = {
-  /** The global and workspace skills. Chain `.add(glob)` and `.pick(...)`. */
+  /** The skills in the home and workspace skill folders. Chain `.add(glob)` and `.pick(...)`. */
   load(): SkillSet {
     return skillSet([{ kind: "load" }]);
   },

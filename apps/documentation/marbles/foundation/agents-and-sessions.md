@@ -257,9 +257,12 @@ settings, and compaction, see [Agent sessions](/marbles/reference/agent-sessions
 ## Skills and sandbox sessions
 
 Skills supply reusable instructions and files to an agent. `skills.load()`
-collects them from `~/.foundry/skills` and the project's `skills/` folder;
-`.add(glob)` adds directories and `.pick(...names)` narrows the set. Pass
-that set as the agent's `skills`.
+collects them from `.agents/skills`, `.claude/skills`, and `skills/` in the
+project, and from the same three folders in the home directory, with
+`.foundry/skills` in place of `skills/`. A project skill wins over a home
+skill with the same name. `.add(glob)` adds directories, such as
+`.add(".claude/skills/*")`, and `.pick(...names)` narrows the set. Pass that
+set as the agent's `skills`.
 
 Host sessions work in a local directory. `agents.session(def, { sandbox: box })`
 opens the conversation in the sandbox introduced on the previous page;
