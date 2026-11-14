@@ -15,12 +15,13 @@ import {
 /**
  * What every `WorkspaceStore` must do. A store enforces no catalog rule, so
  * these cases pin only persistence: every read, both writes, ordering,
- * scoping by Workspace, atomic writes, and detached values. `open` returns a
- * fresh, empty store.
+ * scoping by Workspace, atomic writes, detached values, and transactions.
+ * Each case calls `open` for fresh, empty storage, then opens a store over
+ * one scope of it.
  */
 export function describeWorkspaceStore(
   name: string,
-  open: () => WorkspaceStore | Promise<WorkspaceStore>
+  open: () => (scope: string) => WorkspaceStore
 ): void {
   describe(`${name} WorkspaceStore conformance`, () => {
     describeReads(open);
@@ -31,12 +32,16 @@ export function describeWorkspaceStore(
   });
 }
 
-type Open = () => WorkspaceStore | Promise<WorkspaceStore>;
+/** Opens fresh, empty storage, and a store over one scope of it. */
+type Open = () => (scope: string) => WorkspaceStore;
+
+/** The one scope every case works in. */
+const SCOPE = "workspaces";
 
 function describeReads(open: Open): void {
   describe("reads", () => {
     test("answer an empty store with nothing", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const absent = newWorkspaceId();
 
       expect(await store.getWorkspace(absent)).toBeNull();
@@ -48,7 +53,7 @@ function describeReads(open: Open): void {
     });
 
     test("round-trip a registration and its entries in path order", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const workspace = hostWorkspace({ path: newRoot("alpha") });
       const docs = directoryRecord(workspace.id, "docs");
       const readme = fileRecord(workspace.id, { path: "README.md" });
@@ -72,7 +77,7 @@ function describeReads(open: Open): void {
     });
 
     test("scope entries to their Workspace", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const first = hostWorkspace({ path: newRoot("alpha") });
       const second = hostWorkspace({ path: newRoot("beta") });
       const firstReadme = fileRecord(first.id, { path: "README.md" });
@@ -89,7 +94,7 @@ function describeReads(open: Open): void {
     });
 
     test("find the oldest registration by root or source reference", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const artifactId = crypto.randomUUID();
       const older = artifactWorkspace(artifactId, newRoot("older"));
       const newer = {
@@ -105,7 +110,7 @@ function describeReads(open: Open): void {
     });
 
     test("break a creation-time tie by id when finding the oldest", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const root = newRoot("shared");
       const [low, high] = [newWorkspaceId(), newWorkspaceId()].sort();
       const first = hostWorkspace({ id: low, path: root, sourceId: "same" });
@@ -118,7 +123,7 @@ function describeReads(open: Open): void {
     });
 
     test("list registrations by creation time, then id, one page at a time", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const [low, middle, high] = [
         newWorkspaceId(),
         newWorkspaceId(),
@@ -167,7 +172,7 @@ function describeReads(open: Open): void {
 function describeWrites(open: Open): void {
   describe("writes", () => {
     test("a save replaces the registration and applies entry changes", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const workspace = hostWorkspace({ path: newRoot("alpha") });
       const kept = fileRecord(workspace.id, { path: "a.md" });
       const removed = fileRecord(workspace.id, { path: "b.md" });
@@ -188,7 +193,7 @@ function describeWrites(open: Open): void {
     });
 
     test("a save with only a registration leaves its entries alone", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const workspace = hostWorkspace({ path: newRoot("alpha") });
       const readme = fileRecord(workspace.id, { path: "README.md" });
       await seed(store, workspace, [readme]);
@@ -201,7 +206,7 @@ function describeWrites(open: Open): void {
     });
 
     test("entry deletes apply before entry puts", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const workspace = hostWorkspace({ path: newRoot("alpha") });
       const readme = fileRecord(workspace.id, { path: "README.md" });
       await seed(store, workspace, [readme]);
@@ -217,7 +222,7 @@ function describeWrites(open: Open): void {
     });
 
     test("a removal deletes the registration and the entries it names", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const first = hostWorkspace({ path: newRoot("alpha") });
       const second = hostWorkspace({ path: newRoot("beta") });
       const firstReadme = fileRecord(first.id, { path: "README.md" });
@@ -241,7 +246,7 @@ function describeWrites(open: Open): void {
     });
 
     test("a removal deletes only what it names", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const workspace = hostWorkspace({ path: newRoot("alpha") });
       const named = fileRecord(workspace.id, { path: "a.md" });
       const unnamed = fileRecord(workspace.id, { path: "b.md" });
@@ -257,7 +262,7 @@ function describeWrites(open: Open): void {
     });
 
     test("a removal of an absent Workspace changes nothing", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const workspace = hostWorkspace({ path: newRoot("alpha") });
       await seed(store, workspace);
 
@@ -275,7 +280,7 @@ function describeWrites(open: Open): void {
 function describeAtomicity(open: Open): void {
   describe("atomicity", () => {
     test("a failing save leaves an existing Workspace as it was", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const workspace = hostWorkspace({ path: newRoot("alpha") });
       const kept = fileRecord(workspace.id, { path: "a.md" });
       const doomed = fileRecord(workspace.id, { path: "b.md" });
@@ -301,7 +306,7 @@ function describeAtomicity(open: Open): void {
     });
 
     test("a failing first save leaves no Workspace behind", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const workspace = hostWorkspace({ path: newRoot("alpha") });
 
       await expect(
@@ -330,7 +335,7 @@ function describeAtomicity(open: Open): void {
 function describeDetachment(open: Open): void {
   describe("detachment", () => {
     test("a committed value is not shared with the caller", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const workspace = hostWorkspace({ path: newRoot("detached") });
       const file = fileRecord(workspace.id, { path: "a.md" });
       const expected = {
@@ -351,7 +356,7 @@ function describeDetachment(open: Open): void {
     });
 
     test("no read hands out a value the store keeps", async () => {
-      const store = await open();
+      const store = open()(SCOPE);
       const workspace = hostWorkspace({
         path: newRoot("detached"),
         sourceId: crypto.randomUUID(),
@@ -406,7 +411,7 @@ function describeTransactions(open: Open): void {
     test("no outside write lands between a transaction's read and its commit", async ({
       skip,
     }) => {
-      const store = await open();
+      const store = open()(SCOPE);
       if (store.transaction === undefined) {
         return skip();
       }
@@ -437,7 +442,7 @@ function describeTransactions(open: Open): void {
     test("transactions over one store do not lose each other's writes", async ({
       skip,
     }) => {
-      const store = await open();
+      const store = open()(SCOPE);
       const { transaction } = store;
       if (transaction === undefined) {
         return skip();
@@ -465,7 +470,7 @@ function describeTransactions(open: Open): void {
     test("answer with the work's result, and recover from its failure", async ({
       skip,
     }) => {
-      const store = await open();
+      const store = open()(SCOPE);
       if (store.transaction === undefined) {
         return skip();
       }

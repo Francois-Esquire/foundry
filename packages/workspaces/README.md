@@ -165,7 +165,8 @@ the resulting `Git`.
 
 A new `WorkspaceStore` proves itself against the conformance suite on
 `@foundry/workspaces/testing/store`: `describeWorkspaceStore(name, open)`
-registers Vitest tests, and `open` returns a fresh empty store.
+registers Vitest tests. `open()` returns fresh, empty storage as a function
+`(scope: string) => WorkspaceStore`.
 
 Tests live in `src/test/`. The build emits declarations; runtime exports resolve
 to TypeScript source. Run lint and formatting checks from the repository root.
