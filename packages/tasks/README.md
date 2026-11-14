@@ -58,7 +58,9 @@ given, and none when `tags` is omitted; `update` replaces them all with the
 array given, `[]` clears them, and omitting `tags` keeps them. A record
 stored before tasks had tags reads as having none.
 
-Metadata is JSON the host owns. `create` stores it as given. `update` merges
+Metadata is JSON the host owns, stored as a copy. A `__proto__` key at any
+depth, a getter, or a value JSON cannot hold is refused with
+`invalid_operation`; `taskChangeSchema` refuses the same. `update` merges
 top-level keys: each key in the patch is set over the stored metadata, a key
 whose value is `null` is removed, and a key left out is kept. A nested object
 replaces the stored value for its key whole, and `metadata: {}` leaves the
