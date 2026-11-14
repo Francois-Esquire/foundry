@@ -40,7 +40,9 @@ export interface WorkspaceStore {
   /**
    * Runs one read-modify-write so that no other write to the store lands
    * between its reads and its commit, from any catalog over the store. `work`
-   * reads and commits through `view` only. Without it, mutations are
+   * reads and commits through `view` only, and its reads see its own commits.
+   * A commit from outside waits for the transaction to end, then lands. If
+   * `work` throws, none of its commits stay. Without it, mutations are
    * serialized per catalog and no further.
    */
   transaction?: <T>(work: (view: WorkspaceStore) => Promise<T>) => Promise<T>;

@@ -10,48 +10,125 @@ import type {
 import type { WorkspaceStore, WorkspaceStoreWrite } from "./index";
 
 /**
- * The default store: plain maps in this process. Writes and transactions run
- * one at a time, so a write from outside a transaction waits for it to end.
+ * The default store: plain maps in this process. Commits and transactions
+ * take turns in one queue, so a commit from outside a transaction waits for
+ * it to end. A transaction works on a staged copy of the maps that replaces
+ * them only when its work succeeds.
  */
 export class MemoryWorkspaceStore implements WorkspaceStore {
-  private readonly workspaces = new Map<WorkspaceId, WorkspaceRegistration>();
-  private readonly entries = new Map<
-    WorkspaceId,
-    Map<WorkspaceEntryId, WorkspaceEntry>
-  >();
+  private storage = new Storage();
   private tail: Promise<void> = Promise.resolve();
 
   commit(write: WorkspaceStoreWrite): Promise<void> {
-    return this.queued(() => this.apply(write));
+    return this.queued(() => this.storage.apply(write));
   }
 
   transaction<T>(work: (view: WorkspaceStore) => Promise<T>): Promise<T> {
     return this.queued(async () => {
+      const staged = this.storage.copy();
       let open = true;
       const view: WorkspaceStore = {
         commit: (write) =>
-          open
-            ? this.apply(write)
-            : Promise.reject(new Error("This transaction has ended")),
-        findWorkspaceByPath: (path) => this.findWorkspaceByPath(path),
+          new Promise((resolve) => {
+            if (!open) {
+              throw new Error("This transaction has ended");
+            }
+            resolve(staged.apply(write));
+          }),
+        findWorkspaceByPath: (path) =>
+          Promise.resolve(staged.findWorkspaceByPath(path)),
         findWorkspaceBySourceId: (sourceId) =>
-          this.findWorkspaceBySourceId(sourceId),
-        getEntry: (workspaceId, entryId) => this.getEntry(workspaceId, entryId),
-        getWorkspace: (workspaceId) => this.getWorkspace(workspaceId),
-        listEntries: (workspaceId) => this.listEntries(workspaceId),
-        listWorkspaces: (input) => this.listWorkspaces(input),
+          Promise.resolve(staged.findWorkspaceBySourceId(sourceId)),
+        getEntry: (workspaceId, entryId) =>
+          Promise.resolve(staged.getEntry(workspaceId, entryId)),
+        getWorkspace: (workspaceId) =>
+          Promise.resolve(staged.getWorkspace(workspaceId)),
+        listEntries: (workspaceId) =>
+          Promise.resolve(staged.listEntries(workspaceId)),
+        listWorkspaces: (input) =>
+          Promise.resolve(staged.listWorkspaces(input)),
       };
       try {
-        return await work(view);
+        const result = await work(view);
+        this.storage = staged;
+        return result;
       } finally {
         open = false;
       }
     });
   }
 
-  // Async, and clones first, so a write holding a value that cannot be cloned
-  // rejects whole instead of throwing partway.
-  private async apply(write: WorkspaceStoreWrite): Promise<void> {
+  getWorkspace(
+    workspaceId: WorkspaceId
+  ): Promise<WorkspaceRegistration | null> {
+    return Promise.resolve(this.storage.getWorkspace(workspaceId));
+  }
+
+  findWorkspaceByPath(path: string): Promise<WorkspaceRegistration | null> {
+    return Promise.resolve(this.storage.findWorkspaceByPath(path));
+  }
+
+  findWorkspaceBySourceId(
+    sourceId: string
+  ): Promise<WorkspaceRegistration | null> {
+    return Promise.resolve(this.storage.findWorkspaceBySourceId(sourceId));
+  }
+
+  listWorkspaces(
+    input?: PageInput<number>
+  ): Promise<Page<WorkspaceRegistration, number>> {
+    return Promise.resolve(this.storage.listWorkspaces(input));
+  }
+
+  getEntry(
+    workspaceId: WorkspaceId,
+    entryId: WorkspaceEntryId
+  ): Promise<WorkspaceEntry | null> {
+    return Promise.resolve(this.storage.getEntry(workspaceId, entryId));
+  }
+
+  listEntries(workspaceId: WorkspaceId): Promise<readonly WorkspaceEntry[]> {
+    return Promise.resolve(this.storage.listEntries(workspaceId));
+  }
+
+  private queued<T>(work: () => T | Promise<T>): Promise<T> {
+    const run = this.tail.then(work);
+    this.tail = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  }
+}
+
+/**
+ * The maps one store holds. A write never changes an entry map in place, so
+ * a copy of the two outer maps is a full, independent snapshot.
+ */
+class Storage {
+  private readonly workspaces: Map<WorkspaceId, WorkspaceRegistration>;
+  private readonly entries: Map<
+    WorkspaceId,
+    ReadonlyMap<WorkspaceEntryId, WorkspaceEntry>
+  >;
+
+  constructor(
+    workspaces = new Map<WorkspaceId, WorkspaceRegistration>(),
+    entries = new Map<
+      WorkspaceId,
+      ReadonlyMap<WorkspaceEntryId, WorkspaceEntry>
+    >()
+  ) {
+    this.workspaces = workspaces;
+    this.entries = entries;
+  }
+
+  copy(): Storage {
+    return new Storage(new Map(this.workspaces), new Map(this.entries));
+  }
+
+  /** Clones first, so a write holding a value that cannot be cloned changes nothing. */
+  apply(write: WorkspaceStoreWrite): void {
     const workspace =
       write.workspace === undefined ? null : structuredClone(write.workspace);
     const workspaceId =
@@ -83,68 +160,52 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
     }
   }
 
-  getWorkspace(
-    workspaceId: WorkspaceId
-  ): Promise<WorkspaceRegistration | null> {
+  getWorkspace(workspaceId: WorkspaceId): WorkspaceRegistration | null {
     const workspace = this.workspaces.get(workspaceId);
-    return Promise.resolve(workspace ? structuredClone(workspace) : null);
+    return workspace ? structuredClone(workspace) : null;
   }
 
-  findWorkspaceByPath(path: string): Promise<WorkspaceRegistration | null> {
+  findWorkspaceByPath(path: string): WorkspaceRegistration | null {
     return this.oldest((workspace) => workspace.source.path === path);
   }
 
-  findWorkspaceBySourceId(
-    sourceId: string
-  ): Promise<WorkspaceRegistration | null> {
+  findWorkspaceBySourceId(sourceId: string): WorkspaceRegistration | null {
     return this.oldest((workspace) => workspace.source.sourceId === sourceId);
   }
 
   listWorkspaces(
     input: PageInput<number> = {}
-  ): Promise<Page<WorkspaceRegistration, number>> {
+  ): Page<WorkspaceRegistration, number> {
     const page = sliceRanked(
       this.ordered(),
       pageLimit(input.limit),
       input.cursor ?? 0
     );
-    return Promise.resolve({
+    return {
       ...page,
       items: page.items.map((workspace) => structuredClone(workspace)),
-    });
+    };
   }
 
   getEntry(
     workspaceId: WorkspaceId,
     entryId: WorkspaceEntryId
-  ): Promise<WorkspaceEntry | null> {
+  ): WorkspaceEntry | null {
     const entry = this.entries.get(workspaceId)?.get(entryId);
-    return Promise.resolve(entry ? structuredClone(entry) : null);
+    return entry ? structuredClone(entry) : null;
   }
 
-  listEntries(workspaceId: WorkspaceId): Promise<readonly WorkspaceEntry[]> {
-    const entries = [...(this.entries.get(workspaceId)?.values() ?? [])];
-    return Promise.resolve(
-      entries
-        .sort(byCodeUnit((entry) => entry.path))
-        .map((entry) => structuredClone(entry))
-    );
-  }
-
-  private queued<T>(work: () => Promise<T>): Promise<T> {
-    const run = this.tail.then(work);
-    this.tail = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
+  listEntries(workspaceId: WorkspaceId): readonly WorkspaceEntry[] {
+    return [...(this.entries.get(workspaceId)?.values() ?? [])]
+      .sort(byCodeUnit((entry) => entry.path))
+      .map((entry) => structuredClone(entry));
   }
 
   private oldest(
     matches: (workspace: WorkspaceRegistration) => boolean
-  ): Promise<WorkspaceRegistration | null> {
+  ): WorkspaceRegistration | null {
     const found = this.ordered().find(matches);
-    return Promise.resolve(found ? structuredClone(found) : null);
+    return found ? structuredClone(found) : null;
   }
 
   private ordered(): WorkspaceRegistration[] {

@@ -408,7 +408,7 @@ function describeDetachment(open: Open): void {
 /** A store that offers no `transaction` skips these: it promises no exclusion. */
 function describeTransactions(open: Open): void {
   describe("transactions", () => {
-    test("no outside write lands between a transaction's read and its commit", async ({
+    test("an outside commit waits for a running transaction, then lands", async ({
       skip,
     }) => {
       const store = open()(SCOPE);
@@ -437,6 +437,96 @@ function describeTransactions(open: Open): void {
       expect(await inside).toEqual({ after: workspace, before: workspace });
       await outside;
       expect((await store.getWorkspace(workspace.id))?.name).toBe("outside");
+    });
+
+    test("a transaction that throws keeps none of its commits", async ({
+      skip,
+    }) => {
+      const store = open()(SCOPE);
+      if (store.transaction === undefined) {
+        return skip();
+      }
+      const existing = hostWorkspace({ path: newRoot("existing") });
+      const kept = fileRecord(existing.id, { path: "a.md" });
+      const doomed = fileRecord(existing.id, { path: "b.md" });
+      await seed(store, existing, [kept, doomed]);
+      const before = await everything(store, existing);
+      const added = hostWorkspace({ path: newRoot("added") });
+
+      await expect(
+        store.transaction(async (view) => {
+          await view.commit({
+            deleteEntries: [doomed.id],
+            putEntries: [{ ...kept, bytes: 9 }],
+            workspace: { ...existing, name: "renamed" },
+          });
+          await view.commit({
+            putEntries: [fileRecord(added.id, { path: "c.md" })],
+            workspace: added,
+          });
+          await view.commit({
+            deleteEntries: [kept.id],
+            removeWorkspace: existing.id,
+          });
+          throw new Error("refused");
+        })
+      ).rejects.toThrow("refused");
+
+      expect(await everything(store, existing)).toEqual(before);
+      expect(await store.getEntry(existing.id, doomed.id)).toEqual(doomed);
+      expect(await store.getWorkspace(added.id)).toBeNull();
+      expect(await store.listEntries(added.id)).toEqual([]);
+      expect(await store.findWorkspaceByPath(added.source.path)).toBeNull();
+    });
+
+    test("reads through the view see the transaction's own commits", async ({
+      skip,
+    }) => {
+      const store = open()(SCOPE);
+      if (store.transaction === undefined) {
+        return skip();
+      }
+      const removed = hostWorkspace({ path: newRoot("removed") });
+      const gone = fileRecord(removed.id, { path: "gone.md" });
+      await seed(store, removed, [gone]);
+      const added = hostWorkspace({
+        path: newRoot("added"),
+        sourceId: crypto.randomUUID(),
+      });
+      const file = fileRecord(added.id, { path: "a.md" });
+
+      const seen = await store.transaction(async (view) => {
+        await view.commit({ putEntries: [file], workspace: added });
+        await view.commit({
+          deleteEntries: [gone.id],
+          removeWorkspace: removed.id,
+        });
+        return {
+          byPath: await view.findWorkspaceByPath(added.source.path),
+          bySourceId: await view.findWorkspaceBySourceId(
+            added.source.sourceId ?? ""
+          ),
+          entries: await view.listEntries(added.id),
+          entry: await view.getEntry(added.id, file.id),
+          gone: await view.getEntry(removed.id, gone.id),
+          list: await view.listWorkspaces(),
+          removed: await view.getWorkspace(removed.id),
+          workspace: await view.getWorkspace(added.id),
+        };
+      });
+
+      expect(seen).toEqual({
+        byPath: added,
+        bySourceId: added,
+        entries: [file],
+        entry: file,
+        gone: null,
+        list: { items: [added], total: 1 },
+        removed: null,
+        workspace: added,
+      });
+      expect(await store.getWorkspace(added.id)).toEqual(added);
+      expect(await store.getWorkspace(removed.id)).toBeNull();
     });
 
     test("transactions over one store do not lose each other's writes", async ({

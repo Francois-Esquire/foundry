@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { WorkspaceCatalog } from "../catalog";
+import type { WorkspaceStore } from "../store";
 import { MemoryWorkspaceStore } from "../store/memory";
 import {
   artifactWorkspace,
@@ -499,29 +500,38 @@ describe("WorkspaceCatalog over a store shared with another catalog", () => {
 
 /**
  * Holds the first call to one store read after it answers, until released,
- * so a test can act while a mutation is between its read and its commit.
+ * so a test can act while a mutation is between its read and its commit. The
+ * read is held whether it goes to the store or to a transaction's view.
  */
 function pauseAfterFirst(
-  store: MemoryWorkspaceStore,
+  store: WorkspaceStore,
   method: "findWorkspaceByPath" | "listEntries"
 ) {
+  type Read = (...args: unknown[]) => Promise<unknown>;
   const reached = Promise.withResolvers<undefined>();
   const release = Promise.withResolvers<undefined>();
-  const read = store[method].bind(store) as (
-    ...args: unknown[]
-  ) => Promise<unknown>;
   let armed = true;
-  (store as unknown as Record<string, unknown>)[method] = async (
-    ...args: unknown[]
-  ) => {
-    const answer = await read(...args);
-    if (armed) {
-      armed = false;
-      reached.resolve(undefined);
-      await release.promise;
-    }
-    return answer;
-  };
+  const hold =
+    (read: Read): Read =>
+    async (...args) => {
+      const answer = await read(...args);
+      if (armed) {
+        armed = false;
+        reached.resolve(undefined);
+        await release.promise;
+      }
+      return answer;
+    };
+  const readOf = (target: WorkspaceStore): Read =>
+    (target[method] as Read).bind(target);
+  const transaction = store.transaction?.bind(store);
+  Object.assign(store, {
+    [method]: hold(readOf(store)),
+    ...(transaction && {
+      transaction: <T>(work: (view: WorkspaceStore) => Promise<T>) =>
+        transaction((view) => work({ ...view, [method]: hold(readOf(view)) })),
+    }),
+  });
   return {
     reached: reached.promise,
     release: () => release.resolve(undefined),
