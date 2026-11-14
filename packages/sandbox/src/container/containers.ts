@@ -52,12 +52,15 @@ export interface Containers {
   open(id: string, signal?: AbortSignal): Promise<Container>;
   /**
    * Delete a row whose VM is not live here, removing whatever the runtime
-   * still holds under its native name. Refuses while a handle is open.
+   * still holds under its native name. Refuses while a handle is open; an
+   * `open` or `restart` that begins before the delete commits is refused.
    */
   remove(id: string): Promise<void>;
   /**
    * The one change mechanism. Replaces the VM under the same row, with a new
    * spec when given. Open handles stay valid and see the new sandbox.
+   * Restarts of one container take turns; one whose last handle closes before
+   * it finishes stops and rejects, and the close removes whatever it booted.
    */
   restart(
     id: string,
@@ -96,6 +99,8 @@ interface Live {
   handles: number;
   row: ContainerRow;
   sandbox: ContainerSandbox;
+  /** The restart in progress, settled; a release waits for it. */
+  turn: Promise<void>;
 }
 
 /**
@@ -110,6 +115,8 @@ export function createContainers(options: CreateContainersOptions): Containers {
   const live = new Map<string, Live>();
   const pending = new Map<string, Promise<Live>>();
   const releasing = new Map<string, Promise<void>>();
+  /** Ids reserved by a `remove` from its checks until its delete commits. */
+  const removing = new Set<string>();
   let stopped = false;
   let tail: Promise<unknown> = Promise.resolve();
 
@@ -261,7 +268,12 @@ export function createContainers(options: CreateContainersOptions): Containers {
     signal: AbortSignal | undefined
   ): Promise<Live> => {
     const booted = await boot(entry, constraints, signal);
-    const created: Live = { ...booted, handles: 0, row: entry.row };
+    const created: Live = {
+      ...booted,
+      handles: 0,
+      row: entry.row,
+      turn: Promise.resolve(),
+    };
     live.set(entry.row.id, created);
     return created;
   };
@@ -269,6 +281,8 @@ export function createContainers(options: CreateContainersOptions): Containers {
   const release = (entry: Live): Promise<void> => {
     live.delete(entry.row.id);
     const done = (async () => {
+      // A restart under way finishes first, so the VM removed is its VM.
+      await entry.turn;
       await entry.sandbox.remove();
       await update(entry, { status: "stopped" });
     })().finally(() => releasing.delete(entry.row.id));
@@ -325,6 +339,15 @@ export function createContainers(options: CreateContainersOptions): Containers {
     });
   };
 
+  const assertNotRemoving = (id: string): void => {
+    if (removing.has(id)) {
+      throw new SandboxError(
+        "invalid-transition",
+        `container ${id} is being removed`
+      );
+    }
+  };
+
   const assertOpen = (): void => {
     if (stopped) {
       throw new SandboxError(
@@ -345,6 +368,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
       }
       let inflight = pending.get(id);
       if (inflight === undefined) {
+        assertNotRemoving(id);
         inflight = (async () => {
           await released(id);
           const row = await rowOrThrow(id);
@@ -365,25 +389,26 @@ export function createContainers(options: CreateContainersOptions): Containers {
 
     async remove(id) {
       assertOpen();
-      await released(id);
-      const removable = async (view: ContainerStore): Promise<ContainerRow> => {
-        if (live.has(id) || pending.has(id)) {
-          throw new SandboxError(
-            "invalid-transition",
-            `container ${id} is live; close every handle before removing it`
-          );
-        }
-        return await rowOrThrow(id, view);
-      };
-      const row = await serialized(removable);
-      if (row.nativeId !== undefined) {
-        await removeNative(runtime, row.nativeId);
+      if (live.has(id) || pending.has(id)) {
+        throw new SandboxError(
+          "invalid-transition",
+          `container ${id} is live; close every handle before removing it`
+        );
       }
-      // Checked again: an `open` may have begun while the VM was removed.
-      await serialized(async (view) => {
-        await removable(view);
-        await view.commit({ deleteContainers: [id] });
-      });
+      assertNotRemoving(id);
+      // Reserved before the first await and held until the delete commits,
+      // so no `open` can begin on the row while it is being removed.
+      removing.add(id);
+      try {
+        await released(id);
+        const row = await rowOrThrow(id);
+        if (row.nativeId !== undefined) {
+          await removeNative(runtime, row.nativeId);
+        }
+        await serialized((view) => view.commit({ deleteContainers: [id] }));
+      } finally {
+        removing.delete(id);
+      }
     },
 
     async restart(id, spec, signal) {
@@ -391,6 +416,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
       const entry = live.get(id);
       if (entry === undefined) {
         // Not live here: the next `open` boots it with the new spec.
+        assertNotRemoving(id);
         const row = await rowOrThrow(id);
         if (spec !== undefined) {
           await update({ row }, { spec: JSON.stringify(parseSpec(spec)) });
@@ -401,22 +427,42 @@ export function createContainers(options: CreateContainersOptions): Containers {
         spec === undefined
           ? parseSpec(JSON.parse(entry.row.spec))
           : parseSpec(spec);
-      await update(entry, {
-        status: "restarting",
-        ...(spec === undefined ? {} : { spec: JSON.stringify(constraints) }),
-      });
-      await entry.sandbox.remove();
-      try {
-        await update(entry, (current) => ({
-          nativeId: nextNativeId(current),
-        }));
-        const booted = await boot(entry, constraints, signal);
-        entry.sandbox = booted.sandbox;
-        entry.facets = booted.facets;
-      } catch (error: unknown) {
-        live.delete(id);
-        throw error;
-      }
+      /** Refuses to go on once the last handle has closed. */
+      const assertStillLive = (): void => {
+        if (live.get(id) !== entry) {
+          throw new SandboxError(
+            "invalid-transition",
+            `container ${id} was closed before its restart finished`
+          );
+        }
+      };
+      const run = async (): Promise<void> => {
+        assertStillLive();
+        await update(entry, {
+          status: "restarting",
+          ...(spec === undefined ? {} : { spec: JSON.stringify(constraints) }),
+        });
+        await entry.sandbox.remove();
+        assertStillLive();
+        try {
+          await update(entry, (current) => ({
+            nativeId: nextNativeId(current),
+          }));
+          assertStillLive();
+          const booted = await boot(entry, constraints, signal);
+          entry.sandbox = booted.sandbox;
+          entry.facets = booted.facets;
+        } catch (error: unknown) {
+          if (live.get(id) === entry) {
+            live.delete(id);
+          }
+          throw error;
+        }
+      };
+      // Restarts of one container take turns; a release waits for the last.
+      const turn = entry.turn.then(run, run);
+      entry.turn = turn.catch(() => undefined);
+      await turn;
     },
 
     async shutdown() {

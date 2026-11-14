@@ -5,8 +5,10 @@ type Rows = Map<string, ContainerRow>;
 
 /**
  * The default store: a map in this process. Reads hand out frozen copies.
- * Commits and transactions take turns in one queue; a transaction works on a
- * staged copy of the rows that replaces them only when its work succeeds.
+ * Each commit builds new rows and swaps them in only when it succeeds.
+ * Commits and transactions take turns in one queue; a transaction's commits
+ * build on its own staged rows, which replace the store's only when its work
+ * succeeds.
  */
 export function createMemoryContainerStore(): ContainerStore {
   let rows: Rows = new Map();
@@ -22,12 +24,15 @@ export function createMemoryContainerStore(): ContainerStore {
   };
 
   return {
-    commit: (write) => queued(() => apply(rows, write)),
+    commit: (write) =>
+      queued(() => {
+        rows = applied(rows, write);
+      }),
     get: (id) => Promise.resolve(read(rows, id)),
     list: () => Promise.resolve(readAll(rows)),
     transaction: (work) =>
       queued(async () => {
-        const staged: Rows = new Map(rows);
+        let staged = rows;
         let open = true;
         const view: ContainerStore = {
           commit(write) {
@@ -35,7 +40,7 @@ export function createMemoryContainerStore(): ContainerStore {
               return Promise.reject(new Error("transaction is closed"));
             }
             try {
-              apply(staged, write);
+              staged = applied(staged, write);
             } catch (error: unknown) {
               return Promise.reject(error);
             }
@@ -55,15 +60,20 @@ export function createMemoryContainerStore(): ContainerStore {
   };
 }
 
-function apply(rows: Rows, write: ContainerStoreWrite): void {
-  // Copy every row first so one that cannot be read refuses the whole write.
-  const puts = (write.putContainers ?? []).map(detached);
+/**
+ * The rows after `write`, deletes before puts, built on a copy so that a
+ * write failing at any point leaves `rows` exactly as they were.
+ */
+function applied(rows: Rows, write: ContainerStoreWrite): Rows {
+  const next = new Map(rows);
   for (const id of write.deleteContainers ?? []) {
-    rows.delete(id);
+    next.delete(id);
   }
-  for (const row of puts) {
-    rows.set(row.id, row);
+  for (const row of write.putContainers ?? []) {
+    const kept = detached(row);
+    next.set(kept.id, kept);
   }
+  return next;
 }
 
 function read(rows: Rows, id: string): ContainerRow | undefined {

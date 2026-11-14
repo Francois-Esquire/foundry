@@ -21,6 +21,8 @@ import { createFakeContainerRuntime } from "../testing";
 const MISSING_HYPERVISOR_ERROR = /no hypervisor/;
 const MISSING_CONTAINER_ERROR = /does not exist/;
 const DUPLICATE_CONTAINER_ERROR = /already exists/;
+const REMOVING_CONTAINER_ERROR = /being removed/;
+const CLOSED_DURING_RESTART_ERROR = /closed before its restart finished/;
 const INVALID_SPEC_ERROR = /invalid container spec/;
 const LIVE_CONTAINER_ERROR = /live/;
 const SHUTDOWN_ERROR = /shut down/;
@@ -589,6 +591,57 @@ describe("containers registry", () => {
     }
     expect(await store.get(first.id)).toEqual(before);
     expect(await containers.list()).toHaveLength(1);
+  });
+
+  it("refuses an open that begins while the row is being removed", async () => {
+    const { hold, store } = gatedStore({ transactional: true });
+    const runtime = createFakeContainerRuntime();
+    const containers = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const c = await containers.start(SPEC);
+    await c.close();
+
+    const gate = hold(
+      (write) => write.deleteContainers?.includes(c.id) ?? false
+    );
+    const removing = containers.remove(c.id);
+    await gate.caught;
+    const opening = containers.open(c.id);
+    const restarting = containers.restart(c.id, SPEC);
+    gate.release();
+
+    await expect(opening).rejects.toThrow(REMOVING_CONTAINER_ERROR);
+    await expect(restarting).rejects.toThrow(REMOVING_CONTAINER_ERROR);
+    await removing;
+    expect(await store.get(c.id)).toBeUndefined();
+    expect(runtime.instances).toHaveLength(1);
+  });
+
+  it("stops a restart whose last handle closes and leaves no VM behind", async () => {
+    const { hold, store } = gatedStore({ transactional: true });
+    const runtime = createFakeContainerRuntime();
+    const containers = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const c = await containers.start(SPEC);
+
+    const gate = hold(
+      (write) => write.putContainers?.[0]?.nativeId === `${c.id}-2`
+    );
+    const restarting = containers.restart(c.id);
+    await gate.caught;
+    const closing = c.close();
+    gate.release();
+
+    await expect(restarting).rejects.toThrow(CLOSED_DURING_RESTART_ERROR);
+    await closing;
+    expect(runtime.instances.every((instance) => instance.removed)).toBe(true);
+    expect((await store.get(c.id))?.status).toBe("stopped");
   });
 
   it("remove deletes a closed row and refuses a live one", async () => {

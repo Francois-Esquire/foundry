@@ -37,6 +37,18 @@ function transactionOf(
     : transaction.bind(store);
 }
 
+/** Ids whose second element throws when read, after the first was taken. */
+function unreadableSecond(values: readonly [string, string]): string[] {
+  const list = [values[0]];
+  Object.defineProperty(list, 1, {
+    enumerable: true,
+    get(): string {
+      throw new Error("id cannot be read");
+    },
+  });
+  return list;
+}
+
 /** Lets every other queued callback run, so a missing exclusion would show. */
 function yieldTurn(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -130,6 +142,37 @@ export function describeContainerStore(
       ).rejects.toThrow();
       expect(ids(await store.list())).toEqual(["kept"]);
       expect(await store.get("c1")).toBeUndefined();
+    });
+
+    it("keeps every row of a write that fails while reading its deletes", async () => {
+      const store = await open();
+      await store.commit({ putContainers: [row("a"), row("b")] });
+      await expect(
+        store.commit({
+          deleteContainers: unreadableSecond(["a", "b"]),
+          putContainers: [row("c1")],
+        })
+      ).rejects.toThrow();
+      expect(ids(await store.list())).toEqual(["a", "b"]);
+    });
+
+    it("keeps none of a failed commit that a transaction catches", async ({
+      skip,
+    }) => {
+      const store = await open();
+      const transaction = transactionOf(store, skip);
+      await store.commit({ putContainers: [row("a"), row("b")] });
+      await transaction(async (view) => {
+        await view.commit({ putContainers: [row("c1")] });
+        await expect(
+          view.commit({
+            deleteContainers: unreadableSecond(["a", "b"]),
+            putContainers: [row("c2")],
+          })
+        ).rejects.toThrow();
+        expect(ids(await view.list())).toEqual(["a", "b", "c1"]);
+      });
+      expect(ids(await store.list())).toEqual(["a", "b", "c1"]);
     });
 
     it("detaches the rows it is given from the rows it keeps", async () => {
