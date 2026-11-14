@@ -433,6 +433,14 @@ A VM is not adopted across processes. `open` on a row that is not live in this
 process removes whatever the runtime still holds under the old native name and
 boots again under `<rowId>-<generation>`.
 
+A registry owns every VM it boots. If the commit that records a boot fails
+(a SQLite store busy under another connection's lock, say), `start`, `open`
+or `restart` removes the VM it just booted, tries to mark the row `failed`,
+and rejects with the commit's error. A VM the registry cannot remove, then or
+when its last handle closes, stays the registry's: `sweep` and `shutdown`
+retry it against the runtime's inventory, `shutdown` rejects while one
+remains, and calling `shutdown` again retries it.
+
 Every container is parameterized by its spec: image, workdir, public
 environment, ports, `resources` (memory, cpus, pids), network, mounts, labels,
 and `detached`. `detached` defaults to `false`, so a VM dies with the process;
