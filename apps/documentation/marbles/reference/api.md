@@ -129,8 +129,10 @@ session opened with. When it opened with none, `input` is absent and
 that ref, gives the function the same input again; an agent with a
 different input fails the opening, including for a session that opened
 with none. A ref with only an `id` keeps no input, so the agent's own is
-used. An MCP agent dispatch that continues a session gives the function the
-input that session kept.
+used. A definition object that continues the session keeps the input, or
+that there was none, in the ref it returns. A ref with both `input` and
+`noInput` fails the opening. An MCP agent dispatch that continues a session
+gives the function the input that session kept.
 A definition object has no function, so its `extend` takes no input.
 
 ### Workspace settings
