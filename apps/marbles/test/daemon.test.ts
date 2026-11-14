@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { canonicalFile, queuedFiles } from "~/database/client";
+import { fileIdentity, queuedFiles } from "~/database/client";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { type Layout, layout } from "~/layout";
 import type {
@@ -684,7 +684,7 @@ export const hold = step("hold").do(async () => {
     expect(Date.now() - started).toBeLessThan(5000);
     expect(readProcess(machine.state)?.alive).not.toBe(true);
     // Its database handle is closed: no client in this process holds it.
-    expect(queuedFiles()).not.toContain(canonicalFile(machine.database));
+    expect(queuedFiles()).not.toContain(fileIdentity(machine.database));
     // Nothing is left that would refuse the next Marbles process.
     const daemon = await daemonFor(machine);
     expect(daemon.pid).toBe(process.pid);

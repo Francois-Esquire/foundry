@@ -66,8 +66,11 @@ Five buckets, each importing only what sits below it:
   and migrates it; `writeDatabase` writes only to a file that is there and
   current; `readDatabase` reads through a connection that cannot write or
   create and leaves no side file behind. `client.ts` makes everything this
-  process does on the file take turns, keyed by its canonical path, since
-  the native driver blocks the thread while it waits for a lock;
+  process does on the file take turns, keyed by the file's device and
+  inode (a link or another spelling of its name shares the queue), since
+  the native driver blocks the thread while it waits for a lock. Nothing
+  may open and close the database file or its side files outside SQLite:
+  closing any descriptor to it drops this process's locks on it;
   `migrate.ts` applies the committed migrations in `migrations/` in one
   write transaction, and refuses an applied history that is not an exact
   prefix of the shipped one. `schema.ts` composes every table, Marbles'

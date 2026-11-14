@@ -7,7 +7,6 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -18,7 +17,7 @@ import { createClient } from "@libsql/client";
 import { count, sql } from "drizzle-orm";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 import { describe, expect, it } from "vitest";
-import { queuedFiles } from "~/database/client";
+import { fileIdentity, queuedFiles } from "~/database/client";
 import { MIGRATIONS } from "~/database/migrate";
 import type { StoreDatabase } from "~/database/open";
 import {
@@ -207,7 +206,7 @@ describe("the Marbles database", () => {
     mkdirSync(real);
     const linkedDir = join(dir, "linked");
     symlinkSync(real, linkedDir);
-    // Not there yet: the queue is keyed by the parent, links resolved.
+    // Not there yet: it is created through the link, then keyed by what it is.
     const a = await initializeDatabase(join(linkedDir, "marbles.db"), {
       busyTimeout: 300,
     });
@@ -231,13 +230,49 @@ describe("the Marbles database", () => {
         write(c.database, "c"),
       ]);
       expect(await rows(a.database)).toBe(6);
-      expect(
-        queuedFiles().filter((file) => file.startsWith(realpathSync(dir)))
-      ).toHaveLength(1);
+      expect(queuedFiles()).toContain(fileIdentity(linkedFile));
     } finally {
       a.close();
       b.close();
       c.close();
+    }
+  });
+
+  it("gives every spelling of a database's name one queue where case does not count", async (context) => {
+    const dir = scratch();
+    writeFileSync(join(dir, "probe"), "");
+    if (!existsSync(join(dir, "PROBE"))) {
+      // This filesystem tells the two names apart: they are two files.
+      context.skip();
+      return;
+    }
+    const lower = await initializeDatabase(join(dir, "marbles.db"), {
+      busyTimeout: 300,
+    });
+    const upper = await initializeDatabase(join(dir, "MARBLES.DB"), {
+      busyTimeout: 300,
+    });
+    const linked = join(dir, "linked.db");
+    symlinkSync(join(dir, "Marbles.Db"), linked);
+    const viaLink = await initializeDatabase(linked, { busyTimeout: 300 });
+    try {
+      const pause = () => new Promise((settle) => setTimeout(settle, 20));
+      const write = (database: StoreDatabase, id: string) =>
+        database.transaction(async (tx) => {
+          await tx.insert(marblesWorkspaces).values(workspaceRow(`${id}-1`));
+          await pause();
+          await tx.insert(marblesWorkspaces).values(workspaceRow(`${id}-2`));
+        });
+      await Promise.all([
+        write(lower.database, "lower"),
+        write(upper.database, "upper"),
+        write(viaLink.database, "link"),
+      ]);
+      expect(await rows(lower.database)).toBe(6);
+    } finally {
+      lower.close();
+      upper.close();
+      viaLink.close();
     }
   });
 
@@ -278,8 +313,9 @@ Bun.gc(true);
 
   it("keeps a file's queue only while a handle is open or a turn is pending", async () => {
     const file = join(scratch(), "marbles.db");
-    const queued = () => queuedFiles().filter((path) => path.endsWith(file));
     const a = await initializeDatabase(file);
+    const identity = fileIdentity(file);
+    const queued = () => queuedFiles().filter((key) => key === identity);
     const b = await initializeDatabase(file);
     expect(queued()).toHaveLength(1);
     a.close();
@@ -304,7 +340,7 @@ Bun.gc(true);
     await expect(
       initializeDatabase(newer, { migrations: folder })
     ).rejects.toThrow(NEWER);
-    expect(queuedFiles().filter((path) => path.endsWith(newer))).toEqual([]);
+    expect(queuedFiles()).not.toContain(fileIdentity(newer));
   });
 
   it("lets two handles in one process overlap their transactions", async () => {

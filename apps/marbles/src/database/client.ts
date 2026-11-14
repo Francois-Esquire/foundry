@@ -1,5 +1,4 @@
-import { lstatSync, readlinkSync, realpathSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { statSync } from "node:fs";
 
 import type {
   Client,
@@ -20,9 +19,12 @@ import type {
  * for it without blocking. Other processes still meet the busy timeout.
  *
  * One queue serves every client this process opens on the same file, since
- * SQLite's locks are per file, not per client or per path: `file` must be
- * the canonical path (`canonicalFile`), so a link to the database shares
- * its queue. The queue is dropped once its last client has closed and no
+ * SQLite's locks are per file, not per client or per path: the queue is
+ * keyed by the file's identity (`fileIdentity`), taken once `client` has
+ * opened, and so created, the file at `file`. A link to the database, or
+ * another spelling of its name on a case-insensitive filesystem, shares
+ * its queue. When the identity cannot be had, `client` is closed and the
+ * error thrown. The queue is dropped once its last client has closed and no
  * turn is pending. The wrapped client must have one connection
  * (`concurrency: 1`), so the pragmas set when it opens hold for everything
  * that runs on it.
@@ -36,7 +38,14 @@ export function serialClient(
   file: string,
   wait: number
 ): Client {
-  const queue = queueFor(file);
+  let identity: string;
+  try {
+    identity = fileIdentity(file);
+  } catch (error) {
+    client.close();
+    throw error;
+  }
+  const queue = queueFor(identity, file);
   let closed = false;
   const turn = () => queue.next(wait);
   async function inTurn<T>(work: () => Promise<T>): Promise<T> {
@@ -88,37 +97,19 @@ export function serialClient(
   };
 }
 
-/** More links than this between a path and its file is a loop. */
-const MAX_LINKS = 40;
-
 /**
- * The path every process-wide lock on `file` is keyed by: the file with
- * every link resolved, so two paths to one database give one key. Before
- * the file exists, its existing parent resolved with the file's name.
- *
- * The file itself is never opened, not even by `realpath`, which on macOS
- * opens what it resolves: closing any descriptor to a SQLite database drops
- * every POSIX lock this process holds on it, including those of the
- * connections still open. Links to the file are followed with `readlink`
- * instead, and only its directory goes through `realpath`.
+ * Which file `file` is, whatever path names it: its device and inode, read
+ * with `stat`, which follows links and never opens the file. Opening and
+ * closing a descriptor to a SQLite database, even only to resolve its
+ * path (`realpath` does on macOS), drops every POSIX lock this process
+ * holds on it, including those of the connections still open.
  */
-export function canonicalFile(file: string): string {
-  let path = resolve(file);
-  for (let links = 0; ; links += 1) {
-    if (!lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) {
-      break;
-    }
-    if (links === MAX_LINKS) {
-      throw new Error(
-        `too many links resolving the Marbles database at ${file}`
-      );
-    }
-    path = resolve(dirname(path), readlinkSync(path));
-  }
-  return join(realpathSync(dirname(path)), basename(path));
+export function fileIdentity(file: string): string {
+  const { dev, ino } = statSync(file);
+  return `${String(dev)}:${String(ino)}`;
 }
 
-/** The files this process has a queue for: some client is open, or a turn is pending. */
+/** The identities of the files this process has a queue for: some client is open, or a turn is pending. */
 export function queuedFiles(): readonly string[] {
   return [...queues.keys()];
 }
@@ -164,17 +155,17 @@ interface Queue {
 
 const queues = new Map<string, Queue & { join(): void }>();
 
-/** The queue for `file`, joined by one more client. */
-function queueFor(file: string): Queue {
-  let queue = queues.get(file);
+/** The queue for the file `identity` names, joined by one more client. */
+function queueFor(identity: string, file: string): Queue {
+  let queue = queues.get(identity);
   if (queue === undefined) {
     const created = fifo(file, () => {
-      if (queues.get(file) === created) {
-        queues.delete(file);
+      if (queues.get(identity) === created) {
+        queues.delete(identity);
       }
     });
     queue = created;
-    queues.set(file, queue);
+    queues.set(identity, queue);
   }
   queue.join();
   return queue;

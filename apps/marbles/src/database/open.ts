@@ -8,7 +8,7 @@ import { _createClient } from "@libsql/client/sqlite3";
 import { drizzle } from "drizzle-orm/libsql";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 
-import { canonicalFile, serialClient } from "~/database/client";
+import { serialClient } from "~/database/client";
 import {
   IncompatibleDatabaseError,
   MIGRATIONS,
@@ -80,15 +80,13 @@ export async function initializeDatabase(
   const path = resolve(file);
   const busyTimeout = options.busyTimeout ?? BUSY_TIMEOUT_MS;
   mkdirSync(dirname(path), { recursive: true });
-  // Keyed first: a key that cannot be had must not leave a connection open.
-  const key = canonicalFile(path);
   const client = serialClient(
     createClient({
       concurrency: 1,
       timeout: busyTimeout,
       url: pathToFileURL(path).href,
     }),
-    key,
+    path,
     busyTimeout
   );
   try {
@@ -198,8 +196,6 @@ function existing(
   options: OpenDatabaseOptions
 ): Client {
   const busyTimeout = options.busyTimeout ?? BUSY_TIMEOUT_MS;
-  // Keyed first: a key that cannot be had must not leave a connection open.
-  const key = canonicalFile(path);
   return serialClient(
     _createClient({
       authority: undefined,
@@ -218,7 +214,7 @@ function existing(
       timeout: busyTimeout,
       tls: false,
     }),
-    key,
+    path,
     busyTimeout
   );
 }
