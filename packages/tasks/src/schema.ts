@@ -154,19 +154,22 @@ export const taskSnapshotSchema = z
   .readonly();
 export type TaskSnapshot = z.infer<typeof taskSnapshotSchema>;
 
-/** One atomic write. Deletes apply before puts. */
+/**
+ * One atomic write. Deletes apply before puts. A key is left out, never set
+ * to `undefined`.
+ */
 export const taskStoreWriteSchema = z
   .strictObject({
-    deleteDependencies: dependencies.optional(),
-    deleteTasks: z.array(taskIdSchema).readonly().optional(),
+    deleteDependencies: dependencies.exactOptional(),
+    deleteTasks: z.array(taskIdSchema).readonly().exactOptional(),
     /**
      * What the write changes, present whenever it changes anything. A store
      * that records changes keeps it in the same atomic write; one that does
      * not ignores it.
      */
-    event: taskEventSchema.optional(),
-    putDependencies: dependencies.optional(),
-    putTasks: z.array(storedTask).readonly().optional(),
+    event: taskEventSchema.exactOptional(),
+    putDependencies: dependencies.exactOptional(),
+    putTasks: z.array(storedTask).readonly().exactOptional(),
   })
   .readonly();
 export type TaskStoreWrite = z.infer<typeof taskStoreWriteSchema>;
