@@ -183,8 +183,8 @@ composes the tables from `./store/tables` into its own schema and owns the
 migrations; `drizzle-orm` is an optional peer dependency, needed only on the
 two SQLite paths. Every row carries a `scope`, an opaque partition the host
 chooses (a workspace id, say), and a store reads and writes only its own.
-Reads order by SQLite's `rowid`, so keep both tables rowid tables (not
-`WITHOUT ROWID`); a `VACUUM` may renumber rowids.
+Each table also has a `position` column: the store assigns it when a row is
+first put, keeps it when the row is put again, and lists rows by it.
 
 ```ts
 import { Tasks } from "@foundry/tasks";

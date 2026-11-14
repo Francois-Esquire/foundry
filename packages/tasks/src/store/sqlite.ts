@@ -1,5 +1,5 @@
 import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
-import { and, eq, getTableColumns, inArray, or, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, max, or, sql } from "drizzle-orm";
 import type {
   BaseSQLiteDatabase,
   SQLiteColumn,
@@ -50,10 +50,23 @@ export interface SqliteTaskStoreOptions {
   readonly scope: string;
 }
 
-/** Every column of a task row except `scope`: exactly a `Task`. */
-const { scope: _scope, ...taskColumns } = getTableColumns(tasks);
+/** Every column of a task row but `scope` and `position`: exactly a `Task`. */
+const {
+  position: _position,
+  scope: _scope,
+  ...taskColumns
+} = getTableColumns(tasks);
 
-/** On a conflicting put, every task column takes the incoming value. */
+/** The columns of an edge row that make a `TaskDependency`. */
+const dependencyColumns = {
+  dependsOnId: taskDependencies.dependsOnId,
+  taskId: taskDependencies.taskId,
+};
+
+/**
+ * On a conflicting put, every task column takes the incoming value except
+ * `position`, so a task put again keeps its place.
+ */
 const replaceTask = Object.fromEntries(
   Object.entries(taskColumns).map(([key, column]) => [key, excluded(column)])
 );
@@ -104,20 +117,16 @@ export class SqliteTaskStore implements TaskStore {
    * them.
    */
   async snapshot(): Promise<TaskSnapshot> {
-    // `rowid` is the order rows were first inserted; an upsert keeps it.
     const tasksRead = await this.#database
       .select(taskColumns)
       .from(tasks)
       .where(eq(tasks.scope, this.#scope))
-      .orderBy(sql`rowid`);
+      .orderBy(tasks.position);
     const dependencies = await this.#database
-      .select({
-        dependsOnId: taskDependencies.dependsOnId,
-        taskId: taskDependencies.taskId,
-      })
+      .select(dependencyColumns)
       .from(taskDependencies)
       .where(eq(taskDependencies.scope, this.#scope))
-      .orderBy(sql`rowid`);
+      .orderBy(taskDependencies.position);
     return { dependencies, tasks: tasksRead };
   }
 
@@ -156,16 +165,22 @@ export class SqliteTaskStore implements TaskStore {
     );
   }
 
-  /** Rows insert in order, so a new task's rowid is its place. */
+  /** A new task takes the next position; one put again keeps its own. */
   async #putTasks(
     transaction: TaskTransaction,
     records: readonly Task[]
   ): Promise<void> {
     const columns = Object.keys(getTableColumns(tasks)).length;
-    await inOrder(batches(records, MAX_PARAMETERS / columns), (batch) =>
+    const first = await this.#nextPosition(transaction, tasks);
+    const rows = records.map((task, index) => ({
+      ...task,
+      position: first + index,
+      scope: this.#scope,
+    }));
+    await inOrder(batches(rows, MAX_PARAMETERS / columns), (batch) =>
       transaction
         .insert(tasks)
-        .values(batch.map((task) => ({ ...task, scope: this.#scope })))
+        .values(batch)
         .onConflictDoUpdate({
           set: replaceTask,
           target: [tasks.scope, tasks.id],
@@ -178,12 +193,30 @@ export class SqliteTaskStore implements TaskStore {
     edges: readonly TaskDependency[]
   ): Promise<void> {
     const columns = Object.keys(getTableColumns(taskDependencies)).length;
-    await inOrder(batches(edges, MAX_PARAMETERS / columns), (batch) =>
-      transaction
-        .insert(taskDependencies)
-        .values(batch.map((edge) => ({ ...edge, scope: this.#scope })))
-        .onConflictDoNothing()
+    const first = await this.#nextPosition(transaction, taskDependencies);
+    const rows = edges.map((edge, index) => ({
+      ...edge,
+      position: first + index,
+      scope: this.#scope,
+    }));
+    await inOrder(batches(rows, MAX_PARAMETERS / columns), (batch) =>
+      transaction.insert(taskDependencies).values(batch).onConflictDoNothing()
     );
+  }
+
+  /**
+   * One past the last position in this scope. A row that turns out to exist
+   * keeps its own and leaves a gap; only the order of positions matters.
+   */
+  async #nextPosition(
+    transaction: TaskTransaction,
+    table: typeof tasks | typeof taskDependencies
+  ): Promise<number> {
+    const [last] = await transaction
+      .select({ position: max(table.position) })
+      .from(table)
+      .where(eq(table.scope, this.#scope));
+    return (last?.position ?? 0) + 1;
   }
 }
 
@@ -209,7 +242,7 @@ async function inOrder<T>(
   run: (item: T) => PromiseLike<unknown>
 ): Promise<void> {
   for (const item of items) {
-    // In sequence: deletes precede puts, and put order sets rowid order.
+    // In sequence: deletes precede puts, and later batches follow earlier ones.
     await run(item);
   }
 }

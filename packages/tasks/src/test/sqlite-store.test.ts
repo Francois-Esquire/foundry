@@ -178,24 +178,24 @@ describe("SqliteTaskStore", () => {
 });
 
 describe("task tables", () => {
-  test("hold each record field for field, plus scope", () => {
+  test("hold each record field for field, plus scope and position", () => {
     expect(columnsOf(tasks)).toEqual(fieldsOf(taskSchema.shape));
     expect(columnsOf(taskDependencies)).toEqual(
       fieldsOf(taskDependencySchema.unwrap().shape)
     );
     expectTypeOf<
-      Readonly<Omit<typeof tasks.$inferSelect, "scope">>
+      Readonly<Omit<typeof tasks.$inferSelect, "position" | "scope">>
     >().toEqualTypeOf<Task>();
     expectTypeOf<
-      Readonly<Omit<typeof taskDependencies.$inferSelect, "scope">>
+      Readonly<Omit<typeof taskDependencies.$inferSelect, "position" | "scope">>
     >().toEqualTypeOf<TaskDependency>();
   });
 });
 
-/** Each column but `scope`, by field name, and whether it takes `null`. */
+/** Each record column, by field name, and whether it takes `null`. */
 function columnsOf(table: typeof tasks | typeof taskDependencies) {
-  const { scope, ...columns } = getTableColumns(table);
-  expect(scope.notNull).toBe(true);
+  const { position, scope, ...columns } = getTableColumns(table);
+  expect([position.notNull, scope.notNull]).toEqual([true, true]);
   return Object.fromEntries(
     Object.entries(columns).map(([key, column]) => [key, !column.notNull])
   );
