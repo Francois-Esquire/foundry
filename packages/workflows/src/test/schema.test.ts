@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 
+import { decodeRunRecord } from "../execution-records";
 import {
   ChannelEventSchema,
+  ORCHESTRATOR_STORE_SNAPSHOT_VERSION,
   RunFrameSchema,
   RunRecordSchema,
   StepSnapshotSchema,
@@ -9,6 +11,7 @@ import {
   SuspensionStateSchema,
   WorkflowSnapshotSchema,
 } from "../schema";
+import { validateOrchestratorStoreSnapshot } from "../store-snapshot";
 
 const run = {
   error: null,
@@ -151,13 +154,138 @@ describe("record decoding rules", () => {
     ).toBe(false);
   });
 
-  test("decoded arrays stay mutable and unknown keys are dropped", () => {
+  test("decoded arrays stay mutable; records that rebuild drop unknown keys", () => {
     const decoded = SuspensionRecordSchema.parse({ ...suspension, extra: 1 });
 
     expect(Object.isFrozen(decoded.stepPath)).toBe(false);
     expect(decoded).not.toHaveProperty("extra");
-    expect(RunRecordSchema.parse({ ...run, extra: 1 })).not.toHaveProperty(
-      "extra"
+  });
+});
+
+/** A dictionary whose own entries include one named `__proto__`. */
+function withProtoEntry(
+  entries: Record<string, unknown>,
+  protoValue: unknown
+): Record<string, unknown> {
+  const dictionary: Record<string, unknown> = { ...entries };
+  Object.defineProperty(dictionary, "__proto__", {
+    configurable: true,
+    enumerable: true,
+    value: protoValue,
+    writable: true,
+  });
+  return dictionary;
+}
+
+function hasOwnEntry(value: unknown, key: string, expected: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.getPrototypeOf(value) === Object.prototype &&
+    Object.hasOwn(value, key) &&
+    JSON.stringify(Object.getOwnPropertyDescriptor(value, key)?.value) ===
+      JSON.stringify(expected)
+  );
+}
+
+const queue = {
+  createdAt: 1,
+  extensions: {},
+  id: "main",
+  lastError: null,
+  name: "main",
+  status: "active",
+};
+
+function restore(runs: unknown[], queues: unknown[] = [queue]) {
+  return validateOrchestratorStoreSnapshot({
+    frames: [],
+    jobs: [],
+    queues,
+    runs,
+    suspensions: [],
+    version: ORCHESTRATOR_STORE_SNAPSHOT_VERSION,
+  });
+}
+
+describe("a Run is admitted unchanged", () => {
+  test("decoding returns the same record, undeclared fields included", () => {
+    const extended = {
+      ...run,
+      extra: 123,
+      snapshot: { ...run.snapshot, custom: 456 },
+    };
+
+    expect(decodeRunRecord(extended)).toBe(extended);
+
+    const [restored] = restore([extended]).runs;
+    expect(restored).toMatchObject({ extra: 123, snapshot: { custom: 456 } });
+  });
+
+  test("snapshot restore keeps dictionary entries named __proto__", () => {
+    const entry = { nested: true };
+    const [restored] = restore([
+      {
+        ...run,
+        extensions: withProtoEntry({ "host.kept": 1 }, entry),
+        metadata: withProtoEntry({ kept: 1 }, entry),
+        tags: withProtoEntry({ kept: "yes" }, "tag"),
+      },
+    ]).runs;
+
+    expect(hasOwnEntry(restored?.metadata, "__proto__", entry)).toBe(true);
+    expect(hasOwnEntry(restored?.extensions, "__proto__", entry)).toBe(true);
+    expect(hasOwnEntry(restored?.tags, "__proto__", "tag")).toBe(true);
+    expect(restored?.metadata).toHaveProperty("kept", 1);
+  });
+
+  test("Run containers are JSON-checked as a whole before their entries", () => {
+    const withGetter = {};
+    Object.defineProperty(withGetter, "computed", {
+      enumerable: true,
+      get: () => "value",
+    });
+    const withHidden = { visible: 1 };
+    Object.defineProperty(withHidden, "hidden", { value: 1 });
+
+    for (const container of [withGetter, withHidden]) {
+      expect(
+        RunRecordSchema.safeParse({ ...run, metadata: container }).success
+      ).toBe(false);
+      expect(
+        RunRecordSchema.safeParse({ ...run, extensions: container }).success
+      ).toBe(false);
+    }
+  });
+
+  test("an explicit undefined definition or links is still admitted", () => {
+    expect(
+      RunRecordSchema.safeParse({
+        ...run,
+        definition: undefined,
+        links: undefined,
+      }).success
+    ).toBe(true);
+  });
+});
+
+describe("rebuilt dictionaries keep every own string key", () => {
+  test("an entry named __proto__ stays an own entry, not a prototype", () => {
+    const entry = { nested: true };
+    const state = SuspensionStateSchema.parse({
+      meta: withProtoEntry({ kept: 1 }, entry),
+      name: "approve",
+      reason: "needs review",
+      suspendedAt: "2026-05-02T00:00:00.000Z",
+    });
+    const [restoredQueue] = restore(
+      [],
+      [{ ...queue, extensions: withProtoEntry({ "host.kept": 1 }, entry) }]
+    ).queues;
+
+    expect(hasOwnEntry(state.meta, "__proto__", entry)).toBe(true);
+    expect(hasOwnEntry(restoredQueue?.extensions, "__proto__", entry)).toBe(
+      true
     );
   });
 });

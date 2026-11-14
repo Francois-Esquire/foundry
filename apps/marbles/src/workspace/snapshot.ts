@@ -4,7 +4,7 @@ import type {
   StepSnapshot as ObservedStep,
   WorkflowStepNode,
 } from "@foundry/workflows/snapshot";
-import { StepSnapshotSchema } from "@foundry/workflows/snapshot";
+import { SnapshotStateSchema } from "@foundry/workflows/snapshot";
 import type { RunRecord } from "@foundry/workflows/store";
 import { z } from "zod";
 import type { AutomationRecord } from "~/lib/automation/service";
@@ -34,7 +34,7 @@ import { stepUsages, totalOf, workspaceUsage } from "./usage";
 const TraceSchema = z.object({
   workflow: z
     .object({
-      steps: z.record(z.string(), StepSnapshotSchema).optional(),
+      steps: SnapshotStateSchema.shape.steps.optional(),
       telemetry: z
         .object({
           logs: z.array(

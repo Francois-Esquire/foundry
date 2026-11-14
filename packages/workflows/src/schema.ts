@@ -1,14 +1,13 @@
 import { z } from "zod";
 
 import type { JsonValue } from "./json-value";
-import { isJsonValue } from "./json-value";
+import { isJsonValue, isPlainRecord } from "./json-value";
 import {
   anyNumber,
   anyValue,
   counter,
   JSON_VALUE_MESSAGE,
   jsonSafe,
-  plainObject,
   readonlyArray,
   recordOf,
   stringList,
@@ -250,7 +249,7 @@ const RunIdSchema = z.string().regex(/^rn-.+/);
 const SuspensionIdSchema = z.string().regex(/^su-.+/);
 
 /** Host-owned JSON-safe data keyed by namespace. */
-const ExtensionsSchema = z.record(z.string(), JsonValueSchema);
+const ExtensionsSchema = recordOf(JsonValueSchema);
 
 export const DefinitionReferenceSchema = z.object({
   name: z.string(),
@@ -333,45 +332,73 @@ export const RunStatusSchema = z.enum([
 ]);
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 
-const RunTimestampsSchema = plainObject(
-  z.object({
-    completedAt: timestamp.nullable(),
-    createdAt: timestamp,
-    failedAt: timestamp.nullable(),
-    startedAt: timestamp.nullable(),
-  })
-);
+const RunTimestampsSchema = z.object({
+  completedAt: timestamp.nullable(),
+  createdAt: timestamp,
+  failedAt: timestamp.nullable(),
+  startedAt: timestamp.nullable(),
+});
 export type RunTimestamps = z.infer<typeof RunTimestampsSchema>;
 
-/** A persisted Run's snapshot: JSON-safe throughout, with `input` present. */
-const RunSnapshotSchema = jsonSafe.pipe(
-  WorkflowSnapshotSchema.extend({ input: jsonSafe })
-);
+/**
+ * The declared fields of a persisted Run: the shape a Run table derives from.
+ * `definition` and `links` may be absent on records written before they were
+ * introduced. `input`, `output`, and `metadata` are JSON-safe but stay typed
+ * as `unknown`.
+ */
+export const RunRecordShapeSchema = z.object({
+  definition: DefinitionReferenceSchema.exactOptional(),
+  error: ErrorShapeSchema.nullable(),
+  extensions: ExtensionsSchema,
+  id: RunIdSchema,
+  input: jsonSafe,
+  links: RunLinksSchema.exactOptional(),
+  metadata: recordOf(jsonSafe),
+  output: jsonSafe,
+  queueId: z.string(),
+  snapshot: WorkflowSnapshotSchema.extend({ input: jsonSafe }),
+  status: RunStatusSchema,
+  step: z.string(),
+  tags: recordOf(z.string()),
+  timestamps: RunTimestampsSchema,
+});
+export type RunRecord = z.infer<typeof RunRecordShapeSchema>;
+
+/** The shape as admitted at runtime, where an explicit `undefined` means absent. */
+const AdmittedRunFieldsSchema = RunRecordShapeSchema.extend({
+  definition: DefinitionReferenceSchema.optional(),
+  links: RunLinksSchema.optional(),
+});
 
 /**
- * Persisted Run shape. `definition` and `links` are optional for compatibility
- * with records written before those fields were introduced. `input`, `output`,
- * and `metadata` must be JSON-safe but stay typed as `unknown`.
+ * A Run is admitted as a whole: plain objects for the record and its nested
+ * data, JSON-safe containers checked before their entries, then the declared
+ * fields. Admission returns the record unchanged, so fields it does not
+ * declare survive.
  */
-export const RunRecordSchema = plainObject(
-  z.object({
-    definition: DefinitionReferenceSchema.optional(),
-    error: plainObject(ErrorShapeSchema).nullable(),
-    extensions: ExtensionsSchema,
-    id: RunIdSchema,
-    input: jsonSafe,
-    links: RunLinksSchema.optional(),
-    metadata: z.record(z.string(), jsonSafe),
-    output: jsonSafe,
-    queueId: z.string(),
-    snapshot: RunSnapshotSchema,
-    status: RunStatusSchema,
-    step: z.string(),
-    tags: plainObject(recordOf(z.string())),
-    timestamps: RunTimestampsSchema,
-  })
+function isRunRecord(value: unknown): value is RunRecord {
+  return (
+    isPlainRecord(value) &&
+    isPlainRecord(value.timestamps) &&
+    (value.error === null || isPlainRecord(value.error)) &&
+    isPlainRecord(value.tags) &&
+    isJsonContainer(value.metadata) &&
+    isJsonContainer(value.extensions) &&
+    isJsonValue(value.snapshot) &&
+    isPlainRecord(value.snapshot) &&
+    Object.hasOwn(value.snapshot, "input") &&
+    AdmittedRunFieldsSchema.safeParse(value).success
+  );
+}
+
+function isJsonContainer(value: unknown): boolean {
+  return isPlainRecord(value) && isJsonValue(value);
+}
+
+export const RunRecordSchema = z.custom<RunRecord>(
+  isRunRecord,
+  "Expected a valid, JSON-safe Run record"
 );
-export type RunRecord = z.infer<typeof RunRecordSchema>;
 
 export const SuspensionStatusSchema = z.enum([
   "pending",
