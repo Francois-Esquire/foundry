@@ -610,6 +610,86 @@ describe("SqliteWorkspaceStore removal plans", () => {
   });
 });
 
+describe("SqliteWorkspaceStore reading a row it did not write", () => {
+  const workspaceId = "w" as WorkspaceId;
+  const base = {
+    bytes: null,
+    createdAt: new Date(1),
+    digest: null,
+    extension: null,
+    id: "e" as WorkspaceEntryId,
+    kind: null,
+    mime: null,
+    name: "e",
+    path: "e",
+    scope: "s",
+    target: null,
+    updatedAt: new Date(1),
+    workspaceId,
+  } satisfies Partial<typeof workspaceEntries.$inferInsert>;
+  const file = {
+    ...base,
+    bytes: 4,
+    digest: "d",
+    extension: "md",
+    kind: "document",
+    mime: "text/markdown",
+    type: "file",
+  } as const;
+
+  test.each([
+    [
+      "a file row missing a file column",
+      { ...file, digest: null },
+      "column digest is null on a file row",
+    ],
+    [
+      "a file row of an unknown kind",
+      { ...file, kind: "spreadsheet" },
+      'column kind holds "spreadsheet", which is no file kind',
+    ],
+    [
+      "a symlink row missing its target",
+      { ...base, type: "symlink" },
+      "column target is null on a symlink row",
+    ],
+    [
+      "a directory row holding a file column",
+      { ...base, bytes: 4, type: "directory" },
+      "column bytes holds a value on a directory row, which has none",
+    ],
+    [
+      "a row of an unknown type",
+      { ...base, type: "fifo" },
+      'column type holds "fifo", which is no entry type',
+    ],
+  ] as const)(
+    "refuses %s, naming the scope, the Workspace, the entry, and the column",
+    async (_case, row, fault) => {
+      const database = await memory.open();
+      await database
+        .insert(workspaceEntries)
+        .values(row as typeof workspaceEntries.$inferInsert);
+      const store = new SqliteWorkspaceStore({ database, scope: "s" });
+      const message = `SqliteWorkspaceStore cannot read entry "e" of Workspace "w" in scope "s": ${fault}`;
+
+      await expect(store.getEntry(workspaceId, base.id)).rejects.toThrow(
+        message
+      );
+      await expect(store.listEntries(workspaceId)).rejects.toThrow(message);
+    }
+  );
+
+  test("reads a well-formed row it did not write", async () => {
+    const database = await memory.open();
+    await database.insert(workspaceEntries).values(file);
+    const store = new SqliteWorkspaceStore({ database, scope: "s" });
+
+    const { scope: _scope, target: _target, ...entry } = file;
+    expect(await store.getEntry(workspaceId, base.id)).toEqual(entry);
+  });
+});
+
 describe("Workspace tables", () => {
   test("hold each record field for field, plus scope", () => {
     const { source, ...registration } =

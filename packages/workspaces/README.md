@@ -214,6 +214,14 @@ transaction's view are checked the same way:
 A read or delete by a key no row can hold finds nothing, and the constructor
 refuses such a `scope`.
 
+A read that meets an entry row this store would not have written rejects
+with an `Error` naming the scope, the Workspace, the entry, and the column
+at fault. That covers a type the package does not know, a column the type
+always has left null (a file's `bytes`, `digest` or `kind`, a symlink's
+`target`), a column only another type has filled, and an unknown file kind.
+The tables carry no `CHECK` constraints, so a host's own writes are checked
+only when read.
+
 Every store takes one call at a time, so a call to the store itself from
 inside its own transaction's `work` (or from `onCommit`) could only wait for
 itself. It is refused at once with a `ReentrantCallError` from

@@ -1,4 +1,5 @@
 import type { Page, PageInput } from "@foundry/core/pagination";
+import { FILE_KINDS, type FileKind } from "@foundry/lib/file-classification";
 import { buildPage, pageLimit } from "@foundry/lib/pagination";
 import { Turns } from "@foundry/lib/turns";
 import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
@@ -253,7 +254,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
             eq(workspaceEntries.id, entryId)
           )
         );
-      return row ? entryOf(row) : null;
+      return row ? entryOf(this.#scope, row) : null;
     });
   }
 
@@ -272,7 +273,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
             eq(workspaceEntries.workspaceId, workspaceId)
           )
         );
-      return rows.map((row) => entryOf(row)).sort(byPathThenId);
+      return rows.map((row) => entryOf(this.#scope, row)).sort(byPathThenId);
     });
   }
 
@@ -420,11 +421,66 @@ function rowOfWorkspace(
 }
 
 /**
- * The record a row holds: only the fields its `type` has. The store writes
- * every file column for a file and the target for a symlink, so those are
- * present on rows of those types.
+ * The columns each entry type keeps beyond the common ones, and which of
+ * them a record of that type always has.
  */
-function entryOf(row: Omit<EntryRow, "scope">): WorkspaceEntry {
+const ENTRY_VARIANTS: Readonly<
+  Record<
+    WorkspaceEntry["type"],
+    {
+      readonly columns: readonly VariantColumn[];
+      readonly required: readonly VariantColumn[];
+    }
+  >
+> = {
+  device: { columns: [], required: [] },
+  directory: { columns: [], required: [] },
+  file: {
+    columns: ["bytes", "digest", "extension", "kind", "mime"],
+    required: ["bytes", "digest", "kind"],
+  },
+  pipe: { columns: [], required: [] },
+  socket: { columns: [], required: [] },
+  symlink: { columns: ["target"], required: ["target"] },
+};
+
+type VariantColumn =
+  | "bytes"
+  | "digest"
+  | "extension"
+  | "kind"
+  | "mime"
+  | "target";
+
+const VARIANT_COLUMNS: readonly VariantColumn[] = [
+  "bytes",
+  "digest",
+  "extension",
+  "kind",
+  "mime",
+  "target",
+];
+
+/**
+ * The record a row holds: only the fields its `type` has. Rejects a row
+ * this store would not have written, naming the scope, the Workspace, the
+ * entry, and the column at fault: an unknown type, a column its type
+ * always has left null, a column another type has filled, or a file kind
+ * the package does not know.
+ */
+function entryOf(scope: string, row: Omit<EntryRow, "scope">): WorkspaceEntry {
+  const variant = Object.hasOwn(ENTRY_VARIANTS, row.type)
+    ? ENTRY_VARIANTS[row.type]
+    : undefined;
+  const fault =
+    variant === undefined
+      ? `column type holds ${JSON.stringify(row.type)}, which is no entry type`
+      : variantFault(row, variant);
+  if (fault !== undefined) {
+    throw new Error(
+      `SqliteWorkspaceStore cannot read entry ${JSON.stringify(row.id)} of Workspace ${JSON.stringify(row.workspaceId)} in scope ${JSON.stringify(scope)}: ${fault}`
+    );
+  }
   const common = {
     createdAt: row.createdAt,
     id: row.id,
@@ -433,6 +489,7 @@ function entryOf(row: Omit<EntryRow, "scope">): WorkspaceEntry {
     updatedAt: row.updatedAt,
     workspaceId: row.workspaceId,
   };
+  // Checked by `variantFault`: each value its type requires is present.
   switch (row.type) {
     case "file":
       return {
@@ -440,7 +497,7 @@ function entryOf(row: Omit<EntryRow, "scope">): WorkspaceEntry {
         bytes: row.bytes as number,
         digest: row.digest as string,
         extension: row.extension,
-        kind: row.kind as NonNullable<EntryRow["kind"]>,
+        kind: row.kind as FileKind,
         mime: row.mime,
         type: row.type,
       };
@@ -448,6 +505,26 @@ function entryOf(row: Omit<EntryRow, "scope">): WorkspaceEntry {
       return { ...common, target: row.target as string, type: row.type };
     default:
       return { ...common, type: row.type };
+  }
+}
+
+/** What is wrong with a row of a known type, if anything. */
+function variantFault(
+  row: Omit<EntryRow, "scope">,
+  variant: (typeof ENTRY_VARIANTS)[WorkspaceEntry["type"]]
+): string | undefined {
+  const missing = variant.required.find((column) => row[column] === null);
+  if (missing !== undefined) {
+    return `column ${missing} is null on a ${row.type} row`;
+  }
+  const foreign = VARIANT_COLUMNS.find(
+    (column) => !variant.columns.includes(column) && row[column] !== null
+  );
+  if (foreign !== undefined) {
+    return `column ${foreign} holds a value on a ${row.type} row, which has none`;
+  }
+  if (row.kind !== null && !FILE_KINDS.includes(row.kind)) {
+    return `column kind holds ${JSON.stringify(row.kind)}, which is no file kind`;
   }
 }
 
