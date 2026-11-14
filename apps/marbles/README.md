@@ -224,9 +224,11 @@ If the owner disappears without recording an ending, the watcher reports
 that interruption rather than waiting indefinitely.
 
 Diagnostics and the worker's status lines go to stderr; stdout carries MCP
-messages. The server detaches when stdin closes or it receives SIGINT or
-SIGTERM; the Marbles process keeps hosting the workspace, and several MCP
-clients can attach to one process at once. Use `--state` to select a
+messages only. The server runs in a child process whose stdout is stderr,
+so whatever source modules and the processes they start print to stdout
+goes to stderr too. The server exits when stdin closes or it receives
+SIGINT or SIGTERM; a Marbles process that hosts the workspace keeps
+hosting it, and several MCP clients can use one process at once. Use `--state` to select a
 separate state root (each root has its own process), or `--dry-run` to host
 the workspace in the server's own process with in-memory state, echo
 models, and no provider calls; closing a dry-run server cancels its runs.

@@ -99,8 +99,11 @@ Five buckets, each importing only what sits below it:
   (which parses a command line completely, before anything loads),
   `src/dashboard/`, `src/views/`, `src/components/`, `src/mcp/`,
   `src/status/`, `src/sessions/`. The dashboard is a client of the process.
-  `src/mcp/stdio.ts` is `marbles mcp`, which `cli.ts` loads only when that
-  command runs, since it takes stdout over for the protocol. It reaches the
+  `src/mcp/stdio.ts` is the `marbles mcp` server, which `cli.ts` loads
+  only when that command runs. `src/mcp/relay.ts` runs it in a child
+  process whose stdout is the relay's stderr. Protocol frames go out on
+  descriptor 3, which the relay copies to its own stdout, so nothing
+  printed to stdout reaches the protocol. The server reaches the
   workspace through `access/` and never starts the process or attaches a
   workspace. Under `--dry-run` both host the workspace in their own process
   through `hostWorkspace` instead, since nothing is persisted.

@@ -2,6 +2,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { fileURLToPath } from "node:url";
 import { TaskError } from "@foundry/tasks";
 import type { Hosted, TaskRunner } from "~/access/workspace";
 import {
@@ -446,10 +447,15 @@ async function watch(args: ArgsOf<"watch">): Promise<void> {
 }
 
 /**
- * The STDIO MCP server. Loaded only now: the module takes stdout over for
- * the protocol as it loads.
+ * The STDIO MCP server, in two processes (`mcp/relay.ts`): this one relays
+ * for the client, unless it is the server a relay started.
  */
 async function serveMcp(args: ArgsOf<"mcp">): Promise<void> {
+  const { isServer, relay } = await import("~/mcp/relay");
+  if (!isServer()) {
+    await relay(fileURLToPath(import.meta.url), process.argv.slice(2));
+    return;
+  }
   const { serveStdio } = await import("~/mcp/stdio");
   await serveStdio(args);
 }

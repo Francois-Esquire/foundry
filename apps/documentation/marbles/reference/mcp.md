@@ -61,7 +61,9 @@ call. The worker loads the source, watches it, and reloads on an edit. The
 workspace's schedules and monitors run in that worker, never in the server.
 
 The server also accepts `--state`, `--artifacts`, and `--dry-run`. Their defaults match the [CLI flags](/marbles/reference/cli#flags).
-Diagnostics go to stderr; stdout carries MCP messages only. Under
+Diagnostics go to stderr; stdout carries MCP messages only. The server
+runs in a child process whose stdout is stderr, so whatever source modules
+and the processes they start print to stdout goes to stderr too. Under
 `--dry-run` the server hosts the workspace in its own process instead:
 nothing persists, the Marbles process is not involved, only the server's
 own workspace exists, every tool answers from that host, a `.env.schema`

@@ -255,6 +255,7 @@ it("keeps a dry-run model turn's log, Bun's own stdout, and a child's off the pr
     `import { agent } from "@foundry.sh/marbles";
 await Bun.write(Bun.stdout, "NATIVE_STDOUT\\n");
 Bun.spawnSync(["echo", "CHILD_STDOUT"], { stdout: "inherit" });
+console.error("SERVER_MARKER=" + String(process.env.MARBLES_MCP_SERVER));
 agent({ name: "helper", prompt: "You help." });`
   );
   configureProviders(join(root, "state"));
@@ -296,9 +297,86 @@ agent({ name: "helper", prompt: "You help." });`
     expect(ended.stderr).toContain("models.inference");
     expect(ended.stderr).toContain("NATIVE_STDOUT");
     expect(ended.stderr).toContain("CHILD_STDOUT");
+    // Nothing the server starts takes itself for the server.
+    expect(ended.stderr).toContain("SERVER_MARKER=undefined");
     expect(strayLines(ended.stdout)).toEqual([]);
   }
 }, 30_000);
+
+it("keeps stdout to protocol frames when stderr is closed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-closed-"));
+  const source = join(root, "marbles.ts");
+  await writeFile(
+    source,
+    `import { agent } from "@foundry.sh/marbles";
+process.stdout.write("NODE_STDOUT\\n");
+await Bun.write(Bun.stdout, "NATIVE_STDOUT\\n");
+Bun.spawnSync(["echo", "CHILD_STDOUT"], { stdout: "inherit" });
+agent({ name: "helper", prompt: "You help." });`
+  );
+  configureProviders(join(root, "state"));
+  const session = await rawMcpSession(
+    "sh",
+    [
+      "-c",
+      'exec "$0" "$@" 2>&-',
+      "bun",
+      "--no-env-file",
+      resolve("src/cli.ts"),
+      "mcp",
+      "--source",
+      source,
+      "--state",
+      join(root, "state"),
+      "--dry-run",
+    ],
+    { cwd: root }
+  );
+  try {
+    const listed = z
+      .object({ result: z.object({ tools: z.array(z.unknown()) }) })
+      .parse(await session.request("tools/list"));
+    expect(listed.result.tools).toHaveLength(TOOL_NAMES.length);
+  } finally {
+    const ended = await session.close();
+    await rm(root, { force: true, recursive: true });
+    expect(ended.code).toBe(0);
+    expect(strayLines(ended.stdout)).toEqual([]);
+  }
+}, 30_000);
+
+it("refuses to serve without the relay's protocol pipe", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-unrelayed-"));
+  try {
+    const result = spawnSync(
+      "bun",
+      [
+        "--no-env-file",
+        resolve("src/cli.ts"),
+        "mcp",
+        "--state",
+        join(root, "state"),
+      ],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, MARBLES_MCP_SERVER: "1" },
+        input: "",
+        // Descriptor 3 is otherwise whatever this test process passes on.
+        stdio: ["pipe", "pipe", "pipe", "ignore"],
+        timeout: 15_000,
+      }
+    );
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(
+      "marbles mcp: MARBLES_MCP_SERVER is set but descriptor 3 is not the protocol pipe"
+    );
+    expect(existsSync(join(root, "state"))).toBe(false);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+}, 20_000);
 
 it("reports a source that fails to load on stderr, never on the protocol stream", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-broken-"));

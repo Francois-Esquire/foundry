@@ -9,17 +9,14 @@ import {
 } from "~/access/workspace";
 import type { Flags } from "~/args";
 import { listWorkspaces } from "~/lib/state/workspace";
+import { protocolOutput } from "~/mcp/relay";
 import { createMcpServer, type McpServerOptions } from "~/mcp/server";
-import { takeStdout } from "~/mcp/stdout";
 import type { WorkspaceSummary } from "~/model/connection";
 import type { WorkspaceHost } from "~/workspace/host";
 import type { OpenedWorkspace } from "~/workspace/open";
 import { findWorkspace, recordedWorkspace } from "~/workspace/open";
 import { resolveSource } from "~/workspace/source";
 
-// The CLI loads this module only for `marbles mcp`, after its own imports;
-// nothing has printed yet.
-const protocolOutput = takeStdout();
 const print = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };
@@ -145,6 +142,7 @@ function serveFromState(flags: Flags): Served {
 
 /** Serve the workspace until the client leaves. */
 async function serve(flags: Flags): Promise<void> {
+  const output = protocolOutput();
   const configPath = resolveSource(flags.config);
   let served: Served;
   try {
@@ -167,19 +165,24 @@ async function serve(flags: Flags): Promise<void> {
       await served.release();
     }
   };
+  // A terminal signals the relay and this process together, and the relay
+  // passes its copy on, so a repeat is expected and changes nothing.
+  let closing = false;
   const shutdown = (): void => {
+    if (closing) {
+      return;
+    }
+    closing = true;
     close().catch((error: unknown) => {
       print(error instanceof Error ? error.message : String(error));
       process.exitCode = 1;
     });
   };
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
   process.stdin.once("end", shutdown);
   try {
-    await server.connect(
-      new StdioServerTransport(process.stdin, protocolOutput)
-    );
+    await server.connect(new StdioServerTransport(process.stdin, output));
   } catch (error) {
     await close();
     throw error;
