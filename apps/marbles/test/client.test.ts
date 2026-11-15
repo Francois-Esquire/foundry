@@ -136,10 +136,11 @@ describe("connecting to the Marbles process", () => {
 
   it("refuses another artifact store before it would replace an older daemon", async () => {
     const at = machine();
-    const elsewhere = layout({
+    // A layout of a host's own making: one home cannot name two stores.
+    const elsewhere = {
+      ...layout({ home: at.home }),
       artifacts: join(at.home, "elsewhere"),
-      home: at.home,
-    });
+    };
     const asked = await fakeDaemon(at, () => oldHello(at));
     // A starting connect replaces an older daemon, but not one that keeps
     // another store: that would stop it and start one on the wrong store.

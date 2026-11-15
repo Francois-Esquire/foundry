@@ -492,12 +492,17 @@ export type Args = { readonly [C in Command]: ArgsOf<C> }[Command];
 
 /** Flags that take the next argument; a later occurrence wins. */
 const VALUE_FLAGS = {
-  "--artifacts": "artifacts",
   "--config": "config",
   "--input": "inputJson",
   "--source": "config",
-  "--state": "state",
 } as const;
+
+/**
+ * Flags that moved one location once. Left unrecognised, each would parse
+ * as a positional and its value with it, and the command would run
+ * against the home.
+ */
+const REMOVED_FLAGS = ["--state", "--artifacts"] as const;
 type ValueFlag = keyof typeof VALUE_FLAGS;
 
 function isValueFlag(arg: string): arg is ValueFlag {
@@ -511,6 +516,7 @@ function parseFlags(argv: readonly string[]): {
 } {
   const positional: string[] = [];
   let harness = false;
+  let removed: string | undefined;
   const values: Partial<Record<(typeof VALUE_FLAGS)[ValueFlag], string>> = {};
   let dry = false;
 
@@ -523,6 +529,9 @@ function parseFlags(argv: readonly string[]): {
     } else if (arg === "--harness") {
       harness = true;
       argumentsIterator.next();
+    } else if ((REMOVED_FLAGS as readonly string[]).includes(arg)) {
+      removed ??= arg;
+      argumentsIterator.next();
     } else if (isValueFlag(arg)) {
       const { value } = argumentsIterator.next();
       if (value !== undefined) {
@@ -533,10 +542,7 @@ function parseFlags(argv: readonly string[]): {
     }
   }
 
-  const { artifacts, state } = layout({
-    artifacts: values.artifacts,
-    state: values.state,
-  });
+  const { artifacts, state } = layout();
   const flags = {
     artifacts,
     config: values.config ?? DEFAULT_SOURCE,
@@ -544,9 +550,15 @@ function parseFlags(argv: readonly string[]): {
     inputJson: values.inputJson,
     state,
   };
-  if (harness && !(argv.includes("--help") || argv.includes("-h"))) {
+  const help = argv.includes("--help") || argv.includes("-h");
+  if (harness && !help) {
     throw new UsageError(
       "--harness was removed: Marbles uses the providers you configured, in their order"
+    );
+  }
+  if (removed !== undefined && !help) {
+    throw new UsageError(
+      `${removed} was removed: Marbles keeps everything under the Foundry home; set FOUNDRY_HOME to move it`
     );
   }
   return { flags, positional };

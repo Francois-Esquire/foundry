@@ -40,25 +40,19 @@ function withFoundryHome(value: string | undefined, body: () => void): void {
   }
 }
 
-it("lives at the state root: ~/.foundry/marbles by default, beside a custom --state", () => {
+it("lives at the state root: ~/.foundry/marbles by default", () => {
   withFoundryHome(undefined, () => {
     expect(settingsPath(parseArgs([]).state)).toBe(
       join(homedir(), ".foundry", "marbles", "settings.json")
     );
   });
-  expect(settingsPath(parseArgs(["--state", state]).state)).toBe(
-    join(state, "settings.json")
-  );
 });
 
-it("follows FOUNDRY_HOME when no --state is given", () => {
+it("follows FOUNDRY_HOME", () => {
   const home = join(state, "home");
   withFoundryHome(home, () => {
     expect(settingsPath(parseArgs([]).state)).toBe(
       join(home, "marbles", "settings.json")
-    );
-    expect(settingsPath(parseArgs(["--state", state]).state)).toBe(
-      join(state, "settings.json")
     );
   });
 });

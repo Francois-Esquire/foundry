@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { connect as connectSocket, type Socket } from "node:net";
+import { layout } from "~/layout";
 import type { Engine } from "~/lib/engine";
 
 import { Channel, socketTransport } from "~/process/channel";
@@ -37,6 +38,7 @@ import { watchSource } from "~/workspace/watch";
  */
 
 interface WorkerArgs {
+  /** The shared artifact store, under the Foundry home `FOUNDRY_HOME` names. */
   readonly artifacts: string;
   readonly dry: boolean;
   /** A starter the client just wrote: post its milestone once the engine runs. */
@@ -44,6 +46,7 @@ interface WorkerArgs {
   /** The daemon's socket, and what to say on it. */
   readonly socket: string;
   readonly source: string;
+  /** The Marbles state root, under the Foundry home `FOUNDRY_HOME` names. */
   readonly state: string;
   readonly token: string;
 }
@@ -70,13 +73,15 @@ function parseWorkerArgs(argv: readonly string[]): WorkerArgs {
     return value;
   };
   const setup = values.get("setup");
+  // The daemon names its Foundry home in the worker's environment.
+  const { artifacts, state } = layout();
   return {
-    artifacts: required("artifacts"),
+    artifacts,
     dry,
     ...(setup === undefined ? {} : { setup: JSON.parse(setup) as SetupDraft }),
     socket: required("socket"),
     source: required("source"),
-    state: required("state"),
+    state,
     token: required("token"),
   };
 }

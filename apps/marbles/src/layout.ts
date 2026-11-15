@@ -1,31 +1,24 @@
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 
 /**
- * Where Marbles keeps things on this machine, decided once. The opinionated
- * default is one Foundry home, `~/.foundry`, holding the Marbles state root
- * (`marbles/`, one directory per workspace plus the process files and the
- * Marbles database) and the artifact store (`artifacts/`) that every
- * workspace shares. Each location
- * can be set on its own; the others follow from it, so a custom state root
- * keeps its artifacts beside it rather than in the user's home.
- *
- * `FOUNDRY_HOME` moves the whole home. Flags (`--state`, `--artifacts`)
- * move one location and win over it.
+ * Where Marbles keeps things on this machine, decided once, all of it
+ * under one Foundry home: `$FOUNDRY_HOME`, else `~/.foundry`. It holds the
+ * Marbles state root (`marbles/`: the Marbles database, the process's
+ * socket and claim, settings, and one directory per workspace for its run
+ * output and worktrees) and the artifact store (`artifacts/`), whose blob
+ * files every workspace's artifacts keep. Moving the home moves
+ * everything; nothing moves on its own.
  */
 
 export interface LayoutOptions {
-  /** The artifact store; `<home>/artifacts`, or beside a custom state root. */
-  readonly artifacts?: string;
   /** Read for `FOUNDRY_HOME`; `process.env` when omitted. */
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** The Foundry home; `$FOUNDRY_HOME`, else `~/.foundry`. */
   readonly home?: string;
-  /** The Marbles state root; `<home>/marbles`. */
-  readonly state?: string;
 }
 
 export interface Layout {
@@ -55,13 +48,8 @@ export function layout(options: LayoutOptions = {}): Layout {
   const home = resolve(
     options.home ?? env.FOUNDRY_HOME ?? join(homedir(), HOME_DIR)
   );
-  const state = resolve(options.state ?? join(home, STATE_DIR));
-  const artifacts = resolve(
-    options.artifacts ??
-      (options.state === undefined
-        ? join(home, ARTIFACTS_DIR)
-        : join(dirname(state), ARTIFACTS_DIR))
-  );
+  const state = join(home, STATE_DIR);
+  const artifacts = join(home, ARTIFACTS_DIR);
   return {
     artifacts,
     database: stateDatabase(state),
@@ -73,9 +61,8 @@ export function layout(options: LayoutOptions = {}): Layout {
 }
 
 /**
- * The Marbles database under the state root `state`. It follows the state
- * root, as the process claim and socket do, so a state root moved with
- * `--state` keeps its own registry instead of sharing the home's.
+ * The Marbles database under the state root `state`, beside the process
+ * claim and socket.
  */
 export function stateDatabase(state: string): string {
   return join(resolve(state), DATABASE_FILE);
