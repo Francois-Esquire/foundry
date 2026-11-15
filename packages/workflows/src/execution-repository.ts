@@ -13,8 +13,11 @@ import type {
   SuspensionStatus,
 } from "./execution-records";
 import type { Extensions } from "./extensions";
+import type { QueueRecord } from "./schema";
 import type { WorkflowSnapshot } from "./snapshot";
 import type { ErrorShape, QueueStatus, RunStatus } from "./types";
+
+export type { QueueRecord } from "./schema";
 
 export interface PageQuery extends PageInput<number> {
   order?: "newest" | "oldest";
@@ -217,15 +220,6 @@ export interface UpdateQueueInput {
   extensions?: Extensions;
   lastError?: ErrorShape | null;
   status?: QueueStatus;
-}
-
-export interface QueueRecord {
-  createdAt: number;
-  extensions: Extensions;
-  id: string;
-  lastError: ErrorShape | null;
-  name: string;
-  status: QueueStatus;
 }
 
 export interface RecoverableRun {

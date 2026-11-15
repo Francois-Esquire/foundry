@@ -35,11 +35,9 @@ import {
   isRunEffectClaim,
   runEffectClaimPayload,
 } from "./run-journal";
+import { ORCHESTRATOR_STORE_SNAPSHOT_VERSION } from "./schema";
 import type { OrchestratorStoreSnapshot } from "./store-snapshot";
-import {
-  ORCHESTRATOR_STORE_SNAPSHOT_VERSION,
-  validateOrchestratorStoreSnapshot,
-} from "./store-snapshot";
+import { validateOrchestratorStoreSnapshot } from "./store-snapshot";
 
 /** Zero-configuration reference persistence for local and test use. */
 export class InMemoryOrchestratorStore extends AbstractOrchestratorStore {
