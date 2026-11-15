@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import {
   appendFileSync,
+  chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -88,6 +89,33 @@ describe("the Marbles database", () => {
       expect(await rows(opened.database)).toBe(0);
     } finally {
       opened.close();
+    }
+  });
+
+  it("keeps the database and its side files readable by their owner only", async () => {
+    const dir = scratch();
+    // biome-ignore lint/suspicious/noBitwiseOperators: the permission bits of a mode.
+    const mode = (path: string) => statSync(path).mode & 0o777;
+    const made = join(dir, "made", "marbles.db");
+    const opened = await initializeDatabase(made);
+    try {
+      await opened.database.insert(marblesWorkspaces).values(workspaceRow("a"));
+      for (const path of [made, `${made}-wal`, `${made}-shm`]) {
+        expect(mode(path), path).toBe(0o600);
+      }
+    } finally {
+      opened.close();
+    }
+
+    // One an earlier Marbles made as the umask had it is tightened.
+    const earlier = join(dir, "earlier", "marbles.db");
+    (await initializeDatabase(earlier)).close();
+    chmodSync(earlier, 0o644);
+    const loose = await initializeDatabase(earlier);
+    try {
+      expect(mode(earlier)).toBe(0o600);
+    } finally {
+      loose.close();
     }
   });
 

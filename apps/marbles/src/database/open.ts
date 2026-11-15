@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  statSync,
+} from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -89,7 +96,7 @@ export async function initializeDatabase(
 ): Promise<MarblesDatabase> {
   const path = resolve(file);
   const busyTimeout = options.busyTimeout ?? BUSY_TIMEOUT_MS;
-  mkdirSync(dirname(path), { recursive: true });
+  ownerOnly(path);
   const connect = () =>
     createClient({
       concurrency: 1,
@@ -105,11 +112,41 @@ export async function initializeDatabase(
   try {
     const folder = options.migrations ?? MIGRATIONS;
     await migrate(client, drizzle({ client }), path, folder);
+    // Side files an earlier Marbles made as the umask had them.
+    for (const side of [`${path}-wal`, `${path}-shm`]) {
+      if (existsSync(side)) {
+        chmodSync(side, OWNER_ONLY);
+      }
+    }
     return writer(client, path, folder);
   } catch (error) {
     client.close();
     throw error;
   }
+}
+
+/** What the database and its side files allow: their owner reads and writes, no one else. */
+const OWNER_ONLY = 0o600;
+
+/**
+ * Make sure the database at `path` is its owner's alone before SQLite
+ * opens it: provider settings and the identity key are kept there. A new
+ * file is made empty with that mode, which SQLite reads as a new
+ * database, and an existing one is narrowed to it. SQLite gives the WAL
+ * and shared-memory files it makes the database file's mode. This runs
+ * before this handle connects, so the descriptor it opens and closes on a
+ * new file is to one no connection in this process has open.
+ */
+function ownerOnly(path: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  try {
+    closeSync(openSync(path, "wx", OWNER_ONLY));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+      throw error;
+    }
+  }
+  chmodSync(path, OWNER_ONLY);
 }
 
 /**
