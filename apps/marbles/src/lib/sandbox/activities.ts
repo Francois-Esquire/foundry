@@ -79,7 +79,12 @@ export class HarnessActivities {
   /** Read what the store keeps, before the engine runs anything; without one there is nothing. */
   async load(): Promise<void> {
     for (const record of (await this.#store?.load()) ?? []) {
-      this.#records.set(this.#key(record), record);
+      const key = this.#key(record);
+      // One recorded while this read keeps its place if it is newer.
+      const kept = this.#records.get(key);
+      if (kept === undefined || kept.event.revision < record.event.revision) {
+        this.#records.set(key, record);
+      }
     }
   }
 
@@ -133,11 +138,20 @@ export class HarnessActivities {
   ): Promise<void> {
     const record = { event, source };
     const key = this.#key(record);
-    const previous = this.#records.get(key);
-    if (previous && previous.event.revision >= event.revision) {
+    const newer = () => {
+      const kept = this.#records.get(key);
+      return kept !== undefined && kept.event.revision >= event.revision;
+    };
+    if (newer()) {
       return;
     }
     await this.#store?.put(key, record);
+    // Asked again once the store has it: an overlapping call may have kept
+    // a higher revision meanwhile, which the store kept too.
+    if (newer()) {
+      return;
+    }
+    const previous = this.#records.get(key);
     this.#records.set(key, record);
     this.#observed.get(event.sessionId)?.add(event.id);
     if (

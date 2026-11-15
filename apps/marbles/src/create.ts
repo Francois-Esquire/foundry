@@ -76,8 +76,8 @@ export interface CreateEngineOptions {
    * containers and its workspace catalogue; the host closes it once the
    * engine is disposed. Without it, an engine given a state dir opens a
    * handle of its own at its first task, session or run call and closes it
-   * when disposed, and keeps the rest as it would with no database: artifacts
-   * in JSON under `artifacts`, containers and the catalogue in memory.
+   * when disposed, and keeps artifacts, containers and the catalogue in
+   * memory; its provider configuration is read and written per call.
    * Under `dry` the engine gets neither and keeps everything in memory.
    */
   readonly database?: StoreDatabase;

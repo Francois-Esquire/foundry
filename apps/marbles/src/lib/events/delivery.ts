@@ -90,7 +90,8 @@ export class Delivery {
   /** A tick's claim under way, so the next tick does not start another. */
   #claiming: Promise<void> | undefined;
   /** `waiting`: another process delivers here; this one tries to claim it on each tick. */
-  #phase: "new" | "waiting" | "running" | "stopped" = "new";
+  /** `starting`: `start` is under way; a `stop` meanwhile ends it, and it gives up any claim it took. */
+  #phase: "new" | "starting" | "waiting" | "running" | "stopped" = "new";
   #pass: Promise<void> | undefined;
   /** A wake came while a pass ran: look again once it ends. */
   #again = false;
@@ -147,7 +148,14 @@ export class Delivery {
     if (this.#phase !== "new" || this.#observers.length === 0) {
       return;
     }
+    this.#phase = "starting";
     const holder = await this.#claim();
+    // After every wait: stopped meanwhile, this never runs, and gives up
+    // the claim a `stop` before it was granted found no claim to give up.
+    if (this.#phase !== "starting") {
+      await this.#release();
+      return;
+    }
     if (holder !== undefined) {
       this.#print(
         `[observe] not delivering here: the changes of this workspace are delivered by ${holder}; delivering here once it stops`
@@ -161,6 +169,10 @@ export class Delivery {
     } catch (error) {
       await this.#release();
       throw error;
+    }
+    if (this.#phase !== "starting") {
+      await this.#release();
+      return;
     }
     this.#phase = "running";
     this.#tickEvery();
@@ -210,8 +222,10 @@ export class Delivery {
   async #release(): Promise<void> {
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; a claim sets it.
     if (this.#claimed) {
-      this.#claimed = false;
+      // Held until the release has landed: one that fails is tried again
+      // by the next release, `stop`'s or the records' own on close.
       await this.#records.releaseDelivery();
+      this.#claimed = false;
     }
   }
 

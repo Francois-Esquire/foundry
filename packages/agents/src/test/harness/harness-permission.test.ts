@@ -165,6 +165,47 @@ describe("native harness permission", () => {
     expect(settings.approve).not.toHaveBeenCalled();
   });
 
+  it("records one answer of two given at once, the first stored, and grants only for it", async () => {
+    const { authority, settings, store } = await setup();
+    await createHarnessPermission(settings)(request());
+    const part = (await store.listMessages("session-1"))[0]?.parts[0];
+    if (part?.type !== "tool_approval_request") {
+      throw new Error("No approval");
+    }
+    // Each host has its own Sessions over the shared store, as two hosts do.
+    const answered = await Promise.allSettled([
+      resolveHarnessApproval(settings, "session-1", part.approvalId, {
+        approved: false,
+        lifetime: "persistent",
+      }),
+      resolveHarnessApproval(settings, "session-1", part.approvalId, {
+        approved: true,
+        lifetime: "persistent",
+      }),
+    ]);
+    expect(answered.map((outcome) => outcome.status)).toEqual([
+      "fulfilled",
+      "rejected",
+    ]);
+    expect(answered[1]).toMatchObject({
+      reason: expect.objectContaining({
+        message: expect.stringContaining("already has a response"),
+      }),
+    });
+    const responses = (await store.listMessages("session-1"))
+      .flatMap((message) => message.parts)
+      .filter((value) => value.type === "tool_approval_response");
+    expect(responses).toMatchObject([{ approved: false }]);
+    // The Allow that lost issued no authority.
+    expect(
+      await authority.authorizer.decide({
+        capability: part.capability,
+        invocationId: "later",
+        subject: agentSubject("coder", 2),
+      })
+    ).toEqual({ kind: "requires-approval" });
+  });
+
   it("refuses a deferred once approval and an approval for another generation", async () => {
     const { settings, store } = await setup();
     await createHarnessPermission(settings)(request());

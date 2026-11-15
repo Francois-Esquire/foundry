@@ -110,7 +110,13 @@ export class HarnessInteractions {
     for (const record of records.values()) {
       const history = histories.get(record.sessionId);
       const request = history?.requests.get(record.approvalId);
-      const response = history?.responses.get(record.approvalId);
+      // Read again before a question is reopened: another host may have
+      // answered it since the histories above were read.
+      const response =
+        history?.responses.get(record.approvalId) ??
+        (await this.#histories([record.sessionId]))
+          .get(record.sessionId)
+          ?.responses.get(record.approvalId);
       if (
         request?.approvalMode !== "deferred" ||
         request.agentId !== record.agentId ||

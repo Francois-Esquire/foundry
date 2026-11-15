@@ -61,7 +61,16 @@ const SCOPE_CONFIGURATION = z.object({
  * it.
  */
 export interface ProviderConfigurations {
+  /**
+   * The machine's configuration; `CONFIGURATION_UNREADABLE` when it cannot
+   * be read, which is found when this is read, not when the store was.
+   */
   readonly machine: ProvidersFile | undefined;
+  /**
+   * The store's revision these were read at, in the same read or
+   * transaction: never one an edit made after it.
+   */
+  readonly revision: number;
   /** The configuration the workspace `id` keeps; `CONFIGURATION_UNREADABLE` when it cannot be read. */
   workspace(id: string): ProvidersFile | undefined;
   /** The ids of the workspaces that keep configuration of their own. */
@@ -86,14 +95,15 @@ export interface ProviderStore {
    * is none. A key that cannot be used throws `CONFIGURATION_UNREADABLE`.
    */
   identityKey(make: boolean): Promise<Buffer | undefined>;
-  /** Every scope as kept now. A machine configuration that cannot be read throws. */
+  /** Every scope as kept now, with the revision it was read at. */
   read(): Promise<ProviderConfigurations>;
   /** A number that grows with every write to any scope, cheap to read: how a change elsewhere is noticed. */
   revision(): Promise<number>;
   /**
    * In one transaction: read every scope, run `edit` on them, and write
    * what it returns for the machine and for the workspace `workspace`;
-   * resolve with every scope as it then stands. `edit` may throw to
+   * resolve with every scope as it then stands, and the revision that
+   * transaction left. `edit` may throw to
    * refuse, and nothing is written then. A store that cannot take the
    * write before its wait runs out throws `CONFIGURATION_BUSY`.
    */
@@ -113,16 +123,26 @@ export const MACHINE_SCOPE = "";
  * and why, never with what it holds: a misplaced key is a secret.
  */
 export function keptConfigurations(
-  texts: ReadonlyMap<string, string>
+  texts: ReadonlyMap<string, string>,
+  revision: number
 ): ProviderConfigurations {
   const machineText = texts.get(MACHINE_SCOPE);
-  const machine =
-    machineText === undefined
-      ? undefined
-      : parseConfiguration("the machine's provider configuration", machineText);
+  let machine: { readonly file: ProvidersFile | undefined } | undefined;
   const parsed = new Map<string, ProvidersFile>();
   return {
-    machine,
+    get machine() {
+      machine ??= {
+        file:
+          machineText === undefined
+            ? undefined
+            : parseConfiguration(
+                "the machine's provider configuration",
+                machineText
+              ),
+      };
+      return machine.file;
+    },
+    revision,
     workspace(id) {
       const text = id === MACHINE_SCOPE ? undefined : texts.get(id);
       if (text === undefined) {
@@ -227,7 +247,9 @@ export class MemoryProviderStore implements ProviderStore {
   }
 
   read(): Promise<ProviderConfigurations> {
-    return Promise.resolve(keptConfigurations(new Map(this.#texts)));
+    return Promise.resolve(
+      keptConfigurations(new Map(this.#texts), this.#revision)
+    );
   }
 
   revision(): Promise<number> {
@@ -239,7 +261,9 @@ export class MemoryProviderStore implements ProviderStore {
     edit: (current: ProviderConfigurations) => ProviderWrites
   ): Promise<ProviderConfigurations> {
     try {
-      const writes = edit(keptConfigurations(new Map(this.#texts)));
+      const writes = edit(
+        keptConfigurations(new Map(this.#texts), this.#revision)
+      );
       const written = writtenTexts(workspace, writes);
       for (const [scope, text] of written) {
         this.#texts.set(scope, text);
@@ -284,23 +308,18 @@ export function readOnlyProviders(store: ProviderStore): ProviderStore {
   let writes = 0;
   const read = async (): Promise<ProviderConfigurations> => {
     const kept = await store.read();
+    // The store's revision with this view's own writes counted on top, so
+    // either kind of change is seen.
+    const revision = kept.revision + writes;
     if (own.size === 0) {
+      // Nothing written here yet, so `writes` is 0 and this is the store's.
       return kept;
     }
-    const texts = new Map<string, string>();
-    if (kept.machine !== undefined) {
-      texts.set(MACHINE_SCOPE, configurationText(kept.machine));
-    }
-    for (const id of kept.workspaces) {
-      const file = kept.workspace(id);
-      if (file !== undefined) {
-        texts.set(id, configurationText(file));
-      }
-    }
+    const texts = new Map(textsOf(kept));
     for (const [scope, text] of own) {
       texts.set(scope, text);
     }
-    return keptConfigurations(texts);
+    return keptConfigurations(texts, revision);
   };
   return {
     identityKey: () => store.identityKey(false),
@@ -315,6 +334,21 @@ export function readOnlyProviders(store: ProviderStore): ProviderStore {
       return read();
     },
   };
+}
+
+/** Every scope `kept` holds as the text a store keeps; one that cannot be read throws. */
+function textsOf(kept: ProviderConfigurations): ReadonlyMap<string, string> {
+  const texts = new Map<string, string>();
+  if (kept.machine !== undefined) {
+    texts.set(MACHINE_SCOPE, configurationText(kept.machine));
+  }
+  for (const id of kept.workspaces) {
+    const file = kept.workspace(id);
+    if (file !== undefined) {
+      texts.set(id, configurationText(file));
+    }
+  }
+  return texts;
 }
 
 export function empty(): ProvidersFile {

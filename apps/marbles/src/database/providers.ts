@@ -129,24 +129,32 @@ export function stateProviders(state: string): ProviderStore {
       make
         ? writing((store) => store.identityKey(true))
         : reading((store) => store.identityKey(false), undefined),
-    read: () => reading((store) => store.read(), keptConfigurations(new Map())),
+    read: () =>
+      reading((store) => store.read(), keptConfigurations(new Map(), 0)),
     revision: () => reading((store) => store.revision(), 0),
     update: (workspace, edit) =>
       writing((store) => store.update(workspace, edit)),
   };
 }
 
+/**
+ * Every scope, and the revision they were read at: the highest of their
+ * rows, read in the same statement, since every write raises its scope's
+ * row above every other.
+ */
 async function readAll(
   database: StoreDatabase
 ): Promise<ProviderConfigurations> {
   const rows = await database
     .select({
       configuration: marblesProviderConfigurations.configuration,
+      revision: marblesProviderConfigurations.revision,
       scope: marblesProviderConfigurations.scope,
     })
     .from(marblesProviderConfigurations);
   return keptConfigurations(
-    new Map(rows.map((row) => [row.scope, row.configuration]))
+    new Map(rows.map((row) => [row.scope, row.configuration])),
+    Math.max(0, ...rows.map((row) => row.revision))
   );
 }
 
