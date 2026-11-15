@@ -1034,12 +1034,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (id === undefined || workspace === undefined || part === undefined) {
       return;
     }
-    const registration = {
-      config: workspace.summary.config,
-      id,
-      root: workspace.summary.root,
-    };
-    const next = withRead(registration, part, file, readAt, digests);
+    const next = withRead(part, file, readAt, digests);
     if (next !== part) {
       generation.fingerprint = withSource(generation.fingerprint, id, next);
     }

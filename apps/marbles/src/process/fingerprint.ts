@@ -87,10 +87,15 @@ export class FileDigests {
 
 /** One workspace's part of a fingerprint. */
 export interface WorkspacePrint {
-  /** Each file under the root, by its path relative to the root, with its digest: what `tree` digests. */
+  /** Each file the tree covers, by its path relative to `root`, with its digest: what `tree` digests. */
   readonly files: ReadonlyMap<string, string>;
   /** Each file read outside the root, by absolute path, with its digest as recorded. */
   readonly outside: ReadonlyMap<string, string>;
+  /**
+   * The directory the tree is rooted at: the workspace's root, or its
+   * source's folder when the root holds too many files.
+   */
+  readonly root: string;
   /** The digest of every file under the root. */
   readonly tree: string;
 }
@@ -175,15 +180,18 @@ export function treeDigest(
   digests: FileDigests,
   ignored: ReadonlySet<string> = new Set()
 ): string {
-  return digestOfTree(treeFiles(registration, digests, ignored));
+  return digestOfTree(treeFiles(registration, digests, ignored).files);
 }
 
-/** The files `treeDigest` digests, by path relative to the root, each with its digest. */
+/**
+ * The files `treeDigest` digests, by path relative to the directory the
+ * tree is rooted at, each with its digest, and that directory.
+ */
 function treeFiles(
   registration: Registration,
   digests: FileDigests,
   ignored: ReadonlySet<string>
-): ReadonlyMap<string, string> {
+): { readonly files: ReadonlyMap<string, string>; readonly root: string } {
   let { root } = registration;
   let files = filesBelow(root, TREE_LIMIT, ignored);
   if (files === undefined && registration.config !== null) {
@@ -194,7 +202,7 @@ function treeFiles(
   for (const file of files ?? []) {
     entries.set(relative(root, file), digests.of(file) ?? "missing");
   }
-  return entries;
+  return { files: entries, root };
 }
 
 /** The digest of a tree's files, in path order. */
@@ -249,24 +257,26 @@ export function differences(was: Fingerprint, now: Fingerprint): string[] {
  * `print` with `file`, which a generation read at `readAt` (ms since the
  * epoch), recorded: by its digest now when it has not changed since it was
  * read, else as changed, which matches no digest, so the next poll starts
- * the next generation. A file under the root, or recorded already, leaves
- * the print as it was.
+ * the next generation. A file the tree covers, or one recorded already,
+ * leaves the print as it was; one under the root the tree does not cover,
+ * a text file a load imports, say, is recorded as any read is.
  */
 export function withRead(
-  registration: Registration,
   print: WorkspacePrint,
   file: string,
   readAt: number,
   digests: FileDigests
 ): WorkspacePrint {
-  if (isUnder(registration.root, file) || print.outside.has(file)) {
+  const covered =
+    isUnder(print.root, file) && print.files.has(relative(print.root, file));
+  if (covered || print.outside.has(file)) {
     return print;
   }
   const modified = digests.modified(file);
   const unchanged = modified !== undefined && modified < readAt;
   const outside = new Map(print.outside);
   outside.set(file, (unchanged && digests.of(file)) || CHANGED);
-  return { files: print.files, outside, tree: print.tree };
+  return { ...print, outside };
 }
 
 /**
@@ -284,7 +294,12 @@ export function printNow(
   for (const file of outside) {
     read.set(file, digests.of(file) ?? "missing");
   }
-  return { files: tree, outside: read, tree: digestOfTree(tree) };
+  return {
+    files: tree.files,
+    outside: read,
+    root: tree.root,
+    tree: digestOfTree(tree.files),
+  };
 }
 
 /** The fingerprint of `installation` and `sources`, in workspace id and file order. */
@@ -311,7 +326,7 @@ const shared = new FileDigests();
 
 /**
  * Every registration's digest now, by workspace id: its tree, and each of
- * `files` (by workspace id) its loads read outside its root.
+ * `files` (by workspace id) its loads read that the tree does not cover.
  */
 export function sourceDigests(
   records: readonly Registration[],
@@ -319,8 +334,11 @@ export function sourceDigests(
 ): ReadonlyMap<string, string> {
   const digests = new Map<string, string>();
   for (const record of records) {
+    const tree = printNow(record, [], shared);
+    // Each file the loads read that the tree does not cover counts as read.
     const outside = (files.get(record.id) ?? []).filter(
-      (file) => !isUnder(record.root, file)
+      (file) =>
+        !(isUnder(tree.root, file) && tree.files.has(relative(tree.root, file)))
     );
     const print = printNow(record, outside, shared);
     digests.set(

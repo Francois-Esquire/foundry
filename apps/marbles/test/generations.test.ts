@@ -898,9 +898,29 @@ describe("engine generations", () => {
       expect((await workspace.roll("where")).value).toBe(started?.pid);
       fixture.client.close();
     } finally {
-      // biome-ignore lint/performance/noDelete: an unset variable, not an empty one.
       delete process.env.MARBLES_TEST_FAIL_START;
     }
+  }, 150_000);
+
+  it("switches when a text file its source imports under the root changes, though no tree covers it", async () => {
+    const fixture = await setUp();
+    const first = fixture.summary.pid ?? 0;
+    const prompt = join(fixture.gates, "..", "project", "prompt.md");
+    writeFileSync(prompt, "Say hello.\n");
+    writeFileSync(
+      fixture.source,
+      `import prompt from "./prompt.md" with { type: "text" };\n${moduleText(fixture, 1)}export const told = step("told").do(() => prompt);\n`
+    );
+    const second = await readyOn(fixture, (pid) => pid !== first);
+    const workspace = fixture.client.workspace(fixture.summary);
+    expect((await workspace.roll("told")).value).toBe("Say hello.\n");
+    // Only the prompt changes.
+    writeFileSync(prompt, "Say goodbye, at length.\n");
+    await readyOn(fixture, (pid) => pid !== second);
+    expect((await workspace.roll("told")).value).toBe(
+      "Say goodbye, at length.\n"
+    );
+    fixture.client.close();
   }, 150_000);
 
   it("hands a released run to the current generation from the database when the notice is lost", async () => {

@@ -174,23 +174,50 @@ describe("withRead", () => {
     const now = printNow(registration, [outside], digests);
 
     // Read after its last change: recorded as it is, the same as now.
-    const read = withRead(
-      registration,
-      empty,
-      outside,
-      Date.now() + 60_000,
-      digests
-    );
+    const read = withRead(empty, outside, Date.now() + 60_000, digests);
     expect(fingerprintOf("", new Map([["w", read]])).digest).toBe(
       fingerprintOf("", new Map([["w", now]])).digest
     );
     // Changed since it was read: matches nothing, so a switch follows.
-    const stale = withRead(registration, empty, outside, 0, digests);
+    const stale = withRead(empty, outside, 0, digests);
     expect(fingerprintOf("", new Map([["w", stale]])).digest).not.toBe(
       fingerprintOf("", new Map([["w", now]])).digest
     );
     // A file under the root is the tree's.
-    expect(withRead(registration, empty, config, 0, digests)).toBe(empty);
+    expect(withRead(empty, config, 0, digests)).toBe(empty);
+  });
+});
+
+describe("withRead under the root", () => {
+  it("records a file a load read under the root that the tree does not cover, as a text import", () => {
+    const root = join(temporaryDirectory("marbles-fingerprint-"), "project");
+    mkdirSync(root);
+    const config = join(root, "marbles.config.ts");
+    const prompt = join(root, "prompt.md");
+    writeFileSync(
+      config,
+      'import prompt from "./prompt.md" with { type: "text" };\n'
+    );
+    writeFileSync(prompt, "Say hello.\n");
+    const digests = new FileDigests();
+    const registration = { config, id: "w", root };
+    const empty = printNow(registration, [], digests);
+    const read = withRead(empty, prompt, Date.now() + 60_000, digests);
+    const digestOf = (outside: readonly string[]) =>
+      fingerprintOf(
+        "",
+        new Map([["w", printNow(registration, outside, digests)]])
+      ).digest;
+    expect(fingerprintOf("", new Map([["w", read]])).digest).toBe(
+      digestOf([...read.outside.keys()])
+    );
+    // Edited: what the load read is no longer what it holds.
+    writeFileSync(prompt, "Say goodbye, at length.\n");
+    expect(digestOf([...read.outside.keys()])).not.toBe(
+      fingerprintOf("", new Map([["w", read]])).digest
+    );
+    // A file the tree covers is the tree's alone.
+    expect(withRead(read, config, 0, digests)).toBe(read);
   });
 });
 
@@ -199,6 +226,7 @@ describe("fingerprintOf", () => {
     const part = (tree: string) => ({
       files: new Map<string, string>(),
       outside: new Map<string, string>(),
+      root: "",
       tree,
     });
     const one = fingerprintOf(
