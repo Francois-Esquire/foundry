@@ -33,6 +33,7 @@ import {
   workspaceIdSchema,
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
+import { recordSpawned } from "~/process/spawned";
 import { resolveSource, sourceFiles, sourceRoot } from "~/workspace/source";
 import { version } from "../../package.json";
 
@@ -406,6 +407,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         stdio: ["ignore", "pipe", "pipe"],
       }
     );
+    recordSpawned(child.pid, false);
     worker.child = child;
     worker.token = token;
     worker.summary = { ...worker.summary, pid: child.pid ?? -1 };

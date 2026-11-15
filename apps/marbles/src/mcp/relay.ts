@@ -4,6 +4,7 @@ import { constants } from "node:os";
 import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
+import { recordSpawned } from "~/process/spawned";
 
 /**
  * `marbles mcp` runs in two processes, so stdout carries protocol frames
@@ -86,6 +87,7 @@ export async function relay(
     env: { ...process.env, [SERVER]: "1" },
     stdio: ["pipe", 2, "inherit", "pipe", "pipe"],
   });
+  recordSpawned(child.pid, false);
   const { stdin: input } = child;
   const protocol = child.stdio[PROTOCOL_FD];
   const held = child.stdio[RELAY_FD];
