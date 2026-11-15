@@ -5,16 +5,10 @@ import {
   JobAttemptAlreadyActiveError,
   JobNotFoundError,
 } from "./errors";
-import type {
-  JobCancellation,
-  JobLinks,
-  JobQuery,
-  JobRecord,
-  JobStatus,
-  JsonValue,
-  OrchestratorStore,
-  RunRecord,
-} from "./store";
+import type { JobCancellation, JobQuery } from "./execution-commands";
+import type { OrchestratorStore } from "./execution-coordinator";
+import type { JsonValue } from "./json-value";
+import type { JobLinks, JobRecord, JobStatus, RunRecord } from "./schema";
 
 export interface CreateJobOptions {
   readonly links?: JobLinks;

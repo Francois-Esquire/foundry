@@ -7,12 +7,18 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { ArtifactNotFoundError, artifactIdSchema } from "../index";
 import { fixture } from "./helpers/directory";
 import { required } from "./helpers/required";
+import { STORE_KINDS } from "./helpers/stores";
 
-describe("loading Artifact directories", () => {
+describe.each(STORE_KINDS)("%s store: loading Artifact directories", (kind) => {
   it("discovers created Artifacts and loads distinct directories through one system", async () => {
-    const { artifacts, artifact, system, catalog, root, load } = await fixture({
-      "first.md": { bytes: "first" },
-    });
+    const { artifacts, artifact, system, catalog, root, load } = await fixture(
+      {
+        "first.md": { bytes: "first" },
+      },
+      false,
+      {},
+      kind
+    );
     const second = await artifacts.create({
       entries: { "second.md": { bytes: "second" } },
       name: "Second",
@@ -38,7 +44,12 @@ describe("loading Artifact directories", () => {
   });
 
   it("creates no Workspace for a missing or archived Artifact", async () => {
-    const { artifacts, artifact, system, load } = await fixture();
+    const { artifacts, artifact, system, load } = await fixture(
+      {},
+      false,
+      {},
+      kind
+    );
     await expect(system.load({ artifactId: "missing" })).rejects.toBeInstanceOf(
       ArtifactNotFoundError
     );
@@ -50,9 +61,14 @@ describe("loading Artifact directories", () => {
   });
 
   it("keeps the previous catalog after archive or hard deletion", async () => {
-    const { artifacts, artifact, load } = await fixture({
-      "kept.md": { bytes: "kept" },
-    });
+    const { artifacts, artifact, load } = await fixture(
+      {
+        "kept.md": { bytes: "kept" },
+      },
+      false,
+      {},
+      kind
+    );
     const workspace = await load();
     await artifacts.archive(artifact.id);
     expect((await workspace.refresh()).source.kind).toBe("unavailable");
@@ -63,21 +79,31 @@ describe("loading Artifact directories", () => {
   });
 
   it("removing a Workspace leaves the Artifact untouched", async () => {
-    const { artifacts, artifact, load } = await fixture({
-      "a.md": { bytes: "a" },
-    });
+    const { artifacts, artifact, load } = await fixture(
+      {
+        "a.md": { bytes: "a" },
+      },
+      false,
+      {},
+      kind
+    );
     await (await load()).remove();
     expect(await artifacts.get(artifact.id)).toEqual(artifact);
   });
 });
 
-describe("bidirectional changes", () => {
+describe.each(STORE_KINDS)("%s store: bidirectional changes", (kind) => {
   it("removes previous working files when replaced by catalog-only special entries", async () => {
-    const { artifacts, artifact, load } = await fixture({
-      device: { bytes: "old device" },
-      pipe: { bytes: "old pipe" },
-      socket: { bytes: "old socket" },
-    });
+    const { artifacts, artifact, load } = await fixture(
+      {
+        device: { bytes: "old device" },
+        pipe: { bytes: "old pipe" },
+        socket: { bytes: "old socket" },
+      },
+      false,
+      {},
+      kind
+    );
     const workspace = await load();
     await artifacts.write({
       artifactId: artifact.id,
@@ -104,9 +130,14 @@ describe("bidirectional changes", () => {
   });
 
   it("updates editable Content in place and emits one event for a Workspace save", async () => {
-    const { artifacts, artifact, system, load } = await fixture({
-      "notes.md": { bytes: "before", mime: "text/markdown" },
-    });
+    const { artifacts, artifact, system, load } = await fixture(
+      {
+        "notes.md": { bytes: "before", mime: "text/markdown" },
+      },
+      false,
+      {},
+      kind
+    );
     const workspace = await load();
     const [file] = await workspace.files();
     const events: WorkspaceChange[] = [];
@@ -136,10 +167,15 @@ describe("bidirectional changes", () => {
   });
 
   it("Artifact writes update disk before returning and reconcile add/change/delete once", async () => {
-    const { artifacts, artifact, system, load } = await fixture({
-      "drop.md": { bytes: "drop" },
-      "keep.md": { bytes: "old" },
-    });
+    const { artifacts, artifact, system, load } = await fixture(
+      {
+        "drop.md": { bytes: "drop" },
+        "keep.md": { bytes: "old" },
+      },
+      false,
+      {},
+      kind
+    );
     const workspace = await load();
     const events: WorkspaceChange[] = [];
     system.on("change", (event) => {
@@ -166,9 +202,14 @@ describe("bidirectional changes", () => {
   });
 
   it("returns current text on conflict and preserves a newer Artifact write", async () => {
-    const { artifacts, artifact, load } = await fixture({
-      "notes.md": { bytes: "before" },
-    });
+    const { artifacts, artifact, load } = await fixture(
+      {
+        "notes.md": { bytes: "before" },
+      },
+      false,
+      {},
+      kind
+    );
     const workspace = await load();
     const [file] = await workspace.files();
     await artifacts.write({
@@ -185,9 +226,14 @@ describe("bidirectional changes", () => {
   });
 
   it("reports removed files as stale and archived sources as failed", async () => {
-    const { artifacts, artifact, load } = await fixture({
-      "notes.md": { bytes: "before" },
-    });
+    const { artifacts, artifact, load } = await fixture(
+      {
+        "notes.md": { bytes: "before" },
+      },
+      false,
+      {},
+      kind
+    );
     const workspace = await load();
     const [file] = await workspace.files();
     await artifacts.write({
@@ -214,7 +260,9 @@ describe("bidirectional changes", () => {
   it("observes external edits, additions and deletions through Artifact operations", async () => {
     const { artifacts, artifact, load } = await fixture(
       { "drop.md": { bytes: "drop" }, "notes.md": { bytes: "before" } },
-      true
+      true,
+      {},
+      kind
     );
     const workspace = await load();
     await writeFile(join(workspace.root, "notes.md"), "external");
@@ -243,7 +291,9 @@ describe("bidirectional changes", () => {
   it("restores frozen files after an external overwrite", async () => {
     const { artifacts, artifact, load } = await fixture(
       { "notes.md": { bytes: "frozen" } },
-      true
+      true,
+      {},
+      kind
     );
     await artifacts.freeze(required(artifact.contentId));
     const workspace = await load();
@@ -261,7 +311,9 @@ describe("bidirectional changes", () => {
   it("startup recovery makes Artifact records authoritative", async () => {
     const { artifact, filesystem, load } = await fixture(
       { "notes.md": { bytes: "authoritative" } },
-      true
+      true,
+      {},
+      kind
     );
     const workspace = await load();
     await writeFile(join(workspace.root, "notes.md"), "uncommitted");
@@ -275,9 +327,14 @@ describe("bidirectional changes", () => {
   });
 
   it("restores a directory removed outside the filesystem", async () => {
-    const { artifacts, artifact, load } = await fixture({
-      "notes.md": { bytes: "kept" },
-    });
+    const { artifacts, artifact, load } = await fixture(
+      {
+        "notes.md": { bytes: "kept" },
+      },
+      false,
+      {},
+      kind
+    );
     const workspace = await load();
     await rm(workspace.root, { force: true, recursive: true });
     await vi.waitFor(
@@ -292,15 +349,20 @@ describe("bidirectional changes", () => {
   });
 
   it("filesystem root deletion removes the Artifact", async () => {
-    const { artifacts, artifact, filesystem, load } = await fixture({
-      "notes.md": { bytes: "a" },
-    });
+    const { artifacts, artifact, filesystem, load } = await fixture(
+      {
+        "notes.md": { bytes: "a" },
+      },
+      false,
+      {},
+      kind
+    );
     await filesystem.remove((await load()).root);
     expect(await artifacts.get(artifact.id)).toBeNull();
   });
 
   it("rejects paths outside the configured storage root", async () => {
-    const { filesystem, root } = await fixture();
+    const { filesystem, root } = await fixture({}, false, {}, kind);
     const outside = `${root}-outside`;
     onTestFinished(() => rm(outside, { force: true }));
     await expect(filesystem.writeFile(outside, "bad")).rejects.toThrow(

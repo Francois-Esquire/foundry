@@ -3,10 +3,10 @@ import { ArtifactManager } from "../manager";
 import { resolveReference } from "../references";
 import type { ArtifactBase } from "../registry";
 import { createRegistry } from "../registry";
-import { InMemoryArtifactStore } from "../store/memory";
 import { required } from "./helpers/required";
+import { openStore, STORE_KINDS } from "./helpers/stores";
 
-describe("Artifact registry", () => {
+describe.each(STORE_KINDS)("%s store: Artifact registry", (kind) => {
   it.each<[string, ArtifactBase | null]>([
     ["text/html", "html"],
     ["application/example+html", "html"],
@@ -83,7 +83,7 @@ describe("Artifact registry", () => {
 
   it("resolves in-memory build output and leaves async execution to its host", async () => {
     const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+      store: await openStore(kind),
     });
     const artifact = await artifacts.create({
       entries: {

@@ -11,7 +11,15 @@ import {
 
 export type { Blob, BlobSource, ContentTree, StoredFile } from "./schema";
 
-/** Paths are store-owned, immutable backing files, never editable working files. */
+/**
+ * Paths are store-owned, immutable backing files, never editable working files.
+ *
+ * `staging` is optional. With it, `create`, `write` and `revise` take their
+ * bytes in before the change enters the store's exclusion, and the change
+ * only promotes them; `blobFiles` offers it. Without it, the change
+ * publishes the bytes itself, inside that exclusion, chunk by chunk as a
+ * source yields them.
+ */
 export interface BlobFiles {
   list(): AsyncIterable<string>;
   publish(bytes: Uint8Array): Promise<string>;
@@ -20,6 +28,30 @@ export interface BlobFiles {
     range: { readonly start: number; readonly end: number }
   ): AsyncIterable<Uint8Array>;
   remove(path: string): Promise<void>;
+  readonly staging?: BlobStagingArea;
+}
+
+/**
+ * Where bytes wait before a change publishes them: never listed, read or
+ * removed as published files. Each staged name belongs to the area that
+ * wrote it.
+ */
+export interface BlobStagingArea {
+  /** Removes staging its owners abandoned (a crashed process's). */
+  abandon(): Promise<void>;
+  /** Removes a staged file; one already gone is no error. */
+  discard(staged: string): Promise<void>;
+  /**
+   * Moves a staged file to a fresh published path, durably, and returns
+   * that path; the staged name is spent. A failure leaves neither the
+   * published file nor, once discarded, the staged one.
+   */
+  promote(staged: string): Promise<string>;
+  /**
+   * Writes `bytes` durably to a new staged file and returns its name. A
+   * failure leaves no file behind.
+   */
+  stage(bytes: Uint8Array): Promise<string>;
 }
 
 /**

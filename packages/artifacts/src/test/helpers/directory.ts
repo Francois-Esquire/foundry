@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { directory, WorkspaceSystem } from "@foundry/workspaces";
@@ -10,18 +10,20 @@ import {
   artifactFileSystem,
   blobFiles,
 } from "../../node";
-import { InMemoryArtifactStore } from "../../store/memory";
 import type { EntryInputs } from "../../substrate";
+import { openStore, type StoreKind } from "./stores";
 
+/** An Artifact bound to a directory, over a fresh store of `kind`. */
 export async function fixture(
   entries: EntryInputs = {},
   files = false,
-  options: Omit<ArtifactFileSystemOptions, "artifacts" | "root"> = {}
+  options: Omit<ArtifactFileSystemOptions, "artifacts" | "root"> = {},
+  kind: StoreKind = "memory"
 ) {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "artifact-directory-"))
   );
-  const store = new InMemoryArtifactStore();
+  const store = await openStore(kind);
   const artifacts = new ArtifactManager({
     store,
     ...(files ? { files: blobFiles(join(root, ".blobs")) } : {}),
@@ -51,4 +53,11 @@ export async function fixture(
     store,
     system,
   };
+}
+
+/** The published blob files under a fixture's root, staging aside. */
+export async function publishedFiles(root: string): Promise<string[]> {
+  return (await readdir(join(root, ".blobs"))).filter(
+    (name) => name !== ".staging"
+  );
 }

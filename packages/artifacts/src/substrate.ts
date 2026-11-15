@@ -237,7 +237,12 @@ export interface Artifacts extends ArtifactOperations {
   bind(apply: (artifactId: ArtifactId) => Promise<void>): () => void;
   /** Reports committed changes, even when their application failed. */
   observe(changed: ArtifactObserver): () => void;
-  /** Remove abandoned backing files, then reapply every Artifact. */
+  /**
+   * Remove abandoned backing files (and bytes staged by a process that is
+   * gone), then reapply every Artifact. Over a store whose commits a host
+   * transaction may roll back (durability `"host"`), it rejects: run it from
+   * a manager over the durable store, outside that transaction.
+   */
   recover(): Promise<void>;
   /**
    * Run grouped operations through the supplied handle; they commit together.

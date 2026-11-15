@@ -67,14 +67,22 @@ export interface Containers {
     spec?: ContainerSandboxConstraints,
     signal?: AbortSignal
   ): Promise<void>;
-  /** Close every handle and stop every VM; rows go to `stopped`. */
+  /**
+   * Close every handle and stop every VM; rows go to `stopped`. Then retry
+   * every VM this registry could not remove, and reject while any remains;
+   * calling it again retries them.
+   */
   shutdown(): Promise<void>;
   /** New row, new VM, one handle. */
   start(
     spec: ContainerSandboxConstraints,
     signal?: AbortSignal
   ): Promise<Container>;
-  /** Stop and remove every VM carrying this instance's labels but no row. Returns the native names swept. */
+  /**
+   * Stop and remove every VM carrying this instance's labels but no row, and
+   * every VM this registry booted or set out to remove but could not remove.
+   * Returns the native names swept.
+   */
   sweep(signal?: AbortSignal): Promise<readonly string[]>;
 }
 
@@ -97,6 +105,8 @@ type RowPatch = Partial<Pick<ContainerRow, "nativeId" | "spec" | "status">>;
 interface Live {
   facets: ContainerFacets;
   handles: number;
+  /** The native name `sandbox` was booted under. */
+  nativeId: string;
   row: ContainerRow;
   sandbox: ContainerSandbox;
   /** The restart in progress, settled; a release waits for it. */
@@ -124,6 +134,86 @@ export function createContainers(options: CreateContainersOptions): Containers {
     [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
     [CONTAINER_INSTANCE_LABEL]: options.instanceLabel,
   });
+
+  /**
+   * Native names of VMs no live row holds that this registry booted or set
+   * out to remove, and could not remove. They stay this registry's to
+   * remove: `sweep` and `shutdown` retry them. A native name is never booted
+   * twice, so a name here never becomes live again.
+   */
+  const abandoned = new Set<string>();
+
+  /** Remove a VM no live row holds; one that will not go is kept to retry. */
+  const discard = async (
+    name: string,
+    sandbox: ContainerSandbox
+  ): Promise<void> => {
+    try {
+      await sandbox.remove();
+    } catch {
+      abandoned.add(name);
+    }
+  };
+
+  /**
+   * Remove an old VM by its native name. A stop or remove that fails may mean
+   * the VM is gone (the expected case) or that it is stuck, and the runtime
+   * cannot say which, so the name is kept for `sweep` and `shutdown`: their
+   * inventory drops it if it is gone and retries it if it is not.
+   */
+  const removeNative = async (name: string): Promise<void> => {
+    try {
+      await runtime.stopResource(name);
+      await runtime.removeResource(name);
+    } catch {
+      abandoned.add(name);
+    }
+  };
+
+  /**
+   * Read the runtime's inventory, then retry the VMs that were abandoned
+   * before it was read: remove those it lists, forget those it does not. A
+   * name abandoned while the inventory was being read is left for the next
+   * call, as the inventory may predate its VM. Returns the inventory and the
+   * names removed; rejects, keeping the rest, if any would not go.
+   */
+  const reclaim = async (
+    signal: AbortSignal | undefined
+  ): Promise<{
+    readonly removed: string[];
+    readonly resources: readonly ContainerResourceSummary[];
+  }> => {
+    const candidates = [...abandoned];
+    const resources = await enumerate(runtime, selection, signal);
+    const listed = new Map(
+      resources.map((resource) => [resource.name, resource])
+    );
+    const removed: string[] = [];
+    let failure: { readonly error: unknown } | undefined;
+    for (const name of candidates) {
+      if (!abandoned.has(name)) {
+        continue;
+      }
+      const resource = listed.get(name);
+      try {
+        if (resource !== undefined) {
+          await dispose(runtime, resource);
+          removed.push(name);
+        }
+        abandoned.delete(name);
+      } catch (error: unknown) {
+        failure ??= { error };
+      }
+    }
+    if (failure !== undefined) {
+      throw new SandboxError(
+        "provider-failed",
+        `could not remove ${candidates.filter((name) => abandoned.has(name)).join(", ")}`,
+        { cause: failure.error }
+      );
+    }
+    return { removed, resources };
+  };
 
   const rowOrThrow = async (
     id: string,
@@ -212,7 +302,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
     entry: { row: ContainerRow },
     constraints: ContainerSandboxConstraints,
     signal: AbortSignal | undefined
-  ): Promise<Pick<Live, "sandbox" | "facets">> => {
+  ): Promise<Pick<Live, "facets" | "nativeId" | "sandbox">> => {
     assertNotAborted(signal, "container start was cancelled");
     const { row } = entry;
     const { nativeId } = row;
@@ -244,19 +334,31 @@ export function createContainers(options: CreateContainersOptions): Containers {
         options.mountTargetRoot
       );
       sandbox = await startContainerSandbox(
-        await provisionContainerSandbox(config, { runtime }, mounts)
+        await provisionContainerSandbox(config, { runtime }, mounts),
+        // The VM exists and would not go: keep it for `sweep` and `shutdown`.
+        { onLeftBehind: () => abandoned.add(nativeId) }
       );
     } catch (error: unknown) {
-      await update(entry, { status: "failed" });
+      // The boot's own error is the one to report; the row is best effort.
+      await update(entry, { status: "failed" }).catch(() => undefined);
       throw error;
     }
-    await update(entry, { status: "running" });
+    try {
+      await update(entry, { status: "running" });
+    } catch (error: unknown) {
+      // The VM is up but its row could not say so, and no live row will
+      // hold it: remove it now, or keep it for `sweep` and `shutdown`.
+      await discard(nativeId, sandbox);
+      await update(entry, { status: "failed" }).catch(() => undefined);
+      throw error;
+    }
     return {
       facets: containerFacets(
         sandbox,
         mounts,
         (options.allowedMountRoots?.length ?? 0) > 0
       ),
+      nativeId,
       sandbox,
     };
   };
@@ -283,7 +385,13 @@ export function createContainers(options: CreateContainersOptions): Containers {
     const done = (async () => {
       // A restart under way finishes first, so the VM removed is its VM.
       await entry.turn;
-      await entry.sandbox.remove();
+      try {
+        await entry.sandbox.remove();
+      } catch (error: unknown) {
+        // No live row holds it any more: keep it for `sweep` and `shutdown`.
+        abandoned.add(entry.nativeId);
+        throw error;
+      }
       await update(entry, { status: "stopped" });
     })().finally(() => releasing.delete(entry.row.id));
     releasing.set(entry.row.id, done);
@@ -373,7 +481,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
           await released(id);
           const row = await rowOrThrow(id);
           if (row.nativeId !== undefined) {
-            await removeNative(runtime, row.nativeId);
+            await removeNative(row.nativeId);
           }
           const entry = { row };
           await update(entry, (current) => ({
@@ -403,7 +511,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         await released(id);
         const row = await rowOrThrow(id);
         if (row.nativeId !== undefined) {
-          await removeNative(runtime, row.nativeId);
+          await removeNative(row.nativeId);
         }
         await serialized((view) => view.commit({ deleteContainers: [id] }));
       } finally {
@@ -452,6 +560,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
           const booted = await boot(entry, constraints, signal);
           entry.sandbox = booted.sandbox;
           entry.facets = booted.facets;
+          entry.nativeId = booted.nativeId;
           // A close during the boot is waiting to remove the VM just booted.
           assertStillLive();
         } catch (error: unknown) {
@@ -468,12 +577,19 @@ export function createContainers(options: CreateContainersOptions): Containers {
     },
 
     async shutdown() {
-      if (stopped) {
-        return;
+      let releases: PromiseSettledResult<void>[] = [];
+      if (!stopped) {
+        stopped = true;
+        await Promise.allSettled([...pending.values(), ...releasing.values()]);
+        releases = await Promise.allSettled([...live.values()].map(release));
       }
-      stopped = true;
-      await Promise.allSettled([...pending.values(), ...releasing.values()]);
-      await Promise.all([...live.values()].map(release));
+      if (abandoned.size > 0) {
+        await reclaim(undefined);
+      }
+      const failed = releases.find((result) => result.status === "rejected");
+      if (failed !== undefined) {
+        throw failed.reason;
+      }
     },
 
     async start(spec, signal) {
@@ -484,10 +600,12 @@ export function createContainers(options: CreateContainersOptions): Containers {
     },
     async sweep(signal) {
       assertOpen();
-      const resources = await enumerate(runtime, selection, signal);
-      const swept: string[] = [];
+      const { removed: swept, resources } = await reclaim(signal);
       for (const resource of resources) {
         assertNotAborted(signal, "container sweep was cancelled");
+        if (swept.includes(resource.name)) {
+          continue;
+        }
         const id = resource.labels[CONTAINER_ID_LABEL];
         if (id !== undefined && (await store.get(id)) !== undefined) {
           continue;
@@ -522,23 +640,6 @@ function nextNativeId(row: Pick<ContainerRow, "id" | "nativeId">): string {
   );
   const generation = (Number.isNaN(previous) ? 0 : previous) + 1;
   return `${row.id}-${String(generation)}`;
-}
-
-async function removeNative(
-  runtime: ContainerRuntime,
-  name: string
-): Promise<void> {
-  // Best effort: a VM that was already gone is the expected case.
-  try {
-    await runtime.stopResource(name);
-  } catch {
-    return;
-  }
-  try {
-    await runtime.removeResource(name);
-  } catch {
-    // Left for sweep on the next boot.
-  }
 }
 
 async function dispose(

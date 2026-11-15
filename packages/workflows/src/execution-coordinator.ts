@@ -1,6 +1,6 @@
 import type { Page } from "@foundry/core/pagination";
+import { detached } from "./detached";
 import {
-  ExecutionConflictRetriesExhaustedError,
   JobAlreadySettledError,
   JobAttemptAlreadyActiveError,
   JobNotFoundError,
@@ -15,57 +15,35 @@ import {
   SuspensionOccurrenceMismatchError,
 } from "./errors";
 import type {
-  DefinitionReference,
-  JobRecord,
-  JobStatus,
-  JsonValue,
-  RunFrame,
-  RunFramePayload,
-  RunLinks,
-  RunRecord,
-  SuspensionRecord,
-} from "./execution-records";
-import {
-  decodeJobRecord,
-  decodeRunRecord,
-  decodeSuspensionRecord,
-} from "./execution-records";
-import type {
   CreateJobInput,
   CreateJobRunInput,
   CreateRunInput,
   CreateSuspensionInput,
   EnsureQueueInput,
   ExecutionCommands,
-  ExecutionRepository,
   JobCancellation,
-  JobCancellationCommit,
-  JobCancellationTransaction,
   JobQuery,
   JobRunClaim,
-  JobRunClaimCommit,
-  JobRunClaimOutcome,
-  JobRunClaimTransaction,
-  QueueRecord,
+  PageQuery,
   RecoverableRun,
-  RepositoryCommitOutcome,
   RunQuery,
   SettleSuspensionInput,
   SuspensionCancellation,
-  SuspensionCancellationCommit,
-  SuspensionCancellationTransaction,
   SuspensionParking,
-  SuspensionParkingCommit,
-  SuspensionParkingTransaction,
   SuspensionQuery,
   SuspensionSettlement,
-  SuspensionSettlementCommit,
-  SuspensionSettlementTransaction,
   UpdateJobInput,
   UpdateQueueInput,
   UpdateRunInput,
-} from "./execution-repository";
+} from "./execution-commands";
+import {
+  decodeJobRecord,
+  decodeRunRecord,
+  decodeSuspensionRecord,
+  runCheckedAs,
+} from "./execution-records";
 import { createExtensions, mergeExtensions } from "./extensions";
+import type { JsonValue } from "./json-value";
 import { rowToRecoverable } from "./metadata-codec";
 import { defineOwnEntry } from "./own-entry";
 import type {
@@ -81,119 +59,185 @@ import {
   isRunEffectClaim,
   runEffectClaimPayload,
 } from "./run-journal";
-import type { WorkflowSnapshot } from "./snapshot";
-import type { RunStatus } from "./types";
+import type {
+  DefinitionReference,
+  JobRecord,
+  JobStatus,
+  OrchestratorStoreSnapshot,
+  QueueRecord,
+  RunFrame,
+  RunFramePayload,
+  RunLinks,
+  RunRecord,
+  RunStatus,
+  SuspensionRecord,
+  SuspensionStatus,
+  WorkflowSnapshot,
+} from "./schema";
+import { ORCHESTRATOR_STORE_SNAPSHOT_VERSION } from "./schema";
+import type {
+  WorkflowStore,
+  WorkflowStoreDurability,
+  WorkflowStorePage,
+  WorkflowStorePageQuery,
+} from "./store/index";
+import { MemoryWorkflowStore } from "./store/memory";
+import { validateOrchestratorStoreSnapshot } from "./store-snapshot";
+
+/**
+ * The execution records' domain API: Jobs, Runs, Suspensions, Queues and
+ * the Run journal. `Queue` and `Orchestrator` work through it; a host may
+ * supply its own.
+ */
+export interface OrchestratorStore extends ExecutionCommands, RunJournal {
+  /**
+   * When a change that resolved is there for good; `"commit"` when absent
+   * (see `WorkflowStoreDurability`). The `Orchestrator` and `Queue` refuse
+   * a `"host"` store.
+   */
+  readonly durability?: WorkflowStoreDurability;
+  /**
+   * Runs `work` over a store bound to one store transaction, so everything
+   * it does lands together or not at all, and no other write lands between
+   * its reads and its writes. Present only over a `WorkflowStore` that
+   * offers `transaction`. `work` uses the store it is given; a call to this
+   * store from inside `work` is refused.
+   */
+  readonly transaction?: <T>(
+    work: (store: OrchestratorStore) => Promise<T>
+  ) => Promise<T>;
+}
+
+export interface ExecutionCoordinatorOptions {
+  /** Where the records live; a new `MemoryWorkflowStore` when absent. */
+  readonly store?: WorkflowStore;
+}
 
 function generateId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
 const EXECUTION_METADATA_KEY = "workflows.execution";
-const MAX_AGGREGATE_COMMIT_ATTEMPTS = 8;
-const INTERNAL_PAGE_LIMIT = 200;
+/** How many records one store read returns when the coordinator reads them all. */
+const STORE_PAGE_LIMIT = 500;
+const LIVE_RUN_STATUSES: readonly RunStatus[] = [
+  "queued",
+  "running",
+  "suspended",
+];
 
-interface PreparedAggregateCommit<Result, Commit> {
-  readonly commit?: Commit;
-  readonly result: Result;
-}
-
-type AggregateCommitOutcome = JobRunClaimOutcome | RepositoryCommitOutcome;
-
-async function retryAggregateCommit<
-  Result,
-  Commit,
-  Outcome extends AggregateCommitOutcome,
->(
-  operation: string,
-  prepare: () => Promise<PreparedAggregateCommit<Result, Commit>>,
-  submit: (commit: Commit) => Promise<Outcome>,
-  project: (result: Result, outcome: Outcome) => Result
-): Promise<Result> {
-  for (
-    let attempt = 1;
-    attempt <= MAX_AGGREGATE_COMMIT_ATTEMPTS;
-    attempt += 1
-  ) {
-    const prepared = await prepare();
-    if (prepared.commit === undefined) {
-      return prepared.result;
-    }
-
-    const outcome = await submit(prepared.commit);
-    if (outcome.status === "conflict") {
-      if (attempt === MAX_AGGREGATE_COMMIT_ATTEMPTS) {
-        throw new ExecutionConflictRetriesExhaustedError(operation, attempt);
-      }
-      continue;
-    }
-    return project(prepared.result, outcome);
-  }
-
-  throw new ExecutionConflictRetriesExhaustedError(
-    operation,
-    MAX_AGGREGATE_COMMIT_ATTEMPTS
-  );
-}
-
-async function collectPages<T>(
-  list: (page: { limit: number; cursor: number }) => Promise<Page<T, number>>
-): Promise<T[]> {
-  const items: T[] = [];
-  let offset = 0;
-  for (;;) {
-    const page = await list({ cursor: offset, limit: INTERNAL_PAGE_LIMIT });
-    items.push(...page.items);
-    if (page.nextCursor === undefined) {
-      return items;
-    }
-    offset = page.nextCursor;
-  }
-}
-
-function pageValues<T>(
-  values: readonly T[],
-  query: { readonly limit?: number; readonly cursor?: number },
-  fallback: number
-): Page<T, number> {
-  const limit = query.limit ?? fallback;
-  const offset = query.cursor ?? 0;
-  if (!Number.isInteger(limit) || limit <= 0 || limit > 200) {
-    throw new Error("[execution] page limit must be an integer from 1 to 200");
-  }
-  if (!Number.isInteger(offset) || offset < 0) {
-    throw new Error("[execution] page offset must be a non-negative integer");
-  }
-  const items = values.slice(offset, offset + limit).map(cloneValue);
-  const hasMore = values.length > offset + items.length;
-  return {
-    items,
-    total: values.length,
-    ...(hasMore ? { nextCursor: offset + items.length } : {}),
-  };
-}
-
-export interface OrchestratorStore extends ExecutionCommands, RunJournal {}
+/** Set by `ExecutionCoordinator`'s static block: its claim, as an outcome. */
+let claimOn: (
+  coordinator: ExecutionCoordinator,
+  jobId: string,
+  input: CreateJobRunInput
+) => Promise<JobRunClaimOutcome>;
 
 /**
- * Storage-independent execution coordinator behind the legacy Store interface.
- * Durable implementations supply persistence hooks; this module owns creation
- * defaults, lifecycle policy, patch semantics, and query matching.
+ * Every rule of the execution records, over a `WorkflowStore` that keeps
+ * them: creation defaults, lifecycle transitions, patch semantics, the
+ * atomic aggregates (a managed Job attempt, a cancellation, a parked or
+ * settled Suspension), first-writer Queues, unique ids, and the frame
+ * sequence of each Run's journal. The store enforces none of these.
+ *
+ * Each change is one read-modify-write ending in one `commit`. When the
+ * store offers `transaction`, each runs inside one, so coordinators sharing
+ * a store (two engines on one database) never interleave. Otherwise the
+ * changes of this coordinator are serialized and no further. A read made
+ * of several store reads runs in a transaction too, so it sees one state.
+ *
+ * The store's list reads filter only by exact values. Searching, matching
+ * tags and links, sorting by creation time and paging happen here, over
+ * every record the store's filter returns.
  */
-export abstract class AbstractOrchestratorStore implements OrchestratorStore {
-  readonly #mutationTails = new Map<string, Promise<void>>();
+export class ExecutionCoordinator implements OrchestratorStore {
+  readonly durability: WorkflowStoreDurability;
+  readonly transaction?: <T>(
+    work: (store: OrchestratorStore) => Promise<T>
+  ) => Promise<T>;
+  readonly #store: WorkflowStore;
+  #tail: Promise<unknown> = Promise.resolve();
 
-  async createJob(input: CreateJobInput): Promise<JobRecord> {
+  constructor(options: ExecutionCoordinatorOptions = {}) {
+    const store = options.store ?? new MemoryWorkflowStore();
+    this.#store = store;
+    this.durability = store.durability ?? "commit";
+    if (store.transaction !== undefined) {
+      this.transaction = (work) =>
+        this.#transaction((view) => work(ExecutionCoordinator.#over(view)));
+    }
+  }
+
+  static {
+    claimOn = (coordinator, jobId, input) =>
+      coordinator.#claim(jobId, detached(input));
+  }
+
+  /**
+   * A coordinator over a transaction's view, which no other write reaches:
+   * without `transaction`, it runs its work on the view directly.
+   */
+  static #over(view: WorkflowStore): ExecutionCoordinator {
+    return new ExecutionCoordinator({ store: withoutTransaction(view) });
+  }
+
+  /**
+   * Every record, checked against each other as a snapshot is
+   * (`validateOrchestratorStoreSnapshot`), as of one moment when the store
+   * offers transactions.
+   */
+  snapshot(): Promise<OrchestratorStoreSnapshot> {
+    return this.#consistent(async (store) =>
+      validateOrchestratorStoreSnapshot({
+        frames: await everything((page) => store.listFrames(page)),
+        jobs: await everything((page) => store.listJobs(page)),
+        queues: await store.listQueues(),
+        runs: await everything((page) => store.listRuns(page)),
+        suspensions: await everything((page) => store.listSuspensions(page)),
+        version: ORCHESTRATOR_STORE_SNAPSHOT_VERSION,
+      })
+    );
+  }
+
+  /**
+   * Puts every record of a snapshot into a store that holds none, in one
+   * commit, once the snapshot validates. Rejects a store that holds a
+   * record already.
+   */
+  async restore(snapshot: unknown): Promise<void> {
+    const validated = validateOrchestratorStoreSnapshot(snapshot);
+    await this.#exclusive(async (store) => {
+      const held = await Promise.all([
+        store.listQueues(),
+        store.listJobs({ limit: 1 }).then((page) => page.items),
+        store.listRuns({ limit: 1 }).then((page) => page.items),
+        store.listSuspensions({ limit: 1 }).then((page) => page.items),
+        store.listFrames({ limit: 1 }).then((page) => page.items),
+      ]);
+      if (held.some((records) => records.length > 0)) {
+        throw new Error("A snapshot restores only into an empty store");
+      }
+      await store.commit({
+        putFrames: validated.frames,
+        putJobs: validated.jobs,
+        putQueues: validated.queues,
+        putRuns: validated.runs,
+        putSuspensions: validated.suspensions,
+      });
+    });
+  }
+
+  createJob(input: CreateJobInput): Promise<JobRecord> {
     const id = input.id ?? generateId("jb");
-    return this.withMutationLock(`job:${id}`, async () => {
-      if (await this.readJob(id)) {
+    return this.#exclusive(async (store) => {
+      if (await store.getJob(id)) {
         throw new RecordAlreadyExistsError("job", id);
       }
-
       const record = decodeJobRecord({
-        definition: input.definition,
+        definition: definedEntries(input.definition),
         id,
         input: input.input,
-        links: input.links ?? {},
+        links: definedEntries(input.links ?? {}),
         status: "pending",
         timestamps: {
           cancelledAt: null,
@@ -202,21 +246,18 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
           failedAt: null,
         },
       });
-      await this.writeJob(record);
-      return cloneValue(record);
+      await store.commit({ putJobs: [record] });
+      return record;
     });
   }
 
   getJob(id: string): Promise<JobRecord | null> {
-    return this.readJob(id);
+    return this.#store.getJob(id);
   }
 
-  async updateJob(
-    id: string,
-    patch: UpdateJobInput
-  ): Promise<JobRecord | null> {
-    return this.withMutationLock(`job:${id}`, async () => {
-      const existing = await this.readJob(id);
+  updateJob(id: string, patch: UpdateJobInput): Promise<JobRecord | null> {
+    return this.#exclusive(async (store) => {
+      const existing = await store.getJob(id);
       if (!existing) {
         return null;
       }
@@ -225,9 +266,8 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
         patch.status !== undefined &&
         patch.status !== existing.status
       ) {
-        return cloneValue(existing);
+        return existing;
       }
-
       const updated = decodeJobRecord({
         ...existing,
         ...(patch.status === undefined ? {} : { status: patch.status }),
@@ -235,47 +275,51 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
           ? {}
           : { timestamps: { ...existing.timestamps, ...patch.timestamps } }),
       });
-      await this.writeJob(updated);
-      return cloneValue(updated);
+      await store.commit({ putJobs: [updated] });
+      return updated;
     });
   }
 
   listJobs(query: JobQuery = {}): Promise<Page<JobRecord, number>> {
-    return this.queryJobs(query);
+    return this.#consistent(async (store) => {
+      const status = statusList(query.status);
+      const records = await everything((page) =>
+        store.listJobs({ ...page, ...(status ? { status } : {}) })
+      );
+      return pageRecords(
+        records.filter((record) => matchesJobQuery(record, query)),
+        query,
+        50
+      );
+    });
   }
 
-  async deleteJob(id: string): Promise<void> {
-    const jobRuns = await this.listRuns({ links: { jobId: id } });
-    if (jobRuns.items.length > 0) {
-      throw new RecordInUseError("job", id);
-    }
-    await this.removeJob(id);
+  deleteJob(id: string): Promise<void> {
+    return this.#exclusive(async (store) => {
+      const runs = await runsOfJob(store, id);
+      if (runs.length > 0) {
+        throw new RecordInUseError("job", id);
+      }
+      await store.commit({ deleteJobs: [id] });
+    });
   }
 
-  async cancelJob(id: string): Promise<JobCancellation> {
-    return this.withJobCancellationTransaction(id, async (transaction) => {
-      const job = await transaction.readJob();
+  cancelJob(id: string): Promise<JobCancellation> {
+    return this.#exclusive(async (store) => {
+      const job = await store.getJob(id);
       if (!job) {
         throw new JobNotFoundError(id);
       }
       if (isTerminalJobStatus(job.status)) {
         throw new JobAlreadySettledError(id);
       }
-      const runs = (await transaction.readRuns()).map(hydrateRunRecord);
-      const jobRuns = runs.filter((run) => run.links?.jobId === id);
+      const jobRuns = await runsOfJob(store, id);
       const active =
         jobRuns.find((run) => isNonTerminalRunStatus(run.status)) ?? null;
       if (active === null && jobRuns.some((run) => run.status === "complete")) {
         throw new JobAlreadySettledError(id);
       }
-      const pending = active
-        ? (await transaction.readSuspensions())
-            .filter(
-              (record) =>
-                record.runId === active.id && record.status === "pending"
-            )
-            .sort((left, right) => left.id.localeCompare(right.id))
-        : [];
+      const pending = active ? await pendingSuspensions(store, active.id) : [];
       const cancelledAt = Date.now();
       const nextJob = decodeJobRecord({
         ...job,
@@ -285,29 +329,22 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
       const nextRun = active
         ? normalizeRunRecord(applyRunPatch(active, { status: "cancelled" }))
         : null;
-      const cancelledSuspensions = pending.map((record) =>
+      const suspensions = pending.map((record) =>
         cancelSuspensionRecord(record, cancelledAt)
       );
-      await transaction.write({
-        nextJob,
-        nextRun,
-        nextSuspensions: cancelledSuspensions,
-        previousJob: job,
-        previousRun: active,
-        previousSuspensions: pending,
+      await store.commit({
+        putJobs: [nextJob],
+        ...(nextRun ? { putRuns: [nextRun] } : {}),
+        putSuspensions: suspensions,
       });
-      return {
-        job: cloneValue(nextJob),
-        run: nextRun ? cloneRun(nextRun) : null,
-        suspensions: cancelledSuspensions.map((record) => cloneValue(record)),
-      };
+      return { job: nextJob, run: nextRun, suspensions };
     });
   }
 
-  async createRun(input: CreateRunInput): Promise<RunRecord> {
+  createRun(input: CreateRunInput): Promise<RunRecord> {
     const id = input.id ?? generateId("rn");
-    return this.withMutationLock(`run:${id}`, async () => {
-      if (await this.readRun(id)) {
+    return this.#exclusive(async (store) => {
+      if (await store.getRun(id)) {
         throw new RecordAlreadyExistsError("run", id);
       }
       const unsafeLinks = input.links as RunLinks | undefined;
@@ -317,260 +354,243 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
         );
       }
       const record = buildRunRecord(id, input);
-      if (!(await this.insertRun(record))) {
-        throw new RecordAlreadyExistsError("run", id);
-      }
-      return cloneRun(record);
+      await store.commit({ putRuns: [record] });
+      return record;
     });
   }
 
+  /**
+   * Starts a managed attempt of a Job: the Job becomes active and its Run
+   * is filed in one commit. A Job whose earlier attempt completed is
+   * settled as complete instead, and the claim is refused once that lands.
+   */
   async claimJobRun(
     jobId: string,
     input: CreateJobRunInput
   ): Promise<JobRunClaim> {
-    const outcome = await this.withJobRunClaimTransaction(
-      jobId,
-      async (transaction) => {
-        const job = await transaction.readJob();
-        if (!job) {
-          throw new JobNotFoundError(jobId);
-        }
-        if (
-          job.status === "complete" ||
-          job.status === "failed" ||
-          job.status === "cancelled"
-        ) {
-          throw new JobAlreadySettledError(jobId);
-        }
-
-        const jobRuns = (await transaction.readRuns())
-          .map(hydrateRunRecord)
-          .filter((run) => run.links?.jobId === jobId);
-        const active = jobRuns.find((run) =>
-          ["queued", "running", "suspended"].includes(run.status)
-        );
-        if (active) {
-          throw new JobAttemptAlreadyActiveError(jobId, active.id);
-        }
-        if (jobRuns.some((run) => run.status === "complete")) {
-          const settled = decodeJobRecord({
-            ...job,
-            status: "complete",
-            timestamps: {
-              ...job.timestamps,
-              completedAt: Date.now(),
-            },
-          });
-          await transaction.writeJob(settled);
-          return { job: cloneValue(settled), status: "settled" };
-        }
-
-        const runId = input.id ?? generateId("rn");
-        return this.withMutationLock(`run:${runId}`, async () => {
-          if (await transaction.readRun(runId)) {
-            throw new RecordAlreadyExistsError("run", runId);
-          }
-          const nextJob = decodeJobRecord({
-            ...job,
-            status: "active",
-            timestamps: {
-              ...job.timestamps,
-              completedAt: null,
-              failedAt: null,
-            },
-          });
-          const run = buildRunRecord(runId, {
-            ...input,
-            links: { ...(input.links ?? {}), jobId },
-          });
-          await transaction.write({ nextJob, previousJob: job, run });
-          return {
-            claim: { job: cloneValue(nextJob), run: cloneRun(run) },
-            status: "claimed",
-          };
-        });
-      }
-    );
+    const outcome = await this.#claim(jobId, input);
     if (outcome.status === "settled") {
       throw new JobAlreadySettledError(jobId);
-    }
-    if (outcome.status === "conflict") {
-      throw new Error("Job Run claim conflict escaped repository retry");
     }
     return outcome.claim;
   }
 
+  /**
+   * `claimJobRun` as an outcome: the claim, or that the Job was found
+   * settled, as an earlier attempt completed, and was written as complete.
+   * Admission uses it inside its transaction, so the settlement commits and
+   * the refusal follows the commit; see `claimJobAttempt`.
+   */
+  #claim(jobId: string, input: CreateJobRunInput): Promise<JobRunClaimOutcome> {
+    return this.#exclusive(async (store): Promise<JobRunClaimOutcome> => {
+      const job = await store.getJob(jobId);
+      if (!job) {
+        throw new JobNotFoundError(jobId);
+      }
+      if (isTerminalJobStatus(job.status)) {
+        throw new JobAlreadySettledError(jobId);
+      }
+      const jobRuns = await runsOfJob(store, jobId);
+      const active = jobRuns.find((attempt) =>
+        isNonTerminalRunStatus(attempt.status)
+      );
+      if (active) {
+        throw new JobAttemptAlreadyActiveError(jobId, active.id);
+      }
+      if (jobRuns.some((attempt) => attempt.status === "complete")) {
+        const settled = decodeJobRecord({
+          ...job,
+          status: "complete",
+          timestamps: { ...job.timestamps, completedAt: Date.now() },
+        });
+        await store.commit({ putJobs: [settled] });
+        return { job: settled, status: "settled" };
+      }
+      const runId = input.id ?? generateId("rn");
+      if (await store.getRun(runId)) {
+        throw new RecordAlreadyExistsError("run", runId);
+      }
+      const nextJob = decodeJobRecord({
+        ...job,
+        status: "active",
+        timestamps: { ...job.timestamps, completedAt: null, failedAt: null },
+      });
+      const run = buildRunRecord(runId, {
+        ...input,
+        links: { ...(input.links ?? {}), jobId },
+      });
+      await store.commit({ putJobs: [nextJob], putRuns: [run] });
+      return { claim: { job: nextJob, run }, status: "claimed" };
+    });
+  }
+
   async getRun(id: string): Promise<RunRecord | null> {
-    const record = await this.readRun(id);
+    const record = await this.#store.getRun(id);
     return record ? hydrateRunRecord(record) : null;
   }
 
-  async updateRun(
-    id: string,
-    patch: UpdateRunInput
-  ): Promise<RunRecord | null> {
-    return this.withMutationLock(`run:${id}`, async () => {
-      const stored = await this.readRun(id);
-      const existing = stored ? hydrateRunRecord(stored) : null;
-      if (!existing) {
+  updateRun(id: string, patch: UpdateRunInput): Promise<RunRecord | null> {
+    return this.#exclusive(async (store) => {
+      const stored = await store.getRun(id);
+      if (!stored) {
         return null;
       }
+      const existing = hydrateRunRecord(stored);
       if (
         isTerminalRunStatus(existing.status) &&
         patch.status !== undefined &&
         patch.status !== existing.status
       ) {
-        return cloneRun(existing);
+        return existing;
       }
-
       const updated = normalizeRunRecord(applyRunPatch(existing, patch));
-      await this.writeRun(updated);
+      await store.commit({ putRuns: [updated] });
       return updated;
     });
   }
 
-  listRuns(query: RunQuery): Promise<Page<RunRecord, number>> {
-    return this.queryRuns(query);
-  }
-
-  async deleteRun(id: string): Promise<void> {
-    const [suspensions, frames] = await Promise.all([
-      this.listSuspensions({ limit: 1, runId: id }),
-      this.readCanonicalFrames(id),
-    ]);
-    if (suspensions.items.length > 0 || frames.length > 0) {
-      throw new RecordInUseError("run", id);
-    }
-    await this.removeRun(id);
-  }
-
-  async findRecoverableRuns(queueId: string): Promise<RecoverableRun[]> {
-    const runs = await collectPages((page) =>
-      this.queryRuns({
-        queueId,
-        status: ["queued", "running", "suspended"],
-        ...page,
-      })
-    );
-    return runs.map(rowToRecoverable);
-  }
-
-  async createSuspension(
-    input: CreateSuspensionInput
-  ): Promise<SuspensionRecord> {
-    const id = input.id ?? generateId("su");
-    return this.withMutationLock(`suspension:${id}`, async () => {
-      if (await this.readSuspension(id)) {
-        throw new RecordAlreadyExistsError("suspension", id);
-      }
-      if (!(await this.readRun(input.runId))) {
-        throw new RunNotFoundError(input.runId);
-      }
-
-      const record = decodeSuspensionRecord({
-        id,
-        kind: input.kind,
-        name: input.name,
-        occurrence: input.occurrence ?? 0,
-        reason: input.reason,
-        request: input.request,
-        resolution: null,
-        revision: 0,
-        runId: input.runId,
-        status: "pending",
-        stepPath: input.stepPath,
-        timestamps: {
-          cancelledAt: null,
-          createdAt: Date.now(),
-          resolvedAt: null,
-        },
-      });
-      await this.writeSuspension(record);
-      return cloneValue(record);
+  listRuns(query: RunQuery = {}): Promise<Page<RunRecord, number>> {
+    return this.#consistent(async (store) => {
+      const status = statusList(query.status);
+      const records = await everything((page) =>
+        store.listRuns({
+          ...page,
+          ...(query.queueId === undefined ? {} : { queueId: query.queueId }),
+          ...(status ? { status } : {}),
+        })
+      );
+      return pageRecords(
+        records
+          .map(hydrateRunRecord)
+          .filter((record) => matchesRunQuery(record, query)),
+        { order: "newest", ...query },
+        3
+      );
     });
   }
 
-  async parkSuspension(
+  deleteRun(id: string): Promise<void> {
+    return this.#exclusive(async (store) => {
+      const [suspensions, frames] = await Promise.all([
+        store.listSuspensions({ limit: 1, runId: id }),
+        canonicalFrames(store, id),
+      ]);
+      if (suspensions.items.length > 0 || frames.length > 0) {
+        throw new RecordInUseError("run", id);
+      }
+      await store.commit({ deleteRuns: [id] });
+    });
+  }
+
+  findRecoverableRuns(queueId: string): Promise<RecoverableRun[]> {
+    return this.#consistent(async (store) => {
+      const runs = await everything((page) =>
+        store.listRuns({ ...page, queueId, status: LIVE_RUN_STATUSES })
+      );
+      return sortRecords(runs.map(hydrateRunRecord), "newest").map(
+        rowToRecoverable
+      );
+    });
+  }
+
+  createSuspension(input: CreateSuspensionInput): Promise<SuspensionRecord> {
+    const id = input.id ?? generateId("su");
+    return this.#exclusive(async (store) => {
+      if (await store.getSuspension(id)) {
+        throw new RecordAlreadyExistsError("suspension", id);
+      }
+      if (!(await store.getRun(input.runId))) {
+        throw new RunNotFoundError(input.runId);
+      }
+      const record = pendingSuspension(id, input, input.occurrence ?? 0);
+      await store.commit({ putSuspensions: [record] });
+      return record;
+    });
+  }
+
+  /**
+   * Parks a Run at one Suspension occurrence: the Run becomes suspended and
+   * the Suspension is filed in one commit. The same occurrence parked again
+   * returns the Suspension already filed, and refuses a different request.
+   */
+  parkSuspension(
     input: CreateSuspensionInput,
     runPatch: Omit<UpdateRunInput, "status"> = {}
   ): Promise<SuspensionParking> {
     const occurrence = input.occurrence ?? 0;
-    const address = JSON.stringify([
-      input.runId,
-      input.stepPath,
-      input.name,
-      occurrence,
-    ]);
-    return this.withSuspensionParkingTransaction(
-      input.runId,
-      address,
-      async (transaction) => {
-        const storedRun = await transaction.readRun();
-        if (!storedRun) {
-          throw new RunNotFoundError(input.runId);
-        }
-        const run = hydrateRunRecord(storedRun);
-        const existing = (await transaction.readSuspensions()).find(
-          (record) =>
-            record.runId === input.runId &&
-            record.name === input.name &&
-            record.occurrence === occurrence &&
-            sameStringArray(record.stepPath, input.stepPath)
-        );
-        if (existing) {
-          if (
-            existing.kind !== input.kind ||
-            existing.reason !== input.reason ||
-            !jsonValuesEqual(existing.request, input.request)
-          ) {
-            throw new SuspensionOccurrenceMismatchError(existing.id);
-          }
-          return { created: false, suspension: cloneValue(existing) };
-        }
-
-        const suspension = decodeSuspensionRecord({
-          id: input.id ?? generateId("su"),
-          kind: input.kind,
-          name: input.name,
-          occurrence,
-          reason: input.reason,
-          request: input.request,
-          resolution: null,
-          revision: 0,
-          runId: input.runId,
-          status: "pending",
-          stepPath: input.stepPath,
-          timestamps: {
-            cancelledAt: null,
-            createdAt: Date.now(),
-            resolvedAt: null,
-          },
-        });
-        const nextRun = normalizeRunRecord(
-          applyRunPatch(run, { ...runPatch, status: "suspended" })
-        );
-        await transaction.write({ run: nextRun, suspension });
-        return { created: true, suspension: cloneValue(suspension) };
+    return this.#exclusive(async (store) => {
+      const storedRun = await store.getRun(input.runId);
+      if (!storedRun) {
+        throw new RunNotFoundError(input.runId);
       }
-    );
+      const run = hydrateRunRecord(storedRun);
+      const existing = (
+        await everything((page) =>
+          store.listSuspensions({ ...page, runId: input.runId })
+        )
+      ).find(
+        (record) =>
+          record.name === input.name &&
+          record.occurrence === occurrence &&
+          sameStringArray(record.stepPath, input.stepPath)
+      );
+      if (existing) {
+        if (
+          existing.kind !== input.kind ||
+          existing.reason !== input.reason ||
+          !jsonValuesEqual(existing.request, input.request)
+        ) {
+          throw new SuspensionOccurrenceMismatchError(existing.id);
+        }
+        return { created: false, suspension: existing };
+      }
+      const id = input.id ?? generateId("su");
+      if (await store.getSuspension(id)) {
+        throw new RecordAlreadyExistsError("suspension", id);
+      }
+      const suspension = pendingSuspension(id, input, occurrence);
+      const nextRun = normalizeRunRecord(
+        applyRunPatch(run, { ...runPatch, status: "suspended" })
+      );
+      await store.commit({ putRuns: [nextRun], putSuspensions: [suspension] });
+      return { created: true, suspension };
+    });
   }
 
   getSuspension(id: string): Promise<SuspensionRecord | null> {
-    return this.readSuspension(id);
+    return this.#store.getSuspension(id);
   }
 
-  async listSuspensions(
+  listSuspensions(
     query: SuspensionQuery = {}
   ): Promise<Page<SuspensionRecord, number>> {
-    return this.querySuspensions(query);
+    return this.#consistent(async (store) => {
+      const status = statusList(query.status);
+      const records = await everything((page) =>
+        store.listSuspensions({
+          ...page,
+          ...(query.runId === undefined ? {} : { runId: query.runId }),
+          ...(status ? { status } : {}),
+        })
+      );
+      return pageRecords(
+        records.filter((record) => matchesSuspensionQuery(record, query)),
+        query,
+        50
+      );
+    });
   }
 
-  async settleSuspension(
+  /**
+   * Resolves or cancels a pending Suspension at the revision the caller
+   * read, and moves its Run on, in one commit.
+   */
+  settleSuspension(
     id: string,
     input: SettleSuspensionInput
   ): Promise<SuspensionSettlement> {
-    return this.withSuspensionSettlementTransaction(id, async (transaction) => {
-      const suspension = await transaction.readSuspension();
+    return this.#exclusive(async (store) => {
+      const suspension = await store.getSuspension(id);
       if (!suspension) {
         throw new SuspensionNotFoundError(id);
       }
@@ -584,8 +604,7 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
           suspension.revision
         );
       }
-
-      const storedRun = await transaction.readRun(suspension.runId);
+      const storedRun = await store.getRun(suspension.runId);
       if (!storedRun) {
         throw new RunNotFoundError(suspension.runId);
       }
@@ -615,284 +634,635 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
           status: input.outcome.status === "resolved" ? "queued" : "cancelled",
         })
       );
-
-      await transaction.write({
-        nextRun,
-        nextSuspension,
-        previousRun: run,
-        previousSuspension: suspension,
+      await store.commit({
+        putRuns: [nextRun],
+        putSuspensions: [nextSuspension],
       });
-      return {
-        run: cloneRun(nextRun),
-        suspension: cloneValue(nextSuspension),
-      };
+      return { run: nextRun, suspension: nextSuspension };
     });
   }
 
-  async cancelRunSuspensions(
+  cancelRunSuspensions(
     runId: string,
     runPatch: Omit<UpdateRunInput, "status"> = {}
   ): Promise<SuspensionCancellation> {
-    return this.cancelRunWithSuspensions(runId, runPatch, false);
+    return this.#cancelRun(runId, runPatch, false);
   }
 
-  async cancelRun(
+  cancelRun(
     runId: string,
     runPatch: Omit<UpdateRunInput, "status"> = {}
   ): Promise<SuspensionCancellation> {
-    return this.cancelRunWithSuspensions(runId, runPatch, true);
+    return this.#cancelRun(runId, runPatch, true);
   }
 
-  private cancelRunWithSuspensions(
+  deleteSuspension(id: string): Promise<void> {
+    return this.#exclusive(async (store) => {
+      const suspension = await store.getSuspension(id);
+      if (suspension) {
+        const referenced = (
+          await canonicalFrames(store, suspension.runId)
+        ).some(
+          (frame) =>
+            frame.payload.kind === "suspension" &&
+            frame.payload.value.id === suspension.id
+        );
+        if (referenced) {
+          throw new RecordInUseError("suspension", id);
+        }
+      }
+      await store.commit({ deleteSuspensions: [id] });
+    });
+  }
+
+  /**
+   * Appends one frame at the next cursor of the Run's journal. A terminal
+   * lifecycle frame is kept once: appending another returns the first.
+   */
+  appendRunFrame(input: AppendRunFrameInput): Promise<RunFrame> {
+    return this.#exclusive(async (store) => {
+      if (!(await store.getRun(input.runId))) {
+        throw new RunNotFoundError(input.runId);
+      }
+      const frames = await canonicalFrames(store, input.runId);
+      if (isTerminalFramePayload(input.payload)) {
+        const terminal = frames.find((frame) =>
+          isTerminalFramePayload(frame.payload)
+        );
+        if (terminal) {
+          return terminal;
+        }
+      }
+      return appendFrame(store, input.runId, frames, input.payload, input.at);
+    });
+  }
+
+  /**
+   * Appends one effect-claim frame per `(runId, key)`: the frame for the
+   * first claim, and `null` for every later one.
+   */
+  claimRunEffect(input: ClaimRunEffectInput): Promise<RunFrame | null> {
+    return this.#exclusive(async (store) => {
+      const payload = runEffectClaimPayload(input);
+      if (!(await store.getRun(input.runId))) {
+        throw new RunNotFoundError(input.runId);
+      }
+      const frames = await canonicalFrames(store, input.runId);
+      if (frames.some((frame) => isRunEffectClaim(frame, input.key))) {
+        return null;
+      }
+      return appendFrame(store, input.runId, frames, payload, input.at);
+    });
+  }
+
+  listRunFrames(runId: string, after = -1): Promise<RunFrame[]> {
+    return this.#consistent(async (store) => {
+      if (!(await store.getRun(runId))) {
+        throw new RunNotFoundError(runId);
+      }
+      return (await canonicalFrames(store, runId)).filter(
+        (frame) => frame.cursor > after
+      );
+    });
+  }
+
+  listFrames(query: RunFramePageQuery = {}): Promise<Page<RunFrame, number>> {
+    return this.#consistent(async (store) => {
+      const direction = query.order === "newest" ? -1 : 1;
+      const frames = (await journals(store, query.runId))
+        .flatMap(({ frames: values }) => values)
+        .filter(
+          (frame) => query.after === undefined || frame.cursor > query.after
+        )
+        .sort(
+          (left, right) =>
+            direction *
+            (left.at - right.at ||
+              left.runId.localeCompare(right.runId) ||
+              left.cursor - right.cursor)
+        );
+      return pageValues(frames, query, 100);
+    });
+  }
+
+  countFrames(
+    query: Pick<RunFramePageQuery, "runId" | "after"> = {}
+  ): Promise<number> {
+    return this.#consistent(async (store) =>
+      (await journals(store, query.runId)).reduce(
+        (total, { frames }) =>
+          total +
+          frames.filter(
+            (frame) => query.after === undefined || frame.cursor > query.after
+          ).length,
+        0
+      )
+    );
+  }
+
+  listFrameRuns(query: PageQuery = {}): Promise<Page<FrameRun, number>> {
+    return this.#consistent(async (store) => {
+      const direction = query.order === "oldest" ? 1 : -1;
+      const values = (await journals(store))
+        .flatMap(({ frames, runId }): FrameRun[] => {
+          const last = frames.at(-1);
+          return last === undefined ? [] : [{ lastAt: last.at, runId }];
+        })
+        .sort(
+          (left, right) =>
+            direction *
+            (left.lastAt - right.lastAt ||
+              left.runId.localeCompare(right.runId))
+        );
+      return pageValues(values, query, 3);
+    });
+  }
+
+  countFrameRuns(): Promise<number> {
+    return this.#consistent(
+      async (store) =>
+        (await journals(store)).filter(({ frames }) => frames.length > 0).length
+    );
+  }
+
+  deleteRunFrames(runId: string): Promise<void> {
+    return this.#exclusive((store) =>
+      store.commit({ deleteRunFrames: [runId] })
+    );
+  }
+
+  /** The Queue filed under the id, or this one when none is: the first writer wins. */
+  ensureQueue(input: EnsureQueueInput): Promise<QueueRecord> {
+    return this.#exclusive(async (store) => {
+      const record: QueueRecord = {
+        createdAt: Date.now(),
+        extensions: createExtensions(input.extensions),
+        id: input.id,
+        lastError: null,
+        name: input.name,
+        status: "active",
+      };
+      const existing = await store.getQueue(record.id);
+      if (existing) {
+        return existing;
+      }
+      await store.commit({ putQueues: [record] });
+      return record;
+    });
+  }
+
+  async listQueues(): Promise<QueueRecord[]> {
+    return [...(await this.#store.listQueues())];
+  }
+
+  updateQueue(
+    id: string,
+    patch: UpdateQueueInput
+  ): Promise<QueueRecord | null> {
+    return this.#exclusive(async (store) => {
+      const existing = await store.getQueue(id);
+      if (!existing) {
+        return null;
+      }
+      const updated: QueueRecord = {
+        ...existing,
+        ...(patch.status === undefined ? {} : { status: patch.status }),
+        ...(patch.lastError === undefined
+          ? {}
+          : { lastError: patch.lastError }),
+        ...(patch.extensions === undefined
+          ? {}
+          : {
+              extensions: mergeExtensions(
+                existing.extensions,
+                patch.extensions
+              ),
+            }),
+      };
+      await store.commit({ putQueues: [updated] });
+      return updated;
+    });
+  }
+
+  /**
+   * Cancels a Run and settles each of its pending Suspensions as cancelled,
+   * in one commit. `rejectSettled` refuses a Run that already ended; without
+   * it, an ended Run is returned as it is, unless it was cancelled.
+   */
+  #cancelRun(
     runId: string,
     runPatch: Omit<UpdateRunInput, "status">,
     rejectSettled: boolean
   ): Promise<SuspensionCancellation> {
-    return this.withSuspensionCancellationTransaction(
-      runId,
-      async (transaction) => {
-        const storedRun = await transaction.readRun();
-        if (!storedRun) {
-          throw new RunNotFoundError(runId);
-        }
-        const run = hydrateRunRecord(storedRun);
-        if (isTerminalRunStatus(run.status)) {
-          if (rejectSettled) {
-            throw new RunAlreadySettledError(runId);
-          }
-          if (run.status !== "cancelled") {
-            return { run: cloneRun(run), suspensions: [] };
-          }
-        }
-        const pending = (await transaction.readSuspensions())
-          .filter(
-            (record) => record.runId === runId && record.status === "pending"
-          )
-          .sort((left, right) => left.id.localeCompare(right.id));
-        const settledAt = Date.now();
-        const cancelled = pending.map((record) =>
-          cancelSuspensionRecord(record, settledAt)
-        );
-        const nextRun = normalizeRunRecord(
-          applyRunPatch(run, { ...runPatch, status: "cancelled" })
-        );
-        await transaction.write({
-          nextRun,
-          nextSuspensions: cancelled,
-          previousRun: run,
-          previousSuspensions: pending,
-        });
-        return {
-          run: cloneRun(nextRun),
-          suspensions: cancelled.map((record) => cloneValue(record)),
-        };
+    return this.#exclusive(async (store) => {
+      const storedRun = await store.getRun(runId);
+      if (!storedRun) {
+        throw new RunNotFoundError(runId);
       }
+      const run = hydrateRunRecord(storedRun);
+      if (isTerminalRunStatus(run.status)) {
+        if (rejectSettled) {
+          throw new RunAlreadySettledError(runId);
+        }
+        if (run.status !== "cancelled") {
+          return { run, suspensions: [] };
+        }
+      }
+      const pending = await pendingSuspensions(store, runId);
+      const settledAt = Date.now();
+      const suspensions = pending.map((record) =>
+        cancelSuspensionRecord(record, settledAt)
+      );
+      const nextRun = normalizeRunRecord(
+        applyRunPatch(run, { ...runPatch, status: "cancelled" })
+      );
+      await store.commit({ putRuns: [nextRun], putSuspensions: suspensions });
+      return { run: nextRun, suspensions };
+    });
+  }
+
+  /**
+   * Runs one read-modify-write so that no other change lands inside it:
+   * through the store's transaction when it offers one, and in turn with
+   * this coordinator's other changes otherwise.
+   */
+  #exclusive<T>(work: (store: WorkflowStore) => Promise<T>): Promise<T> {
+    if (this.#store.transaction === undefined) {
+      return this.#serialized(() => work(this.#store));
+    }
+    return this.#transaction(work);
+  }
+
+  /** A read of several store reads, as of one moment where the store allows it. */
+  #consistent<T>(work: (store: WorkflowStore) => Promise<T>): Promise<T> {
+    if (this.#store.transaction === undefined) {
+      return work(this.#store);
+    }
+    return this.#transaction(work);
+  }
+
+  #transaction<T>(work: (view: WorkflowStore) => Promise<T>): Promise<T> {
+    const store = this.#store;
+    if (store.transaction === undefined) {
+      throw new Error("The workflow store offers no transaction");
+    }
+    return store.transaction(work);
+  }
+
+  /**
+   * One change at a time in this coordinator. Not used over a store with
+   * transactions: the store's own queue orders those, and a call from
+   * inside one is refused there at once instead of waiting here forever.
+   */
+  #serialized<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.#tail.then(work, work);
+    this.#tail = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  }
+}
+
+/**
+ * Refuses a store whose commits a host transaction may still roll back, for
+ * a runtime (`Orchestrator`, `Queue`) that starts workflow code, dispatches,
+ * and signals cancellations once a commit resolves: it would act on records
+ * a rollback then removes.
+ */
+export function requireDurableStore(
+  store: OrchestratorStore,
+  runtime: string
+): void {
+  if (store.durability === "host") {
+    throw new Error(
+      `${runtime} cannot run over a store whose commits a host transaction may roll back (durability "host"): it would run workflow code for Runs a rollback removes. Run it over a store on the database itself, outside the host's transaction.`
     );
   }
+}
 
-  async deleteSuspension(id: string): Promise<void> {
-    const suspension = await this.readSuspension(id);
-    if (suspension) {
-      const referenced = (
-        await this.readCanonicalFrames(suspension.runId)
-      ).some(
-        (frame) =>
-          frame.payload.kind === "suspension" &&
-          frame.payload.value.id === suspension.id
-      );
-      if (referenced) {
-        throw new RecordInUseError("suspension", id);
-      }
+/**
+ * Makes every public method of `prototype` take its arguments as they stand
+ * when it is called: one deep copy, with byte memory unshared, taken before
+ * anything else runs, and the only one the method sees. So no command reads
+ * a caller's input after an await, and a command added later is covered
+ * without asking. A value the copy refuses (a function, say), or an
+ * argument with fields it would not keep (`refuseHiddenFields`), rejects
+ * the call.
+ */
+function takeArgumentsWhenCalled(prototype: object): void {
+  for (const name of Object.getOwnPropertyNames(prototype)) {
+    const method: unknown = Reflect.get(prototype, name);
+    if (name === "constructor" || typeof method !== "function") {
+      continue;
     }
-    await this.removeSuspension(id);
-  }
-
-  async appendRunFrame(input: AppendRunFrameInput): Promise<RunFrame> {
-    return this.withMutationLock(`frame:${input.runId}`, async () => {
-      if (!(await this.readRun(input.runId))) {
-        throw new RunNotFoundError(input.runId);
-      }
-      const frames = await this.readCanonicalFrames(input.runId);
-      if (isTerminalFramePayload(input.payload)) {
-        const existingTerminal = frames.find((existingFrame) =>
-          isTerminalFramePayload(existingFrame.payload)
-        );
-        if (existingTerminal) {
-          return cloneValue(existingTerminal);
+    Object.defineProperty(prototype, name, {
+      configurable: true,
+      value(this: unknown, ...args: unknown[]): unknown {
+        let owned: unknown[];
+        try {
+          for (const [index, arg] of args.entries()) {
+            refuseHiddenFields(name, index, arg);
+          }
+          owned = detached(args);
+        } catch (error) {
+          return Promise.reject(error);
         }
-      }
-      const lastFrame = frames.at(-1);
-      const nextFrame = decodeRunFrame({
-        at: input.at ?? Date.now(),
-        cursor: lastFrame === undefined ? 0 : lastFrame.cursor + 1,
-        payload: input.payload,
-        runId: input.runId,
-      });
-      decodeRunFrameSequence(input.runId, [...frames, nextFrame]);
-      await this.writeFrame(nextFrame);
-      return cloneValue(nextFrame);
+        return Reflect.apply(method, this, owned);
+      },
+      writable: true,
     });
   }
+}
 
-  async claimRunEffect(input: ClaimRunEffectInput): Promise<RunFrame | null> {
-    const payload = runEffectClaimPayload(input);
-    return this.withMutationLock(`frame:${input.runId}`, async () => {
-      if (!(await this.readRun(input.runId))) {
-        throw new RunNotFoundError(input.runId);
-      }
-      const frames = await this.readCanonicalFrames(input.runId);
-      if (
-        frames.some((existingFrame) =>
-          isRunEffectClaim(existingFrame, input.key)
-        )
-      ) {
-        return null;
-      }
-      const lastFrame = frames.at(-1);
-      const nextFrame = decodeRunFrame({
-        at: input.at ?? Date.now(),
-        cursor: lastFrame === undefined ? 0 : lastFrame.cursor + 1,
-        payload,
-        runId: input.runId,
-      });
-      decodeRunFrameSequence(input.runId, [...frames, nextFrame]);
-      await this.writeFrame(nextFrame);
-      return cloneValue(nextFrame);
-    });
+takeArgumentsWhenCalled(ExecutionCoordinator.prototype);
+
+/**
+ * Refuses an argument object the copy would read less of than it shows:
+ * one made by a class or another prototype (its getters live there), or
+ * one with an own property that is not enumerable. The copy keeps only own
+ * enumerable properties, so such a field would be lost without a word.
+ */
+function refuseHiddenFields(method: string, index: number, arg: unknown): void {
+  if (typeof arg !== "object" || arg === null || Array.isArray(arg)) {
+    return;
   }
+  const prototype: unknown = Object.getPrototypeOf(arg);
+  if (
+    (prototype !== Object.prototype && prototype !== null) ||
+    Object.getOwnPropertyNames(arg).length !== Object.keys(arg).length
+  ) {
+    throw new TypeError(
+      `ExecutionCoordinator.${method} takes plain objects: argument ${index + 1} has fields a copy would not keep (a getter on its prototype, or an own property that is not enumerable)`
+    );
+  }
+}
 
-  async listRunFrames(runId: string, after = -1): Promise<RunFrame[]> {
-    if (!(await this.readRun(runId))) {
+/**
+ * What a claim of a managed Job attempt did: claimed the attempt, or found
+ * the Job settled (an earlier attempt completed) and wrote it as complete.
+ */
+type JobRunClaimOutcome =
+  | { readonly status: "claimed"; readonly claim: JobRunClaim }
+  | { readonly status: "settled"; readonly job: JobRecord };
+
+/**
+ * Claims a managed attempt of a Job through `store` without raising on a
+ * settled Job, for a caller inside a transaction that must keep the
+ * settlement: admission returns the outcome out of its transaction, lets
+ * it commit, and refuses afterwards. Over an `ExecutionCoordinator` the
+ * settled case is a value; over any other `OrchestratorStore`, which offers
+ * only `claimJobRun`, it stays the rejection that store raises.
+ */
+export function claimJobAttempt(
+  store: OrchestratorStore,
+  jobId: string,
+  input: CreateJobRunInput
+): Promise<JobRunClaimOutcome> {
+  if (store instanceof ExecutionCoordinator) {
+    return claimOn(store, jobId, input);
+  }
+  return store
+    .claimJobRun(jobId, input)
+    .then((claim) => ({ claim, status: "claimed" as const }));
+}
+
+/** `view` without `transaction`: a coordinator over it runs its work directly. */
+function withoutTransaction(view: WorkflowStore): WorkflowStore {
+  return {
+    commit: (write) => view.commit(write),
+    durability: view.durability ?? "host",
+    getJob: (id) => view.getJob(id),
+    getQueue: (id) => view.getQueue(id),
+    getRun: (id) => view.getRun(id),
+    getSuspension: (id) => view.getSuspension(id),
+    listFrames: (query) => view.listFrames(query),
+    listJobs: (query) => view.listJobs(query),
+    listQueues: () => view.listQueues(),
+    listRuns: (query) => view.listRuns(query),
+    listSuspensions: (query) => view.listSuspensions(query),
+  };
+}
+
+/** Every record of a list read, one store page after another. */
+async function everything<T>(
+  list: (page: WorkflowStorePageQuery) => Promise<WorkflowStorePage<T>>
+): Promise<T[]> {
+  const items: T[] = [];
+  let after: number | undefined;
+  for (;;) {
+    const page = await list(
+      after === undefined
+        ? { limit: STORE_PAGE_LIMIT }
+        : { after, limit: STORE_PAGE_LIMIT }
+    );
+    items.push(...page.items);
+    if (page.next === undefined) {
+      return items;
+    }
+    after = page.next;
+  }
+}
+
+/** A Job's Runs, hydrated, linked by their own links or legacy metadata. */
+async function runsOfJob(
+  store: WorkflowStore,
+  jobId: string
+): Promise<RunRecord[]> {
+  return (await everything((page) => store.listRuns(page)))
+    .map(hydrateRunRecord)
+    .filter((run) => run.links?.jobId === jobId);
+}
+
+/** A Run's pending Suspensions, by id. */
+async function pendingSuspensions(
+  store: WorkflowStore,
+  runId: string
+): Promise<SuspensionRecord[]> {
+  return (
+    await everything((page) =>
+      store.listSuspensions({ ...page, runId, status: ["pending"] })
+    )
+  ).sort((left, right) => left.id.localeCompare(right.id));
+}
+
+/** A Run's journal, checked as one sequence. */
+async function canonicalFrames(
+  store: WorkflowStore,
+  runId: string
+): Promise<RunFrame[]> {
+  return decodeRunFrameSequence(
+    runId,
+    await everything((page) => store.listFrames({ ...page, runId }))
+  );
+}
+
+/**
+ * The journal of each Run the store holds, or of the one Run named, each
+ * checked as one sequence. Frames of a Run the store does not hold are left
+ * out; naming such a Run is refused.
+ */
+async function journals(
+  store: WorkflowStore,
+  runId?: string
+): Promise<{ readonly frames: RunFrame[]; readonly runId: string }[]> {
+  if (runId !== undefined) {
+    if (!(await store.getRun(runId))) {
       throw new RunNotFoundError(runId);
     }
-    const frames = await this.readCanonicalFrames(runId);
-    return frames
-      .filter((frame) => frame.cursor > after)
-      .map((frame) => cloneValue(frame));
+    return [{ frames: await canonicalFrames(store, runId), runId }];
   }
-
-  async listFrames(
-    query: RunFramePageQuery = {}
-  ): Promise<Page<RunFrame, number>> {
-    const runIds =
-      query.runId === undefined
-        ? (await this.readRuns()).map((run) => run.id)
-        : [query.runId];
-    const frames = (
-      await Promise.all(runIds.map((runId) => this.listRunFrames(runId)))
-    )
-      .flat()
-      .filter(
-        (frame) => query.after === undefined || frame.cursor > query.after
-      )
-      .sort((left, right) => {
-        const direction = query.order === "newest" ? -1 : 1;
-        return (
-          direction *
-          (left.at - right.at ||
-            left.runId.localeCompare(right.runId) ||
-            left.cursor - right.cursor)
-        );
-      });
-    return pageValues(frames, query, 100);
+  const grouped = new Map<string, RunFrame[]>();
+  for (const frame of await everything((page) => store.listFrames(page))) {
+    const frames = grouped.get(frame.runId) ?? [];
+    frames.push(frame);
+    grouped.set(frame.runId, frames);
   }
+  const runs = await everything((page) => store.listRuns(page));
+  return runs.map((run) => ({
+    frames: decodeRunFrameSequence(run.id, grouped.get(run.id) ?? []),
+    runId: run.id,
+  }));
+}
 
-  async countFrames(
-    query: Pick<RunFramePageQuery, "runId" | "after"> = {}
-  ): Promise<number> {
-    const runIds =
-      query.runId === undefined
-        ? (await this.readRuns()).map((run) => run.id)
-        : [query.runId];
-    const frames = await Promise.all(
-      runIds.map((runId) => this.listRunFrames(runId, query.after))
-    );
-    return frames.reduce((total, values) => total + values.length, 0);
-  }
+/** Files the next frame of a Run's checked journal and returns it. */
+async function appendFrame(
+  store: WorkflowStore,
+  runId: string,
+  frames: readonly RunFrame[],
+  payload: RunFramePayload,
+  at: number | undefined
+): Promise<RunFrame> {
+  const last = frames.at(-1);
+  const frame = decodeRunFrame({
+    at: at ?? Date.now(),
+    cursor: last === undefined ? 0 : last.cursor + 1,
+    payload,
+    runId,
+  });
+  decodeRunFrameSequence(runId, [...frames, frame]);
+  await store.commit({ putFrames: [frame] });
+  return frame;
+}
 
-  async listFrameRuns(
-    query: { limit?: number; offset?: number; order?: "newest" | "oldest" } = {}
-  ): Promise<Page<FrameRun, number>> {
-    const runs = await this.readRuns();
-    const values = (
-      await Promise.all(
-        runs.map(async (run): Promise<FrameRun | null> => {
-          const frames = await this.listRunFrames(run.id);
-          const last = frames.at(-1);
-          return last === undefined ? null : { lastAt: last.at, runId: run.id };
-        })
-      )
-    )
-      .filter((value): value is FrameRun => value !== null)
-      .sort((left, right) => {
-        const direction = query.order === "oldest" ? 1 : -1;
-        return (
-          direction *
-          (left.lastAt - right.lastAt || left.runId.localeCompare(right.runId))
-        );
-      });
-    return pageValues(values, query, 3);
-  }
-
-  async countFrameRuns(): Promise<number> {
-    const runs = await this.readRuns();
-    const counts = await Promise.all(
-      runs.map((run) => this.countFrames({ runId: run.id }))
-    );
-    return counts.filter((value) => value > 0).length;
-  }
-
-  deleteRunFrames(runId: string): Promise<void> {
-    return this.removeFrames(runId);
-  }
-
-  async ensureQueue(input: EnsureQueueInput): Promise<QueueRecord> {
-    const record: QueueRecord = {
+function pendingSuspension(
+  id: string,
+  input: CreateSuspensionInput,
+  occurrence: number
+): SuspensionRecord {
+  return decodeSuspensionRecord({
+    id,
+    kind: input.kind,
+    name: input.name,
+    occurrence,
+    reason: input.reason,
+    request: input.request,
+    resolution: null,
+    revision: 0,
+    runId: input.runId,
+    status: "pending",
+    stepPath: input.stepPath,
+    timestamps: {
+      cancelledAt: null,
       createdAt: Date.now(),
-      extensions: createExtensions(input.extensions),
-      id: input.id,
-      lastError: null,
-      name: input.name,
-      status: "active",
-    };
-    return this.ensureQueueRecord(record);
+      resolvedAt: null,
+    },
+  });
+}
+
+function statusList<T extends string>(
+  status: T | readonly T[] | undefined
+): readonly T[] | undefined {
+  if (status === undefined) {
+    return;
   }
+  return typeof status === "string" ? [status] : status;
+}
 
-  listQueues(): Promise<QueueRecord[]> {
-    return this.readQueues();
+/** Records by creation time, then id; newest first when asked. */
+function sortRecords<
+  T extends { readonly id: string; readonly timestamps: { createdAt: number } },
+>(records: readonly T[], order: "newest" | "oldest" | undefined): T[] {
+  const direction = order === "newest" ? -1 : 1;
+  return [...records].sort(
+    (left, right) =>
+      direction *
+      (left.timestamps.createdAt - right.timestamps.createdAt ||
+        left.id.localeCompare(right.id))
+  );
+}
+
+function pageRecords<
+  T extends { readonly id: string; readonly timestamps: { createdAt: number } },
+>(
+  records: readonly T[],
+  query: {
+    readonly limit?: number;
+    readonly cursor?: number;
+    readonly order?: "newest" | "oldest";
+  },
+  fallback: number
+): Page<T, number> {
+  return pageValues(sortRecords(records, query.order), query, fallback);
+}
+
+function pageValues<T>(
+  values: readonly T[],
+  query: { readonly limit?: number; readonly cursor?: number },
+  fallback: number
+): Page<T, number> {
+  const limit = query.limit ?? fallback;
+  const offset = query.cursor ?? 0;
+  if (!Number.isInteger(limit) || limit <= 0 || limit > 200) {
+    throw new Error("[execution] page limit must be an integer from 1 to 200");
   }
-
-  async updateQueue(
-    id: string,
-    patch: UpdateQueueInput
-  ): Promise<QueueRecord | null> {
-    const existing = await this.readQueue(id);
-    if (!existing) {
-      return null;
-    }
-
-    const updated: QueueRecord = {
-      ...existing,
-      ...(patch.status === undefined ? {} : { status: patch.status }),
-      ...(patch.lastError === undefined ? {} : { lastError: patch.lastError }),
-      ...(patch.extensions === undefined
-        ? {}
-        : {
-            extensions: mergeExtensions(existing.extensions, patch.extensions),
-          }),
-    };
-    await this.writeQueue(updated);
-    return updated;
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new Error("[execution] page offset must be a non-negative integer");
   }
+  const items = values.slice(offset, offset + limit);
+  const hasMore = values.length > offset + items.length;
+  return {
+    items,
+    total: values.length,
+    ...(hasMore ? { nextCursor: offset + items.length } : {}),
+  };
+}
 
-  protected matchesRunQuery(record: RunRecord, query: RunQuery): boolean {
-    if (query.queueId !== undefined && record.queueId !== query.queueId) {
-      return false;
-    }
-    const search = query.search?.trim().toLocaleLowerCase();
-    if (
-      search &&
-      ![
+function matchesStatus<T extends string>(
+  status: T,
+  query: T | readonly T[] | undefined
+): boolean {
+  return statusList(query)?.includes(status) ?? true;
+}
+
+function matchesLinks<T extends object>(
+  links: T | undefined,
+  query: Partial<T> | undefined
+): boolean {
+  if (query === undefined) {
+    return true;
+  }
+  return Object.entries(query).every(
+    ([key, value]) =>
+      (links as Readonly<Record<string, unknown>> | undefined)?.[key] === value
+  );
+}
+
+function matchesJobQuery(record: JobRecord, query: JobQuery): boolean {
+  return (
+    matchesStatus<JobStatus>(record.status, query.status) &&
+    (query.definition === undefined ||
+      record.definition.name === query.definition) &&
+    matchesLinks(record.links, query.links)
+  );
+}
+
+function matchesRunQuery(record: RunRecord, query: RunQuery): boolean {
+  const search = query.search?.trim().toLocaleLowerCase();
+  return (
+    (query.queueId === undefined || record.queueId === query.queueId) &&
+    (!search ||
+      [
         record.id,
         record.queueId,
         record.step,
@@ -900,790 +1270,55 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
         record.links?.sessionId,
         record.links?.invocationId,
         record.links?.subjectId,
-      ].some((value) => value?.toLocaleLowerCase().includes(search) === true)
-    ) {
-      return false;
-    }
-    if (query.status !== undefined) {
-      const statuses = Array.isArray(query.status)
-        ? query.status
-        : [query.status];
-      if (!statuses.includes(record.status)) {
-        return false;
-      }
-    }
-    if (query.tags !== undefined && !this.hasTags(record.tags, query.tags)) {
-      return false;
-    }
-    if (
-      query.definition !== undefined &&
-      record.definition?.name !== query.definition
-    ) {
-      return false;
-    }
-    return this.matchesLinks(record.links ?? {}, query.links);
-  }
-
-  /** Apply the legacy metadata bridge only for adapters that expose raw rows. */
-  protected hydrateStoredRun(record: RunRecord): RunRecord {
-    return hydrateRunRecord(record);
-  }
-
-  protected matchesJobQuery(record: JobRecord, query: JobQuery): boolean {
-    if (query.status !== undefined) {
-      const statuses = Array.isArray(query.status)
-        ? query.status
-        : [query.status];
-      if (!statuses.includes(record.status)) {
-        return false;
-      }
-    }
-    if (
-      query.definition !== undefined &&
-      record.definition.name !== query.definition
-    ) {
-      return false;
-    }
-    return this.matchesLinks(record.links, query.links);
-  }
-
-  protected matchesSuspensionQuery(
-    record: SuspensionRecord,
-    query: SuspensionQuery
-  ): boolean {
-    if (query.runId !== undefined && record.runId !== query.runId) {
-      return false;
-    }
-    if (query.kind !== undefined && record.kind !== query.kind) {
-      return false;
-    }
-    if (query.name !== undefined && record.name !== query.name) {
-      return false;
-    }
-    if (
-      query.occurrence !== undefined &&
-      record.occurrence !== query.occurrence
-    ) {
-      return false;
-    }
-    if (
-      query.stepPath !== undefined &&
-      !sameStringArray(record.stepPath, query.stepPath)
-    ) {
-      return false;
-    }
-    if (query.status !== undefined) {
-      const statuses = Array.isArray(query.status)
-        ? query.status
-        : [query.status];
-      if (!statuses.includes(record.status)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  protected hasTags(
-    tags: Record<string, string>,
-    query: Record<string, string>
-  ): boolean {
-    return Object.entries(query).every(([key, value]) => tags[key] === value);
-  }
-
-  protected matchesLinks<T extends object>(
-    links: T,
-    query: Partial<T> | undefined
-  ): boolean {
-    if (query === undefined) {
-      return true;
-    }
-    return Object.entries(query).every(
-      ([key, value]) => links[key as keyof T] === value
-    );
-  }
-
-  protected async writeJobRunClaim(input: {
-    previousJob: JobRecord;
-    nextJob: JobRecord;
-    run: RunRecord;
-  }): Promise<void> {
-    await this.writeJob(input.nextJob);
-    try {
-      await this.writeRun(input.run);
-    } catch (error) {
-      await this.writeJob(input.previousJob);
-      throw error;
-    }
-  }
-
-  /**
-   * Wrap the complete read/validate/write managed-attempt operation. The
-   * reference adapter uses the in-process Job mutex. Durable adapters must
-   * override this hook and provide transaction-bound reads plus the atomic
-   * Job/Run write through `operation`.
-   */
-  protected withJobRunClaimTransaction(
-    jobId: string,
-    operation: (
-      transaction: JobRunClaimTransaction
-    ) => Promise<JobRunClaimOutcome>
-  ): Promise<JobRunClaimOutcome> {
-    return this.withMutationLock(`job:${jobId}`, () =>
-      operation({
-        readJob: () => this.readJob(jobId),
-        readRun: (runId) => this.readRun(runId),
-        readRuns: () => this.readRuns(),
-        write: (input) => this.writeJobRunClaim(input),
-        writeJob: (record) => this.writeJob(record),
-      })
-    );
-  }
-
-  /**
-   * Own cancellation of one Job plus its active Run and pending Suspensions.
-   * Durable adapters override this hook with one database transaction. The
-   * reference adapter uses the same Job-first lock order as managed claims.
-   */
-  protected withJobCancellationTransaction(
-    jobId: string,
-    operation: (
-      transaction: JobCancellationTransaction
-    ) => Promise<JobCancellation>
-  ): Promise<JobCancellation> {
-    return this.withMutationLock(`job:${jobId}`, async () => {
-      const active = (await this.readRuns())
-        .map(hydrateRunRecord)
-        .find(
-          (run) =>
-            run.links?.jobId === jobId && isNonTerminalRunStatus(run.status)
-        );
-      const invoke = (): Promise<JobCancellation> =>
-        operation({
-          readJob: () => this.readJob(jobId),
-          readRuns: () => this.readRuns(),
-          readSuspensions: () => this.readSuspensions(),
-          write: (input) => this.writeJobCancellation(input),
-        });
-      if (!active) {
-        return invoke();
-      }
-      return this.withMutationLock(`run:${active.id}`, async () => {
-        const suspensionIds = (await this.readSuspensions())
-          .filter((record) => record.runId === active.id)
-          .map((record) => record.id)
-          .sort();
-        const withLocks = (index: number): Promise<JobCancellation> => {
-          const suspensionId = suspensionIds[index];
-          return suspensionId === undefined
-            ? invoke()
-            : this.withMutationLock(`suspension:${suspensionId}`, () =>
-                withLocks(index + 1)
-              );
-        };
-        return withLocks(0);
-      });
-    });
-  }
-
-  protected async writeJobCancellation(input: {
-    previousJob: JobRecord;
-    nextJob: JobRecord;
-    previousRun: RunRecord | null;
-    nextRun: RunRecord | null;
-    previousSuspensions: readonly SuspensionRecord[];
-    nextSuspensions: readonly SuspensionRecord[];
-  }): Promise<void> {
-    await this.writeJob(input.nextJob);
-    try {
-      if (input.nextRun) {
-        await this.writeRun(input.nextRun);
-      }
-      for (const suspension of input.nextSuspensions) {
-        await this.writeSuspension(suspension);
-      }
-    } catch (error) {
-      await this.writeJob(input.previousJob);
-      if (input.previousRun) {
-        await this.writeRun(input.previousRun);
-      }
-      for (const suspension of input.previousSuspensions) {
-        await this.writeSuspension(suspension);
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Own the complete occurrence-address read/validate/write boundary. Durable
-   * adapters must override this hook with a database transaction and enforce a
-   * unique key on `(runId, stepPath, name, occurrence)`.
-   */
-  protected withSuspensionParkingTransaction(
-    runId: string,
-    address: string,
-    operation: (
-      transaction: SuspensionParkingTransaction
-    ) => Promise<SuspensionParking>
-  ): Promise<SuspensionParking> {
-    return this.withMutationLock(`run:${runId}`, () =>
-      this.withMutationLock(`suspension-address:${address}`, () =>
-        operation({
-          readRun: () => this.readRun(runId),
-          readSuspensions: () => this.readSuspensions(),
-          write: (input) => this.writeSuspensionParking(input),
-        })
-      )
-    );
-  }
-
-  /**
-   * Own the full conditional settlement. The preliminary read exists only to
-   * choose the reference adapter's Run lock; durable adapters override this
-   * hook and perform every read and write inside one transaction.
-   */
-  protected async withSuspensionSettlementTransaction(
-    id: string,
-    operation: (
-      transaction: SuspensionSettlementTransaction
-    ) => Promise<SuspensionSettlement>
-  ): Promise<SuspensionSettlement> {
-    const initial = await this.readSuspension(id);
-    if (!initial) {
-      return this.withMutationLock(`suspension:${id}`, () =>
-        operation({
-          readRun: (runId) => this.readRun(runId),
-          readSuspension: () => this.readSuspension(id),
-          write: (input) => this.writeSuspensionSettlement(input),
-        })
-      );
-    }
-    return this.withMutationLock(`run:${initial.runId}`, () =>
-      this.withMutationLock(`suspension:${id}`, () =>
-        operation({
-          readRun: (runId) => this.readRun(runId),
-          readSuspension: () => this.readSuspension(id),
-          write: (input) => this.writeSuspensionSettlement(input),
-        })
-      )
-    );
-  }
-
-  /** Own atomic Run cancellation plus settlement of all pending Suspensions. */
-  protected withSuspensionCancellationTransaction(
-    runId: string,
-    operation: (
-      transaction: SuspensionCancellationTransaction
-    ) => Promise<SuspensionCancellation>
-  ): Promise<SuspensionCancellation> {
-    return this.withMutationLock(`run:${runId}`, async () => {
-      const ids = (await this.readSuspensions())
-        .filter((record) => record.runId === runId)
-        .map((record) => record.id)
-        .sort();
-      const withLocks = (index: number): Promise<SuspensionCancellation> => {
-        const id = ids[index];
-        if (id === undefined) {
-          return operation({
-            readRun: () => this.readRun(runId),
-            readSuspensions: () => this.readSuspensions(),
-            write: (input) => this.writeSuspensionCancellation(input),
-          });
-        }
-        return this.withMutationLock(`suspension:${id}`, () =>
-          withLocks(index + 1)
-        );
-      };
-      return withLocks(0);
-    });
-  }
-
-  protected async writeSuspensionSettlement(input: {
-    previousSuspension: SuspensionRecord;
-    nextSuspension: SuspensionRecord;
-    previousRun: RunRecord;
-    nextRun: RunRecord;
-  }): Promise<void> {
-    await this.writeRun(input.nextRun);
-    try {
-      await this.writeSuspension(input.nextSuspension);
-    } catch (error) {
-      await this.writeRun(input.previousRun);
-      throw error;
-    }
-  }
-
-  protected async writeSuspensionParking(input: {
-    suspension: SuspensionRecord;
-    run: RunRecord;
-  }): Promise<void> {
-    const previousRun = await this.readRun(input.run.id);
-    await this.writeRun(input.run);
-    try {
-      await this.writeSuspension(input.suspension);
-    } catch (error) {
-      if (previousRun) {
-        await this.writeRun(previousRun);
-      }
-      throw error;
-    }
-  }
-
-  protected async writeSuspensionCancellation(input: {
-    previousRun: RunRecord;
-    nextRun: RunRecord;
-    previousSuspensions: readonly SuspensionRecord[];
-    nextSuspensions: readonly SuspensionRecord[];
-  }): Promise<void> {
-    await this.writeRun(input.nextRun);
-    const written: SuspensionRecord[] = [];
-    try {
-      for (const suspension of input.nextSuspensions) {
-        await this.writeSuspension(suspension);
-        written.push(suspension);
-      }
-    } catch (error) {
-      await this.writeRun(input.previousRun);
-      for (const record of written) {
-        const previous = input.previousSuspensions.find(
-          (candidate) => candidate.id === record.id
-        );
-        if (previous) {
-          await this.writeSuspension(previous);
-        }
-      }
-      throw error;
-    }
-  }
-
-  private async readCanonicalFrames(runId: string): Promise<RunFrame[]> {
-    return decodeRunFrameSequence(runId, await this.readFrames(runId));
-  }
-
-  /**
-   * First-writer-wins Queue insertion seam. Durable adapters override this
-   * method with one atomic insert-or-return-existing database operation.
-   */
-  protected ensureQueueRecord(record: QueueRecord): Promise<QueueRecord> {
-    return this.withMutationLock(`queue:${record.id}`, async () => {
-      const existing = await this.readQueue(record.id);
-      if (existing) {
-        return cloneQueue(existing);
-      }
-      await this.writeQueue(record);
-      return cloneQueue(record);
-    });
-  }
-
-  private async withMutationLock<T>(
-    key: string,
-    operation: () => Promise<T>
-  ): Promise<T> {
-    const previous = this.#mutationTails.get(key) ?? Promise.resolve();
-    let release = (): void => undefined;
-    const current = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const tail = previous.then(() => current);
-    this.#mutationTails.set(key, tail);
-    await previous;
-    try {
-      return await operation();
-    } finally {
-      release();
-      if (this.#mutationTails.get(key) === tail) {
-        this.#mutationTails.delete(key);
-      }
-    }
-  }
-
-  protected abstract readJob(id: string): Promise<JobRecord | null>;
-  protected abstract writeJob(record: JobRecord): Promise<void>;
-  protected abstract readJobs(): Promise<JobRecord[]>;
-  protected abstract queryJobs(
-    query: JobQuery
-  ): Promise<Page<JobRecord, number>>;
-  protected abstract removeJob(id: string): Promise<void>;
-  protected abstract readRun(id: string): Promise<RunRecord | null>;
-  protected abstract insertRun(record: RunRecord): Promise<boolean>;
-  protected abstract writeRun(record: RunRecord): Promise<void>;
-  protected abstract readRuns(): Promise<RunRecord[]>;
-  protected abstract queryRuns(
-    query: RunQuery
-  ): Promise<Page<RunRecord, number>>;
-  protected abstract removeRun(id: string): Promise<void>;
-  protected abstract readSuspension(
-    id: string
-  ): Promise<SuspensionRecord | null>;
-  protected abstract writeSuspension(record: SuspensionRecord): Promise<void>;
-  protected abstract readSuspensions(): Promise<SuspensionRecord[]>;
-  protected abstract querySuspensions(
-    query: SuspensionQuery
-  ): Promise<Page<SuspensionRecord, number>>;
-  protected abstract removeSuspension(id: string): Promise<void>;
-  protected abstract readQueue(id: string): Promise<QueueRecord | null>;
-  protected abstract writeQueue(record: QueueRecord): Promise<void>;
-  protected abstract readQueues(): Promise<QueueRecord[]>;
-  protected abstract writeFrame(frame: RunFrame): Promise<void>;
-  protected abstract readFrames(runId: string): Promise<RunFrame[]>;
-  protected abstract removeFrames(runId: string): Promise<void>;
+      ].some(
+        (value) => value?.toLocaleLowerCase().includes(search) === true
+      )) &&
+    matchesStatus<RunStatus>(record.status, query.status) &&
+    Object.entries(query.tags ?? {}).every(
+      ([key, value]) => record.tags[key] === value
+    ) &&
+    (query.definition === undefined ||
+      record.definition?.name === query.definition) &&
+    matchesLinks(record.links ?? {}, query.links)
+  );
 }
 
-/** Execution policy composed over durable records and an ordered Run journal. */
-export class ExecutionCoordinator extends AbstractOrchestratorStore {
-  private readonly repository: ExecutionRepository;
-  private readonly journal: RunJournal;
-
-  constructor(repository: ExecutionRepository, journal: RunJournal) {
-    super();
-    this.repository = repository;
-    this.journal = journal;
-  }
-
-  override appendRunFrame(input: AppendRunFrameInput): Promise<RunFrame> {
-    return this.journal.appendRunFrame(input);
-  }
-
-  override claimRunEffect(
-    input: ClaimRunEffectInput
-  ): Promise<RunFrame | null> {
-    return this.journal.claimRunEffect(input);
-  }
-
-  override listRunFrames(runId: string, after?: number): Promise<RunFrame[]> {
-    return this.journal.listRunFrames(runId, after);
-  }
-
-  override listFrames(
-    query?: RunFramePageQuery
-  ): Promise<Page<RunFrame, number>> {
-    return this.journal.listFrames(query);
-  }
-
-  override countFrames(
-    query?: Pick<RunFramePageQuery, "runId" | "after">
-  ): Promise<number> {
-    return this.journal.countFrames(query);
-  }
-
-  override listFrameRuns(query?: {
-    limit?: number;
-    cursor?: number;
-    order?: "newest" | "oldest";
-  }): Promise<Page<FrameRun, number>> {
-    return this.journal.listFrameRuns(query);
-  }
-
-  override countFrameRuns(): Promise<number> {
-    return this.journal.countFrameRuns();
-  }
-
-  override deleteRunFrames(runId: string): Promise<void> {
-    return this.journal.deleteRunFrames(runId);
-  }
-
-  protected readJob(id: string): Promise<JobRecord | null> {
-    return this.repository.getJob(id);
-  }
-
-  protected writeJob(record: JobRecord): Promise<void> {
-    return this.repository.putJob(record);
-  }
-
-  protected readJobs(): Promise<JobRecord[]> {
-    return collectPages((page) => this.repository.listJobRecords(page));
-  }
-
-  protected queryJobs(query: JobQuery): Promise<Page<JobRecord, number>> {
-    return this.repository.listJobRecords(query);
-  }
-
-  protected removeJob(id: string): Promise<void> {
-    return this.repository.deleteJobRecord(id);
-  }
-
-  protected readRun(id: string): Promise<RunRecord | null> {
-    return this.repository.getRun(id);
-  }
-
-  protected insertRun(record: RunRecord): Promise<boolean> {
-    return this.repository.insertRun(record);
-  }
-
-  protected writeRun(record: RunRecord): Promise<void> {
-    return this.repository.putRun(record);
-  }
-
-  protected readRuns(): Promise<RunRecord[]> {
-    return collectPages((page) => this.repository.listRunRecords(page));
-  }
-
-  protected queryRuns(query: RunQuery): Promise<Page<RunRecord, number>> {
-    return this.repository.listRunRecords(query);
-  }
-
-  protected removeRun(id: string): Promise<void> {
-    return this.repository.deleteRunRecord(id);
-  }
-
-  protected readSuspension(id: string): Promise<SuspensionRecord | null> {
-    return this.repository.getSuspension(id);
-  }
-
-  protected writeSuspension(record: SuspensionRecord): Promise<void> {
-    return this.repository.putSuspension(record);
-  }
-
-  protected readSuspensions(): Promise<SuspensionRecord[]> {
-    return collectPages((page) => this.repository.listSuspensionRecords(page));
-  }
-
-  protected querySuspensions(
-    query: SuspensionQuery
-  ): Promise<Page<SuspensionRecord, number>> {
-    return this.repository.listSuspensionRecords(query);
-  }
-
-  protected removeSuspension(id: string): Promise<void> {
-    return this.repository.deleteSuspensionRecord(id);
-  }
-
-  protected readQueue(id: string): Promise<QueueRecord | null> {
-    return this.repository.getQueue(id);
-  }
-
-  protected writeQueue(record: QueueRecord): Promise<void> {
-    return this.repository.putQueue(record);
-  }
-
-  protected readQueues(): Promise<QueueRecord[]> {
-    return this.repository.listQueueRecords();
-  }
-
-  protected override ensureQueueRecord(
-    record: QueueRecord
-  ): Promise<QueueRecord> {
-    return this.repository.ensureQueueRecord(record);
-  }
-
-  protected writeFrame(frame: RunFrame): Promise<void> {
-    return this.journal
-      .appendRunFrame({
-        at: frame.at,
-        payload: frame.payload,
-        runId: frame.runId,
-      })
-      .then(() => undefined);
-  }
-
-  protected readFrames(runId: string): Promise<RunFrame[]> {
-    return this.journal.listRunFrames(runId);
-  }
-
-  protected removeFrames(runId: string): Promise<void> {
-    return this.journal.deleteRunFrames(runId);
-  }
-
-  protected override withJobRunClaimTransaction(
-    jobId: string,
-    operation: (
-      transaction: JobRunClaimTransaction
-    ) => Promise<JobRunClaimOutcome>
-  ): Promise<JobRunClaimOutcome> {
-    return retryAggregateCommit(
-      "job.claim-run",
-      async () => {
-        let expectedJob: JobRecord | null = null;
-        let expectedRuns: RunRecord[] = [];
-        let commit: JobRunClaimCommit | undefined;
-        const result = await operation({
-          readJob: async () => {
-            expectedJob = await this.repository.getJob(jobId);
-            return expectedJob;
-          },
-          readRun: (runId) => this.repository.getRun(runId),
-          readRuns: async () => {
-            expectedRuns = await this.readRuns();
-            return expectedRuns;
-          },
-          write: ({ previousJob, nextJob, run }) => {
-            commit = {
-              expectedJob: previousJob,
-              expectedRuns: linkedRuns(expectedRuns, jobId),
-              nextJob,
-              run,
-              status: "claimed",
-            };
-            return Promise.resolve();
-          },
-          writeJob: (nextJob) => {
-            if (!expectedJob) {
-              throw new Error("Job claim must read before write");
-            }
-            commit = {
-              expectedJob,
-              expectedRuns: linkedRuns(expectedRuns, jobId),
-              nextJob,
-              status: "settled",
-            };
-            return Promise.resolve();
-          },
-        });
-        return { result, ...(commit === undefined ? {} : { commit }) };
-      },
-      (commit) => this.repository.commitJobRunClaim(commit),
-      (_result, outcome) => outcome
-    );
-  }
-
-  protected override withJobCancellationTransaction(
-    jobId: string,
-    operation: (
-      transaction: JobCancellationTransaction
-    ) => Promise<JobCancellation>
-  ): Promise<JobCancellation> {
-    return retryAggregateCommit(
-      "job.cancel",
-      async () => {
-        let commit: JobCancellationCommit | undefined;
-        let expectedRuns: RunRecord[] = [];
-        const result = await operation({
-          readJob: () => this.repository.getJob(jobId),
-          readRuns: async () => {
-            expectedRuns = await this.readRuns();
-            return expectedRuns;
-          },
-          readSuspensions: () => this.readSuspensions(),
-          write: (input) => {
-            commit = {
-              ...input,
-              expectedRuns: linkedRuns(expectedRuns, jobId),
-            };
-            return Promise.resolve();
-          },
-        });
-        return { result, ...(commit === undefined ? {} : { commit }) };
-      },
-      (commit) => this.repository.commitJobCancellation(commit),
-      (result) => result
-    );
-  }
-
-  protected override withSuspensionParkingTransaction(
-    runId: string,
-    _address: string,
-    operation: (
-      transaction: SuspensionParkingTransaction
-    ) => Promise<SuspensionParking>
-  ): Promise<SuspensionParking> {
-    return retryAggregateCommit(
-      "suspension.park",
-      async () => {
-        let previousRun: RunRecord | null = null;
-        let expectedSuspensions: SuspensionRecord[] = [];
-        let commit: SuspensionParkingCommit | undefined;
-        const result = await operation({
-          readRun: async () => {
-            previousRun = await this.repository.getRun(runId);
-            return previousRun;
-          },
-          readSuspensions: async () => {
-            expectedSuspensions = await this.readSuspensions();
-            return expectedSuspensions;
-          },
-          write: ({ suspension, run }) => {
-            if (!previousRun) {
-              throw new Error("Suspension parking must read Run before write");
-            }
-            commit = {
-              expectedSuspensions: runSuspensions(expectedSuspensions, runId),
-              nextRun: run,
-              previousRun,
-              suspension,
-            };
-            return Promise.resolve();
-          },
-        });
-        return { result, ...(commit === undefined ? {} : { commit }) };
-      },
-      (commit) => this.repository.commitSuspensionParking(commit),
-      (result) => result
-    );
-  }
-
-  protected override withSuspensionSettlementTransaction(
-    id: string,
-    operation: (
-      transaction: SuspensionSettlementTransaction
-    ) => Promise<SuspensionSettlement>
-  ): Promise<SuspensionSettlement> {
-    return retryAggregateCommit(
-      "suspension.settle",
-      async () => {
-        let commit: SuspensionSettlementCommit | undefined;
-        const result = await operation({
-          readRun: (runId) => this.repository.getRun(runId),
-          readSuspension: () => this.repository.getSuspension(id),
-          write: (input) => {
-            commit = input;
-            return Promise.resolve();
-          },
-        });
-        return { result, ...(commit === undefined ? {} : { commit }) };
-      },
-      (commit) => this.repository.commitSuspensionSettlement(commit),
-      (result) => result
-    );
-  }
-
-  protected override withSuspensionCancellationTransaction(
-    runId: string,
-    operation: (
-      transaction: SuspensionCancellationTransaction
-    ) => Promise<SuspensionCancellation>
-  ): Promise<SuspensionCancellation> {
-    return retryAggregateCommit(
-      "run.cancel-suspensions",
-      async () => {
-        let commit: SuspensionCancellationCommit | undefined;
-        const result = await operation({
-          readRun: () => this.repository.getRun(runId),
-          readSuspensions: () => this.readSuspensions(),
-          write: (input) => {
-            commit = input;
-            return Promise.resolve();
-          },
-        });
-        return { result, ...(commit === undefined ? {} : { commit }) };
-      },
-      (commit) => this.repository.commitSuspensionCancellation(commit),
-      (result) => result
-    );
-  }
-}
-
-function cloneRun(run: RunRecord): RunRecord {
-  return cloneValue(run);
-}
-
-function linkedRuns(runs: readonly RunRecord[], jobId: string): RunRecord[] {
-  return runs.filter((run) => run.links?.jobId === jobId).map(cloneRun);
-}
-
-function runSuspensions(
-  suspensions: readonly SuspensionRecord[],
-  runId: string
-): SuspensionRecord[] {
-  return suspensions
-    .filter((suspension) => suspension.runId === runId)
-    .map(cloneValue);
-}
-
-function cloneQueue(queue: QueueRecord): QueueRecord {
-  return cloneValue(queue);
+function matchesSuspensionQuery(
+  record: SuspensionRecord,
+  query: SuspensionQuery
+): boolean {
+  return (
+    (query.runId === undefined || record.runId === query.runId) &&
+    (query.kind === undefined || record.kind === query.kind) &&
+    (query.name === undefined || record.name === query.name) &&
+    (query.occurrence === undefined ||
+      record.occurrence === query.occurrence) &&
+    (query.stepPath === undefined ||
+      sameStringArray(record.stepPath, query.stepPath)) &&
+    matchesStatus<SuspensionStatus>(record.status, query.status)
+  );
 }
 
 function cloneValue<T>(value: T): T {
   return structuredClone(value);
+}
+
+/**
+ * A copy of `value` without its fields that hold `undefined`, which a store
+ * may not keep. Anything but a plain object is returned as it is, for the
+ * record's decoder to refuse.
+ */
+function definedEntries<T>(value: T): T {
+  if (!isUnknownRecord(value)) {
+    return value;
+  }
+  const copy: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (entry !== undefined) {
+      defineOwnEntry(copy, key, cloneValue(entry));
+    }
+  }
+  return copy as T;
 }
 
 function applyRunPatch(existing: RunRecord, patch: UpdateRunInput): RunRecord {
@@ -1733,6 +1368,7 @@ function withExecutionMetadata(
   };
 }
 
+/** A Run with the definition and links a legacy record keeps only in its metadata. */
 function hydrateRunRecord(record: RunRecord): RunRecord {
   const execution = record.metadata[EXECUTION_METADATA_KEY];
   if (!isUnknownRecord(execution)) {
@@ -1741,9 +1377,7 @@ function hydrateRunRecord(record: RunRecord): RunRecord {
   return normalizeRunRecord({
     ...record,
     ...(record.definition === undefined
-      ? {
-          definition: execution.definition as DefinitionReference | undefined,
-        }
+      ? { definition: execution.definition as DefinitionReference | undefined }
       : {}),
     ...(record.links === undefined
       ? { links: execution.links as RunLinks | undefined }
@@ -1777,16 +1411,20 @@ function buildRunRecord(
       failedAt: null,
       startedAt: null,
     },
-    ...(input.definition === undefined
-      ? {}
-      : { definition: cloneValue(input.definition) }),
-    ...(input.links === undefined ? {} : { links: cloneValue(input.links) }),
+    ...(input.definition === undefined ? {} : { definition: input.definition }),
+    ...(input.links === undefined ? {} : { links: input.links }),
   });
 }
 
+/**
+ * A Run as the store keeps it: JSON-safe data normalized, and `definition`
+ * and `links` either present without `undefined` entries or left out.
+ * Every field the Run does not declare is kept.
+ */
 function normalizeRunRecord(record: RunRecord): RunRecord {
+  const { definition, links, ...rest } = record;
   const normalized: RunRecord = {
-    ...record,
+    ...rest,
     extensions: createExtensions(record.extensions),
     input: normalizeJsonValue(record.input),
     metadata: normalizeJsonValue(record.metadata) as Record<string, unknown>,
@@ -1795,15 +1433,12 @@ function normalizeRunRecord(record: RunRecord): RunRecord {
       ...record.snapshot,
       input: normalizeJsonValue(record.snapshot.input),
     }) as unknown as WorkflowSnapshot,
-    ...(record.definition === undefined
+    ...(definition === undefined
       ? {}
-      : { definition: cloneValue(record.definition) }),
-    ...(record.links === undefined ? {} : { links: cloneValue(record.links) }),
+      : { definition: definedEntries(definition) }),
+    ...(links === undefined ? {} : { links: definedEntries(links) }),
   };
-  const schemaCandidate = normalized.id.startsWith("rn-")
-    ? normalized
-    : { ...normalized, id: "rn-legacy" };
-  decodeRunRecord(schemaCandidate);
+  decodeRunRecord(runCheckedAs(normalized));
   return normalized;
 }
 
@@ -1934,7 +1569,7 @@ function isTerminalRunStatus(status: RunStatus): boolean {
 }
 
 function isNonTerminalRunStatus(status: RunStatus): boolean {
-  return status === "queued" || status === "running" || status === "suspended";
+  return LIVE_RUN_STATUSES.includes(status);
 }
 
 function isTerminalJobStatus(status: JobStatus): boolean {
@@ -1950,11 +1585,7 @@ function cancelSuspensionRecord(
     resolution: null,
     revision: record.revision + 1,
     status: "cancelled",
-    timestamps: {
-      ...record.timestamps,
-      cancelledAt,
-      resolvedAt: null,
-    },
+    timestamps: { ...record.timestamps, cancelledAt, resolvedAt: null },
   });
 }
 

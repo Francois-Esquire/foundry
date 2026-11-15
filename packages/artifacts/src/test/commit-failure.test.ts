@@ -8,9 +8,11 @@ import { blobFiles, JsonArtifactStore } from "../node";
 import { artifactIdSchema } from "../ref";
 import type { ArtifactStore } from "../store";
 import { InMemoryArtifactStore } from "../store/memory";
+import { SqliteArtifactStore } from "../store/sqlite";
 import type { CommitInterceptor } from "../testing";
 import { interceptCommits } from "../testing";
 import { required } from "./helpers/required";
+import { libsqlDatabases } from "./helpers/sqlite";
 
 /** A published blob file, not a temporary beside one. */
 const PUBLISHED_BLOB = /^[a-f0-9-]+$/;
@@ -66,6 +68,7 @@ vi.mock("@foundry/lib/atomic-file", async (importOriginal) => {
   };
 });
 
+const sqlite = libsqlDatabases("file");
 const roots: string[] = [];
 afterEach(async () => {
   recordsFile.failure = undefined;
@@ -96,12 +99,38 @@ async function harness(open: (root: string) => ArtifactStore) {
     (await readdir(blobs).catch(() => [])).filter((name) =>
       PUBLISHED_BLOB.test(name)
     );
-  return { artifacts, create, files, id };
+  /** Files waiting in the staging area, under any owner. */
+  const staged = async () => {
+    const area = join(blobs, ".staging");
+    const found: string[] = [];
+    for (const owner of await readdir(area).catch(() => [])) {
+      found.push(...(await readdir(join(area, owner)).catch(() => [])));
+    }
+    return found;
+  };
+  return { artifacts, create, files, id, staged };
 }
 
 const refuse: CommitInterceptor = () =>
   Promise.reject(new Error("commit refused"));
-/** A memory store whose first transaction fails once its commits landed. */
+/** A memory store whose first transaction that commits fails once its commits landed. */
+
+/** `store`'s methods as plain functions, so a view can be copied and overridden. */
+function bound(store: ArtifactStore): ArtifactStore {
+  return {
+    commit: (write) => store.commit(write),
+    ...(store.durability === undefined ? {} : { durability: store.durability }),
+    findBlobs: (digest) => store.findBlobs(digest),
+    findReferences: (id) => store.findReferences(id),
+    getArtifact: (id) => store.getArtifact(id),
+    getBlob: (id) => store.getBlob(id),
+    getContent: (id) => store.getContent(id),
+    listArtifacts: (query) => store.listArtifacts(query),
+    listBlobs: () => store.listBlobs(),
+    listContents: (artifactId) => store.listContents(artifactId),
+  };
+}
+
 class FailsAfterLanding extends InMemoryArtifactStore {
   #failed: boolean;
 
@@ -113,8 +142,17 @@ class FailsAfterLanding extends InMemoryArtifactStore {
   override async transaction<T>(
     work: (view: ArtifactStore) => Promise<T>
   ): Promise<T> {
-    const result = await super.transaction(work);
-    if (this.#failed) {
+    let committed = false;
+    const result = await super.transaction((view) =>
+      work({
+        ...bound(view),
+        commit: (write) => {
+          committed = true;
+          return view.commit(write);
+        },
+      })
+    );
+    if (this.#failed || !committed) {
       return result;
     }
     this.#failed = true;
@@ -179,5 +217,174 @@ describe("A commit that fails", () => {
     const artifact = await artifacts.get(id);
     expect(artifact?.name).toBe("Notes");
     expect(await files()).toHaveLength(1);
+  });
+});
+
+/** What SQLite says when a lock it needs is held. */
+const LOCKED = /SQLITE_BUSY|locked/i;
+/** A read of the blob table. */
+const READS_BLOBS = /^select .* from "artifact_blobs"/;
+
+describe("A SQLite commit that fails", () => {
+  it("refused by onCommit removes the files it published", async () => {
+    const database = await sqlite.open();
+    const { artifacts, create, files, id } = await harness(
+      () =>
+        new SqliteArtifactStore({
+          database,
+          onCommit: () => Promise.reject(new Error("host refused")),
+          scope: "s",
+        })
+    );
+    await expect(create()).rejects.toThrow("host refused");
+    expect(await artifacts.get(id)).toBeNull();
+    expect(await files()).toEqual([]);
+  });
+
+  it("as its blob put runs removes the files it published", async () => {
+    let failing = true;
+    const database = await sqlite.open({
+      onQuery: (query) => {
+        if (failing && query.startsWith('insert into "artifact_blobs"')) {
+          failing = false;
+          throw new Error("put failed");
+        }
+      },
+    });
+    const { artifacts, create, files, id } = await harness(
+      () => new SqliteArtifactStore({ database, scope: "s" })
+    );
+    await expect(create()).rejects.toThrow("put failed");
+    expect(await artifacts.get(id)).toBeNull();
+    expect(await files()).toEqual([]);
+    // Nothing of the first attempt stands in the way of the next.
+    await create();
+    expect(await files()).toHaveLength(1);
+  });
+
+  it("at COMMIT, busy while another connection reads, removes the files it published", async () => {
+    // A rollback-journal file, the default: COMMIT needs every reader gone.
+    const database = await sqlite.open();
+    const { artifacts, create, files, id } = await harness(
+      () => new SqliteArtifactStore({ database, scope: "s" })
+    );
+    const reader = await sqlite
+      .client(sqlite.connect(database))
+      .transaction("read");
+    await reader.execute("SELECT count(*) FROM artifacts");
+
+    const failure = await create().then(
+      () => "landed",
+      (error: unknown) => String(error)
+    );
+    reader.close();
+
+    expect(failure).toMatch(LOCKED);
+    expect(await artifacts.get(id)).toBeNull();
+    expect(await files()).toEqual([]);
+    await create();
+    expect(await files()).toHaveLength(1);
+  });
+
+  it("at BEGIN, busy while another connection writes, publishes nothing", async () => {
+    const database = await sqlite.open();
+    const { create, files, id } = await harness(
+      () => new SqliteArtifactStore({ database, scope: "s" })
+    );
+    const writer = await sqlite
+      .client(sqlite.connect(database))
+      .transaction("write");
+
+    const failure = await create().then(
+      () => "landed",
+      (error: unknown) => String(error)
+    );
+    writer.close();
+
+    expect(failure).toMatch(LOCKED);
+    expect(await files()).toEqual([]);
+    // Read on another connection: libSQL leaves the refused BEGIN in
+    // progress on this one, so its next COMMIT fails until it is reopened.
+    expect(
+      await new SqliteArtifactStore({
+        database: sqlite.connect(database),
+        scope: "s",
+      }).getArtifact(id)
+    ).toBeNull();
+  });
+
+  it("at BEGIN, after its check passed and its bytes were staged, publishes nothing", async () => {
+    const database = await sqlite.open();
+    const { artifacts, files, id, staged } = await harness(
+      () => new SqliteArtifactStore({ database, scope: "s" })
+    );
+    const arriving = Promise.withResolvers<void>();
+    const proceed = Promise.withResolvers<void>();
+    async function* source() {
+      yield new TextEncoder().encode("first ");
+      arriving.resolve();
+      await proceed.promise;
+      yield new TextEncoder().encode("last");
+    }
+
+    const created = artifacts.create({
+      entries: { "entry.md": { source: source() } },
+      id,
+      name: "Streamed",
+      type: "text/markdown",
+    });
+    // The check has run; while the bytes arrive, another connection takes
+    // the write lock the change will need.
+    await arriving.promise;
+    const writer = await sqlite
+      .client(sqlite.connect(database))
+      .transaction("write");
+    proceed.resolve();
+    const failure = await created.then(
+      () => "landed",
+      (error: unknown) => String(error)
+    );
+    writer.close();
+
+    expect(failure).toMatch(LOCKED);
+    expect(await staged()).toEqual([]);
+    expect(await files()).toEqual([]);
+    expect(
+      await new SqliteArtifactStore({
+        database: sqlite.connect(database),
+        scope: "s",
+      }).getArtifact(id)
+    ).toBeNull();
+  });
+
+  it("whose read-back fails too keeps its file until recover removes it", async () => {
+    const faults: { armed: boolean; unreadable: boolean } = {
+      armed: false,
+      unreadable: false,
+    };
+    const database = await sqlite.open({
+      onQuery: (query) => {
+        if (faults.armed && query.startsWith('insert into "artifact_blobs"')) {
+          faults.armed = false;
+          faults.unreadable = true;
+          throw new Error("put failed");
+        }
+        if (faults.unreadable && READS_BLOBS.test(query)) {
+          throw new Error("blob table unreadable");
+        }
+      },
+    });
+    const { artifacts, create, files, id } = await harness(
+      () => new SqliteArtifactStore({ database, scope: "s" })
+    );
+    faults.armed = true;
+    await expect(create()).rejects.toThrow("put failed");
+    // Unable to tell whether the write landed, the change keeps the file.
+    expect(await files()).toHaveLength(1);
+    faults.unreadable = false;
+    expect(await artifacts.get(id)).toBeNull();
+
+    await artifacts.recover();
+    expect(await files()).toEqual([]);
   });
 });

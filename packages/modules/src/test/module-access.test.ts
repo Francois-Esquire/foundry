@@ -1,10 +1,21 @@
-import { ArtifactApplicationError } from "@foundry/artifacts";
 import { describe, expect, it, vi } from "vitest";
 
-import { createModuleAccess, ModuleAccessError } from "../access";
+import {
+  type AccessRegistry,
+  createModuleAccess,
+  ModuleAccessError,
+} from "../access";
 import { installationIdSchema } from "../domain";
+import { ModuleStoreConflictError } from "../errors";
 import { ensureInstallation } from "../management";
-import { type ModuleStore, ModuleStoreConflictError } from "../store/contract";
+import { ModuleRegistry } from "../registry";
+import type { ModuleStore } from "../store";
+import { MemoryModuleStore } from "../store/memory";
+import { SqliteModuleStore } from "../store/sqlite";
+import { libsqlDatabases } from "./helpers/sqlite";
+
+const sqliteDatabases = libsqlDatabases("memory");
+
 import {
   publishedModule,
   WEATHER,
@@ -14,8 +25,13 @@ import {
 
 const installationId = installationIdSchema.parse("forecast-installation");
 
-async function fixture(capabilities = [weatherRequest(["Oslo"])]) {
-  const module = await publishedModule();
+async function fixture(
+  capabilities = [weatherRequest(["Oslo"])],
+  registry?: ModuleRegistry
+) {
+  const module = await publishedModule(
+    registry === undefined ? {} : { registry }
+  );
   const version = await module.publish("1.0.0", capabilities);
   const installation = await ensureInstallation({
     installationId,
@@ -33,45 +49,30 @@ async function fixture(capabilities = [weatherRequest(["Oslo"])]) {
 }
 
 /**
- * An approved Grant in Artifact-backed records, whose host binding fails
- * once `failApply` is set: the records commit, then applying them throws.
+ * `registry`, whose transactions hand their work a registry that revokes
+ * through `registry` and then fails, before the transaction commits.
  */
-async function durableFixture() {
-  const module = await publishedModule({ store: "artifact" });
-  const version = await module.publish("1.0.0", [weatherRequest(["Oslo"])]);
-  const host: { failApply: boolean } = { failApply: false };
-  module.artifacts.bind(() =>
-    host.failApply
-      ? Promise.reject(new Error("ENOSPC: no space left on device"))
-      : Promise.resolve()
-  );
-  const installation = await ensureInstallation({
-    installationId,
-    now: new Date(0),
-    store: module.store,
-    version,
-  });
-  const invocations = { revoke: vi.fn() };
-  const accessOver = (store: ModuleStore) =>
-    createModuleAccess({ invocations, providers: [weatherProvider], store });
-  await accessOver(module.store).approve({
-    capability: WEATHER,
-    installation,
-    version,
-  });
-  return { ...module, accessOver, host, installation, invocations };
-}
-
-/** A Store whose revoke writes, then fails before the unit commits. */
-function failingAfterRevokeWrite(store: ModuleStore): ModuleStore {
+function failingAfterRevokeWrite(registry: ModuleRegistry): AccessRegistry {
   return {
-    ...store,
-    async revokeInstallationGrant(
-      input: Parameters<ModuleStore["revokeInstallationGrant"]>[0]
-    ) {
-      await store.revokeInstallationGrant(input);
-      throw new Error("Failed after the write, before the commit");
-    },
+    loadGatewayContext: (id) => registry.loadGatewayContext(id),
+    replaceInstallationGrants: (input) =>
+      registry.replaceInstallationGrants(input),
+    revokeInstallationGrant: (input) => registry.revokeInstallationGrant(input),
+    transaction: (work) =>
+      registry.transaction((inner, effects) =>
+        work(
+          {
+            loadGatewayContext: (id) => inner.loadGatewayContext(id),
+            replaceInstallationGrants: (input) =>
+              inner.replaceInstallationGrants(input),
+            async revokeInstallationGrant(input) {
+              await inner.revokeInstallationGrant(input);
+              throw new Error("Failed after the write, before the commit");
+            },
+          },
+          effects
+        )
+      ),
   };
 }
 
@@ -186,27 +187,25 @@ describe("Module access", () => {
     }
   );
 
-  describe("over durable records", () => {
-    it("cancels a revoked Grant's Invocations when its commit applies to the host and fails", async () => {
-      const { accessOver, host, invocations, store } = await durableFixture();
-      host.failApply = true;
-      const failure = await accessOver(store)
-        .revoke({ capability: WEATHER, installationId })
-        .catch((error: unknown) => error);
-
-      expect(failure).toBeInstanceOf(ArtifactApplicationError);
-      expect((await store.loadGatewayContext(installationId))?.grants).toEqual(
-        []
-      );
-      expect(invocations.revoke).toHaveBeenCalledExactlyOnceWith({
+  describe("cancellation follows the commit", () => {
+    async function approved() {
+      const fixed = await fixture();
+      await fixed.access.approve({
         capability: WEATHER,
-        installationId,
-        reason: "The Grant was revoked",
+        installation: fixed.installation,
+        version: fixed.version,
       });
-    });
+      const accessOver = (store: AccessRegistry) =>
+        createModuleAccess({
+          invocations: fixed.invocations,
+          providers: [weatherProvider],
+          store,
+        });
+      return { ...fixed, accessOver };
+    }
 
     it("cancels nothing when a revoke rolls back", async () => {
-      const { accessOver, invocations, store } = await durableFixture();
+      const { accessOver, invocations, store } = await approved();
       await expect(
         accessOver(failingAfterRevokeWrite(store)).revoke({
           capability: WEATHER,
@@ -220,30 +219,8 @@ describe("Module access", () => {
       expect(invocations.revoke).not.toHaveBeenCalled();
     });
 
-    it("cancels Grants a carry-over dropped when its commit applies to the host and fails", async () => {
-      const { accessOver, host, installation, invocations, store } =
-        await durableFixture();
-      host.failApply = true;
-      const failure = await accessOver(store)
-        .carryOver({
-          expectedGeneration: installation.generation,
-          installationId,
-          requests: [],
-        })
-        .catch((error: unknown) => error);
-
-      expect(failure).toBeInstanceOf(ArtifactApplicationError);
-      expect((await store.loadGatewayContext(installationId))?.grants).toEqual(
-        []
-      );
-      expect(invocations.revoke).toHaveBeenCalledExactlyOnceWith(
-        expect.objectContaining({ capability: WEATHER, installationId })
-      );
-    });
-
     it("cancels nothing when a carry-over rolls back", async () => {
-      const { accessOver, installation, invocations, store } =
-        await durableFixture();
+      const { accessOver, installation, invocations, store } = await approved();
       await expect(
         accessOver(failingAfterRevokeWrite(store)).carryOver({
           expectedGeneration: installation.generation,
@@ -257,71 +234,133 @@ describe("Module access", () => {
       ).toHaveLength(1);
       expect(invocations.revoke).not.toHaveBeenCalled();
     });
-  });
-  // Contract: an Access operation may join an outer unit. Returning from the
-  // operation is not a commit: cancellation waits for the outermost durable
-  // commit, is discarded on rollback, and survives host application failure.
-  describe.each(["revoke", "carryOver"] as const)(
-    "outermost commit for %s",
-    (operation) => {
-      async function prepared() {
-        const fixed = await durableFixture();
-        const access = fixed.accessOver(fixed.store);
-        const revoke = () =>
-          operation === "revoke"
-            ? access.revoke({ capability: WEATHER, installationId })
-            : access.carryOver({
-                expectedGeneration: fixed.installation.generation,
-                installationId,
-                requests: [],
-              });
-        return { ...fixed, revoke };
-      }
-      it("cancels after standalone success", async () => {
-        const { revoke, invocations, store } = await prepared();
-        await revoke();
-        expect(invocations.revoke).toHaveBeenCalledTimes(1);
-        expect(
-          (await store.loadGatewayContext(installationId))?.grants
-        ).toEqual([]);
+
+    it("cancels every Grant a carry-over dropped, though one cancellation fails", async () => {
+      const { accessOver, installation, invocations, store } = await approved();
+      const second = {
+        capability: "host.news.read",
+        constraintsDigest: "news",
+        version: 1,
+      };
+      const held = await store.loadGatewayContext(installationId);
+      await store.replaceInstallationGrants({
+        expectedGeneration: installation.generation,
+        grants: [...(held?.grants ?? []), second],
+        installationId,
+        now: new Date(0),
       });
-      it("waits for the outer success before cancelling", async () => {
-        const { revoke, invocations, store } = await prepared();
-        await store.transaction(async () => {
-          await revoke();
-          expect(invocations.revoke).not.toHaveBeenCalled();
+      invocations.revoke.mockImplementationOnce(() => {
+        throw new Error("cancellation failed");
+      });
+
+      await expect(
+        accessOver(store).carryOver({
+          expectedGeneration: installation.generation,
+          installationId,
+          requests: [],
+        })
+      ).rejects.toThrow("cancellation failed");
+
+      expect((await store.loadGatewayContext(installationId))?.grants).toEqual(
+        []
+      );
+      expect(
+        invocations.revoke.mock.calls.map(([call]) => call.capability)
+      ).toEqual([second.capability, WEATHER].sort());
+    });
+
+    it.each(["revoke", "carryOver"] as const)(
+      "%s cancels once its store transaction has committed, and never before",
+      async (operation) => {
+        const memory = new MemoryModuleStore();
+        let committed = false;
+        // The registry's store, telling when a transaction it runs commits.
+        const watched: ModuleStore = {
+          commit: (write) => memory.commit(write),
+          getInstallation: (id) => memory.getInstallation(id),
+          getManifest: (contentId) => memory.getManifest(contentId),
+          getModule: (id) => memory.getModule(id),
+          listInstallations: (query) => memory.listInstallations(query),
+          listManifests: (query) => memory.listManifests(query),
+          listModules: (query) => memory.listModules(query),
+          async transaction(work) {
+            committed = false;
+            const result = await memory.transaction(work);
+            committed = true;
+            return result;
+          },
+        };
+        const fixed = await fixture(
+          undefined,
+          new ModuleRegistry({ store: watched })
+        );
+        await fixed.access.approve({
+          capability: WEATHER,
+          installation: fixed.installation,
+          version: fixed.version,
         });
-        expect(invocations.revoke).toHaveBeenCalledTimes(1);
-      });
-      it("discards cancellation on outer rollback and preserves the original error", async () => {
-        const { revoke, invocations, store } = await prepared();
-        const original = new Error("outer rollback");
-        await expect(
-          store.transaction(async () => {
-            await revoke();
-            expect(invocations.revoke).not.toHaveBeenCalled();
-            throw original;
-          })
-        ).rejects.toBe(original);
-        expect(
-          (await store.loadGatewayContext(installationId))?.grants
-        ).toHaveLength(1);
-        expect(invocations.revoke).not.toHaveBeenCalled();
-      });
-      it("cancels after outer commit even when applying it fails", async () => {
-        const { revoke, invocations, store, host } = await prepared();
-        host.failApply = true;
-        await expect(
-          store.transaction(async () => {
-            await revoke();
-            expect(invocations.revoke).not.toHaveBeenCalled();
-          })
-        ).rejects.toBeInstanceOf(ArtifactApplicationError);
-        expect(
-          (await store.loadGatewayContext(installationId))?.grants
-        ).toEqual([]);
-        expect(invocations.revoke).toHaveBeenCalledTimes(1);
-      });
-    }
-  );
+        const cancelledAfterCommit: boolean[] = [];
+        fixed.invocations.revoke.mockImplementation(() => {
+          cancelledAfterCommit.push(committed);
+        });
+        await (operation === "revoke"
+          ? fixed.access.revoke({ capability: WEATHER, installationId })
+          : fixed.access.carryOver({
+              expectedGeneration: fixed.installation.generation,
+              installationId,
+              requests: [],
+            }));
+
+        expect(cancelledAfterCommit).toEqual([true]);
+        expect(fixed.invocations.revoke).toHaveBeenCalledWith({
+          capability: WEATHER,
+          installationId,
+          reason: "The Grant was revoked",
+        });
+      }
+    );
+
+    it("refuses to run over a registry bound to a transaction, so an outer rollback cannot follow a cancellation", async () => {
+      const { invocations, store } = await approved();
+      const original = new Error("outer rollback");
+      await expect(
+        store.transaction(async (registry) => {
+          expect(() =>
+            createModuleAccess({
+              invocations,
+              providers: [weatherProvider],
+              store: registry,
+            })
+          ).toThrow('durability "host"');
+          await registry.revokeInstallationGrant({
+            capability: WEATHER,
+            expectedGeneration: 0,
+            installationId,
+          });
+          throw original;
+        })
+      ).rejects.toBe(original);
+
+      expect(
+        (await store.loadGatewayContext(installationId))?.grants
+      ).toHaveLength(1);
+      expect(invocations.revoke).not.toHaveBeenCalled();
+    });
+
+    it("refuses a registry over a SQLite store inside a host transaction", async () => {
+      const database = await sqliteDatabases.open();
+      await database
+        .transaction(async (transaction) => {
+          const registry = new ModuleRegistry({
+            store: new SqliteModuleStore({ database: transaction, scope: "s" }),
+          });
+          expect(registry.durability).toBe("host");
+          expect(() =>
+            createModuleAccess({ providers: [], store: registry })
+          ).toThrow('durability "host"');
+          throw new Error("host rolled back");
+        })
+        .catch(() => undefined);
+    });
+  });
 });

@@ -62,6 +62,9 @@ function pausable(store: ArtifactStore) {
   function wrap(target: ArtifactStore): ArtifactStore {
     return {
       commit: (write) => target.commit(write),
+      ...(target.durability === undefined
+        ? {}
+        : { durability: target.durability }),
       findBlobs: (digest) => gate("findBlobs", target.findBlobs(digest)),
       findReferences: (id) => gate("findReferences", target.findReferences(id)),
       getArtifact: (id) => gate("getArtifact", target.getArtifact(id)),
@@ -118,13 +121,14 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
 /**
  * Registers the manager's behaviour over a store: rules, sharing, fences,
  * rollback and commit-time effects. `createStore` returns a fresh, empty
- * store each time.
- */ export function describeArtifactManager(
+ * store each time, or a promise of one.
+ */
+export function describeArtifactManager(
   name: string,
-  createStore: () => ArtifactStore
+  createStore: () => ArtifactStore | Promise<ArtifactStore>
 ): void {
-  function harness() {
-    const store = createStore();
+  async function harness() {
+    const store = await createStore();
     const mutations: string[] = [];
     const artifacts = new ArtifactManager({ store });
     artifacts.observe((id) => mutations.push(id));
@@ -132,7 +136,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
   }
   describe(`${name} Artifact manager`, () => {
     test("stores structural entries without blobs and removes directories recursively", async () => {
-      const { artifacts, store } = harness();
+      const { artifacts, store } = await harness();
       const before = (await store.listBlobs()).length;
       const artifact = await artifacts.create({
         entries: {
@@ -181,7 +185,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
       expect((await store.listBlobs()).length).toBe(before);
     });
     test("explicit revision preserves predecessors without publication and rolls back invalid contributions", async () => {
-      const { artifacts, store, mutations } = harness();
+      const { artifacts, store, mutations } = await harness();
       const artifact = await artifacts.create({
         entries: { "index.html": text("before") },
         metadata: {
@@ -255,7 +259,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
       });
     });
     test("same-millisecond edits, metadata and freeze advance the Content fence", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       vi.useFakeTimers({ toFake: ["Date"] });
       try {
         vi.setSystemTime(new Date("2026-09-06T12:00:00Z"));
@@ -300,7 +304,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
       }
     });
     test("create with files, autosave in place, publish, edit after freeze", async () => {
-      const { store, artifacts, mutations } = harness();
+      const { store, artifacts, mutations } = await harness();
       const before = (await store.listBlobs()).length;
 
       const created = await artifacts.create({
@@ -361,7 +365,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
       ).toBeGreaterThan(0);
     });
     test("fences, select, fork, tags", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const a = await artifacts.create({
         entries: { "doc.md": text("# one", "text/markdown") },
         freeze: { tag: "v1" },
@@ -424,7 +428,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
       ).rejects.toBeInstanceOf(InvalidArtifactInputError);
     });
     test("resolves files and roots, validates pointers, reads by session", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const a = await artifacts.create({
         entries: {
           "outputs/index.html": text("<p>root</p>"),
@@ -487,7 +491,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
       );
     });
     test("archive, list, rename, delete", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const type = `test/${crypto.randomUUID()}`;
       const a = await artifacts.create({
         entries: { f: text("a") },
@@ -538,7 +542,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
     });
 
     test("preserves shared blobs through fork edits and only reclaims the final reference", async () => {
-      const { artifacts, store } = harness();
+      const { artifacts, store } = await harness();
       const original = await artifacts.create({
         entries: { "file.txt": { bytes: crypto.randomUUID() } },
         name: "Original",
@@ -563,7 +567,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
     });
 
     test("reuses an exclusive ready blob and enforces concurrent write fences", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const original = await artifacts.create({
         entries: { "file.txt": { bytes: crypto.randomUUID() } },
         name: "Exclusive",
@@ -590,7 +594,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
     });
 
     test("enforces write fences between two managers over one store", async () => {
-      const store = createStore();
+      const store = await createStore();
       const one = new ArtifactManager({ store });
       const other = new ArtifactManager({ store });
       const original = await one.create({
@@ -615,7 +619,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
     });
 
     test("rolls back records and notifications and expires scoped handles", async () => {
-      const { artifacts, mutations } = harness();
+      const { artifacts, mutations } = await harness();
       let scoped: ArtifactOperations | undefined;
       let id: ArtifactResolved["id"] | undefined;
       await expect(
@@ -638,7 +642,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
     });
 
     test("runs every after-commit callback even when one fails", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const applied: string[] = [];
       await expect(
         artifacts.transaction(async (transaction, effects) => {
@@ -658,7 +662,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
     });
 
     test("runs after-commit work once the change is released, so it can write again", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const order: string[] = [];
       await artifacts.transaction(async (transaction, effects) => {
         await transaction.create({ name: "Outer", type: "text/plain" });
@@ -676,14 +680,17 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
       const reached = Promise.withResolvers<undefined>();
       const held = Promise.withResolvers<undefined>();
       let holding = true;
-      const store = interceptCommits(createStore(), async (write, commit) => {
-        if (holding) {
-          holding = false;
-          reached.resolve(undefined);
-          await held.promise;
+      const store = interceptCommits(
+        await createStore(),
+        async (write, commit) => {
+          if (holding) {
+            holding = false;
+            reached.resolve(undefined);
+            await held.promise;
+          }
+          await commit(write);
         }
-        await commit(write);
-      });
+      );
       const artifacts = new ArtifactManager({ store });
       const trigger = Promise.withResolvers<undefined>();
       let later: Promise<ArtifactResolved> | undefined;
@@ -707,7 +714,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
     });
 
     test("discards after-commit work when the change rolls back", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       let ran = false;
       await expect(
         artifacts.transaction((_transaction, effects) => {
@@ -723,7 +730,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
 
     /** Two managers over one pausable store, and an Artifact holding `file.txt`. */
     async function sharedStore() {
-      const shared = pausable(createStore());
+      const shared = pausable(await createStore());
       const reader = new ArtifactManager({ store: shared.store });
       const writer = new ArtifactManager({ store: shared.store });
       const created = await writer.create({
@@ -766,7 +773,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
     test("refuses at once a call on another manager from inside a transaction, even with that manager's own call waiting", async ({
       skip,
     }) => {
-      const store = createStore();
+      const store = await createStore();
       if (!isTransactional(store)) {
         return skip();
       }
@@ -791,6 +798,80 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
       expect((await within(waiting, 1000)).name).toBe("Waiting");
       expect((await first.list()).total).toBe(1);
     });
+
+    /** An async source of `text`, as a stream write takes its bytes. */
+    async function* streamOf(label: string): AsyncIterable<Uint8Array> {
+      await Promise.resolve();
+      yield new TextEncoder().encode(label);
+    }
+
+    for (const [kind, call] of [
+      [
+        "a write with bytes",
+        (
+          artifacts: ArtifactManager,
+          created: ArtifactResolved,
+          label: string
+        ) =>
+          artifacts.write({
+            artifactId: created.id,
+            changes: { put: { "file.txt": { bytes: label } } },
+          }),
+      ],
+      [
+        "a stream write",
+        (
+          artifacts: ArtifactManager,
+          created: ArtifactResolved,
+          label: string
+        ) =>
+          artifacts.write({
+            artifactId: created.id,
+            changes: { put: { "file.txt": { source: streamOf(label) } } },
+          }),
+      ],
+      [
+        "a Content-named change",
+        (
+          artifacts: ArtifactManager,
+          created: ArtifactResolved,
+          label: string
+        ) => artifacts.setMetadata(contentOf(created).id, { label }),
+      ],
+    ] as const) {
+      test(`refuses at once ${kind} to an Artifact another manager's own call to it waits on, from inside a transaction`, async ({
+        skip,
+      }) => {
+        const store = await createStore();
+        if (!isTransactional(store)) {
+          return skip();
+        }
+        const first = new ArtifactManager({ store });
+        const second = new ArtifactManager({ store });
+        const created = await second.create({
+          entries: { "file.txt": { bytes: "start" } },
+          name: "Shared",
+          type: "text/plain",
+        });
+        const entered = Promise.withResolvers<undefined>();
+        const proceed = Promise.withResolvers<undefined>();
+        const outer = first.transaction(async () => {
+          entered.resolve(undefined);
+          await proceed.promise;
+          return await call(second, created, "inner");
+        });
+        await entered.promise;
+        // Independent of the transaction: it waits for it at the store.
+        const waiting = call(second, created, "outer");
+        await settle();
+        proceed.resolve(undefined);
+
+        await expect(within(outer, 1000)).rejects.toThrow(
+          "inside its own transaction"
+        );
+        await within(waiting, 1000);
+      });
+    }
 
     /** Two patches of one Content's metadata, the first paused at its read. */
     async function patchConcurrently(

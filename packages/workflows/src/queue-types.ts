@@ -1,12 +1,9 @@
 import type { SuspensionState } from "./channels";
+import type { DirectRunLinks, UpdateRunInput } from "./execution-commands";
+import type { OrchestratorStore } from "./execution-coordinator";
+import type { Extensions } from "./extensions";
 import type { OrchestratorLogger } from "./logger";
-import type {
-  DefinitionReference,
-  DirectRunLinks,
-  Extensions,
-  OrchestratorStore,
-  UpdateRunInput,
-} from "./store";
+import type { DefinitionReference } from "./schema";
 import type { RunStatus } from "./types";
 
 export interface QueueOptions {
@@ -61,7 +58,7 @@ export interface QueueSize {
   readonly suspended: number;
 }
 
-export type { RecoverableRun } from "./store";
+export type { RecoverableRun } from "./execution-commands";
 
 export type QueueEvent =
   // Per-run lifecycle.

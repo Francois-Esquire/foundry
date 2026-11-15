@@ -1,6 +1,6 @@
 import { ModelManager } from "@foundry/models";
+import { isJsonValue } from "@foundry/workflows";
 import { Orchestrator } from "@foundry/workflows/orchestrator";
-import { isJsonValue } from "@foundry/workflows/store";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, expect, it, vi } from "vitest";

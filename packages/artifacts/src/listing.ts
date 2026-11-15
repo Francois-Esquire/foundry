@@ -36,6 +36,24 @@ export function normalizeArtifactQuery(
   return query === undefined || query.length === 0 ? undefined : query;
 }
 
+/**
+ * The query a store lists by, as it stands now: a copy, so a caller
+ * changing its query while the listing waits changes nothing. Rejects a
+ * `limit` that is not a positive safe integer, which the listing contract
+ * asks for: SQLite would read a negative one as no limit at all.
+ */
+export function ownedListQuery<Q extends { readonly limit: number }>(
+  query: Q
+): Q {
+  const { limit } = query;
+  if (!(Number.isSafeInteger(limit) && limit > 0)) {
+    throw new RangeError(
+      `limit must be a positive safe integer; got ${String(limit)}`
+    );
+  }
+  return structuredClone(query);
+}
+
 /** Whether a listing under `filter` holds the Artifact. */
 export function matchesArtifactFilter(
   artifact: Artifact,

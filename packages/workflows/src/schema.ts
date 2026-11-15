@@ -294,12 +294,13 @@ export const RunLinksSchema = z.object({
 export type RunLinks = z.infer<typeof RunLinksSchema>;
 
 /** Operating state of a queue, distinct from an individual run outcome. */
-export const QueueStatusSchema = z.enum([
+export const QUEUE_STATUSES = [
   "active",
   "paused",
   "draining",
   "stopped",
-]);
+] as const;
+export const QueueStatusSchema = z.enum(QUEUE_STATUSES);
 export type QueueStatus = z.infer<typeof QueueStatusSchema>;
 
 export const QueueRecordSchema = z.object({
@@ -312,14 +313,15 @@ export const QueueRecordSchema = z.object({
 });
 export type QueueRecord = z.infer<typeof QueueRecordSchema>;
 
-export const JobStatusSchema = z.enum([
+export const JOB_STATUSES = [
   "pending",
   "active",
   "waiting",
   "complete",
   "failed",
   "cancelled",
-]);
+] as const;
+export const JobStatusSchema = z.enum(JOB_STATUSES);
 export type JobStatus = z.infer<typeof JobStatusSchema>;
 
 export const JobRecordSchema = z.object({
@@ -338,14 +340,15 @@ export const JobRecordSchema = z.object({
 export type JobRecord = z.infer<typeof JobRecordSchema>;
 
 /** Lifecycle status owned by the workflows execution boundary. */
-export const RunStatusSchema = z.enum([
+export const RUN_STATUSES = [
   "queued",
   "running",
   "suspended",
   "complete",
   "failed",
   "cancelled",
-]);
+] as const;
+export const RunStatusSchema = z.enum(RUN_STATUSES);
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 
 const RunTimestampsSchema = z.object({
@@ -480,11 +483,12 @@ export type PersistedMetadata = z.infer<typeof PersistedMetadataSchema>;
 
 // ── Suspensions and the Run journal ──
 
-export const SuspensionStatusSchema = z.enum([
+export const SUSPENSION_STATUSES = [
   "pending",
   "resolved",
   "cancelled",
-]);
+] as const;
+export const SuspensionStatusSchema = z.enum(SUSPENSION_STATUSES);
 export type SuspensionStatus = z.infer<typeof SuspensionStatusSchema>;
 
 export const SuspensionRecordSchema = z.object({

@@ -1,23 +1,21 @@
-import { sha256 } from "@noble/hashes/sha2.js";
-import { bytesToHex } from "@noble/hashes/utils.js";
-
 import type { Blob, BlobFiles, BlobSource } from "./blob";
+import type {
+  ByteInput,
+  ReferenceInput,
+  StagedBytes,
+  StagedChunk,
+} from "./blob-staging";
+import { BlobStaging, checkSize } from "./blob-staging";
 import type { ArtifactChange } from "./change";
 import { CHUNK_BYTES } from "./constants";
-import { FileTooLargeError, InvalidArtifactInputError } from "./errors";
+import { InvalidArtifactInputError } from "./errors";
 import type { BlobId } from "./ref";
 import { blobIdSchema } from "./ref";
-import type { FileInput } from "./substrate";
 
-/** File inputs that name an existing object instead of supplying bytes. */
-export type ReferenceInput =
-  | Extract<FileInput, { readonly blobId: BlobId }>
-  | Extract<FileInput, { readonly digest: string }>;
-export type ByteInput = Exclude<FileInput, ReferenceInput>;
-
-export function isReferenceInput(input: FileInput): input is ReferenceInput {
-  return "blobId" in input || "digest" in input;
-}
+// Kept at this path, where they lived before staging moved them.
+export type { ByteInput, ReferenceInput } from "./blob-staging";
+// biome-ignore lint/performance/noBarrelFile: A compatibility re-export at the path consumers imported it from.
+export { isReferenceInput } from "./blob-staging";
 
 /** What one operation did to backing storage, settled by the manager. */
 export interface BlobEffects {
@@ -110,16 +108,23 @@ export class BlobRepository implements BlobReader {
   readonly #change: ArtifactChange;
   readonly #effects: BlobEffects;
   readonly #maxFileBytes: number;
+  readonly #staging: BlobStaging;
 
   constructor(
     change: ArtifactChange,
     effects: BlobEffects,
-    options: { readonly files?: BlobFiles; readonly maxFileBytes: number }
+    options: {
+      readonly files?: BlobFiles;
+      readonly maxFileBytes: number;
+      /** The bytes staged ahead of the change; none when omitted. */
+      readonly staging?: BlobStaging;
+    }
   ) {
     this.#change = change;
     this.#effects = effects;
     this.files = options.files;
     this.#maxFileBytes = options.maxFileBytes;
+    this.#staging = options.staging ?? new BlobStaging(options);
   }
 
   require(id: BlobId): Promise<Blob> {
@@ -134,7 +139,7 @@ export class BlobRepository implements BlobReader {
   async resolve(path: string, input: ReferenceInput): Promise<Blob> {
     if ("blobId" in input) {
       const blob = await this.require(input.blobId);
-      this.#checkSize(path, blob.byteLength);
+      checkSize(path, blob.byteLength, this.#maxFileBytes);
       return blob;
     }
     const blob = await this.#change.findBlob(input.digest);
@@ -144,39 +149,21 @@ export class BlobRepository implements BlobReader {
         "Missing blob or mismatched byte length"
       );
     }
-    this.#checkSize(path, blob.byteLength);
+    checkSize(path, blob.byteLength, this.#maxFileBytes);
     return blob;
   }
 
   /**
-   * Store a file entry's bytes. `owned` names the entry's previous object when
-   * nothing else references it; the bytes rewrite that object in place.
-   * Otherwise they join an object already holding the same bytes, or a new one.
+   * Store a file entry's bytes: those staged ahead of the change, or taken
+   * in now. `owned` names the entry's previous object when nothing else
+   * references it; the bytes rewrite that object in place. Otherwise they
+   * join an object already holding the same bytes, or a new one.
    */
   async write(path: string, input: ByteInput, owned?: BlobId): Promise<Blob> {
-    if ("source" in input) {
-      if (input.bytes !== undefined) {
-        this.#checkSize(path, input.bytes);
-      }
-      return this.#ingest(
-        this.#checked(path, input.source),
-        owned,
-        input.bytes
-      );
-    }
-    const bytes =
-      typeof input.bytes === "string"
-        ? new TextEncoder().encode(input.bytes)
-        : input.bytes;
-    this.#checkSize(path, bytes.byteLength);
-    // Known bytes can match an existing object before any chunk is written.
-    if (!owned && bytes.byteLength > CHUNK_BYTES) {
-      const existing = await this.#change.findBlob(digestOf(bytes));
-      if (existing) {
-        return existing;
-      }
-    }
-    return this.#ingest([bytes], owned, bytes.byteLength);
+    const staged =
+      this.#staging.take(path, input) ??
+      (await this.#staging.stage(path, input, (bytes) => this.#publish(bytes)));
+    return this.#store(staged, owned);
   }
 
   /** Delete released blobs nothing references, then the chunks they held. */
@@ -198,44 +185,24 @@ export class BlobRepository implements BlobReader {
     }
   }
 
-  async #ingest(
-    source: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
-    owned: BlobId | undefined,
-    declaredBytes: number | undefined
-  ): Promise<Blob> {
-    const hash = sha256.create();
-    const chunks: BlobId[] = [];
-    let total = 0;
-    let pending: Uint8Array | undefined;
-    for await (const piece of split(source, CHUNK_BYTES)) {
-      if (pending) {
-        chunks.push((await this.#leaf(pending, owned)).id);
-      }
-      total += piece.byteLength;
-      hash.update(piece);
-      pending = piece;
-    }
-    const last = pending ?? new Uint8Array();
-    if (declaredBytes !== undefined && declaredBytes !== total) {
-      throw new InvalidArtifactInputError(
-        "bytes",
-        "Stream length differs from declared length"
-      );
-    }
-    const digest = bytesToHex(hash.digest());
+  async #store(staged: StagedBytes, owned: BlobId | undefined): Promise<Blob> {
+    const { digest } = staged;
     const previous = owned
       ? await this.require(owned)
       : await this.#change.findBlob(digest);
     if (previous?.digest === digest) {
-      this.release(chunks);
+      this.#unused(staged.chunks);
       return previous;
     }
+    const [only, ...more] = staged.chunks;
     const stored: BlobSource =
-      chunks.length === 0
-        ? await this.#publish(last)
-        : { chunks: [...chunks, (await this.#leaf(last, owned)).id] };
+      only !== undefined && more.length === 0
+        ? await this.#place(only)
+        : {
+            chunks: await this.#leaves(staged.chunks, owned),
+          };
     const blob: Blob = {
-      byteLength: total,
+      byteLength: staged.byteLength,
       createdAt: previous?.createdAt ?? new Date(),
       digest,
       id: previous?.id ?? blobIdSchema.parse(crypto.randomUUID()),
@@ -248,33 +215,73 @@ export class BlobRepository implements BlobReader {
     return blob;
   }
 
+  async #leaves(
+    chunks: readonly StagedChunk[],
+    exclude: BlobId | undefined
+  ): Promise<BlobId[]> {
+    const ids: BlobId[] = [];
+    for (const chunk of chunks) {
+      ids.push((await this.#leaf(chunk, exclude)).id);
+    }
+    return ids;
+  }
+
   /** An immutable chunk; never the object being rewritten, which would contain itself. */
-  async #leaf(bytes: Uint8Array, exclude: BlobId | undefined): Promise<Blob> {
-    const digest = digestOf(bytes);
-    const existing = await this.#change.findBlob(digest);
+  async #leaf(chunk: StagedChunk, exclude: BlobId | undefined): Promise<Blob> {
+    const existing = await this.#change.findBlob(chunk.digest);
     if (existing && existing.id !== exclude) {
+      this.#unused([chunk]);
       return existing;
     }
     const blob: Blob = {
-      byteLength: bytes.byteLength,
+      byteLength: chunk.byteLength,
       createdAt: new Date(),
-      digest,
+      digest: chunk.digest,
       id: blobIdSchema.parse(crypto.randomUUID()),
-      ...(await this.#publish(bytes)),
+      ...(await this.#place(chunk)),
     };
     await this.#change.putBlob(blob);
     return blob;
   }
 
-  async #publish(
-    bytes: Uint8Array
+  /** Where a chunk's bytes are stored: promoted, already published, or inline. */
+  async #place(
+    chunk: StagedChunk
   ): Promise<{ readonly path: string } | { readonly bytes: Uint8Array }> {
+    if ("staged" in chunk) {
+      const path = await this.#staging.promote(chunk.staged);
+      this.#effects.published.add(path);
+      return { path };
+    }
+    if ("published" in chunk) {
+      return { path: chunk.published };
+    }
     if (!this.files) {
-      return { bytes: bytes.slice() };
+      return { bytes: chunk.bytes.slice() };
+    }
+    return { path: await this.#publish(chunk.bytes) };
+  }
+
+  /** A file written by this change; removed if the change does not land. */
+  async #publish(bytes: Uint8Array): Promise<string> {
+    if (!this.files) {
+      throw new Error("Publishing a blob requires BlobFiles");
     }
     const path = await this.files.publish(bytes);
     this.#effects.published.add(path);
-    return { path };
+    return path;
+  }
+
+  /**
+   * Chunks the change does not store. A staged one is discarded with the
+   * staging; one already published is retired once the change commits.
+   */
+  #unused(chunks: readonly StagedChunk[]): void {
+    for (const chunk of chunks) {
+      if ("published" in chunk) {
+        this.#effects.retired.add(chunk.published);
+      }
+    }
   }
 
   /** The previous bytes of a rewritten or deleted object are no longer named. */
@@ -301,55 +308,5 @@ export class BlobRepository implements BlobReader {
       count += 1;
     }
     return count;
-  }
-
-  #checkSize(path: string, size: number): void {
-    if (size > this.#maxFileBytes) {
-      throw new FileTooLargeError(path, size, this.#maxFileBytes);
-    }
-    if (!Number.isSafeInteger(size) || size < 0) {
-      throw new InvalidArtifactInputError("bytes", "Invalid byte length");
-    }
-  }
-
-  async *#checked(
-    path: string,
-    source: AsyncIterable<Uint8Array>
-  ): AsyncIterable<Uint8Array> {
-    let size = 0;
-    for await (const bytes of source) {
-      size += bytes.byteLength;
-      this.#checkSize(path, size);
-      yield bytes;
-    }
-  }
-}
-
-function digestOf(bytes: Uint8Array): string {
-  return bytesToHex(sha256(bytes));
-}
-
-async function* split(
-  source: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
-  size: number
-): AsyncIterable<Uint8Array> {
-  let buffer = new Uint8Array(size);
-  let filled = 0;
-  for await (const bytes of source) {
-    let offset = 0;
-    while (offset < bytes.byteLength) {
-      const take = Math.min(size - filled, bytes.byteLength - offset);
-      buffer.set(bytes.subarray(offset, offset + take), filled);
-      filled += take;
-      offset += take;
-      if (filled === size) {
-        yield buffer;
-        buffer = new Uint8Array(size);
-        filled = 0;
-      }
-    }
-  }
-  if (filled > 0) {
-    yield buffer.slice(0, filled);
   }
 }
