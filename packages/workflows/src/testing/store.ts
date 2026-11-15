@@ -3,8 +3,8 @@ import { describe, expect, test } from "vitest";
 import type {
   JobRecord,
   QueueRecord,
-  RunFact,
-  RunFactType,
+  RunEvent,
+  RunEventType,
   RunFrame,
   RunRecord,
   SuspensionRecord,
@@ -178,37 +178,37 @@ export function describeWorkflowStore(
       expect(await contents(target)).toStrictEqual(records);
     });
 
-    test("a write's facts change no record, with records or alone", async () => {
+    test("a write's events change no record, with records or alone", async () => {
       const target = await store();
       const records = everyKind();
       await target.commit({
         ...putAll(records),
-        facts: [fact("run.queued", "rn-a"), fact("run.started", "rn-a")],
+        events: [event("run.queued", "rn-a"), event("run.started", "rn-a")],
       });
-      await target.commit({ facts: [fact("run.removed", "rn-gone")] });
+      await target.commit({ events: [event("run.removed", "rn-gone")] });
 
       expect(await contents(target)).toStrictEqual(records);
     });
 
-    test("refuses a fact a copy would read less of, and keeps nothing of its write", async () => {
+    test("refuses an event a copy would read less of, and keeps nothing of its write", async () => {
       const target = await store();
-      class Fact {
+      class Unplain {
         readonly type = "run.queued";
       }
       const refusals: [WorkflowStoreWrite, string][] = [
         [
-          { facts: fact("run.queued", "rn-a") as unknown as RunFact[] },
-          "facts must be an array",
+          { events: event("run.queued", "rn-a") as unknown as RunEvent[] },
+          "events must be an array",
         ],
         [
           {
-            facts: [
-              fact("run.queued", "rn-a"),
-              new Fact() as unknown as RunFact,
+            events: [
+              event("run.queued", "rn-a"),
+              new Unplain() as unknown as RunEvent,
             ],
             putRuns: [run("rn-a")],
           },
-          "facts[1] must be a plain object",
+          "events[1] must be a plain object",
         ],
       ];
       for (const [write, message] of refusals) {
@@ -955,7 +955,7 @@ function job(id: string, overrides: Partial<JobRecord> = {}): JobRecord {
   };
 }
 
-function fact(type: RunFactType, runId: string): RunFact {
+function event(type: RunEventType, runId: string): RunEvent {
   return {
     at: "2026-11-15T00:00:00.000Z",
     id: `rf-${type}-${runId}`,

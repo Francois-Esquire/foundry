@@ -8,7 +8,7 @@ import type { BlobEffects } from "./blob-repository";
 import { BlobRepository } from "./blob-repository";
 import type { ByteInput, Ownership } from "./blob-staging";
 import { BlobStaging, isReferenceInput } from "./blob-staging";
-import type { ArtifactChange, FactInput } from "./change";
+import type { ArtifactChange, EventInput } from "./change";
 import type { ContentMetadata } from "./content";
 import {
   assertJsonMetadata,
@@ -466,7 +466,7 @@ export class ArtifactTransaction implements ArtifactOperations {
       successorMetadata(source)
     );
     await this.#point(id, content.id);
-    // One fact for the fork: the Artifact it files is not also `created`.
+    // One event for the fork: the Artifact it files is not also `created`.
     this.#change.record({
       artifactId: id,
       contentId: content.id,
@@ -818,7 +818,7 @@ export class ArtifactTransaction implements ArtifactOperations {
 
   /**
    * Files a new Artifact, empty and a draft, once `checkCreate` passes; the
-   * caller records the fact of it.
+   * caller records the event of it.
    */
   async #file(input: CreateArtifactInput): Promise<ArtifactId> {
     await this.checkCreate(input);
@@ -841,13 +841,13 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   /**
-   * Puts the Artifact with `update` applied, then records the fact `fact`
+   * Puts the Artifact with `update` applied, then records the event `event`
    * makes of the Artifact as it was, if any.
    */
   async #updateArtifact(
     id: ArtifactId,
     update: (artifact: Artifact) => Partial<Artifact>,
-    fact: (previous: Artifact) => FactInput | undefined = () => undefined
+    event: (previous: Artifact) => EventInput | undefined = () => undefined
   ): Promise<Artifact> {
     const previous = await this.#change.getArtifact(id);
     if (!previous) {
@@ -861,7 +861,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     assertJsonMetadata(artifact.metadata);
     await this.#change.putArtifact(artifact);
     this.#effects.changed.add(id);
-    const made = fact(previous);
+    const made = event(previous);
     if (made !== undefined) {
       this.#change.record(made);
     }

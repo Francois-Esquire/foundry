@@ -12,7 +12,7 @@ import {
   normalizeArtifactQuery,
 } from "./listing";
 import type { ArtifactId, BlobId, ContentId } from "./ref";
-import type { ArtifactFact } from "./schema";
+import type { ArtifactEvent } from "./schema";
 import type { ArtifactStore, ArtifactStoreWrite, BlobListing } from "./store";
 import type {
   Artifact,
@@ -21,10 +21,10 @@ import type {
   ListContentsInput,
 } from "./substrate";
 
-/** A fact as an operation describes it: everything but its id and time. */
-export type FactInput = ArtifactFact extends infer Fact
-  ? Fact extends ArtifactFact
-    ? Omit<Fact, "at" | "id">
+/** An event as an operation describes it: everything but its id and time. */
+export type EventInput = ArtifactEvent extends infer Event
+  ? Event extends ArtifactEvent
+    ? Omit<Event, "at" | "id">
     : never
   : never;
 
@@ -52,7 +52,7 @@ export class ArtifactChange {
   readonly #artifacts: Pending<ArtifactId, Artifact> = new Map();
   readonly #blobs: Pending<BlobId, Blob> = new Map();
   readonly #contents: Pending<ContentId, Content> = new Map();
-  readonly #facts: ArtifactFact[] = [];
+  readonly #events: ArtifactEvent[] = [];
   #active: boolean;
 
   constructor(store: ArtifactStore, options: { readonly readOnly?: boolean }) {
@@ -74,7 +74,7 @@ export class ArtifactChange {
   }
 
   /**
-   * Every record this change puts or deletes, and the facts its operations
+   * Every record this change puts or deletes, and the events its operations
    * recorded, in order; `undefined` when it changes nothing.
    */
   write(): ArtifactStoreWrite | undefined {
@@ -82,7 +82,7 @@ export class ArtifactChange {
       this.#artifacts.size === 0 &&
       this.#blobs.size === 0 &&
       this.#contents.size === 0 &&
-      this.#facts.length === 0
+      this.#events.length === 0
     ) {
       return;
     }
@@ -90,7 +90,7 @@ export class ArtifactChange {
       deleteArtifacts: deleted(this.#artifacts),
       deleteBlobs: deleted(this.#blobs),
       deleteContents: deleted(this.#contents),
-      ...(this.#facts.length === 0 ? {} : { facts: [...this.#facts] }),
+      ...(this.#events.length === 0 ? {} : { events: [...this.#events] }),
       putArtifacts: kept(this.#artifacts),
       putBlobs: kept(this.#blobs),
       putContents: kept(this.#contents),
@@ -98,17 +98,17 @@ export class ArtifactChange {
   }
 
   /**
-   * Records a fact of what an operation changed, with a fresh id and the
-   * time now, to travel with this change's write after the facts recorded
+   * Records an event of what an operation changed, with a fresh id and the
+   * time now, to travel with this change's write after the events recorded
    * before it.
    */
-  record(fact: FactInput): void {
+  record(event: EventInput): void {
     this.assertWritable();
-    this.#facts.push({
-      ...fact,
+    this.#events.push({
+      ...event,
       at: new Date().toISOString(),
-      id: `af-${crypto.randomUUID()}`,
-    } as ArtifactFact);
+      id: crypto.randomUUID(),
+    } as ArtifactEvent);
   }
 
   // ── Artifacts ──

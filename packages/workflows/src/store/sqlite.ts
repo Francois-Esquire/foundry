@@ -619,7 +619,7 @@ function owned(write: WorkflowStoreWrite): OwnedWrite {
     deleteRunFrames,
     deleteRuns,
     deleteSuspensions,
-    facts,
+    events,
     putFrames,
     putJobs,
     putQueues,
@@ -663,7 +663,7 @@ function owned(write: WorkflowStoreWrite): OwnedWrite {
       deleteRuns: [...(deleteRuns ?? [])],
       deleteSuspensions: [...(deleteSuspensions ?? [])],
       // Kept for `onCommit` only; no row holds them.
-      ...(facts === undefined ? {} : { facts: detached(facts) }),
+      ...(events === undefined ? {} : { events: detached(events) }),
       ...(putFrames === undefined ? {} : { putFrames: records(frames) }),
       ...(putJobs === undefined ? {} : { putJobs: records(jobs) }),
       ...(putQueues === undefined ? {} : { putQueues: records(queues) }),

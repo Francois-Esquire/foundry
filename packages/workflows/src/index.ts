@@ -61,5 +61,5 @@ export {
   decodeRunFrameSequence,
   decodeRunFrames,
 } from "./run-journal";
-export type { RunFact, RunFactType } from "./schema";
+export type { RunEvent, RunEventType } from "./schema";
 export { validateOrchestratorStoreSnapshot } from "./store-snapshot";

@@ -290,8 +290,8 @@ describe("public surface", () => {
       "PersistedWorkflowSchema",
       "QueueRecordSchema",
       "QueueStatusSchema",
-      "RunFactSchema",
-      "RunFactTypeSchema",
+      "RunEventSchema",
+      "RunEventTypeSchema",
       "RunFramePayloadSchema",
       "RunFrameSchema",
       "RunLinksSchema",
@@ -312,8 +312,8 @@ describe("public surface", () => {
       expect(typeof schemaPublic[name].safeParse).toBe("function");
     }
     expect(schemaPublic.ORCHESTRATOR_STORE_SNAPSHOT_VERSION).toBe(1);
-    expect(schemaPublic.RUN_FACT_TYPES).toStrictEqual(
-      schemaPublic.RunFactTypeSchema.options
+    expect(schemaPublic.RUN_EVENT_TYPES).toStrictEqual(
+      schemaPublic.RunEventTypeSchema.options
     );
   });
 

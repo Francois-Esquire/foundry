@@ -2,9 +2,9 @@ import { sql } from "drizzle-orm";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, test } from "vitest";
 
-import type { ArtifactFact } from "../index";
+import type { ArtifactEvent } from "../index";
 import { ArtifactManager } from "../manager";
-import { artifactFactSchema } from "../schema";
+import { artifactEventSchema } from "../schema";
 import type { ArtifactDatabaseTransaction } from "../store/sqlite";
 import { SqliteArtifactStore } from "../store/sqlite";
 import { required } from "./helpers/required";
@@ -12,40 +12,42 @@ import { libsqlDatabases } from "./helpers/sqlite";
 
 const memory = libsqlDatabases("memory");
 
-/** A host's record of facts, written on the commit's own transaction. */
-const recorded = sqliteTable("recorded_facts", {
-  fact: text("fact", { mode: "json" }).notNull(),
+/** A host's record of events, written on the commit's own transaction. */
+const recorded = sqliteTable("recorded_events", {
+  event: text("event", { mode: "json" }).notNull(),
 });
 
 /**
- * A manager over a SQLite store whose `onCommit` writes each fact of a write
+ * A manager over a SQLite store whose `onCommit` writes each event of a write
  * as a row on the transaction it is handed, as a host's outbox would.
- * `commits` holds the facts of each call, in order; `rows` reads what
+ * `commits` holds the events of each call, in order; `rows` reads what
  * landed.
  */
 async function hosted() {
   const database = await memory.open();
-  await database.run(sql`CREATE TABLE "recorded_facts" ("fact" text NOT NULL)`);
-  const commits: (readonly ArtifactFact[])[] = [];
+  await database.run(
+    sql`CREATE TABLE "recorded_events" ("event" text NOT NULL)`
+  );
+  const commits: (readonly ArtifactEvent[])[] = [];
   const store = new SqliteArtifactStore({
     database,
     onCommit: async (transaction: ArtifactDatabaseTransaction, write) => {
-      commits.push(write.facts ?? []);
-      for (const item of write.facts ?? []) {
-        await transaction.insert(recorded).values({ fact: item });
+      commits.push(write.events ?? []);
+      for (const item of write.events ?? []) {
+        await transaction.insert(recorded).values({ event: item });
       }
     },
     scope: "host",
   });
-  const rows = async (): Promise<ArtifactFact[]> =>
+  const rows = async (): Promise<ArtifactEvent[]> =>
     (await database.select().from(recorded)).map(
-      (row) => row.fact as ArtifactFact
+      (row) => row.event as ArtifactEvent
     );
-  /** The fact types each commit `run` makes carries, one list per commit. */
+  /** The event types each commit `run` makes carries, one list per commit. */
   const typesOf = async (run: () => Promise<unknown>) => {
     const from = commits.length;
     await run();
-    return commits.slice(from).map((facts) => facts.map((item) => item.type));
+    return commits.slice(from).map((events) => events.map((item) => item.type));
   };
   return {
     commits,
@@ -58,14 +60,14 @@ async function hosted() {
 
 const TEXT = { name: "A", type: "text/plain" } as const;
 
-describe("ArtifactManager change facts", () => {
-  test("each fact is plain JSON with its own id and an ISO time", async () => {
+describe("ArtifactManager change events", () => {
+  test("each event is plain JSON with its own id and an ISO time", async () => {
     const { manager, rows } = await hosted();
     const created = await manager.create(TEXT);
     await manager.rename(created.id, "B");
 
-    const facts = await rows();
-    expect(facts).toStrictEqual([
+    const events = await rows();
+    expect(events).toStrictEqual([
       {
         artifactId: created.id,
         at: expect.any(String),
@@ -80,14 +82,14 @@ describe("ArtifactManager change facts", () => {
         type: "artifact.renamed",
       },
     ]);
-    for (const item of facts) {
-      expect(artifactFactSchema.parse(item)).toStrictEqual(item);
+    for (const item of events) {
+      expect(artifactEventSchema.parse(item)).toStrictEqual(item);
       expect(new Date(item.at).toISOString()).toBe(item.at);
     }
-    expect(new Set(facts.map((item) => item.id)).size).toBe(facts.length);
+    expect(new Set(events.map((item) => item.id)).size).toBe(events.length);
   });
 
-  test("an operation that performs others carries their facts after its own, in one write", async () => {
+  test("an operation that performs others carries their events after its own, in one write", async () => {
     const { manager, typesOf } = await hosted();
     expect(
       await typesOf(() =>
@@ -150,7 +152,7 @@ describe("ArtifactManager change facts", () => {
     expect(await typesOf(() => manager.freeze(revised.id))).toStrictEqual([
       ["artifact.frozen"],
     ]);
-    // Frozen already: the write stands, with no fact.
+    // Frozen already: the write stands, with no event.
     expect(await typesOf(() => manager.freeze(revised.id))).toStrictEqual([]);
   });
 
@@ -219,7 +221,7 @@ describe("ArtifactManager change facts", () => {
     });
   });
 
-  test("a fork is one fact naming its source, not also a creation", async () => {
+  test("a fork is one event naming its source, not also a creation", async () => {
     const { manager, rows, typesOf } = await hosted();
     const source = await manager.create({
       ...TEXT,
@@ -318,7 +320,7 @@ describe("ArtifactManager change facts", () => {
     });
   });
 
-  test("a transaction carries every operation's facts in one write, in call order", async () => {
+  test("a transaction carries every operation's events in one write, in call order", async () => {
     const { manager, typesOf } = await hosted();
     const { id } = await manager.create(TEXT);
 
@@ -335,7 +337,7 @@ describe("ArtifactManager change facts", () => {
     ]);
   });
 
-  test("facts of a change that does not commit never land", async () => {
+  test("events of a change that does not commit never land", async () => {
     const { commits, manager, rows } = await hosted();
     const { id } = await manager.create(TEXT);
 
@@ -352,6 +354,27 @@ describe("ArtifactManager change facts", () => {
       "artifact.created",
     ]);
     expect(commits).toHaveLength(1);
+  });
+
+  test("events committed inside a store transaction whose work throws roll back with it", async () => {
+    const { commits, rows, store } = await hosted();
+    const event: ArtifactEvent = {
+      artifactId: "a" as ArtifactEvent["artifactId"],
+      at: "2026-11-15T00:00:00.000Z",
+      id: "e-1",
+      type: "artifact.created",
+    };
+
+    await expect(
+      store.transaction(async (view) => {
+        await view.commit({ events: [event] });
+        throw new Error("host gave up");
+      })
+    ).rejects.toThrow("host gave up");
+
+    // onCommit ran inside the transaction; its rows went with it.
+    expect(commits).toStrictEqual([[event]]);
+    expect(await rows()).toStrictEqual([]);
   });
 
   test("a check that refuses records nothing", async () => {

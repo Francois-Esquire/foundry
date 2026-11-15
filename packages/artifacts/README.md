@@ -418,27 +418,27 @@ writes nothing:
 | `deleteContent`                                 | the Content's id, and blobs it alone named              |
 | `delete`                                        | the Artifact's id, its Contents' ids, blobs they alone named |
 | `sweep`                                         | the Contents' and blobs' ids it removes                 |
-| several operations in `transaction`             | one write: the net records of them all, and every fact  |
+| several operations in `transaction`             | one write: the net records of them all, and every event  |
 
 A blob only one file names is rewritten in place, so a write can put a blob id that
 already exists. A record put and deleted within one change arrives as a delete of an
 id the store never held.
 
-### Change facts
+### Change events
 
-The write also carries `facts`: what the change did, as change facts
-(`ArtifactFact`, schema `artifactFactSchema` in `./schema`, types exported from
+The write also carries `events`: what the change did, as change events
+(`ArtifactEvent`, schema `artifactEventSchema` in `./schema`, types exported from
 `.`), in the order its operations made them. The manager's operations build them,
 never a store; a host records them in `onCommit`, on the transaction it is handed,
-so a fact lands exactly when its change does: once per commit that succeeds, never
-for one refused or rolled back. Every store hands the facts on with its copy of the
-write and keeps no record of them; a fact the copy refuses refuses the write.
+so an event lands exactly when its change does: once per commit that succeeds, never
+for one refused or rolled back. Every store hands the events on with its copy of the
+write and keeps no record of them; an event the copy refuses refuses the write.
 
-A fact is plain JSON: `{ type, id, at, artifactId, ... }`. `id` is unique (`af-` and
-a UUID), made with the write before `commit`; `at` is an ISO time. A fact about one
+An event is plain JSON: `{ type, id, at, artifactId, ... }`. `id` is unique (`af-` and
+a UUID), made with the write before `commit`; `at` is an ISO time. An event about one
 version names it as `contentId`. A handler reads the records for anything more.
 
-| Fact                 | Emitted when                                                                   | Also carries                          |
+| Event                 | Emitted when                                                                   | Also carries                          |
 | -------------------- | ------------------------------------------------------------------------------ | ------------------------------------- |
 | `artifact.created`   | `create` files an Artifact                                                     |                                       |
 | `artifact.forked`    | `fork` files an Artifact from another's Content (not also `created`)           | `contentId`, `sourceArtifactId`, `sourceContentId` |
@@ -455,14 +455,14 @@ version names it as `contentId`. A handler reads the records for anything more.
 | `artifact.removed`   | `delete` removes an Artifact, and its Contents with it                         |                                       |
 | `artifact.discarded` | `deleteContent` or `sweep` removes one Content                                 | `contentId`                           |
 
-An operation that performs another records that one's fact too, after its own:
+An operation that performs another records that one's event too, after its own:
 `create` with entries is `created` then `written`, with its `freeze` option `tagged`,
 `updated` and `frozen` after; a `deleteContent` of the active Content is `selected`
 (the replacement) then `discarded`. The source frozen by `revise` or `fork` is part of
-that operation and makes no fact of its own. An operation that changes nothing a fact
+that operation and makes no event of its own. An operation that changes nothing an event
 names (the same name, an Artifact already archived, the tag a Content has, an empty
-metadata patch, a Content already frozen) makes no fact, though it may still write.
-Facts are a record of operations, not a net difference: an Artifact created and
+metadata patch, a Content already frozen) makes no event, though it may still write.
+Events are a record of operations, not a net difference: an Artifact created and
 deleted inside one `transaction` carries `created` and `removed`.
 
 `transaction(work)` runs `work` in one database transaction over a view; each commit

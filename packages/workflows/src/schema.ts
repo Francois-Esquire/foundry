@@ -536,15 +536,16 @@ export const RunFrameSchema = z
   );
 export type RunFrame = z.infer<typeof RunFrameSchema>;
 
-// ── Run facts ──
+// ── Run events ──
 
 /**
  * What happened to a Run, one past-tense name per change of its lifecycle:
  * filed (`queued`), set running (`started`), suspended on a Suspension
- * (`parked`), queued again once its Suspension resolved (`resumed`), ended
+ * (`parked`), queued again once its Suspension resolved or recovery took it
+ * back (`resumed`), ended
  * (`completed`, `failed`, `cancelled`), and deleted (`removed`).
  */
-export const RUN_FACT_TYPES = [
+export const RUN_EVENT_TYPES = [
   "run.queued",
   "run.started",
   "run.parked",
@@ -554,23 +555,23 @@ export const RUN_FACT_TYPES = [
   "run.cancelled",
   "run.removed",
 ] as const;
-export const RunFactTypeSchema = z.enum(RUN_FACT_TYPES);
-export type RunFactType = z.infer<typeof RunFactTypeSchema>;
+export const RunEventTypeSchema = z.enum(RUN_EVENT_TYPES);
+export type RunEventType = z.infer<typeof RunEventTypeSchema>;
 
 /**
- * A change fact: one change `ExecutionCoordinator` made to a Run, carried in
- * the store write that makes it (`WorkflowStoreWrite.facts`). `id` names the
- * fact itself and `at` is when the coordinator built it, an ISO time. A
+ * A change event: one change `ExecutionCoordinator` made to a Run, carried in
+ * the store write that makes it (`WorkflowStoreWrite.events`). `id` names the
+ * event itself and `at` is when the coordinator built it, an ISO time. A
  * handler reads the Run by `runId` for anything more.
  */
-export const RunFactSchema = z.strictObject({
+export const RunEventSchema = z.strictObject({
   at: z.iso.datetime(),
   id: z.string().min(1),
   queueId: z.string(),
   runId: RunIdSchema,
-  type: RunFactTypeSchema,
+  type: RunEventTypeSchema,
 });
-export type RunFact = z.infer<typeof RunFactSchema>;
+export type RunEvent = z.infer<typeof RunEventSchema>;
 
 export const ORCHESTRATOR_STORE_SNAPSHOT_VERSION = 1 as const;
 

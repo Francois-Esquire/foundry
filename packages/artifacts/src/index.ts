@@ -50,8 +50,8 @@ export { ArtifactManager, type ArtifactManagerOptions } from "./manager";
 export type { ArtifactId, BlobId, ContentId } from "./ref";
 export { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ref";
 export type {
-  ArtifactFact,
-  ArtifactFactType,
+  ArtifactEvent,
+  ArtifactEventType,
   ArtifactRecords,
 } from "./schema";
 export type {

@@ -2,7 +2,7 @@ import type {
   JobRecord,
   JobStatus,
   QueueRecord,
-  RunFact,
+  RunEvent,
   RunFrame,
   RunRecord,
   RunStatus,
@@ -32,7 +32,7 @@ export interface WorkflowStoreWrite {
    * of the write, to a host's hook that runs inside the commit (the SQLite
    * store's `onCommit`), and ignores them otherwise.
    */
-  readonly facts?: readonly RunFact[];
+  readonly events?: readonly RunEvent[];
   readonly putFrames?: readonly RunFrame[];
   readonly putJobs?: readonly JobRecord[];
   readonly putQueues?: readonly QueueRecord[];

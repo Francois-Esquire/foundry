@@ -22,7 +22,7 @@ const WRITE_PROPERTIES = {
   deleteRunFrames: true,
   deleteRuns: true,
   deleteSuspensions: true,
-  facts: true,
+  events: true,
   putFrames: true,
   putJobs: true,
   putQueues: true,

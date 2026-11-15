@@ -625,8 +625,8 @@ receives the store's own copy of the write, taken when `commit` was called:
 - every id each delete named (`deleteJobs`, `deleteRuns`,
   `deleteSuspensions`), and for `deleteRunFrames`, the Run ids whose frames
   all went. Each delete list is present, empty when the write named none;
-- `facts`, when the write changes a Run's lifecycle: the change facts the
-  coordinator built for it, in order (see [Change facts](#change-facts)).
+- `events`, when the write changes a Run's lifecycle: the change events the
+  coordinator built for it, in order (see [Change events](#change-events)).
 
 It cannot learn whether a put filed a new record or replaced one, what a
 replaced or deleted record held, or whether a delete found anything: the
@@ -667,38 +667,43 @@ calls `onCommit` inside the one transaction. Per command, the write holds:
 The write names no command; a host that needs one tells the commands apart by
 the shape above.
 
-### Change facts
+### Change events
 
-`ExecutionCoordinator` builds a change fact (`RunFact`, schema
-`RunFactSchema` in `./schema`, type exported from `.`) for each change it
+`ExecutionCoordinator` builds a change event (`RunEvent`, schema
+`RunEventSchema` in `./schema`, type exported from `.`) for each change it
 makes to a Run's lifecycle, and carries it in the write that makes the
-change, as `facts`. A host records them in `onCommit`, on the transaction it
-is handed, so a fact lands exactly when its change does: once per commit
+change, as `events`. A host records them in `onCommit`, on the transaction it
+is handed, so an event lands exactly when its change does: once per commit
 that succeeds, never for one refused or rolled back. The stores keep no
-record of facts and otherwise ignore them; a fact that is not a plain object
+record of events and otherwise ignore them; an event that is not a plain object
 refuses its write, as a record would.
 
-A fact is plain JSON: `{ type, id, at, runId, queueId }`. `id` is unique
+An event is plain JSON: `{ type, id, at, runId, queueId }`. `id` is unique
 (`rf-` and a UUID), built with the write before `commit`; `at` is an ISO
 time. A handler reads the Run by `runId` for anything more.
 
-| Fact            | Emitted when                                                                                 |
+| Event            | Emitted when                                                                                 |
 | --------------- | -------------------------------------------------------------------------------------------- |
 | `run.queued`    | a Run is filed: `createRun`, `claimJobRun`                                                   |
 | `run.started`   | a Run's status becomes `running` (`updateRun`), each time it does                            |
 | `run.parked`    | a Run becomes `suspended`: `parkSuspension`, or `updateRun`                                  |
-| `run.resumed`   | a filed Run becomes `queued` again: `settleSuspension` resolving its Suspension              |
+| `run.resumed`   | a filed Run becomes `queued` again: `settleSuspension` resolving its Suspension, or recovery re-queueing a Run that was `running` (`updateRun`) |
 | `run.completed` | a Run becomes `complete` (`updateRun`)                                                       |
 | `run.failed`    | a Run becomes `failed` (`updateRun`)                                                         |
 | `run.cancelled` | a Run becomes `cancelled`: `cancelRun`, `cancelRunSuspensions`, `cancelJob`, `settleSuspension` cancelling, `updateRun` |
 | `run.removed`   | a filed Run is deleted (`deleteRun`)                                                         |
 
-A change that leaves a Run's status as it was makes no fact: a patch of its
+Events follow the statuses written, not an ideal lifecycle: a recovered Run
+can go `run.resumed` then `run.completed` with no `run.started` between, as
+recovery writes no `running` status before the Run ends. A handler should
+not assume one event precedes another beyond the order they arrive in.
+
+A change that leaves a Run's status as it was makes no event: a patch of its
 snapshot, output, tags or timestamps is step progress, not a lifecycle change,
 and so is a second Suspension parked on a Run already suspended. Jobs, Queues,
-Suspensions and frames make no facts of their own, and neither does
+Suspensions and frames make no events of their own, and neither does
 `restore`, which files records rather than changing them, nor a `deleteRun`
-of a Run that is not filed. A write carries no `facts` field when it has
+of a Run that is not filed. A write carries no `events` field when it has
 none.
 
 ### Exclusion and host requirements

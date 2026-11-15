@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { FactInput } from "../change";
+import type { EventInput } from "../change";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
 import { artifactIdSchema, blobIdSchema, contentIdSchema } from "../ref";
-import type { Artifact, ArtifactFact, Blob, Content } from "../schema";
+import type { Artifact, ArtifactEvent, Blob, Content } from "../schema";
 import type {
   ArtifactListQuery,
   ArtifactStore,
@@ -36,13 +36,13 @@ function artifact(fields: Partial<Artifact> = {}): Artifact {
   };
 }
 
-/** `input` as a fact, at a fixed time. */
-function fact(input: FactInput): ArtifactFact {
+/** `input` as an event, at a fixed time. */
+function event(input: EventInput): ArtifactEvent {
   return {
     ...input,
     at: AT.toISOString(),
     id: crypto.randomUUID(),
-  } as ArtifactFact;
+  } as ArtifactEvent;
 }
 
 function content(owner: ArtifactId, blobs: readonly BlobId[] = []): Content {
@@ -329,14 +329,14 @@ export function describeArtifactStore(
       expect(await store.getArtifact(record.id)).toEqual(replaced);
     });
 
-    it("keeps no record of a write's facts, with records or alone", async () => {
+    it("keeps no record of a write's events, with records or alone", async () => {
       const store = await fresh();
       const owner = artifact();
       const version = content(owner.id);
       await store.commit({
-        facts: [
-          fact({ artifactId: owner.id, type: "artifact.created" }),
-          fact({
+        events: [
+          event({ artifactId: owner.id, type: "artifact.created" }),
+          event({
             artifactId: owner.id,
             contentId: version.id,
             type: "artifact.written",
@@ -346,7 +346,7 @@ export function describeArtifactStore(
         putContents: [version],
       });
       await store.commit({
-        facts: [fact({ artifactId: artifactId(), type: "artifact.removed" })],
+        events: [event({ artifactId: artifactId(), type: "artifact.removed" })],
       });
 
       expect(await everyArtifact(store)).toEqual([owner]);
@@ -354,15 +354,15 @@ export function describeArtifactStore(
       expect(await store.listBlobs()).toEqual([]);
     });
 
-    it("refuses a fact it cannot copy, and keeps nothing of its write", async () => {
+    it("refuses an event it cannot copy, and keeps nothing of its write", async () => {
       const store = await fresh();
       const unstorable = {
-        ...fact({ artifactId: artifactId(), type: "artifact.created" }),
+        ...event({ artifactId: artifactId(), type: "artifact.created" }),
         call: () => undefined,
       };
       await expect(
         store.commit({
-          facts: [unstorable as unknown as ArtifactFact],
+          events: [unstorable as unknown as ArtifactEvent],
           putArtifacts: [artifact()],
         })
       ).rejects.toThrow();
