@@ -207,7 +207,12 @@ export class Delivery {
    * Settled once `stop` stops waiting for the calls in flight: from then
    * no lane moves a place or files a failure, since the claim is given up.
    */
-  readonly #abandoned = Promise.withResolvers<"abandoned">();
+  /**
+   * What tells each handler call in flight that `stop` gave up waiting. A
+   * call takes its own entry out when it is over, so a host that runs for
+   * months holds one per call in flight and none per fact delivered.
+   */
+  readonly #abandon = new Set<() => void>();
   readonly #stopped: { gaveUp: boolean } = { gaveUp: false };
   /** When the log was last compacted here, in epoch ms; never, at first. */
   #compactedAt = Number.NEGATIVE_INFINITY;
@@ -377,7 +382,9 @@ export class Delivery {
       }
     } finally {
       this.#stopped.gaveUp = true;
-      this.#abandoned.resolve("abandoned");
+      for (const abandon of this.#abandon) {
+        abandon();
+      }
       await this.#release();
     }
   }
@@ -652,11 +659,18 @@ export class Delivery {
       since: this.#clock.now(),
     };
     const limit = this.#clock.after(observer.timeout);
+    const abandoned = Promise.withResolvers<Outcome>();
+    const abandon = () => abandoned.resolve({ kind: "abandoned" });
+    this.#abandon.add(abandon);
+    if (this.#stopped.gaveUp) {
+      abandon();
+    }
     const outcome = await Promise.race([
       settled,
       limit.done.then((): Outcome => ({ kind: "timed out" })),
-      this.#abandoned.promise.then((): Outcome => ({ kind: "abandoned" })),
+      abandoned.promise,
     ]);
+    this.#abandon.delete(abandon);
     limit.cancel();
     if (outcome.kind === "timed out") {
       settled.then(() => this.#unstuck(observer));
