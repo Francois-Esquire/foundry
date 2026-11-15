@@ -131,6 +131,12 @@ export class ProviderConfiguration {
   #revision: number | undefined;
   /** `read` kept a newer `#kept` than the manager's set was loaded from. */
   #unloaded = false;
+  /**
+   * The last read of the store, or the identity key a read or write needed,
+   * failed: the store, not what it holds. The watcher retries until one
+   * succeeds, though the revision may say nothing changed.
+   */
+  #unreached = false;
   /** Every scope as the edit under way reads it, inside the store's transaction. */
   #editing: ProviderConfigurations | undefined;
   readonly #plugins: ReadonlyMap<string, RegisteredPlugin>;
@@ -236,8 +242,18 @@ export class ProviderConfiguration {
     if (this.#key !== undefined || !this.#configuredIn(kept)) {
       return;
     }
-    const key = await this.#store.identityKey(true);
+    const key = await this.#reaching(() => this.#store.identityKey(true));
     this.#key ??= key;
+  }
+
+  /** `call` on the store, marking it unreached when it rejects. */
+  async #reaching<T>(call: () => Promise<T>): Promise<T> {
+    try {
+      return await call();
+    } catch (error) {
+      this.#unreached = true;
+      throw error;
+    }
   }
 
   /** Apply edits to several scopes as one write: every edit runs before any is kept. */
@@ -266,7 +282,8 @@ export class ProviderConfiguration {
     // With the revision of the same read: one that cannot be read is
     // reported once per change, not on every poll, and a later repair is
     // still noticed.
-    const kept = await this.#store.read();
+    const kept = await this.#reaching(() => this.#store.read());
+    this.#unreached = false;
     if (this.#adopt(kept)) {
       this.#unloaded = true;
     }
@@ -693,8 +710,10 @@ export class ProviderConfiguration {
   /**
    * Reload whenever any configuration changes, from this or any other
    * process: the store's revision is polled. One that cannot be read keeps
-   * the last good set and is reported. Nothing is polled before the first
-   * `refresh`, or for a programmatic host's set.
+   * the last good set and is reported once per change. A store that could
+   * not be reached (a lock held too long, say) is tried again on every
+   * poll until it is, whatever its revision. Nothing is polled before the
+   * first `refresh`, or for a programmatic host's set.
    */
   watch(report: (problem: string) => void): () => void {
     if (this.#options.fixed !== undefined) {
@@ -703,7 +722,11 @@ export class ProviderConfiguration {
     let polling = false;
     const poll = async () => {
       const seen = this.#revision;
-      if (seen === undefined || (await this.#store.revision()) === seen) {
+      if (
+        // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; a failed store call sets it.
+        !this.#unreached &&
+        (seen === undefined || (await this.#store.revision()) === seen)
+      ) {
         return;
       }
       for (const problem of await this.refresh()) {

@@ -22,6 +22,7 @@ import type {
   ProviderWrites,
 } from "~/lib/providers/store";
 import {
+  ConfigurationError,
   identityKeyFrom,
   keptConfigurations,
   MACHINE_SCOPE,
@@ -40,6 +41,8 @@ class TestStore implements ProviderStore {
   revisions = 0;
   /** Run once an edit has landed, before its result is handed back: another process's commit. */
   between: (() => void) | undefined;
+  /** Refuse the next reads, or the next identity key asks, as a write lock held too long would. */
+  refusing = { key: 0, read: 0 };
   #held: Promise<undefined> = Promise.resolve(undefined);
 
   /** Keep `file` as the configuration of `scope`, as another process would. */
@@ -55,6 +58,10 @@ class TestStore implements ProviderStore {
   }
 
   identityKey(make: boolean): Promise<Buffer | undefined> {
+    if (this.refusing.key > 0) {
+      this.refusing.key -= 1;
+      return Promise.reject(busy());
+    }
     if (make) {
       this.key ??= newIdentityKey();
     }
@@ -68,6 +75,10 @@ class TestStore implements ProviderStore {
   }
 
   read(): Promise<ProviderConfigurations> {
+    if (this.refusing.read > 0) {
+      this.refusing.read -= 1;
+      return Promise.reject(busy());
+    }
     try {
       return Promise.resolve(
         keptConfigurations(new Map(this.texts), this.revisions)
@@ -96,11 +107,14 @@ class TestStore implements ProviderStore {
     if (written.size > 0) {
       this.revisions += 1;
     }
-    const landed = await this.read();
+    const landed = keptConfigurations(new Map(this.texts), this.revisions);
     this.between?.();
     return landed;
   }
 }
+
+const busy = () =>
+  new ConfigurationError("CONFIGURATION_BUSY", "the database is locked");
 
 let store: TestStore;
 const seen = new Map<string, ProviderSetup<{ key?: string }>>();
@@ -457,6 +471,66 @@ describe("a configuration and the store's revision", () => {
       await config.disable("codex");
       expect(ids(models)).toEqual([]);
       await vi.waitFor(() => expect(ids(models)).toEqual(["codex", "vercel"]), {
+        timeout: 5000,
+      });
+    } finally {
+      stop();
+    }
+  });
+});
+
+describe("a store that could not be reached", () => {
+  const codex = {
+    providers: [{ enabled: true, id: "codex", plugin: "codex" }],
+  };
+
+  /** Watch as an engine does once it has started, collecting what it reports. */
+  function watched(config: ProviderConfiguration) {
+    const problems: string[] = [];
+    const stop = config.watch((problem) => problems.push(problem));
+    return { problems, stop };
+  }
+
+  it("is tried again when the identity key could not be made as the engine started", async () => {
+    store.put(MACHINE_SCOPE, codex);
+    const { config, models } = configuration();
+    store.refusing.key = 1;
+    await expect(config.refresh()).rejects.toThrow("locked");
+    const { stop } = watched(config);
+    try {
+      await vi.waitFor(() => expect(ids(models)).toEqual(["codex"]), {
+        timeout: 5000,
+      });
+    } finally {
+      stop();
+    }
+  });
+
+  it("is tried again when the configuration could not be read as the engine started", async () => {
+    store.put(MACHINE_SCOPE, codex);
+    const { config, models } = configuration();
+    store.refusing.read = 1;
+    await expect(config.refresh()).rejects.toThrow("locked");
+    const { stop } = watched(config);
+    try {
+      await vi.waitFor(() => expect(ids(models)).toEqual(["codex"]), {
+        timeout: 5000,
+      });
+    } finally {
+      stop();
+    }
+  });
+
+  it("loads a write that landed though its identity key could not be made", async () => {
+    const { config, models } = configuration();
+    await config.refresh();
+    const { stop } = watched(config);
+    try {
+      store.refusing.key = 1;
+      await expect(
+        config.add({ id: "codex", plugin: "codex" }, { scope: "machine" })
+      ).rejects.toThrow("locked");
+      await vi.waitFor(() => expect(ids(models)).toEqual(["codex"]), {
         timeout: 5000,
       });
     } finally {
