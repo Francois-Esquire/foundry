@@ -126,9 +126,11 @@ export class ProviderConfiguration {
   readonly #machine: Scope;
   readonly #workspace: Scope | undefined;
   /** Every scope as last read from the store or written to it. */
-  #kept: ProviderConfigurations = keptConfigurations(new Map());
-  /** The store's revision `#kept` was read at; undefined before the first read. */
+  #kept: ProviderConfigurations = keptConfigurations(new Map(), 0);
+  /** The store's revision `#kept` was read at; undefined before the first read or write. */
   #revision: number | undefined;
+  /** `read` kept a newer `#kept` than the manager's set was loaded from. */
+  #unloaded = false;
   /** Every scope as the edit under way reads it, inside the store's transaction. */
   #editing: ProviderConfigurations | undefined;
   readonly #plugins: ReadonlyMap<string, RegisteredPlugin>;
@@ -203,10 +205,39 @@ export class ProviderConfiguration {
         }
       }
     );
-    this.#kept = landed;
-    // What this wrote is loaded by the write itself, not by the watcher.
-    this.#revision = await this.#store.revision();
+    // What this wrote, at the revision its own transaction left: loaded by
+    // the write itself, and a later edit elsewhere is still a change.
+    this.#adopt(landed);
+    await this.#keyed(landed);
     return landed;
+  }
+
+  /**
+   * Keep `kept` as last read, with its own revision, unless a newer read
+   * or write has landed meanwhile: a slow read never replaces a later
+   * write, and the watcher compares against what is loaded.
+   */
+  #adopt(kept: ProviderConfigurations): boolean {
+    if (this.#revision !== undefined && kept.revision < this.#revision) {
+      return false;
+    }
+    this.#kept = kept;
+    this.#revision = kept.revision;
+    return true;
+  }
+
+  /**
+   * The store's identity key, made once if need be, as soon as `kept`
+   * configures anything: before any instance it configures is loaded, so
+   * no identity is ever digested with a key the store does not keep. A
+   * dry run's store makes none.
+   */
+  async #keyed(kept: ProviderConfigurations): Promise<void> {
+    if (this.#key !== undefined || !this.#configuredIn(kept)) {
+      return;
+    }
+    const key = await this.#store.identityKey(true);
+    this.#key ??= key;
   }
 
   /** Apply edits to several scopes as one write: every edit runs before any is kept. */
@@ -232,21 +263,29 @@ export class ProviderConfiguration {
     if (this.#options.fixed !== undefined) {
       return;
     }
-    // Recorded first: a configuration that cannot be read is reported once
-    // per change, not on every poll, and a later repair is still noticed.
-    this.#revision = await this.#store.revision();
-    this.#kept = await this.#store.read();
-    if (this.#key === undefined && this.configured) {
-      this.#key = await this.#store.identityKey(true);
+    // With the revision of the same read: one that cannot be read is
+    // reported once per change, not on every poll, and a later repair is
+    // still noticed.
+    const kept = await this.#store.read();
+    if (this.#adopt(kept)) {
+      this.#unloaded = true;
     }
+    await this.#keyed(kept);
   }
 
   /** Whether any configuration exists: one at either scope, or a programmatic set. */
   get configured(): boolean {
     return (
-      this.#options.fixed !== undefined ||
-      this.#machine.read() !== undefined ||
-      this.#workspace?.read() !== undefined
+      this.#options.fixed !== undefined || this.#configuredIn(this.#view())
+    );
+  }
+
+  /** Whether `kept` holds a configuration at either of this engine's scopes. */
+  #configuredIn(kept: ProviderConfigurations): boolean {
+    const id = this.#options.workspace?.id;
+    return (
+      kept.machine !== undefined ||
+      (id !== undefined && kept.workspace(id) !== undefined)
     );
   }
 
@@ -309,6 +348,9 @@ export class ProviderConfiguration {
       used.map((each) => each.instance)
     );
     // Only once the manager took the set, so a refused set changes nothing.
+    if (kept === this.#kept) {
+      this.#unloaded = false;
+    }
     this.#built = built;
     this.#instances = instances;
     this.#identities = identities;
@@ -368,9 +410,18 @@ export class ProviderConfiguration {
       if (landed !== false) {
         // An entry's new settings may need their own list before it builds.
         await this.#listAll();
-        // Disposed meanwhile: the drafts are discarded below, and nothing loads.
-        if (!this.#lists.signal.aborted) {
+        // Disposed meanwhile: the drafts are discarded below, and nothing
+        // loads. Overtaken by a newer write, which loads what it left
+        // itself, nothing older is loaded over it; by a newer `read`, which
+        // loads nothing, that is loaded here.
+        if (this.#lists.signal.aborted) {
+          return;
+        }
+        if (landed.revision >= (this.#revision ?? 0)) {
           this.#load(drafts, landed);
+          // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; a read sets it.
+        } else if (this.#unloaded) {
+          this.#load(drafts);
         }
       }
     } finally {
@@ -1077,7 +1128,17 @@ export class ProviderConfiguration {
    * fail closed.
    */
   #digest(material: unknown): string {
-    this.#key ??= randomBytes(32);
+    if (this.#key === undefined) {
+      if (this.#options.fixed === undefined && !this.#options.readOnly) {
+        throw new ConfigurationError(
+          "CONFIGURATION_UNREADABLE",
+          "an instance identity was asked for before the stored identity key was read"
+        );
+      }
+      // A programmatic set, or a dry run with no key kept: one for this
+      // configuration alone, which matches nothing stored.
+      this.#key = randomBytes(32);
+    }
     return createHmac("sha256", this.#key)
       .update(JSON.stringify(material))
       .digest("hex")

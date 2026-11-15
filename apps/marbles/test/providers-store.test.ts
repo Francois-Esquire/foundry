@@ -148,7 +148,12 @@ describe("provider configuration in the Marbles database", () => {
     await opened.database
       .update(marblesProviderConfigurations)
       .set({ configuration: '{ "apiKey": "sk-secret-value' });
-    const refusal = await store.read().catch((error: unknown) => error);
+    // Found where the machine's is read, with the revision still known.
+    const kept = await store.read();
+    expect(kept.revision).toBeGreaterThan(0);
+    const refusal = await Promise.resolve()
+      .then(() => kept.machine)
+      .catch((error: unknown) => error);
     expect(refusal).toMatchObject({ code: "CONFIGURATION_UNREADABLE" });
     expect(String(refusal)).toContain("machine");
     expect(String(refusal)).not.toContain("sk-secret-value");
