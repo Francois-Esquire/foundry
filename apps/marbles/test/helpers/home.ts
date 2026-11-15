@@ -34,6 +34,8 @@ export interface TestHomeOptions {
 
 /** How long the Marbles process gets to stop when asked, before it is signalled. */
 const STOP_ASKED_MS = 10_000;
+/** Asking, then the signals' grace and kill periods, with room to spare. */
+const TEARDOWN_MS = STOP_ASKED_MS + 15_000;
 
 /** A fresh home under the run's root, torn down when the current test finishes. */
 export function testHome(options: TestHomeOptions = {}): TestHome {
@@ -47,7 +49,7 @@ export function testHome(options: TestHomeOptions = {}): TestHome {
   if (options.providers !== false) {
     configureProviders(home.layout.state);
   }
-  onTestFinished(() => tearDown(home));
+  onTestFinished(() => tearDown(home), TEARDOWN_MS);
   return home;
 }
 

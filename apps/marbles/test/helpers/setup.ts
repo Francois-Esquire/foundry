@@ -39,6 +39,14 @@ export default async function setup(): Promise<() => Promise<void>> {
     join(user, ".foundry"),
     "Not a directory: Marbles tests name their Foundry home with FOUNDRY_HOME.\n"
   );
+  // Bun keeps its package cache under HOME; the package test's install
+  // would otherwise fetch every dependency again.
+  process.env.BUN_INSTALL_CACHE_DIR ??= join(
+    process.env.HOME ?? user,
+    ".bun",
+    "install",
+    "cache"
+  );
   process.env[RUN_ENV] = run.root;
   process.env.TMPDIR = run.root;
   process.env.HOME = user;

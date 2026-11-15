@@ -5,17 +5,8 @@
  * hosts the workspace.
  */
 
-import type { ChildProcess } from "node:child_process";
 import { spawn, spawnSync } from "node:child_process";
-import {
-  cpSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { cpSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { ReentrantCallError } from "@foundry/lib/turns";
 import { Tasks } from "@foundry/tasks";
@@ -28,7 +19,7 @@ import { initializeDatabase } from "~/database/open";
 import { TaskStorageError } from "~/database/tasks";
 import { stateDatabase } from "~/layout";
 import { cliArgs } from "./helpers/cli";
-import { stopDaemon } from "./helpers/daemon";
+import { type TestHome, testHome } from "./helpers/home";
 import { testMachine } from "./helpers/records";
 
 const SRC = resolve("src");
@@ -38,28 +29,13 @@ const UNSTORABLE =
 const NEWER = /migrated by a newer Marbles/;
 const BUSY = /the Marbles database is busy/;
 
-const homes: string[] = [];
-const children: ChildProcess[] = [];
-const cleanups: (() => Promise<void>)[] = [];
+const clients: Client[] = [];
 
 afterEach(async () => {
-  for (const child of children.splice(0)) {
-    child.kill("SIGKILL");
-  }
-  for (const cleanup of cleanups.splice(0)) {
-    await cleanup();
-  }
-  for (const dir of homes.splice(0)) {
-    rmSync(dir, { force: true, recursive: true });
+  for (const client of clients.splice(0)) {
+    await client.close();
   }
 });
-
-/** A short home: the Marbles process's socket lives under its state root. */
-function home(): string {
-  const dir = mkdtempSync(join(tmpdir(), "mte-"));
-  homes.push(dir);
-  return dir;
-}
 
 /** A batch creating one task titled `title`, as `tasks change --input` takes it. */
 function creating(title: string) {
@@ -68,10 +44,11 @@ function creating(title: string) {
   };
 }
 
-function marbles(cwd: string, state: string, ...argv: readonly string[]) {
-  return spawnSync("bun", cliArgs(...argv, "--state", state), {
-    cwd,
+function marbles(home: TestHome, ...argv: readonly string[]) {
+  return spawnSync("bun", cliArgs(...argv), {
+    cwd: home.path,
     encoding: "utf8",
+    env: home.env,
     timeout: 30_000,
   });
 }
@@ -103,7 +80,8 @@ async function newerDatabase(state: string): Promise<void> {
  * Another process holding the database's write lock, longer than the busy
  * timeout; resolves once it has it.
  */
-async function holdWriteLock(state: string): Promise<void> {
+async function holdWriteLock(home: TestHome): Promise<void> {
+  const { state } = home.layout;
   (await initializeDatabase(stateDatabase(state))).close();
   const script = join(state, "..", "hold.ts");
   writeFileSync(
@@ -118,8 +96,8 @@ await new Promise((done) => setTimeout(done, 30_000));
 await held.rollback();
 `
   );
-  const holder = spawn("bun", [script], { cwd: resolve(".") });
-  children.push(holder);
+  // Carries the home, so its teardown stops it.
+  const holder = spawn("bun", [script], { cwd: resolve("."), env: home.env });
   await new Promise<void>((ready, failed) => {
     holder.stdout?.on("data", (chunk: Buffer) => {
       if (chunk.toString().includes("held")) {
@@ -142,17 +120,18 @@ function toolError(value: unknown): string {
   return block.text;
 }
 
-/** An MCP server over `state`, for the workspace at `cwd`. */
-async function mcp(cwd: string, state: string): Promise<Client> {
+/** An MCP server in `home`, for the workspace at its root. */
+async function mcp(home: TestHome): Promise<Client> {
   const transport = new StdioClientTransport({
-    args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--state", state],
+    args: ["--no-env-file", resolve("src/cli.ts"), "mcp"],
     command: "bun",
-    cwd,
+    cwd: home.path,
+    env: home.env,
     stderr: "pipe",
   });
   const client = new Client({ name: "tasks-errors", version: "1.0.0" });
   await client.connect(transport);
-  cleanups.push(() => client.close());
+  clients.push(client);
   return client;
 }
 
@@ -162,12 +141,10 @@ function change(client: Client, title: string) {
 
 describe("a task command the database refuses", { timeout: 60_000 }, () => {
   it("names the field holding text it cannot store, in one line", async () => {
-    const root = home();
-    const state = join(root, "state");
+    const home = testHome();
     for (const title of ["a\u0000b", "lone \ud800"]) {
       const refused = marbles(
-        root,
-        state,
+        home,
         "tasks",
         "change",
         "--input",
@@ -177,27 +154,25 @@ describe("a task command the database refuses", { timeout: 60_000 }, () => {
       expect(refused.stdout).toBe("");
       expect(refused.stderr).toMatch(UNSTORABLE);
     }
-    const client = await mcp(root, state);
+    const client = await mcp(home);
     expect(toolError(await change(client, "a\u0000b"))).toMatch(
       "cannot be stored in the Marbles database"
     );
-    expect(marbles(root, state, "tasks", "list", "--json").stdout).toContain(
+    expect(marbles(home, "tasks", "list", "--json").stdout).toContain(
       '"total": 0'
     );
   });
 
   it("names text it cannot store when the worker that hosts the workspace refuses it", async () => {
-    const root = home();
-    const state = join(root, "s");
-    const source = join(root, "marbles.ts");
+    const home = testHome();
+    const source = join(home.path, "marbles.ts");
     writeFileSync(source, 'import "@foundry.sh/marbles";\n');
-    // The CLI starts the Marbles process, which hosts the workspace.
-    cleanups.push(() => stopDaemon(state));
-    const attached = marbles(root, state, "attach", "--source", source);
+    // The CLI starts the Marbles process, which hosts the workspace; the
+    // home's teardown stops it.
+    const attached = marbles(home, "attach", "--source", source);
     expect(attached.status, attached.stderr).toBe(0);
     const refused = marbles(
-      root,
-      state,
+      home,
       "tasks",
       "change",
       "--input",
@@ -213,20 +188,18 @@ describe("a task command the database refuses", { timeout: 60_000 }, () => {
   });
 
   it("says a newer Marbles migrated the database, in one line", async () => {
-    const root = home();
-    const state = join(root, "state");
-    mkdirSync(state);
-    await newerDatabase(state);
+    const home = testHome();
+    await newerDatabase(home.layout.state);
     for (const argv of [
       ["tasks", "list"],
       ["tasks", "create", "Refused"],
     ]) {
-      const refused = marbles(root, state, ...argv);
+      const refused = marbles(home, ...argv);
       expect(refused.status, argv.join(" ")).toBe(1);
       expect(refused.stderr).toMatch(ONE_LINE);
       expect(refused.stderr).toMatch(NEWER);
     }
-    const client = await mcp(root, state);
+    const client = await mcp(home);
     expect(
       toolError(await client.callTool({ arguments: {}, name: "list_tasks" }))
     ).toMatch(NEWER);
@@ -234,14 +207,13 @@ describe("a task command the database refuses", { timeout: 60_000 }, () => {
   });
 
   it("says the database stayed busy, in one line", async () => {
-    const root = home();
-    const state = join(root, "state");
-    await holdWriteLock(state);
-    const refused = marbles(root, state, "tasks", "create", "Waiting");
+    const home = testHome();
+    await holdWriteLock(home);
+    const refused = marbles(home, "tasks", "create", "Waiting");
     expect(refused.status).toBe(1);
     expect(refused.stderr).toMatch(ONE_LINE);
     expect(refused.stderr).toMatch(BUSY);
-    const client = await mcp(root, state);
+    const client = await mcp(home);
     expect(toolError(await change(client, "Waiting"))).toMatch(BUSY);
   });
 });

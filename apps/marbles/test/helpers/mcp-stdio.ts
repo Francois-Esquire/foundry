@@ -148,16 +148,17 @@ export function strayLines(stdout: string): string[] {
  * Run `body` at the start of the `marbles mcp` server process, never in its
  * relay, by writing it as a Bun preload under `dir`. The server loads no
  * source, so this is how a test makes it print or misbehave on purpose.
- * Resolves the environment to start `marbles mcp` with.
+ * Resolves `env` with the preload added, to start `marbles mcp` with.
  */
 export async function serverPreload(
   dir: string,
-  body: string
+  body: string,
+  env: NodeJS.ProcessEnv = process.env
 ): Promise<NodeJS.ProcessEnv> {
   const preload = join(dir, "server-preload.ts");
   await writeFile(
     preload,
     `if (process.env.MARBLES_MCP_SERVER !== undefined) {\n${body}\n}\n`
   );
-  return { ...process.env, BUN_OPTIONS: `--preload ${preload}` };
+  return { ...env, BUN_OPTIONS: `--preload ${preload}` };
 }

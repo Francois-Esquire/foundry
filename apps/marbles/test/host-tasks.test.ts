@@ -22,11 +22,12 @@ import {
   marblesTaskChanges,
 } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
-import { layout, stateDatabase } from "~/layout";
+import { stateDatabase } from "~/layout";
 import { connect } from "~/process/client";
 import type { Daemon } from "~/process/daemon";
 import { startDaemon } from "~/process/daemon";
 import { readProcess } from "~/process/instance";
+import { testHome } from "./helpers/home";
 
 const SRC = resolve("src");
 
@@ -331,14 +332,12 @@ export const list = step("list").do(titles);
 }
 
 it("binds tasks to the workspace a worker hosts, and hands its records to the worker a reload starts", async () => {
-  // Short on purpose: the daemon's Unix socket lives under the state root.
-  const home = await mkdtemp(join(tmpdir(), "mbt-"));
-  roots.push(home);
-  const root = join(home, "project");
+  const home = testHome({ providers: false });
+  const root = join(home.path, "project");
   await mkdir(root);
   const source = join(root, "marbles.config.ts");
   await writeFile(source, workerSource(root, 1));
-  const machine = layout({ home });
+  const machine = home.layout;
   daemons.push(await startDaemon({ layout: machine, print: () => undefined }));
   const client = await connect({ layout: machine, start: false });
   try {

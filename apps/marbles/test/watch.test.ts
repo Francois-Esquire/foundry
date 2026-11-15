@@ -9,6 +9,7 @@ import { watchRun } from "~/watch";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { cliArgs } from "./helpers/cli";
 import { testEngine } from "./helpers/engine";
+import { testHome } from "./helpers/home";
 
 it("replays existing output, follows live text, and waits for completion", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-watch-"));
@@ -42,9 +43,10 @@ it("replays existing output, follows live text, and waits for completion", async
 
 it("uses real engine run IDs for agents and exposes their output to a separate CLI process", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-watch-agent-"));
+  const home = testHome();
   const engine = testEngine({
     reply: () => "agent answer 🌿",
-    state: join(root, "workspace"),
+    state: join(home.layout.state, "workspace"),
   });
   const runs = new BackgroundRuns(engine, new Catalog());
   await engine.start();
@@ -58,17 +60,11 @@ it("uses real engine run IDs for agents and exposes their output to a separate C
     );
     const stdout = execFileSync(
       "bun",
-      cliArgs(
-        "watch",
-        started.runId,
-        "--state",
-        root,
-        "--source",
-        join(root, "missing.ts")
-      ),
+      cliArgs("watch", started.runId, "--source", join(root, "missing.ts")),
       {
         cwd: tmpdir(),
         encoding: "utf8",
+        env: home.env,
         stdio: ["ignore", "pipe", "pipe"],
         timeout: 15_000,
       }
