@@ -137,7 +137,8 @@ Installation still selects. Each command reads the fields it takes from its inpu
 by name, wherever they live (an own property or a getter on a prototype, so a class
 instance is honoured), copies them before its first await, and then runs one
 read-modify-write ending in one `commit` to its `ModuleStore`, inside the store's
-`transaction` when it has one. A retained manifest must be plain JSON data. Lists come
+`transaction` when it has one. A retained manifest must be plain JSON data, copied in
+one pass that reads each of its properties once. Lists come
 back in id order (UTF-16 code units), paged by id; the registry reads every matching
 record and sorts it, which suits a local library.
 
@@ -170,8 +171,10 @@ plain objects, and copies the capture; both stores share that capture
 anything is written, a list that is not an array, a delete key that is not text, a
 record that is not plain data (made by `{}` or `Object.create(null)`, every own
 property enumerable), a field of the wrong type, and a manifest that is not plain JSON
-data. A commit lands whole or not at all: the memory store applies each write to a copy
-of its tables and swaps the copy in only once the whole write applied. Reads return
+data. A manifest is copied in the same pass that checks it, reading each
+property once, so a getter is called once and the store keeps what it returned. A
+commit lands whole or not at all: the memory store applies each write to a copy of its
+tables and swaps the copy in only once the whole write applied. Reads return
 detached copies, list in the order records were first put (a record put again keeps its
 place), filter by exact values and page by an opaque cursor. A position is never handed
 out twice in a scope, so a cursor stays valid however many records are deleted around
@@ -331,25 +334,50 @@ keeps one checkout per Module at a host-chosen path and implements both
 is needed.
 
 The Artifacts and the registry cannot share a transaction, so every operation that
-writes both orders its two commits so that the registry never names an Artifact or a
-Content that does not exist, and so that repeating the same call after a failure at any
-step completes it:
+writes both (project create, package import, Module delete) runs inside one registry
+`transaction`, which holds its checks and both writes: nothing can claim its Module id
+or its Artifact, or create an Installation, in between. Inside it the Artifact commits
+first and the registry commits with the transaction, so the registry never names an
+Artifact or a Content that does not exist, and repeating the same call after a failure
+at any step completes it. A registry over a SQLite store therefore holds its write lock
+while the Artifact step runs.
 
-- Project create: the Artifact first, then the registration that names it. If the
-  Artifact write fails, nothing is written and a retry creates the Module. If the
-  registration fails, the new Artifact, which nothing names, is archived (best effort)
-  and a retry makes another. A Module registered already is returned as idempotent only
-  once its Artifact is found; a registration naming a missing Artifact is refused, not
-  returned. A concurrent create of the same id wins, and this create's Artifact is
-  archived.
-- Package import: the registry is asked first whether the Module id belongs to another
-  Artifact, and the import is refused before anything lands. Then the Content lands in
-  its Artifact, then the Module is registered (and its manifest retained). Landing is
-  idempotent, so a retry after either step fails completes the import.
-- Module delete: the Installations are deleted, then the Artifact is archived, then the
-  Module is retired from the registry. An archived Artifact still exists, so whichever
-  step fails the registry names nothing missing; a retry archives again (a no-op: an
-  archived Artifact keeps its `archivedAt`) and then retires the Module.
+That order needs the Artifact step to commit when it returns, so each of these
+operations must own its Artifact commit. Called inside a caller's Artifact transaction
+(which `ArtifactManager.transaction` would join, committing the Artifact only with the
+caller's), it is refused before anything is written, Installations included, with a
+`ModuleCrossStoreError`. The manager offers no way to ask whether a transaction is open,
+so the operation asks by effect: it runs an empty Artifact transaction whose
+`afterCommit` marks that it ran, which happens before the call returns only for a
+transaction of its own. Against a store that writes on every commit (the JSON store),
+that probe costs one more write.
+
+- Project create: if a Module with the id is registered, it is returned as idempotent
+  once its Artifact is found and is not archived; a registration naming a missing or an
+  archived Artifact is refused, not repaired (unarchive the Artifact or delete the
+  Module). Otherwise the Artifact is created (committed), then registered. If the
+  Artifact write fails, nothing is written. If anything fails after it, the create
+  reconciles: it reads the Module again, and a registration naming the new Artifact
+  means the create succeeded (only its acknowledgment was lost). Only when that read
+  shows positively that no registration names the new Artifact is the Artifact archived
+  (best effort) and the error raised; if the read fails too, nothing is archived and the
+  original error stands. Two concurrent creates of one id: the second waits for the
+  first and returns it as idempotent.
+- Package import: before anything lands, inside the landing's own Artifact transaction,
+  ownership is checked both ways: the Module id is free or already on this Artifact, and
+  the Artifact is unowned or already this Module's. A refusal rolls that transaction
+  back, so a refused import leaves the Artifact exactly as it was. Then the Content
+  lands, then the Module is registered (and its manifest retained). Landing is
+  idempotent, so a retry after either commit fails completes the import.
+- Module delete: the Installations are deleted, then, in the registry transaction, the
+  Module must still be registered with no Installation, the Artifact is archived, and the
+  Module is retired. An archived Artifact still exists, so whichever commit fails the
+  registry names nothing missing; a retry archives again (a no-op: an archived Artifact
+  keeps its `archivedAt`) and then retires the Module.
+
+A registry a host implements itself (Works keeps registrations in Artifact metadata)
+offers `transaction` as one Artifact transaction that its commands join, so the whole
+operation commits as one there.
 
 `captureModuleWorkspaceSource(filesystem, root)` from `@foundry/modules/source` uses
 its `ModuleSourceFileSystem` interface. `@foundry/modules/node/source` exposes the same
@@ -401,9 +429,10 @@ in this package format without resolving the disagreement.
 
 Import creates the Module Artifact when absent, reuses an identical tagged Content
 version, or explicitly revises frozen Content and freezes the successor. Ready Content
-keeps its identity on replacement. The Artifact commits first and the registry second
-(see "Compose a Module system" for the order and its recovery), so a registration that
-fails after the Content landed leaves the Content, and a retry registers it.
+keeps its identity on replacement. Ownership is checked before anything lands, and
+the Artifact commits before the registry (see "Compose a Module system" for the order
+and its recovery), so a registration that fails after the Content landed leaves the
+Content, and a retry registers it.
 
 ## Gateway boundary
 
