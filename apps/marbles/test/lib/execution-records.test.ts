@@ -5,7 +5,6 @@ import { expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { initializeDatabase, readDatabase } from "~/database/open";
-import { readStoredRuns } from "~/database/runs";
 import { marblesExecutions } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
@@ -27,6 +26,7 @@ import {
   until,
   withExecutions,
 } from "../helpers/executions";
+import { readStoredRuns } from "../helpers/stored-runs";
 
 const fixture = executionFixture();
 const engineWith = fixture.engine;

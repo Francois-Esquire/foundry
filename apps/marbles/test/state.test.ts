@@ -10,7 +10,6 @@ import { join } from "node:path";
 import { Step } from "@foundry/workflows/step";
 import { describe, expect, it } from "vitest";
 import { defaultWorkspaceTriggers } from "~/database/managed";
-import { readStoredRuns } from "~/database/runs";
 import type { ScheduledEngine } from "~/lib/schedule";
 import { runSchedules, tick } from "~/lib/schedule";
 import { acquireLock } from "~/lib/state/locks";
@@ -19,6 +18,7 @@ import type { TriggerStore } from "~/lib/trigger-store";
 import { MemoryTriggerStore } from "~/lib/trigger-store";
 import type { Schedule } from "~/lib/triggers";
 import { testEngine } from "./helpers/engine";
+import { readStoredRuns } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
 const SHORT_HEX_ID_PATTERN = /^[0-9a-f]{12}$/;

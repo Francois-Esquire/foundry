@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Sessions } from "@foundry/agents/session";
-import { ArtifactManager } from "@foundry/artifacts";
+import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import { describe, expect, it } from "vitest";
@@ -11,7 +11,9 @@ import {
   readResourceView,
   resourceAssociations,
 } from "~/database/resources";
+import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
+import { workspaceStores } from "~/database/stores";
 import { stateDatabase } from "~/layout";
 import type { ResourceRef } from "~/lib/resources";
 import { ResourceAssociationError } from "~/lib/resources";
@@ -220,6 +222,48 @@ describe("the resource views", () => {
     expect(await names(state, "ws2")).toEqual([
       { name: "plan", workspaces: ["ws2"] },
     ]);
+  });
+
+  it("remove a resource's shares with it, so one made again with its id is not shared", async () => {
+    const { artifact, state } = await machine();
+    await withAssociations(state, async (associations) => {
+      await associations.share(artifact, "ws2");
+      await associations.share(
+        { id: "rn-1", kind: "run", owner: "ws1" },
+        "ws2"
+      );
+    });
+    const opened = await initializeDatabase(stateDatabase(state));
+    try {
+      const { database } = opened;
+      const artifacts = new ArtifactManager({
+        store: workspaceStores(database, "ws1").artifacts,
+      });
+      await artifacts.delete(artifactIdSchema.parse(artifact.id));
+      await artifacts.create({
+        entries: { "notes.md": { bytes: "# Again\n", mime: "text/markdown" } },
+        id: artifactIdSchema.parse(artifact.id),
+        name: "notes again",
+        type: "text/markdown",
+      });
+      const runs = await new DatabaseRunStore({ database, scope: "ws1" }).open(
+        () => undefined
+      );
+      await runs.commit({ deleteRuns: ["rn-1"] });
+    } finally {
+      opened.close();
+    }
+    expect(await names(state, "ws2")).toEqual([
+      { name: "plan", workspaces: ["ws2"] },
+    ]);
+    expect(await names(state, "ws1")).toEqual([
+      { name: "notes again", workspaces: ["ws1"] },
+    ]);
+    expect(
+      await withAssociations(state, (associations) =>
+        associations.sharedWith({ id: "rn-1", kind: "run", owner: "ws1" })
+      )
+    ).toEqual([]);
   });
 
   it("read nothing, and make no database, under an empty state root", async () => {

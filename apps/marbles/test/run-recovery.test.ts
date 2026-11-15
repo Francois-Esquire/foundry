@@ -13,7 +13,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { readStoredRuns } from "~/database/runs";
+import { readStoredRuns } from "./helpers/stored-runs";
 
 const SRC = resolve("src");
 const HELPERS = resolve("test/helpers");

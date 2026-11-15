@@ -5,12 +5,10 @@ import {
   capturedSessionWrite,
   SqliteSessionStore,
 } from "@foundry/agents/store/sqlite";
-import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { busyError } from "~/database/client";
 import type { StoreDatabase } from "~/database/open";
-import { readDatabase } from "~/database/open";
 import { marblesSessionRevisions } from "~/database/tables";
-import { stateDatabase } from "~/layout";
 import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
 
 /**
@@ -258,45 +256,4 @@ async function asMarbles<T>(call: () => Promise<T>): Promise<T> {
   } catch (error) {
     throw busyError(error) ?? error;
   }
-}
-
-/**
- * How many sessions each workspace under the state root holds, by
- * workspace id, through a read-only connection that never creates, migrates
- * or changes the database. Empty with no database, or nothing migrated
- * into it.
- */
-export async function sessionCounts(
-  state: string
-): Promise<ReadonlyMap<string, number>> {
-  const counted = await asMarbles(() =>
-    readDatabase(stateDatabase(state), (database) =>
-      database
-        .select({
-          scope: marblesSessionRevisions.scope,
-          sessions: count(),
-        })
-        .from(marblesSessionRevisions)
-        .groupBy(marblesSessionRevisions.scope)
-    )
-  );
-  return new Map(counted?.map((row) => [row.scope, row.sessions]) ?? []);
-}
-
-/**
- * Run `work` on a workspace's sessions for a command that only reads them,
- * through a read-only connection (`readDatabase`). Undefined, and `work`
- * not run, with no database or nothing migrated into it: there are no
- * sessions yet.
- */
-export function readSessions<T>(
-  state: string,
-  scope: string,
-  work: (sessions: DatabaseSessionStore) => Promise<T>
-): Promise<T | undefined> {
-  return asMarbles(() =>
-    readDatabase(stateDatabase(state), (database) =>
-      work(new DatabaseSessionStore({ database, scope }))
-    )
-  );
 }

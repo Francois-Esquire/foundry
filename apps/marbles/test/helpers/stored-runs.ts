@@ -2,6 +2,7 @@ import { ExecutionCoordinator } from "@foundry/workflows";
 import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { and, eq } from "drizzle-orm";
 import { openDatabase, readDatabase } from "~/database/open";
+import { readResourceView } from "~/database/resources";
 import { DatabaseRunStore } from "~/database/runs";
 import { marblesScheduleTicks, marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
@@ -156,4 +157,30 @@ export async function seedTicks(
   } finally {
     opened.close();
   }
+}
+
+/** A workspace's Run as the Marbles database keeps it, for a test to count. */
+export interface ListedRun {
+  readonly id: string;
+  /** The process of the engine that owns it; `null` when none does. */
+  readonly owner: number | null;
+  readonly status: string;
+}
+
+/**
+ * Every Run the workspace `scope` shows in the Marbles database at the
+ * state root `state`, read through its view; empty with no database.
+ */
+export async function readStoredRuns(
+  state: string,
+  scope: string
+): Promise<readonly ListedRun[]> {
+  const runs = await readResourceView(state, { workspace: scope }, (view) =>
+    view.runs()
+  );
+  return (runs ?? []).map(({ value }) => ({
+    id: value.record.id,
+    owner: value.ownerPid,
+    status: value.record.status,
+  }));
 }

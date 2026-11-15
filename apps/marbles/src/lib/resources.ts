@@ -112,11 +112,7 @@ export class ResourceAssociations {
    * newly shared: sharing it again changes nothing.
    */
   async share(ref: ResourceRef, workspace: string): Promise<boolean> {
-    if (!SHAREABLE.has(ref.kind)) {
-      throw new ResourceAssociationError(
-        `a ${ref.kind} belongs to the workspace that started it and cannot be shared`
-      );
-    }
+    refuseUnshareable(ref.kind);
     this.#refuseOwner(ref, workspace, "shared with");
     if (!(await this.#directory.has(ref))) {
       throw new ResourceAssociationError(
@@ -163,6 +159,18 @@ export class ResourceAssociations {
         `a ${ref.kind} always belongs to the workspace that owns it, and cannot be ${verb} it`
       );
     }
+  }
+}
+
+/**
+ * Refuse a kind that belongs to its owner alone, before anything is looked
+ * up: a caller that finds the resource first checks this first.
+ */
+export function refuseUnshareable(kind: ResourceKind): void {
+  if (!SHAREABLE.has(kind)) {
+    throw new ResourceAssociationError(
+      `a ${kind} belongs to the workspace that started it and cannot be shared`
+    );
   }
 }
 

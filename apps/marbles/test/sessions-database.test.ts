@@ -21,11 +21,8 @@ import { createEngine } from "~/create";
 import { fileIdentity, queuedFiles } from "~/database/client";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { openWorkspaceDatabase } from "~/database/managed";
-import {
-  DatabaseSessionStore,
-  readSessions,
-  sessionCounts,
-} from "~/database/sessions";
+import { readResourceView } from "~/database/resources";
+import { DatabaseSessionStore } from "~/database/sessions";
 import { stateDatabase } from "~/layout";
 import { workspaceState } from "~/lib/state/workspace";
 import type { ListedSessionStore } from "~/lib/usage-evidence";
@@ -33,6 +30,14 @@ import { listsSessions } from "~/lib/usage-evidence";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 import { temporaryDirectory } from "./helpers/temporary";
+
+/** How many sessions the workspace `scope` shows, as its view reads them. */
+async function sessionCount(state: string, scope: string): Promise<number> {
+  const sessions = await readResourceView(state, { workspace: scope }, (view) =>
+    view.sessions()
+  );
+  return sessions?.length ?? 0;
+}
 
 const machines: TestMachine[] = [];
 const opened: WorkspaceDatabase[] = [];
@@ -328,12 +333,12 @@ for (const kind of KINDS) {
         await through.commit(store, { putMessages: [filed("m", "later")] });
         await expect(store.getSession("later")).resolves.toBeNull();
         await expect(store.stamps()).resolves.toEqual([]);
-        expect(await sessionCounts(state)).toEqual(new Map());
+        expect(await sessionCount(state, "ws")).toBe(0);
 
         await through.commit(store, { putSessions: [session("later")] });
         const put = await stampsOf(store);
         expect([...put.keys()]).toEqual(["later"]);
-        expect(await sessionCounts(state)).toEqual(new Map([["ws", 1]]));
+        expect(await sessionCount(state, "ws")).toBe(1);
         await through.commit(store, {
           putMessages: [{ ...filed("m", "later"), status: "error" }],
         });
@@ -348,7 +353,7 @@ for (const kind of KINDS) {
           "later",
           "together",
         ]);
-        expect(await sessionCounts(state)).toEqual(new Map([["ws", 2]]));
+        expect(await sessionCount(state, "ws")).toBe(2);
       });
     }
   });
@@ -439,16 +444,20 @@ describe("an engine Marbles creates over a workspace's state", () => {
     }
     expect(readFileSync(left, "utf8")).toContain('"old"');
     expect(existsSync(stateDatabase(workspace.dir))).toBe(false);
-    const listed = await readSessions(stateRoot, workspace.id, (store) =>
-      store.stamps()
+    const listed = await readResourceView(
+      stateRoot,
+      { workspace: workspace.id },
+      (view) => view.sessions()
     );
-    expect(listed?.map(({ id }) => id)).toEqual(["new"]);
+    expect(listed?.map(({ ref }) => ref.id)).toEqual(["new"]);
   });
 
   it("reads no sessions, and makes no database, where none was made", async () => {
     const stateRoot = temporaryDirectory("marbles-sessions-none-");
     await expect(
-      readSessions(stateRoot, "ws", (store) => store.stamps())
+      readResourceView(stateRoot, { workspace: "ws" }, (view) =>
+        view.sessions()
+      )
     ).resolves.toBeUndefined();
     expect(existsSync(stateDatabase(stateRoot))).toBe(false);
   });
@@ -493,10 +502,15 @@ await host.close();
     });
     expect(hosted.status, hosted.stderr).toBe(0);
     const { dir, id } = workspaceState(state, workspace);
-    return readSessions(state, id, async (store) => ({
-      messages: (await store.listMessages("hosted")).length,
-      stamps: (await store.stamps()).map((stamp) => stamp.id),
-    })).then((read) => {
+    return readResourceView(state, { workspace: id }, async (view) => {
+      const sessions = await view.sessions();
+      const [kept] = sessions;
+      return {
+        messages:
+          kept === undefined ? 0 : (await view.messages(kept.ref)).length,
+        stamps: sessions.map(({ ref }) => ref.id),
+      };
+    }).then((read) => {
       expect(read).toEqual({ messages: 1, stamps: ["hosted"] });
       expect(existsSync(join(dir, "sessions"))).toBe(false);
     });

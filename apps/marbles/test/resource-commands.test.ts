@@ -28,6 +28,8 @@ import { temporaryDirectory } from "./helpers/temporary";
  * associations, and make a workspace's links from what its view shows.
  */
 
+const CANNOT_SHARE =
+  /a sandbox belongs to the workspace that started it and cannot be shared/;
 const RUN_LINE = /^rn-1 {2}guides {2}\[complete\]/;
 const NOT_HERE = /no artifact artifact#missing in this workspace/;
 
@@ -184,6 +186,17 @@ describe("the resource commands", () => {
     expect(lines[0]).toBe(
       `${resourceLinks(one.root, "artifact")}: 2 linked, 1 left unlinked (no one blob file holds it)`
     );
+  });
+
+  it("refuse to share a sandbox before looking for it", async () => {
+    const { context, one } = await machine();
+    await expect(
+      changeAssociation(
+        "share",
+        { id: "ct-missing", kind: "sandbox", with: "two" },
+        context(one).context
+      )
+    ).rejects.toThrow(CANNOT_SHARE);
   });
 
   it("refuse a links directory that is a link, and a resource this workspace does not show", async () => {

@@ -10,7 +10,7 @@ import {
 import { recordedWorkspaces } from "~/database/workspaces";
 import { resourceLinks, stateDatabase } from "~/layout";
 import type { ResourceKind, ResourceRef } from "~/lib/resources";
-import { ResourceAssociationError } from "~/lib/resources";
+import { ResourceAssociationError, refuseUnshareable } from "~/lib/resources";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 import type { LinksReport } from "~/resources/links";
@@ -69,6 +69,9 @@ export async function changeAssociation(
   request: AssociationRequest,
   context: ResourceCommandContext
 ): Promise<void> {
+  if (change === "share") {
+    refuseUnshareable(request.kind);
+  }
   const other = otherWorkspace(request.with, context);
   const ref = await shownHere(request, context);
   const changed = await writeDatabase(

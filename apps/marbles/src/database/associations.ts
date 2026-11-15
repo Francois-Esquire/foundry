@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import { marblesResourceWorkspaces } from "~/database/tables";
@@ -74,4 +74,40 @@ export class DatabaseAssociationStore implements AssociationStore {
       }));
     });
   }
+}
+
+/**
+ * Remove the shares of the resources of `kind` with `ids` that the
+ * workspace `owner` keeps, in `transaction`: a store's `onCommit` hook
+ * calls it as the commit removes them, so a share never outlives its
+ * resource, nor shows a later one given the same id.
+ */
+export async function removeShares(
+  transaction: Pick<StoreDatabase, "delete">,
+  kind: ResourceKind,
+  owner: string,
+  ids: readonly string[]
+): Promise<void> {
+  for (const batch of chunks(ids)) {
+    await transaction
+      .delete(marblesResourceWorkspaces)
+      .where(
+        and(
+          eq(marblesResourceWorkspaces.owner, owner),
+          eq(marblesResourceWorkspaces.kind, kind),
+          inArray(marblesResourceWorkspaces.resourceId, batch)
+        )
+      );
+  }
+}
+
+/** Ids per statement, well under SQLite's parameter limit. */
+const BATCH = 500;
+
+function chunks(ids: readonly string[]): string[][] {
+  const batches: string[][] = [];
+  for (let start = 0; start < ids.length; start += BATCH) {
+    batches.push(ids.slice(start, start + BATCH));
+  }
+  return batches;
 }

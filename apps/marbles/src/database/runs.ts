@@ -8,12 +8,11 @@ import type { WorkflowTransaction } from "@foundry/workflows/store/sqlite";
 import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+import { removeShares } from "~/database/associations";
 import { aroundCalls, asBusy } from "~/database/busy";
 import { followExecution, readExecution } from "~/database/executions";
 import type { StoreDatabase } from "~/database/open";
-import { readDatabase } from "~/database/open";
 import { marblesWorkflowRuns } from "~/database/tables";
-import { stateDatabase } from "~/layout";
 import { RecordsGate } from "~/lib/events/records";
 import type { RecordedScope } from "~/lib/run-scope";
 import type {
@@ -131,6 +130,12 @@ export class DatabaseRunStore implements RunStore {
             onCommit: async (transaction, write) => {
               await this.#file(transaction, write, recorded);
               await this.#follow(transaction, write, follows);
+              await removeShares(
+                transaction,
+                "run",
+                this.#scope,
+                write.deleteRuns ?? []
+              );
             },
             scope: this.#scope,
           }),
@@ -283,62 +288,4 @@ export class DatabaseRunStore implements RunStore {
   #call<T>(call: () => Promise<T>): Promise<T> {
     return this.#gate.run(() => asBusy(call));
   }
-}
-
-/** A workspace's Run as `status` lists it. */
-export interface StoredRun {
-  /** In ms since the epoch. */
-  readonly createdAt: number;
-  readonly id: string;
-  /** The process of the engine that owns it; `null` when none does. */
-  readonly owner: number | null;
-  readonly status: string;
-  readonly step: string;
-}
-
-/**
- * Every Run the workspace `scope` keeps in the Marbles database at the
- * state root `state`, read only (`readDatabase`), in the order they were
- * first put. Empty with no database, or nothing migrated into it.
- */
-export async function readStoredRuns(
-  state: string,
-  scope: string
-): Promise<readonly StoredRun[]> {
-  const read = await asBusy(() =>
-    readDatabase(stateDatabase(state), async (database) => {
-      const store = new SqliteWorkflowStore({ database, scope });
-      const owners = new Map(
-        (
-          await database
-            .select({
-              ownerPid: marblesWorkflowRuns.ownerPid,
-              runId: marblesWorkflowRuns.runId,
-            })
-            .from(marblesWorkflowRuns)
-            .where(eq(marblesWorkflowRuns.scope, scope))
-        ).map((row) => [row.runId, row.ownerPid])
-      );
-      const runs: StoredRun[] = [];
-      let after: number | undefined;
-      do {
-        const page = await store.listRuns({
-          limit: 200,
-          ...(after === undefined ? {} : { after }),
-        });
-        for (const run of page.items) {
-          runs.push({
-            createdAt: run.timestamps.createdAt,
-            id: run.id,
-            owner: owners.get(run.id) ?? null,
-            status: run.status,
-            step: run.step,
-          });
-        }
-        after = page.next;
-      } while (after !== undefined);
-      return runs;
-    })
-  );
-  return read ?? [];
 }

@@ -7,6 +7,7 @@ import type { ContainerStore } from "@foundry/sandbox/store";
 import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
 import { SqliteWorkspaceStore } from "@foundry/workspaces/store/sqlite";
+import { removeShares } from "~/database/associations";
 import { surfacingBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
@@ -20,9 +21,9 @@ import { stateDatabase } from "~/layout";
  * owned from the call, a value they cannot store refused, one call at a
  * time) is the package's, not Marbles' again; only a lock waited on too
  * long surfaces as Marbles says it, a `DatabaseBusyError`
- * (`surfacingBusy`). Nothing records their
- * changes yet: unlike `tasks.ts` and `sessions.ts`, none of them has an
- * `onCommit` hook here.
+ * (`surfacingBusy`). Only the artifact store has an `onCommit` hook: an
+ * artifact the commit deletes takes its shares (`marbles_resource_workspaces`)
+ * with it. Nothing else records their changes.
  *
  * An artifact's records are rows; its bytes past the inline limit are blob
  * files on disk, which the package stages and names. Each workspace keeps
@@ -45,7 +46,20 @@ export function workspaceStores(
   scope: string
 ): WorkspaceStores {
   return {
-    artifacts: surfacingBusy(new SqliteArtifactStore({ database, scope })),
+    artifacts: surfacingBusy(
+      new SqliteArtifactStore({
+        database,
+        // An artifact's shares go with it, in the same transaction.
+        onCommit: (transaction, write) =>
+          removeShares(
+            transaction,
+            "artifact",
+            scope,
+            write.deleteArtifacts ?? []
+          ),
+        scope,
+      })
+    ),
     containers: surfacingBusy(createSqliteContainerStore({ database, scope })),
     workspaces: surfacingBusy(new SqliteWorkspaceStore({ database, scope })),
   };
