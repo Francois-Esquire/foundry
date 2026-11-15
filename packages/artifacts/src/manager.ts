@@ -353,9 +353,12 @@ export class ArtifactManager implements Artifacts {
     readonly contentId: ContentId;
     readonly name?: string;
   }): Promise<ArtifactResolved> {
-    // Ordered by the source's Artifact: a fork freezes a ready source.
-    return this.#inOrderOfContent(input.contentId, () =>
-      this.transaction((artifacts) => artifacts.fork(input))
+    // Ordered by the source's Artifact, since a fork freezes a ready
+    // source, and by the Artifact it creates, when its id is given.
+    return this.#inOrderOfContent(
+      input.contentId,
+      () => this.transaction((artifacts) => artifacts.fork(input)),
+      input.id
     );
   }
 
@@ -617,35 +620,51 @@ export class ArtifactManager implements Artifacts {
     start: (settled: () => void) => Promise<T>
   ): Promise<T> {
     if (this.#lookups === 0 || this.#joined()) {
-      return this.#register(id, streams, start);
+      return this.#register([id], streams, start);
     }
     // Behind every Content-named change called earlier, once each has
     // taken its place in its Artifact's order.
-    return this.#looked.then(() => this.#register(id, streams, start));
+    return this.#looked.then(() => this.#register([id], streams, start));
   }
 
-  /** `#inOrder` once no earlier Content-named change is still looking up its Artifact. */
+  /**
+   * `#inOrder` once no earlier Content-named change is still looking up its
+   * Artifact. A change to several Artifacts takes its place in each order
+   * at once and starts once every change ahead of it in any of them has
+   * secured its place. Places are taken in call order, so a change only
+   * ever waits on earlier ones and no two wait on each other.
+   */
   #register<T>(
-    id: ArtifactId | undefined,
+    ids: readonly (ArtifactId | undefined)[],
     streams: boolean,
     start: (settled: () => void) => Promise<T>
   ): Promise<T> {
     const unheld = () => undefined;
-    if (id === undefined || this.#joined()) {
+    const held = [
+      ...new Set(ids.filter((id): id is ArtifactId => id !== undefined)),
+    ];
+    if (held.length === 0 || this.#joined()) {
       return start(unheld);
     }
-    const before = this.#ordered.get(id);
-    if (before === undefined && !streams) {
+    const before = held.flatMap((id) => {
+      const earlier = this.#ordered.get(id);
+      return earlier === undefined ? [] : [earlier];
+    });
+    if (before.length === 0 && !streams) {
       return start(unheld);
     }
     let secured!: () => void;
     const mine = new Promise<void>((resolve) => {
       secured = resolve;
     });
-    this.#ordered.set(id, mine);
+    for (const id of held) {
+      this.#ordered.set(id, mine);
+    }
     mine.then(() => {
-      if (this.#ordered.get(id) === mine) {
-        this.#ordered.delete(id);
+      for (const id of held) {
+        if (this.#ordered.get(id) === mine) {
+          this.#ordered.delete(id);
+        }
       }
     });
     const begin = () => {
@@ -655,7 +674,7 @@ export class ArtifactManager implements Artifacts {
       (streams ? result : Promise.resolve()).then(secured, secured);
       return result;
     };
-    return before === undefined ? begin() : before.then(begin);
+    return before.length === 0 ? begin() : Promise.all(before).then(begin);
   }
 
   /**
@@ -666,9 +685,14 @@ export class ArtifactManager implements Artifacts {
    * from the store and taken its place in that Artifact's order. A lookup
    * that fails, or finds no Content, gives the place up, and the change
    * rejects as it would have. A Content's Artifact never changes, so one
-   * read suffices.
+   * read suffices. A change that also creates Artifact `also` (a fork) takes
+   * its place in that Artifact's order too.
    */
-  #inOrderOfContent<T>(id: ContentId, start: () => Promise<T>): Promise<T> {
+  #inOrderOfContent<T>(
+    id: ContentId,
+    start: () => Promise<T>,
+    also?: ArtifactId
+  ): Promise<T> {
     if (this.#joined() || (this.#ordered.size === 0 && this.#lookups === 0)) {
       return start();
     }
@@ -689,7 +713,11 @@ export class ArtifactManager implements Artifacts {
         (content) => {
           // Registered before the place is released, so changes waiting on
           // it find this change ahead of them.
-          const result = this.#register(content?.artifactId, false, start);
+          const result = this.#register(
+            [content?.artifactId, also],
+            false,
+            start
+          );
           release();
           return result;
         },

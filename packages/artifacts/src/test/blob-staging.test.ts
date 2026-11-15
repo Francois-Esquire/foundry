@@ -15,6 +15,7 @@ import type { BlobFiles } from "../blob";
 import { MAX_STAGING_STREAMS } from "../blob-staging";
 import { CHUNK_BYTES } from "../constants";
 import {
+  ArtifactExistsError,
   ArtifactNotFoundError,
   ContentNotFoundError,
   ContentStateError,
@@ -1128,6 +1129,76 @@ describe.each(["memory", "json"] as const)(
       expect(
         decoded((await artifacts.readFile(contentId, "f.txt"))?.blob)
       ).toBe("streamed");
+    });
+  }
+);
+
+describe.each(["memory", "json"] as const)(
+  "%s store: a fork takes its place in its destination's order",
+  (kind) => {
+    it("waits behind an earlier stalled create of its destination id", async () => {
+      const { manager } = await storage(kind);
+      const artifacts = manager();
+      const source = await artifacts.create({
+        entries: { "f.txt": { bytes: "source" } },
+        name: "Source",
+        type: "text/plain",
+      });
+      const id = artifactIdSchema.parse(crypto.randomUUID());
+      const gate = gated([], [text("created")]);
+      const creating = artifacts.create({
+        entries: { "f.txt": { source: gate.source } },
+        id,
+        name: "Created",
+        type: "text/plain",
+      });
+      let forking: Promise<unknown> | undefined;
+      try {
+        expect(await within(gate.waiting)).toBe("resolved");
+        forking = artifacts.fork({
+          contentId: required(source.contentId),
+          id,
+        });
+        forking.catch(() => undefined);
+        expect(await within(forking, 200)).toBe("pending");
+      } finally {
+        gate.release();
+      }
+      await expect(creating).resolves.toMatchObject({ id, name: "Created" });
+      await expect(forking).rejects.toBeInstanceOf(ArtifactExistsError);
+    });
+
+    it("holds a later change to its destination while it waits on its source", async () => {
+      const { manager } = await storage(kind);
+      const artifacts = manager();
+      const source = await artifacts.create({
+        entries: { "f.txt": { bytes: "source" } },
+        name: "Source",
+        type: "text/plain",
+      });
+      const id = artifactIdSchema.parse(crypto.randomUUID());
+      const gate = gated([], [text("streamed")]);
+      const streaming = artifacts.write({
+        artifactId: source.id,
+        changes: { put: { "f.txt": { source: gate.source } } },
+      });
+      let forking: Promise<unknown> | undefined;
+      let renaming: Promise<unknown> | undefined;
+      try {
+        expect(await within(gate.waiting)).toBe("resolved");
+        forking = artifacts.fork({
+          contentId: required(source.contentId),
+          id,
+        });
+        renaming = artifacts.rename(id, "Renamed");
+        renaming.catch(() => undefined);
+        expect(await within(renaming, 200)).toBe("pending");
+      } finally {
+        gate.release();
+      }
+      await streaming;
+      await forking;
+      await expect(renaming).resolves.toMatchObject({ id, name: "Renamed" });
     });
   }
 );
