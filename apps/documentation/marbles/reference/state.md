@@ -308,7 +308,10 @@ triggers are live, from its engine; another workspace's are read from the
 database at most every two seconds, its triggers from their last tick
 (`marbles_schedule_ticks`) and pending monitor launch
 (`marbles_monitor_states`), and offer no control there. A run or artifact
-its store deletes takes its shares with it in the same transaction.
+its store deletes takes its shares with it in the same transaction. Sharing
+or unsharing an artifact records `artifact.shared` or `artifact.unshared`,
+naming the other workspace, in the owner's change log in the share's own
+transaction; only the owner's observers see it.
 
 Links are derived, never read: `<workspace root>/.marbles/artifacts/<id>/<path>`
 for an artifact the workspace owns, and `artifacts/@<owner>/<id>/<path>` for

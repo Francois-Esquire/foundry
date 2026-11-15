@@ -331,7 +331,8 @@ it, and `--all` lists every workspace's; a run's steps are listed under it.
 `marbles status` reads the same way. The dashboard's run and trigger lists
 show this workspace's own (live) and those shared with it, and `g` shows
 every workspace's; another workspace's runs and triggers are read only
-there, as are its Feed questions. Deleting a run or an artifact removes its
+there, as are its Feed questions. Sharing or unsharing an artifact is an `artifact.shared` or
+`artifact.unshared` fact for the owner's observers. Deleting a run or an artifact removes its
 shares with it.
 
 `<workspace root>/.marbles/` holds links into the database's files for the
