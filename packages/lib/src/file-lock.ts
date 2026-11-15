@@ -1,10 +1,13 @@
 /**
  * Cross-process exclusion through a lock file created with `wx`: whoever
  * creates it holds the lock until it removes it. The file records the
- * holder (`@foundry/lib/process-identity`): its pid on the first line and
- * its start time on the second, so a lock whose pid another process was
- * given since, as after a reboot, counts as abandoned. A file with the pid
- * alone, as earlier versions wrote it, is judged by the pid.
+ * holder's pid, alone, as every version of this module has written and
+ * read it. Beside it, `<path>.owner` records the holder's start
+ * (`@foundry/lib/process-identity`) and which lock file it is about, by
+ * its inode and change time, so a lock whose pid another process was
+ * given since, as after a reboot, counts as abandoned. One that names
+ * another lock file, or is missing, says nothing: the pid alone decides,
+ * as it does for an earlier version, which never reads it.
  *
  * One protocol, two ways in: `tryFileLock` takes the lock now or says who
  * has it, for callers that skip rather than wait; `acquireFileLock` retries
@@ -26,7 +29,7 @@ import {
   writeSync,
 } from "node:fs";
 
-import { hasErrorCode } from "./atomic-file";
+import { hasErrorCode, writeFileAtomicSync } from "./atomic-file";
 import {
   isGone,
   type ProcessIdentity,
@@ -117,27 +120,69 @@ function absentOr(error: unknown): LockFile {
 
 function readLock(path: string): LockFile {
   let contents: string;
+  let file: ReturnType<typeof statSync>;
   try {
     contents = readFileSync(path, "utf8");
+    file = statSync(path);
   } catch (error) {
     return absentOr(error);
   }
   if (contents === "") {
-    try {
-      const { ino, mtimeMs } = statSync(path);
-      return { ino, kind: "empty", mtimeMs };
-    } catch (error) {
-      return absentOr(error);
-    }
+    return { ino: file.ino, kind: "empty", mtimeMs: file.mtimeMs };
   }
-  const [first = "", started = ""] = contents.split("\n");
-  const pid = Number(first);
-  return Number.isInteger(pid) && pid > 0 && first.trim() === first
+  // As every version reads it: the pid, and nothing but space around it.
+  const pid = Number(contents);
+  return Number.isInteger(pid) && pid > 0
     ? {
         kind: "holder",
-        owner: { pid, started: started === "" ? null : started },
+        owner: { pid, started: ownerStart(path, pid, file) },
       }
     : { kind: "other" };
+}
+
+/** What `<path>.owner` records of the lock file it is about. */
+interface OwnerNote {
+  readonly ctimeMs: number;
+  readonly ino: number;
+  readonly pid: number;
+  readonly started: string;
+}
+
+function ownerNotePath(path: string): string {
+  return `${path}.owner`;
+}
+
+/**
+ * The start `<path>.owner` records for the holder `pid` of the lock file
+ * `file`; `null` when it names another lock file or another pid, or there
+ * is none to read.
+ */
+function ownerStart(
+  path: string,
+  pid: number,
+  file: { readonly ctimeMs: number; readonly ino: number }
+): string | null {
+  let note: Partial<OwnerNote>;
+  try {
+    note = JSON.parse(readFileSync(ownerNotePath(path), "utf8"));
+  } catch {
+    return null;
+  }
+  return note.ino === file.ino &&
+    note.ctimeMs === file.ctimeMs &&
+    note.pid === pid &&
+    typeof note.started === "string"
+    ? note.started
+    : null;
+}
+
+/** Record this process's start beside the lock file it has just written. */
+function noteOwner(path: string, mode: number, file: OwnerNote): void {
+  try {
+    writeFileAtomicSync(ownerNotePath(path), JSON.stringify(file), { mode });
+  } catch {
+    // Without it the lock is judged by its pid alone, as earlier versions judge it.
+  }
 }
 
 /** Whether two reads found the same lock: one holder, or one untouched empty file. */
@@ -193,10 +238,9 @@ export function holdsLock(path: string): boolean {
   return owner !== undefined && sameProcess(owner, thisProcess());
 }
 
-/** What a lock file records of this process: its pid, and its start time when known. */
+/** What a lock file records of this process: its pid, as every version reads it. */
 export function lockContents(): string {
-  const { pid, started } = thisProcess();
-  return started === null ? String(pid) : `${String(pid)}\n${started}`;
+  return String(thisProcess().pid);
 }
 
 /**
@@ -216,11 +260,11 @@ function create(path: string, mode: number): boolean {
     }
     throw error;
   }
-  let ino: number;
+  let written: { readonly ctimeMs: number; readonly ino: number };
   try {
     try {
       writeSync(file, lockContents());
-      ({ ino } = fstatSync(file));
+      written = fstatSync(file);
     } finally {
       closeSync(file);
     }
@@ -229,10 +273,22 @@ function create(path: string, mode: number): boolean {
     throw error;
   }
   try {
-    return statSync(path).ino === ino;
+    if (statSync(path).ino !== written.ino) {
+      return false;
+    }
   } catch {
     return false;
   }
+  const { pid, started } = thisProcess();
+  if (started !== null) {
+    noteOwner(path, mode, {
+      ctimeMs: written.ctimeMs,
+      ino: written.ino,
+      pid,
+      started,
+    });
+  }
+  return true;
 }
 
 /**
@@ -280,6 +336,7 @@ function releaser(path: string): () => void {
     }
     released = true;
     if (holdsLock(path)) {
+      rmSync(ownerNotePath(path), { force: true });
       rmSync(path, { force: true });
     }
   };

@@ -47,6 +47,19 @@ function exitedPid(): number {
   return pid;
 }
 
+/** Write `lock` as `owner` would hold it: its pid, and a note of its start. */
+async function ownedBy(
+  path: string,
+  owner: { readonly pid: number; readonly started: string }
+): Promise<void> {
+  await writeFile(path, String(owner.pid));
+  const { ctimeMs, ino } = await stat(path);
+  await writeFile(
+    `${path}.owner`,
+    JSON.stringify({ ctimeMs, ino, pid: owner.pid, started: owner.started })
+  );
+}
+
 describe("file locks", () => {
   it("records the holder and removes the file on release", async () => {
     const release = await acquireFileLock(lock);
@@ -85,7 +98,7 @@ describe("file locks", () => {
 
   it("breaks a lock an earlier process with this pid left, as after a reboot", async () => {
     // The pid runs, but it is this process, which started later.
-    await writeFile(lock, `${String(process.pid)}\n${anotherStart()}`);
+    await ownedBy(lock, { pid: process.pid, started: anotherStart() });
     await expect(acquireFileLock(lock, { waitMs: 30 })).rejects.toMatchObject({
       holder: process.pid,
     });
@@ -94,6 +107,32 @@ describe("file locks", () => {
     expect(lockOwner(lock)).toEqual(thisProcess());
     await release();
     expect(await readdir(directory)).toEqual([]);
+  });
+
+  it("writes the holder's pid alone, as every version reads it, and its start beside it", async () => {
+    const release = await acquireFileLock(lock);
+    const written = await readFile(lock, "utf8");
+    // What an earlier version does with the file: `Number(contents)`.
+    expect(Number(written)).toBe(process.pid);
+    expect(JSON.parse(await readFile(`${lock}.owner`, "utf8"))).toMatchObject({
+      pid: process.pid,
+      started: thisProcess().started,
+    });
+    await release();
+    expect(await readdir(directory)).toEqual([]);
+  });
+
+  it("takes no start from a note about another lock file, nor another pid", async () => {
+    await ownedBy(lock, { pid: process.pid, started: anotherStart() });
+    const note = await readFile(`${lock}.owner`, "utf8");
+    // The lock it was about is gone, and a new one is in its place.
+    await rm(lock);
+    await writeFile(lock, String(process.pid));
+    await writeFile(`${lock}.owner`, note);
+    expect(lockOwner(lock)).toEqual({ pid: process.pid, started: null });
+    await ownedBy(lock, { pid: process.pid + 1, started: "x" });
+    await writeFile(lock, String(process.pid));
+    expect(lockOwner(lock)?.started).toBeNull();
   });
 
   it("never breaks a live holder's lock that records no start time", async () => {
