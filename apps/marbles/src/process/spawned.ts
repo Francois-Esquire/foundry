@@ -12,7 +12,6 @@ export {
   SPAWN_OWNER_ENV,
   SPAWN_RECORD_ENV,
   type SpawnRecord,
-  spawnRecordEnvironment,
   startedAt,
   writePrivate,
 } from "@foundry/lib/spawn-record";
