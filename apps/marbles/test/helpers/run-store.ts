@@ -256,6 +256,30 @@ export function describeRunStore(
     );
 
     it.runIf(shared)(
+      "refuses a change from the store that let a Run go, before any other claims it, until it claims it again",
+      async () => {
+        const first = await store();
+        const second = await store();
+        const workflows = await first.open(() => SCOPE);
+        await putRun(workflows, "rn-1", "suspended");
+        // Let go: owned by no one, and not yet taken by another engine.
+        await first.release("rn-1");
+
+        // A late answer of the store that let it go, landing in that window.
+        await expect(putRun(workflows, "rn-1", "running")).rejects.toThrow(
+          "is not held by this engine"
+        );
+        expect((await workflows.getRun("rn-1"))?.status).toBe("suspended");
+        expect(await second.claim("rn-1", ANY_STORED_RUN)).toBe(true);
+        await second.release("rn-1");
+        // Claimed again, it is this store's to change once more.
+        expect(await first.claim("rn-1", ANY_STORED_RUN)).toBe(true);
+        await putRun(workflows, "rn-1", "running");
+        expect((await workflows.getRun("rn-1"))?.status).toBe("running");
+      }
+    );
+
+    it.runIf(shared)(
       "lets one store own a Run at a time, until its owner gives it up or settles it",
       async () => {
         const first = await store();

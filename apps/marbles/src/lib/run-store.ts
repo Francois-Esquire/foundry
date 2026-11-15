@@ -60,7 +60,14 @@ export interface RunStore {
   ): Promise<WorkflowStore>;
   /** What the Run's scope last recorded: an empty ledger when it recorded nothing. */
   recorded(runId: string): Promise<StoredScope>;
-  /** Give up the Run, or with no id every Run this store owns, as its engine stops. */
+  /**
+   * Give up the Run, or with no id every Run this store owns, as its engine
+   * stops. A Run given up by id is let go for another engine to take over:
+   * a store that outlives the process then refuses its own commits to it
+   * until it claims it again, even while no one owns it. One held in
+   * memory is never taken over by another engine, so for it giving up is
+   * all there is.
+   */
   release(runId?: string): Promise<void>;
   /** A settled Run and everything kept of it, gone in one write. */
   remove(runId: string): Promise<void>;

@@ -81,6 +81,12 @@ export class DatabaseRunStore implements RunStore {
   readonly #scope: string;
   /** This store's identity as an owner: one per engine, so two in one process are told apart. */
   readonly #owner = randomUUID();
+  /**
+   * The Runs this store gave up one by one (`release(runId)`), and has not
+   * claimed again: let go for another engine to take over, so no commit of
+   * this store's may retake one, though no one owns it yet.
+   */
+  readonly #letGo = new Set<string>();
   /** Every call, the workflow records' included, so `close` waits for those under way. */
   readonly #gate = new RecordsGate("the run store is closed");
 
@@ -90,15 +96,20 @@ export class DatabaseRunStore implements RunStore {
   }
 
   claim(runId: string, when: ClaimCondition): Promise<boolean> {
-    return this.#call(() =>
-      claimJudged(
+    return this.#call(async () => {
+      const claimed: boolean = await claimJudged<boolean, boolean>(
         () => this.#ownerOf(this.#database, runId),
         // Asked outside the transaction: no process is asked under its lock.
         (seen) => seen !== undefined && this.#heldElsewhere(seen),
         (seen, held) => this.#claimIn(runId, when, seen, held),
         false
-      )
-    );
+      );
+      if (claimed) {
+        // Claimed again: this store's to change once more.
+        this.#letGo.delete(runId);
+      }
+      return claimed;
+    });
   }
 
   /** The owner columns of the Run `runId`'s row, as `database` reads them now. */
@@ -211,6 +222,11 @@ export class DatabaseRunStore implements RunStore {
   }
 
   release(runId?: string): Promise<void> {
+    // Let go from this turn on, before the write lands: a commit of this
+    // store's that would retake it is refused from now (`#file`).
+    if (runId !== undefined) {
+      this.#letGo.add(runId);
+    }
     return this.#call(async () => {
       await this.#database
         .update(marblesWorkflowRuns)
@@ -248,8 +264,10 @@ export class DatabaseRunStore implements RunStore {
    * owns, one that claimed it after this one let it go, is not this
    * engine's to change: the whole commit is refused with a `RunMovedError`,
    * read and decided in this same transaction, so an answer, a resume or
-   * any other change this engine makes after the run moved never lands. A
-   * Run no one owns is this store's again once it puts it, as before.
+   * any other change this engine makes after the run moved never lands. So
+   * is a commit to a Run this store let go (`release(runId)`) and has not
+   * claimed again, in the window before the next engine claims it. Any
+   * other Run no one owns is this store's again once it puts it.
    */
   async #file(
     transaction: WorkflowTransaction,
@@ -257,6 +275,11 @@ export class DatabaseRunStore implements RunStore {
     recorded: (runId: string) => RecordedScope | undefined
   ): Promise<void> {
     for (const { runId, scope, settled } of filedRuns(write, recorded)) {
+      // Let go by this store: its change is refused even while no one owns
+      // it, since the engine taking it over has not claimed it yet.
+      if (this.#letGo.has(runId)) {
+        throw new RunMovedError(runId);
+      }
       const held = await this.#ownerOf(transaction, runId);
       if (
         held !== undefined &&
