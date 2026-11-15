@@ -38,8 +38,17 @@ const STEP_LIFECYCLE: ReadonlySet<string> = new Set([
   "step.aborted",
 ]);
 
-/** What is read of a held run while it is live. */
-type HeldWorkflow = Pick<Dispatched<unknown>["workflow"], "root" | "state">;
+type DispatchedWorkflow = Dispatched<unknown>["workflow"];
+
+/**
+ * What is read of a held run while it is live: its state and its steps'
+ * events. Named member by member so that it holds for a run of any output
+ * type; the root step's body does not.
+ */
+interface HeldWorkflow {
+  readonly root: Pick<DispatchedWorkflow["root"], "subscribe">;
+  readonly state: DispatchedWorkflow["state"];
+}
 
 interface HeldRun {
   /** Execution, publication, cleanup, and persistence, owned together. */

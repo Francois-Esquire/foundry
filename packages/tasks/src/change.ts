@@ -2,23 +2,24 @@ import { z } from "zod";
 import { type AvailabilityOptions, availabilityIn } from "./availability";
 import { edgeKey } from "./edges";
 import { TaskError } from "./errors";
-import {
-  type ChangedTask,
-  type TaskChange,
-  type TaskOperation,
-  type TaskRef,
-  type TaskToken,
-  taskMetadataSchema,
-} from "./operations";
-import type { TaskSnapshot, TaskStoreWrite } from "./store";
 import type {
-  JsonObject,
-  Task,
-  TaskDelta,
-  TaskDependency,
-  TaskEvent,
-  TaskId,
-} from "./types";
+  ChangedTask,
+  TaskChange,
+  TaskOperation,
+  TaskRef,
+  TaskToken,
+} from "./operations";
+import {
+  type JsonObject,
+  type Task,
+  type TaskDelta,
+  type TaskDependency,
+  type TaskEvent,
+  type TaskId,
+  type TaskSnapshot,
+  type TaskStoreWrite,
+  taskMetadataSchema,
+} from "./schema";
 import { isSettled, taskId } from "./types";
 
 export interface AppliedChange {

@@ -14,13 +14,10 @@ import { z } from "zod";
 
 import { MODULE_MIME } from "../constants";
 import type { Installation, InstallationId, Module, ModuleId } from "../domain";
-import {
-  INSTALLATION_STATUSES,
-  installationIdSchema,
-  moduleIdSchema,
-} from "../domain";
+import { moduleIdSchema } from "../domain";
 import type { ModuleManifest } from "../manifest";
 import { parseModuleManifest } from "../manifest";
+import { installationGrantSchema, installationSchema } from "../schema";
 import type {
   BeginInstallationTransitionInput,
   CreateInstallationInput,
@@ -72,25 +69,16 @@ const isoDateSchema = z.iso.datetime().transform((value) => new Date(value));
 
 // Stored records are not strict: a field a newer Works adds is not read as
 // corruption, so a downgrade keeps working, and a write keeps it as it was
-// (see `encodeInstallation`), so a downgrade never drops it.
-const storedGrantSchema = z.object({
-  capability: z.string().min(1),
-  constraintsDigest: z.string().min(1),
-  createdAt: isoDateSchema,
-  version: z.number().int().positive(),
-});
+// (see `encodeInstallation`), so a downgrade never drops it. Each is its
+// record's schema with timestamps as ISO strings.
+const encodedGrantSchema = installationGrantSchema
+  .unwrap()
+  .extend({ createdAt: isoDateSchema });
 
-const storedInstallationSchema = z.object({
-  grants: z.array(storedGrantSchema),
-  installation: z.object({
-    containerId: z.string().min(1).nullable(),
-    contentId: contentIdSchema,
+const encodedInstallationSchema = z.object({
+  grants: z.array(encodedGrantSchema),
+  installation: installationSchema.unwrap().extend({
     createdAt: isoDateSchema,
-    generation: z.number().int().nonnegative(),
-    id: installationIdSchema,
-    moduleId: moduleIdSchema,
-    startAttempts: z.number().int().nonnegative(),
-    status: z.enum(INSTALLATION_STATUSES),
     updatedAt: isoDateSchema,
   }),
 });
@@ -101,7 +89,7 @@ const storedInstallationSchema = z.object({
  * their Grants. Small records only; bytes live in Content.
  */
 const moduleMetadataSchema = z.object({
-  installations: z.record(z.string(), storedInstallationSchema).optional(),
+  installations: z.record(z.string(), encodedInstallationSchema).optional(),
   moduleId: moduleIdSchema,
   retainedManifests: z.record(contentIdSchema, z.unknown()).optional(),
 });
