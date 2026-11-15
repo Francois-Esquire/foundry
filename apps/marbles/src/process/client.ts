@@ -264,8 +264,9 @@ function startDetachedDaemon(options: ConnectOptions): void {
     ],
     { detached: true, env: process.env, stdio: ["ignore", log, log] }
   );
-  recordSpawned(child.pid, true);
   child.unref();
+  // Once nothing here can fail with the child abandoned; it never throws.
+  recordSpawned(child.pid, true);
 }
 
 interface Opened {

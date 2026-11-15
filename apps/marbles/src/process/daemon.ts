@@ -407,7 +407,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         stdio: ["ignore", "pipe", "pipe"],
       }
     );
-    recordSpawned(child.pid, false);
     worker.child = child;
     worker.token = token;
     worker.summary = { ...worker.summary, pid: child.pid ?? -1 };
@@ -442,6 +441,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     );
     worker.onNotification = (method, params) =>
       onWorkerNotification(worker, method, params);
+    // Once the child is the worker's; it never throws.
+    recordSpawned(child.pid, false);
     return worker.ready.promise;
   }
 

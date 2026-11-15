@@ -32,6 +32,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@foundry/lib": "workspace:*",
     "@foundry/models": "workspace:*"
   },
   "devDependencies": {

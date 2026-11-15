@@ -87,7 +87,6 @@ export async function relay(
     env: { ...process.env, [SERVER]: "1" },
     stdio: ["pipe", 2, "inherit", "pipe", "pipe"],
   });
-  recordSpawned(child.pid, false);
   const { stdin: input } = child;
   const protocol = child.stdio[PROTOCOL_FD];
   const held = child.stdio[RELAY_FD];
@@ -134,6 +133,8 @@ export async function relay(
       resolve(code ?? 128 + (signal === null ? 0 : constants.signals[signal]));
     });
   });
+  // Once the child's exit is handled, in the turn that spawned it; it never throws.
+  recordSpawned(child.pid, false);
   const copied = pipeline(protocol, createWriteStream("", { fd: 1 })).catch(
     (error: unknown) => {
       // The client stopped reading; the server has nobody to answer.
