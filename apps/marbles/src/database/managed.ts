@@ -288,18 +288,32 @@ type DatabaseKept = Pick<
   | "usageStore"
 >;
 
+/** An engine's options with the stores it keeps in the Marbles database, and the hold its engine keeps on their handle. */
+export interface WorkspaceDatabaseOptions {
+  readonly options: EngineOptions;
+  /**
+   * Give up the engine's own hold on the handle, once it has disposed. The
+   * handle closes when this and every store made here have closed.
+   * Releasing again does nothing.
+   */
+  release(): Promise<void>;
+}
+
 /**
  * `options`, with each store it keeps in the Marbles database that it was
  * not handed (its tasks, workflow Runs, Execution Runs, trigger state,
- * automations and usage facts)
+ * automations, usage facts, grants, deferred approvals and activities)
  * over one handle on the database `defaultStateRoot` chooses for
  * `state`, opened at the first call to any of them under the rule a host
  * keeps. The handle closes once every store made here has closed, as the
- * engine closes each on dispose; a store it was handed is left as it is.
+ * engine closes each on dispose, and the engine has released its own
+ * hold, since the grants, approvals and activities have no close of
+ * their own and agents write them until the engine is done. A store it
+ * was handed is left as it is.
  */
 export function withWorkspaceDatabase(
   options: EngineOptions & { readonly state: string }
-): EngineOptions {
+): WorkspaceDatabaseOptions {
   const { root, state, workspaceId } = options;
   const database = new LazyDatabase({
     state: defaultStateRoot(state, root, workspaceId),
@@ -323,7 +337,8 @@ export function withWorkspaceDatabase(
     (key) => options[key] === undefined
   );
   const side = new RecordsGate("the workspace database is closed");
-  let open = missing.length;
+  // Each store made here holds the handle, and so does the engine.
+  let open = missing.length + 1;
   const release = async () => {
     open -= 1;
     if (open === 0) {
@@ -334,17 +349,20 @@ export function withWorkspaceDatabase(
       }
     }
   };
+  let released: Promise<void> | undefined;
   const sides = sideStores(database, workspaceId, side);
   return {
-    ...options,
-    ...Object.fromEntries(missing.map((key) => [key, make[key](release)])),
-    ...(open === 0
-      ? {}
-      : {
-          activityStore: options.activityStore ?? sides.activityStore,
-          approvals: options.approvals ?? sides.approvals,
-          grants: options.grants ?? sides.grants,
-        }),
+    options: {
+      ...options,
+      ...Object.fromEntries(missing.map((key) => [key, make[key](release)])),
+      activityStore: options.activityStore ?? sides.activityStore,
+      approvals: options.approvals ?? sides.approvals,
+      grants: options.grants ?? sides.grants,
+    },
+    release: () => {
+      released ??= release();
+      return released;
+    },
   };
 }
 
