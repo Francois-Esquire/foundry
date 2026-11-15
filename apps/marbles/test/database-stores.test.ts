@@ -140,6 +140,12 @@ describe("an engine over the Marbles database", () => {
     ).toBeNull();
   });
 
+  it("under dry, reads through to nothing for an artifact no run wrote, and makes no directory", async () => {
+    const { artifacts, engine } = await arranged();
+    expect(await engine(true).artifacts.latest(NOTES)).toBeUndefined();
+    expect(existsSync(artifacts)).toBe(false);
+  });
+
   it("keeps nothing there under dry", async () => {
     const { engine, machine, root } = await arranged();
     const dry = engine(true);

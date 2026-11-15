@@ -104,6 +104,7 @@ describe("the package tables in the Marbles database", () => {
         const { name } = getTableConfig(table);
         const expected = await shape(defined, name);
         expect(expected.columns.length, name).toBeGreaterThan(0);
+        expect(expected.indexes.length, name).toBeGreaterThan(0);
         expect(await shape(migrated.database, name), name).toEqual(expected);
       }
     } finally {
