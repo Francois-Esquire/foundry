@@ -434,6 +434,74 @@ export function describeWorkflowStore(
       });
     });
 
+    test("reads a write's properties by name, a prototype getter or a hidden one too", async () => {
+      const target = await store();
+      class Write {
+        get putRuns() {
+          return [run("rn-inherited")];
+        }
+      }
+      const hidden = (id: string) =>
+        Object.defineProperty({}, "putRuns", {
+          enumerable: false,
+          value: [run(id)],
+        }) as WorkflowStoreWrite;
+
+      await target.commit(new Write());
+      await target.commit(hidden("rn-hidden"));
+      await transactionOf(target)(async (view) => {
+        await view.commit(hidden("rn-in-view"));
+      });
+
+      expect((await allRuns(target)).map((item) => item.id)).toEqual([
+        "rn-inherited",
+        "rn-hidden",
+        "rn-in-view",
+      ]);
+    });
+
+    test("refuses a list or a record a copy would read less of, and keeps nothing", async () => {
+      const target = await store();
+      class Run {
+        readonly id = "rn-class";
+      }
+      const refusals: [WorkflowStoreWrite, string][] = [
+        [
+          { putRuns: new Set([run("rn-set")]) as unknown as RunRecord[] },
+          "putRuns must be an array",
+        ],
+        [
+          { putRuns: [run("rn-a"), new Run() as unknown as RunRecord] },
+          "putRuns[1] must be a plain object",
+        ],
+        [
+          {
+            putRuns: [
+              Object.defineProperty(run("rn-hidden-field"), "step", {
+                enumerable: false,
+                value: "s",
+              }),
+            ],
+          },
+          "putRuns[0] must be a plain object",
+        ],
+        [
+          { deleteRuns: [1 as unknown as string] },
+          "deleteRuns[0] must be text",
+        ],
+      ];
+      for (const [write, message] of refusals) {
+        await expect(target.commit(write)).rejects.toThrow(message);
+        await expect(
+          transactionOf(target)((view) => view.commit(write))
+        ).rejects.toThrow(message);
+      }
+      await expect(
+        target.listRuns({ limit: 1, status: "queued" as never })
+      ).rejects.toThrow("status must be an array");
+      expect(await contents(target)).toStrictEqual(EMPTY);
+    });
+
     test("shares no byte memory behind an Error's cause", async () => {
       const target = await store();
       const bytes = new Uint8Array(new SharedArrayBuffer(1));

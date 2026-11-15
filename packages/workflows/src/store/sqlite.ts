@@ -26,6 +26,7 @@ import type {
   RunRecord,
   SuspensionRecord,
 } from "../schema";
+import { capturedWrite } from "./captured";
 import type {
   FrameListQuery,
   JobListQuery,
@@ -592,7 +593,9 @@ interface OwnedWrite {
 
 /**
  * `write` as the store's own copy, taken now, and the rows it puts. Each
- * property of the caller's write, and of every record in it, is read once:
+ * property of the caller's write is read once, by name (`capturedWrite`, as
+ * the memory store reads them), and each property of every record in it
+ * once:
  * the copy those reads make is what the store checks, writes and hands to
  * `onCommit`, so a getter answering differently a second time changes
  * nothing. Throws a `RangeError` naming the first field SQLite would not give
@@ -611,7 +614,7 @@ function owned(write: WorkflowStoreWrite): OwnedWrite {
     putQueues,
     putRuns,
     putSuspensions,
-  } = write;
+  } = capturedWrite(write);
   const take = <T>(list: string, kind: RecordKind<T>, puts?: readonly T[]) =>
     (puts ?? []).map((record, index) => {
       const at = `${list}[${index}]`;

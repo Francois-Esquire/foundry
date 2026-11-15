@@ -958,8 +958,9 @@ const REFUSED_AFTER_COMMIT = new WeakSet<object>();
  * when it is called: one deep copy, with byte memory unshared, taken before
  * anything else runs, and the only one the method sees. So no command reads
  * a caller's input after an await, and a command added later is covered
- * without asking. A value the copy refuses (a function, say) rejects the
- * call.
+ * without asking. A value the copy refuses (a function, say), or an
+ * argument with fields it would not keep (`refuseHiddenFields`), rejects
+ * the call.
  */
 function takeArgumentsWhenCalled(prototype: object): void {
   for (const name of Object.getOwnPropertyNames(prototype)) {
@@ -972,6 +973,9 @@ function takeArgumentsWhenCalled(prototype: object): void {
       value(this: unknown, ...args: unknown[]): unknown {
         let owned: unknown[];
         try {
+          for (const [index, arg] of args.entries()) {
+            refuseHiddenFields(name, index, arg);
+          }
           owned = detached(args);
         } catch (error) {
           return Promise.reject(error);
@@ -985,6 +989,31 @@ function takeArgumentsWhenCalled(prototype: object): void {
 
 takeArgumentsWhenCalled(ExecutionCoordinator.prototype);
 
+/**
+ * Refuses an argument object the copy would read less of than it shows:
+ * one made by a class or another prototype (its getters live there), or
+ * one with an own property that is not enumerable. The copy keeps only own
+ * enumerable properties, so such a field would be lost without a word.
+ */
+function refuseHiddenFields(method: string, index: number, arg: unknown): void {
+  if (typeof arg !== "object" || arg === null || Array.isArray(arg)) {
+    return;
+  }
+  const prototype: unknown = Object.getPrototypeOf(arg);
+  if (
+    (prototype !== Object.prototype && prototype !== null) ||
+    Object.getOwnPropertyNames(arg).length !== Object.keys(arg).length
+  ) {
+    throw new TypeError(
+      `ExecutionCoordinator.${method} takes plain objects: argument ${index + 1} has fields a copy would not keep (a getter on its prototype, or an own property that is not enumerable)`
+    );
+  }
+}
+
+/**
+ * What a claim of a managed Job attempt did: claimed the attempt, or found
+ * the Job settled (an earlier attempt completed) and wrote it as complete.
+ */
 type JobRunClaimOutcome =
   | { readonly status: "claimed"; readonly claim: JobRunClaim }
   | { readonly status: "settled" };

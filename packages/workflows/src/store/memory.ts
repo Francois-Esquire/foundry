@@ -10,6 +10,7 @@ import type {
   SuspensionRecord,
 } from "../schema";
 import { ORCHESTRATOR_STORE_SNAPSHOT_VERSION } from "../schema";
+import { capturedWrite } from "./captured";
 import type {
   FrameListQuery,
   JobListQuery,
@@ -252,11 +253,12 @@ interface OwnedWrite {
 }
 
 /**
- * The store's own copy of `write`: one deep copy, which reads each of the
- * caller's properties once, with byte memory unshared (see `detached`).
+ * The store's own copy of `write`: the named properties read once
+ * (`capturedWrite`, as the SQLite store reads them), then one deep copy of
+ * that capture with byte memory unshared (`detached`).
  */
 function owned(write: WorkflowStoreWrite): OwnedWrite {
-  const copy = detached(write);
+  const copy = detached(capturedWrite(write));
   return {
     deleteJobs: copy.deleteJobs ?? [],
     deleteRunFrames: copy.deleteRunFrames ?? [],
