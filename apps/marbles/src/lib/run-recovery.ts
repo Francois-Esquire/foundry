@@ -61,7 +61,7 @@ export async function adoptParkedRuns(
     return adopted;
   }
   for (const run of await parked(options.store)) {
-    const scope = await adopt(run, options);
+    const scope = await adoptParkedRun(run, options);
     if (scope !== undefined) {
       adopted.set(run.id, scope);
     }
@@ -71,9 +71,10 @@ export async function adoptParkedRuns(
 
 /**
  * Claim one parked Run and read what it recorded, or `undefined`, owning
- * nothing, when it is not this engine's to take.
+ * nothing, when it is not this engine's to take: at start, and for a Run
+ * another engine let go while this one runs (`Engine.adopt`).
  */
-async function adopt(
+export async function adoptParkedRun(
   run: RunRecord,
   { askable, print, registered, runs, settled }: ParkedRunsOptions
 ): Promise<RecordedScope | undefined> {

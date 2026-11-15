@@ -196,10 +196,18 @@ export function isWorkspaceMethod(name: string): name is WorkspaceMethod {
 export const GENERATION_NOTIFICATIONS = {
   /** A status line; params name the workspace's root, or none for the generation's own. */
   line: "line",
+  /**
+   * A retired generation let go a run that parked after it retired; params
+   * name the workspace and the run (`releasedParamsSchema`), for the current
+   * generation to take over.
+   */
+  released: "released",
 } as const;
 
 /** What the daemon asks a generation beyond workspace methods. */
 export const GENERATION_METHODS = {
+  /** Take over a parked run a retired generation let go (`Engine.adopt`); answers whether it did. */
+  adopt: "adopt",
   /** Host one more workspace at once, engine started: an attach. */
   host: "host",
   /**
@@ -269,6 +277,12 @@ export const hostResultSchema = z.object({
   config: z.string().nullable(),
   id: z.string(),
   root: z.string(),
+});
+
+/** A run of a workspace, as `released` names it and `adopt` takes it. */
+export const releasedParamsSchema = z.object({
+  id: z.string(),
+  runId: z.string(),
 });
 
 export const retireParamsSchema = z.object({

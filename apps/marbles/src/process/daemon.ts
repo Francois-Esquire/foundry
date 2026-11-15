@@ -6,9 +6,12 @@ import { fileURLToPath } from "node:url";
 
 import { holdsLock } from "@foundry/lib/file-lock";
 import {
+  compareStarts,
   isGone,
+  lookProcesses,
   type ProcessIdentity,
   sameProcess,
+  startedAt as startOf,
 } from "@foundry/lib/process-identity";
 import { readExecution } from "~/database/executions";
 import { GenerationRecords } from "~/database/generations";
@@ -46,6 +49,7 @@ import {
   loadResultSchema,
   PROTOCOL,
   registerParamsSchema,
+  releasedParamsSchema,
   type SetupDraftParams,
   startResultSchema,
   WORKSPACE_METHODS,
@@ -121,8 +125,20 @@ const SWITCH_DEBOUNCE_MS = 500;
 const SOURCE_POLL_MS = 1000;
 /** How often the installation, many more files, is digested again. */
 const INSTALLATION_POLL_MS = 5000;
-/** A current generation that dies sooner than this after taking over is not replaced on its own. */
-const SETTLE_MS = 5000;
+/**
+ * How long the daemon waits before it replaces a generation that died, or
+ * one that did not start after the previous one retired: from the least,
+ * doubled after each replacement, up to the most, and back to the least
+ * once a generation has stayed current for `STABLE_MS`.
+ */
+const REPLACE_MIN_MS = 1000;
+const REPLACE_MAX_MS = 30_000;
+const STABLE_MS = 30_000;
+/** How many times a released run is offered to the current generation, and how long between. */
+const HANDOVER_ATTEMPTS = 5;
+const HANDOVER_RETRY_MS = 200;
+/** How long an answer to a question on its way to another generation waits for it to arrive. */
+const HELD_WAIT_MS = 30_000;
 /** Lines of a generation's stderr kept to explain a failure. */
 const STDERR_TAIL = 20;
 /** How often the daemon checks that the claim at the state root is still its own. */
@@ -156,6 +172,12 @@ interface Generation {
   role: "candidate" | "current" | "retiring";
   /** When it became current. */
   since?: number;
+  /**
+   * Its process as read right after the spawn, the proof every signal the
+   * daemon sends it checks first; its start is null when it could not be
+   * read then.
+   */
+  readonly spawnedAs: ProcessIdentity | undefined;
   /** Last lines of stderr, for a failure's explanation. */
   readonly tail: string[];
   readonly token: string;
@@ -175,6 +197,22 @@ interface Client {
   readonly subscriptions: Set<string>;
 }
 
+/**
+ * Where each workspace method goes, by what it names:
+ *
+ * - A run (`RUN_METHODS`: cancel, cancelRun, getRun, pause, resume,
+ *   steer): the generation whose process owns its Execution Run, else the
+ *   current one when its owner is gone; one owned by a live process that
+ *   is no generation of this daemon is refused, but for a read.
+ * - A question or an activity (`HELD_METHODS`: answer, stopActivity): the
+ *   generation that holds its live run or session, found by asking each
+ *   in turn, the current one first; one that does not hold it refuses,
+ *   changing nothing.
+ * - Anything else starts new work or reads what the database keeps
+ *   (describe, snapshot, launch, roll, dispatchAgent, dispatchWorkflow,
+ *   deleteTrigger, setTriggerEnabled, tasks): the current generation.
+ */
+
 /** Workspace methods about one run: answered by the generation that runs it. */
 const RUN_METHODS = new Set<string>([
   WORKSPACE_METHODS.cancel,
@@ -183,6 +221,12 @@ const RUN_METHODS = new Set<string>([
   WORKSPACE_METHODS.pause,
   WORKSPACE_METHODS.resume,
   WORKSPACE_METHODS.steer,
+]);
+
+/** Workspace methods about what one live run or session holds. */
+const HELD_METHODS = new Set<string>([
+  WORKSPACE_METHODS.answer,
+  WORKSPACE_METHODS.stopActivity,
 ]);
 
 /** Workspace methods that begin work; the rest read, steer, or end it. */
@@ -240,19 +284,6 @@ async function everyOf<T>(
   }
 }
 
-/** Signal the process group `child` leads; a group already gone is fine. */
-function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (child.pid === undefined) {
-    return;
-  }
-  try {
-    process.kill(-child.pid, signal);
-  } catch {
-    // Gone already, or never a group leader: signal the child itself.
-    child.kill(signal);
-  }
-}
-
 export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const { layout } = options;
   const print = options.print ?? (() => undefined);
@@ -298,6 +329,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   let installation = installationDigest(script, version);
   let installationAt = Date.now();
   let switchTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Whether the switch `switchTimer` starts must run whatever the sources say. */
+  let switchForced = false;
+  /** How long the next replacement of a dead generation waits. */
+  let replaceDelay = REPLACE_MIN_MS;
 
   const hello: HelloResult = {
     artifacts: layout.artifacts,
@@ -429,6 +464,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       number,
       registered: Promise.withResolvers<Channel>(),
       role: "candidate",
+      spawnedAs:
+        child.pid === undefined
+          ? undefined
+          : { pid: child.pid, started: startOf(child.pid) ?? null },
       tail: [],
       token,
     };
@@ -531,13 +570,25 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         setState(workspace, "failed", { error: why });
       }
     }
-    // A generation that dies soon after it took over is not started again
-    // as it was: a change to what it loaded, or a reload, brings one back.
-    if (Date.now() - (generation.since ?? 0) >= SETTLE_MS) {
-      scheduleSwitch("the engine generation exited", { force: true });
-    } else {
-      refused = generation.fingerprint.digest;
+    replaceCurrent("the engine generation exited", generation);
+  }
+
+  /**
+   * With none current, start the next generation, whatever the sources
+   * say, after the replacement backoff: the next engine start recovers
+   * what the last one left. `died` is the generation that was current,
+   * when one died; one that stayed up long enough resets the backoff.
+   */
+  function replaceCurrent(reason: string, died?: Generation): void {
+    if (died?.since !== undefined && Date.now() - died.since >= STABLE_MS) {
+      replaceDelay = REPLACE_MIN_MS;
     }
+    const delay = replaceDelay;
+    replaceDelay = Math.min(replaceDelay * 2, REPLACE_MAX_MS);
+    print(
+      `[marbles] ${reason}; the next engine generation starts in ${String(delay)}ms`
+    );
+    scheduleSwitch(reason, { delayMs: delay, force: true });
   }
 
   /** The generation spawned for `token` dialed in: bind its channel. */
@@ -558,6 +609,13 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     method: string,
     params: unknown
   ): void {
+    if (method === GENERATION_NOTIFICATIONS.released) {
+      const parsed = releasedParamsSchema.safeParse(params);
+      if (parsed.success) {
+        handOver(parsed.data.id, parsed.data.runId);
+      }
+      return;
+    }
     if (method !== GENERATION_NOTIFICATIONS.line) {
       return;
     }
@@ -573,12 +631,82 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     forwardLine(loadedId({ root }), line);
   }
 
+  /** Each workspace's handovers of released runs, one after another. */
+  const handovers = new Map<string, Promise<void>>();
+  /** Who waits for a workspace's next handover or switch, by workspace id. */
+  const waiting = new Map<string, Set<() => void>>();
+
+  /** Wake whoever waits on workspace `id`, or on every one. */
+  function changed(id?: string): void {
+    for (const [key, wakers] of waiting) {
+      if (id === undefined || key === id) {
+        waiting.delete(key);
+        for (const wake of wakers) {
+          wake();
+        }
+      }
+    }
+  }
+
+  /** Resolves at the next handover or switch for workspace `id`, or after `ms`. */
+  function nextChange(id: string, ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      const wakers = waiting.get(id) ?? new Set();
+      wakers.add(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+      waiting.set(id, wakers);
+    });
+  }
+
+  /**
+   * A retired generation let go run `runId` of workspace `id` as it parked:
+   * the current generation takes it over. A Run whose park is still being
+   * written is asked again a few times. One no generation takes over stays
+   * parked, unowned, for the next engine start to adopt.
+   */
+  function handOver(id: string, runId: string): void {
+    const previous = handovers.get(id) ?? Promise.resolve();
+    const next = previous.then(async () => {
+      for (let attempt = 0; attempt < HANDOVER_ATTEMPTS; attempt += 1) {
+        const target = current;
+        if (target === undefined || !target.hosts.has(id)) {
+          return;
+        }
+        try {
+          if (
+            (await ask(target, GENERATION_METHODS.adopt, { id, runId })) ===
+            true
+          ) {
+            return;
+          }
+        } catch (error) {
+          print(`[${id}] run ${runId} not taken over: ${message(error)}`);
+          return;
+        }
+        await nextChange(id, HANDOVER_RETRY_MS);
+      }
+      print(
+        `[${id}] run ${runId} stays parked for the next engine start to take over`
+      );
+    });
+    const done = next.finally(() => {
+      if (handovers.get(id) === done) {
+        handovers.delete(id);
+      }
+      changed(id);
+    });
+    handovers.set(id, done);
+  }
+
   /**
    * End `generation`: ask it to drain and exit, and kill it and its
    * process group when it does not answer, or does not exit, in time.
    */
   async function stopGeneration(generation: Generation): Promise<void> {
-    const { child, exited } = generation;
+    const { exited } = generation;
     if (generation.exit !== undefined) {
       return;
     }
@@ -593,10 +721,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
           STOP_TIMEOUT_MS,
           `stopping engine generation ${String(generation.number)}`
         );
-      } else {
+      } else if (signalProven(generation, "SIGTERM")) {
         // Not registered yet, so it holds nothing: end it now rather
         // than wait for it to come up.
-        signalGroup(child, "SIGTERM");
+      } else {
+        return;
       }
       await timeout(
         exited,
@@ -608,11 +737,65 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         print(`[marbles] ${message(error)}; killing it`);
       } finally {
         // Killed even when saying so fails, with everything in its group.
-        // SIGTERM would only ask it to drain again.
-        signalGroup(child, "SIGKILL");
-        await exited;
+        // SIGTERM would only ask it to drain again. One that cannot be
+        // proved to be it is left, and not waited on.
+        if (signalProven(generation, "SIGKILL")) {
+          await exited;
+        }
       }
     }
+  }
+
+  /**
+   * Send `signal` to `generation`, and to its process group when it leads
+   * one, only once its pid is proved to be the process the daemon spawned:
+   * running, and started when it was read to have started right after the
+   * spawn (or, when that could not be read, when the generation said it
+   * did). Whether it was sent; a process that is gone already, or cannot
+   * be proved to be the generation, is not signalled, and the second is
+   * said.
+   */
+  function signalProven(
+    generation: Generation,
+    signal: NodeJS.Signals
+  ): boolean {
+    const known =
+      generation.spawnedAs?.started === null
+        ? generation.identity
+        : generation.spawnedAs;
+    const label = `engine generation ${String(generation.number)}`;
+    if (generation.exit !== undefined) {
+      return false;
+    }
+    if (known === undefined || known.started === null) {
+      print(
+        `[marbles] ${label} is not sent ${signal}: its start was never read, so its pid cannot be proved to be it`
+      );
+      return false;
+    }
+    const seen = lookProcesses([known.pid]);
+    if (seen === undefined) {
+      print(
+        `[marbles] ${label} is not sent ${signal}: the system cannot say what runs as pid ${String(known.pid)}`
+      );
+      return false;
+    }
+    const running = seen.get(known.pid);
+    if (running === undefined) {
+      return false;
+    }
+    if (compareStarts(running.started, known.started) !== "same") {
+      print(
+        `[marbles] ${label} is not sent ${signal}: pid ${String(known.pid)} is another process now`
+      );
+      return false;
+    }
+    try {
+      process.kill(running.pgid === known.pid ? -known.pid : known.pid, signal);
+    } catch {
+      return false;
+    }
+    return true;
   }
 
   function summaryOf(record: WorkspaceRecord): Hosted {
@@ -709,6 +892,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       ).loads;
     } catch (error) {
       await refuse(candidate, undefined, error);
+      // The previous one retired already: nothing is current now, so the
+      // next generation starts as after a crash, and recovers what this
+      // one may have taken over before it failed.
+      replaceCurrent("the engine generation did not start");
       throw error;
     }
     candidate.role = "current";
@@ -720,6 +907,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       ...loaded.loads.filter((each) => each.error !== undefined),
     ]);
     print(`[marbles] engine generation ${String(number)} is current`);
+    changed();
   }
 
   /**
@@ -736,10 +924,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     for (const record of registered) {
       const workspace = hosted.get(record.id) ?? summaryOf(record);
       hosted.set(record.id, workspace);
-      const changed =
+      const edited =
         previous?.fingerprint.sources.get(record.id) !==
         fingerprint.sources.get(record.id);
-      if (previous === undefined || changed) {
+      if (previous === undefined || edited) {
         setState(
           workspace,
           previous?.hosts.has(record.id) ? "reloading" : "starting"
@@ -879,17 +1067,28 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
   }
 
-  /** A switch soon, once the edits that asked for it have settled. */
+  /**
+   * A switch soon, once the edits that asked for it have settled. A forced
+   * one stays forced when a later ask replaces its timer, so a replacement
+   * the daemon owes is never dropped for a source change that turns out
+   * to be nothing new.
+   */
   function scheduleSwitch(
     reason: string,
-    { force = false }: { readonly force?: boolean } = {}
+    {
+      delayMs = SWITCH_DEBOUNCE_MS,
+      force: asked = false,
+    }: { readonly delayMs?: number; readonly force?: boolean } = {}
   ): void {
     if (stopping) {
       return;
     }
     clearTimeout(switchTimer);
+    switchForced ||= asked;
     switchTimer = setTimeout(() => {
       switchTimer = undefined;
+      const force = switchForced;
+      switchForced = false;
       // Nothing new since the current generation loaded, or since a
       // candidate refused it: no switch, unless one is needed whatever
       // the sources say.
@@ -905,7 +1104,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       switchGenerations(reason, {}, wanted).catch((error: unknown) => {
         print(`[marbles] no switch: ${message(error)}`);
       });
-    }, SWITCH_DEBOUNCE_MS);
+    }, delayMs);
   }
 
   /** Poll what the current generation loaded; a change asks for a switch. */
@@ -1201,24 +1400,48 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   }
 
   /**
-   * Ask each generation in turn until one answers: a question is held by
-   * whichever generation runs, or adopted, the run that asked, and the
-   * others refuse it, changing nothing. Rejects as the first did.
+   * Ask each generation hosting workspace `id` in turn until one answers:
+   * a question or an activity is held by whichever generation runs, or
+   * took over, the run it belongs to, and the others refuse it, changing
+   * nothing. A retired generation refuses a question it is letting go
+   * (`QuestionMovingError`): then this waits for the workspace's next
+   * handover or switch and asks again, until `HELD_WAIT_MS` has passed.
+   * Rejects as the first refusal did.
    */
   async function askEach(
-    hosts: readonly Generation[],
+    id: string,
     method: string,
     params: unknown
   ): Promise<unknown> {
-    const errors: unknown[] = [];
-    for (const generation of hosts) {
-      try {
-        return await ask(generation, method, params);
-      } catch (error) {
-        errors.push(error);
+    const deadline = Date.now() + HELD_WAIT_MS;
+    for (;;) {
+      const errors: unknown[] = [];
+      const hosts = hostsOf(id);
+      if (hosts.length === 0) {
+        throw new Error(`no engine generation hosts workspace ${id} now`);
       }
+      for (const generation of hosts) {
+        try {
+          return await ask(generation, method, params);
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      const moving = errors.some(
+        (error) =>
+          error instanceof Error && error.name === "QuestionMovingError"
+      );
+      const left = deadline - Date.now();
+      if (!moving || left <= 0) {
+        throw (
+          errors.find(
+            (error) =>
+              !(error instanceof Error && error.name === "QuestionMovingError")
+          ) ?? errors[0]
+        );
+      }
+      await nextChange(id, Math.min(left, HANDOVER_RETRY_MS * 10));
     }
-    throw errors[0];
   }
 
   async function workspaceCall(
@@ -1232,7 +1455,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     const method = `${WORKSPACE_PREFIX}${name}`;
     const params = { ...rest, id };
-    const hosts = hostsOf(id);
     if (RUN_METHODS.has(name)) {
       const owner = await ownerOf(
         id,
@@ -1243,8 +1465,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         return await ask(owner, method, params);
       }
     }
-    if (name === WORKSPACE_METHODS.answer && hosts.length > 1) {
-      return await askEach(hosts, method, params);
+    if (HELD_METHODS.has(name)) {
+      // A run on its way here is taken over before anyone asks for it.
+      await handovers.get(id);
+      return await askEach(id, method, params);
     }
     const target = current;
     if (

@@ -17,6 +17,7 @@ import {
   GENERATION_NOTIFICATIONS,
   hostParamsSchema,
   isWorkspaceMethod,
+  releasedParamsSchema,
   retireParamsSchema,
   startParamsSchema,
   workspaceIdSchema,
@@ -51,7 +52,9 @@ import type { SetupDraft } from "~/workspace/templates";
  * - `host` and `unhost` add one workspace, or drop one, while it runs.
  * - `retire` hands what is not running to the generation that takes over
  *   (`Engine.retire`) and stops the triggers; the runs still running here
- *   then run to their end, and the generation exits.
+ *   then run to their end, a run that parks meanwhile is let go and the
+ *   daemon told (`released`), and the generation exits.
+ * - `adopt` takes over a parked run a retired generation let go.
  * - `stop` drains running work and exits.
  *
  * Workspace methods arrive as `workspace.<name>` with the workspace's id,
@@ -377,13 +380,28 @@ async function main(): Promise<void> {
       loop?.stop.abort();
     }
     const retired = await Promise.all(
-      hosts.map((each) => each.engine.retire(successor))
+      hosts.map((each) =>
+        each.engine.retire(successor, {
+          // A run that parks from now on is the current generation's.
+          onLetGo(runId) {
+            notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });
+          },
+        })
+      )
     );
     retiring = (async () => {
       await Promise.all(retired.map(({ ended }) => ended));
       await leave(false);
     })();
     retiring.then(finished.resolve, finished.reject);
+  };
+
+  const adopt = async (raw: unknown): Promise<boolean> => {
+    const { id, runId } = releasedParamsSchema.parse(raw);
+    if (retiring !== undefined || stopping !== undefined) {
+      return false;
+    }
+    return await workspaces().get(id).engine.adopt(runId);
   };
 
   const stop = (): Promise<void> => {
@@ -408,6 +426,8 @@ async function main(): Promise<void> {
           return unhost(raw);
         case GENERATION_METHODS.retire:
           return retire(raw);
+        case GENERATION_METHODS.adopt:
+          return adopt(raw);
         default:
           break;
       }

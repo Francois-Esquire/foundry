@@ -80,7 +80,11 @@ import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
 import { RunListing } from "~/lib/run-listing";
-import { adoptParkedRuns, workflowStatuses } from "~/lib/run-recovery";
+import {
+  adoptParkedRun,
+  adoptParkedRuns,
+  workflowStatuses,
+} from "~/lib/run-recovery";
 import type { ReadonlyRunScopes, RecordedScope } from "~/lib/run-scope";
 import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
 import type { RunStore } from "~/lib/run-store";
@@ -481,6 +485,8 @@ export class Engine {
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
   #starting: Promise<this> | undefined;
   #stopping: Promise<void> | undefined;
+  /** Set once `retire` began: nothing let go comes back here. */
+  #retiring = false;
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
   readonly #unwatchRecords: () => void;
@@ -1337,23 +1343,44 @@ export class Engine {
    * delivered here again (the claim is given up, for it to take), every
    * queued run is handed to it (`Launcher.handOver`), and every parked run
    * is let go, its claim and its open questions, for it to adopt when it
-   * starts. Resolves once that is written, with `ended`, which resolves
-   * once every run left here has ended; then `stop` finds nothing to wait
+   * starts. A run still running here that parks later is let go the moment
+   * it parks, and `onLetGo` is told, so the engine already running there
+   * can take it over (`adopt`): nothing parked is ever held here again, and
+   * every answer is refused (`QuestionMovingError`). Resolves once the
+   * first of that is written, with `ended`, which resolves once every run
+   * left here has ended or been let go; then `stop` finds nothing to wait
    * for. On an engine that has not started, `ended` has resolved already.
    */
   async retire(
-    successor: ProcessIdentity
+    successor: ProcessIdentity,
+    options: { readonly onLetGo?: (runId: string) => void } = {}
   ): Promise<{ readonly ended: Promise<void> }> {
     const running = this.#running;
     if (running === undefined) {
       return { ended: Promise.resolve() };
     }
+    this.#retiring = true;
+    running.router.retire();
     await this.#delivery.stop();
     const given = new Set(await this.#launcher.handOver(successor));
-    for (const runId of running.held.withStatus(["suspended"])) {
+    const letGo = async (runId: string): Promise<void> => {
       running.router.letGo(runId);
       await this.#runs.release(runId);
       given.add(runId);
+    };
+    // Every run that parks from now on goes too, as soon as it has parked.
+    running.orchestrator.on("suspended", ({ runId }) => {
+      if (given.has(runId) || running.held.workflow(runId) === undefined) {
+        return;
+      }
+      letGo(runId)
+        .then(() => options.onLetGo?.(runId))
+        .catch((error: unknown) =>
+          this.#print(`[run] ${runId} not let go: ${String(error)}`)
+        );
+    });
+    for (const runId of running.held.withStatus(["suspended"])) {
+      await letGo(runId);
     }
     const left = () =>
       this.#executions
@@ -1375,6 +1402,60 @@ export class Engine {
       look();
     });
     return { ended };
+  }
+
+  /**
+   * Take over the parked Run `runId`, which an engine of this workspace in
+   * another process let go as it retired (`retire`), while this one runs:
+   * claimed as a start claims the parked Runs it adopts, its Execution Run
+   * made this process's, rebuilt in the Orchestrator and followed to its
+   * end here, its open question answerable here. Resolves whether this
+   * engine holds it now: `false`, holding nothing, when it is not parked,
+   * another live engine holds it, nothing here can answer it, or this
+   * engine is not running or is itself retiring.
+   */
+  async adopt(runId: string): Promise<boolean> {
+    const running = this.#running;
+    if (running === undefined || this.#phase !== "started" || this.#retiring) {
+      return false;
+    }
+    const record = await running.store.getRun(runId);
+    if (record?.status !== "suspended") {
+      return false;
+    }
+    const scope = await adoptParkedRun(record, {
+      askable: this.#askable,
+      print: this.#print,
+      registered: (name) => this.#registered(name),
+      runs: this.#runs,
+      settled: (id) => this.#executions.storedSettled(id),
+      store: running.store,
+    });
+    if (scope === undefined) {
+      return false;
+    }
+    this.#scopes.recover(runId, scope);
+    let dispatched: Awaited<ReturnType<Orchestrator["adopt"]>>;
+    try {
+      if (!(await this.#executions.takeReleased(runId))) {
+        throw new Error("its execution run is not parked");
+      }
+      dispatched = await running.orchestrator.adopt(runId);
+      if (dispatched === null) {
+        throw new Error("it is no longer parked in the store");
+      }
+    } catch (error) {
+      this.#scopes.forget(runId);
+      await this.#runs.release(runId).catch(() => undefined);
+      throw new Error(`run ${runId} was not taken over: ${String(error)}`, {
+        cause: error,
+      });
+    }
+    this.#print(`[run] ${record.step} taken over ${runId}`);
+    await running.router.adopt(record.step, runId);
+    running.listing.add(runId);
+    this.#launcher.follow(runId, running.held.follow(record.step, dispatched));
+    return true;
   }
 
   /**

@@ -45,6 +45,11 @@ export interface FeedRouter {
     readonly onEvent: (event: ChannelEvent) => void;
     readonly settled: () => Promise<void>;
   };
+  /**
+   * Refuse every answer from now on with a `QuestionMovingError`: what this
+   * router holds is moving to another process, which answers it there.
+   */
+  retire(): void;
 }
 
 /**
@@ -53,6 +58,17 @@ export interface FeedRouter {
  * `marbles.feed.input`. Without `askable` nobody can answer, so a question
  * cancels its run instead of pausing it forever.
  */
+/** The question is moving to another process with its run; answer it there. */
+export class QuestionMovingError extends Error {
+  override readonly name = "QuestionMovingError";
+
+  constructor(entryId: string) {
+    super(
+      `the question ${entryId} is moving to another engine with its run; answer it there`
+    );
+  }
+}
+
 export function feedRouter(options: {
   readonly askable: boolean;
   readonly feed: FeedPublisher;
@@ -61,6 +77,8 @@ export function feedRouter(options: {
 }): FeedRouter {
   const { askable, feed, orchestrator, print } = options;
   const open = new Map<string, OpenQuestion>();
+  /** Set by `retire`: every answer is refused from then on. */
+  let retired = false;
   const cancelled = new Map<string, string>();
 
   function warn(title: string) {
@@ -136,6 +154,9 @@ export function feedRouter(options: {
     adopt,
 
     async answer(entryId, answer) {
+      if (retired) {
+        throw new QuestionMovingError(entryId);
+      }
       const question = open.get(entryId);
       if (!question) {
         throw new Error("This question is no longer waiting for an answer.");
@@ -232,6 +253,10 @@ export function feedRouter(options: {
           await Promise.all(writes);
         },
       };
+    },
+
+    retire() {
+      retired = true;
     },
   };
 }
