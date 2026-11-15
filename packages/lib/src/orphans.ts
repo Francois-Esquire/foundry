@@ -28,14 +28,15 @@
  * Node-bound: import it from main-process code only.
  */
 
-import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
+  compareStarts,
   isProcessIdentity,
+  lookProcesses,
   type ProcessIdentity,
-  sameStart,
+  type SeenProcess,
 } from "./process-identity";
 import { notPrivate, recordPath, type SpawnRecord } from "./spawn-record";
 
@@ -54,12 +55,6 @@ export interface OrphanStopOptions {
   readonly system?: ProcessTable;
 }
 
-/** What the system says about a running process. */
-export interface SeenProcess {
-  readonly pgid: number;
-  readonly started: string;
-}
-
 /** The system calls a stop makes. */
 export interface ProcessTable {
   kill(target: number, signal: NodeJS.Signals): void;
@@ -76,9 +71,6 @@ const KILL_MS = 2000;
 const POLL_MS = 100;
 /** Each pass follows the orphans of the last one down a generation. */
 const MAX_PASSES = 8;
-const PS_TIMEOUT_MS = 5000;
-const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
-const LOOK_LINE = /^\s*(\d+)\s+(\d+)\s+(.+)$/;
 
 /** Stop every orphan the recovery records in `dir` name (see above). */
 export async function stopOrphans(
@@ -153,10 +145,10 @@ function judge(
   if (record.pid === process.pid) {
     return "kept";
   }
-  if (!running(record, seen)) {
+  if (!proved(record, seen)) {
     return "gone";
   }
-  if (record.owner === undefined || running(record.owner, seen)) {
+  if (record.owner === undefined || stillThere(record.owner, seen)) {
     return "kept";
   }
   if (record.group && seen.get(record.pid)?.pgid !== record.pid) {
@@ -168,18 +160,34 @@ function judge(
 }
 
 /**
- * The process `identity` names runs now: one has its pid and started
- * then. One whose start time was never read is taken by its pid alone,
- * so it is never judged gone while its pid runs.
+ * The process `record` names runs now, proved: one has its pid and the
+ * start its record says, of the same kind. Only a process proved so is
+ * ever signalled.
  */
-function running(
-  identity: ProcessIdentity,
+function proved(
+  record: ProcessIdentity,
   seen: ReadonlyMap<number, SeenProcess>
 ): boolean {
-  const found = seen.get(identity.pid);
+  const found = seen.get(record.pid);
   return (
     found !== undefined &&
-    (identity.started === null || sameStart(found.started, identity.started))
+    compareStarts(found.started, record.started) === "same"
+  );
+}
+
+/**
+ * The owner `owner` names may still run: its pid runs, and nothing says
+ * the process with it now started at another time. An owner that cannot
+ * be told from another is taken as still there, so its children are left.
+ */
+function stillThere(
+  owner: ProcessIdentity,
+  seen: ReadonlyMap<number, SeenProcess>
+): boolean {
+  const found = seen.get(owner.pid);
+  return (
+    found !== undefined &&
+    compareStarts(found.started, owner.started) !== "different"
   );
 }
 
@@ -220,7 +228,7 @@ function signal(
   for (const record of records) {
     // Proved right before its own signal: what an earlier one changed shows.
     const seen = system.look([record.pid]);
-    if (seen === undefined || !running(record, seen)) {
+    if (seen === undefined || !proved(record, seen)) {
       continue;
     }
     try {
@@ -249,7 +257,7 @@ async function waitGone(
     const left =
       seen === undefined
         ? [...records]
-        : records.filter((record) => running(record, seen));
+        : records.filter((record) => proved(record, seen));
     if (left.length === 0 || Date.now() >= deadline) {
       return left;
     }
@@ -337,30 +345,6 @@ function gone(error: unknown): boolean {
 
 const SYSTEM: ProcessTable = {
   kill: (target, name) => process.kill(target, name),
-  look(pids) {
-    const seen = new Map<number, SeenProcess>();
-    if (pids.length === 0) {
-      return seen;
-    }
-    const listed = spawnSync(
-      "ps",
-      ["-o", "pid=,pgid=,lstart=", "-p", pids.join(",")],
-      { encoding: "utf8", env: PS_ENV, timeout: PS_TIMEOUT_MS }
-    );
-    // `ps` exits 1 when one of the pids has no process, and lists the rest.
-    if (listed.error !== undefined || (listed.status ?? 2) > 1) {
-      return;
-    }
-    for (const line of listed.stdout.split("\n")) {
-      const parsed = LOOK_LINE.exec(line);
-      if (parsed) {
-        seen.set(Number(parsed[1]), {
-          pgid: Number(parsed[2]),
-          started: parsed[3] ?? "",
-        });
-      }
-    }
-    return seen;
-  },
+  look: lookProcesses,
   sleep: (ms) => sleep(ms),
 };

@@ -16,6 +16,7 @@ import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { thisProcess } from "@foundry/lib/process-identity";
+import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { eq } from "drizzle-orm";
 import { expect, it } from "vitest";
 import { writeDatabase } from "~/database/open";
@@ -36,7 +37,7 @@ const HELPERS = resolve("test/helpers");
 const PROCESS_TIMEOUT = 60_000;
 const TEST_TIMEOUT = 180_000;
 const POLL_MS = 50;
-const LONG_AGO = "Thu Jan  1 00:00:00 1970";
+const LONG_AGO = anotherStart();
 /** A Run its process still owes an outcome. */
 const UNSETTLED = /^(queued|running)$/;
 

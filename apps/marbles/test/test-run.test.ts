@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { expect, it, vi } from "vitest";
 import { layout } from "~/layout";
@@ -186,7 +187,7 @@ it("does not signal a recorded process whose pid now names one that started late
     JSON.stringify({
       group: true,
       pid: later,
-      started: "Thu Jan 1 00:00:00 1970",
+      started: anotherStart(),
     })
   );
   try {
@@ -435,7 +436,7 @@ function forgedRun(
   chmodSync(root, rootMode);
   writePrivateFile(
     join(root, "owner.json"),
-    JSON.stringify({ pid: exitedPid(), started: "Thu Jan 1 00:00:00 1970" })
+    JSON.stringify({ pid: exitedPid(), started: anotherStart() })
   );
   const record = join(runRecords(root), "run", `${String(pid)}.json`);
   writeFileSync(
@@ -581,7 +582,7 @@ it("keeps a run whose records cannot be read, and still clears the others", asyn
   mkdirPrivate(join(runRecords(broken), "run"));
   writePrivateFile(
     join(broken, "owner.json"),
-    JSON.stringify({ pid: exitedPid(), started: "Thu Jan 1 00:00:00 1970" })
+    JSON.stringify({ pid: exitedPid(), started: anotherStart() })
   );
   writePrivateFile(join(runRecords(broken), "run", "1.json"), "{ not json");
   const killed = await killedRun(parent);
@@ -669,7 +670,7 @@ it("sweeps a run whose owner's pid now names a process started later", async () 
   mkdirPrivate(root);
   writePrivateFile(
     join(root, "owner.json"),
-    JSON.stringify({ pid: reused, started: "Thu Jan 1 00:00:00 1970" })
+    JSON.stringify({ pid: reused, started: anotherStart() })
   );
   const leftover = await sleeper({ [RUN_ENV]: root });
   recordProcess(join(runRecords(root), "run"), leftover, true);

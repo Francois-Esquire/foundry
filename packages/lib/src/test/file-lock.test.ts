@@ -24,6 +24,7 @@ import {
   withFileLock,
 } from "../file-lock";
 import { processAlive, thisProcess } from "../process-identity";
+import { anotherStart } from "../testing/process-identity";
 
 let directory: string;
 let lock: string;
@@ -84,7 +85,7 @@ describe("file locks", () => {
 
   it("breaks a lock an earlier process with this pid left, as after a reboot", async () => {
     // The pid runs, but it is this process, which started later.
-    await writeFile(lock, `${String(process.pid)}\nThu Jan  1 00:00:00 1970`);
+    await writeFile(lock, `${String(process.pid)}\n${anotherStart()}`);
     await expect(acquireFileLock(lock, { waitMs: 30 })).rejects.toMatchObject({
       holder: process.pid,
     });

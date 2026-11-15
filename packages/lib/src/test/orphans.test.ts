@@ -18,6 +18,7 @@ import {
   type SpawnRecord,
   writePrivate,
 } from "../spawn-record";
+import { anotherStart } from "../testing/process-identity";
 
 /**
  * Every process here is one this test started (`sleep`), and the only
@@ -114,7 +115,7 @@ it("never signals a process that started at another time than its record says", 
     group: false,
     owner: owner.identity,
     pid: impostor.identity.pid,
-    started: "Thu Jan  1 00:00:00 1970",
+    started: anotherStart(),
   });
   await kill(owner.child);
 

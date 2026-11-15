@@ -4,22 +4,41 @@
  * that had it exited, and after a reboot the old pids are handed out
  * again from the start. Every owner Foundry records (who holds a lock, a
  * claim, a Run, a container row, a background child) is a
- * `ProcessIdentity`, and `isGone` is the one way to ask whether that
- * owner is still there.
+ * `ProcessIdentity`, `isGone` is the one way to ask whether that owner is
+ * still there, and `compareStarts` the one way to compare two of them.
+ *
+ * A start is an opaque string that names its kind, and two of different
+ * kinds are never taken for the same process (nor for different ones):
+ *
+ * - `linux:<boot id>:<start ticks>`, from `/proc`: the clock ticks since
+ *   boot at which the process started (`/proc/<pid>/stat`, field 22) and
+ *   the boot's id (`/proc/sys/kernel/random/boot_id`). Neither moves with
+ *   the wall clock, and the boot id tells one boot's pids from the next's.
+ *   (`ps -o lstart` is unusable there: it adds the ticks to a boot time
+ *   worked out from the wall clock, so a clock step moves every process.)
+ * - `ps:<start>`, elsewhere (macOS), from `ps -o lstart` in UTC: the
+ *   kernel keeps the time each process started, read once at its fork,
+ *   and a later step of the clock does not rewrite it.
  *
  * Node-bound: import it from main-process code only.
  */
 
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 /**
- * One process: its pid, and when it started as `ps -o lstart=` prints it
- * in UTC. `started` is `null` when that could not be read, as for an owner
- * recorded before start times were kept; the pid alone then decides.
+ * One process: its pid, and its start (see above). `started` is `null`
+ * when that could not be read; the pid alone then decides.
  */
 export interface ProcessIdentity {
   readonly pid: number;
   readonly started: string | null;
+}
+
+/** What the system says about a running process. */
+export interface SeenProcess {
+  readonly pgid: number;
+  readonly started: string;
 }
 
 /** How long `ps` gets to answer. */
@@ -27,32 +46,140 @@ const PS_TIMEOUT_MS = 5000;
 /** `ps` prints a start time in its caller's zone and language: one for every caller. */
 const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
 const SPACES = /\s+/g;
-/** How long a start time read for a live pid is trusted. */
+const DIGITS = /^\d+$/;
+const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(.+)$/;
+/** How long a start read for a live pid is trusted. */
 const SEEN_MS = 1000;
+const LINUX = "linux:";
+const PS = "ps:";
+/** The fields of `/proc/<pid>/stat` after the command's closing parenthesis start at field 3. */
+const STAT_PGID = 5 - 3;
+const STAT_START = 22 - 3;
 
 /**
- * When the process `pid` started, as `ps -o lstart=` prints it in UTC;
- * `null` when no process has the pid, `undefined` when `ps` cannot tell.
+ * How `pid` runs now, from a `/proc/<pid>/stat` line and the boot id:
+ * its group and its start. The command, field 2, is in parentheses and
+ * may hold spaces and parentheses itself, so the fields after it are read
+ * from its last closing parenthesis. `undefined` for a line that is not
+ * one.
+ */
+export function procStat(
+  stat: string,
+  bootId: string
+): SeenProcess | undefined {
+  const end = stat.lastIndexOf(")");
+  if (end === -1) {
+    return;
+  }
+  const fields = stat
+    .slice(end + 1)
+    .trim()
+    .split(" ");
+  const pgid = Number(fields[STAT_PGID]);
+  const ticks = fields[STAT_START];
+  if (!Number.isInteger(pgid) || ticks === undefined || !DIGITS.test(ticks)) {
+    return;
+  }
+  return { pgid, started: `${LINUX}${bootId.trim()}:${ticks}` };
+}
+
+/** A start `ps -o lstart` printed, as this module keeps it. */
+export function psStart(lstart: string): string {
+  return `${PS}${lstart.trim().replace(SPACES, " ")}`;
+}
+
+let knownBoot: string | undefined;
+
+function linuxBootId(): string {
+  knownBoot ??= readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+  return knownBoot;
+}
+
+/**
+ * How each of `pids` that is running runs now: its group and its start;
+ * `undefined` when the system cannot say.
+ */
+export function lookProcesses(
+  pids: readonly number[]
+): ReadonlyMap<number, SeenProcess> | undefined {
+  const seen = new Map<number, SeenProcess>();
+  if (pids.length === 0) {
+    return seen;
+  }
+  return process.platform === "linux"
+    ? lookProc(pids, seen)
+    : lookPs(pids, seen);
+}
+
+function lookProc(
+  pids: readonly number[],
+  seen: Map<number, SeenProcess>
+): ReadonlyMap<number, SeenProcess> | undefined {
+  let boot: string;
+  try {
+    boot = linuxBootId();
+  } catch {
+    return;
+  }
+  for (const pid of pids) {
+    let stat: string;
+    try {
+      stat = readFileSync(`/proc/${String(pid)}/stat`, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        continue;
+      }
+      return;
+    }
+    const found = procStat(stat, boot);
+    if (found === undefined) {
+      return;
+    }
+    seen.set(pid, found);
+  }
+  return seen;
+}
+
+function lookPs(
+  pids: readonly number[],
+  seen: Map<number, SeenProcess>
+): ReadonlyMap<number, SeenProcess> | undefined {
+  const listed = spawnSync(
+    "ps",
+    ["-o", "pid=,pgid=,lstart=", "-p", pids.join(",")],
+    { encoding: "utf8", env: PS_ENV, timeout: PS_TIMEOUT_MS }
+  );
+  // `ps` exits 1 when one of the pids has no process, and lists the rest.
+  if (listed.error !== undefined || (listed.status ?? 2) > 1) {
+    return;
+  }
+  for (const line of listed.stdout.split("\n")) {
+    const parsed = PS_LINE.exec(line);
+    if (parsed) {
+      seen.set(Number(parsed[1]), {
+        pgid: Number(parsed[2]),
+        started: psStart(parsed[3] ?? ""),
+      });
+    }
+  }
+  return seen;
+}
+
+/**
+ * The start of the process `pid` (see above); `null` when no process has
+ * the pid, `undefined` when the system cannot say.
  */
 export function startedAt(pid: number): string | null | undefined {
-  const listed = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
-    encoding: "utf8",
-    env: PS_ENV,
-    timeout: PS_TIMEOUT_MS,
-  });
-  const started = listed.stdout?.trim();
-  if (listed.status === 0 && started) {
-    return started;
+  const seen = lookProcesses([pid]);
+  if (seen === undefined) {
+    return;
   }
-  // `ps` exits 1, printing nothing, when no process has the pid.
-  return listed.error === undefined && listed.status === 1 && !started
-    ? null
-    : undefined;
+  return seen.get(pid)?.started ?? null;
 }
 
 /**
  * This process, read once, as the module loads: nothing that records this
- * process as an owner waits on `ps`, or fails when it cannot answer.
+ * process as an owner waits on the system, or fails when it cannot answer.
  */
 const SELF: ProcessIdentity = Object.freeze({
   pid: process.pid,
@@ -75,15 +202,30 @@ export function processAlive(pid: number): boolean {
 }
 
 /**
+ * Two starts: `same` or `different` when both are of one kind, and
+ * `unknown` when either is missing or they are of different kinds, which
+ * says nothing either way.
+ */
+export function compareStarts(
+  one: string | null,
+  other: string | null
+): "different" | "same" | "unknown" {
+  if (one === null || other === null || kindOf(one) !== kindOf(other)) {
+    return "unknown";
+  }
+  return normal(one) === normal(other) ? "same" : "different";
+}
+
+/**
  * Whether the process `owner` names is gone: no process has its pid, or
- * the one that has it now started at another time. When a start time
- * cannot be read, on either side, the pid alone decides, so a live owner
- * is never taken for gone.
+ * the one that has it now started at another time. When the starts cannot
+ * be compared, the pid alone decides, so a live owner is never taken for
+ * gone.
  */
 export function isGone(owner: ProcessIdentity): boolean {
   if (owner.pid === SELF.pid) {
     // A process before this one that had its pid, as after a reboot.
-    return !sameStarted(owner.started, SELF.started);
+    return compareStarts(owner.started, SELF.started) === "different";
   }
   if (!processAlive(owner.pid)) {
     return true;
@@ -92,7 +234,10 @@ export function isGone(owner: ProcessIdentity): boolean {
     return false;
   }
   const now = recentStart(owner.pid);
-  return now === null || (now !== undefined && !sameStart(now, owner.started));
+  if (now === null) {
+    return true;
+  }
+  return now !== undefined && compareStarts(now, owner.started) === "different";
 }
 
 /** Whether `one` and `other` name the same process, as far as either says. */
@@ -100,12 +245,10 @@ export function sameProcess(
   one: ProcessIdentity,
   other: ProcessIdentity
 ): boolean {
-  return one.pid === other.pid && sameStarted(one.started, other.started);
-}
-
-/** Two start times `ps` printed, however it spaced them. */
-export function sameStart(one: string, other: string): boolean {
-  return normal(one) === normal(other);
+  return (
+    one.pid === other.pid &&
+    compareStarts(one.started, other.started) !== "different"
+  );
 }
 
 /** An owner identity from a row's two columns; `null` without a pid. */
@@ -128,27 +271,31 @@ export function isProcessIdentity(value: unknown): value is ProcessIdentity {
   );
 }
 
-function sameStarted(one: string | null, other: string | null): boolean {
-  return one === null || other === null || sameStart(one, other);
+/** A start's kind; one written before starts named theirs is a kind of its own. */
+function kindOf(started: string): string {
+  if (started.startsWith(LINUX)) {
+    return LINUX;
+  }
+  return started.startsWith(PS) ? PS : "";
 }
 
 function normal(started: string): string {
   return started.trim().replace(SPACES, " ");
 }
 
-const seen = new Map<number, { at: number; started: string | null }>();
+const recent = new Map<number, { at: number; started: string | null }>();
 
-/** `startedAt`, trusted for a moment: a live pid's start time cannot change. */
+/** `startedAt`, trusted for a moment: a live pid's start cannot change. */
 function recentStart(pid: number): string | null | undefined {
-  const known = seen.get(pid);
+  const known = recent.get(pid);
   if (known !== undefined && Date.now() - known.at < SEEN_MS) {
     return known.started;
   }
   const started = startedAt(pid);
   if (started === undefined) {
-    seen.delete(pid);
+    recent.delete(pid);
   } else {
-    seen.set(pid, { at: Date.now(), started });
+    recent.set(pid, { at: Date.now(), started });
   }
   return started;
 }

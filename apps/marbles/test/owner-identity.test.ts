@@ -4,6 +4,7 @@ import {
   startedAt,
   thisProcess,
 } from "@foundry/lib/process-identity";
+import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { afterEach, describe, expect, it } from "vitest";
 import { DatabaseRunStore } from "~/database/runs";
 import {
@@ -26,7 +27,7 @@ import { testMachine } from "./helpers/records";
  * in a home of its own, or this test's own process.
  */
 
-const LONG_AGO = "Thu Jan  1 00:00:00 1970";
+const LONG_AGO = anotherStart();
 const machines: TestMachine[] = [];
 const children: ChildProcess[] = [];
 

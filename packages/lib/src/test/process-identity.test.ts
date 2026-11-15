@@ -1,17 +1,23 @@
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 import {
+  compareStarts,
   isGone,
   isProcessIdentity,
+  lookProcesses,
   ownerOf,
+  procStat,
+  psStart,
   sameProcess,
   startedAt,
   thisProcess,
 } from "../process-identity";
+import { anotherStart } from "../testing/process-identity";
 
-const LONG_AGO = "Thu Jan  1 00:00:00 1970";
+const LONG_AGO = anotherStart();
 
-it("reads this process once, with its start time as ps prints it", () => {
+it("reads this process once, as the system says it started", () => {
   const self = thisProcess();
   expect(self).toEqual({ pid: process.pid, started: startedAt(process.pid) });
   expect(thisProcess()).toBe(self);
@@ -59,3 +65,74 @@ it("compares identities as far as each says, and reads them back from columns an
   expect(isProcessIdentity({ pid: 7 })).toBe(false);
   expect(isProcessIdentity({ pid: 0, started: "x" })).toBe(false);
 });
+
+const LINUX_START = /^linux:[0-9a-f-]{36}:\d+$/;
+const PS_START = /^ps:\w{3} \w{3} +\d+ \d\d:\d\d:\d\d \d{4}$/;
+const BOOT = "6f1c2a7e-2b9d-4c2e-9a51-0d3b7c8e9f10";
+
+it("reads a start under /proc from the ticks since boot and the boot's id, whatever the command is called", () => {
+  // Fields 3 on: state, ppid, pgrp (5), session, tty, tpgid, flags, then
+  // the fault and time counters, priority, nice, threads, itrealvalue,
+  // and starttime (22).
+  const rest =
+    "S 1 4242 4242 0 -1 4194560 120 0 0 0 3 1 0 0 20 0 1 0 987654 1000 200";
+  for (const command of ["sleep", "a b c", "evil) (x", ") ((", "(tricky)"]) {
+    expect(procStat(`4243 (${command}) ${rest}`, ` ${BOOT}\n`)).toEqual({
+      pgid: 4242,
+      started: `linux:${BOOT}:987654`,
+    });
+  }
+  expect(procStat("no parentheses here", BOOT)).toBeUndefined();
+  expect(procStat("1 (x) S 1", BOOT)).toBeUndefined();
+});
+
+it("compares starts of one kind only: another kind, or none, says nothing", () => {
+  const linux = `linux:${BOOT}:987654`;
+  expect(compareStarts(linux, `linux:${BOOT}:987654`)).toBe("same");
+  expect(compareStarts(linux, `linux:${BOOT}:987655`)).toBe("different");
+  // Another boot, the same ticks: another process.
+  expect(compareStarts(linux, anotherStart(linux))).toBe("different");
+  expect(
+    compareStarts(
+      psStart("Sun Nov 15  12:00:00 2026"),
+      "ps:Sun Nov 15 12:00:00 2026"
+    )
+  ).toBe("same");
+  expect(compareStarts(linux, "ps:Sun Nov 15 12:00:00 2026")).toBe("unknown");
+  expect(
+    compareStarts("Sun Nov 15 12:00:00 2026", "ps:Sun Nov 15 12:00:00 2026")
+  ).toBe("unknown");
+  expect(compareStarts(null, linux)).toBe("unknown");
+  // A live pid recorded with a start of another kind is never taken for gone.
+  expect(
+    isGone({ pid: process.pid, started: "Sun Nov 15 12:00:00 2026" })
+  ).toBe(false);
+});
+
+it.runIf(process.platform === "linux")(
+  "reads this process's start from /proc on Linux, as one boot id and its ticks",
+  () => {
+    const started = thisProcess().started ?? "";
+    expect(started).toMatch(LINUX_START);
+    expect(lookProcesses([process.pid])?.get(process.pid)?.pgid).toBe(
+      Number(
+        readFileSync(`/proc/${String(process.pid)}/stat`, "utf8")
+          .slice(
+            readFileSync(
+              `/proc/${String(process.pid)}/stat`,
+              "utf8"
+            ).lastIndexOf(")") + 1
+          )
+          .trim()
+          .split(" ")[2]
+      )
+    );
+  }
+);
+
+it.runIf(process.platform !== "linux")(
+  "reads a start from ps elsewhere",
+  () => {
+    expect(thisProcess().started ?? "").toMatch(PS_START);
+  }
+);
