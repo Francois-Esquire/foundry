@@ -327,7 +327,7 @@ export function pendingChanges(
 }
 
 /**
- * Record the change `write` carries, if it carries one, in the commit's own
+ * Record the changes `write` carries, if it carries any, in the commit's own
  * `transaction`: never through a store, which would wait on the commit
  * that is running this. Whether a change was recorded.
  */
@@ -336,19 +336,24 @@ async function recordChange(
   scope: string,
   write: TaskStoreWrite
 ): Promise<boolean> {
-  if (write.event === undefined) {
+  const events = write.events ?? [];
+  if (events.length === 0) {
     return false;
   }
   const [last] = await transaction
     .select({ position: max(marblesTaskChanges.position) })
     .from(marblesTaskChanges)
     .where(eq(marblesTaskChanges.scope, scope));
-  await transaction.insert(marblesTaskChanges).values({
-    id: randomUUID(),
-    payload: write.event,
-    position: (last?.position ?? 0) + 1,
-    scope,
-  });
+  let position = last?.position ?? 0;
+  for (const event of events) {
+    position += 1;
+    await transaction.insert(marblesTaskChanges).values({
+      id: event.id,
+      payload: event,
+      position,
+      scope,
+    });
+  }
   return true;
 }
 

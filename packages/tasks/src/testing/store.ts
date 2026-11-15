@@ -157,20 +157,39 @@ export function describeTaskStore(
       });
     });
 
-    test("a write's event changes no record", async () => {
+    test("a write's events change no record", async () => {
       const target = await store();
       const a = task("a");
       const event: TaskEvent = {
+        at: a.createdAt,
         dependencies: { added: [], removed: [] },
-        kind: "tasks.changed",
+        id: "event-a",
         tasks: [{ after: a, before: null, id: a.id }],
+        type: "tasks.changed",
       };
-      await target.commit({ event, putTasks: [a] });
+      await target.commit({ events: [event], putTasks: [a] });
 
       expect(await target.snapshot()).toEqual({
         dependencies: [],
         tasks: [a],
       });
+    });
+
+    test("refuses a write whose events are not plain JSON, and changes nothing", async () => {
+      const target = await store();
+      const a = task("a");
+      const unplain = {
+        at: new Date(0),
+        dependencies: { added: [], removed: [] },
+        id: "event-a",
+        tasks: [],
+        type: "tasks.changed",
+      } as unknown as TaskEvent;
+      await expect(
+        target.commit({ events: [unplain], putTasks: [a] })
+      ).rejects.toThrow(TypeError);
+
+      expect(await target.snapshot()).toEqual({ dependencies: [], tasks: [] });
     });
 
     test("a failing commit leaves nothing behind", async () => {
@@ -495,7 +514,7 @@ function dependency(from: Task, on: Task): TaskDependency {
 
 /**
  * A write as a caller holds it: one task and one edge to put beside `kept`,
- * an event, and an empty list of deletes, every part of it open to change.
+ * one event, and an empty list of deletes, every part of it open to change.
  */
 function callerWrite(kept: Task) {
   const added = task("added", { metadata: { list: ["x"] }, tags: ["t"] });
@@ -503,11 +522,15 @@ function callerWrite(kept: Task) {
   return {
     deleteDependencies: [] as TaskDependency[],
     deleteTasks: [] as TaskId[],
-    event: {
-      dependencies: { added: [{ ...edge }], removed: [] },
-      kind: "tasks.changed",
-      tasks: [{ after: structuredClone(added), before: null, id: added.id }],
-    } satisfies TaskEvent,
+    events: [
+      {
+        at: added.createdAt,
+        dependencies: { added: [{ ...edge }], removed: [] },
+        id: "event-added",
+        tasks: [{ after: structuredClone(added), before: null, id: added.id }],
+        type: "tasks.changed",
+      } satisfies TaskEvent,
+    ],
     putDependencies: [edge],
     putTasks: [added],
   };
@@ -524,7 +547,7 @@ function storedAfter(write: ReturnType<typeof callerWrite>, kept: Task) {
 /**
  * Changes, in place, every value `write` holds, as a caller might once
  * `commit` has returned: each field of the task it puts, its metadata and
- * tags, its edge and event, a further task and edge put, and `kept`
+ * tags, its edge and events, a further task and edge put, and `kept`
  * deleted.
  */
 function scramble(write: ReturnType<typeof callerWrite>, kept: Task): void {
@@ -536,7 +559,9 @@ function scramble(write: ReturnType<typeof callerWrite>, kept: Task): void {
   for (const edge of write.putDependencies) {
     mutable(edge).dependsOnId = id("changed");
   }
-  mutable(write.event).kind = "changed" as "tasks.changed";
+  for (const event of write.events) {
+    mutable(event).type = "changed" as "tasks.changed";
+  }
   write.putTasks.push(task("late"));
   write.putDependencies.push(dependency(kept, kept));
   write.deleteTasks.push(kept.id);

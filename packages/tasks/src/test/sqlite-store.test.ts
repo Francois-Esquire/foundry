@@ -176,7 +176,9 @@ describe("SqliteTaskStore", () => {
           .from(tasks)
           .where(eq(tasks.scope, "host"));
         seen.push({ rows: rows.length, write });
-        await transaction.insert(changes).values({ event: write.event });
+        for (const event of write.events ?? []) {
+          await transaction.insert(changes).values({ event });
+        }
       },
       scope: "host",
     });
@@ -187,9 +189,11 @@ describe("SqliteTaskStore", () => {
     expect(seen[0]?.write.putTasks).toEqual([created]);
     const [recorded] = await database.select().from(changes);
     expect(recorded?.event).toEqual({
+      at: created.createdAt,
       dependencies: { added: [], removed: [] },
-      kind: "tasks.changed",
+      id: expect.any(String),
       tasks: [{ after: created, before: null, id: created.id }],
+      type: "tasks.changed",
     });
   });
 
@@ -211,11 +215,15 @@ describe("SqliteTaskStore", () => {
       const writeOf = (name: string) => {
         const record = taskRecord(name, { metadata: { list: ["x"] } });
         return {
-          event: {
-            dependencies: { added: [], removed: [] },
-            kind: "tasks.changed",
-            tasks: [{ after: { ...record }, before: null, id: record.id }],
-          } satisfies TaskEvent,
+          events: [
+            {
+              at: record.createdAt,
+              dependencies: { added: [], removed: [] },
+              id: `event-${name}`,
+              tasks: [{ after: { ...record }, before: null, id: record.id }],
+              type: "tasks.changed",
+            } satisfies TaskEvent,
+          ],
           putTasks: [record],
         };
       };
@@ -224,7 +232,7 @@ describe("SqliteTaskStore", () => {
           Object.assign(record, { title: "changed" });
           (record.metadata.list as string[]).push("changed");
         }
-        for (const delta of write.event.tasks) {
+        for (const delta of write.events.flatMap((event) => event.tasks)) {
           Object.assign(delta.after, { title: "changed" });
         }
         write.putTasks.push(taskRecord("late"));
@@ -261,7 +269,7 @@ describe("SqliteTaskStore", () => {
     }
   );
 
-  test("onCommit runs for a write that changed nothing, which has no event", async () => {
+  test("onCommit runs for a write that changed nothing, which has no events", async () => {
     const writes: TaskStoreWrite[] = [];
     const store = new SqliteTaskStore({
       database: await memory.open(),
@@ -280,7 +288,7 @@ describe("SqliteTaskStore", () => {
     });
 
     expect(writes).toHaveLength(2);
-    expect(writes[1]).not.toHaveProperty("event");
+    expect(writes[1]).not.toHaveProperty("events");
   });
 
   test("onCommit calling the store it belongs to is refused at once", async () => {
@@ -327,7 +335,9 @@ describe("SqliteTaskStore", () => {
     const store = new SqliteTaskStore({
       database,
       onCommit: async (transaction, write) => {
-        await transaction.insert(changes).values({ event: write.event });
+        for (const event of write.events ?? []) {
+          await transaction.insert(changes).values({ event });
+        }
         throw new Error("host refused");
       },
       scope: "host",

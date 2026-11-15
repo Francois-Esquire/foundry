@@ -175,9 +175,7 @@ export class MemoryWorkspaceRecords implements WorkspaceRecords {
       (target: TaskStore, into: TaskEvent[]) =>
       async (owned: TaskStoreWrite): Promise<void> => {
         await target.commit(owned);
-        if (owned.event !== undefined) {
-          into.push(owned.event);
-        }
+        into.push(...(owned.events ?? []));
       };
     const settle = (events: readonly TaskEvent[]): void => {
       for (const payload of events) {

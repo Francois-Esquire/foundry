@@ -1,3 +1,4 @@
+import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
 import { edgeKey } from "../edges";
 import type {
@@ -25,15 +26,15 @@ export class MemoryTaskStore implements TaskStore {
   private readonly turns = new Turns(REENTRY);
 
   /**
-   * Takes the write as it stands now: one `structuredClone` of it, made
-   * before the commit waits its turn, so a caller changing the write later
-   * changes nothing. A write the clone refuses rejects whole and changes
-   * nothing. A transaction's view commits the same way.
+   * Takes the write as it stands now: its events as plain JSON, the rest
+   * by one `structuredClone` (`ownedWrite`), made before the commit waits
+   * its turn, so a caller changing the write later changes nothing. A
+   * write either refuses rejects whole and changes nothing. A transaction's view commits the same way.
    */
   commit(write: TaskStoreWrite): Promise<void> {
     let owned: TaskStoreWrite;
     try {
-      owned = structuredClone(write);
+      owned = ownedWrite(write);
     } catch (error) {
       return Promise.reject(error);
     }

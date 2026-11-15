@@ -1,3 +1,4 @@
+import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
 import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
 import { and, eq, getTableColumns, inArray, max, or, sql } from "drizzle-orm";
@@ -40,7 +41,7 @@ export interface SqliteTaskStoreOptions {
   readonly database: TaskDatabase;
   /**
    * Runs inside the commit's transaction after the store's own statements,
-   * so the host can record the change (`write.event`) atomically with it. A
+   * so the host can record the change (`write.events`) atomically with it. A
    * throw rolls the whole commit back. It receives the store's own copy of
    * the write, the one its rows were made from, not the caller's object.
    */
@@ -80,7 +81,7 @@ const REENTRY =
 /**
  * A `TaskStore` over the host's SQLite database, in the tables from
  * `@foundry/tasks/store/tables`. It behaves as `MemoryTaskStore` does, within
- * its scope. It does not keep `write.event`; `onCommit` receives it.
+ * its scope. It does not keep `write.events`; `onCommit` receives them.
  *
  * Its calls take turns, as the memory store's do: a call made while a
  * transaction or commit runs waits for it. That keeps two `Tasks` over one
@@ -107,9 +108,9 @@ export class SqliteTaskStore implements TaskStore {
   }
 
   /**
-   * Takes the write as it stands when `commit` is called: one
-   * `structuredClone` of the whole write, as the memory store takes it, made
-   * before the commit waits its turn. That copy alone is checked, made into
+   * Takes the write as it stands when `commit` is called: its events as
+   * plain JSON, the rest by one `structuredClone` (`ownedWrite`), as the
+   * memory store takes it, made before the commit waits its turn. That copy alone is checked, made into
    * every row, and handed to `onCommit`, so a caller changing its write
    * later changes nothing. A write the clone refuses rejects with the
    * clone's error, as in the memory store.
@@ -121,7 +122,7 @@ export class SqliteTaskStore implements TaskStore {
   commit(write: TaskStoreWrite): Promise<void> {
     let owned: TaskStoreWrite;
     try {
-      owned = structuredClone(write);
+      owned = ownedWrite(write);
     } catch (error) {
       return Promise.reject(error);
     }

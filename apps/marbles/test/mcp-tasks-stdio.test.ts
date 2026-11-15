@@ -230,8 +230,8 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     expect(payloads).toMatchObject([
       { tasks: [{ after: { tags: ["cli"] }, before: null }] },
       {
-        kind: "tasks.changed",
         tasks: [{ after: { tags: ["review", "api"] }, before: null }],
+        type: "tasks.changed",
       },
     ]);
 

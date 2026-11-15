@@ -92,7 +92,7 @@ for (const kind of KINDS) {
 }
 
 /** A write creating one task titled `title`, with the change it makes. */
-function creating(title: string): TaskStoreWrite & { event: TaskEvent } {
+function creating(title: string): TaskStoreWrite & { events: TaskEvent[] } {
   const at = "2026-11-14T00:00:00.000Z";
   const task: Task = {
     createdAt: at,
@@ -107,22 +107,26 @@ function creating(title: string): TaskStoreWrite & { event: TaskEvent } {
     updatedAt: at,
   };
   return {
-    event: {
-      dependencies: { added: [], removed: [] },
-      kind: "tasks.changed",
-      tasks: [{ after: structuredClone(task), before: null, id: task.id }],
-    },
+    events: [
+      {
+        at: task.createdAt,
+        dependencies: { added: [], removed: [] },
+        id: `event-${task.id}`,
+        tasks: [{ after: structuredClone(task), before: null, id: task.id }],
+        type: "tasks.changed",
+      },
+    ],
     putTasks: [task],
   };
 }
 
 /** Change everything in `write` a caller could still reach. */
-function tamper(write: TaskStoreWrite & { event: TaskEvent }): void {
+function tamper(write: TaskStoreWrite & { events: TaskEvent[] }): void {
   const [task] = write.putTasks ?? [];
   if (task !== undefined) {
     (task as { title: string }).title = "Changed";
   }
-  const [delta] = write.event.tasks;
+  const [delta] = write.events[0]?.tasks ?? [];
   if (delta?.after) {
     (delta.after as { title: string }).title = "Changed";
   }
