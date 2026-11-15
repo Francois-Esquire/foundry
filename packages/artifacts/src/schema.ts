@@ -275,3 +275,67 @@ export const artifactRecordsSchema = z
   })
   .readonly();
 export type ArtifactRecords = z.infer<typeof artifactRecordsSchema>;
+
+// ── Change facts ──
+
+const factFields = {
+  artifactId: artifactIdSchema,
+  /** When the manager built the fact, an ISO time. */
+  at: z.iso.datetime(),
+  /** The fact's own id, unique. */
+  id: z.string().min(1),
+};
+const contentFactFields = { ...factFields, contentId: contentIdSchema };
+
+/**
+ * A change fact: one change an `ArtifactManager` operation made, carried in
+ * the store write that makes it (`ArtifactStoreWrite.facts`). Each names the
+ * Artifact it changed, and the Content where the change is to one; a
+ * handler reads the records for anything more.
+ */
+export const artifactFactSchema = z.discriminatedUnion("type", [
+  z.strictObject({ ...factFields, type: z.literal("artifact.created") }),
+  z.strictObject({
+    ...contentFactFields,
+    sourceArtifactId: artifactIdSchema,
+    sourceContentId: contentIdSchema,
+    type: z.literal("artifact.forked"),
+  }),
+  z.strictObject({ ...contentFactFields, type: z.literal("artifact.written") }),
+  z.strictObject({
+    ...contentFactFields,
+    sourceContentId: contentIdSchema,
+    type: z.literal("artifact.revised"),
+  }),
+  z.strictObject({ ...contentFactFields, type: z.literal("artifact.frozen") }),
+  z.strictObject({
+    ...contentFactFields,
+    type: z.literal("artifact.selected"),
+  }),
+  z.strictObject({ ...contentFactFields, type: z.literal("artifact.cleared") }),
+  z.strictObject({
+    ...contentFactFields,
+    tag: nonBlankSchema.nullable(),
+    type: z.literal("artifact.tagged"),
+  }),
+  z.strictObject({
+    ...factFields,
+    /** The Content whose metadata changed; `null` for the Artifact's own. */
+    contentId: contentIdSchema.nullable(),
+    type: z.literal("artifact.updated"),
+  }),
+  z.strictObject({
+    ...factFields,
+    name: nonBlankSchema,
+    type: z.literal("artifact.renamed"),
+  }),
+  z.strictObject({ ...factFields, type: z.literal("artifact.archived") }),
+  z.strictObject({ ...factFields, type: z.literal("artifact.unarchived") }),
+  z.strictObject({ ...factFields, type: z.literal("artifact.removed") }),
+  z.strictObject({
+    ...contentFactFields,
+    type: z.literal("artifact.discarded"),
+  }),
+]);
+export type ArtifactFact = z.infer<typeof artifactFactSchema>;
+export type ArtifactFactType = ArtifactFact["type"];

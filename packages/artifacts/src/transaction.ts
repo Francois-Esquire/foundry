@@ -8,7 +8,7 @@ import type { BlobEffects } from "./blob-repository";
 import { BlobRepository } from "./blob-repository";
 import type { ByteInput, Ownership } from "./blob-staging";
 import { BlobStaging, isReferenceInput } from "./blob-staging";
-import type { ArtifactChange } from "./change";
+import type { ArtifactChange, FactInput } from "./change";
 import type { ContentMetadata } from "./content";
 import {
   assertJsonMetadata,
@@ -205,22 +205,8 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   async create(input: CreateArtifactInput): Promise<ArtifactResolved> {
-    await this.checkCreate(input);
-    const id = input.id ?? artifactIdSchema.parse(crypto.randomUUID());
-    const now = new Date();
-    await this.#change.putArtifact({
-      archivedAt: null,
-      contentId: null,
-      createdAt: now,
-      id,
-      metadata: {},
-      name: input.name,
-      publishedAt: null,
-      status: "draft",
-      type: input.type,
-      updatedAt: now,
-    });
-    this.#effects.changed.add(id);
+    const id = await this.#file(input);
+    this.#change.record({ artifactId: id, type: "artifact.created" });
     if (input.entries !== undefined) {
       await this.write({
         artifactId: id,
@@ -251,30 +237,56 @@ export class ArtifactTransaction implements ArtifactOperations {
 
   rename(id: ArtifactId, name: string): Promise<Artifact> {
     nonEmpty("name", name);
-    return this.#updateArtifact(id, () => ({ name }));
+    return this.#updateArtifact(
+      id,
+      () => ({ name }),
+      (previous) =>
+        previous.name === name
+          ? undefined
+          : { artifactId: id, name, type: "artifact.renamed" }
+    );
   }
 
   patchArtifactMetadata(
     id: ArtifactId,
     patch: Readonly<Record<string, unknown>>
   ): Promise<Artifact> {
-    return this.#updateArtifact(id, (row) => ({
-      metadata: mergeMetadata(row.metadata, patch),
-    }));
+    return this.#updateArtifact(
+      id,
+      (row) => ({ metadata: mergeMetadata(row.metadata, patch) }),
+      () =>
+        Object.keys(patch).length === 0
+          ? undefined
+          : { artifactId: id, contentId: null, type: "artifact.updated" }
+    );
   }
 
   archive(id: ArtifactId): Promise<Artifact> {
-    return this.#updateArtifact(id, (row) => ({
-      archivedAt: row.archivedAt ?? new Date(),
-      status: "archived",
-    }));
+    return this.#updateArtifact(
+      id,
+      (row) => ({
+        archivedAt: row.archivedAt ?? new Date(),
+        status: "archived",
+      }),
+      (previous) =>
+        previous.status === "archived"
+          ? undefined
+          : { artifactId: id, type: "artifact.archived" }
+    );
   }
 
   unarchive(id: ArtifactId): Promise<Artifact> {
-    return this.#updateArtifact(id, (row) => ({
-      archivedAt: null,
-      status: row.publishedAt ? "published" : "draft",
-    }));
+    return this.#updateArtifact(
+      id,
+      (row) => ({
+        archivedAt: null,
+        status: row.publishedAt ? "published" : "draft",
+      }),
+      (previous) =>
+        previous.status === "archived"
+          ? { artifactId: id, type: "artifact.unarchived" }
+          : undefined
+    );
   }
 
   async clearFailedContent(input: {
@@ -288,6 +300,11 @@ export class ArtifactTransaction implements ArtifactOperations {
       throw new ContentStateError(content.id, content.state, "clear");
     }
     await this.#point(artifact.id, null);
+    this.#change.record({
+      artifactId: artifact.id,
+      contentId: content.id,
+      type: "artifact.cleared",
+    });
     return this.#requireArtifact(artifact.id);
   }
 
@@ -300,6 +317,7 @@ export class ArtifactTransaction implements ArtifactOperations {
       this.#releaseTree(content.tree);
     }
     await this.#change.deleteArtifact(id);
+    this.#change.record({ artifactId: id, type: "artifact.removed" });
     return true;
   }
 
@@ -328,6 +346,11 @@ export class ArtifactTransaction implements ArtifactOperations {
       content = await this.#insert(artifact.id, tree, metadata);
     }
     await this.#point(artifact.id, content.id);
+    this.#change.record({
+      artifactId: artifact.id,
+      contentId: content.id,
+      type: "artifact.written",
+    });
     if (input.freeze) {
       await this.freeze(content.id, input.freeze);
     }
@@ -345,6 +368,12 @@ export class ArtifactTransaction implements ArtifactOperations {
       mergeMetadata(successorMetadata(source), input.metadata)
     );
     await this.#point(artifact.id, content.id);
+    this.#change.record({
+      artifactId: artifact.id,
+      contentId: content.id,
+      sourceContentId: source.id,
+      type: "artifact.revised",
+    });
     return this.#resolvedContent(content.id);
   }
 
@@ -381,6 +410,11 @@ export class ArtifactTransaction implements ArtifactOperations {
       publishedAt: artifact.publishedAt ?? frozen.updatedAt,
       status: artifact.status === "draft" ? "published" : artifact.status,
     }));
+    this.#change.record({
+      artifactId: row.artifactId,
+      contentId: id,
+      type: "artifact.frozen",
+    });
     return frozen;
   }
 
@@ -399,6 +433,11 @@ export class ArtifactTransaction implements ArtifactOperations {
     }
     if (artifact.contentId !== target.id) {
       await this.#point(artifact.id, target.id);
+      this.#change.record({
+        artifactId: artifact.id,
+        contentId: target.id,
+        type: "artifact.selected",
+      });
     }
     return this.#requireArtifact(artifact.id);
   }
@@ -416,18 +455,26 @@ export class ArtifactTransaction implements ArtifactOperations {
       source = await this.#markFrozen(source);
     }
     const original = await this.#requireArtifact(source.artifactId);
-    const artifact = await this.create({
+    const id = await this.#file({
       id: input.id,
       name: input.name ?? original.name,
       type: original.type,
     });
     const content = await this.#insert(
-      artifact.id,
+      id,
       source.tree,
       successorMetadata(source)
     );
-    await this.#point(artifact.id, content.id);
-    return this.#requireArtifact(artifact.id);
+    await this.#point(id, content.id);
+    // One fact for the fork: the Artifact it files is not also `created`.
+    this.#change.record({
+      artifactId: id,
+      contentId: content.id,
+      sourceArtifactId: original.id,
+      sourceContentId: source.id,
+      type: "artifact.forked",
+    });
+    return this.#requireArtifact(id);
   }
 
   async tag(id: ContentId, tag: string | null): Promise<Content> {
@@ -438,6 +485,14 @@ export class ArtifactTransaction implements ArtifactOperations {
     const content = { ...row, tag };
     await this.#change.putContent(content);
     this.#effects.changed.add(row.artifactId);
+    if (row.tag !== tag) {
+      this.#change.record({
+        artifactId: row.artifactId,
+        contentId: id,
+        tag,
+        type: "artifact.tagged",
+      });
+    }
     return content;
   }
 
@@ -457,6 +512,13 @@ export class ArtifactTransaction implements ArtifactOperations {
     const content = { ...row, metadata, updatedAt: nextTime(row) };
     await this.#change.putContent(content);
     this.#effects.changed.add(row.artifactId);
+    if (Object.keys(patch).length > 0) {
+      this.#change.record({
+        artifactId: row.artifactId,
+        contentId: id,
+        type: "artifact.updated",
+      });
+    }
     return content;
   }
 
@@ -527,6 +589,11 @@ export class ArtifactTransaction implements ArtifactOperations {
     await this.#change.deleteContent(row.id);
     this.#releaseTree(row.tree);
     this.#effects.changed.add(row.artifactId);
+    this.#change.record({
+      artifactId: row.artifactId,
+      contentId: row.id,
+      type: "artifact.discarded",
+    });
   }
 
   async readFile(id: ContentId, path: string): Promise<FileResolved | null> {
@@ -583,6 +650,11 @@ export class ArtifactTransaction implements ArtifactOperations {
       await this.#change.deleteContent(content.id);
       contents += 1;
       this.#effects.changed.add(content.artifactId);
+      this.#change.record({
+        artifactId: content.artifactId,
+        contentId: content.id,
+        type: "artifact.discarded",
+      });
     }
     return { blobs: await this.#blobs.reclaimAll(), contents };
   }
@@ -744,9 +816,38 @@ export class ArtifactTransaction implements ArtifactOperations {
     return content;
   }
 
+  /**
+   * Files a new Artifact, empty and a draft, once `checkCreate` passes; the
+   * caller records the fact of it.
+   */
+  async #file(input: CreateArtifactInput): Promise<ArtifactId> {
+    await this.checkCreate(input);
+    const id = input.id ?? artifactIdSchema.parse(crypto.randomUUID());
+    const now = new Date();
+    await this.#change.putArtifact({
+      archivedAt: null,
+      contentId: null,
+      createdAt: now,
+      id,
+      metadata: {},
+      name: input.name,
+      publishedAt: null,
+      status: "draft",
+      type: input.type,
+      updatedAt: now,
+    });
+    this.#effects.changed.add(id);
+    return id;
+  }
+
+  /**
+   * Puts the Artifact with `update` applied, then records the fact `fact`
+   * makes of the Artifact as it was, if any.
+   */
   async #updateArtifact(
     id: ArtifactId,
-    update: (artifact: Artifact) => Partial<Artifact>
+    update: (artifact: Artifact) => Partial<Artifact>,
+    fact: (previous: Artifact) => FactInput | undefined = () => undefined
   ): Promise<Artifact> {
     const previous = await this.#change.getArtifact(id);
     if (!previous) {
@@ -760,6 +861,10 @@ export class ArtifactTransaction implements ArtifactOperations {
     assertJsonMetadata(artifact.metadata);
     await this.#change.putArtifact(artifact);
     this.#effects.changed.add(id);
+    const made = fact(previous);
+    if (made !== undefined) {
+      this.#change.record(made);
+    }
     return artifact;
   }
 

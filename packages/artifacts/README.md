@@ -418,11 +418,52 @@ writes nothing:
 | `deleteContent`                                 | the Content's id, and blobs it alone named              |
 | `delete`                                        | the Artifact's id, its Contents' ids, blobs they alone named |
 | `sweep`                                         | the Contents' and blobs' ids it removes                 |
-| several operations in `transaction`             | one write: the net records of them all                  |
+| several operations in `transaction`             | one write: the net records of them all, and every fact  |
 
 A blob only one file names is rewritten in place, so a write can put a blob id that
 already exists. A record put and deleted within one change arrives as a delete of an
 id the store never held.
+
+### Change facts
+
+The write also carries `facts`: what the change did, as change facts
+(`ArtifactFact`, schema `artifactFactSchema` in `./schema`, types exported from
+`.`), in the order its operations made them. The manager's operations build them,
+never a store; a host records them in `onCommit`, on the transaction it is handed,
+so a fact lands exactly when its change does: once per commit that succeeds, never
+for one refused or rolled back. Every store hands the facts on with its copy of the
+write and keeps no record of them; a fact the copy refuses refuses the write.
+
+A fact is plain JSON: `{ type, id, at, artifactId, ... }`. `id` is unique (`af-` and
+a UUID), made with the write before `commit`; `at` is an ISO time. A fact about one
+version names it as `contentId`. A handler reads the records for anything more.
+
+| Fact                 | Emitted when                                                                   | Also carries                          |
+| -------------------- | ------------------------------------------------------------------------------ | ------------------------------------- |
+| `artifact.created`   | `create` files an Artifact                                                     |                                       |
+| `artifact.forked`    | `fork` files an Artifact from another's Content (not also `created`)           | `contentId`, `sourceArtifactId`, `sourceContentId` |
+| `artifact.written`   | `write` edits the active Content in place, or makes the first one              | `contentId`                           |
+| `artifact.revised`   | `revise` makes a successor Content and selects it                              | `contentId`, `sourceContentId`        |
+| `artifact.frozen`    | `freeze` freezes a ready Content (and publishes a draft Artifact)              | `contentId`                           |
+| `artifact.selected`  | `select` points the Artifact at another of its Contents                        | `contentId`                           |
+| `artifact.cleared`   | `clearFailedContent` drops the pointer to a failed Content                     | `contentId`                           |
+| `artifact.tagged`    | `tag` sets or clears a Content's tag, to a value it did not have               | `contentId`, `tag` (or `null`)        |
+| `artifact.updated`   | `patchArtifactMetadata` or `setMetadata` with at least one key                 | `contentId`: the Content, or `null` for the Artifact |
+| `artifact.renamed`   | `rename` to another name                                                       | `name`                                |
+| `artifact.archived`  | `archive` of an Artifact not archived                                          |                                       |
+| `artifact.unarchived`| `unarchive` of an archived Artifact                                            |                                       |
+| `artifact.removed`   | `delete` removes an Artifact, and its Contents with it                         |                                       |
+| `artifact.discarded` | `deleteContent` or `sweep` removes one Content                                 | `contentId`                           |
+
+An operation that performs another records that one's fact too, after its own:
+`create` with entries is `created` then `written`, with its `freeze` option `tagged`,
+`updated` and `frozen` after; a `deleteContent` of the active Content is `selected`
+(the replacement) then `discarded`. The source frozen by `revise` or `fork` is part of
+that operation and makes no fact of its own. An operation that changes nothing a fact
+names (the same name, an Artifact already archived, the tag a Content has, an empty
+metadata patch, a Content already frozen) makes no fact, though it may still write.
+Facts are a record of operations, not a net difference: an Artifact created and
+deleted inside one `transaction` carries `created` and `removed`.
 
 `transaction(work)` runs `work` in one database transaction over a view; each commit
 through the view is a savepoint, and the view refuses calls once `work` settles. In this

@@ -1045,7 +1045,7 @@ describe("what onCommit learns of a change", () => {
           type: "text/plain",
         });
       })
-    ).toEqual([{ putArtifacts: 1, putBlobs: 1, putContents: 1 }]);
+    ).toEqual([{ facts: 2, putArtifacts: 1, putBlobs: 1, putContents: 1 }]);
     const { id } = created;
     // A blob only this file names is rewritten in place: the same id, put again.
     expect(
@@ -1055,26 +1055,26 @@ describe("what onCommit learns of a change", () => {
           changes: { put: { "a.txt": { bytes: "b" } } },
         })
       )
-    ).toEqual([{ putArtifacts: 1, putBlobs: 1, putContents: 1 }]);
+    ).toEqual([{ facts: 1, putArtifacts: 1, putBlobs: 1, putContents: 1 }]);
     expect(await shapes(() => manager.rename(id, "C"))).toEqual([
-      { putArtifacts: 1 },
+      { facts: 1, putArtifacts: 1 },
     ]);
     const first = required(created.contentId);
     expect(await shapes(() => manager.setMetadata(first, { n: 1 }))).toEqual([
-      { putContents: 1 },
+      { facts: 1, putContents: 1 },
     ]);
     expect(await shapes(() => manager.freeze(first))).toEqual([
-      { putArtifacts: 1, putContents: 1 },
+      { facts: 1, putArtifacts: 1, putContents: 1 },
     ]);
     expect(await shapes(() => manager.tag(first, "v1"))).toEqual([
-      { putContents: 1 },
+      { facts: 1, putContents: 1 },
     ]);
     expect(await shapes(() => manager.fork({ contentId: first }))).toEqual([
-      { putArtifacts: 1, putContents: 1 },
+      { facts: 1, putArtifacts: 1, putContents: 1 },
     ]);
     // Deleting an Artifact names its Contents; the shared blob stays.
     expect(await shapes(() => manager.delete(id))).toEqual([
-      { deleteArtifacts: 1, deleteContents: 1 },
+      { deleteArtifacts: 1, deleteContents: 1, facts: 1 },
     ]);
   });
 
@@ -1090,8 +1090,12 @@ describe("what onCommit learns of a change", () => {
           await transaction.rename(made.id, "Renamed");
         })
       )
-    ).toEqual([{ putArtifacts: 1 }]);
+    ).toEqual([{ facts: 2, putArtifacts: 1 }]);
     expect(writes.at(-1)?.putArtifacts?.[0]?.name).toBe("Renamed");
+    expect(writes.at(-1)?.facts?.map((fact) => fact.type)).toEqual([
+      "artifact.created",
+      "artifact.renamed",
+    ]);
   });
 
   test("a record put and deleted in one change arrives as a delete of an id the store never held", async () => {
@@ -1107,7 +1111,9 @@ describe("what onCommit learns of a change", () => {
           await transaction.delete(made.id);
         })
       )
-    ).toEqual([{ deleteArtifacts: 1, deleteBlobs: 1, deleteContents: 1 }]);
+    ).toEqual([
+      { deleteArtifacts: 1, deleteBlobs: 1, deleteContents: 1, facts: 3 },
+    ]);
     expect(await everything(store)).toEqual({
       artifacts: [],
       blobs: [],

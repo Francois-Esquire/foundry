@@ -1,6 +1,6 @@
 import type { ArtifactCursor, ArtifactFilter } from "../listing";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
-import type { Artifact, Blob, Content } from "../schema";
+import type { Artifact, ArtifactFact, Blob, Content } from "../schema";
 
 export type { ArtifactCursor, ArtifactFilter } from "../listing";
 
@@ -50,6 +50,15 @@ export interface ArtifactStoreWrite {
   readonly deleteArtifacts?: readonly ArtifactId[];
   readonly deleteBlobs?: readonly BlobId[];
   readonly deleteContents?: readonly ContentId[];
+  /**
+   * What the write does, as change facts in the order the manager's
+   * operations made them; present whenever an operation changed something a
+   * fact names, left out otherwise. A store keeps no record of them: it
+   * hands them, with the rest of its copy of the write, to a host's hook
+   * that runs inside the commit (the SQLite store's `onCommit`), and ignores
+   * them otherwise.
+   */
+  readonly facts?: readonly ArtifactFact[];
   readonly putArtifacts?: readonly Artifact[];
   readonly putBlobs?: readonly Blob[];
   readonly putContents?: readonly Content[];
