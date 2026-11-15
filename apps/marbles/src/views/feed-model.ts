@@ -36,11 +36,14 @@ export function feedScopes(
   return scopes;
 }
 
+/** The entries `scope` shows: every one, or those that belong to that workspace, owned or shared with it. */
 export function scopedFeed(
   entries: readonly FeedEntrySnapshot[],
   scope: string
 ): readonly FeedEntrySnapshot[] {
   return scope === ALL_WORKSPACES
     ? entries
-    : entries.filter((entry) => entry.workspace.id === scope);
+    : entries.filter((entry) =>
+        (entry.workspaces ?? [entry.workspace.id]).includes(scope)
+      );
 }

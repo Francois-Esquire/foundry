@@ -4,6 +4,7 @@ import { abandonHost } from "~/authoring/runtime";
 import type { MarblesDatabase } from "~/database/open";
 import { openHostDatabase } from "~/database/workspaces";
 import type { Engine } from "~/lib/engine";
+import type { FeedReader } from "~/lib/feed/read";
 import { tick } from "~/lib/schedule";
 import { inputFromFields, SchemaError } from "~/lib/schema";
 import type { Workspace } from "~/lib/state/workspace";
@@ -21,6 +22,7 @@ import type {
 import type { DashboardSnapshot } from "~/model/dashboard";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { Diagnostics, hostOutput } from "~/workspace/diagnostics";
+import { workspaceFeed } from "~/workspace/feed";
 import { runSchedulesUntilStopped } from "~/workspace/loop";
 import type { OpenedWorkspace } from "~/workspace/open";
 import {
@@ -202,6 +204,16 @@ export async function hostWorkspace(
           report(line);
           diagnostics.add(line, "error");
         },
+        feed:
+          database === undefined
+            ? engine.feed
+            : workspaceFeed({
+                artifacts: hostOptions.artifacts,
+                database: database.database,
+                own: engine.feed,
+                state: hostOptions.state,
+                workspace: opened.workspace.id,
+              }),
         lastFinish: await lastFinishes(engine),
         print,
         setStatus: (line) => {
@@ -228,6 +240,8 @@ interface Status {
   readonly diagnostics: Diagnostics;
   /** An error line: the status, and an error in the Logs tab. */
   readonly fail: (line: string) => void;
+  /** What the dashboard's Feed shows: this workspace's entries, and every other workspace's with a database. */
+  readonly feed: FeedReader;
   /** When each trigger last finished a tick, as the host started. */
   readonly lastFinish: ReadonlyMap<string, number>;
   readonly print: (line: string) => void;
@@ -305,6 +319,7 @@ function hosted(
     database,
     diagnostics,
     fail,
+    feed,
     lastFinish,
     print,
     setStatus,
@@ -454,7 +469,7 @@ function hosted(
         automations: await automations.list(),
         definitions: dispatches.definitions(),
         diagnostics: diagnostics.entries,
-        feed: await engine.feed(),
+        feed: await feed(),
         lastFinish,
         monitors: engine.monitors(),
         queued: engine.executions.list(),

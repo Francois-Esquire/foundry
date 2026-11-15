@@ -88,6 +88,39 @@ test("answers an open question from the feed with a number key", async () => {
   expect(answers).toEqual([["feed-merge", "hold"]]);
 });
 
+test("shows a question shared from another workspace, and answers it only there", async () => {
+  const answers: [string, FeedAnswer][] = [];
+  const answer = (id: string, value: FeedAnswer) => {
+    answers.push([id, value]);
+    return Promise.resolve();
+  };
+  const snapshot: DashboardSnapshot = {
+    ...dashboardSnapshot,
+    feed: dashboardSnapshot.feed.map((entry) =>
+      entry.id === "feed-merge"
+        ? {
+            ...entry,
+            workspace: { id: "ws-docs", name: "docs" },
+            workspaces: ["ws-docs", "ws-foundry"],
+          }
+        : entry
+    ),
+  };
+  const ui = await mount(
+    <DashboardView onAnswer={answer} onClose={close} snapshot={snapshot} />
+  );
+  await act(async () => ui.mockInput.pressKey("F"));
+  await act(async () => ui.mockInput.pressKey("w"));
+  await flush(ui);
+  const frame = ui.captureCharFrame();
+  expect(frame).toContain("Feed · This workspace · foundry");
+  expect(frame).toContain("Merge the docs update?");
+  expect(frame).not.toContain("1-2 answer");
+  await act(async () => ui.mockInput.pressKey("2"));
+  await flush(ui);
+  expect(answers).toEqual([]);
+});
+
 test("a failed answer stays with its entry and clears on the next try", async () => {
   let calls = 0;
   const answer = () => {

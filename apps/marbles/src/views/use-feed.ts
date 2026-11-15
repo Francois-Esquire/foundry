@@ -154,7 +154,13 @@ export function useFeed(
     }
   }
 
-  const answer = useAnswer(selected, onAnswer);
+  // Only what this workspace posted is answered here: its engine holds no
+  // other workspace's questions.
+  const answerable =
+    workspaceId === undefined || selected?.workspace.id === workspaceId
+      ? selected
+      : undefined;
+  const answer = useAnswer(answerable, onAnswer);
 
   return {
     answer,

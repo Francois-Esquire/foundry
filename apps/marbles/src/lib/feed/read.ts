@@ -48,7 +48,10 @@ export interface FeedEntrySnapshot {
   readonly run: string;
   readonly step: string;
   readonly title: string;
+  /** The workspace that posted it, which owns it. */
   readonly workspace: { readonly id: string; readonly name: string };
+  /** Every workspace it belongs to, by id, its owner first: set when it is shared with others. */
+  readonly workspaces?: readonly string[];
 }
 
 export type FeedReader = (now?: Date) => Promise<FeedEntrySnapshot[]>;
