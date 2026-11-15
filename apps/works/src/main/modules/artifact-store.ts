@@ -8,7 +8,7 @@ import { MODULE_MIME } from "@foundry/modules/constants";
 import { type Module, moduleIdSchema } from "@foundry/modules/domain";
 import { ModuleStoreConflictError } from "@foundry/modules/errors";
 import { parseModuleManifest } from "@foundry/modules/manifest";
-import type { ModuleCommands } from "@foundry/modules/registry";
+import type { ModuleRegistryUnit } from "@foundry/modules/registry";
 
 export function createModulePersistence(store: ArtifactStore) {
   const artifacts = new ArtifactManager({ store });
@@ -42,8 +42,11 @@ export function createModulePersistence(store: ArtifactStore) {
     );
     return artifact ? { artifactId: artifact.id, id } : null;
   }
-  const modules: Pick<
-    ModuleCommands,
+  // Every method that reads and then writes does both in one Artifact
+  // transaction: the manager joins the reads and writes inside it, and the
+  // store runs one write transaction at a time, so no other registration
+  // lands between a check and its write.
+  const modules: ModuleRegistryUnit<
     "loadModule" | "loadRetainedManifest" | "registerModule" | "retainManifest"
   > = {
     loadModule,
@@ -62,48 +65,55 @@ export function createModulePersistence(store: ArtifactStore) {
       }
       return null;
     },
-    async registerModule({ module }) {
-      const existing = await loadModule(module.id);
-      const artifact = await artifacts.get(module.artifactId);
-      if (
-        !artifact ||
-        artifact.type !== MODULE_MIME ||
-        (existing && existing.artifactId !== module.artifactId) ||
-        (artifact.metadata.moduleId && artifact.metadata.moduleId !== module.id)
-      ) {
-        throw new ModuleStoreConflictError(
-          "Module identity conflicts with its Artifact"
-        );
-      }
-      await artifacts.patchArtifactMetadata(module.artifactId, {
-        moduleId: module.id,
-      });
-      return module;
-    },
-    async retainManifest({ module, contentId, manifest }) {
-      await modules.registerModule({ module });
-      const artifact = await artifacts.get(module.artifactId);
-      const retained = artifact?.metadata.retainedManifests ?? {};
-      if (
-        typeof retained !== "object" ||
-        retained === null ||
-        Array.isArray(retained)
-      ) {
-        throw new Error("Invalid retained Module manifests");
-      }
-      const previous = Object.getOwnPropertyDescriptor(
-        retained,
-        contentId
-      )?.value;
-      if (previous && JSON.stringify(previous) !== JSON.stringify(manifest)) {
-        throw new ModuleStoreConflictError(
-          "Module version already retains a different manifest"
-        );
-      }
-      await artifacts.patchArtifactMetadata(module.artifactId, {
-        retainedManifests: { ...retained, [contentId]: manifest },
-      });
-    },
+    registerModule: ({ module }) =>
+      artifacts.transaction(async () => {
+        const existing = await loadModule(module.id);
+        const artifact = await artifacts.get(module.artifactId);
+        if (
+          !artifact ||
+          artifact.type !== MODULE_MIME ||
+          (existing && existing.artifactId !== module.artifactId) ||
+          (artifact.metadata.moduleId &&
+            artifact.metadata.moduleId !== module.id)
+        ) {
+          throw new ModuleStoreConflictError(
+            "Module identity conflicts with its Artifact"
+          );
+        }
+        await artifacts.patchArtifactMetadata(module.artifactId, {
+          moduleId: module.id,
+        });
+        return module;
+      }),
+    retainManifest: ({ module, contentId, manifest }) =>
+      artifacts.transaction(async () => {
+        await modules.registerModule({ module });
+        const artifact = await artifacts.get(module.artifactId);
+        const retained = artifact?.metadata.retainedManifests ?? {};
+        if (
+          typeof retained !== "object" ||
+          retained === null ||
+          Array.isArray(retained)
+        ) {
+          throw new Error("Invalid retained Module manifests");
+        }
+        const previous = Object.getOwnPropertyDescriptor(
+          retained,
+          contentId
+        )?.value;
+        if (previous && JSON.stringify(previous) !== JSON.stringify(manifest)) {
+          throw new ModuleStoreConflictError(
+            "Module version already retains a different manifest"
+          );
+        }
+        await artifacts.patchArtifactMetadata(module.artifactId, {
+          retainedManifests: { ...retained, [contentId]: manifest },
+        });
+      }),
+    // One Artifact transaction: every method `work` calls joins it, so the
+    // whole unit commits, or rolls back, as one.
+    transaction: (work) =>
+      artifacts.transaction((_artifacts, effects) => work(modules, effects)),
   };
   return { artifacts, modules, registered };
 }
