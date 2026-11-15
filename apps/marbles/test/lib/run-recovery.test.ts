@@ -19,6 +19,7 @@ import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { adoptParkedRuns } from "~/lib/run-recovery";
 import type { ClaimCondition, RunStore } from "~/lib/run-store";
+import { ANY_STORED_RUN } from "~/lib/run-store";
 
 const roots: string[] = [];
 const handles: MarblesDatabase[] = [];
@@ -135,6 +136,36 @@ it("does not adopt a parked Run whose Execution Run settled after the scan", asy
   expect(lines).toEqual([
     "[run] flow rn-1 not adopted: its execution run has settled",
   ]);
+});
+
+it("does not adopt a Run whose Execution Run a dying canceller settled while this engine claimed it", async () => {
+  const { next, store } = await parkedByAnOwner();
+  // Open as the claim's own step reads it; settled by the time it is won.
+  let reads = 0;
+  const lines: string[] = [];
+  const adopted = await adoptParkedRuns({
+    askable: true,
+    print: (line) => lines.push(line),
+    registered: () => true,
+    runs: next,
+    settled: () => {
+      reads += 1;
+      return reads > 1;
+    },
+    store,
+  });
+
+  expect(adopted.size).toBe(0);
+  expect(reads).toBe(2);
+  expect(lines).toEqual([
+    "[run] flow rn-1 not adopted: its execution run has settled",
+  ]);
+  // The claim it won is given back.
+  const other = new DatabaseRunStore({
+    database: handles[0]?.database as MarblesDatabase["database"],
+    scope: "ws",
+  });
+  expect(await other.claim("rn-1", ANY_STORED_RUN)).toBe(true);
 });
 
 it("adopts a Run still parked when it is claimed", async () => {

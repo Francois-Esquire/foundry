@@ -130,7 +130,7 @@ export function describeRunStore(
       for (const [ledger, literals] of [
         [{ cost: Number.NaN }, {}],
         [{ at: new Date(0) }, {}],
-        [{}, { flow: { n: undefined } }],
+        [{}, { flow: { list: [1, undefined] } }],
         [{}, { flow: { n: Number.POSITIVE_INFINITY } }],
       ] as const) {
         const runs = await store();
@@ -145,6 +145,26 @@ export function describeRunStore(
         expect(await workflows.getRun("rn-1")).toBeNull();
         expect(await runs.recorded("rn-1")).toEqual({ ledger: {} });
       }
+    });
+
+    it("keeps a recording in the form JSON gives back: -0 as 0, a property holding undefined left out", async () => {
+      const runs = await store();
+      const workflows = await runs.open(() => ({
+        ledger: { entry: { n: -0 } },
+        literals: { flow: { n: -0, optional: undefined } },
+        session: { id: "run-session" },
+      }));
+      await putRun(workflows, "rn-1");
+      const recorded = await runs.recorded("rn-1");
+      expect(recorded).toEqual({
+        ledger: { entry: { n: 0 } },
+        literals: { flow: { n: 0 } },
+        session: "run-session",
+      });
+      expect(Object.is(recorded.literals?.flow?.n, 0)).toBe(true);
+      expect(Object.hasOwn(recorded.literals?.flow ?? {}, "optional")).toBe(
+        false
+      );
     });
 
     it("claims a Run for itself, and gives it up when told", async () => {

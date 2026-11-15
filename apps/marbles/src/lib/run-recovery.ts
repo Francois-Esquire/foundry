@@ -17,7 +17,8 @@ import type { RunStore } from "~/lib/run-store";
  *   wins the claim on it, which no live engine holds, while the Run is
  *   still stored suspended and its Execution Run has not settled (one
  *   cancelled after its process exited stays cancelled): both are read in
- *   the claim's own atomic step. It is rebuilt from what its scope recorded.
+ *   the claim's own atomic step, and the Execution Run is read once more
+ *   with the claim held. It is rebuilt from what its scope recorded.
  * - A Run left `queued` or `running` is never taken on at start: its
  *   process exited mid-flight, and it is not re-executed here; its
  *   Execution Run is settled by the launcher (`Launcher.recover`), and
@@ -89,6 +90,13 @@ async function adopt(
   });
   if (!claimed) {
     return passed(refused ?? "another live engine owns it");
+  }
+  // Asked again with the claim held: a canceller that settled it between
+  // that read and the claim, then died holding its own claim, left it
+  // settled, and no later canceller can settle it while this claim stands.
+  if (settled(run.id)) {
+    await runs.release(run.id);
+    return passed("its execution run has settled");
   }
   const recorded = await runs.recorded(run.id);
   return {

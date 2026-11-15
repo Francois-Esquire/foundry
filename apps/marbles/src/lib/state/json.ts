@@ -79,13 +79,15 @@ export class NotStorableError extends TypeError {
 }
 
 /**
- * A plain copy of `value` that JSON gives back exactly, or a
- * `NotStorableError` naming, from `at`, the first part it would not: NaN,
- * an infinity or `-0`, `undefined` (a property holding it, or an array
- * entry), a hole in an array, a bigint, a function or a symbol, a value
- * that contains itself, and any object that is not plain or an array. The
- * rule the workflows SQLite store keeps for its records, so what Marbles
- * stores beside them reads back the same from memory and from disk.
+ * `value` in the form a store keeps it, which is the form it reads back in,
+ * from memory as from the database: a plain copy as JSON gives it back,
+ * with the two forms JSON changes harmlessly made so here too (`-0` is
+ * `0`, and a property holding `undefined` is left out). Anything else JSON
+ * would not give back as it is cannot be represented, and means a bug in
+ * what produced it: a `NotStorableError` names, from `at`, the first part
+ * of it (NaN or an infinity, `undefined` in an array or a hole, a bigint,
+ * a function or a symbol, a value that contains itself, and any object
+ * that is not plain or an array).
  */
 export function storableJson(at: string, value: unknown): JsonValue {
   return storable(at, value, new Set());
@@ -97,12 +99,13 @@ function storable(at: string, value: unknown, seen: Set<object>): JsonValue {
     case "string":
       return value;
     case "number":
-      if (!Number.isFinite(value) || Object.is(value, -0)) {
+      if (!Number.isFinite(value)) {
         throw new NotStorableError(
-          `${at} holds ${Object.is(value, -0) ? "-0" : String(value)}, which does not read back intact from JSON`
+          `${at} holds ${String(value)}, which does not read back intact from JSON`
         );
       }
-      return value;
+      // `-0` reads back from JSON as `0`; `+ 0` makes it so.
+      return value + 0;
     case "object":
       if (value === null) {
         return null;
@@ -134,7 +137,13 @@ function storableArray(
     if (!Object.hasOwn(value, index)) {
       throw new NotStorableError(`${at}[${index}] is a hole in an array`);
     }
-    return storable(`${at}[${index}]`, value[index], seen);
+    const item = value[index];
+    if (item === undefined) {
+      throw new NotStorableError(
+        `${at}[${index}] holds undefined, which reads back from JSON as null`
+      );
+    }
+    return storable(`${at}[${index}]`, item, seen);
   });
 }
 
@@ -151,6 +160,10 @@ function storableObject(
   }
   const copy: { [key: string]: JsonValue } = {};
   for (const [key, item] of Object.entries(value)) {
+    if (item === undefined) {
+      // JSON leaves the property out, and so does the copy.
+      continue;
+    }
     Object.defineProperty(copy, key, {
       configurable: true,
       enumerable: true,
