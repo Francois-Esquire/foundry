@@ -99,10 +99,13 @@ if (${JSON.stringify(then)} === "hold") {
   await new Promise(() => undefined);
 } else {
   opened.close();
-  // libSQL lets the native connection go, and with it the side files, only once it is collected.
-  Bun.gc(true);
-  await new Promise((settle) => setTimeout(settle, 50));
-  Bun.gc(true);
+  // libSQL lets the native connection go, and with it the side files, only
+  // once it is collected: collect until they are gone, for a while.
+  const { existsSync } = await import("node:fs");
+  for (let i = 0; i < 100 && existsSync(${JSON.stringify(file)} + "-shm"); i += 1) {
+    Bun.gc(true);
+    await new Promise((settle) => setTimeout(settle, 20));
+  }
   process.stdout.write("ready\\n");
 }
 `

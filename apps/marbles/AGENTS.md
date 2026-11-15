@@ -83,7 +83,13 @@ Five buckets, each importing only what sits below it:
   the Execution Runs of exited processes and before the host schedules
   anything; each part's rule is its own package's or module's, and it
   only orders the calls (orphaned children, container rows, Runs,
-  harness activities, artifact files).
+  harness activities, artifact files), and keeps what each step did for
+  `marbles status` (`RecoveryReport`, in `marbles_recoveries` through
+  `database/recoveries.ts`). Every owner Marbles records, of a claim, a
+  Run, an Execution Run, a container row, a lock or a background child,
+  is a `ProcessIdentity` (`@foundry/lib/process-identity`, pid and start
+  time), judged gone only by `isGone`; `database/owner.ts` maps a claim
+  row's owner columns to and from one.
   `lib/cli-harnesses.ts` describes each CLI harness once (ids in
   preference order, executor, guest artifact and environment). Provider
   plugins (`lib/providers/plugins.ts`) build instances from configuration
