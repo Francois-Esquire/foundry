@@ -5,9 +5,9 @@ import type { FileLockHolder } from "@foundry/lib/file-lock";
 import { processAlive, tryFileLock } from "@foundry/lib/file-lock";
 
 /**
- * `<dir>/locks/<name>` holds the pid of the process that has it, so two
- * processes never record one Execution Run, prune its history, or edit one
- * automation at once. It is the
+ * `<dir>/locks/<name>` holds the pid of the process that has it: the state
+ * root's process claim, the provider configuration's, and task
+ * delivery's. It is the
  * `@foundry/lib/file-lock` protocol taken without waiting: a lock whose
  * holder has exited, or that stayed empty for 30s (its creator died before
  * writing its pid), is broken and taken over, one breaker at a time through

@@ -11,7 +11,7 @@ import { join } from "node:path";
  */
 
 export interface Workspace {
-  /** `<state>/<id>`: runs, schedules, locks and sessions all live under it. */
+  /** `<state>/<id>`: each run's output, worktrees, grants and approvals live under it. */
   readonly dir: string;
   readonly id: string;
   readonly root: string;

@@ -155,29 +155,9 @@ export function openWorkspaceDatabase(
 }
 
 /**
- * The records an engine given `state` and no `records` keeps its tasks in.
- * When `state` is the directory Marbles itself places the workspace at
- * `root` in, under the state root above it (`<stateRoot>/<id>`, the id
- * derived from `root`, and `workspaceId` that id), they are that state
- * root's, the tasks the CLI and MCP see for that workspace. Otherwise
- * they are those of a database of the engine's own, `<state>/marbles.db`,
- * so nothing is written outside the directory the caller gave.
- */
-export function defaultWorkspaceRecords(
-  state: string,
-  root: string,
-  workspaceId: string
-): WorkspaceRecords {
-  return openWorkspaceRecords({
-    state: defaultStateRoot(state, root, workspaceId),
-    workspaceId,
-  });
-}
-
-/**
- * `defaultWorkspaceRecords`, with the workspace's sessions over the same
- * handle (`openWorkspaceDatabase`), for an engine whose sessions are kept
- * in the database too.
+ * Everything an engine given `state` keeps in the database
+ * `defaultStateRoot` chooses, its sessions included, over one handle
+ * (`openWorkspaceDatabase`).
  */
 export function defaultWorkspaceDatabase(
   state: string,
@@ -192,7 +172,7 @@ export function defaultWorkspaceDatabase(
 
 /**
  * The run store an engine given `state` and no `runs` keeps its workflow
- * Runs in: the database `defaultWorkspaceRecords` chooses, over a handle of
+ * Runs in: the database `defaultStateRoot` chooses, over a handle of
  * its own, opened at the engine's start under the rule a host keeps and
  * closed with the store.
  */
@@ -239,7 +219,7 @@ type DatabaseKept = Pick<
  * `options`, with each store it keeps in the Marbles database that it was
  * not handed (its tasks, workflow Runs, Execution Runs, trigger state,
  * automations and usage facts)
- * over one handle on the database `defaultWorkspaceRecords` chooses for
+ * over one handle on the database `defaultStateRoot` chooses for
  * `state`, opened at the first call to any of them under the rule a host
  * keeps. The handle closes once every store made here has closed, as the
  * engine closes each on dispose; a store it was handed is left as it is.
@@ -282,7 +262,15 @@ export function withWorkspaceDatabase(
   };
 }
 
-/** The state root whose database an engine given `state` keeps its records in (`defaultWorkspaceRecords`). */
+/**
+ * The state root whose database an engine given `state` keeps its records
+ * in. When `state` is the directory Marbles itself places the workspace at
+ * `root` in, under the state root above it (`<stateRoot>/<id>`, the id
+ * derived from `root`, and `workspaceId` that id), it is that state root,
+ * whose database the CLI and MCP read for that workspace. Otherwise it is
+ * `state` itself, a database of the engine's own, `<state>/marbles.db`, so
+ * nothing is written outside the directory the caller gave.
+ */
 function defaultStateRoot(
   state: string,
   root: string,

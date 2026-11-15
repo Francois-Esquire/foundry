@@ -10,13 +10,15 @@ import type { EngineOptions } from "~/lib/engine";
 import { Engine as LibEngine } from "~/lib/engine";
 
 /**
- * The engine, keeping the workspace's tasks, workflow Runs, trigger state
- * and usage durably whenever it is given a `state`: each it is not handed
- * in the Marbles database (see `defaultWorkspaceRecords` for which), over
- * one handle opened at the first call under the state root's lock rule
- * and closed on `dispose` (`withWorkspaceDatabase`). Each option chooses
- * otherwise: `new MemoryWorkspaceRecords()`, `new MemoryRunStore()`,
- * `new MemoryTriggerStore()` and `new MemoryUsageStore()` for memory on
+ * The engine, keeping the workspace's tasks, workflow and Execution Runs,
+ * trigger state, automations and usage durably whenever it is given a
+ * `state`: each it is not handed in the Marbles database (see
+ * `defaultStateRoot` for which), over one handle opened at the first call
+ * under the state root's lock rule and closed on `dispose`
+ * (`withWorkspaceDatabase`). Each option chooses otherwise:
+ * `new MemoryWorkspaceRecords()`, `new MemoryRunStore()`,
+ * `new MemoryExecutionStore()`, `new MemoryTriggerStore()`,
+ * `new MemoryAutomationStore()` and `new MemoryUsageStore()` for memory on
  * purpose. Without `state`, all are in memory, as before.
  */
 export class Engine extends LibEngine {
