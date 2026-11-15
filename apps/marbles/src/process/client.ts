@@ -33,7 +33,7 @@ import {
   workspaceSummarySchema,
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
-import { recordSpawned } from "~/process/spawned";
+import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
 import { version } from "../../package.json";
 
 /**
@@ -263,7 +263,11 @@ function startDetachedDaemon(options: ConnectOptions): void {
   );
   child.unref();
   // Once nothing here can fail with the child abandoned; it never throws.
-  recordSpawned(child.pid, true);
+  // Never a recovery record: it is meant to outlive this client.
+  recordSpawned(child.pid, true, {
+    ...process.env,
+    [SPAWN_RECOVERY_ENV]: undefined,
+  });
 }
 
 interface Opened {

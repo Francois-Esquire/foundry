@@ -33,7 +33,7 @@ import {
   workspaceIdSchema,
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
-import { recordSpawned } from "~/process/spawned";
+import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
 import { resolveSource, sourceFiles, sourceRoot } from "~/workspace/source";
 import { version } from "../../package.json";
 
@@ -399,8 +399,13 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       ],
       {
         cwd: worker.summary.root,
-        // The worker keeps everything under this daemon's Foundry home.
-        env: { ...process.env, FOUNDRY_HOME: layout.home },
+        // The worker keeps everything under this daemon's Foundry home,
+        // and records there what it starts, for the next start to recover.
+        env: {
+          ...process.env,
+          FOUNDRY_HOME: layout.home,
+          [SPAWN_RECOVERY_ENV]: layout.spawned,
+        },
         stdio: ["ignore", "pipe", "pipe"],
       }
     );
@@ -438,8 +443,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     );
     worker.onNotification = (method, params) =>
       onWorkerNotification(worker, method, params);
-    // Once the child is the worker's; it never throws.
-    recordSpawned(child.pid, false);
+    // Once the child is the worker's; it never throws. Never a recovery
+    // record: a worker whose daemon is gone drains its runs and exits.
+    recordSpawned(child.pid, false, {
+      ...process.env,
+      [SPAWN_RECOVERY_ENV]: undefined,
+    });
     return worker.ready.promise;
   }
 

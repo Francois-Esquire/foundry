@@ -4,10 +4,7 @@ import { StringDecoder } from "node:string_decoder";
 import type { JSONRPCMessage, MCPTransport } from "@ai-sdk/mcp";
 import { validateJSONRPCMessage } from "@ai-sdk/mcp";
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
-import {
-  recordSpawned,
-  spawnRecordEnvironment,
-} from "@foundry/lib/spawn-record";
+import { recordChild, spawnRecordEnvironment } from "@foundry/lib/spawn-record";
 
 import type { McpStdioTransportConfig } from "./types";
 
@@ -161,7 +158,7 @@ export const spawnStdioTransport: SpawnStdio = (config, hooks) => {
           });
         }
         // Once the child is the transport's; it never throws.
-        recordSpawned(proc.pid, false);
+        recordChild(proc);
       });
     },
   };

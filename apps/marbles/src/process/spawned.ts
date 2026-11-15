@@ -11,6 +11,7 @@ export {
   recordSpawned,
   SPAWN_OWNER_ENV,
   SPAWN_RECORD_ENV,
+  SPAWN_RECOVERY_ENV,
   type SpawnRecord,
   startedAt,
   writePrivate,

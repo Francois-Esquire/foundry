@@ -262,6 +262,9 @@ Everything Marbles keeps is under one Foundry home, `$FOUNDRY_HOME`, else
     process.json              who holds that claim, for `marbles status`
     daemon.log                what a Marbles process started in the background prints
     settings.json             preferences, the one file meant to be edited by hand
+    spawned/<pid>.json        what its workspaces started and is still running, with
+                              the process that started it, so a start after a crash
+                              stops what an engine that is gone left behind
     <workspace-id>/
       output/<runId>.jsonl    each run's output, for `marbles watch`
       worktrees/              git worktrees cut for its steps

@@ -1,14 +1,22 @@
 /**
  * Records of the processes Foundry starts in the background, for whoever
  * has to find them again after the process that started them is gone:
- * today the Marbles test suite, which stops exactly what its runs started.
+ * the Marbles test suite, which stops exactly what its runs started, and
+ * the next start of a Marbles engine, which stops what an engine that is
+ * gone left running (`@foundry/lib/orphans`).
  *
  * The contract:
  *
- * - Active only while `MARBLES_SPAWN_RECORD` names a directory in the
- *   environment the caller passes (by default this process's). Unset,
- *   `recordSpawned` returns at once and runs nothing.
- * - The directory must be private: a real directory (not a link), owned
+ * - Active only while `MARBLES_SPAWN_RECORD` (every record, for a test
+ *   run) or `MARBLES_SPAWN_RECOVERY` (the records a later start recovers
+ *   from) names a directory in the environment the caller passes (by
+ *   default this process's). Neither set, `recordSpawned` returns at once
+ *   and runs nothing.
+ * - A recovery record also names its owner, the process that recorded it,
+ *   by pid and start time. It is removed when the child exits, if the
+ *   caller handed the child itself over (`recordChild`), so the directory
+ *   holds only what may still be running.
+ * - Each directory must be private: a real directory (not a link), owned
  *   by this user, with no permission for group or others. A missing one
  *   is created so. Anything else is refused.
  * - Each record is one file, `<pid>.json`, holding the pid, whether the
@@ -25,7 +33,12 @@
  * Node-bound: import it from main-process code only.
  */
 
-import { type ExecFileOptions, execFile, spawnSync } from "node:child_process";
+import {
+  type ChildProcess,
+  type ExecFileOptions,
+  execFile,
+  spawnSync,
+} from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -39,16 +52,27 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
-export interface SpawnRecord {
-  /** It leads a process group of its own, whose id is its pid. */
-  readonly group: boolean;
+/** One process, told from any other given the same pid since: its pid and when it started. */
+export interface ProcessIdentity {
   readonly pid: number;
   /** As `startedAt` reads it. */
   readonly started: string;
 }
 
-/** The directory records go to. */
+export interface SpawnRecord extends ProcessIdentity {
+  /** It leads a process group of its own, whose id is its pid. */
+  readonly group: boolean;
+  /** The process that started it, on a recovery record. */
+  readonly owner?: ProcessIdentity;
+}
+
+/** The directory every record goes to: a test run's. */
 export const SPAWN_RECORD_ENV = "MARBLES_SPAWN_RECORD";
+/**
+ * The directory recovery records go to: what a later start reads to stop
+ * the children of a process that is gone (`@foundry/lib/orphans`).
+ */
+export const SPAWN_RECOVERY_ENV = "MARBLES_SPAWN_RECOVERY";
 /**
  * An owner's mark, carried to every child, that a reader of the records
  * can check a process's environment for.
@@ -68,6 +92,8 @@ const CREATE =
   constants.O_WRONLY;
 
 let reported = false;
+/** This process, as an owner; read once. */
+let self: ProcessIdentity | undefined;
 
 /**
  * When the process `pid` started, as `ps -o lstart=` prints it in UTC;
@@ -98,7 +124,7 @@ export function spawnRecordEnvironment(
   env: Readonly<Record<string, string | undefined>> = process.env
 ): Record<string, string> {
   const carried: Record<string, string> = {};
-  for (const name of [SPAWN_RECORD_ENV, SPAWN_OWNER_ENV]) {
+  for (const name of [SPAWN_RECORD_ENV, SPAWN_RECOVERY_ENV, SPAWN_OWNER_ENV]) {
     const value = env[name];
     if (value !== undefined && value !== "") {
       carried[name] = value;
@@ -142,33 +168,70 @@ export function notPrivate(
  * records (see the contract above). Call it in the same turn as the
  * spawn, once the child is the caller's: until this process reaps it,
  * which waits for its event loop, no other process can be given that pid.
+ * Prefer `recordChild` when the child itself is at hand: its recovery
+ * record then goes when it exits.
  */
 export function recordSpawned(
   pid: number | undefined,
   group: boolean,
   env: Readonly<Record<string, string | undefined>> = process.env
 ): void {
-  const dir = env[SPAWN_RECORD_ENV];
-  if (dir === undefined || dir === "" || pid === undefined) {
+  const all = named(env[SPAWN_RECORD_ENV]);
+  const recovery = named(env[SPAWN_RECOVERY_ENV]);
+  if ((all === undefined && recovery === undefined) || pid === undefined) {
     return;
   }
   try {
-    write(dir, pid, group);
+    write(pid, group, all, recovery);
   } catch (error) {
     if (!reported) {
       reported = true;
       process.stderr.write(
-        `foundry: could not record process ${String(pid)} in ${dir}: ${error instanceof Error ? error.message : String(error)}\n`
+        `foundry: could not record process ${String(pid)} in ${[all, recovery].filter(Boolean).join(" and ")}: ${error instanceof Error ? error.message : String(error)}\n`
       );
     }
   }
 }
 
-function write(dir: string, pid: number, group: boolean): void {
-  mkdirSync(dir, { mode: 0o700, recursive: true });
-  const problem = notPrivate(dir, "directory");
-  if (problem !== undefined) {
-    throw new Error(problem);
+/**
+ * Record `child`, as `recordSpawned` does, and remove its recovery record
+ * once it exits: it is reaped then, so the record names nothing.
+ */
+export function recordChild(
+  child: Pick<ChildProcess, "once" | "pid">,
+  group = false,
+  env: Readonly<Record<string, string | undefined>> = process.env
+): void {
+  recordSpawned(child.pid, group, env);
+  const recovery = named(env[SPAWN_RECOVERY_ENV]);
+  const { pid } = child;
+  if (recovery !== undefined && pid !== undefined) {
+    child.once("exit", () => {
+      // The exit is its reaping: no later child can have had this pid yet.
+      rmSync(recordPath(recovery, pid), { force: true });
+    });
+  }
+}
+
+/** Where the record of `pid` is kept in `dir`. */
+export function recordPath(dir: string, pid: number): string {
+  return join(dir, `${String(pid)}.json`);
+}
+
+function named(dir: string | undefined): string | undefined {
+  return dir === undefined || dir === "" ? undefined : dir;
+}
+
+function write(
+  pid: number,
+  group: boolean,
+  all: string | undefined,
+  recovery: string | undefined
+): void {
+  for (const dir of [all, recovery]) {
+    if (dir !== undefined) {
+      privateDirectory(dir);
+    }
   }
   const started = startedAt(pid);
   if (started === null) {
@@ -179,7 +242,37 @@ function write(dir: string, pid: number, group: boolean): void {
     throw new Error("ps could not say when it started");
   }
   const record: SpawnRecord = { group, pid, started };
-  writePrivate(join(dir, `${String(pid)}.json`), JSON.stringify(record));
+  if (all !== undefined) {
+    writePrivate(recordPath(all, pid), JSON.stringify(record));
+  }
+  if (recovery !== undefined) {
+    const owner = thisProcess();
+    writePrivate(
+      recordPath(recovery, pid),
+      JSON.stringify({ ...record, owner })
+    );
+  }
+}
+
+/** Make `dir`, private, if it is missing; refuse one that is not private. */
+function privateDirectory(dir: string): void {
+  mkdirSync(dir, { mode: 0o700, recursive: true });
+  const problem = notPrivate(dir, "directory");
+  if (problem !== undefined) {
+    throw new Error(problem);
+  }
+}
+
+/** This process's identity, read once; throws when `ps` cannot say. */
+function thisProcess(): ProcessIdentity {
+  if (self === undefined) {
+    const started = startedAt(process.pid);
+    if (typeof started !== "string") {
+      throw new Error("ps could not say when this process started");
+    }
+    self = { pid: process.pid, started };
+  }
+  return self;
 }
 
 /**
@@ -234,6 +327,6 @@ export function execFileRecorded(
         }
       }
     );
-    recordSpawned(child.pid, false);
+    recordChild(child);
   });
 }

@@ -30,6 +30,12 @@ export interface Layout {
   readonly home: string;
   /** The Unix socket the Marbles process listens on. */
   readonly socket: string;
+  /**
+   * Where the Marbles process records what its workspaces start
+   * (`MARBLES_SPAWN_RECOVERY`), so an engine's next start stops what one
+   * that is gone left running.
+   */
+  readonly spawned: string;
   /** The Marbles state root: process files, and one directory per workspace. */
   readonly state: string;
   /** The state of the workspace rooted at `root`, under this state root. */
@@ -40,6 +46,7 @@ const HOME_DIR = ".foundry";
 const STATE_DIR = "marbles";
 const ARTIFACTS_DIR = "artifacts";
 const DATABASE_FILE = "marbles.db";
+const SPAWNED_DIR = "spawned";
 /** Short on purpose: a Unix socket path has about a hundred bytes to work with. */
 const SOCKET_FILE = "marbles.sock";
 
@@ -55,6 +62,7 @@ export function layout(options: LayoutOptions = {}): Layout {
     database: stateDatabase(state),
     home,
     socket: join(state, SOCKET_FILE),
+    spawned: join(state, SPAWNED_DIR),
     state,
     workspace: (root) => workspaceState(state, root),
   };
