@@ -253,13 +253,11 @@ a file it cannot read, falls back to the default and is named on the Settings
 tab; Marbles does not overwrite a file it cannot read. Saving keeps keys it
 does not know. Under `--dry-run` the Settings tab is read-only.
 
-Marbles measures its own work locally and sends nothing anywhere. Run records,
-step logs, and each agent turn's tokens, duration, model, and cost are kept
-under the workspace's state directory (`usage/run.<run-id>.json` for run turns,
-and `usage/direct.<session-id>.json` for turns taken outside a run).
-Turns may be saved beside those documents as `<key>+<turn-id>.json` when
-another writer holds the document or it cannot be read. Usage reads include
-these files.
+Marbles measures its own work locally and sends nothing anywhere. Run records
+and each agent turn's tokens, duration, model, and cost are kept in the
+Marbles database at the state root, one usage fact per turn, filed under its
+run or, for a turn taken outside a run, its session; step logs stay under the
+workspace's state directory.
 Marbles' own status lines are kept in memory for the session, up to 500.
 
 Catalog cost and token totals cover runs started from the selected definition.

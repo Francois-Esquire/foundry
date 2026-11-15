@@ -31,7 +31,11 @@ workspace this machine has run, and says which of them the process hosts.
                           -wal and -shm files): every workspace's id, root,
                           config, firstSeen, lastSeen, and whether it is hosted;
                           every workspace's tasks, by workspace id, with each
-                          change they committed and which observers completed it
+                          change they committed and which observers completed it;
+                          and, by workspace id, its workflow Runs, Execution Runs
+                          and their observations, retention gaps, each schedule's
+                          and monitor's last tick, each monitor's state, the
+                          triggers agents created, and each agent turn's usage
   daemon.log              stdout and stderr of a process a client started;
                           `marbles daemon` prints to its own terminal instead
   settings.json           global dashboard preferences (the theme), shared by
@@ -41,34 +45,9 @@ workspace this machine has run, and says which of them the process hosts.
 
 ```text
 ~/.foundry/marbles/<workspace-id>/
-  runs/<runId>.json       one run: its record, frames, jobs, queue row, suspensions,
-                          the owning pid, and what the run recorded (below)
-  executions/<runId>.json the Execution Run record: queue, status, revision,
-                          correlation, progress, owner pid; observations once settled
-  observations/<runId>.jsonl observations appended while the run is unsettled
-  retention/gaps.json     per scope, how many settled runs retention removed and
-                          the latest settled time among them
   output/<runId>.jsonl    append-only output for marbles watch
-  schedules/<key>.json    kind, label, lastStart, lastFinish, lastStatus, nextDue
-  monitors/<key>.json     the last observation: file digests, or the HTTP body and
-                          its hash; plus a pending launch until it has started
-  automations/<id>.json   a trigger an agent created: target, cadence, source, owner
-  usage/run.<runId>.json  each agent turn in the run, by message id: agent, step
-                          path, model, tokens, duration, and its reported
-                          (with `estimate` when the provider estimated it),
-                          estimated (with the list price used), or unknown cost
-  usage/direct.<sessionId>.json  turns taken outside a run, by message id
-  usage/<key>+<turnId>.json  a turn saved separately when its document is locked
-                          or unreadable, or a marker for usage not saved
-  locks/usage-<key>       writer of a run or direct-session usage document
   locks/tasks             pid of the process delivering the workspace's task
                           changes to its observers
-  locks/schedule:<key>    pid of the tick running a schedule or monitor
-  locks/run-<runId>       pid of the process that owns a recovered run
-  locks/execution-<runId> pid of the process recovering an Execution Run record
-  locks/source-<digest>   transient: a launch looking up and recording one
-                          request `source` under one name
-  locks/edit-<id>         pid of the process changing an agent-created trigger
   locks/<name>.break      transient: the process taking over a dead holder's lock
   locks/process           pid of the worker the Marbles process hosts this
                           workspace in, or of a program hosting it itself
@@ -290,28 +269,32 @@ copy of what was recorded, whether its queue lets it in at once or a later
 process lets it in again, so a caller that changes its input object after
 launching changes nothing.
 
-While a run is unsettled each observation is appended to
-`observations/<runId>.jsonl`; the settled record carries them all and the
-log goes. A record or log entry whose observation is not one (a `null`, a
-missing field) is skipped with a warning; the run itself still loads.
+Each observation is a row of its own beside its run's record, so
+recording one costs the same however many the run has; recording one again
+by its id replaces it and moves it last. A record or observation that is
+not one (a missing field) is skipped with a warning; the run itself still
+loads.
 
-A launch with a `source` takes `locks/source-<digest>` while it looks for a
-run of the same name and source in the store and records a new one, so two
-engines sharing a store start it once. One that finds the lock held fails
-rather than wait.
+A launch with a `source` looks for a run of the same name and source and
+records a new one in one database transaction, so two engines sharing the
+database start it once.
 
-Subscribing to `executions` reads the store again, so a fresh
-subscription's snapshot carries what other processes sharing it wrote or
+`get`, `list` and `gaps` on `engine.executions` answer from the engine at
+once: what it changed, and what it last read of other processes' runs, at
+start or at the latest `subscribe`. Subscribing reads the database again,
+so a fresh subscription's snapshot carries what other processes wrote or
 pruned since; their changes are not announced between subscriptions.
 
-Pruning removes a settled run's own files (a workflow's run file and
-output journal) before its record. A failure, or an exit in between, leaves
-the settled record for a later prune to retry.
+Pruning removes a settled run's own files (a workflow's Run and output
+journal) before its record. A failure, or an exit in between, leaves the
+settled record for a later prune to retry. Each removal and its scope's
+retention gap are written in one transaction, so two processes pruning at
+once never count one removal twice.
 
-A host's own `StateStore` must accept the `executions`, `observations` and
-`retention` collections. Its `append` and `log` methods are optional: a
-store without them keeps an unsettled run's observations on its
-`executions` record, which is then rewritten whole for each observation.
+When a workflow's Run parks or resumes, its Execution Run's status is
+written in the Run's own commit. A settle is written by the engine after
+the Run's; a process that exits between the two leaves the record to the
+next start, which settles it as the Run says.
 
 A built-in tool call is observed as `denied` only when the live result was
 produced by the Agents compiler's authorization refusal. Provenance is tracked
@@ -368,7 +351,7 @@ previous tick's completion, seeded from the recorded `lastFinish` so a restart
 keeps the cadence. Missed interval ticks do not queue. Calendar slots are
 evaluated in machine-local time.
 
-A tick takes `locks/schedule:<key>` before it runs. If another process holds it,
+A tick claims its trigger in the database before it runs. If another process holds it,
 `roll <key>` prints `skipped: held by <holder>` and exits successfully.
 `roll <definition-name>` takes no lock. Two schedules with different keys
 have different locks even when they target the same workflow.
@@ -390,7 +373,7 @@ created exclusively with mode `0o600` that holds the owner's pid:
 - A process releases a lock only while it still names that process, so a
   late release never removes a lock someone else has taken.
 
-A tick or edit that finds `locks/<name>` held does not wait. It reports the
+A process that finds `locks/<name>` held does not wait. It reports the
 holder: `pid N`; `a process that is taking it now; retry` for a fresh empty
 lock; `pid N, which has exited (if no process is taking the lock over,
 remove <path>.break)` when a `.break` is in the way; or `an unknown process

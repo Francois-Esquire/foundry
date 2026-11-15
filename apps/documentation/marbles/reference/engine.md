@@ -125,8 +125,10 @@ The engine owns its registry:
 - `engine.schedule(record)` registers a schedule; it does not start a clock.
 - `engine.monitor({ key, source, trigger, handler })` registers a monitor
   for a host to drive.
-- `engine.definitions()`, `engine.schedules()`, and `engine.monitors()` read
-  it back, including the triggers agents created.
+- `engine.definitions()` and `engine.monitors()` read it back;
+  `await engine.schedules()` reads the schedules with the triggers agents
+  created, read afresh, so one another process created or removed is in or
+  out.
 
 Importing a `.foundry/marbles/inspect.ts` does not fill an engine you built. The module's
 own collection is private to the CLI, which copies it into the engine it
@@ -142,10 +144,17 @@ and defines them.
 | `git` | Chooses the Git runner, such as one that echoes commands. |
 | `worktrees` | Sets the default checkout directory, otherwise `Engine.worktreesFor(state)`. |
 | `dry` | Runs sandbox agent requests in the host process. |
-| `store` | Provides trigger history, observations, agent-created triggers, and their locks. |
+| `runs` | Keeps workflow Runs, what each run's scope recorded, and which engine owns each. |
+| `executionStore` | Keeps every run's Execution Run, its observations, and what pruning removed. |
+| `triggers` | Keeps each schedule's and monitor's last tick and each monitor's state. |
+| `automationStore` | Keeps the triggers agents create. |
+| `usageStore` | Keeps each agent turn's usage fact. |
 
-`store` defaults to `JsonStateStore` when `state` is set, or
-`InMemoryStateStore` otherwise. Both adapters are exported. `records`, the
+Each store is in memory when it is omitted (`MemoryRunStore`,
+`MemoryExecutionStore`, `MemoryTriggerStore`, `MemoryAutomationStore`,
+`MemoryUsageStore`, all exported). The `Engine` the package publishes keeps
+each one it is not handed in the [Marbles database](/marbles/reference/state)
+when `state` is set, over one handle it closes on `dispose`. `records`, the
 workspace's tasks, is described [below](#tasks).
 
 ## Persistence and durability
@@ -236,7 +245,7 @@ built from another copy of the same class is a different type. Besides
 | `workspaces` | `WorkspaceSystem`, `directory`, `git`, `nodeObserver` | [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md) |
 | `containers` | `createContainers`, `createMemoryContainerStore` | [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md) |
 | `artifacts` | `ArtifactManager`, `InMemoryArtifactStore`, `JsonArtifactStore`, `blobFiles` | [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) |
-| `store` | `JsonStateStore`, `InMemoryStateStore` | Marbles' trigger state and local locks. |
+| `runs`, `executionStore`, `triggers`, `automationStore`, `usageStore` | `MemoryRunStore`, `MemoryExecutionStore`, `MemoryTriggerStore`, `MemoryAutomationStore`, `MemoryUsageStore` | Marbles' own stores; the published `Engine` keeps them in the Marbles database when `state` is set. |
 
 One thing a host cannot do through this entry yet: the MicroSandbox runtime
 `createContainers` needs is not exported. Firing the engine's triggers is
