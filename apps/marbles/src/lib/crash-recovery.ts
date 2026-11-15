@@ -22,7 +22,7 @@ export interface ContainerOwners {
 }
 
 /** The steps of a recovery, in the order they run. */
-export const RECOVERY_STEPS = [
+const RECOVERY_STEPS = [
   "processes",
   "containers",
   "runs",
@@ -36,7 +36,7 @@ export type RecoveryStepName = (typeof RECOVERY_STEPS)[number];
  * `skipped`, when this engine keeps nothing it would act on; `failed`,
  * with why, the next step having run anyway.
  */
-export interface RecoveryStep {
+interface RecoveryStep {
   readonly detail: string;
   readonly outcome: "done" | "failed" | "skipped";
   readonly step: RecoveryStepName;
