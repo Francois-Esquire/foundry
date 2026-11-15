@@ -12,13 +12,23 @@ import { dirname, join, resolve } from "node:path";
 import { sleep, spawn, spawnSync, stripANSI } from "bun";
 import { expect, test } from "vitest";
 import { readProcess } from "../src/process/instance";
-import { configureProviders } from "./helpers/providers";
+import { type TestHome, testHome } from "./helpers/home";
 
 /** Configs live in a tmpdir with no node_modules, so zod is imported by URL. */
 const ZOD = import.meta.resolve("zod");
 
-async function until(predicate: () => boolean) {
-  const deadline = Date.now() + 8000;
+/** How long a screen gets to appear once its process is up. */
+const SCREEN_MS = 8000;
+/**
+ * How long the first screen gets when it waits for the Marbles process to
+ * start and its worker to load the workspace. Under a loaded machine (ten
+ * of these tests at once) that took 6.7 to 7.4 seconds, against the 8 a
+ * screen gets, and the test failed before the dashboard had drawn.
+ */
+const STARTUP_MS = 30_000;
+
+async function until(predicate: () => boolean, ms = SCREEN_MS) {
+  const deadline = Date.now() + ms;
   while (!predicate()) {
     if (Date.now() > deadline) {
       throw new Error("Terminal did not reach the expected state");
@@ -30,6 +40,7 @@ async function until(predicate: () => boolean) {
 for (const command of [[], ["run"]]) {
   test(`real CLI ${command[0] ?? "without arguments"} gates startup and cancels a live run`, async () => {
     const dir = mkdtempSync(join(tmpdir(), "marbles-terminal-"));
+    const home = testHome();
     const config = join(dir, "marbles.config.ts");
     const started = join(dir, "started");
     const cancelled = join(dir, "cancelled");
@@ -60,6 +71,7 @@ for (const command of [[], ["run"]]) {
         config,
       ],
       {
+        env: home.env,
         terminal: {
           cols: 120,
           data(_terminal, bytes) {
@@ -69,6 +81,8 @@ for (const command of [[], ["run"]]) {
         },
       }
     );
+    // On a terminal, a session and process group of its own.
+    home.track(child.pid, true);
     try {
       await until(() => output.includes("Press Enter to enter"));
       await sleep(1200);
@@ -96,6 +110,7 @@ for (const command of [[], ["run"]]) {
 
 test("piped startup runs immediately and SIGTERM drains work with plain output", async () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-piped-"));
+  const home = testHome();
   const config = join(dir, "marbles.config.ts");
   const marker = join(dir, "ran");
   writeFileSync(
@@ -112,8 +127,9 @@ test("piped startup runs immediately and SIGTERM drains work with plain output",
   );
   const child = spawn(
     [process.execPath, resolve("src/cli.ts"), "--dry-run", "--config", config],
-    { stderr: "pipe", stdout: "pipe" }
+    { env: home.env, stderr: "pipe", stdout: "pipe" }
   );
+  home.track(child.pid, false);
   const output = new Response(child.stdout).text();
   try {
     await until(() => existsSync(marker));
@@ -134,12 +150,14 @@ test("piped startup runs immediately and SIGTERM drains work with plain output",
 
 test("a config error restores the terminal and exits instead of leaving the splash open", async () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-bad-config-"));
+  const home = testHome();
   const config = join(dir, "marbles.config.ts");
   writeFileSync(config, 'throw new Error("test config could not load");');
   let output = "";
   const child = spawn(
     [process.execPath, resolve("src/cli.ts"), "--dry-run", "--config", config],
     {
+      env: home.env,
       terminal: {
         cols: 100,
         data(_terminal, bytes) {
@@ -149,6 +167,7 @@ test("a config error restores the terminal and exits instead of leaving the spla
       },
     }
   );
+  home.track(child.pid, true);
   try {
     await until(() => output.includes("Marbles could not load"));
     child.terminal?.write("\r");
@@ -164,7 +183,9 @@ test("a config error restores the terminal and exits instead of leaving the spla
   }
 }, 12_000);
 
+/** The CLI on a terminal, in `home`, for the workspace `config` names. */
 async function openTestCli(
+  home: TestHome,
   config: string,
   flags: readonly string[] = ["--dry-run"]
 ) {
@@ -176,7 +197,7 @@ async function openTestCli(
   const child = spawn(
     [process.execPath, resolve("src/cli.ts"), ...flags, "--config", config],
     {
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+      env: { ...home.env, PATH: `${bin}:${home.env.PATH}` },
       terminal: {
         cols: 100,
         data(_terminal, bytes) {
@@ -186,6 +207,7 @@ async function openTestCli(
       },
     }
   );
+  home.track(child.pid, true);
   return {
     child,
     async dispose() {
@@ -195,9 +217,9 @@ async function openTestCli(
     },
     mark: () => output.length,
     output: () => stripANSI(output),
-    async see(value: string, from = 0) {
+    async see(value: string, from = 0, ms = SCREEN_MS) {
       try {
-        await until(() => output.includes(value, from));
+        await until(() => output.includes(value, from), ms);
       } catch (cause) {
         throw new Error(
           `Terminal did not show ${JSON.stringify(value)} (exit ${child.exitCode}). Output:\n${stripANSI(output).slice(-8000)}`,
@@ -214,17 +236,18 @@ async function openTestCli(
 
 test("first-run provider setup is offered to a run, never to a dry run, and declining writes nothing", async () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-providers-"));
+  const home = testHome({ providers: false });
   const config = join(dir, ".foundry", "marbles");
-  const state = join(dir, "state");
+  const { state } = home.layout;
   const file = join(state, "providers.json");
-  const dry = await openTestCli(config, ["--dry-run", "--state", state]);
+  const dry = await openTestCli(home, config, ["--dry-run"]);
   try {
     await dry.see("Choose a starter");
     expect(existsSync(file)).toBe(false);
   } finally {
     await dry.dispose();
   }
-  const live = await openTestCli(config, ["--state", state]);
+  const live = await openTestCli(home, config, []);
   try {
     await live.see("Use these for every workspace?");
     await live.send("n\r");
@@ -235,7 +258,7 @@ test("first-run provider setup is offered to a run, never to a dry run, and decl
   }
   mkdirSync(state, { recursive: true });
   writeFileSync(file, "{ broken");
-  const broken = await openTestCli(config, ["--state", state]);
+  const broken = await openTestCli(home, config, []);
   try {
     await broken.see("cannot be read as provider configuration");
     await broken.child.exited;
@@ -252,7 +275,7 @@ test("missing authoring folder creates a Product starter without executing it, t
   const dir = mkdtempSync(join(tmpdir(), "marbles-setup-"));
   const config = join(dir, ".foundry", "marbles");
   const file = join(config, "summarize-codebase.ts");
-  const terminal = await openTestCli(config);
+  const terminal = await openTestCli(testHome(), config);
   try {
     await terminal.see("Choose a starter");
     expect(existsSync(config)).toBe(false);
@@ -287,13 +310,12 @@ test("missing authoring folder creates a Product starter without executing it, t
 
 test("a missing authoring folder onboards against the Marbles process, which posts the milestone", async () => {
   const dir = mkdtempSync(join(tmpdir(), "mb-"));
-  const state = join(dir, "s");
-  configureProviders(state);
+  const home = testHome();
   const config = join(dir, ".foundry", "marbles");
   const file = join(config, "summarize-codebase.ts");
-  const terminal = await openTestCli(config, ["run", "--state", state]);
+  const terminal = await openTestCli(home, config, ["run"]);
   try {
-    await terminal.see("Choose a starter");
+    await terminal.see("Choose a starter", 0, STARTUP_MS);
     expect(existsSync(config)).toBe(false);
     await terminal.send("\r");
     await terminal.see("Step name");
@@ -303,7 +325,8 @@ test("a missing authoring folder onboards against the Marbles process, which pos
     await terminal.see("summarizeCodebase");
     expect(existsSync(config)).toBe(false);
     await terminal.send("\r");
-    await terminal.see("Press Enter to enter");
+    // The workspace now attaches to the Marbles process, whose worker loads it.
+    await terminal.see("Press Enter to enter", 0, STARTUP_MS);
     expect(readFileSync(file, "utf8")).toContain(
       "@foundry.sh/marbles/prebuilt"
     );
@@ -320,16 +343,16 @@ test("a missing authoring folder onboards against the Marbles process, which pos
     await until(() => terminal.child.exitCode !== null);
     expect(await terminal.child.exited).toBe(0);
   } finally {
+    // The home's teardown stops the Marbles process.
     await terminal.dispose();
-    await stopDaemon(state);
     rmSync(dir, { force: true, recursive: true });
   }
-}, 30_000);
+}, 90_000);
 
 test("setup skip leaves the config absent and opens the empty dashboard", async () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-skip-"));
   const config = join(dir, "marbles.config.ts");
-  const terminal = await openTestCli(config);
+  const terminal = await openTestCli(testHome(), config);
   try {
     await terminal.see("Choose a starter");
     await terminal.send("\x1b");
@@ -366,7 +389,7 @@ const echo = step("echo").input(message).do(({ input }) => { writeFileSync(${JSO
 workflow("manual").input(message).do(({ input }) => echo({}, input));
 `
   );
-  const terminal = await openTestCli(config);
+  const terminal = await openTestCli(testHome(), config);
   try {
     await terminal.see("Press Enter to enter");
     await terminal.send("\r");
@@ -402,26 +425,10 @@ workflow("manual").input(message).do(({ input }) => echo({}, input));
   }
 }, 15_000);
 
-async function stopDaemon(state: string): Promise<void> {
-  spawnSync(
-    [process.execPath, resolve("src/cli.ts"), "stop", "--state", state],
-    { stderr: "pipe", stdout: "pipe" }
-  );
-  try {
-    await until(() => readProcess(state)?.alive !== true);
-  } catch {
-    const pid = readProcess(state)?.pid;
-    if (pid !== null && pid !== undefined) {
-      process.kill(pid);
-    }
-  }
-}
-
 test("the dashboard attaches to the Marbles process, which keeps hosting after it quits", async () => {
-  // Short on purpose: the process's Unix socket path lives under --state.
   const dir = mkdtempSync(join(tmpdir(), "mb-"));
-  const state = join(dir, "s");
-  configureProviders(state);
+  const home = testHome();
+  const { state } = home.layout;
   const config = join(dir, "marbles.config.ts");
   const ticks = join(dir, "ticks");
   writeFileSync(
@@ -438,9 +445,9 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
   );
   const tickCount = () =>
     existsSync(ticks) ? readFileSync(ticks, "utf8").length : 0;
-  const terminal = await openTestCli(config, ["run", "--state", state]);
+  const terminal = await openTestCli(home, config, ["run"]);
   try {
-    await terminal.see("Press Enter to enter");
+    await terminal.see("Press Enter to enter", 0, STARTUP_MS);
     expect(readProcess(state)?.host).toBe("daemon");
     await terminal.send("\r");
     await terminal.see("remote-step");
@@ -459,11 +466,10 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
         "run",
         "--config",
         join(other, "marbles.config.ts"),
-        "--state",
-        state,
       ],
-      { stderr: "pipe", stdout: "pipe" }
+      { env: home.env, stderr: "pipe", stdout: "pipe" }
     );
+    home.track(follower.pid, false);
     try {
       await terminal.see("w workspace");
       await terminal.send("w");
@@ -485,17 +491,18 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
     const before = tickCount();
     await until(() => tickCount() > before);
   } finally {
+    // The home's teardown stops the Marbles process.
     await terminal.dispose();
-    await stopDaemon(state);
     rmSync(dir, { force: true, recursive: true });
   }
-}, 30_000);
+}, 60_000);
 
 test("a command line that cannot run prints usage and touches nothing", () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-usage-"));
+  const home = testHome({ providers: false });
   const config = join(dir, "marbles.config.ts");
   const imported = join(dir, "imported");
-  const state = join(dir, "state");
+  const { state } = home.layout;
   writeFileSync(
     config,
     `import { writeFileSync } from "node:fs";
@@ -516,10 +523,8 @@ writeFileSync(${JSON.stringify(imported)}, "imported");`
           ...command,
           "--config",
           config,
-          "--state",
-          state,
         ],
-        { stderr: "pipe", stdout: "pipe" }
+        { env: home.env, stderr: "pipe", stdout: "pipe" }
       );
       expect(child.exitCode).toBe(1);
       expect(child.stderr.toString()).toContain(
@@ -535,6 +540,7 @@ writeFileSync(${JSON.stringify(imported)}, "imported");`
 
 test("roll explains bad input and an unanswerable ask in one line", () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-roll-errors-"));
+  const home = testHome();
   const config = join(dir, "marbles.config.ts");
   writeFileSync(
     config,
@@ -555,7 +561,7 @@ schedule(greet({}, { name: "Ada" })).every("1h");`
         "--config",
         config,
       ],
-      { stderr: "pipe", stdout: "pipe" }
+      { env: home.env, stderr: "pipe", stdout: "pipe" }
     );
   try {
     const missing = roll("greet");

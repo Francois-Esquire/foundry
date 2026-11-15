@@ -9,6 +9,7 @@ import { initializeDatabase } from "~/database/open";
 import { DatabaseUsageStore } from "~/database/usage";
 import { stateDatabase } from "~/layout";
 import { UsageLedger } from "~/lib/usage";
+import { recordSpawned } from "~/process/spawned";
 import { directFact } from "./helpers/usage-store";
 
 /*
@@ -87,6 +88,7 @@ function writer(id: number, barrier: string) {
   const child = spawn("bun", ["-e", script], {
     stdio: ["ignore", "pipe", "inherit"],
   });
+  recordSpawned(child.pid, false);
   let out = "";
   child.stdout.on("data", (chunk: Buffer) => {
     out += chunk.toString();

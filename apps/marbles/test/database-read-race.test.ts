@@ -14,6 +14,7 @@ import { MIGRATIONS } from "~/database/migrate";
 import type { StoreDatabase } from "~/database/open";
 import { initializeDatabase, readDatabase } from "~/database/open";
 import { marblesWorkspaces } from "~/database/tables";
+import { recordSpawned } from "~/process/spawned";
 
 /**
  * The race `readDatabase` narrows but cannot close: the last writer closes
@@ -78,6 +79,7 @@ process.stdin.once("data", async () => {
     cwd: resolve("."),
     stdio: ["pipe", "pipe", "pipe"],
   });
+  recordSpawned(child.pid, false);
   children.push(child);
   await new Promise<void>((ready, failed) => {
     child.stdout?.on("data", (chunk: Buffer) => {

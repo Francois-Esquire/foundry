@@ -419,6 +419,7 @@
       "name": "@foundry/usage",
       "version": "0.1.0",
       "dependencies": {
+        "@foundry/lib": "workspace:*",
         "@foundry/models": "workspace:*",
       },
       "devDependencies": {

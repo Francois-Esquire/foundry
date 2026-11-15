@@ -24,7 +24,9 @@ import {
 import { marblesWorkspaces } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { workspaceState } from "~/lib/state/workspace";
+import { recordSpawned } from "~/process/spawned";
 import { cliArgs } from "./helpers/cli";
+import { type TestHome, testHome } from "./helpers/home";
 import { readWorkspace, touchWorkspace } from "./helpers/registry";
 
 const SRC = resolve("src");
@@ -104,6 +106,7 @@ if (${JSON.stringify(then)} === "hold") {
     cwd: resolve("."),
     stdio: ["ignore", "pipe", "pipe"],
   });
+  recordSpawned(child.pid, false);
   children.push(child);
   return new Promise((ready, failed) => {
     let stderr = "";
@@ -321,17 +324,19 @@ describe("writing to the Marbles database outside the Marbles process", () => {
 });
 
 describe("the CLI on the Marbles database", () => {
-  function marbles(cwd: string, ...args: string[]) {
+  function marbles(home: TestHome, cwd: string, ...args: string[]) {
     return spawnSync("bun", ["--no-env-file", ...cliArgs(...args)], {
       cwd,
       encoding: "utf8",
+      env: home.env,
       timeout: 60_000,
     });
   }
 
   it("says in one line that a database is newer, and leaves it alone", async () => {
     const work = scratch();
-    const state = join(scratch(), "state");
+    const home = testHome();
+    const { state } = home.layout;
     await exited(
       await processWith(
         work,
@@ -342,7 +347,7 @@ describe("the CLI on the Marbles database", () => {
       )
     );
     const before = snapshot(state);
-    const status = marbles(work, "status", "--state", state);
+    const status = marbles(home, work, "status");
     expect(status.status).toBe(1);
     expect(status.stderr).toMatch(NEWER);
     expect(status.stderr).not.toMatch(STACK_FRAME);
@@ -351,12 +356,13 @@ describe("the CLI on the Marbles database", () => {
 
   it("clears the record of a workspace whose state links out, without following the link", async () => {
     const root = scratch();
-    const state = join(scratch(), "state");
+    const home = testHome();
+    const { state } = home.layout;
     const workspace = workspaceState(state, root);
     await touchWorkspace(state, workspace, null, { hosted: true });
     const outside = scratch();
     symlinkSync(outside, workspace.dir);
-    const detached = marbles(root, "detach", "--state", state);
+    const detached = marbles(home, root, "detach");
     expect(detached.status, detached.stderr).toBe(0);
     expect(readdirSync(outside)).toEqual([]);
     // Read as stored, link or not: what the next boot would restore from.
@@ -380,10 +386,11 @@ describe("the CLI on the Marbles database", () => {
 
   it("clears a hosted record when it detaches with no Marbles process running", async () => {
     const root = scratch();
-    const state = join(scratch(), "state");
+    const home = testHome();
+    const { state } = home.layout;
     const workspace = workspaceState(state, root);
     await touchWorkspace(state, workspace, null, { hosted: true });
-    const detached = marbles(root, "detach", "--state", state);
+    const detached = marbles(home, root, "detach");
     expect(detached.status, detached.stderr).toBe(0);
     expect(detached.stdout).toContain("no Marbles process is running");
     expect((await readWorkspace(state, workspace.id))?.hosted).toBe(false);

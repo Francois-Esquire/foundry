@@ -4,6 +4,7 @@ import { constants } from "node:os";
 import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
+import { recordSpawned } from "~/process/spawned";
 
 /**
  * `marbles mcp` runs in two processes, so stdout carries protocol frames
@@ -132,6 +133,8 @@ export async function relay(
       resolve(code ?? 128 + (signal === null ? 0 : constants.signals[signal]));
     });
   });
+  // Once the child's exit is handled, in the turn that spawned it; it never throws.
+  recordSpawned(child.pid, false);
   const copied = pipeline(protocol, createWriteStream("", { fd: 1 })).catch(
     (error: unknown) => {
       // The client stopped reading; the server has nobody to answer.

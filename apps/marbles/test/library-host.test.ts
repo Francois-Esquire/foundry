@@ -14,10 +14,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { IncompatibleDatabaseError, MIGRATIONS } from "~/database/migrate";
 import { initializeDatabase, readDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
-import { layout, stateDatabase } from "~/layout";
+import { stateDatabase } from "~/layout";
 import { acquireLock, PROCESS_LOCK } from "~/lib/state/locks";
 import { workspaceState } from "~/lib/state/workspace";
 import { type Daemon, startDaemon } from "~/process/daemon";
+import { recordSpawned } from "~/process/spawned";
+import { testHome } from "./helpers/home";
 import { readWorkspace, recordWorkspace } from "./helpers/registry";
 
 const SRC = resolve("src");
@@ -167,6 +169,7 @@ setInterval(() => undefined, 1000);
 `
     );
     const daemon = spawn("bun", [script], { cwd: resolve(".") });
+    recordSpawned(daemon.pid, false);
     try {
       await new Promise<void>((ready, failed) => {
         daemon.stdout?.on("data", (chunk: Buffer) => {
@@ -230,6 +233,7 @@ await recordWorkspace(state, workspaceState(state, ${JSON.stringify(workspace)})
         cwd: resolve("."),
         stdio: ["ignore", "pipe", "pipe"],
       });
+      recordSpawned(child.pid, false);
       let stderr = "";
       child.stderr?.on("data", (chunk: Buffer) => {
         stderr += chunk.toString();
@@ -264,8 +268,7 @@ await recordWorkspace(state, workspaceState(state, ${JSON.stringify(workspace)})
   }, 60_000);
 
   it("records beside a Marbles process in its own process without taking its claim", async () => {
-    const home = mkdtempSync(join(tmpdir(), "mb-"));
-    const machine = layout({ home });
+    const machine = testHome({ providers: false }).layout;
     const daemon = await startDaemon({ layout: machine });
     daemons.push(daemon);
     const workspace = workspaceState(machine.state, scratch());

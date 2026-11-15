@@ -25,6 +25,7 @@ import {
 } from "typescript";
 import { expect, test } from "vitest";
 
+import { testHome } from "./helpers/home";
 import { rawMcpSession, strayLines } from "./helpers/mcp-stdio";
 import { inspectDashboard } from "./helpers/terminal";
 
@@ -107,11 +108,17 @@ function staticImports(dist: string, entry: string): string[] {
   return [...specifiers];
 }
 
-function run(command: string, args: string[], cwd: string): string {
+function run(
+  command: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env
+): string {
   try {
     return execFileSync(command, args, {
       cwd,
       encoding: "utf8",
+      env,
       timeout: 120_000,
     });
   } catch (error) {
@@ -401,96 +408,67 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
     ).toContain("Hello tarball");
     // Without --dry-run the packaged CLI starts the Marbles process from its
     // own dist entries, hosts the workspace in a worker, and rolls there.
-    const state = join(consumer, "state");
+    const home = testHome();
+    const { state } = home.layout;
+    const marbles = (args: string[], env = home.env) =>
+      run(cli, args, consumer, env);
     try {
       expect(
-        run(
-          cli,
-          [
-            "roll",
-            "packed-workflow",
-            "--input",
-            '{"name":"daemon"}',
-            "--state",
-            state,
-          ],
-          consumer
-        )
+        marbles(["roll", "packed-workflow", "--input", '{"name":"daemon"}'])
       ).toContain("Hello daemon");
-      const status = run(cli, ["status", "--state", state], consumer);
+      const status = marbles(["status"]);
       expect(status).toContain("marbles process: pid");
       expect(status).toContain("(worker)");
       // The daemon recorded the workspace in the database it opened.
       expect(readdirSync(state)).toContain("marbles.db");
       expect(status).toContain(consumer);
       // A task made through the worker that hosts the workspace.
-      expect(
-        run(
-          cli,
-          ["tasks", "create", "Through the worker", "--state", state],
-          consumer
-        )
-      ).toContain("Through the worker");
-    } finally {
-      expect(run(cli, ["stop", "--state", state], consumer)).toContain(
-        "stopped Marbles process"
+      expect(marbles(["tasks", "create", "Through the worker"])).toContain(
+        "Through the worker"
       );
+    } finally {
+      expect(marbles(["stop"])).toContain("stopped Marbles process");
     }
     // With no process holding it, the database still reads, read-only.
-    expect(run(cli, ["status", "--state", state], consumer)).toContain(
-      consumer
-    );
-    const listedTasks = (args: string[]) =>
+    expect(marbles(["status"])).toContain(consumer);
+    const listedTasks = (env: Record<string, string>) =>
       (
-        JSON.parse(run(cli, ["tasks", "list", "--json", ...args], consumer))
-          .items as { title: string }[]
+        JSON.parse(marbles(["tasks", "list", "--json"], env)).items as {
+          title: string;
+        }[]
       ).map((task) => task.title);
-    expect(listedTasks(["--state", state])).toEqual(["Through the worker"]);
+    expect(listedTasks(home.env)).toEqual(["Through the worker"]);
     // With no Marbles process and no database yet, a task change makes and
     // migrates it from the installed migrations; a listing reads it back.
-    const taskState = mkdtempSync(join(tmpdir(), "mt-"));
-    try {
-      expect(
-        run(cli, ["tasks", "create", "Packed", "--state", taskState], consumer)
-      ).toContain("Packed");
-      expect(readdirSync(taskState)).toContain("marbles.db");
-      expect(listedTasks(["--state", taskState])).toEqual(["Packed"]);
-    } finally {
-      rmSync(taskState, { force: true, recursive: true });
-    }
+    const tasksHome = testHome();
+    expect(marbles(["tasks", "create", "Packed"], tasksHome.env)).toContain(
+      "Packed"
+    );
+    expect(readdirSync(tasksHome.layout.state)).toContain("marbles.db");
+    expect(listedTasks(tasksHome.env)).toEqual(["Packed"]);
     // The installed bin serves MCP over STDIO, stdout carries only frames,
     // and serving starts no Marbles process.
-    const mcpState = mkdtempSync(join(tmpdir(), "mp-"));
-    try {
-      const session = await rawMcpSession(
-        cli,
-        [
-          "mcp",
-          "--source",
-          join(consumer, "marbles.config.ts"),
-          "--state",
-          mcpState,
-        ],
-        { cwd: consumer }
-      );
-      const listed = await session.request("tools/list");
-      const ended = await session.close();
-      expect(ended.code, ended.stderr).toBe(0);
-      expect(listed).toMatchObject({
-        result: {
-          tools: expect.arrayContaining([
-            expect.objectContaining({ name: "dispatch_workflow" }),
-            expect.objectContaining({ name: "list_tasks" }),
-          ]),
-        },
-      });
-      expect(strayLines(ended.stdout)).toEqual([]);
-    } finally {
-      expect(run(cli, ["stop", "--state", mcpState], consumer)).toContain(
-        "no Marbles process is running"
-      );
-      rmSync(mcpState, { force: true, recursive: true });
-    }
+    const mcpHome = testHome();
+    const session = await rawMcpSession(
+      cli,
+      ["mcp", "--source", join(consumer, "marbles.config.ts")],
+      { cwd: consumer, env: mcpHome.env }
+    );
+    const listed = await session.request("tools/list");
+    const ended = await session.close();
+    expect(ended.code, ended.stderr).toBe(0);
+    expect(listed).toMatchObject({
+      result: {
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: "dispatch_workflow" }),
+          expect.objectContaining({ name: "list_tasks" }),
+        ]),
+      },
+    });
+    expect(strayLines(ended.stdout)).toEqual([]);
+    expect(marbles(["stop"], mcpHome.env)).toContain(
+      "no Marbles process is running"
+    );
     writeFileSync(join(standalone, "workspace-marker.txt"), "workspace root");
     const authoring = join(standalone, ".foundry", "marbles");
     mkdirSync(authoring, { recursive: true });

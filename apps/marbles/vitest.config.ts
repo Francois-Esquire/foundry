@@ -32,5 +32,6 @@ export default defineConfig({
     // Vitest runs on Bun, which OpenTUI's renderer needs; Bun drops zod's
     // `z` export when Vitest imports it as an external module.
     server: { deps: { inline: ["zod"] } },
+    setupFiles: ["test/helpers/guard.ts"],
   },
 });

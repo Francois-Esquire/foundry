@@ -19,7 +19,7 @@ import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { bindMock } from "../helpers/bindings";
 import { startEngine } from "../helpers/engine";
 import { openFeed } from "../helpers/feed";
-import { storedRun } from "../helpers/runs";
+import { storedRun } from "../helpers/stored-runs";
 
 const NOT_RUNNING_PATTERN = /not running here/;
 const CANCELLED_PATTERN = /cancelled/;

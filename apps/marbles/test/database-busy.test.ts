@@ -16,6 +16,7 @@ import { createClient } from "@libsql/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { serialClient } from "~/database/client";
 import { initializeDatabase, openDatabase } from "~/database/open";
+import { recordSpawned } from "~/process/spawned";
 
 const BUSY = /SQLITE_BUSY/;
 const FOREIGN_KEY = /FOREIGN KEY constraint failed/;
@@ -77,6 +78,7 @@ client.close();
   const child = spawn("bun", ["-e", script], {
     stdio: ["ignore", "pipe", "inherit"],
   });
+  recordSpawned(child.pid, false);
   children.push(child);
   await new Promise<void>((ready, failed) => {
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -211,6 +213,7 @@ catch (error) { process.stdout.write(String(error) + "\\n"); }`,
         ],
         { stdio: ["ignore", "pipe", "inherit"] }
       );
+      recordSpawned(probe.pid, false);
       children.push(probe);
       let said = "";
       probe.stdout?.on("data", (chunk: Buffer) => {

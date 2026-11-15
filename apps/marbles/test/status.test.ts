@@ -9,7 +9,7 @@ import { stateDatabase } from "~/layout";
 import { writeJson } from "~/lib/state/json";
 import { readStatus } from "~/status/model";
 import { seedWorkspace } from "./helpers/registry";
-import { seedRuns, seedTicks } from "./helpers/runs";
+import { seedRuns, seedTicks } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
 async function layout() {

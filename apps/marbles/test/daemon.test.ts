@@ -3,7 +3,6 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   rmSync,
   symlinkSync,
@@ -11,7 +10,6 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { connect as connectSocket, createServer } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { processAlive } from "@foundry/lib/file-lock";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -35,6 +33,7 @@ import {
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { ProcessHeldError, readProcess } from "~/process/instance";
 import { RemoteError, WORKER_METHODS } from "~/process/protocol";
+import { testHome } from "./helpers/home";
 import { readWorkspace, touchWorkspace } from "./helpers/registry";
 
 /**
@@ -53,11 +52,11 @@ interface Fixture {
 }
 
 function fixture(): Fixture {
-  const home = mkdtempSync(join(tmpdir(), "mb-"));
-  const root = join(home, "project");
+  const home = testHome({ providers: false });
+  const root = join(home.path, "project");
   mkdirSync(root);
   const source = join(root, "marbles.config.ts");
-  return { home, machine: layout({ home }), root, source };
+  return { home: home.path, machine: home.layout, root, source };
 }
 
 function greeter(name: string): string {
@@ -80,7 +79,6 @@ function sleep(ms: number): Promise<void> {
 }
 
 const daemons: Daemon[] = [];
-const homes: string[] = [];
 
 async function daemonFor(machine: Layout, lines: string[] = []) {
   const daemon = await startDaemon({
@@ -106,15 +104,11 @@ async function storedTasks(machine: Layout, id: string) {
 
 afterEach(async () => {
   await Promise.all(daemons.splice(0).map((daemon) => daemon.close()));
-  for (const home of homes.splice(0)) {
-    rmSync(home, { force: true, recursive: true });
-  }
 });
 
 describe("the Marbles process", () => {
   it("hosts a workspace in a worker, answers for it, reloads on an edit, and detaches it", async () => {
-    const { home, machine, root, source } = fixture();
-    homes.push(home);
+    const { machine, root, source } = fixture();
     writeFileSync(source, greeter("greet"));
     const lines: string[] = [];
     await daemonFor(machine, lines);
@@ -188,8 +182,7 @@ describe("the Marbles process", () => {
   }, 60_000);
 
   it("reports a source that fails to load and hosts it again once it is fixed", async () => {
-    const { home, machine, source } = fixture();
-    homes.push(home);
+    const { machine, source } = fixture();
     writeFileSync(source, 'throw new Error("boom at load");\n');
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
@@ -206,8 +199,7 @@ describe("the Marbles process", () => {
   }, 60_000);
 
   it("marks a workspace failed when its worker cannot be spawned, and keeps running", async () => {
-    const { home, machine, root, source } = fixture();
-    homes.push(home);
+    const { machine, root, source } = fixture();
     writeFileSync(source, greeter("greet"));
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
@@ -224,8 +216,7 @@ describe("the Marbles process", () => {
   }, 60_000);
 
   it("makes an attach during a reload wait for the fresh worker", async () => {
-    const { home, machine, source } = fixture();
-    homes.push(home);
+    const { machine, source } = fixture();
     writeFileSync(source, greeter("greet"));
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
@@ -244,8 +235,7 @@ describe("the Marbles process", () => {
   }, 60_000);
 
   it("reloads a worker that is still starting into a ready one", async () => {
-    const { home, machine, source } = fixture();
-    homes.push(home);
+    const { machine, source } = fixture();
     writeFileSync(source, slowGreeter("greet", 2500));
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
@@ -271,8 +261,7 @@ describe("the Marbles process", () => {
   }, 60_000);
 
   it("stops at once a worker it spawned at boot that has not registered", async () => {
-    const { home, machine, source } = fixture();
-    homes.push(home);
+    const { machine, source } = fixture();
     writeFileSync(source, greeter("greet"));
     const first = await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
@@ -288,8 +277,7 @@ describe("the Marbles process", () => {
   }, 60_000);
 
   it("keeps the lines of overlapping rolls apart", async () => {
-    const { home, machine, source } = fixture();
-    homes.push(home);
+    const { machine, source } = fixture();
     const waiting = (name: string, ms: number) =>
       `export const ${name} = step(${JSON.stringify(name)}).do(async () => {\n  await new Promise((resolve) => setTimeout(resolve, ${String(ms)}));\n  return ${JSON.stringify(name)};\n});\n`;
     writeFileSync(
@@ -313,8 +301,7 @@ describe("the Marbles process", () => {
   }, 60_000);
 
   it("hosts every workspace recorded as hosted when it starts again", async () => {
-    const { home, machine, source } = fixture();
-    homes.push(home);
+    const { machine, source } = fixture();
     writeFileSync(source, greeter("greet"));
     const first = await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
@@ -337,8 +324,7 @@ describe("the Marbles process", () => {
   }, 60_000);
 
   it("keeps a workspace's tasks across a restart of the Marbles process", async () => {
-    const { home, machine, source } = fixture();
-    homes.push(home);
+    const { machine, source } = fixture();
     writeFileSync(source, greeter("greet"));
     const first = await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
@@ -376,7 +362,6 @@ describe("the Marbles process", () => {
 
   it("hosts again at boot only the recorded workspaces kept under the state root", async () => {
     const { home, machine } = fixture();
-    homes.push(home);
     const [kept, linked, dangling] = await Promise.all(
       ["kept", "linked", "dangling"].map(async (name) => {
         const root = join(home, name);
@@ -420,8 +405,7 @@ describe("the Marbles process", () => {
   }, 60_000);
 
   it("stops itself once the claim at the state root is gone, leaving a successor's socket", async () => {
-    const { home, machine } = fixture();
-    homes.push(home);
+    const { machine } = fixture();
     const daemon = await daemonFor(machine);
     rmSync(join(machine.state, "locks", "process"));
     // A successor took the path meanwhile: closing must not unlink it.
@@ -454,8 +438,7 @@ describe("the Marbles process", () => {
   }, 20_000);
 
   it("refuses new work once asked to stop, and stop returns after it has exited", async () => {
-    const { home, machine, source } = fixture();
-    homes.push(home);
+    const { machine, source } = fixture();
     writeFileSync(source, greeter("greet"));
     const daemon = await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
@@ -492,7 +475,6 @@ describe("the Marbles process", () => {
 
   it("allows task reads but refuses task changes after shutdown is acknowledged", async () => {
     const { home, machine, source } = fixture();
-    homes.push(home);
     const held = join(home, "held");
     const release = join(home, "release");
     writeFileSync(
@@ -572,7 +554,6 @@ export const hold = step("hold").do(async () => {
 
   it("refuses a client that names another artifact store", async () => {
     const { home, machine } = fixture();
-    homes.push(home);
     await daemonFor(machine);
     const elsewhere = layout({ artifacts: join(home, "elsewhere"), home });
     const refused = connect({ layout: elsewhere, start: false });
@@ -584,8 +565,7 @@ export const hold = step("hold").do(async () => {
   });
 
   it("refuses a second source under a hosted root, and dispatch params it cannot parse", async () => {
-    const { home, machine, root } = fixture();
-    homes.push(home);
+    const { machine, root } = fixture();
     const first = join(root, "first.ts");
     const second = join(root, "second.ts");
     writeFileSync(first, greeter("greet"));
@@ -608,8 +588,7 @@ export const hold = step("hold").do(async () => {
   }, 60_000);
 
   it("keeps a workspace that was attached again while it was being detached", async () => {
-    const { home, machine, source } = fixture();
-    homes.push(home);
+    const { machine, source } = fixture();
     writeFileSync(
       source,
       `import { step } from "@foundry.sh/marbles";\nexport const slow = step("slow").do(async () => {\n  await new Promise((resolve) => setTimeout(resolve, 3000));\n  return "slow";\n});\n`
@@ -637,8 +616,7 @@ export const hold = step("hold").do(async () => {
   }, 60_000);
 
   it("keeps a workspace attached again while its detach is recording it", async () => {
-    const { home, machine, source } = fixture();
-    homes.push(home);
+    const { machine, source } = fixture();
     writeFileSync(source, greeter("greet"));
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
@@ -687,7 +665,6 @@ export const hold = step("hold").do(async () => {
 
   it("refuses to host a workspace whose state links out of the state root", async () => {
     const { home, machine, root, source } = fixture();
-    homes.push(home);
     writeFileSync(source, greeter("greet"));
     mkdirSync(machine.state, { recursive: true });
     const outside = join(home, "outside");
@@ -707,8 +684,7 @@ export const hold = step("hold").do(async () => {
   }, 30_000);
 
   it("lets two overlapping detaches of one workspace both succeed", async () => {
-    const { home, machine, source } = fixture();
-    homes.push(home);
+    const { machine, source } = fixture();
     writeFileSync(source, greeter("greet"));
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
@@ -726,7 +702,6 @@ export const hold = step("hold").do(async () => {
 
   it("lets go of everything it took when it cannot listen", async () => {
     const { home, machine } = fixture();
-    homes.push(home);
     // The socket's directory is not there, so listening fails.
     const deaf: Layout = {
       ...machine,
@@ -745,7 +720,6 @@ export const hold = step("hold").do(async () => {
 
   it("lets go of everything when it cannot listen and printing fails as well", async () => {
     const { home, machine } = fixture();
-    homes.push(home);
     const deaf: Layout = {
       ...machine,
       socket: join(home, "no-such-dir", "marbles.sock"),
@@ -769,8 +743,7 @@ export const hold = step("hold").do(async () => {
   }, 30_000);
 
   it("lets go of everything when it is closed and printing fails", async () => {
-    const { home, machine } = fixture();
-    homes.push(home);
+    const { machine } = fixture();
     const printing: { fails: boolean } = { fails: false };
     const daemon = await startDaemon({
       layout: machine,
@@ -792,7 +765,6 @@ export const hold = step("hold").do(async () => {
 
   it("rejects a close with its first failure when a later step fails too", async () => {
     const { home, machine } = fixture();
-    homes.push(home);
     // The socket alone in a directory that can then be made read-only, so
     // removing it fails after printing has.
     const sockets = join(home, "s");
@@ -819,8 +791,7 @@ export const hold = step("hold").do(async () => {
   }, 30_000);
 
   it("kills a worker that would not stop even when saying so fails", async () => {
-    const { home, machine, source } = fixture();
-    homes.push(home);
+    const { machine, source } = fixture();
     writeFileSync(source, greeter("greet"));
     const printing: { fails: boolean } = { fails: false };
     const daemon = await startDaemon({
@@ -867,8 +838,7 @@ export const hold = step("hold").do(async () => {
   }, 60_000);
 
   it("refuses a second daemon on the same state root, and a client with none to start", async () => {
-    const { home, machine } = fixture();
-    homes.push(home);
+    const { machine } = fixture();
     await expect(connect({ layout: machine, start: false })).rejects.toThrow(
       NoProcessError
     );

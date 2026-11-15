@@ -5,10 +5,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import { layout } from "~/layout";
-import { daemonAlive } from "~/process/client";
 import { cliArgs } from "./helpers/cli";
-import { stopDaemon } from "./helpers/daemon";
+import { type TestHome, testHome } from "./helpers/home";
 import {
   type RawMcpSession,
   rawMcpSession,
@@ -75,23 +73,29 @@ interface Started {
 
 /**
  * Start `marbles mcp` under `--dry-run`, or with `args` in its place, with
- * `body` run at the start of the server. With `piped`, its stdin is a pipe
- * `cat` writes for as long as the session's stdin is open.
+ * `body` run at the start of the server, in `home` or one of its own.
+ * With `piped`, its stdin is a pipe `cat` writes for as long as the
+ * session's stdin is open.
  */
 async function start(
   root: string,
   body: string,
-  options: { readonly args?: readonly string[]; readonly piped?: boolean } = {}
+  options: {
+    readonly args?: readonly string[];
+    readonly home?: TestHome;
+    readonly piped?: boolean;
+  } = {}
 ): Promise<Started> {
   const env = await serverPreload(
     root,
-    `console.error("PIDS=" + process.pid + "," + process.ppid);\n${body}`
+    `console.error("PIDS=" + process.pid + "," + process.ppid);\n${body}`,
+    (options.home ?? testHome()).env
   );
   const marbles = [
     "--no-env-file",
     resolve("src/cli.ts"),
     "mcp",
-    ...(options.args ?? ["--state", join(root, "state"), "--dry-run"]),
+    ...(options.args ?? ["--dry-run"]),
   ];
   const session = options.piped
     ? await rawMcpSession("sh", ["-c", 'cat | "$@"', "sh", "bun", ...marbles], {
@@ -156,10 +160,8 @@ it("exits once shutdown is done, though a timer is pending", async () => {
 }, 30_000);
 
 it("exits when a shutdown outlives its deadline", async () => {
-  // Short on purpose: the state root holds a Unix socket, whose path is
-  // limited to about a hundred bytes.
   const root = await mkdtemp(join(tmpdir(), "mm-"));
-  const state = join(root, "s");
+  const home = testHome();
   const source = join(root, "marbles.ts");
   const spinning = join(root, "spinning");
   let started: Started | undefined;
@@ -179,13 +181,11 @@ workflow("spin").do(() => spin({}));`
     );
     const attached = spawnSync(
       "bun",
-      [...cliArgs("attach"), "--source", source, "--state", state],
-      { cwd: root, encoding: "utf8", timeout: 60_000 }
+      [...cliArgs("attach"), "--source", source],
+      { cwd: root, encoding: "utf8", env: home.env, timeout: 60_000 }
     );
     expect(attached.status, attached.stderr).toBe(0);
-    started = await start(root, "", {
-      args: ["--source", source, "--state", state],
-    });
+    started = await start(root, "", { args: ["--source", source], home });
     const { relay, server, session } = started;
     const dispatched = await call(session, "dispatch_workflow", {
       name: "spin",
@@ -220,13 +220,8 @@ workflow("spin").do(() => spin({}));`
   } finally {
     kill(started?.relay);
     kill(started?.server);
-    try {
-      if (daemonAlive(layout({ state }))) {
-        await stopDaemon(state);
-      }
-    } finally {
-      await rm(root, { force: true, recursive: true });
-    }
+    // The home's teardown stops the Marbles process.
+    await rm(root, { force: true, recursive: true });
   }
 }, 90_000);
 
@@ -293,12 +288,13 @@ process.on("SIGUSR2", () => {
 
 it("lets a stored-task call finish before it exits", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-turn-"));
-  const state = join(root, "state");
+  const home = testHome();
+  const { state } = home.layout;
   try {
     const session = await rawMcpSession(
       "bun",
-      ["--no-env-file", resolve("src/cli.ts"), "mcp", "--state", state],
-      { cwd: root }
+      ["--no-env-file", resolve("src/cli.ts"), "mcp"],
+      { cwd: root, env: home.env }
     );
     session.notify("notifications/initialized");
     for (const key of ["a", "b", "c"]) {

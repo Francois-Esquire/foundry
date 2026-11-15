@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { DatabaseAutomationStore } from "~/database/automations";
@@ -21,16 +21,25 @@ import { AutomationService } from "~/lib/automation/service";
 import { workspaceState } from "~/lib/state/workspace";
 import { sourceFiles, sourceRoot } from "~/workspace/source";
 import { declared } from "./helpers/engine";
+import { type TestHome, testHome } from "./helpers/home";
+
+let home: TestHome;
+
+beforeEach(() => {
+  home = testHome();
+});
 
 afterEach(() => {
   catalog.reset();
 });
 
 const CLI = resolve("src/cli.ts");
+/** The CLI in the test's home, from `root`. */
 function cli(root: string, ...args: string[]): string {
   return execFileSync("bun", [CLI, ...args], {
     cwd: root,
     encoding: "utf8",
+    env: home.env,
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 15_000,
   });
@@ -151,7 +160,7 @@ it("lists what agents created from the same triggers, and leaves the state root 
       config,
       'import { step } from "@foundry.sh/marbles"; step("target").do(() => 1);'
     );
-    const state = join(root, "state");
+    const { state } = home.layout;
     const { dir } = workspaceState(state, root);
     step("target").do(() => 1);
     // What an engine of the workspace's keeps, in the database at the state root.
@@ -182,7 +191,7 @@ it("lists what agents created from the same triggers, and leaves the state root 
       owner
     );
     opened.close();
-    const listed = cli(root, "list", "--config", config, "--state", state)
+    const listed = cli(root, "list", "--config", config)
       .split("\n")
       .filter((line) => line.startsWith("["));
     expect(listed.toSorted()).toEqual(

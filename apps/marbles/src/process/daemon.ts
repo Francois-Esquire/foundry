@@ -33,6 +33,7 @@ import {
   workspaceIdSchema,
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
+import { recordSpawned } from "~/process/spawned";
 import { resolveSource, sourceFiles, sourceRoot } from "~/workspace/source";
 import { version } from "../../package.json";
 
@@ -440,6 +441,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     );
     worker.onNotification = (method, params) =>
       onWorkerNotification(worker, method, params);
+    // Once the child is the worker's; it never throws.
+    recordSpawned(child.pid, false);
     return worker.ready.promise;
   }
 
