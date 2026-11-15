@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SessionRecord } from "@foundry/agents/schema";
+import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
 import { Sessions } from "@foundry/agents/session";
 import type { SessionStoreWrite } from "@foundry/agents/store";
 import { describeSessionStore } from "@foundry/agents/testing/store";
@@ -20,7 +20,11 @@ import { createEngine } from "~/create";
 import { fileIdentity, queuedFiles } from "~/database/client";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { openWorkspaceDatabase } from "~/database/managed";
-import { DatabaseSessionStore, readSessions } from "~/database/sessions";
+import {
+  DatabaseSessionStore,
+  readSessions,
+  sessionCounts,
+} from "~/database/sessions";
 import { stateDatabase } from "~/layout";
 import { workspaceState } from "~/lib/state/workspace";
 import type { ListedSessionStore } from "~/lib/usage-evidence";
@@ -55,39 +59,47 @@ function perScope<T>(make: (scope: string) => T): (scope: string) => T {
 /** Fresh storage of each kind Marbles builds, a store per scope over it. */
 const KINDS: readonly {
   readonly name: string;
-  readonly open: () => Promise<(scope: string) => ListedSessionStore>;
+  /** Fresh storage, and the state root whose database holds it. */
+  readonly storage: () => Promise<{
+    readonly state: string;
+    readonly stores: (scope: string) => ListedSessionStore;
+  }>;
 }[] = [
   {
     name: "DatabaseSessionStore",
-    async open() {
+    async storage() {
       const machine = await testMachine();
       machines.push(machine);
-      return perScope(
-        (scope) =>
-          new DatabaseSessionStore({
-            database: machine.database.database,
-            scope,
-          })
-      );
+      return {
+        state: machine.root,
+        stores: perScope(
+          (scope) =>
+            new DatabaseSessionStore({
+              database: machine.database.database,
+              scope,
+            })
+        ),
+      };
     },
   },
   {
     name: "openWorkspaceDatabase",
-    open() {
+    storage() {
       const state = temporaryDirectory("marbles-sessions-managed-");
-      return Promise.resolve(
-        perScope((workspaceId) => {
+      return Promise.resolve({
+        state,
+        stores: perScope((workspaceId) => {
           const database = openWorkspaceDatabase({ state, workspaceId });
           opened.push(database);
           return database.sessions;
-        })
-      );
+        }),
+      });
     },
   },
 ];
 
 for (const kind of KINDS) {
-  describeSessionStore(kind.name, kind.open);
+  describeSessionStore(kind.name, async () => (await kind.storage()).stores);
 }
 
 function session(id: string, title: string | null = null): SessionRecord {
@@ -102,13 +114,43 @@ function session(id: string, title: string | null = null): SessionRecord {
   };
 }
 
+function filed(id: string, sessionId: string): SessionMessage {
+  return {
+    createdAt: 1,
+    id,
+    parts: [{ text: "hello", type: "text" }],
+    role: "assistant",
+    sessionId,
+    status: "complete",
+    updatedAt: 1,
+  };
+}
+
+/** The two ways a write reaches a store: a plain commit, and a transaction's view. */
+const WRITERS: readonly {
+  readonly commit: (
+    store: ListedSessionStore,
+    write: SessionStoreWrite
+  ) => Promise<void>;
+  readonly name: string;
+}[] = [
+  { commit: (store, write) => store.commit(write), name: "a commit" },
+  {
+    commit: async (store, write) => {
+      await store.transaction?.((view) => view.commit(write));
+    },
+    name: "a transaction's view",
+  },
+];
+
 const stampsOf = async (store: ListedSessionStore) =>
   new Map((await store.stamps()).map(({ id, stamp }) => [id, stamp]));
 
 for (const kind of KINDS) {
+  const open = async () => (await kind.storage()).stores;
   describe(`${kind.name}'s listing`, () => {
     it("lists every session it holds, each stamp moving only when the session changes", async () => {
-      const store = (await kind.open())("ws");
+      const store = (await open())("ws");
       expect(listsSessions(store)).toBe(true);
       await expect(store.stamps()).resolves.toEqual([]);
       const sessions = new Sessions({ store });
@@ -134,7 +176,7 @@ for (const kind of KINDS) {
     });
 
     it("keeps no stamp of a commit that rolled back", async () => {
-      const store = (await kind.open())("ws");
+      const store = (await open())("ws");
       await store.commit({ putSessions: [session("kept")] });
       const before = await stampsOf(store);
       await expect(
@@ -149,12 +191,58 @@ for (const kind of KINDS) {
     });
 
     it("never lists another workspace's sessions", async () => {
-      const storage = await kind.open();
+      const storage = await open();
       await storage("one").commit({ putSessions: [session("mine")] });
       await storage("two").commit({ putSessions: [session("theirs")] });
       expect([...(await stampsOf(storage("one"))).keys()]).toEqual(["mine"]);
       expect([...(await stampsOf(storage("two"))).keys()]).toEqual(["theirs"]);
     });
+
+    for (const through of WRITERS) {
+      it(`raises the session a message leaves as well as the one it joins, through ${through.name}`, async () => {
+        const store = (await open())("ws");
+        await store.commit({
+          putMessages: [filed("m", "a")],
+          putSessions: [session("a"), session("b"), session("c")],
+        });
+        const before = await stampsOf(store);
+        await through.commit(store, { putMessages: [filed("m", "b")] });
+        const after = await stampsOf(store);
+        await expect(store.listMessages("a")).resolves.toEqual([]);
+        expect(after.get("a")).not.toBe(before.get("a"));
+        expect(after.get("b")).not.toBe(before.get("b"));
+        expect(after.get("c")).toBe(before.get("c"));
+      });
+
+      it(`lists no session for messages written without one, and lists it once it is put, through ${through.name}`, async () => {
+        const { state, stores } = await kind.storage();
+        const store = stores("ws");
+        await through.commit(store, { putMessages: [filed("m", "later")] });
+        await expect(store.getSession("later")).resolves.toBeNull();
+        await expect(store.stamps()).resolves.toEqual([]);
+        expect(await sessionCounts(state)).toEqual(new Map());
+
+        await through.commit(store, { putSessions: [session("later")] });
+        const put = await stampsOf(store);
+        expect([...put.keys()]).toEqual(["later"]);
+        expect(await sessionCounts(state)).toEqual(new Map([["ws", 1]]));
+        await through.commit(store, {
+          putMessages: [{ ...filed("m", "later"), status: "error" }],
+        });
+        expect((await stampsOf(store)).get("later")).not.toBe(put.get("later"));
+
+        // A session and its message put together are listed at once.
+        await through.commit(store, {
+          putMessages: [filed("n", "together")],
+          putSessions: [session("together")],
+        });
+        expect([...(await stampsOf(store)).keys()]).toEqual([
+          "later",
+          "together",
+        ]);
+        expect(await sessionCounts(state)).toEqual(new Map([["ws", 2]]));
+      });
+    }
   });
 }
 

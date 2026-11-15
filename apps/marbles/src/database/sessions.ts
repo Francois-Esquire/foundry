@@ -18,8 +18,11 @@ import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
  *
  * The revision is written by `SqliteSessionStore`'s `onCommit` hook, on the
  * transaction the hook is handed, so a session and its revision commit or
- * roll back together. Marbles lists sessions only through that record and
- * reads them only through the store, never through the package's tables.
+ * roll back together. A message moved to another session raises the one
+ * it left as well: a commit that puts messages first reads, in its own
+ * transaction, where each is filed. Marbles lists sessions only through
+ * that record and reads them only through the store, never through the
+ * package's tables.
  */
 
 export interface DatabaseSessionStoreOptions {
@@ -50,8 +53,21 @@ export class DatabaseSessionStore implements ListedSessionStore {
     });
   }
 
+  /**
+   * The write, with the session each message it puts leaves raised too:
+   * run in one transaction that reads where each message is filed before
+   * it moves (`withLeftSessions`). A write that puts no message is
+   * committed as it is.
+   */
   commit(write: SessionStoreWrite): Promise<void> {
-    return asMarbles(() => this.#store.commit(write));
+    return asMarbles(() =>
+      committing(
+        write,
+        (owned) =>
+          this.#store.transaction((view) => withLeftSessions(view, owned)),
+        (plain) => this.#store.commit(plain)
+      )
+    );
   }
 
   getMessage(id: string): Promise<SessionMessage | null> {
@@ -85,8 +101,97 @@ export class DatabaseSessionStore implements ListedSessionStore {
   }
 
   transaction<T>(work: (view: SessionStore) => Promise<T>): Promise<T> {
-    return asMarbles(() => this.#store.transaction(work));
+    return asMarbles(() =>
+      this.#store.transaction((view) => work(raisingLeft(view)))
+    );
   }
+}
+
+/**
+ * Commit `write` through `commit`, given a copy of it taken now, when the
+ * caller hands it over, since `commit` reads before the store takes its
+ * own. A write that puts no message needs no read, and goes to `plain`
+ * as it is; so does one with no copy (a function or a symbol in it),
+ * which the store refuses, naming the field.
+ */
+function committing(
+  write: SessionStoreWrite,
+  commit: (owned: SessionStoreWrite) => Promise<void>,
+  plain: (write: SessionStoreWrite) => Promise<void>
+): Promise<void> {
+  if ((write.putMessages ?? []).length === 0) {
+    return plain(write);
+  }
+  let owned: SessionStoreWrite;
+  try {
+    owned = structuredClone(write);
+  } catch {
+    return plain(write);
+  }
+  return commit(owned);
+}
+
+/**
+ * A transaction's `view` whose commits, and those of any transaction
+ * nested in it, raise the sessions their messages leave
+ * (`withLeftSessions`), each read and its write in one savepoint.
+ */
+function raisingLeft(view: SessionStore): SessionStore {
+  return {
+    commit: (write) =>
+      committing(
+        write,
+        (owned) =>
+          view.transaction === undefined
+            ? withLeftSessions(view, owned)
+            : view.transaction((inner) => withLeftSessions(inner, owned)),
+        (plain) => view.commit(plain)
+      ),
+    getMessage: (id) => view.getMessage(id),
+    getSession: (id) => view.getSession(id),
+    listMessages: (sessionId) => view.listMessages(sessionId),
+    transaction: (work) =>
+      view.transaction === undefined
+        ? work(raisingLeft(view))
+        : view.transaction((inner) => work(raisingLeft(inner))),
+  };
+}
+
+/**
+ * Commit `write` through `view`, with the record of every session a
+ * message it puts is leaving put again beside it: the commit hook is told
+ * only where each message goes, and raises a session put like one a
+ * message joins. Read through `view`, so in the transaction the write
+ * lands in, before it lands.
+ */
+async function withLeftSessions(
+  view: SessionStore,
+  write: SessionStoreWrite
+): Promise<void> {
+  const put = new Set((write.putSessions ?? []).map((session) => session.id));
+  const left = new Set<string>();
+  for (const message of write.putMessages ?? []) {
+    const filed = await view.getMessage(message.id);
+    if (
+      filed !== null &&
+      filed.sessionId !== message.sessionId &&
+      !put.has(filed.sessionId)
+    ) {
+      left.add(filed.sessionId);
+    }
+  }
+  const again: SessionRecord[] = [];
+  for (const id of left) {
+    const record = await view.getSession(id);
+    if (record !== null) {
+      again.push(record);
+    }
+  }
+  await view.commit(
+    again.length === 0
+      ? write
+      : { ...write, putSessions: [...(write.putSessions ?? []), ...again] }
+  );
 }
 
 /**

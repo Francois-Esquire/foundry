@@ -99,8 +99,11 @@ Five buckets, each importing only what sits below it:
   task changes. `sessions.ts` is a workspace's agent sessions the same
   way: the package's `SqliteSessionStore` scoped by the workspace id, whose
   `onCommit` hook raises each session's row in `marbles_session_revisions`,
-  the listing usage recovery, `marbles sessions` and `status` read;
-  nothing reads the package's tables directly. Every writer handle goes through `guard.ts`, which
+  the listing usage recovery, `marbles sessions` and `status` read. A row
+  exists only for a session record put; a commit that puts messages first
+  reads, through a view of its own transaction, the session each leaves,
+  and puts that record again so it is raised too. Nothing reads the
+  package's tables directly. Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no worker opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).

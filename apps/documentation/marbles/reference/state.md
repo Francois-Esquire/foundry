@@ -183,8 +183,10 @@ tags are JSON and keep such characters.
 
 A workspace's agent sessions live in the Marbles database, scoped by the
 workspace id: the `@foundry/agents` session tables, and Marbles' own
-`marbles_session_revisions`, one row per session with a revision that every
-change to the session raises, written in the same transaction. Usage
+`marbles_session_revisions`, one row per session record with a revision
+that every change to the session raises, written in the same transaction.
+A message moved to another session raises both. A session's row starts
+when its record is put, even if messages were written under its id first. Usage
 recovery, `marbles sessions` and `status` list a workspace's sessions
 through it. Detaching a workspace keeps them. A `sessions/` directory left
 in a workspace's directory by an earlier Marbles is ignored, not imported,
@@ -211,7 +213,10 @@ keep such characters.
 
 Known limits: nothing prunes sessions or their revisions, so a workspace's
 sessions stay in the database after its directory or checkout is deleted,
-and after it is detached. Each turn reads its session's whole history.
+and after it is detached. Messages written under an id with no session
+record are not listed, so usage recovery does not see them. Each turn
+reads its session's whole history, and a commit that puts messages reads
+where each is filed first, about 150 ms for a thousand.
 
 ### Run output
 
