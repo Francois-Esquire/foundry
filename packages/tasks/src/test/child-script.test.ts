@@ -44,6 +44,19 @@ describe("startScript", () => {
     }
   });
 
+  test("a wait that timed out leaves the next line to the next wait", async () => {
+    const child = await startScript(
+      'setTimeout(() => console.log("late"), 300); setInterval(() => {}, 1000);',
+      []
+    );
+    try {
+      await expect(child.line(50)).rejects.toThrow("no line in 50 ms");
+      expect(await child.line()).toBe("late");
+    } finally {
+      await child.stop();
+    }
+  });
+
   test("a wait is bounded, and stop kills and reaps a script that hangs", async () => {
     const child = await startScript("setInterval(() => {}, 1000);", []);
     await expect(child.line(100)).rejects.toThrow("no line in 100 ms");
