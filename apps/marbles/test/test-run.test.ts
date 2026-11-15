@@ -165,6 +165,7 @@ it("proves a recorded process again before every signal, so a reused pid gets no
   let started = "Sun Nov 15 08:00:00 2026";
   const sent: [number, NodeJS.Signals][] = [];
   const system: ProcessSystem = {
+    alive: () => false,
     environment: () => [entry(marker)],
     kill(target, signal) {
       sent.push([target, signal]);
@@ -199,6 +200,7 @@ function madeUpSystem(
   return {
     sent,
     system: {
+      alive: () => false,
       environment: (pid) => (running.has(pid) ? [entry(marker)] : undefined),
       kill(target, signal) {
         sent.push([target, signal]);
@@ -285,8 +287,11 @@ it("takes a process that has exited but is not reaped (a zombie) for gone", () =
     "  103   101 ZN   Sun Nov 15 08:00:02 2026",
     "  104   101 S+   Sun Nov 15 08:00:03 2026",
   ].join("\n");
+  // Each listed, an exited one marked so: gone, yet not absent.
   expect([...parseLook(listed)]).toEqual([
     [101, { pgid: 101, started: "Sun Nov 15 08:00:00 2026" }],
+    [102, { exited: true, pgid: 101, started: "Sun Nov 15 08:00:01 2026" }],
+    [103, { exited: true, pgid: 101, started: "Sun Nov 15 08:00:02 2026" }],
     [104, { pgid: 101, started: "Sun Nov 15 08:00:03 2026" }],
   ]);
   const members = [
@@ -432,6 +437,7 @@ it("does not signal a recorded process whose environment cannot be read, and rep
   );
   const sent: [number, NodeJS.Signals][] = [];
   const system: ProcessSystem = {
+    alive: () => false,
     environment: () => undefined,
     kill: (target, signal) => {
       sent.push([target, signal]);
@@ -638,6 +644,7 @@ it("reads each process's identity again right before its own signal", async () =
   ]);
   const sent: [number, NodeJS.Signals][] = [];
   const system: ProcessSystem = {
+    alive: () => false,
     environment: () => [entry(marker)],
     kill(target, signal) {
       sent.push([target, signal]);
@@ -778,6 +785,22 @@ it("keeps a run's root while a record is still being written in it, and never re
       String(name).endsWith("9.json")
     )
   ).toHaveLength(1);
+});
+
+it("leaves a run whose owner's start is of a kind it cannot compare, as one it cannot tell over", async () => {
+  const parent = temporaryDirectory("sw-");
+  const root = join(parent, "marbles-run-other-kind");
+  mkdirPrivate(join(root, "spawned"));
+  // This process, as a branch that names its starts' kind records it.
+  writePrivateFile(
+    join(root, "owner.json"),
+    JSON.stringify({
+      pid: process.pid,
+      started: `ps:${startedAt(process.pid)}`,
+    })
+  );
+  await sweepFinishedRuns(parent, FAST);
+  expect(existsSync(join(root, "spawned"))).toBe(true);
 });
 
 it("leaves a live run whose owner started under another time zone and language", async () => {

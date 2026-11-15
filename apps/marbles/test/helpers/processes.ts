@@ -58,12 +58,16 @@ export interface StopLimits {
 
 /** What the system says about a process right now. */
 interface Seen {
+  /** It has exited and waits to be reaped (a zombie): it is gone. */
+  readonly exited?: true;
   readonly pgid: number;
   readonly started: string;
 }
 
 /** How a stop reaches the system; a test replaces it to model pid reuse. */
 export interface ProcessSystem {
+  /** Whether a signal reaches `pid`: one the listing leaves out may still run. */
+  alive(pid: number): boolean;
   /**
    * The environment of `pid`, one `NAME=value` per entry; empty when it
    * cannot be read, `undefined` when no process has the pid.
@@ -91,6 +95,8 @@ const MEMBER_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s*$/;
 const COMMAND_LINE = /^\s*(\d+) (.*)$/;
 const PID = /^\d+$/;
 const SPACES = /\s+/g;
+/** A start that names its kind: `ps:…`, `linux:…`. */
+const START_KIND = /^[a-z]+:/;
 
 /** Record `pid`, which the caller has just started, in `dir`; see `recordSpawned`. */
 export function recordProcess(dir: string, pid: number, group: boolean): void {
@@ -331,7 +337,13 @@ class RecordedStop {
       // Read last, right before this one's own signal: what an earlier
       // record's stop took long enough to change shows here.
       const found = this.#system.look([record.pid]).get(record.pid);
-      const proof = prove(record, found, environment, this.#marker);
+      const proof = prove(
+        record,
+        found,
+        environment,
+        this.#marker,
+        this.#system
+      );
       if (typeof proof === "object") {
         this.#problems.set(record.pid, proof.problem);
       } else if (proof === "recorded") {
@@ -428,12 +440,29 @@ function prove(
   record: SpawnRecord,
   seen: Seen | undefined,
   environment: readonly string[] | undefined,
-  marker: Marker
+  marker: Marker,
+  system: Pick<ProcessSystem, "alive">
 ): Proof {
-  if (seen === undefined || seen.started !== normal(record.started)) {
+  const pid = String(record.pid);
+  if (seen?.exited === true) {
     return "gone";
   }
-  const pid = String(record.pid);
+  if (seen === undefined) {
+    // Absence from a listing is no proof while a signal still reaches it.
+    return system.alive(record.pid)
+      ? {
+          problem: `process ${pid} is not listed but a signal still reaches it; not signalled, its record kept`,
+        }
+      : "gone";
+  }
+  if (otherKind(record.started)) {
+    return {
+      problem: `process ${pid}'s record names a start of a kind this reader cannot compare (${record.started}); not signalled, its record kept`,
+    };
+  }
+  if (seen.started !== normal(record.started)) {
+    return "gone";
+  }
   if (record.group && seen.pgid !== record.pid) {
     return {
       problem: `process ${pid} was recorded leading its own group and is now in group ${String(seen.pgid)}; not signalled`,
@@ -449,6 +478,25 @@ function prove(
     };
   }
   return "recorded";
+}
+
+/**
+ * Whether `started` names its kind (`ps:…`, `linux:…`), as a later
+ * Foundry writes it: this reader's starts are `ps -o lstart` text alone,
+ * so one of a kind says nothing either way.
+ */
+export function otherKind(started: string): boolean {
+  return START_KIND.test(started);
+}
+
+/** Whether a signal reaches `pid`: `EPERM` counts, since then it is another user's. */
+export function signalReaches(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
 }
 
 function signalIfThere(
@@ -561,6 +609,7 @@ function normal(started: string): string {
 }
 
 const SYSTEM: ProcessSystem = {
+  alive: signalReaches,
   environment(pid) {
     return process.platform === "linux"
       ? linuxEnvironment(pid)
@@ -592,13 +641,14 @@ function exited(state: string): boolean {
   return state.startsWith("Z");
 }
 
-/** `ps -o pid=,pgid=,state=,lstart=`, read: the processes that still run. */
+/** `ps -o pid=,pgid=,state=,lstart=`, read: each process listed, an exited one marked so. */
 export function parseLook(listed: string): Map<number, Seen> {
   const seen = new Map<number, Seen>();
   for (const line of listed.split("\n")) {
     const parsed = LOOK_LINE.exec(line);
-    if (parsed && !exited(parsed[3] ?? "")) {
+    if (parsed) {
       seen.set(Number(parsed[1]), {
+        ...(exited(parsed[3] ?? "") ? { exited: true as const } : {}),
         pgid: Number(parsed[2]),
         started: normal(parsed[4] ?? ""),
       });

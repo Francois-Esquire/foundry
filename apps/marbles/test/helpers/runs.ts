@@ -18,8 +18,10 @@ import {
 } from "~/process/spawned";
 import {
   type Marker,
+  otherKind,
   type ProcessSystem,
   type StopLimits,
+  signalReaches,
   stopRecorded,
   unrecordedMarked,
 } from "./processes";
@@ -155,15 +157,25 @@ export async function sweepFinishedRuns(
   }
 }
 
+/**
+ * Whether the run's owner is gone, on positive evidence only: no signal
+ * reaches its pid, or the process with it started at another time. A
+ * start it cannot read, or one of a kind it cannot compare (a later
+ * Foundry's), or a pid the listing leaves out that a signal still
+ * reaches, is "cannot tell", and the run counts as live.
+ */
 function isOver(root: string): boolean {
   const owner = readOwner(root);
-  if (owner === undefined) {
+  if (owner === undefined || otherKind(owner.started)) {
     return false;
   }
   const started = startedAt(owner.pid);
-  return (
-    started === null || (started !== undefined && started !== owner.started)
-  );
+  if (started === undefined) {
+    return false;
+  }
+  return started === null
+    ? !signalReaches(owner.pid)
+    : started !== owner.started;
 }
 
 function readOwner(root: string): Owner | undefined {

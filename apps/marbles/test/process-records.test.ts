@@ -128,6 +128,7 @@ it("keeps, and reports, a record written during the stop for a process it cannot
   let looks = 0;
   const system: ProcessSystem = {
     // Its environment cannot be read: matched, never proved, never signalled.
+    alive: () => false,
     environment: () => (looks > 1 ? undefined : []),
     kill: () => {
       throw new Error("nothing here may be signalled");
@@ -208,6 +209,7 @@ it("never removes a run's root with a record in it, wherever that record lands a
       },
     };
     const system: ProcessSystem = {
+      alive: () => false,
       environment: () => undefined,
       kill: () => {
         throw new Error("nothing here may be signalled");
@@ -247,4 +249,53 @@ it("removes a run's root that holds no record, and nothing else", async () => {
   put(join(root, "owner.json"), { ...OLD, group: false });
   expect(await removeRoot(root)).toEqual([]);
   expect(readdirSync(parent)).toEqual([]);
+});
+
+it("forgets a record only on proof its process is gone: never for one unlisted that a signal reaches, nor one of a start it cannot compare", async () => {
+  const stop = (system: Partial<ProcessSystem>) =>
+    stopRecorded(
+      dir,
+      MARKER,
+      { graceMs: 0, killMs: 0 },
+      {
+        alive: () => false,
+        environment: () => [`${MARKER.name}=${MARKER.value}`],
+        kill: () => {
+          throw new Error("nothing here may be signalled");
+        },
+        look: () => new Map(),
+        members: () => [],
+        sleep: () => Promise.resolve(),
+        ...system,
+      }
+    );
+  const dir = temporaryDirectory("rec-");
+  const path = join(dir, `${String(PID)}.json`);
+
+  // Not listed, yet a signal reaches it: cannot tell.
+  put(path, OLD);
+  expect(await stop({ alive: (pid) => pid === PID })).toEqual([
+    expect.stringContaining("is not listed but a signal still reaches it"),
+  ]);
+  expect(existsSync(path)).toBe(true);
+
+  // A start of a kind this reader cannot compare: cannot tell.
+  put(path, { ...OLD, started: `ps:${OLD.started}` });
+  expect(
+    await stop({
+      look: () => new Map([[PID, { pgid: 1, started: OLD.started }]]),
+    })
+  ).toEqual([expect.stringContaining("a start of a kind this reader cannot")]);
+  expect(existsSync(path)).toBe(true);
+
+  // Listed as exited and unreaped, a signal still reaching it: gone.
+  put(path, OLD);
+  expect(
+    await stop({
+      alive: () => true,
+      look: () =>
+        new Map([[PID, { exited: true, pgid: 1, started: OLD.started }]]),
+    })
+  ).toEqual([]);
+  expect(existsSync(dir)).toBe(false);
 });
