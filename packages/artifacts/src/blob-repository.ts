@@ -2,11 +2,11 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
 import type { Blob, BlobFiles, BlobSource } from "./blob";
+import type { ArtifactChange } from "./change";
 import { CHUNK_BYTES } from "./constants";
 import { FileTooLargeError, InvalidArtifactInputError } from "./errors";
 import type { BlobId } from "./ref";
 import { blobIdSchema } from "./ref";
-import type { ArtifactStoreTransaction } from "./store";
 import type { FileInput } from "./substrate";
 
 /** File inputs that name an existing object instead of supplying bytes. */
@@ -35,7 +35,7 @@ export interface BlobReader {
 }
 
 export async function requireBlob(
-  store: Pick<ArtifactStoreTransaction, "getBlob">,
+  store: Pick<ArtifactChange, "getBlob">,
   id: BlobId
 ): Promise<Blob> {
   const blob = await store.getBlob(id);
@@ -104,26 +104,26 @@ export async function* readBlob(
   }
 }
 
-/** The objects behind file entries, within one store transaction. */
+/** The objects behind file entries, within one change. */
 export class BlobRepository implements BlobReader {
   readonly files: BlobFiles | undefined;
-  readonly #store: ArtifactStoreTransaction;
+  readonly #change: ArtifactChange;
   readonly #effects: BlobEffects;
   readonly #maxFileBytes: number;
 
   constructor(
-    store: ArtifactStoreTransaction,
+    change: ArtifactChange,
     effects: BlobEffects,
     options: { readonly files?: BlobFiles; readonly maxFileBytes: number }
   ) {
-    this.#store = store;
+    this.#change = change;
     this.#effects = effects;
     this.files = options.files;
     this.#maxFileBytes = options.maxFileBytes;
   }
 
   require(id: BlobId): Promise<Blob> {
-    return requireBlob(this.#store, id);
+    return requireBlob(this.#change, id);
   }
 
   read(blob: Blob, start: number, end: number): AsyncIterable<Uint8Array> {
@@ -137,7 +137,7 @@ export class BlobRepository implements BlobReader {
       this.#checkSize(path, blob.byteLength);
       return blob;
     }
-    const blob = await this.#store.findBlob(input.digest);
+    const blob = await this.#change.findBlob(input.digest);
     if (blob?.byteLength !== input.bytes) {
       throw new InvalidArtifactInputError(
         "digest",
@@ -171,7 +171,7 @@ export class BlobRepository implements BlobReader {
     this.#checkSize(path, bytes.byteLength);
     // Known bytes can match an existing object before any chunk is written.
     if (!owned && bytes.byteLength > CHUNK_BYTES) {
-      const existing = await this.#store.findBlob(digestOf(bytes));
+      const existing = await this.#change.findBlob(digestOf(bytes));
       if (existing) {
         return existing;
       }
@@ -189,7 +189,7 @@ export class BlobRepository implements BlobReader {
   /** Delete every blob nothing references. */
   async reclaimAll(): Promise<number> {
     this.#effects.released.clear();
-    return this.#collect((await this.#store.listBlobs()).map(({ id }) => id));
+    return this.#collect((await this.#change.listBlobs()).map(({ id }) => id));
   }
 
   release(ids: Iterable<BlobId>): void {
@@ -225,7 +225,7 @@ export class BlobRepository implements BlobReader {
     const digest = bytesToHex(hash.digest());
     const previous = owned
       ? await this.require(owned)
-      : await this.#store.findBlob(digest);
+      : await this.#change.findBlob(digest);
     if (previous?.digest === digest) {
       this.release(chunks);
       return previous;
@@ -241,7 +241,7 @@ export class BlobRepository implements BlobReader {
       id: previous?.id ?? blobIdSchema.parse(crypto.randomUUID()),
       ...stored,
     };
-    await this.#store.putBlob(blob);
+    await this.#change.putBlob(blob);
     if (previous) {
       this.#retire(previous);
     }
@@ -251,7 +251,7 @@ export class BlobRepository implements BlobReader {
   /** An immutable chunk; never the object being rewritten, which would contain itself. */
   async #leaf(bytes: Uint8Array, exclude: BlobId | undefined): Promise<Blob> {
     const digest = digestOf(bytes);
-    const existing = await this.#store.findBlob(digest);
+    const existing = await this.#change.findBlob(digest);
     if (existing && existing.id !== exclude) {
       return existing;
     }
@@ -262,7 +262,7 @@ export class BlobRepository implements BlobReader {
       id: blobIdSchema.parse(crypto.randomUUID()),
       ...(await this.#publish(bytes)),
     };
-    await this.#store.putBlob(blob);
+    await this.#change.putBlob(blob);
     return blob;
   }
 
@@ -289,11 +289,11 @@ export class BlobRepository implements BlobReader {
     let count = 0;
     // A chunk checked before its manifest is re-queued when the manifest goes.
     for (let id = queue.pop(); id !== undefined; id = queue.pop()) {
-      const blob = await this.#store.getBlob(id);
-      if (!blob || (await this.#store.isBlobReferenced(id))) {
+      const blob = await this.#change.getBlob(id);
+      if (!blob || (await this.#change.isBlobReferenced(id))) {
         continue;
       }
-      await this.#store.deleteBlob(id);
+      await this.#change.deleteBlob(id);
       if (blob.path) {
         this.#effects.retired.add(blob.path);
       }

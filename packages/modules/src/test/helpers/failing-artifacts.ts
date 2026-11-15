@@ -1,29 +1,26 @@
-import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { interceptCommits } from "@foundry/artifacts/testing";
 
 /**
- * Artifacts over an in-memory store whose writing transactions fail just
- * before they would commit while `fail` holds, so nothing they did stays:
- * the case a cross-store operation must survive and a retry must finish.
+ * Artifacts over an in-memory store whose commits fail while `fail` holds,
+ * so a writing transaction fails just before it would commit and nothing it
+ * did stays: the case a cross-store operation must survive and a retry must
+ * finish.
  */
 export function failingArtifacts(): {
   readonly artifacts: ArtifactManager;
   fail: boolean;
 } {
-  const base = new InMemoryArtifactStore();
-  const control: { artifacts: ArtifactManager; fail: boolean } = {
-    artifacts: new ArtifactManager({
-      store: {
-        transaction: (operation, options) =>
-          base.transaction(async (view) => {
-            const result = await operation(view);
-            if (control.fail && options?.readOnly !== true) {
-              throw new Error("simulated Artifact commit failure");
-            }
-            return result;
-          }, options),
-      },
-    }),
-    fail: true,
-  };
-  return control;
+  const control: { fail: boolean } = { fail: true };
+  const store = interceptCommits(
+    new InMemoryArtifactStore(),
+    (write, commit) =>
+      control.fail
+        ? Promise.reject(new Error("simulated Artifact commit failure"))
+        : commit(write)
+  );
+  return Object.assign(control, {
+    artifacts: new ArtifactManager({ store }),
+  });
 }

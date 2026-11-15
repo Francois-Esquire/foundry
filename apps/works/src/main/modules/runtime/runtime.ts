@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { ArtifactManager, type ArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager } from "@foundry/artifacts";
+import type { ArtifactStore } from "@foundry/artifacts/store";
 import {
   type InstallationId,
   installationIdSchema,
@@ -15,7 +16,7 @@ import {
 import { createModuleSystem } from "@foundry/modules/platform/system";
 import { ModuleRegistry } from "@foundry/modules/registry";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { moduleDirectory } from "../local-library";
 import { type ModuleRuntime, ModuleRuntimeError } from "./controller";
 import { WORKS_MODULE_SETTINGS, worksModuleLaunch } from "./launch";

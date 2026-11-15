@@ -19,8 +19,8 @@ import type {
   TaskStatus,
   TaskStoreWrite,
 } from "./schema";
-import type { TaskStore } from "./store";
-import { MemoryTaskStore } from "./store";
+import type { TaskStore } from "./store/index";
+import { MemoryTaskStore } from "./store/memory";
 import type {
   DepthOptions,
   ReadyQuery,

@@ -1,4 +1,5 @@
-import { contentIdSchema, InMemoryArtifactStore } from "@foundry/artifacts";
+import { contentIdSchema } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { MODULE_MIME } from "@foundry/modules/constants";
 import { moduleIdSchema } from "@foundry/modules/domain";
 import { ModuleStoreConflictError } from "@foundry/modules/errors";
