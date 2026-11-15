@@ -35,15 +35,18 @@ const OWNER_FILE = "owner.json";
 
 interface Owner {
   readonly pid: number;
-  /** As `ps -o lstart=` prints it. */
+  /** As `startTime` reads it. */
   readonly started: string;
 }
+
+/** `ps` prints a start time in the caller's zone and language; one for every caller. */
+const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
 
 /** Start a run under `parent`, owned by this process. */
 export function startRun(parent: string): Run {
   const root = mkdtempSync(join(parent, RUN_PREFIX));
   const started = startTime(process.pid);
-  if (started === undefined) {
+  if (typeof started !== "string") {
     rmSync(root, { force: true, recursive: true });
     throw new Error("marbles tests: could not read this process's start time");
   }
@@ -84,15 +87,10 @@ function isOver(root: string): boolean {
   if (owner === undefined) {
     return false;
   }
-  const listed = spawnSync("ps", ["-o", "lstart=", "-p", String(owner.pid)], {
-    encoding: "utf8",
-  });
-  if (listed.error !== undefined) {
-    return false;
-  }
-  const started = listed.stdout.trim();
-  // `ps` exits 1, printing nothing, when no process has the pid.
-  return started === "" ? listed.status === 1 : started !== owner.started;
+  const started = startTime(owner.pid);
+  return (
+    started === null || (started !== undefined && started !== owner.started)
+  );
 }
 
 function readOwner(root: string): Owner | undefined {
@@ -106,12 +104,23 @@ function readOwner(root: string): Owner | undefined {
   }
 }
 
-function startTime(pid: number): string | undefined {
+/**
+ * When the process `pid` started; `null` when no process has it, and
+ * `undefined` when `ps` cannot tell.
+ */
+function startTime(pid: number): string | null | undefined {
   const listed = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
     encoding: "utf8",
+    env: PS_ENV,
   });
   const started = listed.stdout?.trim();
-  return listed.status === 0 && started ? started : undefined;
+  if (listed.status === 0 && started) {
+    return started;
+  }
+  // `ps` exits 1, printing nothing, when no process has the pid.
+  return listed.error === undefined && listed.status === 1 && !started
+    ? null
+    : undefined;
 }
 
 /** Whether every process carrying the run's marker is confirmed gone. */

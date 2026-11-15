@@ -137,6 +137,34 @@ it("sweeps a killed run: stops what carries its marker and removes its root", as
   expect(existsSync(root)).toBe(false);
 });
 
+it("leaves a live run whose owner started under another time zone and language", async () => {
+  const parent = temporaryDirectory("sw-");
+  const script = join(parent, "owner.ts");
+  writeFileSync(
+    script,
+    `import { startRun } from ${JSON.stringify(resolve("test/helpers/runs.ts"))};
+const run = startRun(${JSON.stringify(parent)});
+console.log(run.root);
+setInterval(() => undefined, 1000);
+`
+  );
+  const owner = spawn(process.execPath, [script], {
+    env: { ...process.env, LC_ALL: "fr_FR.UTF-8", TZ: "Asia/Tokyo" },
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  try {
+    const root = await new Promise<string>((settle) => {
+      owner.stdout.once("data", (chunk: Buffer) =>
+        settle(chunk.toString().trim())
+      );
+    });
+    await sweepFinishedRuns(parent);
+    expect(existsSync(root)).toBe(true);
+  } finally {
+    owner.kill("SIGKILL");
+  }
+});
+
 it("sweeps a run whose owner's pid now names a process started later", async () => {
   const parent = temporaryDirectory("sw-");
   const reused = await sleeper({});
