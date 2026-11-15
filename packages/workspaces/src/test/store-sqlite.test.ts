@@ -549,6 +549,59 @@ describe("SqliteWorkspaceStore", () => {
 });
 
 describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
+  test("an update to every kind of entry as stored, as given or as read back, emits and publishes nothing", async () => {
+    const events: unknown[] = [];
+    const published: unknown[] = [];
+    const store = new SqliteWorkspaceStore({
+      database: await memory.open(),
+      onCommit: (_transaction, write) => {
+        events.push(...(write.events ?? []));
+        return Promise.resolve();
+      },
+      scope: "s",
+    });
+    const catalog = new WorkspaceCatalog(store, (delivered) => {
+      published.push(...delivered);
+    });
+    const workspace = hostWorkspace({ path: newRoot("same") });
+    const given: WorkspaceEntry[] = [
+      directoryRecord(workspace.id, "docs"),
+      fileRecord(workspace.id, { path: "docs/a.md" }),
+      fileRecord(workspace.id, {
+        extension: null,
+        mime: null,
+        path: "docs/plain",
+      }),
+      {
+        ...directoryRecord(workspace.id, "link"),
+        target: "docs/a.md",
+        type: "symlink",
+      },
+      { ...directoryRecord(workspace.id, "socket"), type: "socket" },
+      { ...directoryRecord(workspace.id, "device"), type: "device" },
+      { ...directoryRecord(workspace.id, "pipe"), type: "pipe" },
+    ];
+    await catalog.create({ entries: given, workspace });
+    events.length = 0;
+    published.length = 0;
+    const stored = await store.listEntries(workspace.id);
+
+    for (const updated of [given, stored]) {
+      expect(
+        await catalog.applyChange({
+          change: { deleted: [], inserted: [], updated },
+          updatedAt: new Date(9000),
+          workspaceId: workspace.id,
+        })
+      ).toEqual({ kind: "committed" });
+    }
+
+    expect(events).toEqual([]);
+    expect(published).toEqual([]);
+    expect(await store.getWorkspace(workspace.id)).toEqual(workspace);
+    expect(await store.listEntries(workspace.id)).toEqual(stored);
+  });
+
   test("removing a Workspace removes every row it has in one commit", async () => {
     const database = await memory.open();
     let failNext = true;
