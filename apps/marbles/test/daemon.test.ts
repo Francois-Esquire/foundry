@@ -1,5 +1,6 @@
 import { ChildProcess } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -737,6 +738,34 @@ export const hold = step("hold").do(async () => {
     expect(queuedFiles()).not.toContain(fileIdentity(machine.database));
     const next = await daemonFor(machine);
     expect(next.pid).toBe(process.pid);
+  }, 30_000);
+
+  it("rejects a close with its first failure when a later step fails too", async () => {
+    const { home, machine } = fixture();
+    homes.push(home);
+    // The socket alone in a directory that can then be made read-only, so
+    // removing it fails after printing has.
+    const sockets = join(home, "s");
+    mkdirSync(sockets);
+    const printing: { fails: boolean } = { fails: false };
+    const daemon = await startDaemon({
+      layout: { ...machine, socket: join(sockets, "m.sock") },
+      print: () => {
+        if (printing.fails) {
+          throw new Error("print failed");
+        }
+      },
+    });
+    printing.fails = true;
+    chmodSync(sockets, 0o500);
+    try {
+      await expect(daemon.close()).rejects.toThrow("print failed");
+    } finally {
+      chmodSync(sockets, 0o700);
+    }
+    await daemon.closed;
+    expect(readProcess(machine.state)?.alive).not.toBe(true);
+    expect(queuedFiles()).not.toContain(fileIdentity(machine.database));
   }, 30_000);
 
   it("kills a worker that would not stop even when saying so fails", async () => {

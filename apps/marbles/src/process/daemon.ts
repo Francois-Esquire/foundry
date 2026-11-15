@@ -909,51 +909,42 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     closing ??= (async () => {
       stopping = true;
       clearInterval(claimCheck);
-      try {
+      // Every step runs whatever an earlier one threw; the first error wins.
+      let failure: { readonly error: unknown } | undefined;
+      const attempt = async (step: () => unknown): Promise<void> => {
         try {
-          print("[daemon] stopping");
-        } finally {
-          await everyOf([...workers.values()], (worker) => stopWorker(worker));
+          await step();
+        } catch (error) {
+          failure ??= { error };
         }
-      } finally {
-        try {
-          try {
-            await everyOf([...clients], (client) => client.channel.close());
-          } finally {
-            // `server.close` waits for every connection; a worker that would
-            // not stop, or a client that never hung up, must not hold the exit.
-            await everyOf([...sockets], (socket) => socket.destroy());
-          }
-        } finally {
-          try {
-            if (claimLost) {
-              // Whoever holds the claim now may listen at this path, and
-              // closing the server unlinks the socket by name (Bun, and
-              // libuv under Node). Leave both alone; the process exits
-              // around the listener.
-              server.unref();
-            } else {
-              try {
-                // A server that never listened answers at once, with an error.
-                await new Promise<void>((resolve) =>
-                  server.close(() => resolve())
-                );
-              } finally {
-                rmSync(layout.socket, { force: true });
-              }
-            }
-          } finally {
-            try {
-              database.close();
-            } finally {
-              try {
-                claim.release();
-              } finally {
-                resolveClosed();
-              }
-            }
-          }
-        }
+      };
+      await attempt(() => print("[daemon] stopping"));
+      await attempt(() =>
+        everyOf([...workers.values()], (worker) => stopWorker(worker))
+      );
+      await attempt(() =>
+        everyOf([...clients], (client) => client.channel.close())
+      );
+      // `server.close` waits for every connection; a worker that would not
+      // stop, or a client that never hung up, must not hold the exit.
+      await attempt(() => everyOf([...sockets], (socket) => socket.destroy()));
+      if (claimLost) {
+        // Whoever holds the claim now may listen at this path, and closing
+        // the server unlinks the socket by name (Bun, and libuv under Node).
+        // Leave both alone; the process exits around the listener.
+        await attempt(() => server.unref());
+      } else {
+        // A server that never listened answers at once, with an error.
+        await attempt(
+          () => new Promise<void>((resolve) => server.close(() => resolve()))
+        );
+        await attempt(() => rmSync(layout.socket, { force: true }));
+      }
+      await attempt(() => database.close());
+      await attempt(() => claim.release());
+      resolveClosed();
+      if (failure !== undefined) {
+        throw failure.error;
       }
     })();
     return closing;
