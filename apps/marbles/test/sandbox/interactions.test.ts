@@ -7,6 +7,7 @@ import {
 } from "@foundry/agents/authorization";
 import { createHarnessPermission } from "@foundry/agents/harness";
 import { Sessions } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { step } from "~/authoring/builder";
@@ -113,6 +114,52 @@ it("keeps an attended permission pending, validates answers, and scopes a rememb
     message: "Do not execute this.",
   });
   await f.bridge.close();
+});
+
+it("does not reopen a question another host answered while it was restoring", async () => {
+  const approvals = new MemoryDeferredApprovalStore();
+  const f = await fixture(approvals);
+  expect(await f.permission(false)()).toMatchObject({ behavior: "deny" });
+  const entry = await f.open();
+  // The restoring host's first read of the history is held until the
+  // other host has answered.
+  const { promise: held, resolve: resume } = Promise.withResolvers<undefined>();
+  let entered: (() => void) | undefined;
+  const reading = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let first = true;
+  const sessions: SessionStore = {
+    commit: (write) => f.sessions.commit(write),
+    getMessage: (id) => f.sessions.getMessage(id),
+    getSession: (id) => f.sessions.getSession(id),
+    async listMessages(sessionId) {
+      const messages = await f.sessions.listMessages(sessionId);
+      if (first) {
+        first = false;
+        entered?.();
+        await held;
+      }
+      return messages;
+    },
+  };
+  const stale = new HarnessInteractions({
+    approvals,
+    askable: true,
+    feed: f.feed.publisher,
+    policy: f.policy,
+    sessions,
+  });
+  const restoring = stale.restore();
+  await reading;
+  await f.bridge.answer(entry.id, "Deny");
+  resume(undefined);
+  await restoring;
+  expect((await f.feed.read())[0]?.input?.status).toBe("answered");
+  // Nothing is pending on it here, so the other answer is not taken.
+  expect(await stale.answer(entry.id, "Allow future runs")).toBe(false);
+  await f.bridge.close();
+  await stale.close();
 });
 
 it("restores a scheduled refusal as an actionable grant without replaying its effect", async () => {

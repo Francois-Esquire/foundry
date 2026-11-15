@@ -166,6 +166,39 @@ export class Sessions {
     });
   }
 
+  /**
+   * Append `input` only if `admits` the session's history as it stands in
+   * the same mutation, which runs in one store transaction when the store
+   * offers one: of two callers deciding on the same history, in this
+   * process or another, at most one appends. Resolves undefined, writing
+   * nothing, when `admits` refuses.
+   */
+  appendMessageIf(
+    input: CreateMessageInput,
+    admits: (history: readonly SessionMessage[]) => boolean
+  ): Promise<SessionMessage | undefined> {
+    let message: SessionMessage;
+    try {
+      message = keptMessage(newSessionMessage(input));
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#mutation(async (store) => {
+      const session = await store.getSession(message.sessionId);
+      if (!session) {
+        throw new Error(`[sessions] unknown session: ${message.sessionId}`);
+      }
+      if (!admits(await store.listMessages(message.sessionId))) {
+        return;
+      }
+      await store.commit({
+        putMessages: [message],
+        putSessions: [touched(session, message)],
+      });
+      return message;
+    });
+  }
+
   /** `patch` is put in its kept form when this is called, so a caller changing it afterwards changes nothing. */
   updateMessage(
     id: string,

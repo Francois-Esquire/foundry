@@ -7,7 +7,7 @@ import type {
 import { validateApprovalResponse } from "../session/converter";
 import type { AgentApprovalRequest } from "../session/events";
 import { Sessions } from "../session/sessions";
-import type { SessionPart } from "../session/types";
+import type { SessionMessage, SessionPart } from "../session/types";
 import { raceAbort } from "./abortable";
 import { harnessProfileDecision } from "./permission-profile";
 import { toolAuthorizationRequest } from "./tool-compiler";
@@ -260,15 +260,8 @@ export async function resolveHarnessApproval(
     );
   }
   if (part.approvalMode === "deferred") {
-    if (
-      history.some((message) =>
-        message.parts.some(
-          (value) =>
-            value.type === "tool_approval_response" &&
-            value.approvalId === approvalId
-        )
-      )
-    ) {
+    // Asked again where the answer is stored, which alone decides.
+    if (hasResponse(history, approvalId)) {
       throw new Error(`Approval "${approvalId}" already has a response`);
     }
   } else {
@@ -295,6 +288,16 @@ export async function resolveHarnessApproval(
     toolCallId: part.toolCallId,
     toolName: part.name,
   });
+  if (part.approvalMode === "deferred") {
+    await answerDeferredApproval(
+      settings,
+      auth,
+      sessionId,
+      approvalId,
+      resolution
+    );
+    return;
+  }
   await recordApprovalResponse(
     settings,
     auth,
@@ -302,4 +305,59 @@ export async function resolveHarnessApproval(
     approvalId,
     resolution
   );
+}
+
+function hasResponse(
+  history: readonly SessionMessage[],
+  approvalId: string
+): boolean {
+  return history.some((message) =>
+    message.parts.some(
+      (value) =>
+        value.type === "tool_approval_response" &&
+        value.approvalId === approvalId
+    )
+  );
+}
+
+/**
+ * A deferred request is answered once: the first answer stored wins. Its
+ * response is appended only to a history that has none, in one store
+ * transaction (`Sessions.appendMessageIf`), so of two hosts answering the
+ * same request at once, in one process or two, exactly one records its
+ * answer; the other is refused as already answered and grants nothing.
+ * Only then does the winner resolve the grant through policy, so no
+ * authority is issued for an answer that lost. A grant policy refuses
+ * after the answer was recorded issues no authority either: a later
+ * invocation is decided by the grants, never by the transcript.
+ */
+async function answerDeferredApproval(
+  settings: Pick<HarnessAuthoritySettings, "store" | "policy">,
+  auth: AgentAuthorizationRequest,
+  sessionId: string,
+  approvalId: string,
+  resolution: ApprovalResolution
+): Promise<void> {
+  const recorded = await new Sessions({
+    store: settings.store,
+  }).appendMessageIf(
+    {
+      parts: [
+        {
+          approvalId,
+          approved: resolution.approved,
+          reason: resolution.approved ? undefined : resolution.reason,
+          scope: resolution.lifetime === "persistent" ? "always" : "once",
+          type: "tool_approval_response",
+        },
+      ],
+      role: "system",
+      sessionId,
+    },
+    (history) => !hasResponse(history, approvalId)
+  );
+  if (recorded === undefined) {
+    throw new Error(`Approval "${approvalId}" already has a response`);
+  }
+  await settings.policy.resolveApproval(auth, resolution);
 }
