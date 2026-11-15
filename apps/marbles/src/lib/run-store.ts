@@ -6,6 +6,7 @@ import type {
 import { MemoryWorkflowStore } from "@foundry/workflows/store/memory";
 
 import { RecordsGate } from "~/lib/events/records";
+import type { ExecutionRun } from "~/lib/execution-record";
 import type { RecordedScope } from "~/lib/run-scope";
 
 /**
@@ -37,10 +38,15 @@ export interface RunStore {
   /**
    * The workflow records, once per engine. Every commit that puts a Run
    * files beside it, in the same transaction, what `recorded` answers for
-   * it, and makes this store its owner until a commit settles it.
+   * it, and makes this store its owner until a commit settles it. A store
+   * that outlives the process also writes, in that transaction, the
+   * Execution Run `follows` answers for each Run the commit puts, so the
+   * two land together or not at all; one held in memory, which no crash
+   * can split, leaves that to the engine.
    */
   open(
-    recorded: (runId: string) => RecordedScope | undefined
+    recorded: (runId: string) => RecordedScope | undefined,
+    follows?: RunFollower
   ): Promise<WorkflowStore>;
   /** What the Run's scope last recorded: an empty ledger when it recorded nothing. */
   recorded(runId: string): Promise<StoredScope>;
@@ -49,6 +55,16 @@ export interface RunStore {
   /** A settled Run and everything kept of it, gone in one write. */
   remove(runId: string): Promise<void>;
 }
+
+/**
+ * The Execution Run a Run committed with `status` must have in the same
+ * commit, from what its engine holds now; `undefined` to leave it. Asked
+ * inside the commit's transaction, so it changes nothing itself.
+ */
+export type RunFollower = (
+  runId: string,
+  status: string
+) => ExecutionRun | undefined;
 
 /**
  * What a Run's scope recorded, as the store gives it back: the ledger and
@@ -125,7 +141,9 @@ export function filedRuns(
 
 /**
  * The run store held in this process: nothing outlives it, so a parked Run
- * is never adopted by a later process. Each engine has its own.
+ * is never adopted by a later process, and no crash can leave a Run and
+ * its Execution Run apart: it writes no Execution Run with a Run. Each
+ * engine has its own.
  */
 export class MemoryRunStore implements RunStore {
   readonly durable = false;

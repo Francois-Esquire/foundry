@@ -10,6 +10,7 @@ import {
   ExecutionRecords,
   type ExecutionRecordsOptions,
 } from "./execution-records";
+import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
 
 export type {
   ExecutionObservation,
@@ -119,18 +120,28 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     }
   }
 
-  /** Parked on a question or a pause: its slot goes to the next run. */
+  /**
+   * Parked on a question or a pause: its slot goes to the next run. A
+   * record its Run's commit parked already (`follows`) is not changed
+   * again.
+   */
   suspend(id: string): void {
-    this.changeRecord(id, { status: "suspended" });
+    if (this.get(id)?.status !== "suspended") {
+      this.changeRecord(id, { status: "suspended" });
+    }
     this.release(id);
   }
 
   /** Back from a park: it takes its slot again without waiting. */
   resume(id: string): void {
-    const run = this.changeRecord(id, { status: "running" });
-    if (run) {
-      this.#lane(run.queue).active.add(id);
+    const run = this.get(id);
+    if (!run || SETTLED_EXECUTION_STATUSES.has(run.status)) {
+      return;
     }
+    if (run.status !== "running") {
+      this.changeRecord(id, { status: "running" });
+    }
+    this.#lane(run.queue).active.add(id);
   }
 
   /**

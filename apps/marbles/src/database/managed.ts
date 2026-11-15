@@ -38,7 +38,7 @@ import type {
   StoredExecution,
 } from "~/lib/execution-store";
 import type { RecordedScope } from "~/lib/run-scope";
-import type { RunStore, StoredScope } from "~/lib/run-store";
+import type { RunFollower, RunStore, StoredScope } from "~/lib/run-store";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 import type {
@@ -549,9 +549,10 @@ class ManagedRunStore implements RunStore {
   }
 
   open(
-    recorded: (runId: string) => RecordedScope | undefined
+    recorded: (runId: string) => RecordedScope | undefined,
+    follows?: RunFollower
   ): Promise<WorkflowStore> {
-    return this.#run((store) => store.open(recorded));
+    return this.#run((store) => store.open(recorded, follows));
   }
 
   recorded(runId: string): Promise<StoredScope> {

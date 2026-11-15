@@ -9,13 +9,14 @@ import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { aroundCalls, asBusy } from "~/database/busy";
+import { putExecution } from "~/database/executions";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { RecordsGate } from "~/lib/events/records";
 import type { RecordedScope } from "~/lib/run-scope";
-import type { RunStore, StoredScope } from "~/lib/run-store";
+import type { RunFollower, RunStore, StoredScope } from "~/lib/run-store";
 import { filedRuns, removalOf } from "~/lib/run-store";
 
 /**
@@ -103,15 +104,18 @@ export class DatabaseRunStore implements RunStore {
   }
 
   open(
-    recorded: (runId: string) => RecordedScope | undefined
+    recorded: (runId: string) => RecordedScope | undefined,
+    follows?: RunFollower
   ): Promise<WorkflowStore> {
     return this.#call(() =>
       Promise.resolve(
         aroundCalls(
           new SqliteWorkflowStore({
             database: this.#database,
-            onCommit: (transaction, write) =>
-              this.#file(transaction, write, recorded),
+            onCommit: async (transaction, write) => {
+              await this.#file(transaction, write, recorded);
+              await this.#follow(transaction, write, follows);
+            },
             scope: this.#scope,
           }),
           (call) => this.#call(call)
@@ -218,6 +222,20 @@ export class DatabaseRunStore implements RunStore {
             inArray(marblesWorkflowRuns.runId, [...deleted])
           )
         );
+    }
+  }
+
+  /** Each Execution Run `follows` answers for a Run `write` puts, in its `transaction`. */
+  async #follow(
+    transaction: WorkflowTransaction,
+    write: WorkflowStoreWrite,
+    follows: RunFollower | undefined
+  ): Promise<void> {
+    for (const run of follows === undefined ? [] : (write.putRuns ?? [])) {
+      const execution = follows?.(run.id, run.status);
+      if (execution !== undefined) {
+        await putExecution(transaction, this.#scope, execution);
+      }
     }
   }
 

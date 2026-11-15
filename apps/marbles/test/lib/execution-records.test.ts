@@ -4,13 +4,18 @@ import type { SessionStore } from "@foundry/agents/store";
 import { Workflow } from "@foundry/workflows/workflow";
 import { expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
+import { DatabaseExecutionStore } from "~/database/executions";
+import { initializeDatabase } from "~/database/open";
 import { readStoredRuns } from "~/database/runs";
+import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
+import { parseStored } from "~/lib/execution-record";
 import type { ExecutionStore } from "~/lib/execution-store";
 import { MemoryExecutionStore } from "~/lib/execution-store";
 import { type ExecutionRun, Executions } from "~/lib/executions";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import type { TaskContext } from "~/lib/tasks";
+import type { Context } from "~/lib/types";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import {
   blockingTask,
@@ -720,3 +725,81 @@ it("counts each removal once when two engines prune the same runs at once", asyn
     expect(await store.list()).toEqual([]);
   });
 });
+
+it("parks a workflow's Execution Run with its Run, in one write, and warns of nothing", async () => {
+  const state = join(fixture.root, "state");
+  const lines: string[] = [];
+  const opened = await initializeDatabase(stateDatabase(state));
+  const store = new DatabaseExecutionStore({
+    database: opened.database,
+    scope: "test",
+  });
+  // Each write of a suspended record the engine makes itself.
+  const parks: boolean[] = [];
+  const put = store.put.bind(store);
+  store.put = async (run) => {
+    const kept = await put(run);
+    if (run.status === "suspended") {
+      parks.push(kept);
+    }
+    return kept;
+  };
+  const engine = engineWith({
+    askable: true,
+    executionStore: store,
+    print: (line) => lines.push(line),
+    state,
+  });
+  engine.define({
+    fn: ({ ask }: Context) => ask.question({ title: "continue?" }),
+    kind: "step",
+    name: "probe",
+  });
+  await engine.start();
+  const { id } = await engine.launch("probe", {});
+  await vi.waitFor(() =>
+    expect(engine.executions.get(id)?.status).toBe("suspended")
+  );
+  const parked = engine.executions.get(id);
+  await vi.waitFor(async () =>
+    expect(await storedExecution(state, id)).toMatchObject({
+      revision: parked?.revision,
+      status: "suspended",
+    })
+  );
+  // The Run's commit wrote it: the engine never wrote a park itself.
+  expect(parks).toEqual([]);
+  expect(lines.filter((line) => line.startsWith("[state]"))).toEqual([]);
+  await engine.dispose();
+  opened.close();
+});
+
+it("writes a run this process owns again above a revision another write took", async () => {
+  const store = new MemoryExecutionStore();
+  const lines: string[] = [];
+  const executions = new Executions({
+    store,
+    warn: (line) => lines.push(line),
+  });
+  const { run } = await executions.enqueue({
+    kind: "task",
+    name: "save",
+    queue: "q",
+  });
+  // Another write took the next revision, saying something else.
+  await store.put({ ...run, progress: { elsewhere: true }, revision: 2 });
+  executions.progress(run.id, { here: true });
+  await executions.flush();
+  const stored = await storedOf(store, run.id);
+  expect(stored).toMatchObject({ progress: { here: true }, revision: 3 });
+  expect(executions.get(run.id)?.revision).toBe(3);
+  expect(lines).toEqual([]);
+});
+
+async function storedOf(
+  store: ExecutionStore,
+  id: string
+): Promise<ExecutionRun | undefined> {
+  const stored = await store.get(id);
+  return stored && parseStored(stored);
+}

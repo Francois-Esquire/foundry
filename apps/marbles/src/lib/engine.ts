@@ -797,8 +797,9 @@ export class Engine {
       // ones that cannot be read fail the start.
       await this.#executions.load();
       const store = new ExecutionCoordinator({
-        store: await this.#runs.open((runId) =>
-          this.#scopes.get(runId)?.recorded()
+        store: await this.#runs.open(
+          (runId) => this.#scopes.get(runId)?.recorded(),
+          (runId, status) => this.#executions.follows(runId, status)
         ),
       });
       // Only runs under a name that is registered by now are adopted: one

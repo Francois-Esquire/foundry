@@ -121,14 +121,30 @@ export class DatabaseExecutionStore implements ExecutionStore {
   }
 }
 
+/**
+ * Keep `run`'s record in the Execution Runs of `scope` on `database`, or a
+ * transaction on it, unless as high a revision is kept: whether it is kept
+ * now. For a store whose commit carries a run's record with its own.
+ */
+export function putExecution(
+  database: Queries,
+  scope: string,
+  run: ExecutionRun
+): Promise<boolean> {
+  return new DatabaseView(database, scope).put(run);
+}
+
 type ExecutionRow = typeof marblesExecutions.$inferSelect;
+
+/** What a view reads and writes through: the database, or any transaction on it. */
+type Queries = Pick<StoreDatabase, "delete" | "insert" | "select" | "update">;
 
 /** The Execution Runs of `scope` as `database`, or a transaction on it, holds them. */
 class DatabaseView implements ExecutionView {
-  readonly #database: StoreDatabase;
+  readonly #database: Queries;
   readonly #scope: string;
 
-  constructor(database: StoreDatabase, scope: string) {
+  constructor(database: Queries, scope: string) {
     this.#database = database;
     this.#scope = scope;
   }

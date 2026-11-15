@@ -416,6 +416,35 @@ export class ExecutionRecords {
     });
   }
 
+  /**
+   * What a workflow Run of this process's committing as `status` makes of
+   * its Execution Run, for the run store to write in the same commit
+   * (`RunFollower`): a park makes it suspended and a resume running again,
+   * so a crash never leaves one without the other. Nothing for any other
+   * status: a settle carries what the Run does not (the failure as its
+   * launch records it), so the launcher writes it, and a crash between is
+   * repaired from the Run's status (`recover`). The change is published
+   * here at once, so every later change builds on it and none is written
+   * over it; the park or resume that follows finds it made. Should the
+   * Run's commit fail, this process says the run parked or resumed until
+   * its next change: the Orchestrator fails a run whose commit fails.
+   */
+  follows(runId: string, status: string): ExecutionRun | undefined {
+    const run = this.#records.get(runId);
+    if (!(run && run.kind === "workflow" && ownedHere(run))) {
+      return;
+    }
+    const next =
+      (status === "suspended" && run.status === "running") ||
+      (status === "running" && run.status === "suspended")
+        ? nextRevision(run, { status })
+        : undefined;
+    if (next) {
+      this.#publish(next);
+    }
+    return next;
+  }
+
   /** Whether the store holds the run's record settled, read afresh. */
   async storedSettled(id: string): Promise<boolean> {
     const run = this.#parse(await this.#store.get(id));
@@ -573,13 +602,37 @@ export class ExecutionRecords {
     await this.#put(run);
   }
 
-  /** Write `run` in its turn; rejects when it is not kept. */
+  /**
+   * Write `run` in its turn. One the store refuses for a revision as high
+   * is landed already when this process has changed the run since (a
+   * later write carries it) or what is stored says the same (a Run's
+   * commit wrote it, `follows`); a run this process owns is written again
+   * above what is stored, since only its owner changes it. Rejects
+   * otherwise.
+   */
   async #put(run: ExecutionRun): Promise<void> {
-    if (!(await this.#persist(() => this.#store.put(run)))) {
-      throw new Error(
-        `a later revision of execution ${run.id} is stored already`
-      );
-    }
+    await this.#persist(async () => {
+      if (await this.#store.put(run)) {
+        return;
+      }
+      if ((this.#records.get(run.id)?.revision ?? 0) > run.revision) {
+        return;
+      }
+      const stored = this.#parse(await this.#store.get(run.id));
+      if (stored && sameRecord(stored, run)) {
+        return;
+      }
+      if (!(stored && ownedHere(run))) {
+        throw new Error(
+          `a later revision of execution ${run.id} is stored already`
+        );
+      }
+      const above = { ...run, revision: stored.revision + 1 };
+      if (!(await this.#store.put(above))) {
+        throw new Error(`execution ${run.id} changed while it was written`);
+      }
+      this.#publish(above);
+    });
   }
 
   /** `write`, once every write made before it has landed or failed. */
@@ -615,6 +668,17 @@ export class ExecutionRecords {
     }
     return this.#commit(settledAs(run, status, error)).then(() => undefined);
   }
+}
+
+/** Whether two revisions of a run say the same, whenever each was written. */
+function sameRecord(a: ExecutionRun, b: ExecutionRun): boolean {
+  const said = ({
+    observations: _observations,
+    revision: _revision,
+    timestamps: { updatedAt: _updatedAt, ...timestamps },
+    ...record
+  }: ExecutionRun) => JSON.stringify({ ...record, timestamps });
+  return said(a) === said(b);
 }
 
 /** The gaps by scope. */

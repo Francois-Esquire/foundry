@@ -21,7 +21,7 @@ const SCOPE: RecordedScope = {
 };
 
 /** A Run put through `workflows`, as an Orchestrator would put it. */
-async function putRun(
+export async function putRun(
   workflows: WorkflowStore,
   id: string,
   status?: "complete" | "running" | "suspended"
