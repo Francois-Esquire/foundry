@@ -9,9 +9,9 @@ import {
   isStrictModuleManifest,
   moduleSettingRequests,
 } from "./manifest";
+import type { InstallationGrant } from "./registry";
 import type { ModuleSettingsHostPolicy, ModuleSettingValues } from "./settings";
 import { resolveModuleSettings } from "./settings";
-import type { InstallationGrant } from "./store/contract";
 
 /** What the host's sandbox runtime can enforce for a released Program. */
 export interface ModuleRuntimeSupport {

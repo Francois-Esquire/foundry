@@ -145,7 +145,7 @@ export async function hostWorkspace(
     // Defined before the engine starts: background agent dispatch is a step.
     const dispatches = new BackgroundRuns(engine, catalog);
     await engine.start();
-    touchWorkspace(engine, opened);
+    await touchWorkspace(engine, hostOptions, opened);
     return hosted(engine, opened, dispatches, {
       captured,
       diagnostics,

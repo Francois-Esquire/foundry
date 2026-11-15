@@ -6,6 +6,10 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts"
+    },
     "./approval": {
       "types": "./dist/approval.d.ts",
       "import": "./src/approval.ts"
@@ -59,8 +63,8 @@
       "import": "./src/executable-public.ts"
     },
     "./store": {
-      "types": "./dist/store.d.ts",
-      "import": "./src/store.ts"
+      "types": "./dist/store/index.d.ts",
+      "import": "./src/store/index.ts"
     },
     "./schema": {
       "types": "./dist/schema.d.ts",
@@ -69,6 +73,22 @@
     "./logger": {
       "types": "./dist/logger.d.ts",
       "import": "./src/logger.ts"
+    },
+    "./store/memory": {
+      "types": "./dist/store/memory.d.ts",
+      "import": "./src/store/memory.ts"
+    },
+    "./testing/store": {
+      "types": "./dist/testing/store.d.ts",
+      "import": "./src/testing/store.ts"
+    },
+    "./store/sqlite": {
+      "types": "./dist/store/sqlite.d.ts",
+      "import": "./src/store/sqlite.ts"
+    },
+    "./store/tables": {
+      "types": "./dist/store/tables.d.ts",
+      "import": "./src/store/tables.ts"
     }
   },
   "scripts": {
@@ -88,9 +108,19 @@
   "devDependencies": {
     "@effect/language-service": "^0.87.2",
     "@foundry/tsconfig": "workspace:*",
+    "@libsql/client": "^0.18.0",
     "@types/bun": "1.3.14",
     "@vitest/coverage-v8": "^4.1.9",
+    "drizzle-orm": "^0.45.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
+  },
+  "peerDependencies": {
+    "drizzle-orm": "^0.45.4"
+  },
+  "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    }
   }
 }

@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { ModelManager } from "@foundry/models";
 import { gatewayProvider } from "@foundry/models/gateway";
 import { createContainers } from "@foundry/sandbox/container/containers";

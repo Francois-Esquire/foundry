@@ -20,7 +20,12 @@ export interface ContainerStoreWrite {
  * A store keeps container rows and applies one write atomically. It enforces
  * nothing: unique ids, which rows exist, and status transitions are the
  * registry's rules, checked before a write reaches the store. Values crossing
- * this seam are detached.
+ * this seam are detached, and the rows it hands out are frozen. `list`
+ * returns rows in the order first put; a row put again keeps its place.
+ *
+ * `@foundry/sandbox/store/memory` and `@foundry/sandbox/store/sqlite`
+ * implement it; `@foundry/sandbox/testing/store` is the suite every
+ * implementation passes.
  */
 export interface ContainerStore {
   commit(write: ContainerStoreWrite): Promise<void>;
@@ -30,8 +35,9 @@ export interface ContainerStore {
    * Runs one read-modify-write so that no other write to the store lands
    * between its reads and its commit, from any registry over the store.
    * `work` reads and commits through `view` only; if it throws, none of its
-   * commits are kept. Without it, a registry serializes its own writes and
-   * no further.
+   * commits are kept. A call to the store itself from inside `work` is
+   * refused at once: it could only wait for `work`. Without a transaction,
+   * a registry serializes its own writes and no further.
    */
   transaction?<T>(work: (view: ContainerStore) => Promise<T>): Promise<T>;
 }

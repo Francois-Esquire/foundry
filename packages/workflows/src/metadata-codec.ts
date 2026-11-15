@@ -1,10 +1,10 @@
 import type { ChannelEvent } from "./channels";
+import type { RecoverableRun } from "./execution-commands";
 import { resolveInput } from "./helpers";
 import { defineOwnEntry } from "./own-entry";
-import type { PersistedMetadata } from "./schema";
+import type { PersistedMetadata, RunRecord } from "./schema";
 import { PersistedMetadataSchema } from "./schema";
 import type { StepSnapshot, WorkflowSnapshot } from "./snapshot";
-import type { RecoverableRun, RunRecord } from "./store";
 import type { RunStatus } from "./types";
 import type { WorkflowPersistence, WorkflowState } from "./workflow";
 

@@ -2,14 +2,8 @@ import { describe, expect, it } from "vitest";
 import { SessionHarness } from "../../harness/session-harness";
 import type { Summarizer } from "../../session/compactor";
 import type { SessionEvent } from "../../session/events";
-import type {
-  CreateMessageInput,
-  CreateSessionInput,
-  SessionStore,
-  UpdateMessageInput,
-  UpdateSessionInput,
-} from "../../session/store";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
+import { InMemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   usageStreamResult,
@@ -44,29 +38,6 @@ function overBudgetModel() {
   return createScriptedMockModel({
     stream: [usageStreamResult("ok", 200, 0), usageStreamResult("ok2", 0, 0)],
   });
-}
-
-/** A `SessionStore` that is NOT summarize-aware (no `activeMessages`). */
-class BareStore implements SessionStore {
-  readonly #inner = new InMemorySessionStore();
-  createSession(input?: CreateSessionInput) {
-    return this.#inner.createSession(input);
-  }
-  getSession(id: string) {
-    return this.#inner.getSession(id);
-  }
-  updateSession(id: string, patch: UpdateSessionInput) {
-    return this.#inner.updateSession(id, patch);
-  }
-  appendMessage(input: CreateMessageInput) {
-    return this.#inner.appendMessage(input);
-  }
-  updateMessage(id: string, patch: UpdateMessageInput) {
-    return this.#inner.updateMessage(id, patch);
-  }
-  listMessages(sessionId: string) {
-    return this.#inner.listMessages(sessionId);
-  }
 }
 
 const SMALL_WINDOW = { contextWindow: 100, id: "test" };
@@ -112,7 +83,7 @@ describe("SessionHarness — auto compaction", () => {
     expect(summarizer.calls).toBe(1);
     expect(summarizer.lastSeen).toEqual(["first", "ok"]);
 
-    const active = await store.activeMessages("s");
+    const active = await new Sessions({ store }).activeMessages("s");
     expect(active.map((m) => m.role)).toEqual(["summary", "user", "assistant"]);
   });
 
@@ -163,29 +134,5 @@ describe("SessionHarness — auto compaction", () => {
 
     const messages = await store.listMessages("s");
     expect(messages.some((m) => m.role === "summary")).toBe(false);
-  });
-
-  it("skips compaction for a non-summarize-aware store", async () => {
-    const summarizer = fakeSummarizer();
-    const harness = new SessionHarness(
-      {
-        compaction: {
-          keepTokens: 1,
-          model: SMALL_WINDOW,
-          summarizer,
-          window: TIGHT,
-        },
-        instructions: "x",
-        model: overBudgetModel(),
-        store: new BareStore(),
-        tools: {},
-      },
-      { sessionId: "s" }
-    );
-
-    await drain(harness.stream("first"));
-    await drain(harness.stream("second"));
-
-    expect(summarizer.calls).toBe(0);
   });
 });

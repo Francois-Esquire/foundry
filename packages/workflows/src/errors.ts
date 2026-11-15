@@ -60,21 +60,6 @@ export class RunReplayGapError extends WorkflowDomainError {
   }
 }
 
-export class ExecutionConflictRetriesExhaustedError extends WorkflowDomainError {
-  readonly code = "EXECUTION_CONFLICT_RETRIES_EXHAUSTED";
-  readonly operation: string;
-  readonly attempts: number;
-
-  constructor(operation: string, attempts: number) {
-    super(
-      `Execution operation ${operation} exhausted ${attempts} optimistic commit attempts`
-    );
-    this.operation = operation;
-    this.attempts = attempts;
-    this.name = "ExecutionConflictRetriesExhaustedError";
-  }
-}
-
 export class InvalidRunFrameSequenceError extends WorkflowDomainError {
   readonly code = "INVALID_RUN_FRAME_SEQUENCE";
   readonly runId: string;

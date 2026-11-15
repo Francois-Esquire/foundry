@@ -2,7 +2,6 @@ import { describe, expect, test, vi } from "vitest";
 
 import { ExecutionCoordinator } from "../execution-coordinator";
 import { Orchestrator } from "../orchestrator";
-import { createInMemoryExecutionPersistence } from "../persistence";
 import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
 
@@ -11,7 +10,7 @@ describe("transactional admission", () => {
     const runtime = new Orchestrator({
       admissionParticipant: async () => null,
       config: makeOrchestratorConfig(),
-      persistence: createInMemoryExecutionPersistence(),
+      store: new ExecutionCoordinator(),
     });
     let executed = false;
     runtime.register("ordered", (input) =>
@@ -42,22 +41,21 @@ describe("transactional admission", () => {
     }
   });
   test("cancellation records its decision with participant effects before abort", async () => {
-    const persistence = createInMemoryExecutionPersistence();
+    const store = new ExecutionCoordinator();
     let executed = false;
     const runtime = new Orchestrator({
-      cancellationParticipant: async ({ run, persistence: bound }) => {
+      cancellationParticipant: async ({ run, store: bound }) => {
         if (run.status === "cancelled") {
           return run;
         }
-        await bound.journal.claimRunEffect({
+        await bound.claimRunEffect({
           key: "cancel-decision",
           runId: run.id,
         });
-        const store = new ExecutionCoordinator(bound.repository, bound.journal);
-        return (await store.cancelRun(run.id)).run;
+        return (await bound.cancelRun(run.id)).run;
       },
       config: makeOrchestratorConfig(),
-      persistence: { ...persistence, afterCommit: (operation) => operation() },
+      store,
     });
     runtime.register("cancel", (input) =>
       Workflow.create({
@@ -77,11 +75,9 @@ describe("transactional admission", () => {
       const run = await runtime.execute(job.id);
       expect((await runtime.cancelRun(run.id)).status).toBe("cancelled");
       expect(run.status).toBe("cancelled");
-      expect((await persistence.repository.getRun(run.id))?.status).toBe(
-        "cancelled"
-      );
+      expect((await store.getRun(run.id))?.status).toBe("cancelled");
       expect(
-        (await persistence.journal.listRunFrames(run.id)).some(
+        (await store.listRunFrames(run.id)).some(
           (frame) => frame.payload.kind === "log"
         )
       ).toBe(true);
@@ -91,9 +87,9 @@ describe("transactional admission", () => {
     }
   });
   test("cold dispatch invokes the participant before executing a retained Run", async () => {
-    const persistence = createInMemoryExecutionPersistence();
+    const store = new ExecutionCoordinator();
     const config = makeOrchestratorConfig();
-    const first = new Orchestrator({ config, persistence });
+    const first = new Orchestrator({ config, store });
     await first.setup();
     await first.start();
     const job = await first.createJob("cold", null);
@@ -110,16 +106,16 @@ describe("transactional admission", () => {
     await first.stop();
     const events: string[] = [];
     const second = new Orchestrator({
-      admissionParticipant: async ({ run, persistence: bound }) => {
+      admissionParticipant: async ({ run, store: bound }) => {
         events.push("admit");
-        await bound.journal.claimRunEffect({
+        await bound.claimRunEffect({
           key: "cold-admit",
           runId: run.id,
         });
         return run.id;
       },
       config,
-      persistence,
+      store,
     });
     second.register("cold", (input) =>
       Workflow.create({
@@ -145,16 +141,16 @@ describe("transactional admission", () => {
     }
   });
   test("participant failure rolls back claim and receipt before dispatch; retry admits", async () => {
-    const persistence = createInMemoryExecutionPersistence();
+    const store = new ExecutionCoordinator();
     let refuse = true;
     let executed = 0;
     const runtime = new Orchestrator({
-      admissionParticipant: async ({ run, persistence: transaction }) => {
-        await transaction.journal.claimRunEffect({
+      admissionParticipant: async ({ run, store: transaction }) => {
+        await transaction.claimRunEffect({
           key: "admit",
           runId: run.id,
         });
-        await transaction.journal.appendRunFrame({
+        await transaction.appendRunFrame({
           payload: { kind: "output", value: { receipt: run.id } },
           runId: run.id,
         });
@@ -164,7 +160,7 @@ describe("transactional admission", () => {
         return run.id;
       },
       config: makeOrchestratorConfig(),
-      persistence,
+      store,
     });
     runtime.register("example", (input) =>
       Workflow.create({
@@ -181,8 +177,8 @@ describe("transactional admission", () => {
     try {
       const job = await runtime.createJob("example", null);
       await expect(runtime.execute(job.id)).rejects.toThrow("admission fault");
-      expect(persistence.snapshot().runs).toEqual([]);
-      expect(persistence.snapshot().frames).toEqual([]);
+      expect((await store.snapshot()).runs).toEqual([]);
+      expect((await store.snapshot()).frames).toEqual([]);
       expect(executed).toBe(0);
       refuse = false;
       const run = await runtime.execute(job.id);
@@ -195,9 +191,7 @@ describe("transactional admission", () => {
         value: "done",
       });
       expect(executed).toBe(1);
-      expect(
-        (await persistence.journal.listRunFrames(run.id))[0]?.payload
-      ).toMatchObject({
+      expect((await store.listRunFrames(run.id))[0]?.payload).toMatchObject({
         kind: "log",
         value: { event: "run-effect-claimed", key: "admit" },
       });

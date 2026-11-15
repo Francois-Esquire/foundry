@@ -9,11 +9,12 @@ import { McpClient } from "@foundry/agents/mcp";
 import type {
   SessionInput,
   SessionMessage,
-  SessionStore,
   SessionStream,
   SessionUsage,
 } from "@foundry/agents/session";
+import { Sessions } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
+import type { SessionStore } from "@foundry/agents/store";
 import { composeTools } from "@foundry/agents/tools/compose";
 import { canonicalizeJson } from "@foundry/lib/json";
 import type { ModelManager, ModelSelection, Resolution } from "@foundry/models";
@@ -419,11 +420,12 @@ async function fileSession(
   parent: string | undefined,
   id: string
 ): Promise<void> {
-  if (parent !== undefined && (await store.getSession(parent)) === null) {
-    await store.createSession({ id: parent, title: "run" });
+  const sessions = new Sessions({ store });
+  if (parent !== undefined && (await sessions.getSession(parent)) === null) {
+    await sessions.createSession({ id: parent, title: "run" });
   }
-  if ((await store.getSession(id)) === null) {
-    await store.createSession(
+  if ((await sessions.getSession(id)) === null) {
+    await sessions.createSession(
       parent === undefined ? { id } : { id, parentSessionId: parent }
     );
   }

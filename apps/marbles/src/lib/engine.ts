@@ -4,8 +4,8 @@ import {
   createAgentAuthorizer,
   createInMemoryAgentAuthorizer,
 } from "@foundry/agents/authorization";
-import type { SessionStore } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import { Config } from "@foundry/lib/config";
 import type { ModelManager } from "@foundry/models";
@@ -15,13 +15,14 @@ import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
 import { holdModelsDev } from "@foundry/models/catalog/models-dev-source";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import type { TaskStore } from "@foundry/tasks";
+import { ExecutionCoordinator } from "@foundry/workflows";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { contributeQueueConfig } from "@foundry/workflows/config";
 import type { BaseContext } from "@foundry/workflows/executable";
 import type { Factory } from "@foundry/workflows/orchestrator";
 import { Orchestrator } from "@foundry/workflows/orchestrator";
-import type { RunRecord } from "@foundry/workflows/store";
-import { InMemoryOrchestratorStore } from "@foundry/workflows/store";
+import type { RunRecord } from "@foundry/workflows/schema";
+import { MemoryWorkflowStore } from "@foundry/workflows/store/memory";
 import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
@@ -229,7 +230,7 @@ interface Running {
   readonly held: HeldRuns;
   readonly orchestrator: Orchestrator;
   readonly router: FeedRouter;
-  readonly store: InMemoryOrchestratorStore;
+  readonly store: MemoryWorkflowStore;
 }
 
 /**
@@ -720,11 +721,15 @@ export class Engine {
       for (const [runId, extras] of loaded?.recovered ?? []) {
         this.#scopes.recover(runId, extras);
       }
-      const store = new InMemoryOrchestratorStore(
-        loaded === undefined ? {} : { snapshot: loaded.snapshot }
-      );
+      // Run files are the durable record; the store holds them for this
+      // process, and `held` writes them back from its snapshots.
+      const store = new MemoryWorkflowStore();
+      const executions = new ExecutionCoordinator({ store });
+      if (loaded !== undefined) {
+        await executions.restore(loaded.snapshot);
+      }
 
-      orchestrator = new Orchestrator({ config, store });
+      orchestrator = new Orchestrator({ config, store: executions });
       await orchestrator.setup();
       this.#registerAll(orchestrator);
       await orchestrator.start();

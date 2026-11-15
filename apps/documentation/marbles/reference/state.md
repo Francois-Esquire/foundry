@@ -16,9 +16,9 @@ The default state root is `~/.foundry/marbles`; `FOUNDRY_HOME` moves the
 whole home, and `--state` moves the root alone. The root holds the files of
 the Marbles process, the one daemon for this machine, and one directory per
 workspace: the project root above `.foundry/marbles`, named by the first
-twelve hex digits of the SHA-256 of its canonical path. Listing the state
-root is the registry of every workspace this machine has run, and each
-`workspace.json` says whether the process hosts it.
+twelve hex digits of the SHA-256 of its canonical path. The Marbles
+database, `marbles.db` at the state root, is the registry of every
+workspace this machine has run, and says which of them the process hosts.
 
 ```text
 ~/.foundry/marbles/
@@ -27,6 +27,9 @@ root is the registry of every workspace this machine has run, and each
   process.json            what it is: pid, host "daemon", socket, artifacts dir,
                           the Marbles version it runs (`marbles`), start time
   marbles.sock            the Unix socket it answers on, owner-only (mode 0600)
+  marbles.db              the Marbles database (SQLite, WAL mode, with its
+                          -wal and -shm files): every workspace's id, root,
+                          config, firstSeen, lastSeen, and whether it is hosted
   daemon.log              stdout and stderr of a process a client started;
                           `marbles daemon` prints to its own terminal instead
   settings.json           global dashboard preferences (the theme), shared by
@@ -36,7 +39,6 @@ root is the registry of every workspace this machine has run, and each
 
 ```text
 ~/.foundry/marbles/<workspace-id>/
-  workspace.json          id, root, config, firstSeen, lastSeen, hosted
   runs/<runId>.json       one run: its record, frames, jobs, queue row, suspensions,
                           the owning pid, and what the run recorded (below)
   executions/<runId>.json the Execution Run record: queue, status, revision,
@@ -70,7 +72,7 @@ root is the registry of every workspace this machine has run, and each
                           workspace in, or of a program hosting it itself
   process.json            what that process is: pid, host "worker", source, start time
   sessions/<id>.json      agent conversations
-  sessions/<id>.json.lock pid of the process writing that session
+  sessions/.lock          pid of the process changing sessions
   agent-grants.json       tool grants approved for future runs, by agent id
   agent-grants.json.lock  pid of the process changing grants; never taken over,
                           so remove it by hand if its process is gone
@@ -99,12 +101,27 @@ append-only. Lock files are created in place
 Marbles-owned records are `version: 1`. Session files use the session store's
 own format. Version 1 run files still load. The persisted `config` field keeps
 its existing spelling and records the authoring folder or single-module path.
-`workspace.json` is written when the workspace is attached to the Marbles
+A workspace is recorded in the database when it is attached to the Marbles
 process (`run`, `roll`, the dashboard, or the MCP server), which sets
 `hosted: true`, and by a program that hosts it itself; `list`, `status`,
 `sessions`, `watch`, and anything under `--dry-run` leave an empty state
-root empty. `hosted` goes back to `false` when `marbles detach` or a client of the
-process detaches the workspace.
+root empty. Only a process holding `locks/process` at the state root
+creates the database and applies the migrations its Marbles ships: the
+Marbles process, which holds it while it runs, or a program hosting a
+workspace itself, which takes it only while it records the workspace, so a
+Marbles process can still start beside it. When another process holds the
+lock, such a program waits up to five seconds for the database to be
+current and otherwise fails to start. The workers and the CLI write only
+to a database that is there and current. `status`, the MCP server, and every
+other reader open it read-only: they never create, migrate, or change it,
+and never switch its journal mode. A reader that meets the last writer
+closing at the moment it opens can leave an empty `marbles.db-wal`; it
+holds nothing, and readers and the Marbles process pass over it. A database whose
+migrations are behind or ahead of the reading Marbles, or differ from the
+ones it ships, is refused with an error that says which. The daemon, its
+workers, and the CLI hold it at once: a writer waits up to five seconds for
+another process's write to finish. `hosted` goes back to `false` when
+`marbles detach` or a client of the process detaches the workspace.
 
 ### Run output
 
@@ -137,8 +154,12 @@ execution can still finish even when its output cannot be saved.
 ### Session writes
 
 Session files are read again for every operation, and each change is a
-read-change-write under `<id>.json.lock`, so two processes appending to one
-session keep both messages. A session file that cannot be read is skipped
+read-change-write under `sessions/.lock`, so two processes appending to one
+session keep both messages. A change staged by a transaction is written only
+once the transaction succeeds; one that fails writes nothing. A change to one
+session file is one atomic replacement. A change to several is written file
+by file, each atomically, so a crash part way through can leave some files
+written. That limit ends when sessions move to the Marbles database. A session file that cannot be read is skipped
 with a warning and never overwritten; changing that session fails until the
 file is repaired or removed. Creating a session under an id that already
 exists returns the existing one.

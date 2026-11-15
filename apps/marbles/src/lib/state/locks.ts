@@ -14,6 +14,13 @@ import { processAlive, tryFileLock } from "@foundry/lib/file-lock";
  * `<name>.break`. A file that is neither a pid nor empty is never broken.
  */
 
+/**
+ * The lock at a state root that is the Marbles process's claim on it
+ * (`claimProcess`), and that a program hosting a workspace itself holds
+ * while it makes or migrates the database there.
+ */
+export const PROCESS_LOCK = "process";
+
 export interface Lock {
   /** Give the lock up, once; a lock someone else has taken since is left alone. */
   release(): void;

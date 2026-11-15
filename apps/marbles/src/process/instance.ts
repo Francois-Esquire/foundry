@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { lockHolder, processAlive } from "@foundry/lib/file-lock";
 
 import { isRecord, readJson, writeJson } from "~/lib/state/json";
-import { acquireLock } from "~/lib/state/locks";
+import { acquireLock, PROCESS_LOCK as LOCK } from "~/lib/state/locks";
 
 /**
  * One Marbles process per machine, and one worker per workspace under it.
@@ -18,7 +18,6 @@ import { acquireLock } from "~/lib/state/locks";
  * read; a crash can leave it behind, so nothing decides liveness from it.
  */
 
-const LOCK = "process";
 const FILE = "process.json";
 
 export type ProcessHost = "daemon" | "worker";
