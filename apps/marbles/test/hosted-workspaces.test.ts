@@ -860,3 +860,30 @@ it("lets go of a host closed directly, hosts its workspace again on the next reg
     sameClose: true,
   });
 }, 120_000);
+
+it("hosts a workspace again while its last host is still closing, its new engine delivering once the old one has let go", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const report = await inProcess(
+    root,
+    `const registration = { config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} };
+  const alpha = await hosted.register(registration);
+  let release;
+  const held = new Promise((settle) => { release = settle; });
+  const dispose = alpha.engine.dispose.bind(alpha.engine);
+  alpha.engine.dispose = async () => {
+    await held;
+    return await dispose();
+  };
+  const closing = alpha.close();
+  const again = await hosted.register(registration);
+  report.fresh = again !== alpha && !again.engine.disposed;
+  setTimeout(() => release(), 200);
+  await hostTasks(again.engine).create({ title: "ping" });
+  await until(async () => (await titles(again.id)).includes("pong alpha"));
+  report.tasks = await titles(again.id);
+  await closing;`
+  );
+  expect(report.fresh).toBe(true);
+  expect(report.tasks).toEqual(["ping", "pong alpha"]);
+}, 120_000);
