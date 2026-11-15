@@ -459,3 +459,35 @@ export const marblesRecoveries = sqliteTable("marbles_recoveries", {
   scope: text().primaryKey(),
   steps: text({ mode: "json" }).$type<unknown>().notNull(),
 });
+
+/**
+ * Every engine generation the Marbles process has started: one engine
+ * subprocess hosting every registered workspace. Owners in the other
+ * tables are process identities, and a generation is one process, so the
+ * runs, tick claims and delivery claims a generation owns are those whose
+ * owner is its `pid` and `started`; this row is what numbers it and says
+ * how it is doing. `state` is `loading` while it loads every registered
+ * workspace, `current` once it took over, `retiring` while it finishes
+ * the runs it had when the next took over, `failed` when it did not load,
+ * and `exited` once its process is gone. `fingerprint` is what it loaded:
+ * the installation and every workspace's source.
+ */
+export const marblesGenerations = sqliteTable(
+  "marbles_generations",
+  {
+    createdAt: text("created_at").notNull(),
+    /** Why it failed, or died. */
+    error: text(),
+    fingerprint: text().notNull(),
+    number: integer().primaryKey({ autoIncrement: true }),
+    /** Its process; 0 until spawned. */
+    pid: integer().notNull(),
+    /** Its process's start, as `ProcessIdentity` keeps it; null until it said. */
+    started: text(),
+    state: text({
+      enum: ["loading", "current", "retiring", "failed", "exited"],
+    }).notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [index("marbles_generations_state_idx").on(table.state)]
+);

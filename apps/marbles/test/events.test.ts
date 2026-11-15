@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename, join, resolve as resolvePath } from "node:path";
+import { thisProcess } from "@foundry/lib/process-identity";
 import type { TaskEvent } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import { sql } from "drizzle-orm";
@@ -677,6 +678,32 @@ describe("delivery lifecycle", () => {
     expect(await places(state)).toEqual([
       { failures: 0, name: "notify", position: 2 },
     ]);
+  });
+
+  it("a retired generation, still alive for its runs, delivers nothing more; the newer delivers within a tick", async () => {
+    const state = stateDir();
+    const calls: string[] = [];
+    const notify =
+      (generation: string): Handler<TaskEvent> =>
+      (payload) => {
+        calls.push(`${generation}:${titles([payload]).join()}`);
+      };
+    const older = engineWith(state, { notify: notify("old") });
+    await older.start();
+    const newer = engineWith(state, { notify: notify("new") });
+    await newer.start();
+    const tasks = new Tasks({ store: older.taskStore });
+    await tasks.create({ title: "Before" });
+    await vi.waitFor(() => expect(calls).toEqual(["old:Before"]));
+
+    // Retired, not disposed: its process goes on for the runs it holds.
+    await older.retire(thisProcess());
+    await tasks.create({ title: "After" });
+    await vi.waitFor(() => expect(calls).toEqual(["old:Before", "new:After"]), {
+      timeout: DELIVERY_POLL_MS * 5,
+    });
+    await new Promise((settle) => setTimeout(settle, DELIVERY_POLL_MS * 2));
+    expect(calls).toEqual(["old:Before", "new:After"]);
   });
 
   it("never moves an observer back: a move from a place another deliverer moved it past is refused", async () => {

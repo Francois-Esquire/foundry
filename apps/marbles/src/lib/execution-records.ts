@@ -522,6 +522,39 @@ export class ExecutionRecords {
   }
 
   /**
+   * Make a queued run of this process's `successor`'s, still queued, for it
+   * to let in when it starts (`recover`). Decided on the stored record in
+   * the transaction that writes it: `false`, changing nothing, when it is
+   * no longer queued or no longer this process's. Rejects when the store
+   * cannot be read or written, handing over nothing.
+   */
+  protected async handQueued(
+    id: string,
+    successor: ProcessIdentity
+  ): Promise<boolean> {
+    const written = await this.#persist(() =>
+      this.#store.transaction(async (view): Promise<Written> => {
+        const stored = this.#parse(await view.get(id));
+        if (
+          stored?.status !== "queued" ||
+          !sameProcess(stored.owner, thisProcess())
+        ) {
+          return { applied: false, record: stored };
+        }
+        return await view.transition(id, {
+          from: ["queued"],
+          newOwner: successor,
+          owner: stored.owner,
+          status: "queued",
+          updatedAt: now(),
+        });
+      })
+    );
+    this.#took(id, written);
+    return written.applied;
+  }
+
+  /**
    * Record cancelled a queued run that has not started, decided on the
    * stored record in the transaction that settles it: one stored queued,
    * whose owner is this process or one that has exited. `false`, changing
@@ -665,10 +698,14 @@ export class ExecutionRecords {
     readonly readmit: (run: ExecutionRun) => boolean;
   }): Promise<readonly ExecutionRun[]> {
     const readmitted: ExecutionRun[] = [];
+    // A queued run already this process's as it starts was handed to it by
+    // the process it succeeds (`handQueued`): taken on as an orphan is.
     const orphans = this.list().filter(
       (run) =>
         !SETTLED_EXECUTION_STATUSES.has(run.status) &&
-        (options.adopted.has(run.id) || isGone(run.owner))
+        (options.adopted.has(run.id) ||
+          isGone(run.owner) ||
+          (run.status === "queued" && sameProcess(run.owner, thisProcess())))
     );
     for (const orphan of orphans) {
       let taken: { readonly readmit: boolean; readonly written: Written };

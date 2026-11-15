@@ -8,12 +8,14 @@ import { isRecord, readJson, writeJson } from "~/lib/state/json";
 import { acquireLock, PROCESS_LOCK as LOCK } from "~/lib/state/locks";
 
 /**
- * One Marbles process per machine, and one worker per workspace under it.
- * The process claims `locks/process` at the state root and describes
- * itself in `process.json` beside it: its pid, the socket it answers on,
- * and where it keeps things. Each worker claims the same pair under its
- * workspace's state dir. A second claimant is told who has it and does not
- * start. The lock is the claim: it holds the owner's pid, and one left by a
+ * One Marbles process per machine. It claims `locks/process` at the state
+ * root and describes itself in `process.json` beside it: its pid, the
+ * socket it answers on, and where it keeps things. Its engine generations
+ * claim nothing here: two are alive at once during a switch, and the
+ * Marbles database records them (`marbles_generations`). A program that
+ * hosts a workspace itself may claim the same pair under the workspace's
+ * state dir (`host: "worker"`). A second claimant is told who has it and
+ * does not start. The lock is the claim: it holds the owner's pid, and one left by a
  * process that has exited is taken over (the `@foundry/lib/file-lock`
  * protocol, through `acquireLock`). The json is what `status` and clients
  * read; a crash can leave it behind, so nothing decides liveness from it.

@@ -24,7 +24,6 @@ import { stateDatabase } from "~/layout";
 import { connect } from "~/process/client";
 import type { Daemon } from "~/process/daemon";
 import { startDaemon } from "~/process/daemon";
-import { readProcess } from "~/process/instance";
 import { recordSpawned } from "~/process/spawned";
 import { testHome } from "./helpers/home";
 
@@ -349,7 +348,7 @@ export const list = step("list").do(titles);
 `;
 }
 
-it("binds tasks to the workspace a worker hosts, and hands its records to the worker a reload starts", async () => {
+it("binds tasks to the workspace a generation hosts, and hands its records to the generation a reload starts", async () => {
   const home = testHome({ providers: false });
   const root = join(home.path, "project");
   await mkdir(root);
@@ -361,7 +360,7 @@ it("binds tasks to the workspace a worker hosts, and hands its records to the wo
   try {
     const summary = await client.attach(source);
     const hosted = client.workspace(summary);
-    const first = readProcess(join(machine.state, summary.id))?.pid;
+    const first = summary.pid;
 
     expect((await hosted.roll("add", { title: "hosted" })).value).toEqual([
       "hosted",
@@ -384,14 +383,14 @@ it("binds tasks to the workspace a worker hosts, and hands its records to the wo
       { interval: 100, timeout: 30_000 }
     );
 
-    // The worker that delivered exits before its replacement claims
-    // delivery: the fresh one reads the same tasks and redelivers nothing.
+    // The generation that delivered gives delivery up as it retires: the
+    // next one reads the same tasks and redelivers nothing.
     await writeFile(source, workerSource(root, 2));
     await vi.waitFor(
-      () => {
-        const pid = readProcess(join(machine.state, summary.id))?.pid;
-        expect(pid).toBeDefined();
-        expect(pid).not.toBe(first);
+      async () => {
+        const [now] = await client.workspaces();
+        expect(now?.state).toBe("ready");
+        expect(now?.pid).not.toBe(first);
       },
       { interval: 250, timeout: 30_000 }
     );

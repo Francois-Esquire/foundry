@@ -4,10 +4,11 @@ import type { WorkspaceState } from "~/model/connection";
 
 /**
  * What crosses the Marbles process's boundaries, as newline-delimited JSON:
- * clients and workers to the daemon over its Unix socket. One shape serves both. A
- * request carries an id and is answered once; a notification carries none
- * and is not. Params are validated where they arrive from outside the
- * process (the socket); the daemon trusts its own workers.
+ * clients and engine generations to the daemon over its Unix socket. One
+ * shape serves both. A request carries an id and is answered once; a
+ * notification carries none and is not. Params are validated where they
+ * arrive from outside the process (the socket); the daemon trusts its own
+ * generations.
  */
 
 export const PROTOCOL = 1;
@@ -105,7 +106,7 @@ export const DAEMON_METHODS = {
   attach: "attach",
   detach: "detach",
   hello: "hello",
-  /** A worker's first request: the token it was spawned with. */
+  /** A generation's first request: the token it was spawned with. */
   register: "register",
   reload: "reload",
   shutdown: "shutdown",
@@ -124,7 +125,7 @@ export const helloResultSchema = z.object({
 });
 export type HelloResult = z.infer<typeof helloResultSchema>;
 
-/** A starter the client just wrote; the worker posts the setup milestone for it. */
+/** A starter the client just wrote; the generation posts the setup milestone for it. */
 const setupDraftSchema = z.object({
   instructions: z.string(),
   name: z.string(),
@@ -191,39 +192,96 @@ export function isWorkspaceMethod(name: string): name is WorkspaceMethod {
   return Object.values(WORKSPACE_METHODS).some((method) => method === name);
 }
 
-export const WORKER_NOTIFICATIONS = {
+/** What a generation tells the daemon unasked. */
+export const GENERATION_NOTIFICATIONS = {
+  /** A status line; params name the workspace's root, or none for the generation's own. */
   line: "line",
-  /** The engine is up; params describe the workspace. */
-  ready: "ready",
-  /** The authoring source changed on disk. */
-  sourceChanged: "sourceChanged",
 } as const;
 
-/** What the daemon asks a worker beyond workspace methods. */
-export const WORKER_METHODS = {
+/** What the daemon asks a generation beyond workspace methods. */
+export const GENERATION_METHODS = {
+  /** Host one more workspace at once, engine started: an attach. */
+  host: "host",
+  /**
+   * Load every registered workspace up to engines not yet started, and
+   * say how each went (`LoadResult`).
+   */
+  load: "load",
+  /**
+   * Stop admitting, and hand what is not running to the successor: no
+   * tick, delivery or queued run starts here again, and parked runs are
+   * let go. Answered once handed over; the generation then finishes the
+   * runs still running here and exits.
+   */
+  retire: "retire",
+  /** Start the engines `load` built, which takes over parked and queued work. */
+  start: "start",
   /** Drain running work and exit. */
   stop: "stop",
+  /** Stop hosting one workspace: its running work finishes, then it closes. */
+  unhost: "unhost",
 } as const;
 
 /**
- * How long a worker gets to answer `stop`, and then as long again to exit,
- * before the daemon kills it. A client waiting for the daemon to stop
- * budgets from this.
+ * How long a generation gets to answer `stop`, and then as long again to
+ * exit, before the daemon kills it and its process group. A client waiting
+ * for the daemon to stop budgets from this.
  */
-export const WORKER_STOP_TIMEOUT_MS = 30_000;
+export const GENERATION_STOP_TIMEOUT_MS = 30_000;
 
-export const readyParamsSchema = z.object({
+const identitySchema = z.object({
+  pid: z.number().int(),
+  started: z.string().nullable(),
+});
+
+/** How one registered workspace's load or start went in a generation. */
+const workspaceLoadSchema = z.object({
+  error: z.string().optional(),
+  id: z.string().optional(),
+  root: z.string(),
+});
+export type WorkspaceLoadResult = z.infer<typeof workspaceLoadSchema>;
+
+/** What `load` answers: the generation's process, and each workspace's load. */
+export const loadResultSchema = z.object({
+  identity: identitySchema,
+  loads: z.array(workspaceLoadSchema),
+});
+export type LoadResult = z.infer<typeof loadResultSchema>;
+
+export const startParamsSchema = z.object({
+  /** Starters to post a setup milestone for, by workspace id. */
+  setups: z.record(z.string(), setupDraftSchema).optional(),
+});
+
+export const startResultSchema = z.object({
+  loads: z.array(workspaceLoadSchema),
+});
+
+export const hostParamsSchema = z.object({
+  /** The source, or null when the workspace is its root alone. */
   config: z.string().nullable(),
-  configPath: z.string(),
+  root: z.string(),
+  setup: setupDraftSchema.optional(),
+});
+
+export const hostResultSchema = z.object({
+  config: z.string().nullable(),
   id: z.string(),
   root: z.string(),
 });
-export type ReadyParams = z.infer<typeof readyParamsSchema>;
+
+export const retireParamsSchema = z.object({
+  /** The generation that takes over: queued runs become its own. */
+  successor: identitySchema,
+});
 
 export const lineParamsSchema = z.object({
   /** The workspace the line is about, added by the daemon when forwarding. */
   id: z.string().optional(),
   line: z.string(),
+  /** The root of the workspace a generation's line is about; none for its own. */
+  root: z.string().optional(),
 });
 
 /** Notifications the daemon forwards to subscribed clients. */

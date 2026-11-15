@@ -22,11 +22,11 @@ import { readProcess } from "~/process/instance";
 import {
   CLIENT_NOTIFICATIONS,
   DAEMON_METHODS,
+  GENERATION_STOP_TIMEOUT_MS,
   type HelloResult,
   helloResultSchema,
   lineParamsSchema,
   type SetupDraftParams,
-  WORKER_STOP_TIMEOUT_MS,
   WORKSPACE_METHODS,
   WORKSPACE_PREFIX,
   type WorkspaceMethod,
@@ -193,7 +193,8 @@ const ANSWER_TIMEOUT_MS = 5000;
  * timeout to answer and as long again to exit before the daemon kills it,
  * then the daemon itself winds down.
  */
-const STOP_PROCESS_TIMEOUT_MS = 2 * WORKER_STOP_TIMEOUT_MS + START_TIMEOUT_MS;
+const STOP_PROCESS_TIMEOUT_MS =
+  2 * GENERATION_STOP_TIMEOUT_MS + START_TIMEOUT_MS;
 const RETRY_MS = 100;
 const LOG_FILE = "daemon.log";
 
@@ -390,11 +391,11 @@ export async function stopProcess(
 
 export interface StopProcessOptions {
   readonly layout: Layout;
-  /** Called once the daemon has agreed to stop, before the wait for its workers to drain. */
+  /** Called once the daemon has agreed to stop, before the wait for its engine generations to drain. */
   readonly onStopping?: (hello: HelloResult) => void;
   /**
    * How long to wait for the daemon to exit; by default long enough for
-   * every worker to drain or be killed.
+   * every engine generation to drain or be killed.
    */
   readonly timeoutMs?: number;
 }

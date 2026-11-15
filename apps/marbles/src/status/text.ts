@@ -79,7 +79,15 @@ function recoveryLines(recovery: WorkspaceStatus["recovery"]): string[] {
 function processLine(report: StatusReport): string {
   const { process: daemon } = report;
   if (daemon?.alive) {
-    return `marbles process: pid ${daemon.pid}${daemon.version === null ? "" : ` · v${daemon.version}`}${daemon.socket === null ? "" : ` · ${daemon.socket}`}`;
+    return [
+      `marbles process: pid ${daemon.pid}${daemon.version === null ? "" : ` · v${daemon.version}`}${daemon.socket === null ? "" : ` · ${daemon.socket}`}`,
+      ...report.generations
+        .filter((generation) => generation.alive)
+        .map(
+          (generation) =>
+            `  engine generation ${String(generation.number)}: pid ${String(generation.pid)} · ${generation.state}`
+        ),
+    ].join("\n");
   }
   return "marbles process: not running";
 }

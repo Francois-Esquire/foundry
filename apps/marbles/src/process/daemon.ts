@@ -1,58 +1,107 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { holdsLock } from "@foundry/lib/file-lock";
+import {
+  isGone,
+  type ProcessIdentity,
+  sameProcess,
+} from "@foundry/lib/process-identity";
+import { readExecution } from "~/database/executions";
+import { GenerationRecords } from "~/database/generations";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type { Layout } from "~/layout";
-import { insideState } from "~/lib/state/workspace";
+import {
+  insideState,
+  type Workspace,
+  type WorkspaceRecord,
+} from "~/lib/state/workspace";
 import type { WorkspaceSummary } from "~/model/connection";
 import { Channel, socketTransport } from "~/process/channel";
+import {
+  type Fingerprint,
+  fingerprintOf,
+  installationDigest,
+  sourceDigests,
+} from "~/process/fingerprint";
 import type { ProcessInstance } from "~/process/instance";
 import { claimProcess } from "~/process/instance";
 import {
   attachParamsSchema,
   CLIENT_NOTIFICATIONS,
   DAEMON_METHODS,
+  GENERATION_METHODS,
+  GENERATION_NOTIFICATIONS,
+  GENERATION_STOP_TIMEOUT_MS,
   type HelloResult,
+  hostResultSchema,
   isWorkspaceMethod,
+  type LoadResult,
   lineParamsSchema,
+  loadResultSchema,
   PROTOCOL,
-  readyParamsSchema,
   registerParamsSchema,
   type SetupDraftParams,
-  WORKER_METHODS,
-  WORKER_NOTIFICATIONS,
-  WORKER_STOP_TIMEOUT_MS,
+  startResultSchema,
   WORKSPACE_METHODS,
   WORKSPACE_PREFIX,
+  type WorkspaceLoadResult,
   workspaceIdSchema,
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
 import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
-import { resolveSource, sourceFiles, sourceRoot } from "~/workspace/source";
+import {
+  DEFAULT_SOURCE,
+  resolveSource,
+  sourceFiles,
+  sourceRoot,
+} from "~/workspace/source";
 import { version } from "../../package.json";
 
 /**
  * The Marbles process: one per machine, claimed at the state root, holding
- * no engine of its own. It hosts each workspace in a worker process it
- * spawns, answers clients over a Unix socket, and routes each workspace
- * method to the worker that has it. A worker dials the same socket and
- * registers with the token it was spawned with, so one transport carries
- * everything. The daemon never imports an authoring module: a source that
- * fails loads in its worker and fails there. When a worker says its source
- * changed, the daemon drains it and starts a fresh one.
+ * no engine of its own. Every registered workspace is hosted in one engine
+ * subprocess, a generation (`generation.ts`), which dials the daemon's
+ * Unix socket and registers with the token it was spawned with, so one
+ * transport carries clients and generations alike. The daemon answers
+ * clients, keeps their subscriptions by workspace, and routes each
+ * workspace method to the generation that has it. It never imports an
+ * authoring module: a source that fails loads in a generation and fails
+ * there.
+ *
+ * A change of what the current generation loaded (its fingerprint: the
+ * installation and every workspace's source), a reload, or a generation
+ * that died, starts a candidate generation. The switch:
+ *
+ * 1. The candidate loads every registered workspace up to engines not
+ *    yet started. One that does not load is an error, and nothing
+ *    switches: the current generation keeps running. (At boot, with none
+ *    running, a workspace that does not load is reported failed and the
+ *    rest run.) A candidate that fails is not tried again for the same
+ *    fingerprint, so a broken edit is not reloaded in a loop.
+ * 2. The current generation retires: it starts no tick and delivers no
+ *    change again, hands its queued runs to the candidate and lets its
+ *    parked runs go, and goes on with the runs still running there.
+ * 3. The candidate starts its engines, which takes over the parked and
+ *    queued work, and is current from then on. The retired one exits
+ *    once its last run has ended; several may be alive at once.
+ *
+ * A run is owned by the process of the generation running it, so a
+ * command about a run goes to that generation, and an answer to the one
+ * holding the question. A generation that dies leaves its runs to the
+ * next engine start's crash recovery: the daemon starts one.
  */
 
 export interface DaemonOptions {
+  /** The generation entry to spawn; the one beside this module when omitted. */
+  readonly generationEntry?: string;
   readonly layout: Layout;
   readonly print?: (line: string) => void;
-  /** The worker entry to spawn; the one beside this module when omitted. */
-  readonly workerEntry?: string;
 }
 
 export interface Daemon {
@@ -62,88 +111,88 @@ export interface Daemon {
   readonly socket: string;
 }
 
-/** How long a worker gets to answer `stop`, and then to exit, before it is killed. */
-const STOP_TIMEOUT_MS = WORKER_STOP_TIMEOUT_MS;
-/** How long a client waits for a worker to come up. */
+/** How long a generation gets to answer `stop`, and then to exit, before it is killed. */
+const STOP_TIMEOUT_MS = GENERATION_STOP_TIMEOUT_MS;
+/** How long a generation gets to register, load and start. */
 const READY_TIMEOUT_MS = 120_000;
-/** Source edits arrive in bursts; one restart serves them all. */
-const RELOAD_DEBOUNCE_MS = 500;
-/** Lines of a worker's stderr kept to explain a failure. */
+/** Source edits arrive in bursts; one switch serves them all. */
+const SWITCH_DEBOUNCE_MS = 500;
+/** How often the fingerprint's sources are digested again. */
+const SOURCE_POLL_MS = 1000;
+/** How often the installation, many more files, is digested again. */
+const INSTALLATION_POLL_MS = 5000;
+/** A current generation that dies sooner than this after taking over is not replaced on its own. */
+const SETTLE_MS = 5000;
+/** Lines of a generation's stderr kept to explain a failure. */
 const STDERR_TAIL = 20;
 /** How often the daemon checks that the claim at the state root is still its own. */
 const CLAIM_CHECK_MS = 5000;
 
-function workerEntry(): string {
+function generationEntry(): string {
   return fileURLToPath(
     new URL(
-      import.meta.url.endsWith(".ts") ? "./worker.ts" : "./worker.js",
+      import.meta.url.endsWith(".ts") ? "./generation.ts" : "./generation.js",
       import.meta.url
     )
   );
 }
 
-interface Worker {
+/** One engine subprocess, from its spawn to its exit. */
+interface Generation {
   channel?: Channel;
-  child?: ChildProcess;
-  /** Resolves when the child exits; replaced with each spawn. */
-  exited: Promise<void>;
-  /** Handles what the running worker notifies; bound by each spawn. */
-  onNotification?: (method: string, params: unknown) => void;
-  /** What a client asking for the workspace waits on: the next worker to come up. */
-  ready: Ready;
-  reloadTimer?: ReturnType<typeof setTimeout>;
-  /** Handed to the next worker spawned, once: it posts the setup milestone. */
-  setup?: SetupDraftParams;
-  readonly source: string;
-  stopping?: Promise<void>;
-  summary: WorkspaceSummary;
+  readonly child: ChildProcess;
+  /** Set once it has exited: why, when it was not a clean exit. */
+  exit?: { readonly clean: boolean; readonly why: string };
+  /** Resolves when the child exits, or never started. */
+  readonly exited: Promise<void>;
+  /** What it loaded: compared with what is there now to decide a switch. */
+  readonly fingerprint: Fingerprint;
+  /** The workspaces it hosts, by id. */
+  readonly hosts: Set<string>;
+  /** Its process, as it reported it once it loaded. */
+  identity?: ProcessIdentity;
+  readonly number: number;
+  readonly registered: PromiseWithResolvers<Channel>;
+  role: "candidate" | "current" | "retiring";
+  /** When it became current. */
+  since?: number;
   /** Last lines of stderr, for a failure's explanation. */
   readonly tail: string[];
-  /** What the worker spawned last says when it dials in. */
-  token?: string;
-  wanted: "running" | "stopped";
+  readonly token: string;
 }
 
-/** A worker's readiness, settled once; the next start or reload replaces a settled one. */
-interface Ready {
-  readonly promise: Promise<WorkspaceSummary>;
-  reject(error: Error): void;
-  resolve(summary: WorkspaceSummary): void;
-  settled: boolean;
-}
-
-function pendingReady(): Ready {
-  let resolvePromise: (summary: WorkspaceSummary) => void = () => undefined;
-  let rejectPromise: (error: Error) => void = () => undefined;
-  const promise = new Promise<WorkspaceSummary>((resolve, reject) => {
-    resolvePromise = resolve;
-    rejectPromise = reject;
-  });
-  // A failure nobody awaits must not be an unhandled rejection.
-  promise.catch(() => undefined);
-  const ready: Ready = {
-    promise,
-    reject(error) {
-      if (!ready.settled) {
-        ready.settled = true;
-        rejectPromise(error);
-      }
-    },
-    resolve(summary) {
-      if (!ready.settled) {
-        ready.settled = true;
-        resolvePromise(summary);
-      }
-    },
-    settled: false,
-  };
-  return ready;
+/** A workspace the Marbles process hosts, as clients see it. */
+interface Hosted {
+  /** Handed to the generation that next starts it: it posts the setup milestone. */
+  setup?: SetupDraftParams;
+  /** Where its source is, or would be. */
+  readonly source: string;
+  summary: WorkspaceSummary;
 }
 
 interface Client {
   readonly channel: Channel;
   readonly subscriptions: Set<string>;
 }
+
+/** Workspace methods about one run: answered by the generation that runs it. */
+const RUN_METHODS = new Set<string>([
+  WORKSPACE_METHODS.cancel,
+  WORKSPACE_METHODS.cancelRun,
+  WORKSPACE_METHODS.getRun,
+  WORKSPACE_METHODS.pause,
+  WORKSPACE_METHODS.resume,
+  WORKSPACE_METHODS.steer,
+]);
+
+/** Workspace methods that begin work; the rest read, steer, or end it. */
+const DISPATCHING = new Set<string>([
+  WORKSPACE_METHODS.dispatchAgent,
+  WORKSPACE_METHODS.dispatchWorkflow,
+  WORKSPACE_METHODS.launch,
+  WORKSPACE_METHODS.resume,
+  WORKSPACE_METHODS.roll,
+]);
 
 function timeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -164,6 +213,10 @@ function lines(onLine: (line: string) => void): (chunk: Buffer) => void {
       newline = buffer.indexOf("\n");
     }
   };
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -187,10 +240,23 @@ async function everyOf<T>(
   }
 }
 
+/** Signal the process group `child` leads; a group already gone is fine. */
+function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (child.pid === undefined) {
+    return;
+  }
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    // Gone already, or never a group leader: signal the child itself.
+    child.kill(signal);
+  }
+}
+
 export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const { layout } = options;
   const print = options.print ?? (() => undefined);
-  const entry = options.workerEntry ?? workerEntry();
+  const script = options.generationEntry ?? generationEntry();
   mkdirSync(layout.state, { recursive: true });
   const claim: ProcessInstance = claimProcess(layout.state, {
     artifacts: layout.artifacts,
@@ -216,14 +282,22 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     database: database.database,
     state: layout.state,
   });
-  const workers = new Map<string, Worker>();
+  const records = new GenerationRecords({ database: database.database });
+  const hosted = new Map<string, Hosted>();
+  const generations = new Set<Generation>();
+  let current: Generation | undefined;
   const clients = new Set<Client>();
-  /** Every open connection, clients and workers alike: closing destroys them. */
+  /** Every open connection, clients and generations alike: closing destroys them. */
   const sockets = new Set<Socket>();
   const { startedAt } = claim;
   let closing: Promise<void> | undefined;
   /** Set once a shutdown is asked for: nothing new starts from then on. */
   let stopping = false;
+  /** The fingerprint the last candidate that did not load was given: not tried again on its own. */
+  let refused: string | undefined;
+  let installation = installationDigest(script, version);
+  let installationAt = Date.now();
+  let switchTimer: ReturnType<typeof setTimeout> | undefined;
 
   const hello: HelloResult = {
     artifacts: layout.artifacts,
@@ -234,342 +308,61 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     version,
   };
 
-  function publish(worker: Worker): void {
+  function publish(workspace: Hosted): void {
     for (const client of clients) {
-      if (client.subscriptions.has(worker.summary.id)) {
-        client.channel.notify(CLIENT_NOTIFICATIONS.workspace, worker.summary);
+      if (client.subscriptions.has(workspace.summary.id)) {
+        client.channel.notify(
+          CLIENT_NOTIFICATIONS.workspace,
+          workspace.summary
+        );
       }
     }
   }
 
   function setState(
-    worker: Worker,
+    workspace: Hosted,
     state: WorkspaceSummary["state"],
-    error?: string
+    changes: { readonly error?: string; readonly pid?: number } = {}
   ): void {
-    const { error: _dropped, ...rest } = worker.summary;
-    // A repeat of the state already shown is nothing new for subscribers:
-    // the exit handler and the stop that waited on it both say "stopped".
-    const same =
-      worker.summary.state === state && worker.summary.error === error;
-    worker.summary = {
+    const { error: _error, pid: _pid, ...rest } = workspace.summary;
+    const pid = changes.pid ?? workspace.summary.pid;
+    const next: WorkspaceSummary = {
       ...rest,
-      ...(error === undefined ? {} : { error }),
+      ...(changes.error === undefined ? {} : { error: changes.error }),
+      ...(pid === undefined || state === "stopped" ? {} : { pid }),
       state,
     };
+    const same =
+      workspace.summary.state === next.state &&
+      workspace.summary.error === next.error &&
+      workspace.summary.pid === next.pid;
+    workspace.summary = next;
     if (!same) {
-      publish(worker);
+      publish(workspace);
     }
   }
 
-  function forwardLine(worker: Worker, line: string): void {
-    print(`[${worker.summary.id}] ${line}`);
+  function forwardLine(id: string | undefined, line: string): void {
+    print(`[${id ?? "marbles"}] ${line}`);
+    if (id === undefined) {
+      return;
+    }
     for (const client of clients) {
-      if (client.subscriptions.has(worker.summary.id)) {
-        client.channel.notify(CLIENT_NOTIFICATIONS.line, {
-          id: worker.summary.id,
-          line,
-        });
+      if (client.subscriptions.has(id)) {
+        client.channel.notify(CLIENT_NOTIFICATIONS.line, { id, line });
       }
     }
-  }
-
-  /** The worker spawned for `token` dialed in: bind its channel. */
-  function register(token: string, channel: Channel): Worker {
-    const worker = [...workers.values()].find(
-      (candidate) => candidate.token === token
-    );
-    if (!worker) {
-      throw new Error("no worker was spawned with this token");
-    }
-    worker.channel = channel;
-    return worker;
-  }
-
-  function onWorkerNotification(
-    worker: Worker,
-    method: string,
-    params: unknown
-  ): void {
-    if (method === WORKER_NOTIFICATIONS.line) {
-      const parsed = lineParamsSchema.safeParse(params);
-      if (parsed.success) {
-        forwardLine(worker, parsed.data.line);
-      }
-      return;
-    }
-    if (method === WORKER_NOTIFICATIONS.ready) {
-      const parsed = readyParamsSchema.safeParse(params);
-      // Only a starting worker comes up: one told to stop while it was
-      // starting may still announce itself on the way out.
-      if (!parsed.success || worker.summary.state !== "starting") {
-        return;
-      }
-      worker.summary = {
-        ...worker.summary,
-        config: parsed.data.config,
-        id: parsed.data.id,
-        root: parsed.data.root,
-      };
-      // The starter's milestone is this worker's to post now; a worker that
-      // failed before this point left the draft for the next one.
-      worker.setup = undefined;
-      setState(worker, "ready");
-      worker.ready.resolve(worker.summary);
-      return;
-    }
-    if (method === WORKER_NOTIFICATIONS.sourceChanged) {
-      scheduleReload(worker);
-    }
-  }
-
-  function onWorkerExit(
-    worker: Worker,
-    child: ChildProcess,
-    code: number | null,
-    signalCode: string | null
-  ): void {
-    if (worker.child !== child) {
-      return;
-    }
-    worker.child = undefined;
-    worker.channel = undefined;
-    if (worker.wanted === "stopped") {
-      setState(worker, "stopped");
-      worker.ready.reject(new Error("the worker was stopped"));
-      return;
-    }
-    if (worker.summary.state === "reloading") {
-      // A drained worker exits; the fresh one takes over.
-      start(worker).catch(() => undefined);
-      return;
-    }
-    const why =
-      worker.tail.length > 0
-        ? worker.tail.join("\n")
-        : `exit ${code === null ? `signal ${String(signalCode)}` : String(code)}`;
-    print(`[${worker.summary.id}] worker failed: ${why}`);
-    setState(worker, "failed", why);
-    worker.ready.reject(new Error(why));
-  }
-
-  /** The worker could not be spawned at all: its root is gone, or the runtime is. */
-  function onSpawnFailure(
-    worker: Worker,
-    child: ChildProcess,
-    error: Error
-  ): void {
-    if (worker.child !== child) {
-      return;
-    }
-    worker.child = undefined;
-    worker.channel = undefined;
-    const why = `the worker did not start: ${error.message}`;
-    print(`[${worker.summary.id}] ${why}`);
-    if (worker.wanted === "stopped") {
-      setState(worker, "stopped");
-    } else {
-      setState(worker, "failed", why);
-    }
-    worker.ready.reject(new Error(why));
-  }
-
-  function start(worker: Worker): Promise<WorkspaceSummary> {
-    worker.tail.length = 0;
-    // A reload already promised this worker to whoever waits; keep that promise.
-    if (worker.ready.settled) {
-      worker.ready = pendingReady();
-    }
-    setState(worker, "starting");
-    const token = crypto.randomUUID();
-    const child = spawn(
-      runtime(),
-      [
-        ...RUNTIME_FLAGS,
-        entry,
-        "--source",
-        worker.source,
-        "--root",
-        worker.summary.root,
-        "--socket",
-        layout.socket,
-        "--token",
-        token,
-        ...(worker.setup === undefined
-          ? []
-          : ["--setup", JSON.stringify(worker.setup)]),
-      ],
-      {
-        cwd: worker.summary.root,
-        // The worker keeps everything under this daemon's Foundry home,
-        // and records there what it starts, for the next start to recover.
-        env: {
-          ...process.env,
-          FOUNDRY_HOME: layout.home,
-          [SPAWN_RECOVERY_ENV]: layout.spawned,
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-      }
-    );
-    worker.child = child;
-    worker.token = token;
-    worker.summary = { ...worker.summary, pid: child.pid ?? -1 };
-    worker.exited = new Promise<void>((resolve) => {
-      child.once("exit", (code, signalCode) => {
-        resolve();
-        onWorkerExit(worker, child, code, signalCode);
-      });
-      child.on("error", (error) => {
-        // A child that never started has no pid and emits no `exit`.
-        if (child.pid !== undefined) {
-          print(`[${worker.summary.id}] worker: ${error.message}`);
-          return;
-        }
-        resolve();
-        onSpawnFailure(worker, child, error);
-      });
-    });
-    child.stderr?.on(
-      "data",
-      lines((line) => {
-        worker.tail.push(line);
-        if (worker.tail.length > STDERR_TAIL) {
-          worker.tail.shift();
-        }
-        forwardLine(worker, line);
-      })
-    );
-    child.stdout?.on(
-      "data",
-      lines((line) => forwardLine(worker, line))
-    );
-    worker.onNotification = (method, params) =>
-      onWorkerNotification(worker, method, params);
-    // Once the child is the worker's; it never throws. Never a recovery
-    // record: a worker whose daemon is gone drains its runs and exits.
-    recordSpawned(child.pid, false, {
-      ...process.env,
-      [SPAWN_RECOVERY_ENV]: undefined,
-    });
-    return worker.ready.promise;
-  }
-
-  function scheduleReload(worker: Worker): void {
-    if (worker.wanted === "stopped") {
-      return;
-    }
-    clearTimeout(worker.reloadTimer);
-    worker.reloadTimer = setTimeout(() => {
-      worker.reloadTimer = undefined;
-      restart(worker).catch(() => undefined);
-    }, RELOAD_DEBOUNCE_MS);
-  }
-
-  /** Drain the running worker; its exit starts the next one. */
-  async function restart(worker: Worker): Promise<WorkspaceSummary> {
-    if (worker.wanted === "stopped") {
-      throw new Error(`workspace ${worker.summary.id} is stopped`);
-    }
-    if (!worker.child) {
-      return start(worker);
-    }
-    if (worker.summary.state === "reloading") {
-      return worker.ready.promise;
-    }
-    print(`[${worker.summary.id}] source changed · reloading`);
-    // From here on, whoever asks waits for the fresh worker, not this one.
-    if (worker.ready.settled) {
-      worker.ready = pendingReady();
-    }
-    const next = worker.ready.promise;
-    setState(worker, "reloading");
-    // The exit handler spawns the fresh worker, which settles `next`.
-    await drain(worker);
-    return next;
-  }
-
-  async function drain(worker: Worker): Promise<void> {
-    // This child's exit: a reload's exit handler replaces `worker.exited`.
-    const { channel, child, exited } = worker;
-    if (!child) {
-      return;
-    }
-    try {
-      if (channel?.open) {
-        // The worker exits right after it answers; either is a clean stop.
-        await timeout(
-          Promise.race([channel.request(WORKER_METHODS.stop), exited]),
-          STOP_TIMEOUT_MS,
-          "stopping the worker"
-        );
-      } else {
-        // Not registered yet, so it has claimed nothing: end it now rather
-        // than wait for it to come up.
-        child.kill("SIGTERM");
-      }
-      await timeout(exited, STOP_TIMEOUT_MS, "the worker's exit");
-    } catch (error) {
-      try {
-        print(
-          `[${worker.summary.id}] ${error instanceof Error ? error.message : String(error)}; killing it`
-        );
-      } finally {
-        // Killed even when saying so fails. SIGTERM would only ask it to
-        // drain again.
-        child.kill("SIGKILL");
-        await exited;
-      }
-    }
-  }
-
-  async function stopWorker(worker: Worker): Promise<void> {
-    worker.wanted = "stopped";
-    clearTimeout(worker.reloadTimer);
-    worker.stopping ??= drain(worker);
-    await worker.stopping;
-    setState(worker, "stopped");
-    worker.ready.reject(new Error("the worker was stopped"));
-  }
-
-  /** Attach to the worker already hosting the workspace: from the same source only. */
-  function reuse(
-    existing: Worker,
-    configPath: string,
-    setup?: SetupDraftParams
-  ): Worker {
-    if (existing.source !== configPath) {
-      throw new Error(
-        `workspace ${existing.summary.id} is hosted from ${existing.source}; detach it first`
-      );
-    }
-    if (setup !== undefined) {
-      existing.setup = setup;
-      restart(existing).catch(() => undefined);
-    } else if (existing.summary.state === "failed") {
-      restart(existing).catch(() => undefined);
-    }
-    return existing;
   }
 
   /**
-   * Attach and detach take turns per workspace, across the record write and
-   * the change to `workers`, so neither acts on a map the other changed
-   * while it waited for the write. A turn's entry goes once it is the last.
+   * Every turn that changes which generation hosts what takes this one
+   * queue: attach, detach, and switches, so none acts on a set another
+   * changed while it waited.
    */
-  const turns = new Map<string, Promise<void>>();
-
-  function inTurn<T>(id: string, work: () => Promise<T>): Promise<T> {
-    const next = (turns.get(id) ?? Promise.resolve()).then(work);
-    const done = next.then(
-      () => undefined,
-      () => undefined
-    );
-    turns.set(id, done);
-    done.then(() => {
-      if (turns.get(id) === done) {
-        turns.delete(id);
-      }
-    });
+  let turn: Promise<unknown> = Promise.resolve();
+  function inTurn<T>(work: () => Promise<T>): Promise<T> {
+    const next = turn.then(work);
+    turn = next.catch(() => undefined);
     return next;
   }
 
@@ -581,17 +374,586 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
   }
 
+  /** Ask `generation`, failing as soon as it exits. */
+  function ask(
+    generation: Generation,
+    method: string,
+    params?: unknown
+  ): Promise<unknown> {
+    const { channel } = generation;
+    if (generation.exit !== undefined || !channel?.open) {
+      return Promise.reject(
+        new Error(
+          `engine generation ${String(generation.number)} is gone${generation.exit ? `: ${generation.exit.why}` : ""}`
+        )
+      );
+    }
+    return Promise.race([
+      channel.request(method, params),
+      generation.exited.then(() => {
+        throw new Error(
+          `engine generation ${String(generation.number)} exited: ${generation.exit?.why ?? "unknown"}`
+        );
+      }),
+    ]);
+  }
+
+  function spawnGeneration(
+    number: number,
+    fingerprint: Fingerprint
+  ): Generation {
+    const token = crypto.randomUUID();
+    const child = spawn(
+      runtime(),
+      [...RUNTIME_FLAGS, script, "--socket", layout.socket, "--token", token],
+      {
+        cwd: layout.state,
+        // A group of its own: a forced stop ends it and what it started.
+        detached: true,
+        // The generation keeps everything under this daemon's Foundry
+        // home, and records there what it starts, for the next start to
+        // recover.
+        env: {
+          ...process.env,
+          FOUNDRY_HOME: layout.home,
+          [SPAWN_RECOVERY_ENV]: layout.spawned,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
+    const generation: Generation = {
+      child,
+      exited: Promise.resolve(),
+      fingerprint,
+      hosts: new Set(),
+      number,
+      registered: Promise.withResolvers<Channel>(),
+      role: "candidate",
+      tail: [],
+      token,
+    };
+    generation.registered.promise.catch(() => undefined);
+    const exited = new Promise<void>((resolve) => {
+      child.once("exit", (code, signal) => {
+        const clean = code === 0;
+        const why =
+          generation.tail.length > 0 && !clean
+            ? generation.tail.join("\n")
+            : `exit ${code === null ? `signal ${String(signal)}` : String(code)}`;
+        onExit(generation, { clean, why });
+        resolve();
+      });
+      child.on("error", (error) => {
+        // A child that never started has no pid and emits no `exit`.
+        if (child.pid !== undefined) {
+          print(`[generation ${String(number)}] ${error.message}`);
+          return;
+        }
+        onExit(generation, {
+          clean: false,
+          why: `the generation did not start: ${error.message}`,
+        });
+        resolve();
+      });
+    });
+    (generation as { exited: Promise<void> }).exited = exited;
+    const prefix = `[generation ${String(number)}]`;
+    child.stderr?.on(
+      "data",
+      lines((line) => {
+        generation.tail.push(line);
+        if (generation.tail.length > STDERR_TAIL) {
+          generation.tail.shift();
+        }
+        print(`${prefix} ${line}`);
+      })
+    );
+    child.stdout?.on(
+      "data",
+      lines((line) => print(`${prefix} ${line}`))
+    );
+    generations.add(generation);
+    // Once the child is the daemon's; it never throws. Never a recovery
+    // record: a generation whose daemon is gone drains its runs and exits.
+    recordSpawned(child.pid, true, {
+      ...process.env,
+      [SPAWN_RECOVERY_ENV]: undefined,
+    });
+    return generation;
+  }
+
+  function onExit(
+    generation: Generation,
+    exit: { readonly clean: boolean; readonly why: string }
+  ): void {
+    if (generation.exit !== undefined) {
+      return;
+    }
+    generation.exit = exit;
+    generation.channel = undefined;
+    generation.registered.reject(new Error(exit.why));
+    generations.delete(generation);
+    records
+      .mark(
+        generation.number,
+        generation.role === "candidate" && !exit.clean ? "failed" : "exited",
+        exit.clean ? undefined : exit.why
+      )
+      .catch((error: unknown) =>
+        print(
+          `[marbles] generation ${String(generation.number)}: ${message(error)}`
+        )
+      );
+    if (closing !== undefined || stopping) {
+      return;
+    }
+    if (generation === current) {
+      onCurrentExit(generation, exit.why);
+    } else if (generation.role === "retiring" && !exit.clean) {
+      // Its runs and claims are a gone process's now: the next engine
+      // start's recovery puts them right.
+      print(
+        `[marbles] retired engine generation ${String(generation.number)} died: ${exit.why}`
+      );
+      scheduleSwitch("a retired engine generation died", { force: true });
+    }
+  }
+
+  /** The current generation is gone: its workspaces fail until another takes over. */
+  function onCurrentExit(generation: Generation, why: string): void {
+    current = undefined;
+    print(
+      `[marbles] engine generation ${String(generation.number)} exited: ${why}`
+    );
+    for (const id of generation.hosts) {
+      const workspace = hosted.get(id);
+      if (workspace !== undefined) {
+        setState(workspace, "failed", { error: why });
+      }
+    }
+    // A generation that dies soon after it took over is not started again
+    // as it was: a change to what it loaded, or a reload, brings one back.
+    if (Date.now() - (generation.since ?? 0) >= SETTLE_MS) {
+      scheduleSwitch("the engine generation exited", { force: true });
+    } else {
+      refused = generation.fingerprint.digest;
+    }
+  }
+
+  /** The generation spawned for `token` dialed in: bind its channel. */
+  function register(token: string, channel: Channel): Generation {
+    const generation = [...generations].find(
+      (candidate) => candidate.token === token
+    );
+    if (generation === undefined) {
+      throw new Error("no engine generation was spawned with this token");
+    }
+    generation.channel = channel;
+    generation.registered.resolve(channel);
+    return generation;
+  }
+
+  function onGenerationNotification(
+    generation: Generation,
+    method: string,
+    params: unknown
+  ): void {
+    if (method !== GENERATION_NOTIFICATIONS.line) {
+      return;
+    }
+    const parsed = lineParamsSchema.safeParse(params);
+    if (!parsed.success) {
+      return;
+    }
+    const { line, root } = parsed.data;
+    if (root === undefined) {
+      print(`[generation ${String(generation.number)}] ${line}`);
+      return;
+    }
+    forwardLine(loadedId({ root }), line);
+  }
+
   /**
-   * The worker hosting the source's workspace: the one already running it,
-   * or a new one, recorded as hosted before it is listed or started, so
-   * whoever waits for it to be ready finds the record. A write that fails
-   * fails the attach and lists nothing.
+   * End `generation`: ask it to drain and exit, and kill it and its
+   * process group when it does not answer, or does not exit, in time.
+   */
+  async function stopGeneration(generation: Generation): Promise<void> {
+    const { child, exited } = generation;
+    if (generation.exit !== undefined) {
+      return;
+    }
+    try {
+      if (generation.channel?.open) {
+        // It exits right after it answers; either is a clean stop.
+        await timeout(
+          Promise.race([
+            generation.channel.request(GENERATION_METHODS.stop),
+            exited,
+          ]),
+          STOP_TIMEOUT_MS,
+          `stopping engine generation ${String(generation.number)}`
+        );
+      } else {
+        // Not registered yet, so it holds nothing: end it now rather
+        // than wait for it to come up.
+        signalGroup(child, "SIGTERM");
+      }
+      await timeout(
+        exited,
+        STOP_TIMEOUT_MS,
+        `engine generation ${String(generation.number)}'s exit`
+      );
+    } catch (error) {
+      try {
+        print(`[marbles] ${message(error)}; killing it`);
+      } finally {
+        // Killed even when saying so fails, with everything in its group.
+        // SIGTERM would only ask it to drain again.
+        signalGroup(child, "SIGKILL");
+        await exited;
+      }
+    }
+  }
+
+  function summaryOf(record: WorkspaceRecord): Hosted {
+    return {
+      source: record.config ?? join(record.root, DEFAULT_SOURCE),
+      summary: {
+        config: record.config,
+        id: record.id,
+        root: record.root,
+        state: "starting",
+      },
+    };
+  }
+
+  /** What would be loaded now, with the installation read again only every so often. */
+  async function fingerprintNow(): Promise<Fingerprint> {
+    if (Date.now() - installationAt >= INSTALLATION_POLL_MS) {
+      installation = installationDigest(script, version);
+      installationAt = Date.now();
+    }
+    const registered = (await registry.list()).filter((each) => each.hosted);
+    return fingerprintOf(installation, sourceDigests(registered));
+  }
+
+  /**
+   * The id a load reported, or the hosted workspace's at its root: a root
+   * that is gone cannot be resolved to one.
+   */
+  function loadedId(load: WorkspaceLoadResult): string | undefined {
+    return (
+      load.id ??
+      [...hosted.values()].find(
+        (workspace) =>
+          resolvePath(workspace.summary.root) === resolvePath(load.root)
+      )?.summary.id
+    );
+  }
+
+  /**
+   * Bring up a new generation and make it current, as the module doc
+   * says. Rejects, switching nothing, when the candidate does not load
+   * every registered workspace while another generation is current.
+   */
+  function switchGenerations(
+    reason: string,
+    setups: Readonly<Record<string, SetupDraftParams>> = {},
+    wanted: () => Promise<boolean> = () => Promise.resolve(true)
+  ): Promise<void> {
+    return inTurn(async () => {
+      refuseWhileStopping();
+      // Decided in the turn: a switch that ran while this one waited may
+      // have loaded, or been refused, what it was asked for.
+      if (await wanted()) {
+        await runSwitch(reason, setups);
+      }
+    });
+  }
+
+  async function runSwitch(
+    reason: string,
+    setups: Readonly<Record<string, SetupDraftParams>>
+  ): Promise<void> {
+    const previous = current;
+    const fingerprint = await announceSwitch(previous);
+    // Numbered before its spawn, so a crash in between leaves a row.
+    const number = await records.begin(fingerprint.digest);
+    // In the same turn as the spawn: a close that began meanwhile has
+    // stopped every generation it would see, and must not miss this one.
+    refuseWhileStopping();
+    const candidate = spawnGeneration(number, fingerprint);
+    print(`[marbles] engine generation ${String(number)} starting: ${reason}`);
+    if (candidate.child.pid !== undefined) {
+      await records.spawned(number, candidate.child.pid);
+    }
+    let loaded: LoadResult;
+    try {
+      loaded = await loadCandidate(candidate, previous);
+    } catch (error) {
+      refused = fingerprint.digest;
+      await refuse(candidate, previous, error);
+      throw error;
+    }
+    if (previous !== undefined) {
+      await retire(previous, loaded.identity);
+    }
+    let started: readonly WorkspaceLoadResult[];
+    try {
+      started = startResultSchema.parse(
+        await timeout(
+          ask(candidate, GENERATION_METHODS.start, { setups }),
+          READY_TIMEOUT_MS,
+          "starting the workspaces"
+        )
+      ).loads;
+    } catch (error) {
+      await refuse(candidate, undefined, error);
+      throw error;
+    }
+    candidate.role = "current";
+    candidate.since = Date.now();
+    current = candidate;
+    await records.mark(number, "current");
+    showLoads(candidate, [
+      ...started,
+      ...loaded.loads.filter((each) => each.error !== undefined),
+    ]);
+    print(`[marbles] engine generation ${String(number)} is current`);
+  }
+
+  /**
+   * List every registered workspace, show each the switch changes as
+   * starting or reloading, and say what the candidate will load.
+   */
+  async function announceSwitch(
+    previous: Generation | undefined
+  ): Promise<Fingerprint> {
+    const registered = (await registry.list()).filter((each) => each.hosted);
+    installation = installationDigest(script, version);
+    installationAt = Date.now();
+    const fingerprint = fingerprintOf(installation, sourceDigests(registered));
+    for (const record of registered) {
+      const workspace = hosted.get(record.id) ?? summaryOf(record);
+      hosted.set(record.id, workspace);
+      const changed =
+        previous?.fingerprint.sources.get(record.id) !==
+        fingerprint.sources.get(record.id);
+      if (previous === undefined || changed) {
+        setState(
+          workspace,
+          previous?.hosts.has(record.id) ? "reloading" : "starting"
+        );
+      }
+    }
+    return fingerprint;
+  }
+
+  /**
+   * The candidate registered and loaded every registered workspace, or
+   * the reason it cannot take over: one did not load while `previous`
+   * runs them.
+   */
+  async function loadCandidate(
+    candidate: Generation,
+    previous: Generation | undefined
+  ): Promise<LoadResult> {
+    await timeout(
+      Promise.race([
+        candidate.registered.promise,
+        candidate.exited.then(() => {
+          throw new Error(candidate.exit?.why ?? "it exited");
+        }),
+      ]),
+      READY_TIMEOUT_MS,
+      "starting the engine generation"
+    );
+    const loaded = loadResultSchema.parse(
+      await timeout(
+        ask(candidate, GENERATION_METHODS.load),
+        READY_TIMEOUT_MS,
+        "loading the workspaces"
+      )
+    );
+    candidate.identity = loaded.identity;
+    await records.identify(candidate.number, loaded.identity.started);
+    const failed = loaded.loads.filter((load) => load.error !== undefined);
+    if (previous !== undefined && failed.length > 0) {
+      throw new CandidateError(failed);
+    }
+    return loaded;
+  }
+
+  /** `previous` hands what is not running to `successor`, and finishes the rest. */
+  async function retire(
+    previous: Generation,
+    successor: ProcessIdentity
+  ): Promise<void> {
+    previous.role = "retiring";
+    await records.mark(previous.number, "retiring");
+    try {
+      await timeout(
+        ask(previous, GENERATION_METHODS.retire, { successor }),
+        STOP_TIMEOUT_MS,
+        `retiring engine generation ${String(previous.number)}`
+      );
+    } catch (error) {
+      // One that cannot retire is stopped; what it held then is a gone
+      // process's, which the candidate's start recovers.
+      print(`[marbles] ${message(error)}; stopping it`);
+      await stopGeneration(previous);
+    }
+  }
+
+  /** Show each workspace as `generation`, now current, loaded it. */
+  function showLoads(
+    generation: Generation,
+    loads: readonly WorkspaceLoadResult[]
+  ): void {
+    const pid = generation.child.pid ?? -1;
+    for (const load of loads) {
+      const id = loadedId(load);
+      const workspace = id === undefined ? undefined : hosted.get(id);
+      if (id === undefined || workspace === undefined) {
+        continue;
+      }
+      if (load.error === undefined) {
+        generation.hosts.add(id);
+        workspace.setup = undefined;
+        setState(workspace, "ready", { pid });
+      } else {
+        setState(workspace, "failed", { error: load.error });
+      }
+    }
+  }
+
+  /**
+   * A candidate that did not come up: stopped, recorded failed, and each
+   * workspace told why, the ones the current generation still runs left
+   * running.
+   */
+  async function refuse(
+    candidate: Generation,
+    previous: Generation | undefined,
+    error: unknown
+  ): Promise<void> {
+    const why = message(error);
+    print(
+      `[marbles] engine generation ${String(candidate.number)} did not take over: ${why}`
+    );
+    const failures =
+      error instanceof CandidateError
+        ? new Map(error.loads.map((load) => [loadedId(load), load.error]))
+        : undefined;
+    for (const workspace of hosted.values()) {
+      const own =
+        failures === undefined ? why : failures.get(workspace.summary.id);
+      tellRefused(workspace, previous, own, why);
+    }
+    await stopGeneration(candidate);
+    await records.mark(candidate.number, "failed", why).catch(() => undefined);
+  }
+
+  /**
+   * Tell `workspace` the candidate did not take over: one `previous` still
+   * runs stays ready, saying the change did not load, in its summary and
+   * to whoever follows its lines; one that was coming up has failed.
+   */
+  function tellRefused(
+    workspace: Hosted,
+    previous: Generation | undefined,
+    own: string | undefined,
+    why: string
+  ): void {
+    const { id, state } = workspace.summary;
+    if (previous?.hosts.has(id)) {
+      if (own === undefined) {
+        setState(workspace, "ready");
+        return;
+      }
+      const said = `a change did not load, so the previous load still runs: ${own}`;
+      setState(workspace, "ready", { error: said });
+      forwardLine(id, said);
+    } else if (state === "starting" || state === "reloading") {
+      setState(workspace, "failed", { error: own ?? why });
+    }
+  }
+
+  /** A switch soon, once the edits that asked for it have settled. */
+  function scheduleSwitch(
+    reason: string,
+    { force = false }: { readonly force?: boolean } = {}
+  ): void {
+    if (stopping) {
+      return;
+    }
+    clearTimeout(switchTimer);
+    switchTimer = setTimeout(() => {
+      switchTimer = undefined;
+      // Nothing new since the current generation loaded, or since a
+      // candidate refused it: no switch, unless one is needed whatever
+      // the sources say.
+      const wanted = async (): Promise<boolean> => {
+        if (force) {
+          return true;
+        }
+        const now = await fingerprintNow();
+        return (
+          now.digest !== current?.fingerprint.digest && now.digest !== refused
+        );
+      };
+      switchGenerations(reason, {}, wanted).catch((error: unknown) => {
+        print(`[marbles] no switch: ${message(error)}`);
+      });
+    }, SWITCH_DEBOUNCE_MS);
+  }
+
+  /** Poll what the current generation loaded; a change asks for a switch. */
+  let polling = false;
+  const poll = setInterval(() => {
+    if (polling || stopping || switchTimer !== undefined) {
+      return;
+    }
+    polling = true;
+    (async () => {
+      const now = await fingerprintNow();
+      // With none current, any change to what is registered is worth a
+      // try, unless it is what was refused last.
+      const loaded = current?.fingerprint.digest;
+      if (
+        (loaded !== undefined || hosted.size > 0) &&
+        now.digest !== loaded &&
+        now.digest !== refused
+      ) {
+        for (const [id, digest] of now.sources) {
+          if (
+            current !== undefined &&
+            current.fingerprint.sources.get(id) !== digest
+          ) {
+            print(`[${id}] source changed · reloading`);
+          }
+        }
+        scheduleSwitch("a source or the installation changed");
+      }
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        polling = false;
+      });
+  }, SOURCE_POLL_MS);
+  poll.unref();
+
+  /**
+   * The workspace the source names, hosted: in the current generation at
+   * once, or by a switch when none is current. A workspace hosted already
+   * is answered from the same source only. A workspace that does not load
+   * is listed failed, and not registered unless it was before.
    */
   function attach(
     source: string,
     setup?: SetupDraftParams,
     root?: string
-  ): Promise<Worker> {
+  ): Promise<WorkspaceSummary> {
     // The client resolved the source; the daemon's own directory names nothing.
     if (!isAbsolute(source)) {
       return Promise.reject(
@@ -610,121 +972,160 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     const workspace = layout.workspace(placed);
     const config = found ? configPath : null;
-    return inTurn(workspace.id, async () => {
-      // Checked again in the turn: a shutdown that began while this attach
-      // waited has already stopped every worker it would see.
+    return inTurn(async () => {
       refuseWhileStopping();
-      // Its runs, claim and sessions would be written through the link.
+      // Its runs and sessions would be written through the link.
       if (!insideState(layout.state, workspace.id)) {
         throw new Error(
           `the state of workspace ${workspace.id} at ${workspace.dir} links out of the state root; it is not hosted`
         );
       }
-      const running = workers.get(workspace.id);
-      if (running && running.wanted === "running") {
-        return reuse(running, configPath, setup);
+      const existing = hosted.get(workspace.id);
+      if (existing !== undefined && existing.summary.state !== "stopped") {
+        const again = await attachAgain(existing, configPath, setup);
+        if (again !== undefined) {
+          return again;
+        }
       }
-      await registry.touch(workspace, config, { hosted: true });
-      refuseWhileStopping();
-      // The turn keeps every other attach and detach out; a worker drained
-      // by a detach still in its drain may have exited meanwhile.
-      const existing = workers.get(workspace.id);
-      if (existing && existing.wanted === "running") {
-        return reuse(existing, configPath, setup);
-      }
-      const worker: Worker = {
-        exited: Promise.resolve(),
-        ready: pendingReady(),
-        ...(setup === undefined ? {} : { setup }),
-        source: configPath,
-        summary: {
-          config,
-          id: workspace.id,
-          root: workspace.root,
-          state: "starting",
-        },
-        tail: [],
-        wanted: "running",
-      };
-      workers.set(workspace.id, worker);
-      // A worker being detached holds the workspace's claim until it exits,
-      // and would refuse its replacement: that one starts once it has.
-      (existing?.stopping ?? existing?.exited ?? Promise.resolve())
-        .then(() => startWaited(worker))
-        .catch(() => undefined);
-      return worker;
+      return await hostNew(workspace, config, configPath, setup);
     });
   }
 
   /**
-   * Start a worker that waited for its predecessor to exit, unless
-   * meanwhile it was stopped, replaced, or spawned by a reload.
+   * An attach of a workspace listed already: from the same source only,
+   * answered as it is unless it failed or brings a starter, which load it
+   * afresh. `undefined` when it is to be hosted as a new one.
    */
-  function startWaited(worker: Worker): Promise<unknown> {
-    const current = workers.get(worker.summary.id) === worker;
-    if (!current || worker.wanted !== "running" || worker.child) {
-      return Promise.resolve();
+  async function attachAgain(
+    existing: Hosted,
+    configPath: string,
+    setup: SetupDraftParams | undefined
+  ): Promise<WorkspaceSummary | undefined> {
+    const { id } = existing.summary;
+    if (existing.source !== configPath) {
+      throw new Error(
+        `workspace ${id} is hosted from ${existing.source}; detach it first`
+      );
     }
-    return start(worker);
+    if (setup === undefined && existing.summary.state !== "failed") {
+      return existing.summary;
+    }
+    if (!(current?.hosts.has(id) || setup !== undefined)) {
+      return;
+    }
+    // A fresh load of it, with its starter's milestone to post.
+    await runSwitch(
+      `workspace ${id} attached again`,
+      setup === undefined ? {} : { [id]: setup }
+    );
+    return existing.summary;
   }
 
-  function knownWorker(id: string): Worker {
-    const worker = workers.get(id);
-    if (!worker) {
+  /** Register a workspace and host it: in the current generation, or by a switch. */
+  async function hostNew(
+    workspace: Workspace,
+    config: string | null,
+    configPath: string,
+    setup: SetupDraftParams | undefined
+  ): Promise<WorkspaceSummary> {
+    const before = await registry.read(workspace.id);
+    await registry.touch(workspace, config, { hosted: true });
+    const entry: Hosted = {
+      ...(setup === undefined ? {} : { setup }),
+      source: configPath,
+      summary: {
+        config,
+        id: workspace.id,
+        root: workspace.root,
+        state: "starting",
+      },
+    };
+    hosted.set(workspace.id, entry);
+    publish(entry);
+    // Not registered unless it was, when it does not load: it must not
+    // keep every later generation from loading cleanly.
+    const unregister = async (): Promise<void> => {
+      if (before?.hosted !== true) {
+        await registry.unhost(workspace.id);
+      }
+    };
+    const target = current;
+    if (target === undefined) {
+      try {
+        await runSwitch(
+          `workspace ${workspace.id} attached`,
+          setup === undefined ? {} : { [workspace.id]: setup }
+        );
+      } catch (error) {
+        await unregister();
+        throw error;
+      }
+      if (entry.summary.state === "failed") {
+        await unregister();
+        throw new Error(entry.summary.error ?? "the workspace did not load");
+      }
+      return entry.summary;
+    }
+    try {
+      hostResultSchema.parse(
+        await timeout(
+          ask(target, GENERATION_METHODS.host, {
+            config,
+            root: workspace.root,
+            ...(setup === undefined ? {} : { setup }),
+          }),
+          READY_TIMEOUT_MS,
+          "starting the workspace"
+        )
+      );
+    } catch (error) {
+      await unregister();
+      setState(entry, "failed", { error: message(error) });
+      throw error;
+    }
+    target.hosts.add(workspace.id);
+    entry.setup = undefined;
+    setState(entry, "ready", { pid: target.child.pid ?? -1 });
+    return entry.summary;
+  }
+
+  function knownWorkspace(id: string): Hosted {
+    const workspace = hosted.get(id);
+    if (workspace === undefined) {
       throw new Error(`no workspace "${id}" is hosted`);
     }
-    return worker;
+    return workspace;
   }
 
   /**
-   * Drain the worker, then, in the workspace's turn, record it as not
-   * hosted and drop it. The drain stays outside the turn: an attach that
-   * lands while it runs hosts the workspace again, and this detach then
-   * leaves that one alone.
+   * Stop hosting workspace `id`: its running work in the current
+   * generation finishes, then it closes there, and it is recorded as not
+   * hosted. A detach that finds it gone already has nothing to do.
    */
-  async function detach(worker: Worker): Promise<void> {
-    const { id } = worker.summary;
-    await stopWorker(worker);
-    await inTurn(id, async () => {
-      // Gone: a detach that overlapped this one has already dropped it.
-      const detached = () => {
-        const listed = workers.get(id);
-        if (listed !== undefined && listed !== worker) {
-          throw new Error(
-            `workspace ${id} was attached again while it was being detached; it stays hosted`
-          );
-        }
-        return listed === undefined;
-      };
-      if (detached()) {
+  function detach(id: string): Promise<void> {
+    return inTurn(async () => {
+      const workspace = hosted.get(id);
+      if (workspace === undefined) {
         return;
       }
-      // The record first: a write that fails leaves the worker listed, so
-      // the detach can be retried, rather than hosted again at the next boot.
-      await registry.touch(
-        layout.workspace(worker.summary.root),
-        worker.summary.config,
-        { hosted: false }
-      );
-      if (!detached()) {
-        workers.delete(id);
+      const target = current;
+      if (target?.hosts.has(id)) {
+        await ask(target, GENERATION_METHODS.unhost, { id });
+        target.hosts.delete(id);
       }
+      // The record first: a write that fails leaves it listed, so the
+      // detach can be retried, rather than hosted again at the next boot.
+      await registry.unhost(id);
+      hosted.delete(id);
+      setState(workspace, "stopped");
     });
   }
 
-  /** Workspace methods that begin work; the rest read, steer, or end it. */
-  const DISPATCHING = new Set<string>([
-    WORKSPACE_METHODS.dispatchAgent,
-    WORKSPACE_METHODS.dispatchWorkflow,
-    WORKSPACE_METHODS.launch,
-    WORKSPACE_METHODS.resume,
-    WORKSPACE_METHODS.roll,
-  ]);
-
   /**
-   * What a stopping daemon refuses: anything that would start a worker or
-   * start work in one. Reading, answering, cancelling, and pausing stay
-   * open, so a drain that waits on a run can still be cut short.
+   * What a stopping daemon refuses: anything that would start a
+   * generation or start work in one. Reading, answering, cancelling, and
+   * pausing stay open, so a drain that waits on a run can still be cut
+   * short.
    */
   function startsWork(method: string, params: unknown): boolean {
     if (method === `${WORKSPACE_PREFIX}${WORKSPACE_METHODS.tasks}`) {
@@ -744,6 +1145,122 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     );
   }
 
+  /** The live generations hosting workspace `id`, the current one first, then newest first. */
+  function hostsOf(id: string): Generation[] {
+    return [...generations]
+      .filter(
+        (generation) =>
+          generation.role !== "candidate" &&
+          generation.exit === undefined &&
+          generation.hosts.has(id)
+      )
+      .sort((a, b) => {
+        if (a === current) {
+          return -1;
+        }
+        if (b === current) {
+          return 1;
+        }
+        return b.number - a.number;
+      });
+  }
+
+  /**
+   * The generation that owns run `runId` of workspace `id`: its run's
+   * owner's. `undefined` when the run is not stored, or its owner is gone,
+   * which the current generation answers for. A run a live process owns
+   * that is not one of these generations is refused when `acting`: nothing
+   * here may change it.
+   */
+  async function ownerOf(
+    id: string,
+    runId: unknown,
+    acting: boolean
+  ): Promise<Generation | undefined> {
+    if (typeof runId !== "string") {
+      return;
+    }
+    const run = await readExecution(database.database, id, runId).catch(
+      () => null
+    );
+    if (run === null) {
+      return;
+    }
+    const owner = { pid: run.owner.pid, started: run.owner.started ?? null };
+    const found = hostsOf(id).find(
+      (generation) =>
+        generation.identity !== undefined &&
+        sameProcess(generation.identity, owner)
+    );
+    if (acting && found === undefined && !isGone(owner)) {
+      throw new Error(
+        `run ${runId} is owned by pid ${String(owner.pid)}, which is not an engine generation of this Marbles process`
+      );
+    }
+    return found;
+  }
+
+  /**
+   * Ask each generation in turn until one answers: a question is held by
+   * whichever generation runs, or adopted, the run that asked, and the
+   * others refuse it, changing nothing. Rejects as the first did.
+   */
+  async function askEach(
+    hosts: readonly Generation[],
+    method: string,
+    params: unknown
+  ): Promise<unknown> {
+    const errors: unknown[] = [];
+    for (const generation of hosts) {
+      try {
+        return await ask(generation, method, params);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    throw errors[0];
+  }
+
+  async function workspaceCall(
+    id: string,
+    name: string,
+    rest: Record<string, unknown>
+  ): Promise<unknown> {
+    const workspace = knownWorkspace(id);
+    if (!isWorkspaceMethod(name)) {
+      throw new Error(`no workspace method "${name}"`);
+    }
+    const method = `${WORKSPACE_PREFIX}${name}`;
+    const params = { ...rest, id };
+    const hosts = hostsOf(id);
+    if (RUN_METHODS.has(name)) {
+      const owner = await ownerOf(
+        id,
+        rest.runId,
+        name !== WORKSPACE_METHODS.getRun
+      );
+      if (owner !== undefined) {
+        return await ask(owner, method, params);
+      }
+    }
+    if (name === WORKSPACE_METHODS.answer && hosts.length > 1) {
+      return await askEach(hosts, method, params);
+    }
+    const target = current;
+    if (
+      target === undefined ||
+      !target.hosts.has(id) ||
+      workspace.summary.state === "failed" ||
+      workspace.summary.state === "starting" ||
+      workspace.summary.state === "stopped"
+    ) {
+      throw new Error(
+        `workspace ${id} is ${workspace.summary.state}${workspace.summary.error ? `: ${workspace.summary.error}` : ""}`
+      );
+    }
+    return await ask(target, method, params);
+  }
+
   async function answer(
     client: Client,
     method: string,
@@ -758,27 +1275,29 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       case DAEMON_METHODS.hello:
         return hello;
       case DAEMON_METHODS.workspaces:
-        return [...workers.values()].map((worker) => worker.summary);
+        return [...hosted.values()].map((workspace) => workspace.summary);
       case DAEMON_METHODS.attach: {
         const { root, setup, source } = attachParamsSchema.parse(params);
-        const worker = await attach(source, setup, root);
-        return timeout(
-          worker.ready.promise,
+        return await timeout(
+          attach(source, setup, root),
           READY_TIMEOUT_MS,
           "starting the workspace"
         );
       }
       case DAEMON_METHODS.reload: {
         const { id } = workspaceIdSchema.parse(params);
-        return timeout(
-          restart(knownWorker(id)),
+        const workspace = knownWorkspace(id);
+        await timeout(
+          switchGenerations(`workspace ${id} reloaded`),
           READY_TIMEOUT_MS,
           "reloading the workspace"
         );
+        return workspace.summary;
       }
       case DAEMON_METHODS.detach: {
         const { id } = workspaceIdSchema.parse(params);
-        await detach(knownWorker(id));
+        knownWorkspace(id);
+        await detach(id);
         return undefined;
       }
       case DAEMON_METHODS.subscribe: {
@@ -802,45 +1321,38 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         break;
     }
     if (method.startsWith(WORKSPACE_PREFIX)) {
-      const name = method.slice(WORKSPACE_PREFIX.length);
       const { id, ...rest } = workspaceIdSchema.passthrough().parse(params);
-      const worker = knownWorker(id);
-      if (!isWorkspaceMethod(name)) {
-        throw new Error(`no workspace method "${name}"`);
-      }
-      if (worker.summary.state !== "ready" || !worker.channel) {
-        throw new Error(
-          `workspace ${id} is ${worker.summary.state}${worker.summary.error ? `: ${worker.summary.error}` : ""}`
-        );
-      }
-      return worker.channel.request(name, rest);
+      return await workspaceCall(
+        id,
+        method.slice(WORKSPACE_PREFIX.length),
+        rest
+      );
     }
     throw new Error(`no method "${method}"`);
   }
 
   /**
-   * A connection is a client until it registers as a worker; from then on
-   * its notifications are the worker's and its requests are refused.
+   * A connection is a client until it registers as a generation; from then
+   * on its notifications are the generation's and its requests are refused.
    */
   function onConnection(socket: Socket): void {
     sockets.add(socket);
     socket.once("close", () => sockets.delete(socket));
-    let worker: Worker | undefined;
+    let generation: Generation | undefined;
     const client: Client = {
       channel: new Channel(socketTransport(socket), {
         notification(method, params) {
-          // A worker drained for a reload speaks for itself, not its successor.
-          if (worker?.channel === client.channel) {
-            worker.onNotification?.(method, params);
+          if (generation?.channel === client.channel) {
+            onGenerationNotification(generation, method, params);
           }
         },
         request(method, params) {
-          if (worker) {
-            return Promise.reject(new Error("a worker only notifies"));
+          if (generation) {
+            return Promise.reject(new Error("a generation only notifies"));
           }
           if (method === DAEMON_METHODS.register) {
             const { token } = registerParamsSchema.parse(params);
-            worker = register(token, client.channel);
+            generation = register(token, client.channel);
             clients.delete(client);
             return Promise.resolve();
           }
@@ -857,9 +1369,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         // since it is the one thing that used to end this process.
         if (reason !== undefined) {
           print(
-            worker === undefined
-              ? `[daemon] a client's connection failed: ${reason.message}`
-              : `[${worker.summary.id}] the worker's connection failed: ${reason.message}`
+            generation === undefined
+              ? `[marbles] a client's connection failed: ${reason.message}`
+              : `[generation ${String(generation.number)}] its connection failed: ${reason.message}`
           );
         }
       })
@@ -876,7 +1388,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   // or a lock someone else now holds, means this process answers for nothing.
   const claimCheck = setInterval(() => {
     if (!holdsLock(join(layout.state, "locks", "process"))) {
-      print("[daemon] the claim at the state root is gone; stopping");
+      print("[marbles] the claim at the state root is gone; stopping");
       close({ claimLost: true }).catch(() => undefined);
     }
   }, CLAIM_CHECK_MS);
@@ -899,21 +1411,23 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     });
     // Whoever can connect can run workflows and agents as this user.
     chmodSync(layout.socket, 0o600);
-    print(`[daemon] pid ${String(process.pid)} · ${layout.socket}`);
-
-    for (const record of await registry.list()) {
-      if (
-        record.hosted &&
-        record.config !== null &&
-        sourceFiles(record.config) !== undefined
-      ) {
-        // One workspace that cannot be hosted again leaves the rest hosted.
-        attach(record.config).catch((error: unknown) => {
-          print(
-            `[${record.id}] not hosted again: ${error instanceof Error ? error.message : String(error)}`
-          );
-        });
+    print(`[marbles] pid ${String(process.pid)} · ${layout.socket}`);
+    // What an earlier Marbles process left recorded live is not this
+    // one's: a generation it left drains and exits once its connection to
+    // that process is gone, and what it held is a gone process's then.
+    await records.endAll();
+    const registered = (await registry.list()).filter((each) => each.hosted);
+    if (registered.length > 0) {
+      for (const record of registered) {
+        hosted.set(record.id, summaryOf(record));
       }
+      // Every registered workspace is hosted again; one that does not load
+      // is reported failed, and the rest run.
+      switchGenerations("the Marbles process started").catch(
+        (error: unknown) => {
+          print(`[marbles] not hosted again: ${message(error)}`);
+        }
+      );
     }
   } catch (error) {
     // The startup error is the one thrown; a cleanup that fails too is not.
@@ -922,9 +1436,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   }
 
   /**
-   * Stop everything, in order: the workers, the clients and their sockets,
-   * the server and its socket, the database, the claim. Each step is
-   * attempted whatever an earlier one threw, so a failing step, or a
+   * Stop everything, in order: the generations, the clients and their
+   * sockets, the server and its socket, the database, the claim. Each step
+   * is attempted whatever an earlier one threw, so a failing step, or a
    * `print` that throws, cannot leave the database open or the claim held;
    * the first error is the one `close` rejects with.
    */
@@ -932,6 +1446,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     closing ??= (async () => {
       stopping = true;
       clearInterval(claimCheck);
+      clearInterval(poll);
+      clearTimeout(switchTimer);
       // Every step runs whatever an earlier one threw; the first error wins.
       let failure: { readonly error: unknown } | undefined;
       const attempt = async (step: () => unknown): Promise<void> => {
@@ -941,15 +1457,20 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
           failure ??= { error };
         }
       };
-      await attempt(() => print("[daemon] stopping"));
+      await attempt(() => print("[marbles] stopping"));
       await attempt(() =>
-        everyOf([...workers.values()], (worker) => stopWorker(worker))
+        everyOf([...generations], (generation) => stopGeneration(generation))
       );
+      await attempt(() => {
+        for (const workspace of hosted.values()) {
+          setState(workspace, "stopped");
+        }
+      });
       await attempt(() =>
         everyOf([...clients], (client) => client.channel.close())
       );
-      // `server.close` waits for every connection; a worker that would not
-      // stop, or a client that never hung up, must not hold the exit.
+      // `server.close` waits for every connection; a generation that would
+      // not stop, or a client that never hung up, must not hold the exit.
       await attempt(() => everyOf([...sockets], (socket) => socket.destroy()));
       if (claimLost) {
         // Whoever holds the claim now may listen at this path, and closing
@@ -979,4 +1500,21 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     pid: process.pid,
     socket: layout.socket,
   };
+}
+
+/** A candidate generation that did not load every registered workspace. */
+class CandidateError extends Error {
+  override readonly name = "CandidateError";
+  readonly loads: readonly WorkspaceLoadResult[];
+
+  constructor(loads: readonly WorkspaceLoadResult[]) {
+    super(
+      loads
+        .map(
+          (load) => load.error ?? `the workspace at ${load.root} did not load`
+        )
+        .join("; ")
+    );
+    this.loads = loads;
+  }
 }

@@ -84,8 +84,8 @@ const USAGE = `marbles — programmable workspace automation
   --config <path>    compatibility alias for --source
   --dry-run          echo every model turn and git mutation instead of running them
 
-One Marbles process per machine hosts every attached workspace, each in a worker
-of its own, and keeps their triggers running after the dashboard closes; run and
+One Marbles process per machine hosts every attached workspace, all in one engine
+process it replaces on a source edit, and keeps their triggers running after the dashboard closes; run and
 roll start it when none runs. Everything lives under the Foundry home
 ($FOUNDRY_HOME, else ~/.foundry): every workspace's record, tasks, agent
 sessions, runs, providers and the rest in marbles/marbles.db; each workspace
@@ -111,14 +111,14 @@ stored ones, where a null value removes a key):
   tasks depend | undepend <id> <dependsOnId>
   tasks change --input '{"operations":[...]}'   one atomic batch of task operations
 Tasks are kept with the workspace state (memory only under --dry-run). No source runs here:
-a worker of the Marbles process that already hosts this workspace answers, else this command
-opens the tasks itself; tasks never starts the process or a worker.`;
+the Marbles process, when it already hosts this workspace, answers, else this command
+opens the tasks itself; tasks never starts the process or hosts the workspace.`;
 
 /**
  * What a command needs before it runs, each step a superset of the last:
  * `workspace` finds the source without executing it, `triggers` loads it
  * and reads what would run, `connection` runs against a hosted one.
- * `tasks` is beside them: the found workspace's tasks, from the worker that
+ * `tasks` is beside them: the found workspace's tasks, from the generation that
  * already hosts it or through an engine this process never starts, so no
  * source runs and nothing is delivered here.
  */
@@ -236,7 +236,7 @@ async function roll(args: ArgsOf<"roll">, hosted: Hosted): Promise<void> {
   const input: unknown =
     args.inputJson === undefined ? undefined : inputFrom(args.inputJson);
   const workspace = hosted.kind === "local" ? hosted.host : hosted.workspace;
-  // A local host prints lines as they happen; a worker's come back with the value.
+  // A local host prints lines as they happen; a generation's come back with the value.
   const result = await workspace.roll(args.name, input);
   if (hosted.kind === "remote") {
     for (const line of result.lines) {
@@ -372,7 +372,7 @@ async function attachWorkspace(args: ArgsOf<"attach">): Promise<void> {
 }
 
 /**
- * Stop hosting this workspace: its worker drains, and the Marbles process
+ * Stop hosting this workspace: its running work drains, and the Marbles process
  * does not start it again at boot. Without a process, only the record is
  * cleared, and a workspace never recorded is left alone.
  */
@@ -420,7 +420,7 @@ async function stopDaemon(): Promise<void> {
     // Draining can take a while when a run is mid-flight; say so up front.
     onStopping: (hello) =>
       print(
-        `stopping Marbles process pid ${String(hello.pid)}; waiting for its workers to drain`
+        `stopping Marbles process pid ${String(hello.pid)}; waiting for its engine generations to drain`
       ),
   });
   print(

@@ -119,8 +119,15 @@ export interface TickOptions {
 }
 
 export interface LoopOptions {
+  /**
+   * Cancels the run a tick under way started; `signal` when omitted. A
+   * loop stopped by `signal` alone starts no tick after the one under way,
+   * which runs to its end.
+   */
+  readonly cancel?: AbortSignal;
   readonly now?: () => number;
   readonly print: (line: string) => void;
+  /** Stops the loop: no tick starts once it aborts. */
   readonly signal: AbortSignal;
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
@@ -348,7 +355,7 @@ export async function runSchedules(
       now,
       print: options.print,
       scheduled: true,
-      signal,
+      signal: options.cancel ?? signal,
     });
     attempted.set(schedule.key, now());
   }
