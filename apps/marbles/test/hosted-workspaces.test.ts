@@ -229,7 +229,8 @@ it("loads a workspace again in the same process with fresh copies of its own mod
   const a = await workspace(
     root,
     "alpha",
-    'import { helped } from "./_helper.ts";\nexport { helped };\n'
+    // Extensionless, as authors write it: Bun resolves it with no hook.
+    'import { helped } from "./_helper";\nexport { helped };\n'
   );
   await writeFile(
     join(a.dir, "_helper.ts"),

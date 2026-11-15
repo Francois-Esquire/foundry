@@ -16,7 +16,7 @@ import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceAt, workspaceState } from "~/lib/state/workspace";
-import { copyModules, newLoad } from "~/workspace/copies";
+import { copyModules, importLoad } from "~/workspace/copies";
 import type { WorkspaceEnvironment } from "~/workspace/env";
 import { loadEnvironment } from "~/workspace/env";
 import {
@@ -110,10 +110,10 @@ function linkSourceLibrary(): Promise<void> {
  * catalog of workspace `workspaceId`, so it holds what they declare and no
  * other workspace's does. False when nothing is there. One that throws
  * leaves `catalog` empty. Each load imports copies of its own of the
- * workspace's modules (`newLoad`), so a load after an edit, or after one
+ * workspace's modules (`importLoad`), so a load after an edit, or after one
  * that threw, evaluates them again.
  */
-export async function loadSource(
+async function loadSource(
   configPath: string,
   { catalog, workspaceId }: { catalog: Catalog; workspaceId: string },
   print: (line: string) => void
@@ -126,12 +126,9 @@ export async function loadSource(
     return false;
   }
   await linkSourceLibrary();
-  const copy = newLoad(sourceRoot(configPath));
-  await loadInto(workspaceId, catalog, async () => {
-    for (const file of files) {
-      await import(copy(file));
-    }
-  });
+  await loadInto(workspaceId, catalog, () =>
+    importLoad(sourceRoot(configPath), files)
+  );
   print(`[source] ${configPath}`);
   return true;
 }
@@ -230,7 +227,7 @@ export interface OpenWorkspaceOptions {
 }
 
 /** A source that was just created and did not load. */
-export class StarterLoadError extends Error {
+class StarterLoadError extends Error {
   override readonly name = "StarterLoadError";
 }
 
