@@ -20,8 +20,46 @@ export function workspaceLines(workspace: WorkspaceStatus): string[] {
       `  ${new Date(run.createdAt).toISOString()} · ${run.id}`,
     ]),
     ...(workspace.runs.recent.length === 0 ? ["none recorded"] : []),
+    ...observerLines(workspace.observers),
     ...recoveryLines(workspace.recovery),
   ];
+}
+
+/**
+ * Each observer, a line, and a second for one that is failing or missed
+ * changes: `name (source)  [caught up | N behind | failing]`.
+ */
+function observerLines(observers: WorkspaceStatus["observers"]): string[] {
+  return [
+    "observers",
+    ...observers.flatMap((observer) => {
+      const state = observerState(observer);
+      return [
+        `${observer.name} (${observer.source})  [${state}] at ${String(observer.position)}`,
+        ...(observer.failures > 0
+          ? [
+              `  ${observer.lastError ?? "failed"} · next try ${observer.retryAt === null ? "unknown" : new Date(observer.retryAt).toISOString()}`,
+            ]
+          : []),
+        ...(observer.missed === null
+          ? []
+          : [
+              `  missed ${String(observer.missed.from)} to ${String(observer.missed.through)}: removed before it received them`,
+            ]),
+      ];
+    }),
+    ...(observers.length === 0 ? ["none recorded"] : []),
+  ];
+}
+
+/** How an observer is faring, in a word or two. */
+function observerState(observer: WorkspaceStatus["observers"][number]): string {
+  if (observer.failures > 0) {
+    return `failing ×${String(observer.failures)}`;
+  }
+  return observer.behind === 0
+    ? "caught up"
+    : `${String(observer.behind)} behind`;
 }
 
 /** The last start's recovery, a line per step; a failed step says so first. */

@@ -1,4 +1,3 @@
-import type { TaskEvent } from "@foundry/tasks";
 import {
   index,
   integer,
@@ -38,45 +37,78 @@ export const marblesWorkspaces = sqliteTable("marbles_workspaces", {
 });
 
 /**
- * Every change a workspace's tasks committed, as the `TaskEvent` the write
- * carried, for the workspace's observers: written by the task store's
- * `onCommit` hook in the commit's own transaction, so a change and its row
- * land together or not at all. `scope` is the workspace id, as on the
- * tasks' own rows; `position` is the order the changes were committed in.
- * Nothing removes a row.
+ * The workspace's change log: every change fact a store of the workspace
+ * committed, whatever package built it (`source`: tasks, runs, artifacts,
+ * sandboxes, sessions, workspaces), as the fact the write carried, for the
+ * workspace's observers. Written by each store's `onCommit` hook in the
+ * commit's own transaction (`database/changes.ts`), so a change and its
+ * fact land together or not at all. `scope` is the workspace id;
+ * `position` is the order the facts were committed in, taken from the
+ * workspace's counter (`marbles_change_logs`), never reused, so a fact
+ * compaction removed leaves a gap. `run_id` is the run whose work made the
+ * change, when one did; `recorded_at` is when it committed, in epoch ms,
+ * which compaction ages it by.
  */
-export const marblesTaskChanges = sqliteTable(
-  "marbles_task_changes",
+export const marblesChanges = sqliteTable(
+  "marbles_changes",
   {
     id: text().notNull(),
-    payload: text({ mode: "json" }).$type<TaskEvent>().notNull(),
+    payload: text({ mode: "json" }).$type<unknown>().notNull(),
     position: integer().notNull(),
+    recordedAt: integer("recorded_at").notNull(),
+    runId: text("run_id"),
     scope: text().notNull(),
+    source: text().notNull(),
+    type: text().notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.scope, table.id] }),
-    index("marbles_task_changes_scope_position").on(
+    primaryKey({ columns: [table.scope, table.position] }),
+    index("marbles_changes_scope_source_position").on(
       table.scope,
+      table.source,
       table.position
     ),
   ]
 );
 
 /**
- * Which observers completed which change: one row per change and the hash
- * of the handler that completed it (see `lib/events/delivery.ts`). Nothing
- * removes a row.
+ * Each workspace's change counter: the last position given to a fact
+ * (`position`) and the highest position compaction removed (`compacted`,
+ * 0 before any), one row per workspace. Positions come from here, not from
+ * the facts that survive, so none is given twice.
  */
-export const marblesTaskChangeDeliveries = sqliteTable(
-  "marbles_task_change_deliveries",
+export const marblesChangeLogs = sqliteTable("marbles_change_logs", {
+  compacted: integer().notNull().default(0),
+  position: integer().notNull().default(0),
+  scope: text().primaryKey(),
+});
+
+/**
+ * Each observer of a workspace's changes, by its identity (workspace,
+ * source, name), and how far it has got: `position` is the last fact of
+ * its source it completed, or passed over; a new observer starts at the
+ * counter, so from now. A failing observer keeps its position and counts
+ * its `failures` since the last success, with the error and when it is
+ * tried again (`retry_at`, epoch ms); one that fell behind compaction says
+ * which facts it missed (`missed_from`..`missed_through`). `seen_at` is
+ * when an engine last declared it, in epoch ms: only an observer seen
+ * within the retention holds compaction back.
+ */
+export const marblesObservers = sqliteTable(
+  "marbles_observers",
   {
-    changeId: text("change_id").notNull(),
-    handler: text().notNull(),
+    failures: integer().notNull().default(0),
+    lastError: text("last_error"),
+    missedFrom: integer("missed_from"),
+    missedThrough: integer("missed_through"),
+    name: text().notNull(),
+    position: integer().notNull(),
+    retryAt: integer("retry_at"),
     scope: text().notNull(),
+    seenAt: integer("seen_at").notNull(),
+    source: text().notNull(),
   },
-  (table) => [
-    primaryKey({ columns: [table.scope, table.changeId, table.handler] }),
-  ]
+  (table) => [primaryKey({ columns: [table.scope, table.source, table.name] })]
 );
 
 /**
@@ -403,7 +435,7 @@ export const marblesHarnessActivities = sqliteTable(
 );
 
 /**
- * Which engine delivers a workspace's task changes to its observers: the
+ * Which engine delivers a workspace's changes to its observers: the
  * engine (`owner_id`, unique per engine) and its process (`owner_pid` and
  * `owner_started`, its start time, so a pid given to another since is not
  * taken for it),

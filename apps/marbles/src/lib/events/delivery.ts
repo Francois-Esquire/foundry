@@ -1,88 +1,114 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash } from "node:crypto";
-import type { StreamItem, WorkspaceRecords } from "~/lib/events/records";
-import { PENDING_BATCH } from "~/lib/events/records";
-import type { Handler, Source } from "~/lib/events/source";
+import type { LoggedChange, ObserverKey } from "~/lib/events/log";
+import { CHANGE_BATCH } from "~/lib/events/log";
+import type { WorkspaceRecords } from "~/lib/events/records";
+import type { Fact, Handler, Source } from "~/lib/events/source";
+import { sourceKey } from "~/lib/events/source";
 import type { ExecutionContext } from "~/lib/execution-context";
 import { inContext } from "~/lib/execution-context";
 import { current } from "~/lib/run-scope";
 
 /**
- * Hands each stored item to every observer of its source that has not
- * completed it, and records each completion by the observer's hash.
+ * Hands each fact in a workspace's change log to every observer of its
+ * source, in the order the facts were committed, and keeps each observer's
+ * place in the log (`ChangeLog`).
  *
- * An observer is known by a hash of its handler's text, as
- * `Function.prototype.toString` gives it, and its place among observers of
- * that source with the same text, in registration order. The hash survives a
- * restart of unchanged source; it is not identity:
+ * An observer is known by its workspace, its source and its name, never by
+ * its handler's code: an edit to a handler keeps its place, a rename makes
+ * a new observer, and a new observer starts from now. Its place is filed
+ * when an engine declaring it starts, whether or not that engine delivers.
  *
- * - Captured values are not part of it: `observe(tasks, notify("a"))` and
- *   `observe(tasks, notify("b"))` differ only by that place, so swapping the
- *   two registrations swaps which has delivered what.
- * - An edit to a handler's code makes it a new observer, and every observer
- *   receives every item it has not completed. Items are never removed, so a
- *   new or edited observer receives the workspace's whole history. Under Bun
- *   the text is the transpiled code, without types or comments, so editing
- *   only those may keep the hash, and a Bun that transpiles differently
- *   changes them all.
+ * Delivery is at least once. An observer's place moves past a fact only
+ * once its handler completed it, and only from the place it was handed
+ * the fact at, so a move another deliverer made first is never undone; a
+ * handler that completed but whose move could not be saved is handed the
+ * fact again. A fact of another type than the observer asked for is passed
+ * over, its place moved past it.
  *
- * One pass at a time; within it, items oldest first and each observer in
- * registration order, one handler at a time, outside any write. A handler
- * that throws leaves its hash absent and is tried again on the next pass,
- * which the next recorded change (made here, or elsewhere and noticed by
- * the next tick) or the next start begins. A handler that
- * completed but whose hash could not be saved runs again: delivery is at
- * least once, never exactly once.
+ * Observers are handed facts one handler at a time, in declaration order,
+ * outside any write. A handler that throws keeps its place, and is tried
+ * again after a backoff that doubles with each failure in a row
+ * (`retryDelay`), while the other observers go on; its failures, its last
+ * error and when it is tried next are kept with its place, for `marbles
+ * status`. An observer that fell behind what compaction removed is told
+ * what it missed, once, and goes on after it.
  *
- * Each observer sees items in the order they were stored: it is handed an
- * item only once every earlier item of its source is recorded as completed
- * by it. A handler that throws, or whose completion could not be saved, is
- * handed nothing more in that pass, so the item it did not complete is the
- * first it gets next time, before any later one. Other observers go on. The
- * cost is the usual one of ordered delivery: an item a handler keeps failing
- * on holds back that handler's later items until it completes it.
+ * Facts every observer seen within the retention has completed, and that
+ * committed longer ago than the retention, are removed (`compact`), at
+ * most once per `COMPACTION_EVERY_MS`.
  *
- * One engine delivers a workspace's changes at a time: the one whose
- * records granted it the claim (`claimDelivery`), from a successful start
- * until `stop`. Any number of processes read and write the tasks
- * themselves. The deliverer is woken
- * at once by a change made through its own records, and notices one made
- * elsewhere within `DELIVERY_POLL_MS`. A process refused the claim tries
- * again on the same interval, and delivers the backlog once it has it.
+ * One engine delivers a workspace's changes at a time: the one granted the
+ * claim (`DeliveryLease`), from a successful start until `stop`. Any
+ * number of processes write the workspace's records. The deliverer is
+ * woken at once by a commit made in its own process, and notices one made
+ * elsewhere within `DELIVERY_POLL_MS`, the tick that also retries failed
+ * observers. A process refused the claim tries again on the same tick, and
+ * takes up each observer at the place the last deliverer left it.
  *
- * A pass never runs inside a run. A write inside a step body wakes delivery
- * as its turn ends, and a pass started there would otherwise inherit that
- * step's frame: a definition a handler calls would join the writer's run
- * as a dynamic child instead of starting a run of its own. So a pass runs
- * in the async context this delivery was built in, not the waker's (which
- * also keeps a host's per-call output capture out of it), and with no run
- * frame even when it was built inside a step body, as an `Engine` can be.
- * A handler's calls therefore run like any call outside a step; calls made
- * inside a step body still join that step's run.
+ * A pass never runs inside a run. A write inside a step body wakes
+ * delivery, and a pass started there would otherwise inherit that step's
+ * frame: a definition a handler calls would join the writer's run as a
+ * dynamic child instead of starting a run of its own. So a pass runs in
+ * the async context this delivery was built in, not the waker's (which
+ * also keeps a host's per-call output capture out of it), with no run
+ * frame, as the engine's workspace (`context`).
  */
-
-interface Observer {
-  readonly handler: Handler<unknown>;
-  readonly hash: string;
-  readonly source: symbol;
-}
-
-const HASH_LENGTH = 32;
 
 /**
- * How often, in ms, a running delivery looks for changes another process
- * recorded (one cheap read: the newest change's position against the one
- * its last pass began at), and a delivery another process holds tries to
- * claim it again. A change made in this process wakes delivery at once.
+ * How often, in ms, a running delivery looks for facts another process
+ * recorded (one cheap read: the counter) and retries the observers whose
+ * backoff is over, and a delivery another process holds tries to claim it.
  */
 export const DELIVERY_POLL_MS = 1000;
+
+/** How long, in ms, the log keeps facts every observer has completed: a week. */
+const CHANGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** How often, in ms, a running delivery compacts the log: every ten minutes. */
+const COMPACTION_EVERY_MS = 10 * 60 * 1000;
+
+/** The longest a failing observer waits to be tried again, in ms. */
+const LONGEST_RETRY_MS = 5 * 60 * 1000;
+const FIRST_RETRY_MS = 1000;
+
+/** How long an observer that failed `failures` times in a row waits to be tried again, in ms. */
+export function retryDelay(failures: number): number {
+  return Math.min(
+    FIRST_RETRY_MS * 2 ** Math.max(0, failures - 1),
+    LONGEST_RETRY_MS
+  );
+}
+
+/** How an observer is declared, beside its source and handler. */
+export interface ObserveOptions {
+  /** Its name within the workspace and source: its identity. */
+  readonly name: string;
+  /** Only facts of these types; every type of the source when omitted. */
+  readonly types?: readonly string[];
+}
+
+interface Observer {
+  /** Failures in a row, as last filed. */
+  failures: number;
+  readonly handler: Handler<unknown>;
+  readonly key: ObserverKey;
+  /** The last position it completed or passed over, as last filed. */
+  position: number;
+  /** When it is tried again, in epoch ms; `null` while it is well. */
+  retryAt: number | null;
+  readonly types: readonly string[] | undefined;
+}
 
 export interface DeliveryOptions {
   /** What every handler runs as: the engine's workspace, outside any run. */
   readonly context?: ExecutionContext;
+  /** The clock, in epoch ms; `Date.now` when omitted. */
+  readonly now?: () => number;
   readonly print: (line: string) => void;
-  /** The workspace's records, which also decide who delivers its changes. */
+  /** The workspace's records: its change log, and who delivers it. */
   readonly records: WorkspaceRecords;
+  /** How long facts every observer completed are kept, in ms; `CHANGE_RETENTION_MS` when omitted. */
+  readonly retention?: number | undefined;
 }
 
 export class Delivery {
@@ -90,6 +116,8 @@ export class Delivery {
   readonly #context: ExecutionContext | undefined;
   readonly #records: WorkspaceRecords;
   readonly #print: (line: string) => void;
+  readonly #now: () => number;
+  readonly #retention: number;
   /** Whether this delivery holds the claim, so `stop` gives it up. */
   #claimed = false;
   /** A tick's claim under way, so the next tick does not start another. */
@@ -100,19 +128,8 @@ export class Delivery {
   #pass: Promise<void> | undefined;
   /** A wake came while a pass ran: look again once it ends. */
   #again = false;
-  /**
-   * The newest change a pass has covered: the last before it read, or one
-   * it handed out; -1 until the first pass, which covers the backlog.
-   */
-  #seen = -1;
-  /**
-   * The position up to which every observer here has completed every
-   * change, as the last pass found it: the next pass reads from there, so
-   * its work follows what is left to deliver, not the whole history. 0 at
-   * the start, so an observer declared since the last process receives
-   * the history once.
-   */
-  #floor = 0;
+  /** When the log was last compacted here, in epoch ms; never, at first. */
+  #compactedAt = Number.NEGATIVE_INFINITY;
   #timer: ReturnType<typeof setInterval> | undefined;
   /** The last problem a tick printed, so a lasting one is printed once. */
   #problem: string | undefined;
@@ -123,38 +140,60 @@ export class Delivery {
     this.#records = options.records;
     this.#print = options.print;
     this.#context = options.context;
+    this.#now = options.now ?? Date.now;
+    this.#retention = options.retention ?? CHANGE_RETENTION_MS;
   }
 
-  /** Follow `source` with `handler`, from the next start or the next pass. */
-  observe<T>(source: Source<T>, handler: Handler<T>): void {
-    const text = handler.toString();
-    const place = this.#observers.filter(
-      (observer) =>
-        observer.source === source && observer.handler.toString() === text
-    ).length;
+  /**
+   * Follow `source` with `handler`, as the observer `options.name`, from
+   * the next start. A name already declared for the source is refused.
+   */
+  observe<T extends Fact>(
+    source: Source<T>,
+    handler: Handler<T>,
+    options: ObserveOptions
+  ): void {
+    const key = sourceKey(source);
+    if (key === undefined) {
+      throw new TypeError("observe: the source is not something Marbles emits");
+    }
+    const name = options.name.trim();
+    if (name === "") {
+      throw new TypeError("observe: an observer's name cannot be blank");
+    }
+    if (
+      this.#observers.some(
+        (observer) => observer.key.source === key && observer.key.name === name
+      )
+    ) {
+      throw new Error(
+        `observe: an observer of ${key} named "${name}" is already declared in this workspace; give each its own name`
+      );
+    }
     this.#observers.push({
-      // A source emits only its own payload type.
+      failures: 0,
+      // A source emits only its own fact type.
       handler: handler as Handler<unknown>,
-      hash: createHash("sha256")
-        .update(`${text}\0${String(place)}`)
-        .digest("hex")
-        .slice(0, HASH_LENGTH),
-      source,
+      key: { name, source: key },
+      position: 0,
+      retryAt: null,
+      types: options.types === undefined ? undefined : [...options.types],
     });
   }
 
   /**
-   * Claim delivery, and read the records, so a problem with them surfaces
-   * here. Without observers nothing is claimed or read. Delivery another
-   * process has claimed is left to it, and claimed here once it lets go
-   * (or exits, leaving its lock to be taken over), on a later tick; records
-   * that cannot be read fail the start.
+   * File every observer's place (from now, for a new one), then claim
+   * delivery. Without observers nothing is filed or claimed. Delivery
+   * another process has claimed is left to it, and claimed here once it
+   * lets go (or exits), on a later tick; a log that cannot be read fails
+   * the start.
    */
   async start(): Promise<void> {
     if (this.#phase !== "new" || this.#observers.length === 0) {
       return;
     }
     this.#phase = "starting";
+    await this.#declare();
     const holder = await this.#claim();
     // After every wait: stopped meanwhile, this never runs, and gives up
     // the claim a `stop` before it was granted found no claim to give up.
@@ -170,27 +209,12 @@ export class Delivery {
       this.#tickEvery();
       return;
     }
-    try {
-      await this.#records.latest();
-    } catch (error) {
-      await this.#release();
-      throw error;
-    }
-    if (this.#phase !== "starting") {
-      await this.#release();
-      return;
-    }
     this.#phase = "running";
     this.#tickEvery();
+    this.wake();
   }
 
-  /**
-   * Begin a pass, or another after the one in progress. A pass hands out
-   * anything only when a change newer than the last it covered was
-   * recorded (or it is the first since the start), so a handler that
-   * failed is tried again on the next change or the next start, not on
-   * every wake.
-   */
+  /** Begin a pass, or another after the one in progress. */
   wake(): void {
     if (this.#phase !== "running") {
       return;
@@ -223,6 +247,24 @@ export class Delivery {
     }
   }
 
+  /**
+   * Read every observer's place as filed, filing it at the counter when it
+   * is new, and tell of any that fell behind compaction.
+   */
+  async #declare(): Promise<void> {
+    for (const observer of this.#observers) {
+      const state = await this.#records.log.declare(observer.key, this.#now());
+      observer.position = state.position;
+      observer.failures = state.failures;
+      observer.retryAt = state.retryAt;
+      if (state.missed !== null) {
+        this.#print(
+          `[observe] ${describe(observer.key)} missed changes ${String(state.missed.from)} to ${String(state.missed.through)}: they were removed before it received them; it goes on after them`
+        );
+      }
+    }
+  }
+
   /** Take the claim; who holds it instead, when another engine does. */
   async #claim(): Promise<string | undefined> {
     const holder = await this.#records.claimDelivery();
@@ -250,10 +292,9 @@ export class Delivery {
     this.#timer.unref?.();
   }
 
-  /** Claim delivery when waiting; when running, wake to look for a change recorded elsewhere. */
+  /** Claim delivery when waiting; when running, wake to look for facts recorded elsewhere and retries due. */
   #tick(): void {
     if (this.#phase === "running") {
-      // The pass's first read is the cheap check for a change made elsewhere.
       this.wake();
       return;
     }
@@ -270,11 +311,13 @@ export class Delivery {
     let holder: string | undefined;
     try {
       holder = await this.#claim();
+      if (holder !== undefined) {
+        return;
+      }
+      // The places the engine that let go left them at.
+      await this.#declare();
     } catch (error) {
       this.#report(error);
-      return;
-    }
-    if (holder !== undefined) {
       return;
     }
     if (this.#phase !== "waiting") {
@@ -306,7 +349,7 @@ export class Delivery {
     try {
       do {
         try {
-          await this.#deliverNew();
+          await this.#deliverAll();
           this.#problem = undefined;
         } catch (error) {
           this.#report(error);
@@ -318,77 +361,142 @@ export class Delivery {
     }
   }
 
-  /**
-   * Hand out what is left to deliver, in batches: the changes some observer
-   * has not completed (`pending`), oldest first.
-   */
-  async #deliverNew(): Promise<void> {
-    const head = await this.#records.latest();
-    if (head <= this.#seen) {
-      return;
-    }
-    const held = new Set<Observer>();
-    const handlers = this.#observers.map((observer) => observer.hash);
-    const read = (after: number) =>
-      this.#records.pending({ after, handlers, limit: PENDING_BATCH });
-    let batch = await read(this.#floor);
-    // Everything before the first change some observer has not completed
-    // is done for all of them; with none, everything up to `head` is.
-    const [oldest] = batch;
-    this.#floor = oldest === undefined ? head : oldest.position - 1;
-    for (;;) {
-      for (const item of batch) {
-        this.#seen = Math.max(this.#seen, item.position);
-        if (!(await this.#deliverItem(item, held))) {
-          return;
-        }
-      }
-      const last = batch.at(-1);
-      if (last === undefined || batch.length < PENDING_BATCH) {
-        break;
-      }
-      batch = await read(last.position);
-    }
-    this.#seen = Math.max(this.#seen, head);
-    // Every observer completed everything this pass handed out, and the
-    // rest it covered was complete already.
-    if (held.size === 0) {
-      this.#floor = this.#seen;
-    }
-  }
-
-  /** Hand `item` to every observer that has not completed it; false once stopped. */
-  async #deliverItem(item: StreamItem, held: Set<Observer>): Promise<boolean> {
+  /** One pass: compact when due, then bring each observer that is due up to the counter. */
+  async #deliverAll(): Promise<void> {
+    const head = await this.#records.log.head();
+    await this.#compactWhenDue();
     for (const observer of this.#observers) {
       if (this.#phase !== "running") {
-        return false;
+        return;
       }
+      const now = this.#now();
       if (
-        held.has(observer) ||
-        observer.source !== item.source ||
-        item.delivered.includes(observer.hash)
+        observer.position >= head ||
+        (observer.retryAt !== null && observer.retryAt > now)
       ) {
         continue;
       }
-      try {
-        // Each handler gets its own copy: one cannot change what another sees.
-        await observer.handler(structuredClone(item.payload));
-      } catch (error) {
-        held.add(observer);
-        this.#print(
-          `[observe] handler ${observer.hash.slice(0, 8)} failed on ${item.id}: ${error instanceof Error ? error.message : String(error)}`
-        );
-        continue;
+      await this.#catchUp(observer, head);
+    }
+  }
+
+  async #compactWhenDue(): Promise<void> {
+    const now = this.#now();
+    if (now - this.#compactedAt < COMPACTION_EVERY_MS) {
+      return;
+    }
+    this.#compactedAt = now;
+    const bound = now - this.#retention;
+    await this.#records.log.compact({ before: bound, seenSince: bound });
+  }
+
+  /**
+   * Hand `observer` each fact of its source after its place, up to `head`
+   * at least, then move it to `head` past any of other types; stop at its
+   * first failure, or a move it could not make.
+   */
+  async #catchUp(observer: Observer, head: number): Promise<void> {
+    for (;;) {
+      const batch = await this.#records.log.read({
+        after: observer.position,
+        limit: CHANGE_BATCH,
+        source: observer.key.source,
+        ...(observer.types === undefined ? {} : { types: observer.types }),
+      });
+      for (const change of batch) {
+        if (this.#phase !== "running") {
+          return;
+        }
+        if (!(await this.#hand(observer, change))) {
+          return;
+        }
       }
-      try {
-        await this.#records.deliver(item.id, observer.hash);
-      } catch (error) {
-        held.add(observer);
-        this.#print(
-          `[observe] handler ${observer.hash.slice(0, 8)} completed ${item.id}, but that was not saved and it may run again: ${String(error)}`
-        );
+      if (batch.length < CHANGE_BATCH) {
+        break;
       }
     }
+    if (observer.position < head) {
+      await this.#moveTo(observer, head);
+    }
+  }
+
+  /** Hand `change` to `observer` and move it past; whether it may go on. */
+  async #hand(observer: Observer, change: LoggedChange): Promise<boolean> {
+    try {
+      // Each handler gets its own copy: one cannot change what another sees.
+      await observer.handler(structuredClone(change.fact));
+    } catch (error) {
+      await this.#failed(observer, change, error);
+      return false;
+    }
+    return await this.#moveTo(observer, change.position, change);
+  }
+
+  /**
+   * Move `observer`'s filed place to `to` from where it was; whether it
+   * moved. One another deliverer moved first is read again, and one that
+   * could not be saved keeps its place here, so what it completed is
+   * handed to it again.
+   */
+  async #moveTo(
+    observer: Observer,
+    to: number,
+    completed?: LoggedChange
+  ): Promise<boolean> {
+    let moved: boolean;
+    try {
+      moved = await this.#records.log.move(observer.key, {
+        from: observer.position,
+        now: this.#now(),
+        to,
+      });
+    } catch (error) {
+      if (completed !== undefined) {
+        this.#print(
+          `[observe] ${describe(observer.key)} completed ${completed.fact.type} ${String(completed.position)}, but that was not saved and it may run again: ${String(error)}`
+        );
+      }
+      return false;
+    }
+    if (!moved) {
+      // Another deliverer moved it: go on from where it is filed.
+      await this.#declare();
+      return false;
+    }
+    observer.position = to;
+    observer.failures = 0;
+    observer.retryAt = null;
     return true;
   }
+
+  /** File `observer`'s failure on `change`, and when it is tried again. */
+  async #failed(
+    observer: Observer,
+    change: LoggedChange,
+    error: unknown
+  ): Promise<void> {
+    const failures = observer.failures + 1;
+    const delay = retryDelay(failures);
+    const now = this.#now();
+    const message = error instanceof Error ? error.message : String(error);
+    observer.failures = failures;
+    observer.retryAt = now + delay;
+    this.#print(
+      `[observe] ${describe(observer.key)} failed on ${change.fact.type} ${String(change.position)} (failure ${String(failures)}; trying again in ${String(Math.round(delay / 1000))}s): ${message}`
+    );
+    try {
+      await this.#records.log.fail(observer.key, {
+        error: message,
+        now,
+        retryAt: observer.retryAt,
+      });
+    } catch (saving) {
+      this.#report(saving);
+    }
+  }
+}
+
+/** An observer as a line names it: `name (source)`. */
+function describe(key: ObserverKey): string {
+  return `${key.name} (${key.source})`;
 }

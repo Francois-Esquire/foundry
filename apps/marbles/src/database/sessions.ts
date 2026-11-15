@@ -6,11 +6,13 @@ import {
   SqliteSessionStore,
 } from "@foundry/agents/store/sqlite";
 import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
+import { ChangeRecorder } from "~/database/changes";
 import { busyError } from "~/database/client";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { marblesSessionRevisions } from "~/database/tables";
 import { stateDatabase } from "~/layout";
+import { SESSIONS, sourceKey } from "~/lib/events/source";
 import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
 
 /**
@@ -25,15 +27,24 @@ import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
  * it left as well: a commit that puts messages first reads, in its own
  * transaction, where each is filed. Marbles lists sessions only through
  * that record and reads them only through the store, never through the
- * package's tables.
+ * package's tables. The same hook records each commit's change facts in
+ * the workspace's change log (`database/changes.ts`).
  */
 
 export interface DatabaseSessionStoreOptions {
+  /**
+   * What the workspace's stores in this process record their change facts
+   * through, so a commit wakes delivery at once; one of this store's own
+   * when omitted, whose commits delivery notices on its next tick.
+   */
+  readonly changes?: ChangeRecorder;
   /** The database or one of its transactions; the host opens and closes it. */
   readonly database: StoreDatabase;
   /** The workspace id. */
   readonly scope: string;
 }
+
+const SESSIONS_KEY = sourceKey(SESSIONS) ?? "sessions";
 
 /** Rows per statement when a commit raises revisions: three parameters each, well under SQLite's limit. */
 const REVISION_BATCH = 500;
@@ -46,14 +57,19 @@ export class DatabaseSessionStore implements ListedSessionStore {
 
   constructor(options: DatabaseSessionStoreOptions) {
     const { database, scope } = options;
+    const changes = options.changes ?? new ChangeRecorder(scope);
     this.#database = database;
     this.#scope = scope;
-    this.#store = new SqliteSessionStore({
-      database,
-      onCommit: (transaction, write) =>
-        raiseRevisions(transaction, scope, write),
-      scope,
-    });
+    this.#store = changes.causing(
+      new SqliteSessionStore({
+        database,
+        onCommit: async (transaction, write) => {
+          await raiseRevisions(transaction, scope, write);
+          await changes.record(transaction, SESSIONS_KEY, write.events);
+        },
+        scope,
+      })
+    );
   }
 
   /**

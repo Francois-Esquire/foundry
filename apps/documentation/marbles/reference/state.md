@@ -139,31 +139,47 @@ with no Marbles process running makes and migrates the database under
 `locks/process`, as a program hosting a workspace does. Under `--dry-run`
 the tasks are in memory and nothing is written.
 
+Every change fact a workspace's stores commit (its tasks, workflow Runs,
+artifacts, sandbox containers, agent sessions and workspace catalogue) is
+written to its change log, `marbles_changes`, in the same transaction as the
+change, at the next position of the workspace's counter in
+`marbles_change_logs`, with the run that made it, if one did. Positions
+follow commit order and are never given twice. Each observer's place is a
+row of `marbles_observers`, by workspace, source and name.
+
 One engine delivers a workspace's changes to its observers at a time: the
 one whose claim the workspace's row of `marbles_delivery_claims` holds,
 from its start until it stops. A claim is a transaction that reads the row
 and takes it; a claim whose process has exited holds nothing. A second
-host of the same workspace reads and writes its tasks but prints
-`[observe] not delivering here` and takes delivery over within a second of
-the first letting go. An engine that keeps its tasks in memory delivers
-its own.
+host of the same workspace files its observers, reads and writes the
+workspace, but prints `[observe] not delivering here`, and takes delivery
+over within a second of the first letting go, each observer from the place
+the first left it. An observer's place moves only from where it was read,
+so two deliverers never move one back.
 
 Delivery is at least once per observer: a handler that completed but
-whose completion was not saved runs again. A handler that throws keeps its
-change and is handed nothing later until it completes that one; other
-handlers go on. The delivering host is woken at once by a change made
-through it and notices one made in another process within a second. When
-it stops, or its process exits, a host that was refused delivery takes it
-over within a second and delivers what was written meanwhile.
+whose place was not saved runs again. A handler that throws keeps its
+place and is tried again after a backoff; other handlers go on. The
+delivering host is woken at once by a change made in its process and
+notices one made in another within a second. When it stops, or its
+process exits, a host that was refused delivery takes it over within a
+second and delivers what was written meanwhile.
 
-Known limits: nothing prunes `marbles_task_changes` or
-`marbles_task_change_deliveries`, so they grow with every task change; a
-workspace's rows stay in the database after its directory or checkout is
-deleted, and after it is detached. A host that keeps the database open
-while another Marbles migrates it further refuses every write from then on
-with an error saying so; restart it with the newer Marbles. Until then, if
-it is the one delivering, it keeps the delivery claim: each new change
-runs its observers again, and their completion cannot be recorded.
+Facts every observer seen in the last week has completed, and committed
+more than a week ago, are removed every ten minutes by the delivering
+host. An engine without the host's database records only what it keeps
+there: one that opens its own for a state dir records its tasks, Runs and
+sessions, not its artifacts, containers or catalogue, which it keeps in
+memory; under `--dry-run` only its tasks, in memory. It says at start which
+observers it hands nothing.
+
+Known limits: a workspace's rows stay in the database after its directory
+or checkout is deleted, and after it is detached. A host that keeps the
+database open while another Marbles migrates it further refuses every
+write from then on with an error saying so; restart it with the newer
+Marbles. Until then, if it is the one delivering, it keeps the delivery
+claim: each new fact runs its observers again, and their places cannot be
+recorded.
 
 Text the database cannot give back intact is refused before anything is
 written: a title, description, id, or time holding U+0000, or a lone

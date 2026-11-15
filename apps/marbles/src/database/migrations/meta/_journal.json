@@ -85,6 +85,13 @@
       "when": 1794753675542,
       "tag": "0011_crash_recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1794756302583,
+      "tag": "0012_change_log",
+      "breakpoints": true
     }
   ]
 }

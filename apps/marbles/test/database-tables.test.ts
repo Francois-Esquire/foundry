@@ -2,20 +2,19 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTables } from "@foundry/lib/testing/sqlite";
-import { Tasks } from "@foundry/tasks";
 import type { Client, InArgs } from "@libsql/client";
 import { createClient } from "@libsql/client";
 import { is, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { describe, expect, it } from "vitest";
+import { changesAfter } from "~/database/changes";
 import type { StoreDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 // biome-ignore lint/performance/noNamespaceImport: the test reads every table the schema composes, whatever it is named.
 import * as schema from "~/database/schema";
 // biome-ignore lint/performance/noNamespaceImport: as above, for Marbles' own tables.
 import * as own from "~/database/tables";
-import { pendingChanges } from "~/database/tasks";
 import { testMachine } from "./helpers/records";
 
 /**
@@ -115,13 +114,13 @@ describe("the package tables in the Marbles database", () => {
 });
 
 describe("the read of what is left to deliver", () => {
-  it("walks one workspace's changes by position and probes completions by key, scanning nothing", async () => {
+  it("walks one workspace's facts of one source by position, scanning nothing", async () => {
     const machine = await testMachine();
     try {
-      const { sql: text, params } = pendingChanges(
+      const { sql: text, params } = changesAfter(
         machine.database.database,
         "ws",
-        { after: 10, handlers: ["a", "b"], limit: 100 }
+        { after: 10, limit: 100, source: "tasks", types: ["tasks.changed"] }
       ).toSQL();
       // Bound as the query binds them, on the handle's own connection.
       const { $client: client } = machine.database.database as unknown as {
@@ -132,59 +131,9 @@ describe("the read of what is left to deliver", () => {
         sql: `EXPLAIN QUERY PLAN ${text}`,
       });
       const details = plan.rows.map((row) => String(row.detail));
-      expect(details).toContain(
-        "SEARCH marbles_task_changes USING INDEX marbles_task_changes_scope_position (scope=? AND position>?)"
-      );
-      expect(
-        details.filter((detail) =>
-          detail.startsWith(
-            "SEARCH marbles_task_change_deliveries USING COVERING INDEX sqlite_autoindex_marbles_task_change_deliveries_1 (scope=? AND change_id=? AND handler=?)"
-          )
-        )
-      ).toHaveLength(2);
-      expect(details.filter((detail) => detail.includes("SCAN"))).toEqual([]);
-      expect(
-        details.filter((detail) => detail.includes("TEMP B-TREE"))
-      ).toEqual([]);
-    } finally {
-      machine.close();
-    }
-  });
-
-  it("returns only changes a handler has not completed, a batch at a time, and the whole history to a new one", async () => {
-    const machine = await testMachine();
-    try {
-      const state = machine.workspace();
-      const records = machine.records(state);
-      const backlog = new Tasks({ store: records.taskStore });
-      for (let index = 0; index < 250; index += 1) {
-        await backlog.create({ title: `T${String(index)}` });
-      }
-      const first = await records.pending({ handlers: ["done"], limit: 100 });
-      expect(first.map((item) => item.position)).toEqual(
-        Array.from({ length: 100 }, (_, index) => index + 1)
-      );
-      for (const item of first) {
-        await records.deliver(item.id, "done");
-      }
-      const next = await records.pending({ handlers: ["done"], limit: 100 });
-      expect(next[0]?.position).toBe(101);
-      const after = await records.pending({
-        after: 240,
-        handlers: ["done"],
-        limit: 100,
-      });
-      expect(after.map((item) => item.position)).toEqual([
-        241, 242, 243, 244, 245, 246, 247, 248, 249, 250,
+      expect(details).toEqual([
+        "SEARCH marbles_changes USING INDEX marbles_changes_scope_source_position (scope=? AND source=? AND position>?)",
       ]);
-      // A handler declared later is handed every change from the first.
-      const late = await records.pending({
-        handlers: ["done", "late"],
-        limit: 100,
-      });
-      expect(late[0]).toMatchObject({ delivered: ["done"], position: 1 });
-      expect(await records.latest()).toBe(250);
-      await records.close();
     } finally {
       machine.close();
     }

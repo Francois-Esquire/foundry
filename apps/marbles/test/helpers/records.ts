@@ -1,14 +1,10 @@
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import type { TaskEvent } from "@foundry/tasks";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
-import {
-  marblesTaskChangeDeliveries,
-  marblesTaskChanges,
-} from "~/database/tables";
+import { marblesChanges } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { stateDatabase } from "~/layout";
 
@@ -18,12 +14,10 @@ import { stateDatabase } from "~/layout";
  * scope of its rows (`<root>/<id>`, id = the dir's name).
  */
 export interface TestMachine {
-  /** The recorded changes of the workspace at `state`, oldest first. */
-  changes(state: string): Promise<readonly RecordedChange[]>;
+  /** The change log of the workspace at `state`, of one source or every one, oldest first. */
+  changes(state: string, source?: string): Promise<readonly RecordedChange[]>;
   close(): void;
   readonly database: MarblesDatabase;
-  /** The number of handlers that completed each recorded change, oldest first. */
-  deliveredCounts(state: string): Promise<number[]>;
   /** Fresh records for the workspace at `state`, over this machine's database. */
   records(state: string): DatabaseWorkspaceRecords;
   readonly root: string;
@@ -32,40 +26,44 @@ export interface TestMachine {
 }
 
 interface RecordedChange {
-  readonly delivered: readonly string[];
   readonly id: string;
-  readonly payload: TaskEvent;
+  readonly payload: { readonly type: string } & Record<string, unknown>;
+  readonly position: number;
+  readonly runId: string | null;
+  readonly source: string;
+  readonly type: string;
 }
 
 export async function testMachine(): Promise<TestMachine> {
   const root = mkdtempSync(join(tmpdir(), "marbles-machine-"));
   const database = await initializeDatabase(stateDatabase(root));
-  const changes = async (state: string): Promise<RecordedChange[]> => {
-    const scope = basename(state);
+  const changes = async (
+    state: string,
+    source?: string
+  ): Promise<RecordedChange[]> => {
     const rows = await database.database
       .select()
-      .from(marblesTaskChanges)
-      .where(eq(marblesTaskChanges.scope, scope))
-      .orderBy(asc(marblesTaskChanges.position));
-    const deliveries = await database.database
-      .select()
-      .from(marblesTaskChangeDeliveries)
-      .where(eq(marblesTaskChangeDeliveries.scope, scope));
+      .from(marblesChanges)
+      .where(
+        and(
+          eq(marblesChanges.scope, basename(state)),
+          source === undefined ? undefined : eq(marblesChanges.source, source)
+        )
+      )
+      .orderBy(asc(marblesChanges.position));
     return rows.map((row) => ({
-      delivered: deliveries
-        .filter((delivery) => delivery.changeId === row.id)
-        .map((delivery) => delivery.handler),
       id: row.id,
-      payload: row.payload,
+      payload: row.payload as RecordedChange["payload"],
+      position: row.position,
+      runId: row.runId,
+      source: row.source,
+      type: row.type,
     }));
   };
   return {
     changes,
     close: () => database.close(),
     database,
-    async deliveredCounts(state) {
-      return (await changes(state)).map((change) => change.delivered.length);
-    },
     records: (state) =>
       new DatabaseWorkspaceRecords({
         database: database.database,

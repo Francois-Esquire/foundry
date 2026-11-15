@@ -10,6 +10,13 @@ import {
   workspaceInstance,
 } from "~/authoring/instances";
 import { declaringCatalog } from "~/authoring/runtime";
+import {
+  ARTIFACTS,
+  observable,
+  SANDBOXES,
+  SESSIONS,
+  WORKSPACES,
+} from "~/lib/events/source";
 import type {
   Agent,
   ArtifactInstance,
@@ -186,3 +193,9 @@ export const skills = {
     return skillSet([]);
   },
 };
+
+// Each word is also the source of its objects' change facts, for `observe`.
+observable(agent, SESSIONS);
+observable(artifact, ARTIFACTS);
+observable(sandbox, SANDBOXES);
+observable(workspace, WORKSPACES);

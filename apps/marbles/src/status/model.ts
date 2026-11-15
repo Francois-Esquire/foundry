@@ -1,6 +1,7 @@
 import { join } from "node:path";
 
 import { isGone } from "@foundry/lib/process-identity";
+import { readStoredObservers } from "~/database/changes";
 import { readLastRecovery } from "~/database/recoveries";
 import type { StoredRun } from "~/database/runs";
 import { readStoredRuns } from "~/database/runs";
@@ -9,6 +10,7 @@ import type { StoredTick } from "~/database/triggers";
 import { readStoredTicks } from "~/database/triggers";
 import { recordedWorkspaces } from "~/database/workspaces";
 import type { RecoveryReport } from "~/lib/crash-recovery";
+import type { ObserverState } from "~/lib/events/log";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import type { WorkspaceRecord } from "~/lib/state/workspace";
 import type { ProcessHost, ProcessStatus } from "~/process/instance";
@@ -30,6 +32,8 @@ export interface WorkspaceStatus {
   readonly hosted: boolean;
   readonly id: string;
   readonly lastSeen: string | null;
+  /** Each observer of its changes, by source, then name. */
+  readonly observers: readonly ObserverStatus[];
   readonly pid: number | null;
   /** What its last engine start put right after a crash; `null` when none is kept. */
   readonly recovery: RecoveryReport | null;
@@ -48,6 +52,12 @@ interface ScheduleStatus {
   readonly nextDue: string | null;
   /** Pid of the live tick holding the lock, if any. */
   readonly running: number | null;
+}
+
+/** An observer's place in its workspace's change log, and how it is faring. */
+interface ObserverStatus extends ObserverState {
+  /** How many positions of the log it has yet to pass: 0 when it is caught up. */
+  readonly behind: number;
 }
 
 interface RunsStatus {
@@ -87,7 +97,8 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
           sessions.get(record.id) ?? 0,
           await readStoredRuns(stateRoot, record.id),
           await readStoredTicks(stateRoot, record.id),
-          await readLastRecovery(stateRoot, record.id)
+          await readLastRecovery(stateRoot, record.id),
+          await readStoredObservers(stateRoot, record.id)
         )
       )
     ),
@@ -100,7 +111,8 @@ function readWorkspaceStatus(
   sessions: number,
   runs: readonly StoredRun[],
   ticks: readonly StoredTick[],
-  recovery: RecoveryReport | null
+  recovery: RecoveryReport | null,
+  log: Awaited<ReturnType<typeof readStoredObservers>>
 ): WorkspaceStatus {
   const owner = readProcess(dir);
   return {
@@ -110,6 +122,10 @@ function readWorkspaceStatus(
     hosted: record.hosted,
     id: record.id,
     lastSeen: record.lastSeen,
+    observers: log.observers.map((observer) => ({
+      ...observer,
+      behind: Math.max(0, log.head - observer.position),
+    })),
     pid: owner?.pid ?? null,
     recovery,
     root: record.root,

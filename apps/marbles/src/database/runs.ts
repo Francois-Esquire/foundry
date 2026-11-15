@@ -9,6 +9,7 @@ import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { aroundCalls, asBusy } from "~/database/busy";
+import { ChangeRecorder } from "~/database/changes";
 import { followExecution, readExecution } from "~/database/executions";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
@@ -25,6 +26,7 @@ import {
 import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { RecordsGate } from "~/lib/events/records";
+import { RUNS, sourceKey } from "~/lib/events/source";
 import type { RecordedScope } from "~/lib/run-scope";
 import type {
   ClaimCondition,
@@ -50,7 +52,15 @@ import { filedRuns, removalOf } from "~/lib/run-store";
  * a lock waited on too long as a `DatabaseBusyError`.
  */
 
+const RUNS_KEY = sourceKey(RUNS) ?? "runs";
+
 export interface DatabaseRunStoreOptions {
+  /**
+   * What the workspace's stores in this process record their change facts
+   * through, so a commit wakes delivery at once; one of this store's own
+   * when omitted, whose commits delivery notices on its next tick.
+   */
+  readonly changes?: ChangeRecorder;
   /** The database the host keeps open; never one of its transactions, since a Run's commit must be there for good. */
   readonly database: StoreDatabase;
   /** The workspace id. */
@@ -68,6 +78,7 @@ export class DatabaseRunStore implements RunStore {
   readonly durable = true;
   readonly #database: StoreDatabase;
   readonly #scope: string;
+  readonly #changes: ChangeRecorder;
   /** This store's identity as an owner: one per engine, so two in one process are told apart. */
   readonly #owner = randomUUID();
   /** Every call, the workflow records' included, so `close` waits for those under way. */
@@ -76,6 +87,7 @@ export class DatabaseRunStore implements RunStore {
   constructor(options: DatabaseRunStoreOptions) {
     this.#database = options.database;
     this.#scope = options.scope;
+    this.#changes = options.changes ?? new ChangeRecorder(options.scope);
   }
 
   claim(runId: string, when: ClaimCondition): Promise<boolean> {
@@ -164,14 +176,17 @@ export class DatabaseRunStore implements RunStore {
     return this.#call(() =>
       Promise.resolve(
         aroundCalls(
-          new SqliteWorkflowStore({
-            database: this.#database,
-            onCommit: async (transaction, write) => {
-              await this.#file(transaction, write, recorded);
-              await this.#follow(transaction, write, follows);
-            },
-            scope: this.#scope,
-          }),
+          this.#changes.causing(
+            new SqliteWorkflowStore({
+              database: this.#database,
+              onCommit: async (transaction, write) => {
+                await this.#file(transaction, write, recorded);
+                await this.#follow(transaction, write, follows);
+                await this.#changes.record(transaction, RUNS_KEY, write.events);
+              },
+              scope: this.#scope,
+            })
+          ),
           (call) => this.#call(call)
         )
       )

@@ -135,10 +135,10 @@ function tamper(write: TaskStoreWrite & { events: TaskEvent[] }): void {
 /** The title kept, and the title of every change recorded. */
 async function kept(records: WorkspaceRecords) {
   const { tasks } = await records.taskStore.snapshot();
-  const changes = await records.pending({ handlers: ["reader"] });
+  const changes = await records.log.read({ after: 0, source: "tasks" });
   return {
     changes: changes.map(
-      (change) => (change.payload as TaskEvent).tasks[0]?.after?.title
+      (change) => (change.fact as TaskEvent).tasks[0]?.after?.title
     ),
     tasks: tasks.map((task) => task.title),
   };

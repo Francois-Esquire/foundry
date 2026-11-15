@@ -38,10 +38,11 @@ import {
 } from "~/lib/crash-recovery";
 import type { AnyDefinition } from "~/lib/definition";
 import { environmentSnapshot } from "~/lib/environment";
+import type { ObserveOptions } from "~/lib/events/delivery";
 import { Delivery } from "~/lib/events/delivery";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
-import type { Handler, Source } from "~/lib/events/source";
+import type { Fact, Handler, Source } from "~/lib/events/source";
 import type { ExecutionContext } from "~/lib/execution-context";
 import type { ExecutionStore } from "~/lib/execution-store";
 import { MemoryExecutionStore } from "~/lib/execution-store";
@@ -164,6 +165,11 @@ export interface EngineOptions {
    */
   readonly automationStore?: AutomationStore;
   /**
+   * How long, in ms, the change log keeps facts every observer has
+   * completed before compaction removes them: a week when omitted.
+   */
+  readonly changeRetention?: number;
+  /**
    * The container rows kept, read without starting the runtime, so a
    * start takes back the rows, and their VMs, whose holder is gone
    * (`lib/crash-recovery.ts`). The host that keeps the rows durably gives
@@ -234,8 +240,8 @@ export interface EngineOptions {
    */
   readonly queues?: Readonly<Record<string, QueueSettings>>;
   /**
-   * This workspace's tasks and the changes they record, which delivery
-   * hands to observers. When omitted, the `Engine` the package publishes
+   * This workspace's tasks and the change log its stores record their
+   * facts in, which delivery hands to observers. When omitted, the `Engine` the package publishes
    * (`@foundry.sh/marbles/engine` and `/lib`) keeps them in a Marbles
    * database when `state` is set, and in memory otherwise;
    * `MemoryWorkspaceRecords` keeps them in memory on purpose.
@@ -570,6 +576,7 @@ export class Engine {
       context: this.context,
       print,
       records: this.#records,
+      retention: options.changeRetention,
     });
     this.#unwatchRecords = this.#records.watch(() => this.#delivery.wake());
     this.taskStore = this.#records.taskStore;
@@ -765,12 +772,24 @@ export class Engine {
   }
 
   /**
-   * Hand every item `source` emits in this workspace to `handler`, until it
-   * completes. Declared before `start`, as an authoring module's `observe`
-   * is.
+   * Hand every fact `source` commits in this workspace from now on to
+   * `handler`, as the observer `options.name` (the handler's own name when
+   * omitted; one of the two is required), only those of `options.types`
+   * when given. Declared before `start`, as an authoring module's
+   * `observe` is.
    */
-  observe<T>(source: Source<T>, handler: Handler<T>): void {
-    this.#delivery.observe(source, handler);
+  observe<T extends Fact>(
+    source: Source<T>,
+    handler: Handler<T>,
+    options: Partial<ObserveOptions> = {}
+  ): void {
+    const name = options.name ?? handler.name;
+    if (name === "") {
+      throw new TypeError(
+        "observe: give the observer a name (`{ name }`), or a named handler"
+      );
+    }
+    this.#delivery.observe(source, handler, { ...options, name });
   }
 
   /** The monitors a host declared, by key. */

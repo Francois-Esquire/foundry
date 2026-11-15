@@ -102,9 +102,11 @@ it("lets an exited process's queued run in again only once the start has succeed
   const unreadable: WorkspaceRecords = {
     claimDelivery: () => memory.claimDelivery(),
     close: () => memory.close(),
-    deliver: (id, hash) => memory.deliver(id, hash),
-    latest: () => Promise.reject(new Error("the records cannot be read")),
-    pending: () => Promise.reject(new Error("the records cannot be read")),
+    log: {
+      ...memory.log,
+      declare: () => Promise.reject(new Error("the records cannot be read")),
+      head: () => Promise.reject(new Error("the records cannot be read")),
+    },
     releaseDelivery: () => memory.releaseDelivery(),
     taskStore: memory.taskStore,
     watch: (listener) => memory.watch(listener),
@@ -122,7 +124,7 @@ it("lets an exited process's queued run in again only once the start has succeed
       );
     },
   });
-  engine.observe(TASKS, () => undefined);
+  engine.observe(TASKS, () => undefined, { name: "idle" });
 
   await expect(engine.start()).rejects.toThrow();
   await engine.dispose();

@@ -96,7 +96,7 @@ async function storedTasks(machine: Layout, id: string) {
   return await readDatabase(stateDatabase(machine.state), async (database) => {
     const records = new DatabaseWorkspaceRecords({ database, scope: id });
     return {
-      changes: await records.latest(),
+      changes: (await records.log.read({ after: 0, source: "tasks" })).length,
       snapshot: await records.taskStore.snapshot(),
     };
   });
