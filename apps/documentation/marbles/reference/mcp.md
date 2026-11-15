@@ -60,7 +60,7 @@ a process started or stopped while the server runs is seen by the next
 call. The worker loads the source, watches it, and reloads on an edit. The
 workspace's schedules and monitors run in that worker, never in the server.
 
-The server also accepts `--state`, `--artifacts`, and `--dry-run`. Their defaults match the [CLI flags](/marbles/reference/cli#flags).
+The server also accepts `--dry-run`, and keeps everything under the Foundry home `FOUNDRY_HOME` names, as the [CLI](/marbles/reference/cli#flags) does.
 Diagnostics go to stderr; stdout carries MCP messages only. The server
 runs in a child process whose stdout is stderr, so whatever it and the
 processes it starts print to stdout goes to stderr too.
@@ -141,8 +141,8 @@ bun apps/marbles/src/cli.ts watch <runId>
 
 The watcher replays earlier output, follows new output, prints the result
 and terminal status, then exits. It needs no source path and can run from
-another working directory. If you set a custom `--state` on the MCP server,
-pass the same value to the watcher. See [watching runs](/marbles/reference/cli#watch-a-background-run)
+another working directory. If you set `FOUNDRY_HOME` for the MCP server,
+set the same for the watcher. See [watching runs](/marbles/reference/cli#watch-a-background-run)
 for exit codes and interruption behavior.
 
 ## Agent options

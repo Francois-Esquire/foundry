@@ -62,8 +62,9 @@ timestamps may trigger every poll. See [monitor semantics](/marbles/foundation/t
 ## An agent or sandbox cannot start
 
 Run the configured `claude` or `codex` command directly in the same
-environment to verify installation and authentication. Check `providers.json`
-under the state root and the agent's `provider` and `model`: a model no
+environment to verify installation and authentication. Check the configured
+providers (`ProviderConfiguration.list()` in `@foundry.sh/marbles/lib`) and
+the agent's `provider` and `model`: a model no
 configured catalog lists is refused, and a session stays on the provider it
 started with.
 

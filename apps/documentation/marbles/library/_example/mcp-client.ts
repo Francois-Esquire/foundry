@@ -4,10 +4,10 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 
 export interface McpCountOptions {
+  /** A Foundry home; omit it to use `$FOUNDRY_HOME`, else `~/.foundry`. */
+  readonly home?: string;
   /** The `count` module, or the project's `.foundry/marbles` folder. */
   readonly source: string;
-  /** A state root; omit it to use `~/.foundry/marbles`. */
-  readonly state?: string;
 }
 
 const POLL_MS = 250;
@@ -30,11 +30,26 @@ export async function countOverMcp(
   options: McpCountOptions
 ): Promise<Record<string, unknown>> {
   const args = ["mcp", "--source", options.source];
-  if (options.state !== undefined) {
-    args.push("--state", options.state);
-  }
+  // The server keeps everything under the home its environment names.
+  const env =
+    options.home === undefined
+      ? undefined
+      : {
+          ...Object.fromEntries(
+            Object.entries(process.env).filter(
+              (entry): entry is [string, string] => entry[1] !== undefined
+            )
+          ),
+          FOUNDRY_HOME: options.home,
+        };
   const client = new Client({ name: "count-example", version: "0.0.0" });
-  await client.connect(new StdioClientTransport({ args, command: "marbles" }));
+  await client.connect(
+    new StdioClientTransport({
+      args,
+      command: "marbles",
+      ...(env === undefined ? {} : { env }),
+    })
+  );
   try {
     const { runId } = json(
       await client.callTool({

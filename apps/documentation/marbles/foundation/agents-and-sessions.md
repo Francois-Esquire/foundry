@@ -74,9 +74,9 @@ when you want several turns to share a conversation.
 in a provider's catalog. A model named alone goes to the first configured
 provider that lists it. A name that no catalog lists fails rather than
 reaching a provider. `"codex/gpt-5.5"` names both. Providers are configured
-once per machine, and per workspace where needed, in `providers.json` under
-the state root. The first interactive run offers what it detects on `PATH`;
-a dry run never writes the file. A session stays on the provider and model
+once per machine, and per workspace where needed, in the Marbles database
+under the state root. The first interactive run offers what it detects on
+`PATH`; a dry run never writes it. A session stays on the provider and model
 it started with, and on that configured instance: it fails rather than
 resume after the entry moves to another scope or changes its settings or
 the environment that chooses its account, or when another entry with the

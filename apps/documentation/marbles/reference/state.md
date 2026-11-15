@@ -13,7 +13,7 @@ and reports and versioned outputs use [Artifacts](https://github.com/Francois-Es
 Marbles chooses their local stores and connects their identities.
 
 The default state root is `~/.foundry/marbles`; `FOUNDRY_HOME` moves the
-whole home, and `--state` moves the root alone. The root holds the files of
+whole home, and nothing moves on its own. The root holds the files of
 the Marbles process, the one daemon for this machine, and one directory per
 workspace: the project root above `.foundry/marbles`, named by the first
 twelve hex digits of the SHA-256 of its canonical path. The Marbles
@@ -35,30 +35,36 @@ workspace this machine has run, and says which of them the process hosts.
                           and, by workspace id, its workflow Runs, Execution Runs
                           and their observations, retention gaps, each schedule's
                           and monitor's last tick, each monitor's state, the
-                          triggers agents created, and each agent turn's usage
+                          triggers agents created, each agent turn's usage, its
+                          artifact and sandbox records, its agent grants, the
+                          approvals waiting in the feed, its harness activities,
+                          and which engine delivers its task changes; and the
+                          machine's and each workspace's provider configuration,
+                          with the key instance identities are digested with.
+                          Readable by its owner only (mode 0600), as provider
+                          settings can hold secrets
   daemon.log              stdout and stderr of a process a client started;
                           `marbles daemon` prints to its own terminal instead
   settings.json           global dashboard preferences (the theme), shared by
-                          every workspace
+                          every workspace; the one file meant to be edited by hand
   <workspace-id>/         one directory per workspace, below
 ```
 
 ```text
 ~/.foundry/marbles/<workspace-id>/
   output/<runId>.jsonl    append-only output for marbles watch
-  locks/tasks             pid of the process delivering the workspace's task
-                          changes to its observers
-  locks/<name>.break      transient: the process taking over a dead holder's lock
   locks/process           pid of the worker the Marbles process hosts this
                           workspace in, or of a program hosting it itself
+  locks/process.break     transient: the process taking over a dead holder's lock
   process.json            what that process is: pid, host "worker", source, start time
-  agent-grants.json       tool grants approved for future runs, by agent id
-  agent-grants.json.lock  pid of the process changing grants; never taken over,
-                          so remove it by hand if its process is gone
-  agent-approvals.json    refused requests waiting in the feed as future permissions
-  harness-activities/     native subagent and background activity, for the dashboard
   worktrees/              temporary worktrees cut by `withWorktree`
 ```
+
+Files an earlier Marbles kept here and the database now holds
+(`providers.json` and `identity.key` at the root; `agent-grants.json`,
+`agent-approvals.json`, `harness-activities/`, `locks/tasks` and
+`locks/providers` in a workspace's directory) are ignored, not imported,
+and left as they are.
 
 ### Agent identity
 
@@ -133,13 +139,14 @@ with no Marbles process running makes and migrates the database under
 `locks/process`, as a program hosting a workspace does. Under `--dry-run`
 the tasks are in memory and nothing is written.
 
-One process delivers a workspace's changes to its observers at a time: the
-host that holds `locks/tasks` in the workspace's directory, from its start
-until it stops. A second host of the same workspace reads and writes its
-tasks but prints `[observe] not delivering here` and leaves delivery to the
-first until it stops. The claim lives in the state directory, not the
-database: engines over the same records with different state
-directories, or without one, each deliver.
+One engine delivers a workspace's changes to its observers at a time: the
+one whose claim the workspace's row of `marbles_delivery_claims` holds,
+from its start until it stops. A claim is a transaction that reads the row
+and takes it; a claim whose process has exited holds nothing. A second
+host of the same workspace reads and writes its tasks but prints
+`[observe] not delivering here` and takes delivery over within a second of
+the first letting go. An engine that keeps its tasks in memory delivers
+its own.
 
 Delivery is at least once per observer: a handler that completed but
 whose completion was not saved runs again. A handler that throws keeps its
@@ -177,8 +184,7 @@ in a workspace's directory by an earlier Marbles is ignored, not imported,
 and left as it is, like `tasks.json`. Its sessions behave as if their files
 had been removed: they are not listed; a session a parked run or a host
 recorded before starts afresh under its id, without its history; a
-deferred approval `agent-approvals.json` keeps for one is dropped from it
-when the engine starts; and usage recovery counts one that a run or a
+deferred approval kept for one is dropped when the engine starts; and usage recovery counts one that a run or a
 usage record still names as an unreadable usage record.
 
 Any number of processes write a workspace's sessions at once. A change is
@@ -246,19 +252,18 @@ What Marbles keeps beside each Run (`marbles_workflow_runs`) contains:
 
 ### Artifact storage
 
-Declared artifacts and feed entries live outside the per-workspace
-directories, in the artifact store shared by every workspace (default
-`~/.foundry/artifacts`, set with `--artifacts`):
+Declared artifacts and feed entries are records in the Marbles database,
+scoped by workspace id; their bytes live outside the per-workspace
+directories, in the artifact store under the Foundry home
+(`~/.foundry/artifacts`):
 
 ```text
 ~/.foundry/artifacts/
-  records.json            artifacts and their content versions
-  records.json.lock       pid holding the write lock during a commit
-  blobs/                  file bytes, one immutable file per blob
+  workspaces/<workspace-id>/blobs/   file bytes, one immutable file per blob
 ```
 
-Writers take the lock, reload `records.json`, and replace it atomically, so
-concurrent Marbles processes do not lose each other's entries.
+A `records.json` an earlier Marbles left there is ignored. An engine with
+no database (a script no host loaded) keeps its artifacts in memory.
 
 ### Execution Runs
 
@@ -372,8 +377,10 @@ have different claims even when they target the same workflow.
 
 ### Lock ownership and repair
 
-Every lock under `locks/` is a file
-created exclusively with mode `0o600` that holds the owner's pid:
+The one lock left on disk, `locks/process`, the claim of the Marbles
+process on the state root and of a worker on its workspace's directory,
+is a file created exclusively with mode `0o600` that holds the owner's
+pid; every other claim is a row of the Marbles database:
 
 - A lock whose pid has exited is broken by one process at a time. That
   process creates `<lock>.break`, reads the lock again, removes it if it
