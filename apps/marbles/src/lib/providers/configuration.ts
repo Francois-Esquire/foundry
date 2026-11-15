@@ -143,6 +143,15 @@ export class ProviderConfiguration {
   #unreached:
     | { readonly message: string; readonly read: StoreRead }
     | undefined;
+  /**
+   * How many times each read has succeeded: a recovery is told apart from
+   * a failure that no longer applies.
+   */
+  readonly #reached: Record<StoreRead, number> = {
+    configuration: 0,
+    "identity key": 0,
+    revision: 0,
+  };
   /** Every scope as the edit under way reads it, inside the store's transaction. */
   #editing: ProviderConfigurations | undefined;
   readonly #plugins: ReadonlyMap<string, RegisteredPlugin>;
@@ -245,7 +254,20 @@ export class ProviderConfiguration {
    * dry run's store makes none.
    */
   async #keyed(kept: ProviderConfigurations): Promise<void> {
-    if (this.#key !== undefined || !this.#configuredIn(kept)) {
+    if (this.#key !== undefined) {
+      return;
+    }
+    // A configuration that needs no key, nothing at all or one that cannot
+    // be read, leaves no key read to try again.
+    let configured: boolean;
+    try {
+      configured = this.#configuredIn(kept);
+    } catch (error) {
+      this.#forget("identity key");
+      throw error;
+    }
+    if (!configured) {
+      this.#forget("identity key");
       return;
     }
     const key = await this.#reaching("identity key", () =>
@@ -268,10 +290,16 @@ export class ProviderConfiguration {
       }
       throw error;
     }
+    this.#reached[read] += 1;
+    this.#forget(read);
+    return result;
+  }
+
+  /** A failure of `read`, if one is tracked, no longer stands. */
+  #forget(read: StoreRead): void {
     if (this.#unreached?.read === read) {
       this.#unreached = undefined;
     }
-    return result;
   }
 
   /** Apply edits to several scopes as one write: every edit runs before any is kept. */
@@ -769,6 +797,7 @@ export class ProviderConfiguration {
       }
       polling = true;
       const before = this.#unreached;
+      const succeeded = before === undefined ? 0 : this.#reached[before.read];
       poll()
         .catch((error: unknown) => {
           const unreached = this.#unreached;
@@ -779,7 +808,12 @@ export class ProviderConfiguration {
           }
         })
         .finally(() => {
-          if (before !== undefined && this.#unreached === undefined) {
+          // Only once the read that failed has itself succeeded since.
+          if (
+            before !== undefined &&
+            this.#unreached === undefined &&
+            this.#reached[before.read] > succeeded
+          ) {
             report(RECOVERED);
           }
           polling = false;

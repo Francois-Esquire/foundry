@@ -626,6 +626,58 @@ describe("a store that could not be reached", () => {
     }
   });
 
+  it("reports a configuration that cannot be read once, though the identity key could not be made before it", async () => {
+    store.put(MACHINE_SCOPE, codex);
+    const { config } = configuration();
+    store.refusing.key = Array.from({ length: 50 }, () => busy("no key"));
+    await expect(config.refresh()).rejects.toThrow("no key");
+    const { problems, stop } = watched(config);
+    try {
+      await vi.waitFor(() => expect(store.keyAsks).toBeGreaterThan(1), {
+        timeout: 5000,
+      });
+      store.texts.set(MACHINE_SCOPE, "{ broken");
+      store.revisions += 1;
+      await vi.waitFor(() => expect(problems).toHaveLength(1), {
+        timeout: 5000,
+      });
+      expect(problems[0]).toContain("cannot be read");
+      // Not read again until it changes: no key is needed for it.
+      const { reads } = store;
+      await new Promise((settle) => setTimeout(settle, 1650));
+      expect(store.reads).toBe(reads);
+      expect(problems).toHaveLength(1);
+    } finally {
+      stop();
+    }
+  }, 15_000);
+
+  it("stops asking for an identity key once nothing configured needs one, and reports no recovery for it", async () => {
+    store.put(MACHINE_SCOPE, codex);
+    const { config } = configuration();
+    store.refusing.key = Array.from({ length: 50 }, () => busy("no key"));
+    await expect(config.refresh()).rejects.toThrow("no key");
+    const { problems, stop } = watched(config);
+    try {
+      await vi.waitFor(() => expect(store.keyAsks).toBeGreaterThan(1), {
+        timeout: 5000,
+      });
+      store.texts.delete(MACHINE_SCOPE);
+      store.revisions += 1;
+      // Read once for the change, then not again until the next.
+      await vi.waitFor(() => expect(store.reads).toBeGreaterThan(2), {
+        timeout: 5000,
+      });
+      await new Promise((settle) => setTimeout(settle, 1100));
+      const { reads } = store;
+      await new Promise((settle) => setTimeout(settle, 1650));
+      expect(store.reads).toBe(reads);
+      expect(problems).toEqual([]);
+    } finally {
+      stop();
+    }
+  }, 15_000);
+
   it("reports a stored identity key that is not one once, and asks for it again only once the configuration changes", async () => {
     store.put(MACHINE_SCOPE, codex);
     store.key = "not a key";
