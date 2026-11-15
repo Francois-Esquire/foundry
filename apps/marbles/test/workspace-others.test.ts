@@ -137,4 +137,34 @@ describe("other workspaces on the dashboard", () => {
       opened.close();
     }
   });
+
+  it("shows a monitor whose first tick handed a launch over and died before its history, as a monitor", async () => {
+    const state = await machine();
+    // The tick's claim is left by a process that is gone; no history yet.
+    await seedTicks(state, "ws2", [{ key: "first", owner: null }]);
+    const opened = await initializeDatabase(stateDatabase(state));
+    try {
+      const { database } = opened;
+      await database.insert(marblesMonitorStates).values({
+        key: "first",
+        observed: {},
+        pending: { input: null, workflow: "refresh" },
+        scope: "ws2",
+      });
+      const { triggers } = await otherWorkspaces({
+        database,
+        state,
+        workspace: "ws1",
+      })(Date.now());
+      expect(triggers.find((trigger) => trigger.id === "first")).toMatchObject({
+        description: "monitor in two · a launch of refresh waits",
+        kind: "monitor",
+        name: "first · two",
+        status: "watching",
+        targetId: "refresh",
+      });
+    } finally {
+      opened.close();
+    }
+  });
 });

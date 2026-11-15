@@ -318,11 +318,12 @@ export async function storedTicks(
       last = undefined;
     }
     const running = heldBy(row)?.pid ?? null;
-    // A claim its dead owner left, on a trigger that never ticked, is nothing.
-    if (last === undefined && running === null) {
+    const launch = pending.get(row.key);
+    // A claim its dead owner left, on a trigger that never ticked and has no
+    // launch waiting, is nothing.
+    if (last === undefined && running === null && launch === undefined) {
       return [];
     }
-    const launch = pending.get(row.key);
     return [
       {
         key: row.key,

@@ -138,7 +138,9 @@ function triggerSnapshot(
   { key, last, pending, running }: StoredTick,
   owner: OwnerWorkspace
 ): TriggerSnapshot {
-  const kind = last?.kind === "monitor" ? "monitor" : "schedule";
+  // Only a monitor hands a launch over, history or not.
+  const kind =
+    last?.kind === "monitor" || pending !== undefined ? "monitor" : "schedule";
   let status: TriggerSnapshot["status"] =
     kind === "monitor" ? "watching" : "waiting";
   if (last?.lastStatus === "failed") {
