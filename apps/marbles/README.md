@@ -129,12 +129,12 @@ never attaches the workspace, and runs none of its source, under
 `--dry-run` too. The task tools
 work without a process, and without a source, for this workspace and any
 workspace recorded under the state root, even one whose checkout is gone:
-a worker that hosts the workspace
+the Marbles process that hosts the workspace
 answers, or the server opens the stored tasks for the call. `list_config`, the dispatch
-tools, `get_run`, and `cancel_run` need a worker that hosts the workspace,
-and return an error that names `marbles attach` without one. That worker
-loads the workspace's Varlock environment and source modules and reloads
-itself on an edit.
+tools, `get_run`, and `cancel_run` need the Marbles process to host the workspace,
+and return an error that names `marbles attach` without one. Its engine
+generation loads the workspace's Varlock environment and source modules,
+and an edit brings up the next generation.
 
 The server offers `list_workspaces`, `list_config`, `dispatch_workflow`,
 `dispatch_agent`, `get_run`, and `cancel_run`, plus the task tools
@@ -184,10 +184,12 @@ Poll `get_run` with
 `{ "runId": "the-returned-run-id" }` for status, final `text`/`output`, or
 an `error`. Status follows the engine: `queued`, `running`, `suspended`,
 `completed`, `failed`, or `cancelled`. `cancel_run` takes the same run ID and requests cancellation.
-Dispatched runs belong to the workspace's worker, so closing the MCP
-connection ends only the server and leaves them running. `get_run` looks a
-run up in that worker's memory: any server for the same workspace sees it, and a source reload or `marbles stop` forgets it, though its saved
-output stays watchable.
+Dispatched runs belong to the engine generation that started them, so
+closing the MCP connection ends only the server and leaves them running.
+`get_run` looks a run up in that generation's memory: any server for the
+same workspace sees it, and once that generation has exited, after a
+source reload or `marbles stop`, it is forgotten, though its saved output
+stays watchable.
 
 ### Watch a run
 
@@ -223,7 +225,7 @@ and 130 when interrupted. Interrupting the watcher does not cancel the run.
 If the owner disappears without recording an ending, the watcher reports
 that interruption rather than waiting indefinitely.
 
-Diagnostics and the worker's status lines go to stderr; stdout carries MCP
+Diagnostics and the workspace's status lines go to stderr; stdout carries MCP
 messages only. The server runs in a child process whose stdout is stderr,
 so whatever it and the processes it starts print to stdout goes to stderr
 too. The server exits when stdin closes, when the
@@ -246,8 +248,26 @@ attaches it and follows its status lines instead. Either way the triggers
 keep running after the command exits, until `marbles stop`. The dashboard
 lists every workspace the process hosts (`w` moves between them) and can
 answer questions; a run that asks waits on the Feed for one, and is
-cancelled at the ask only under `--dry-run`. Source edits reload the
-workspace's worker on their own.
+cancelled at the ask only under `--dry-run`. Source edits bring up the next
+engine generation on their own.
+
+### Engine generations
+
+The Marbles process hosts every registered workspace in one engine
+subprocess, a generation, and keeps clients connected to itself, so a
+dashboard or `marbles run` follows its workspace across generations. An
+edit to any workspace's source, a change to the Marbles installation, or
+a client's reload, starts the next generation. It must load every
+registered workspace; when one does not load, the error is shown on that
+workspace and the running generation carries on as it was. Once it has
+loaded, it takes over at once: schedules and monitors carry on from where
+they were, by their key, and the runs waiting in a queue or parked on a
+question move to it. The previous generation starts nothing new; it
+finishes the runs it has running, whole, then exits, and with none it
+exits at once. Each schedule tick and each task change is handled by one
+generation only. A generation that dies has its runs put right by the next
+one's start, which the Marbles process starts for it. `marbles status`
+lists the live generations.
 
 Everything Marbles keeps is under one Foundry home, `$FOUNDRY_HOME`, else
 `~/.foundry`; moving the home moves all of it, and nothing moves on its own:
@@ -268,8 +288,6 @@ Everything Marbles keeps is under one Foundry home, `$FOUNDRY_HOME`, else
     <workspace-id>/
       output/<runId>.jsonl    each run's output, for `marbles watch`
       worktrees/              git worktrees cut for its steps
-      locks/process           the claim of the worker that hosts it
-      process.json            who holds that claim
   artifacts/
     workspaces/<workspace-id>/blobs/   each artifact's bytes
 ```
@@ -282,9 +300,8 @@ who delivers its task changes, and the machine's and each workspace's
 provider configuration with the identity key. Provider settings can hold
 secrets, which is why the database is its owner's only. The Marbles process
 claims `locks/process` at the state root and listens on `marbles.sock`
-beside it; each worker claims the same lock under its workspace's
-directory, so a second process for the same home or workspace is refused
-with the holder's pid. `marbles daemon` runs the process in the
+beside it, so a second Marbles process for the same home is refused with
+the holder's pid. `marbles daemon` runs the process in the
 foreground for a service manager, and `marbles status` shows it and which
 workspaces it hosts. `--dry-run` hosts the workspace in the calling process
 instead, substitutes Marbles-owned operations, and avoids state writes;
@@ -319,8 +336,9 @@ platform and what to install. The WebAssembly binding,
 
 Every load evaluates again each module and data file its source reaches
 by path. Bun cannot unload a module, so the copies an earlier load made
-stay in the process for as long as anything refers to them; a worker of
-the Marbles process restarts on a source edit, which gives them back.
+stay in the process for as long as anything refers to them; the Marbles
+process starts a new engine generation on a source edit, and the old one's
+exit gives them back.
 
 ## Documentation
 
