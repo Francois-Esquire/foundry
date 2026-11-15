@@ -103,6 +103,7 @@
     "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
     "@foundry/models": "workspace:*",
+    "@foundry/modules": "workspace:*",
     "@foundry/prompts": "workspace:*",
     "@foundry/sandbox": "workspace:*",
     "@foundry/tasks": "workspace:*",

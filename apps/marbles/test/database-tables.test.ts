@@ -1,18 +1,20 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentMessages, agentSessions } from "@foundry/agents/store/tables";
 import { createTables } from "@foundry/lib/testing/sqlite";
 import { Tasks } from "@foundry/tasks";
-import { taskDependencies, tasks } from "@foundry/tasks/store/tables";
 import type { Client, InArgs } from "@libsql/client";
 import { createClient } from "@libsql/client";
-import { sql } from "drizzle-orm";
+import { is, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
-import { getTableConfig, type SQLiteTable } from "drizzle-orm/sqlite-core";
+import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { describe, expect, it } from "vitest";
 import type { StoreDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
+// biome-ignore lint/performance/noNamespaceImport: the test reads every table the schema composes, whatever it is named.
+import * as schema from "~/database/schema";
+// biome-ignore lint/performance/noNamespaceImport: as above, for Marbles' own tables.
+import * as own from "~/database/tables";
 import { pendingChanges } from "~/database/tasks";
 import { testMachine } from "./helpers/records";
 
@@ -23,12 +25,40 @@ import { testMachine } from "./helpers/records";
  * package's tests prove nothing about the database Marbles runs on.
  */
 
-/** The package tables Marbles' migrations create. */
-const PACKAGE_TABLES: readonly SQLiteTable[] = [
-  agentMessages,
-  agentSessions,
-  tasks,
-  taskDependencies,
+/**
+ * The package tables Marbles' migrations create: every table the composed
+ * schema holds but Marbles' own, so a package added to it is checked here
+ * without being named.
+ */
+const PACKAGE_TABLES: readonly SQLiteTable[] = Object.values(schema).filter(
+  (value): value is SQLiteTable =>
+    is(value, SQLiteTable) && !Object.values(own).includes(value)
+);
+
+/** The tables of every package Marbles composes, by name, as the migrations must create them. */
+const COMPOSED = [
+  "agent_messages",
+  "agent_sessions",
+  "artifact_blob_chunks",
+  "artifact_blobs",
+  "artifact_content_blobs",
+  "artifact_contents",
+  "artifacts",
+  "module_installations",
+  "module_manifests",
+  "module_positions",
+  "modules",
+  "sandbox_containers",
+  "task_dependencies",
+  "tasks",
+  "workflow_jobs",
+  "workflow_positions",
+  "workflow_queues",
+  "workflow_run_frames",
+  "workflow_runs",
+  "workflow_suspensions",
+  "workspace_entries",
+  "workspaces",
 ];
 
 /** Every column, index and indexed column of `table`, as SQLite reports them. */
@@ -54,6 +84,12 @@ async function shape(database: StoreDatabase, table: string) {
 }
 
 describe("the package tables in the Marbles database", () => {
+  it("are every table of every package Marbles composes", () => {
+    expect(
+      PACKAGE_TABLES.map((table) => getTableConfig(table).name).sort()
+    ).toEqual(COMPOSED);
+  });
+
   it("are created by the migrations exactly as the package's tests create them", async () => {
     const dir = mkdtempSync(join(tmpdir(), "marbles-tables-"));
     const migrated = await initializeDatabase(join(dir, "marbles.db"));
@@ -65,7 +101,6 @@ describe("the package tables in the Marbles database", () => {
         const { name } = getTableConfig(table);
         const expected = await shape(defined, name);
         expect(expected.columns.length, name).toBeGreaterThan(0);
-        expect(expected.indexes.length, name).toBeGreaterThan(0);
         expect(await shape(migrated.database, name), name).toEqual(expected);
       }
     } finally {
