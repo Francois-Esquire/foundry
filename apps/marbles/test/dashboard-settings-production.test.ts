@@ -9,6 +9,7 @@ import type { WorkspaceConnection, WorkspaceSummary } from "~/model/connection";
 import type { DashboardSnapshot } from "~/model/dashboard";
 import type { SettingsChange } from "~/model/settings";
 import type * as Client from "~/process/client";
+import { SPAWN_RECORD_ENV } from "~/process/spawned";
 import { testHome } from "./helpers/home";
 
 /**
@@ -99,6 +100,7 @@ beforeEach(async () => {
   // In-process: the dashboard finds its home through the environment.
   const home = testHome();
   vi.stubEnv("FOUNDRY_HOME", home.path);
+  vi.stubEnv(SPAWN_RECORD_ENV, home.env[SPAWN_RECORD_ENV]);
   ({ state } = home.layout);
   captured.updates.length = 0;
   captured.settings = undefined;

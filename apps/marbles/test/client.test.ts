@@ -13,7 +13,7 @@ import {
   stopProcess,
 } from "~/process/client";
 import { type HelloResult, PROTOCOL } from "~/process/protocol";
-import { recordSpawned } from "~/process/spawned";
+import { recordSpawned, SPAWN_RECORD_ENV } from "~/process/spawned";
 import { testHome } from "./helpers/home";
 
 /**
@@ -38,6 +38,7 @@ afterEach(async () => {
 function machine(): Layout {
   const home = testHome({ providers: false });
   vi.stubEnv("FOUNDRY_HOME", home.path);
+  vi.stubEnv(SPAWN_RECORD_ENV, home.env[SPAWN_RECORD_ENV]);
   mkdirSync(home.layout.state, { recursive: true });
   return home.layout;
 }
