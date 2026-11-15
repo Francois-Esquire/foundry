@@ -11,7 +11,7 @@ import {
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { setTimeout } from "node:timers/promises";
-import { processAlive } from "@foundry/lib/file-lock";
+import { processAlive } from "@foundry/lib/process-identity";
 import { z } from "zod";
 import { formatLogValues } from "~/lib/log";
 

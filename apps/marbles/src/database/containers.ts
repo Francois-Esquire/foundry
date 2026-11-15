@@ -1,8 +1,4 @@
-import {
-  type ProcessIdentity,
-  stillRunning,
-  thisProcess,
-} from "@foundry/lib/spawn-record";
+import { isGone, ownerOf, thisProcess } from "@foundry/lib/process-identity";
 import type {
   ContainerStore,
   ContainerStoreWrite,
@@ -104,7 +100,8 @@ export class DatabaseContainerOwners implements ContainerOwners {
           )
         )
     );
-    return row === undefined || gone({ pid: row.pid, started: row.started });
+    const owner = row === undefined ? null : ownerOf(row.pid, row.started);
+    return owner === null || isGone(owner);
   }
 
   /** Whether any row the container store keeps was left by a process that is gone. */
@@ -116,12 +113,4 @@ export class DatabaseContainerOwners implements ContainerOwners {
     }
     return false;
   }
-}
-
-function gone(owner: ProcessIdentity): boolean {
-  const self = thisProcess();
-  if (owner.pid === self.pid && owner.started === self.started) {
-    return false;
-  }
-  return !stillRunning(owner);
 }

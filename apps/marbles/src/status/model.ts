@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { processAlive } from "@foundry/lib/file-lock";
+import { processAlive } from "@foundry/lib/process-identity";
 import type { StoredRun } from "~/database/runs";
 import { readStoredRuns } from "~/database/runs";
 import { sessionCounts } from "~/database/sessions";

@@ -10,13 +10,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { stopOrphans } from "../orphans";
+import { type ProcessIdentity, startedAt } from "../process-identity";
 import {
-  type ProcessIdentity,
   recordChild,
   recordPath,
   SPAWN_RECOVERY_ENV,
   type SpawnRecord,
-  startedAt,
   writePrivate,
 } from "../spawn-record";
 
@@ -50,7 +49,7 @@ function scratch(): string {
 /** A `sleep` of this test's, with its identity. */
 function sleeper(detached = false): {
   readonly child: ChildProcess;
-  readonly identity: ProcessIdentity;
+  readonly identity: ProcessIdentity & { readonly started: string };
 } {
   const child = spawn("sleep", ["60"], { detached, stdio: "ignore" });
   started.push(child);

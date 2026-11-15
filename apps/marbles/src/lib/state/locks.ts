@@ -2,7 +2,8 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { FileLockHolder } from "@foundry/lib/file-lock";
-import { processAlive, tryFileLock } from "@foundry/lib/file-lock";
+import { tryFileLock } from "@foundry/lib/file-lock";
+import { processAlive } from "@foundry/lib/process-identity";
 
 /**
  * `<dir>/locks/<name>` holds the pid of the process that has it: the state

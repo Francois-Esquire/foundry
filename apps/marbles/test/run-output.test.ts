@@ -1,12 +1,15 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { processAlive } from "@foundry/lib/file-lock";
+import { processAlive } from "@foundry/lib/process-identity";
 import { expect, it, vi } from "vitest";
 import { RunOutput } from "~/lib/state/output";
 import { watchRun } from "~/watch";
 
-vi.mock("@foundry/lib/file-lock", () => ({ processAlive: vi.fn() }));
+vi.mock("@foundry/lib/process-identity", async (actual) => ({
+  ...(await actual<typeof import("@foundry/lib/process-identity")>()),
+  processAlive: vi.fn(),
+}));
 
 it.each(["completed", "failed", "cancelled"] as const)(
   "drains the final burst appended between EOF and owner exit (%s)",

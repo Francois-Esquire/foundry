@@ -1,7 +1,8 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { lockHolder, processAlive } from "@foundry/lib/file-lock";
+import { lockHolder } from "@foundry/lib/file-lock";
+import { processAlive } from "@foundry/lib/process-identity";
 
 import { isRecord, readJson, writeJson } from "~/lib/state/json";
 import { acquireLock, PROCESS_LOCK as LOCK } from "~/lib/state/locks";

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { processAlive } from "@foundry/lib/file-lock";
 import type { JsonValue } from "@foundry/lib/json";
+import { processAlive } from "@foundry/lib/process-identity";
 import {
   bySequence,
   DEFAULT_QUEUE,

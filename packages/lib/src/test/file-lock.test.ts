@@ -17,11 +17,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   acquireFileLock,
   FileLockTimeoutError,
+  lockContents,
   lockHolder,
-  processAlive,
+  lockOwner,
   tryFileLock,
   withFileLock,
 } from "../file-lock";
+import { processAlive, thisProcess } from "../process-identity";
 
 let directory: string;
 let lock: string;
@@ -47,7 +49,7 @@ function exitedPid(): number {
 describe("file locks", () => {
   it("records the holder and removes the file on release", async () => {
     const release = await acquireFileLock(lock);
-    expect(await readFile(lock, "utf8")).toBe(String(process.pid));
+    expect(await readFile(lock, "utf8")).toBe(lockContents());
     // biome-ignore lint/suspicious/noBitwiseOperators: Mask file type bits to check private POSIX permissions.
     expect((await stat(lock)).mode & 0o777).toBe(0o600);
     await release();
@@ -80,6 +82,27 @@ describe("file locks", () => {
     expect(error).toMatchObject({ holder: process.pid, path: lock });
   });
 
+  it("breaks a lock an earlier process with this pid left, as after a reboot", async () => {
+    // The pid runs, but it is this process, which started later.
+    await writeFile(lock, `${String(process.pid)}\nThu Jan  1 00:00:00 1970`);
+    await expect(acquireFileLock(lock, { waitMs: 30 })).rejects.toMatchObject({
+      holder: process.pid,
+    });
+    const release = await acquireFileLock(lock, { breakStale: true });
+    expect(await readFile(lock, "utf8")).toBe(lockContents());
+    expect(lockOwner(lock)).toEqual(thisProcess());
+    await release();
+    expect(await readdir(directory)).toEqual([]);
+  });
+
+  it("never breaks a live holder's lock that records no start time", async () => {
+    await writeFile(lock, String(process.pid));
+    expect(tryFileLock(lock, { breakStale: true })).toEqual({
+      holder: process.pid,
+      owner: { pid: process.pid, started: null },
+    });
+  });
+
   it("breaks a dead holder's lock only when asked", async () => {
     const dead = exitedPid();
     await writeFile(lock, String(dead));
@@ -88,7 +111,7 @@ describe("file locks", () => {
       holder: dead,
     });
     const release = await acquireFileLock(lock, { breakStale: true });
-    expect(await readFile(lock, "utf8")).toBe(String(process.pid));
+    expect(await readFile(lock, "utf8")).toBe(lockContents());
     await release();
     expect(await readdir(directory)).toEqual([]);
   });
@@ -139,7 +162,7 @@ describe("file locks", () => {
     const second = await acquireFileLock(lock);
 
     await first();
-    expect(await readFile(lock, "utf8")).toBe(String(process.pid));
+    expect(await readFile(lock, "utf8")).toBe(lockContents());
 
     // Removed by hand and taken by another process meanwhile.
     await writeFile(lock, "999999999");
@@ -154,6 +177,7 @@ describe("file locks", () => {
 
     expect(tryFileLock(lock, { breakStale: true })).toEqual({
       holder: process.pid,
+      owner: thisProcess(),
     });
     if ("release" in first) {
       first.release();
@@ -166,7 +190,7 @@ describe("file locks", () => {
     const dead = exitedPid();
     await writeFile(lock, String(dead));
 
-    expect(tryFileLock(lock)).toEqual({ holder: dead });
+    expect(tryFileLock(lock)).toMatchObject({ holder: dead });
     const taken = tryFileLock(lock, { breakStale: true });
     expect(taken).toHaveProperty("release");
     expect(lockHolder(lock)).toBe(process.pid);

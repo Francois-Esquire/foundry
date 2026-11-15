@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2f7baf8b-c9e5-4898-be00-5e0e22dca265",
+  "id": "d103165c-9155-48fe-b30a-c25e9456f8cf",
   "prevId": "63972cbe-690d-4b5a-ae1e-cd1e2edc7547",
   "tables": {
     "agent_messages": {
@@ -2089,7 +2089,7 @@
           "name": "owner_started",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "scope": {

@@ -33,12 +33,11 @@ import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
-  notPrivate,
+  isProcessIdentity,
   type ProcessIdentity,
-  recordPath,
-  type SpawnRecord,
   sameStart,
-} from "./spawn-record";
+} from "./process-identity";
+import { notPrivate, recordPath, type SpawnRecord } from "./spawn-record";
 
 /** What a stop did: the pids it stopped, and what it could not do. */
 export interface OrphanStop {
@@ -168,13 +167,20 @@ function judge(
   return "orphan";
 }
 
-/** The process `identity` names runs now: one has its pid and started then. */
+/**
+ * The process `identity` names runs now: one has its pid and started
+ * then. One whose start time was never read is taken by its pid alone,
+ * so it is never judged gone while its pid runs.
+ */
 function running(
   identity: ProcessIdentity,
   seen: ReadonlyMap<number, SeenProcess>
 ): boolean {
   const found = seen.get(identity.pid);
-  return found !== undefined && sameStart(found.started, identity.started);
+  return (
+    found !== undefined &&
+    (identity.started === null || sameStart(found.started, identity.started))
+  );
 }
 
 /** SIGTERM, a grace period, SIGKILL, a last wait; each signal on a fresh proof. */
@@ -312,21 +318,12 @@ function isRecord(value: unknown): value is SpawnRecord {
     return false;
   }
   const { group, owner } = value as Partial<SpawnRecord>;
+  // The record's own start time was read when it was written: always there.
   return (
     typeof group === "boolean" &&
-    (owner === undefined || isIdentity(owner)) &&
-    isIdentity(value)
-  );
-}
-
-function isIdentity(value: unknown): value is ProcessIdentity {
-  const identity = value as Partial<ProcessIdentity> | null;
-  return (
-    typeof identity === "object" &&
-    identity !== null &&
-    Number.isInteger(identity.pid) &&
-    (identity.pid ?? 0) > 0 &&
-    typeof identity.started === "string"
+    (owner === undefined || isProcessIdentity(owner)) &&
+    isProcessIdentity(value) &&
+    value.started !== null
   );
 }
 

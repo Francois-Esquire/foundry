@@ -413,7 +413,7 @@ export const marblesContainerOwners = sqliteTable(
   {
     containerId: text("container_id").notNull(),
     ownerPid: integer("owner_pid").notNull(),
-    ownerStarted: text("owner_started").notNull(),
+    ownerStarted: text("owner_started"),
     scope: text().notNull(),
   },
   (table) => [primaryKey({ columns: [table.scope, table.containerId] })]

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { processAlive } from "@foundry/lib/file-lock";
+import { processAlive } from "@foundry/lib/process-identity";
 import { and, asc, eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";

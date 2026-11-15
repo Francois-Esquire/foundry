@@ -37,7 +37,6 @@ import {
   type ChildProcess,
   type ExecFileOptions,
   execFile,
-  spawnSync,
 } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -51,19 +50,20 @@ import {
   writeSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import {
+  type ProcessIdentity,
+  startedAt,
+  thisProcess,
+} from "./process-identity";
 
-/** One process, told from any other given the same pid since: its pid and when it started. */
-export interface ProcessIdentity {
-  readonly pid: number;
-  /** As `startedAt` reads it. */
-  readonly started: string;
-}
-
-export interface SpawnRecord extends ProcessIdentity {
+export interface SpawnRecord {
   /** It leads a process group of its own, whose id is its pid. */
   readonly group: boolean;
   /** The process that started it, on a recovery record. */
   readonly owner?: ProcessIdentity;
+  readonly pid: number;
+  /** As `startedAt` reads it. */
+  readonly started: string;
 }
 
 /** The directory every record goes to: a test run's. */
@@ -79,11 +79,6 @@ export const SPAWN_RECOVERY_ENV = "MARBLES_SPAWN_RECOVERY";
  */
 export const SPAWN_OWNER_ENV = "MARBLES_SPAWN_OWNER";
 
-const SPACES = /\s+/g;
-/** How long `ps` gets to answer. */
-const PS_TIMEOUT_MS = 5000;
-/** `ps` prints a start time in its caller's zone and language: one for every caller. */
-const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
 /** Create a new file, never an existing one, and never through a link. */
 const CREATE =
   // biome-ignore lint/suspicious/noBitwiseOperators: open(2) takes its flags as one bit set.
@@ -93,50 +88,6 @@ const CREATE =
   constants.O_WRONLY;
 
 let reported = false;
-/** This process, as an owner; read once. */
-let self: ProcessIdentity | undefined;
-
-/**
- * When the process `pid` started, as `ps -o lstart=` prints it in UTC;
- * `null` when no process has the pid, `undefined` when `ps` cannot tell.
- */
-export function startedAt(pid: number): string | null | undefined {
-  const listed = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
-    encoding: "utf8",
-    env: PS_ENV,
-    timeout: PS_TIMEOUT_MS,
-  });
-  const started = listed.stdout?.trim();
-  if (listed.status === 0 && started) {
-    return started;
-  }
-  // `ps` exits 1, printing nothing, when no process has the pid.
-  return listed.error === undefined && listed.status === 1 && !started
-    ? null
-    : undefined;
-}
-
-/**
- * Whether the process `identity` names still runs: one has its pid and
- * started when it says. `true` when `ps` cannot tell, so a caller deciding
- * whether a process is gone never takes a live one for gone.
- */
-export function stillRunning(identity: ProcessIdentity): boolean {
-  const started = startedAt(identity.pid);
-  return (
-    started === undefined ||
-    (started !== null && sameStart(started, identity.started))
-  );
-}
-
-/** Two start times `ps` printed, however it spaced them. */
-export function sameStart(one: string, other: string): boolean {
-  return normalStart(one) === normalStart(other);
-}
-
-function normalStart(started: string): string {
-  return started.trim().replace(SPACES, " ");
-}
 
 /**
  * The recorder's own variables in `env`, for a child started with an
@@ -269,7 +220,7 @@ function write(
     writePrivate(recordPath(all, pid), JSON.stringify(record));
   }
   if (recovery !== undefined) {
-    const owner = thisProcess();
+    const owner: ProcessIdentity = thisProcess();
     writePrivate(
       recordPath(recovery, pid),
       JSON.stringify({ ...record, owner })
@@ -284,18 +235,6 @@ function privateDirectory(dir: string): void {
   if (problem !== undefined) {
     throw new Error(problem);
   }
-}
-
-/** This process's identity, read once; throws when `ps` cannot say. */
-export function thisProcess(): ProcessIdentity {
-  if (self === undefined) {
-    const started = startedAt(process.pid);
-    if (typeof started !== "string") {
-      throw new Error("ps could not say when this process started");
-    }
-    self = { pid: process.pid, started };
-  }
-  return self;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { processAlive } from "@foundry/lib/file-lock";
+import { processAlive } from "@foundry/lib/process-identity";
 import type {
   WorkflowStore,
   WorkflowStoreWrite,

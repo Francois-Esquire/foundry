@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { processAlive } from "@foundry/lib/file-lock";
+import { processAlive } from "@foundry/lib/process-identity";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import type { TaskTransaction } from "@foundry/tasks/store/sqlite";

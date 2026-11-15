@@ -1,7 +1,10 @@
 /**
  * Cross-process exclusion through a lock file created with `wx`: whoever
  * creates it holds the lock until it removes it. The file records the
- * holder's pid.
+ * holder (`@foundry/lib/process-identity`): its pid on the first line and
+ * its start time on the second, so a lock whose pid another process was
+ * given since, as after a reboot, counts as abandoned. A file with the pid
+ * alone, as earlier versions wrote it, is judged by the pid.
  *
  * One protocol, two ways in: `tryFileLock` takes the lock now or says who
  * has it, for callers that skip rather than wait; `acquireFileLock` retries
@@ -24,6 +27,12 @@ import {
 } from "node:fs";
 
 import { hasErrorCode } from "./atomic-file";
+import {
+  isGone,
+  type ProcessIdentity,
+  sameProcess,
+  thisProcess,
+} from "./process-identity";
 
 const DEFAULT_WAIT_MS = 5000;
 const DEFAULT_RETRY_MS = 10;
@@ -68,10 +77,12 @@ export interface FileLockHolder {
   readonly empty?: true;
   /**
    * The pid the file records, or `undefined` when it records none. A file
-   * that is neither empty nor a pid (unreadable, or written by hand) is
+   * that is neither empty nor a holder (unreadable, or written by hand) is
    * never broken.
    */
   readonly holder: number | undefined;
+  /** The holder the file records, start time and all, when it records one. */
+  readonly owner?: ProcessIdentity;
 }
 
 /** Thrown when the lock stays held past the wait. */
@@ -92,20 +103,10 @@ export class FileLockTimeoutError extends Error {
   }
 }
 
-/** `EPERM` counts as running: the pid exists but belongs to another user. */
-export function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return hasErrorCode(error, "EPERM");
-  }
-}
-
 /** A lock file as one read finds it. */
 type LockFile =
   | { readonly kind: "missing" }
-  | { readonly kind: "holder"; readonly pid: number }
+  | { readonly kind: "holder"; readonly owner: ProcessIdentity }
   | { readonly kind: "empty"; readonly ino: number; readonly mtimeMs: number }
   /** Unreadable, or not a pid: for a person to look at. */
   | { readonly kind: "other" };
@@ -129,16 +130,20 @@ function readLock(path: string): LockFile {
       return absentOr(error);
     }
   }
-  const pid = Number(contents);
-  return Number.isInteger(pid) && pid > 0
-    ? { kind: "holder", pid }
+  const [first = "", started = ""] = contents.split("\n");
+  const pid = Number(first);
+  return Number.isInteger(pid) && pid > 0 && first.trim() === first
+    ? {
+        kind: "holder",
+        owner: { pid, started: started === "" ? null : started },
+      }
     : { kind: "other" };
 }
 
 /** Whether two reads found the same lock: one holder, or one untouched empty file. */
 function sameLock(a: LockFile, b: LockFile): boolean {
   if (a.kind === "holder" && b.kind === "holder") {
-    return a.pid === b.pid;
+    return a.owner.pid === b.owner.pid && a.owner.started === b.owner.started;
   }
   if (a.kind === "empty" && b.kind === "empty") {
     return a.ino === b.ino && a.mtimeMs === b.mtimeMs;
@@ -149,7 +154,7 @@ function sameLock(a: LockFile, b: LockFile): boolean {
 function abandoned(lock: LockFile): boolean {
   switch (lock.kind) {
     case "holder":
-      return !processAlive(lock.pid);
+      return isGone(lock.owner);
     case "empty":
       return Date.now() - lock.mtimeMs > ABANDONED_EMPTY_MS;
     default:
@@ -160,7 +165,7 @@ function abandoned(lock: LockFile): boolean {
 function heldBy(lock: LockFile): FileLockHolder {
   switch (lock.kind) {
     case "holder":
-      return { holder: lock.pid };
+      return { holder: lock.owner.pid, owner: lock.owner };
     case "empty":
       return { empty: true, holder: undefined };
     default:
@@ -173,8 +178,19 @@ function heldBy(lock: LockFile): FileLockHolder {
  * released between an attempt and this read) or it records no pid.
  */
 export function lockHolder(path: string): number | undefined {
+  return lockOwner(path)?.pid;
+}
+
+/** The holder a lock file records, start time and all, as `lockHolder` reads it. */
+export function lockOwner(path: string): ProcessIdentity | undefined {
   const lock = readLock(path);
-  return lock.kind === "holder" ? lock.pid : undefined;
+  return lock.kind === "holder" ? lock.owner : undefined;
+}
+
+/** What a lock file records of this process: its pid, and its start time when known. */
+export function lockContents(): string {
+  const { pid, started } = thisProcess();
+  return started === null ? String(pid) : `${String(pid)}\n${started}`;
 }
 
 /**
@@ -197,7 +213,7 @@ function create(path: string, mode: number): boolean {
   let ino: number;
   try {
     try {
-      writeSync(file, String(process.pid));
+      writeSync(file, lockContents());
       ({ ino } = fstatSync(file));
     } finally {
       closeSync(file);
@@ -257,7 +273,8 @@ function releaser(path: string): () => void {
       return;
     }
     released = true;
-    if (lockHolder(path) === process.pid) {
+    const owner = lockOwner(path);
+    if (owner !== undefined && sameProcess(owner, thisProcess())) {
       rmSync(path, { force: true });
     }
   };

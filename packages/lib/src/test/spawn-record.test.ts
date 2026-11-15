@@ -13,15 +13,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
+import { startedAt } from "../process-identity";
 import {
   execFileRecorded,
   notPrivate,
   recordSpawned,
   SPAWN_OWNER_ENV,
   SPAWN_RECORD_ENV,
-  startedAt,
-  stillRunning,
-  thisProcess,
 } from "../spawn-record";
 
 const made: string[] = [];
@@ -115,21 +113,4 @@ it("records nothing for a child that has already gone", async () => {
   // Reaped by now, so no process has its pid.
   recordSpawned(child.pid, false, { [SPAWN_RECORD_ENV]: dir });
   expect(readdirSync(dir)).toEqual([]);
-});
-
-it("tells a running process from one gone, or another given its pid since", async () => {
-  const self = thisProcess();
-  expect(self.pid).toBe(process.pid);
-  expect(stillRunning(self)).toBe(true);
-  expect(
-    stillRunning({ ...self, started: ` ${self.started.replace(" ", "  ")} ` })
-  ).toBe(true);
-  expect(stillRunning({ ...self, started: "Thu Jan  1 00:00:00 1970" })).toBe(
-    false
-  );
-  const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
-  await new Promise((settle) => child.once("exit", settle));
-  expect(stillRunning({ pid: child.pid ?? 0, started: self.started })).toBe(
-    false
-  );
 });

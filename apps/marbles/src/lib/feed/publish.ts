@@ -10,8 +10,8 @@ import type {
 } from "@foundry/artifacts";
 import { artifactIdSchema } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
-import { processAlive } from "@foundry/lib/file-lock";
 import { collectPages } from "@foundry/lib/pagination";
+import { processAlive } from "@foundry/lib/process-identity";
 import { z } from "zod";
 import {
   ASK_MODES,
