@@ -1,4 +1,5 @@
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -209,7 +210,16 @@ export async function outlast(find: () => number[]): Promise<number[]> {
  * link inside it, not what the link points to. A failure warns rather
  * than failing the run; the next run's sweep tries again.
  */
-function removeRoot(root: string): void {
+/** Remove a run's root, which its stop found clear, unless a record came back in it since. */
+export function removeRoot(root: string): void {
+  // The stop removed the records directory once it was clear: one there
+  // again holds a record written since, of a process that may run.
+  if (existsSync(runRecords(root))) {
+    console.warn(
+      `marbles tests: kept ${root}: a process was recorded there after its processes were stopped`
+    );
+    return;
+  }
   try {
     // Forced: another run's sweep of the same root may be removing it too.
     rmSync(root, { force: true, maxRetries: 3, recursive: true });

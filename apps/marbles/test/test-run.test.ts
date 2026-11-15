@@ -30,6 +30,7 @@ import {
 } from "./helpers/processes";
 import {
   RUN_ENV,
+  removeRoot,
   runRecords,
   startRun,
   sweepFinishedRuns,
@@ -244,7 +245,7 @@ it("stops a process recorded while the stop runs, and keeps its record until it 
   expect(existsSync(records)).toBe(false);
 });
 
-it("keeps the records directory while a record is still being written there, and removes a dead writer's", async () => {
+it("keeps, as not clear, the records directory while a record is still being written there, and removes a dead writer's", async () => {
   const marker = uniqueMarker();
   const records = temporaryDirectory("rec-");
   const nested = join(records, "home");
@@ -259,21 +260,21 @@ it("keeps the records directory while a record is still being written there, and
   ).toEqual([]);
   expect(existsSync(records)).toBe(false);
 
-  // One a writer is still writing keeps the directory, for the next sweep,
-  // and is no problem of this stop's.
+  // One a writer is still writing keeps the directory, which is not clear:
+  // its record may name a process that runs.
   const writing = temporaryDirectory("rec-");
   writePrivateFile(join(writing, ".2.json.live.tmp"), "{");
   expect(
     await stopRecorded(writing, marker, { graceMs: 0, killMs: 0 }, system)
-  ).toEqual([]);
+  ).toEqual([expect.stringContaining("a record still being written")]);
   expect(existsSync(join(writing, ".2.json.live.tmp"))).toBe(true);
 
-  // A record that is not one of this stop's keeps it, reported.
+  // So does a file that is not a record, reported.
   const odd = temporaryDirectory("rec-");
   writePrivateFile(join(odd, "notes.txt"), "?");
   expect(
     await stopRecorded(odd, marker, { graceMs: 0, killMs: 0 }, system)
-  ).toEqual([expect.stringContaining("not records of stopped processes")]);
+  ).toEqual([expect.stringContaining("notes.txt, not a record")]);
   expect(existsSync(odd)).toBe(true);
 });
 
@@ -754,6 +755,22 @@ it("keeps a run's root while a process carries its marker without a record, and 
   } finally {
     kill(unrecorded);
   }
+});
+
+it("keeps a run's root while a record is still being written in it, and never removes a root a record came back to", async () => {
+  const parent = temporaryDirectory("sw-");
+  const run = startRun(parent, FAST);
+  mkdirPrivate(join(run.records, "run"));
+  writePrivateFile(join(run.records, "run", ".9.json.live.tmp"), "{");
+  await run.finish();
+  expect(existsSync(join(run.records, "run", ".9.json.live.tmp"))).toBe(true);
+
+  // A root its stop found clear, whose records directory is back since.
+  const other = startRun(parent, FAST);
+  mkdirPrivate(other.records);
+  writePrivateFile(join(other.records, "9.json"), "{}");
+  removeRoot(other.root);
+  expect(existsSync(join(other.records, "9.json"))).toBe(true);
 });
 
 it("leaves a live run whose owner started under another time zone and language", async () => {

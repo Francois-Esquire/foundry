@@ -104,8 +104,9 @@ export function recordProcess(dir: string, pid: number, group: boolean): void {
  * A process still running may record another meanwhile, so the records
  * are read again after each stop, and a new one is stopped in turn; the
  * record of each process confirmed gone is removed, and `dir` goes only
- * once that leaves it empty, so a record written after the last read
- * keeps it, and is stopped by the next pass or the next sweep.
+ * once that leaves it empty. A record written after the last read, or
+ * one still being written, keeps `dir` and is reported, so no caller
+ * takes `dir` for clear and removes it: the next sweep stops it.
  */
 export async function stopRecorded(
   dir: string,
@@ -125,10 +126,11 @@ export async function stopRecorded(
       (record) => !handled.has(handledKey(record))
     );
     if (fresh.length === 0) {
-      if (problems.size > 0 || removeEmpty(dir) === 0) {
+      if (problems.size > 0 || removeEmpty(dir).length === 0) {
         return [...problems];
       }
-      // A record arrived after the read: stop it next pass.
+      // A record arrived after the read, or is still being written: read
+      // it next pass.
       await system.sleep(POLL_MS);
       continue;
     }
@@ -153,9 +155,12 @@ export async function stopRecorded(
       }
     }
   }
-  problems.add(
-    `${dir} still held files that are not records of stopped processes after ${String(MAX_PASSES)} passes; kept`
-  );
+  const left = removeEmpty(dir);
+  if (left.length > 0) {
+    problems.add(
+      `${dir} still held, after ${String(MAX_PASSES)} passes, ${left.join(", ")}; kept, not clear`
+    );
+  }
   return [...problems];
 }
 
@@ -231,49 +236,48 @@ export function forgetRecord(
 /**
  * Remove `dir` and the directories under it, without removing any file
  * but a stale partial record (`.tmp`), which a writer that died left:
- * how many records, or other files, are left, `0` once there are none.
- * A partial record still being written keeps its directory without
- * counting: a stop it interrupted is what makes one, its record would
- * name a process that was recorded too late to run, and whatever sweep
- * comes next reads it once it is renamed into place, or removes it once
- * it is stale.
+ * what is left, each named for what it is; empty once nothing is. A
+ * partial record still being written is left: its record may name a
+ * process that runs, so the directory is not clear while it is there.
  */
-function removeEmpty(dir: string): number {
+function removeEmpty(dir: string): string[] {
   let entries: Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch (error) {
     if (gone(error)) {
-      return 0;
+      return [];
     }
     throw error;
   }
-  let left = 0;
-  let partial = false;
+  const left: string[] = [];
   for (const entry of entries) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      left += removeEmpty(path);
-      partial ||= existsSync(path);
+      left.push(...removeEmpty(path));
     } else if (entry.name.endsWith(".tmp")) {
       if (stale(path)) {
         rmSync(path, { force: true });
       } else {
-        partial = true;
+        left.push(`${path}, a record still being written`);
       }
     } else {
-      left += 1;
+      left.push(
+        entry.name.endsWith(".json")
+          ? `${path}, a record written since`
+          : `${path}, not a record`
+      );
     }
   }
-  if (left > 0 || partial) {
+  if (left.length > 0) {
     return left;
   }
   try {
     rmdirSync(dir);
-    return 0;
+    return [];
   } catch (error) {
     // Not empty: an entry arrived after it was listed.
-    return gone(error) ? 0 : 1;
+    return gone(error) ? [] : [`${dir}, which gained an entry`];
   }
 }
 
