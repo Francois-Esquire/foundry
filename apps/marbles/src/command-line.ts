@@ -142,7 +142,7 @@ opens the tasks itself; tasks never starts the process or hosts the workspace.`;
  * flag, saying why. `main` refuses it before anything is loaded, opened or
  * written, and refuses it too for a command that says nothing.
  */
-export type DryRun = "dry mode" | "reads only" | { readonly refused: string };
+type DryRun = "dry mode" | "reads only" | { readonly refused: string };
 
 type Handler<A extends Flags> = { readonly dry: DryRun } & (
   | { readonly needs: "nothing"; run(args: A): Promise<void> | void }
