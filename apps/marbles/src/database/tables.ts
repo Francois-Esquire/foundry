@@ -307,3 +307,92 @@ export const marblesExecutionGaps = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.scope, table.gapScope] })]
 );
+
+/**
+ * Provider configuration, one row per scope it is kept for: the machine's,
+ * whose `scope` is the empty string, and each workspace's own, by the
+ * workspace id. `configuration` is the scope's entries (and, for a
+ * workspace, its `order`), read back through the configuration's schema;
+ * its settings may hold secrets, which is one reason the database file is
+ * its owner's only. `revision` is one more than the highest in the table
+ * at every write, so a reader notices a change anywhere without reading
+ * the entries. Written by `database/providers.ts`, an edit that reads
+ * first in a transaction.
+ */
+export const marblesProviderConfigurations = sqliteTable(
+  "marbles_provider_configurations",
+  {
+    configuration: text({ mode: "json" }).$type<unknown>().notNull(),
+    revision: integer().notNull(),
+    scope: text().primaryKey(),
+  },
+  (table) => [
+    index("marbles_provider_configurations_revision").on(table.revision),
+  ]
+);
+
+/**
+ * The machine's key for provider instance identities: one row, `id` 1,
+ * the key as hex. Made once by the first writer that needs it and never
+ * rewritten; a new key matches no pinned session.
+ */
+export const marblesIdentityKeys = sqliteTable("marbles_identity_keys", {
+  id: integer().primaryKey(),
+  key: text().notNull(),
+});
+
+/**
+ * A workspace's agent grants, as one document: every grant it was issued,
+ * revoked and claimed ones too, and the sequence their ids are drawn from,
+ * in the form `@foundry/lib`'s grant repository validates before it trusts
+ * any of it. Written by `database/grants.ts`, each operation a
+ * transaction that reads the document, applies one transition, and
+ * writes it.
+ */
+export const marblesAgentGrants = sqliteTable("marbles_agent_grants", {
+  grants: text({ mode: "json" }).$type<unknown>().notNull(),
+  scope: text().primaryKey(),
+});
+
+/**
+ * The approvals a workspace's agents left waiting for a person, and the
+ * sessions they belong to, as one document: references to each session's
+ * own requests, never tool inputs. Written by `database/approvals.ts`, an
+ * edit that reads first in a transaction.
+ */
+export const marblesDeferredApprovals = sqliteTable(
+  "marbles_deferred_approvals",
+  {
+    approvals: text({ mode: "json" }).$type<unknown>().notNull(),
+    scope: text().primaryKey(),
+  }
+);
+
+/**
+ * The latest of each harness activity a workspace's agents reported, by
+ * its key (the session and the activity), for the dashboard: the event
+ * and the step it came from, read back through the activity schema. A
+ * row is only ever replaced by a higher `revision` of the same activity.
+ */
+export const marblesHarnessActivities = sqliteTable(
+  "marbles_harness_activities",
+  {
+    key: text().notNull(),
+    record: text({ mode: "json" }).$type<unknown>().notNull(),
+    revision: integer().notNull(),
+    scope: text().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.scope, table.key] })]
+);
+
+/**
+ * Which engine delivers a workspace's task changes to its observers: the
+ * engine (`owner_id`, unique per engine) and its process (`owner_pid`),
+ * null once it let go. A claim is a transaction that reads the row and
+ * takes it; an owner whose process has exited holds nothing.
+ */
+export const marblesDeliveryClaims = sqliteTable("marbles_delivery_claims", {
+  ownerId: text("owner_id"),
+  ownerPid: integer("owner_pid"),
+  scope: text().primaryKey(),
+});
