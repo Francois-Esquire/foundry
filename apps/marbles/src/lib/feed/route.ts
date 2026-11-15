@@ -59,7 +59,7 @@ export interface FeedRouter {
  * cancels its run instead of pausing it forever.
  */
 /** The question is moving to another process with its run; answer it there. */
-export class QuestionMovingError extends Error {
+class QuestionMovingError extends Error {
   override readonly name = "QuestionMovingError";
 
   constructor(entryId: string) {
