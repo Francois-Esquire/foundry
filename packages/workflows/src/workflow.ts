@@ -1,4 +1,4 @@
-import type { Schema, Scope } from "effect";
+import type { Scope } from "effect";
 
 import {
   Deferred,
@@ -10,7 +10,7 @@ import {
   SubscriptionRef,
 } from "effect";
 
-import type { ErrorShapeSchema, SuspensionState } from "./channels";
+import type { SuspensionState } from "./channels";
 import { compileWorkflowDefinition } from "./definition-compiler";
 import { DefinitionAuthoringError } from "./definition-errors";
 import type { WorkflowDefinitionPlan } from "./definition-plan";
@@ -33,6 +33,7 @@ import { errorToShape, resolveInput, runEffectPromise } from "./helpers";
 import type { WorkflowEffectAccess } from "./internal/workflow-effect-access";
 import { workflowEffectAccessKey } from "./internal/workflow-effect-access";
 import type { Factory } from "./orchestrator";
+import type { ErrorShape } from "./schema";
 import type {
   SnapshotState,
   WorkflowSnapshot,
@@ -98,8 +99,7 @@ function pathsEqual(
   );
 }
 
-/** Plain error data captured at a workflow failure boundary. */
-export type ErrorShape = Schema.Schema.Type<typeof ErrorShapeSchema>;
+export type { ErrorShape } from "./schema";
 
 /**
  * Per-Workflow results-persistence policy read by the Queue at the one seam

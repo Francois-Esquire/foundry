@@ -210,6 +210,13 @@ const engine = new Engine({
 });
 ```
 
+Delivery to observers is claimed by a lock in the engine's own `state`
+directory, not in the records' database. An engine without `state`
+claims nothing. Two engines that share a workspace's records without
+sharing one `state` directory both deliver, so an observer can run twice
+for one change. A claim held in the database itself is planned, with the
+outbox that replaces this delivery path.
+
 `WorkspaceRecords` is the type a host implements to keep the tasks
 elsewhere: `taskStore`, the changes it records (`pending`, `latest`,
 `deliver`), `watch`, and `close`.

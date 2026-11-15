@@ -62,6 +62,10 @@
       "types": "./dist/store.d.ts",
       "import": "./src/store.ts"
     },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./src/schema.ts"
+    },
     "./logger": {
       "types": "./dist/logger.d.ts",
       "import": "./src/logger.ts"

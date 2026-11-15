@@ -146,12 +146,8 @@ describe("Artifact directory inventory", () => {
         "a.md": { bytes: "partial" },
       });
       const { path } = await filesystem.resolve({ artifactId: artifact.id });
-      await store.transaction(async (transaction) => {
-        const content = await transaction.getContent(
-          required(artifact.content).id
-        );
-        await transaction.putContent({ ...required(content), state });
-      });
+      const content = await store.getContent(required(artifact.content).id);
+      await store.commit({ putContents: [{ ...required(content), state }] });
       await expect(filesystem.tree(path)).rejects.toBeInstanceOf(
         WorkspaceSourceUnavailableError
       );

@@ -14,12 +14,13 @@ import { promisify } from "node:util";
 import { afterAll, describe, expect, it } from "vitest";
 import { WorkspaceCatalog } from "../catalog";
 import { Workspace } from "../instance";
-import { MemoryWorkspaceStore } from "../memory-store";
 import { WithDirectory } from "../node";
 import type { GitPathStatus } from "../node/git";
 import { Git, git as gitLayer, WithGit, Worktree } from "../node/git";
+import { MemoryWorkspaceStore } from "../store/memory";
+import { hostWorkspace, seed } from "../testing/records";
+import { interceptCommits } from "./helpers/commits";
 import { directorySystem } from "./helpers/directory-system";
-import { hostWorkspace, seed } from "./helpers/fixtures";
 
 const inspectGit = (root: string) => Git.at(root).status();
 
@@ -514,25 +515,16 @@ describe("WithGit", () => {
     const store = new MemoryWorkspaceStore();
     const system = directorySystem({ store }).extend(gitLayer());
     const added = await system.load({ path: root });
-    const writes: string[] = [];
-    for (const method of ["commit", "removeWorkspace"] as const) {
-      const original = store[method].bind(store);
-      (store as unknown as Record<string, unknown>)[method] = (
-        ...args: unknown[]
-      ) => {
-        writes.push(method);
-        return (original as (...a: unknown[]) => unknown)(...args);
-      };
-    }
+    const { intercept } = interceptCommits(store);
 
     await added.git?.status();
-    expect(writes).toEqual([]);
+    expect(intercept).not.toHaveBeenCalled();
 
     // The probe's positive control. Without it an empty list would prove only
     // that the instrumentation never fired.
     await writeFile(join(root, "arrived.md"), "new file");
     await added.refresh();
-    expect(writes).toEqual(["commit"]);
+    expect(intercept).toHaveBeenCalledOnce();
   });
 });
 

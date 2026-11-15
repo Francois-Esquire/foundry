@@ -131,11 +131,11 @@ export interface ArtifactOperations {
     readonly expectedContentId: ContentId;
   }): Promise<ArtifactResolved>;
   create(input: CreateArtifactInput): Promise<ArtifactResolved>;
-  /** Cascades to every Content. Throws ArtifactInUseError when a pin holds one. */
+  /** Cascades to every Content. */
   delete(artifactId: ArtifactId): Promise<boolean>;
   /**
    * Remove a Content. The active row needs a replacement named in the same
-   * call. Frozen rows held by a pin throw ContentInUseError.
+   * call.
    */
   deleteContent(input: {
     readonly contentId: ContentId;
@@ -203,7 +203,7 @@ export interface ArtifactOperations {
   ): Promise<Content>;
 
   /**
-   * Reclaim: delete unfrozen, unpointed, unpinned Contents older than
+   * Reclaim: delete unfrozen, unpointed Contents older than
    * `olderThan`, then every blob nothing references. Each operation already
    * reclaims the blobs it released; this full scan is the backstop.
    */
@@ -243,6 +243,8 @@ export interface Artifacts extends ArtifactOperations {
    * Run grouped operations through the supplied handle; they commit together.
    * Effects register with the outermost transaction, never a nested return.
    * All effects run after commit (even on application failure), none on rollback.
+   * When the store rejects the commit after its write landed, the transaction
+   * rejects and no effect runs; its records stand, and `recover` reapplies them.
    */
   transaction<T>(
     operation: (

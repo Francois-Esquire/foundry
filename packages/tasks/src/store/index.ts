@@ -10,7 +10,7 @@ export type { TaskSnapshot, TaskStoreWrite } from "../schema";
  * write reaches the store. Values crossing this seam are detached.
  *
  * `@foundry/tasks/store/memory` and `@foundry/tasks/store/sqlite` implement
- * it; `@foundry/tasks/testing` is the suite every implementation passes.
+ * it; `@foundry/tasks/testing/store` is the suite every implementation passes.
  */
 export interface TaskStore {
   commit: (write: TaskStoreWrite) => Promise<void>;

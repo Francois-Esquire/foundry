@@ -1,10 +1,7 @@
 import type { EntryInputs, FileInputs } from "@foundry/artifacts";
 
-import {
-  ArtifactManager,
-  artifactIdSchema,
-  InMemoryArtifactStore,
-} from "@foundry/artifacts";
+import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 
 import { MODULE_MIME } from "../../constants";
 

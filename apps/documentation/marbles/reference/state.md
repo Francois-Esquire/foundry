@@ -155,7 +155,9 @@ One process delivers a workspace's changes to its observers at a time: the
 host that holds `locks/tasks` in the workspace's directory, from its start
 until it stops. A second host of the same workspace reads and writes its
 tasks but prints `[observe] not delivering here` and leaves delivery to the
-first until it stops.
+first until it stops. The claim lives in the state directory, not the
+database: engines over the same records with different state
+directories, or without one, each deliver.
 
 Delivery is at least once per observer: a handler that completed but
 whose completion was not saved runs again. A handler that throws keeps its
