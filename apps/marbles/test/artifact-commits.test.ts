@@ -3,33 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
 import { describeArtifactStore } from "@foundry/artifacts/testing/store";
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  onTestFinished,
-} from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Touched } from "~/database/artifact-links";
 import { followingCommits, keepingLinks } from "~/database/artifact-links";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import { workspaceStores } from "~/database/stores";
-import { temporaryDirectory } from "./helpers/temporary";
 
 /**
  * The store Marbles hands its engine's artifacts keeps the store contract,
  * and follows every write that lands, however deep in transactions it was
  * made, and none that did not.
  */
-
-async function database() {
-  const dir = temporaryDirectory("marbles-artifact-commits-");
-  const opened = await initializeDatabase(join(dir, "marbles.db"));
-  onTestFinished(() => opened.close());
-  return { dir, opened };
-}
 
 /** One migrated database for the suite; each opening gets scopes of its own, so its storage starts empty. */
 let shared: Promise<{ readonly dir: string; readonly opened: MarblesDatabase }>;
@@ -72,10 +57,12 @@ describeArtifactStore("Marbles' link-keeping", async () => {
 
 describe("a store that follows its commits", () => {
   async function followed() {
-    const { opened } = await database();
+    const { opened } = await shared;
+    openings += 1;
     const landed: Touched[] = [];
     const store = followingCommits(
-      workspaceStores(opened.database, "ws").artifacts,
+      workspaceStores(opened.database, `followed-${String(openings)}`)
+        .artifacts,
       (touched) => landed.push(touched)
     );
     return { landed, store };
