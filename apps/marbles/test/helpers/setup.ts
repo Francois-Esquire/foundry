@@ -30,7 +30,7 @@ const USER_HOME = "user";
  */
 export default async function setup(): Promise<() => Promise<void>> {
   await sweepFinishedRuns(RUN_PARENT);
-  const run = await startRun(RUN_PARENT);
+  const run = startRun(RUN_PARENT);
   const home = join(run.root, "home");
   const user = join(run.root, USER_HOME);
   mkdirSync(home);

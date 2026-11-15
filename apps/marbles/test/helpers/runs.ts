@@ -1,23 +1,27 @@
+import { spawnSync } from "node:child_process";
 import {
-  lstatSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   renameSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
-import { createConnection, createServer, type Server } from "node:net";
 import { join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 import { markedProcesses, stopProcesses } from "./processes";
 
 /**
  * One test run: a root directory that holds everything the run makes, and
  * a marker, `MARBLES_TEST_RUN=<root>`, in the environment of every process
- * it starts. A run is live while its main process listens on the socket
- * in its root; the system closes that listener when the process dies,
- * however it dies, so a run that cannot be reached there is over. A run
- * that never says, a root with no socket, is treated as live, since its
- * owner may be starting or may be a suite that knows nothing of this.
+ * it starts. The root names its owner, the run's main process, by pid and
+ * start time; the run is over once no process with that pid started then.
+ * Anything short of that, a root with no owner or one that cannot be
+ * read, or a process list that cannot be had, counts as live: its owner
+ * may be starting, or be a suite that knows nothing of this.
+ *
+ * A Unix socket the owner listens on looked simpler and is not proof: a
+ * connect is refused while the listener's queue is full, which a busy
+ * owner lets happen.
  */
 export interface Run {
   /** Stop what the run left running, then remove its root. */
@@ -27,18 +31,31 @@ export interface Run {
 
 export const RUN_ENV = "MARBLES_TEST_RUN";
 export const RUN_PREFIX = "marbles-run-";
-const RUN_SOCKET = "run.sock";
+const OWNER_FILE = "owner.json";
 
-/** Start a run under `parent`, live once this resolves. */
-export async function startRun(parent: string): Promise<Run> {
+interface Owner {
+  readonly pid: number;
+  /** As `ps -o lstart=` prints it. */
+  readonly started: string;
+}
+
+/** Start a run under `parent`, owned by this process. */
+export function startRun(parent: string): Run {
   const root = mkdtempSync(join(parent, RUN_PREFIX));
-  const server = await listenLive(root);
+  const started = startTime(process.pid);
+  if (started === undefined) {
+    rmSync(root, { force: true, recursive: true });
+    throw new Error("marbles tests: could not read this process's start time");
+  }
+  // Written whole or not at all, so a reader never finds half an owner.
+  const partial = join(root, `${OWNER_FILE}.new`);
+  writeFileSync(partial, JSON.stringify({ pid: process.pid, started }));
+  renameSync(partial, join(root, OWNER_FILE));
   return {
     async finish() {
-      // A root whose processes would not stop is kept, its socket still
-      // bound, so the next run's sweep finds the run over and tries again.
+      // A root whose processes would not stop is kept; once this process
+      // exits, the next run's sweep finds the run over and tries again.
       if (await stopMarked(root)) {
-        server.close();
         removeRoot(root);
       }
     },
@@ -56,75 +73,45 @@ export async function sweepFinishedRuns(parent: string): Promise<void> {
     .filter((name) => name.startsWith(RUN_PREFIX))
     .map((name) => join(parent, name));
   for (const root of roots) {
-    if ((await isOver(root)) && (await stopMarked(root))) {
+    if (isOver(root) && (await stopMarked(root))) {
       removeRoot(root);
     }
   }
 }
 
-/**
- * Listen under another name and rename the socket into place, so whoever
- * finds `run.sock` finds it accepting: between bind and listen a connect
- * is refused, which would read as a run that is over.
- */
-async function listenLive(root: string): Promise<Server> {
-  const binding = join(root, `${RUN_SOCKET}.new`);
-  const server = createServer((socket) => socket.destroy());
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(binding, () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
-  renameSync(binding, join(root, RUN_SOCKET));
-  // The run is over when vitest is; the listener must not keep it alive.
-  server.unref();
-  return server;
-}
-
-/**
- * Refused twice, a moment apart: macOS also refuses a connect when the
- * listener's backlog is full, which a second try outlasts.
- */
-async function isOver(root: string): Promise<boolean> {
-  if ((await runState(root)) !== "over") {
+function isOver(root: string): boolean {
+  const owner = readOwner(root);
+  if (owner === undefined) {
     return false;
   }
-  await sleep(200);
-  return (await runState(root)) === "over";
-}
-
-type RunState = "live" | "over" | "unknown";
-
-/**
- * Bun reports a connect that nothing listens for as ENOENT, even though
- * the socket is there, where the system says ECONNREFUSED; so a refusal
- * counts only while the socket file itself exists.
- */
-const REFUSED = new Set(["ECONNREFUSED", "ENOENT"]);
-
-function runState(root: string): Promise<RunState> {
-  const path = join(root, RUN_SOCKET);
-  return new Promise((resolve) => {
-    const socket = createConnection(path);
-    socket.once("connect", () => {
-      socket.destroy();
-      resolve("live");
-    });
-    socket.once("error", (error: NodeJS.ErrnoException) => {
-      const refused = REFUSED.has(error.code ?? "") && isSocket(path);
-      resolve(refused ? "over" : "unknown");
-    });
+  const listed = spawnSync("ps", ["-o", "lstart=", "-p", String(owner.pid)], {
+    encoding: "utf8",
   });
+  if (listed.error !== undefined) {
+    return false;
+  }
+  const started = listed.stdout.trim();
+  // `ps` exits 1, printing nothing, when no process has the pid.
+  return started === "" ? listed.status === 1 : started !== owner.started;
 }
 
-function isSocket(path: string): boolean {
+function readOwner(root: string): Owner | undefined {
   try {
-    return lstatSync(path).isSocket();
+    const owner = JSON.parse(readFileSync(join(root, OWNER_FILE), "utf8"));
+    return Number.isInteger(owner?.pid) && typeof owner?.started === "string"
+      ? { pid: owner.pid, started: owner.started }
+      : undefined;
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+function startTime(pid: number): string | undefined {
+  const listed = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+    encoding: "utf8",
+  });
+  const started = listed.stdout?.trim();
+  return listed.status === 0 && started ? started : undefined;
 }
 
 /** Whether every process carrying the run's marker is confirmed gone. */

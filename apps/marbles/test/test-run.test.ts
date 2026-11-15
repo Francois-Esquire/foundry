@@ -110,7 +110,7 @@ async function killedRun(parent: string): Promise<{
     script,
     `import { spawn } from "node:child_process";
 import { startRun } from ${JSON.stringify(resolve("test/helpers/runs.ts"))};
-const run = await startRun(${JSON.stringify(parent)});
+const run = startRun(${JSON.stringify(parent)});
 const child = spawn(process.execPath, ["-e", "setInterval(() => undefined, 1000)"], { detached: true, env: { ${RUN_ENV}: run.root }, stdio: "ignore" });
 child.unref();
 console.log(JSON.stringify({ leftover: child.pid, root: run.root }));
@@ -137,21 +137,47 @@ it("sweeps a killed run: stops what carries its marker and removes its root", as
   expect(existsSync(root)).toBe(false);
 });
 
-it("leaves a live run, a root that never said it was live, and unmarked processes alone", async () => {
+it("sweeps a run whose owner's pid now names a process started later", async () => {
   const parent = temporaryDirectory("sw-");
-  const live = await startRun(parent);
+  const reused = await sleeper({});
+  const root = join(parent, "marbles-run-reused");
+  mkdirSync(root);
+  writeFileSync(
+    join(root, "owner.json"),
+    JSON.stringify({ pid: reused, started: "Thu Jan  1 00:00:00 1970" })
+  );
+  const leftover = await sleeper({ [RUN_ENV]: root });
+  try {
+    await sweepFinishedRuns(parent);
+    await gone(leftover);
+    expect(existsSync(root)).toBe(false);
+    expect(alive(reused)).toBe(true);
+  } finally {
+    process.kill(reused, "SIGKILL");
+  }
+});
+
+it("leaves a live run, roots that never named a readable owner, and unmarked processes alone", async () => {
+  const parent = temporaryDirectory("sw-");
+  const live = startRun(parent);
   const liveChild = await sleeper({ [RUN_ENV]: live.root });
   const silent = join(parent, "marbles-run-silent");
   mkdirSync(silent);
   const silentChild = await sleeper({ [RUN_ENV]: silent });
+  const garbled = join(parent, "marbles-run-garbled");
+  mkdirSync(garbled);
+  writeFileSync(join(garbled, "owner.json"), '{"pid": 1');
   const killed = await killedRun(parent);
   const unmarked = await sleeper({ OTHER: killed.root });
   try {
     await sweepFinishedRuns(parent);
     expect(existsSync(killed.root)).toBe(false);
     await gone(killed.leftover);
-    expect(existsSync(live.root)).toBe(true);
-    expect(existsSync(silent)).toBe(true);
+    expect([live.root, silent, garbled].map(existsSync)).toEqual([
+      true,
+      true,
+      true,
+    ]);
     expect([liveChild, silentChild, unmarked].map(alive)).toEqual([
       true,
       true,
