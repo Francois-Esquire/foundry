@@ -126,7 +126,7 @@ export const helloResultSchema = z.object({
 export type HelloResult = z.infer<typeof helloResultSchema>;
 
 /** A starter the client just wrote; the generation posts the setup milestone for it. */
-export const setupDraftSchema = z.object({
+const setupDraftSchema = z.object({
   instructions: z.string(),
   name: z.string(),
   template: z.string(),
@@ -196,8 +196,6 @@ export function isWorkspaceMethod(name: string): name is WorkspaceMethod {
 export const GENERATION_NOTIFICATIONS = {
   /** A status line; params name the workspace's root, or none for the generation's own. */
   line: "line",
-  /** A hosted workspace's authoring source changed on disk; params name it. */
-  sourceChanged: "sourceChanged",
 } as const;
 
 /** What the daemon asks a generation beyond workspace methods. */
@@ -285,8 +283,6 @@ export const lineParamsSchema = z.object({
   /** The root of the workspace a generation's line is about; none for its own. */
   root: z.string().optional(),
 });
-
-export const sourceChangedParamsSchema = z.object({ id: z.string() });
 
 /** Notifications the daemon forwards to subscribed clients. */
 export const CLIENT_NOTIFICATIONS = {

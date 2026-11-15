@@ -34,7 +34,6 @@ import {
 } from "~/workspace/setup-step";
 import { taskCommandSchema, taskOutcome } from "~/workspace/tasks";
 import type { SetupDraft } from "~/workspace/templates";
-import { watchSource } from "~/workspace/watch";
 
 /**
  * One engine generation: the process the daemon spawns to host every
@@ -56,7 +55,8 @@ import { watchSource } from "~/workspace/watch";
  * - `stop` drains running work and exits.
  *
  * Workspace methods arrive as `workspace.<name>` with the workspace's id,
- * status lines and source changes go out as notifications.
+ * and status lines go out as notifications. The daemon watches the
+ * sources itself, to decide when the next generation starts.
  */
 
 interface GenerationArgs {
@@ -207,13 +207,13 @@ function loadResult(load: WorkspaceLoad): WorkspaceLoadResult {
     : { error: load.error.message, root: load.root };
 }
 
-/** One hosted workspace's triggers and source watcher, and how to stop them. */
+/** One hosted workspace's triggers, and how to stop them. */
 interface Ticking {
   /** Cancels the run a tick under way started. */
   readonly cancel: AbortController;
   /** Resolves once the loop has stopped, its last tick ended. */
   readonly done: Promise<void>;
-  /** Stops the loop and the watcher: no tick starts again. */
+  /** Stops the loop: no tick starts again. */
   readonly stop: AbortController;
 }
 
@@ -240,16 +240,10 @@ async function main(): Promise<void> {
     }
   };
 
-  /** Tick `host`'s triggers and watch its source, until stopped. */
+  /** Tick `host`'s triggers until stopped. */
   const tick = (host: WorkspaceHost): void => {
     const stop = new AbortController();
     const cancel = new AbortController();
-    watchSource(host.configPath, {
-      onChange() {
-        notify(GENERATION_NOTIFICATIONS.sourceChanged, { id: host.id });
-      },
-      signal: stop.signal,
-    });
     const done = (async () => {
       host.setStatus(
         (await host.engine.schedules()).length === 0

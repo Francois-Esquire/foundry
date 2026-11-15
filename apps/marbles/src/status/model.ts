@@ -29,7 +29,7 @@ export interface StatusReport {
 }
 
 /** One engine generation, as its record says, and whether its process is there. */
-export interface GenerationStatus {
+interface GenerationStatus {
   readonly alive: boolean;
   readonly number: number;
   readonly pid: number;
