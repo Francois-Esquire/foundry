@@ -181,3 +181,59 @@ it("reports a row whose VM would not go as failed, keeps it, and the next start 
   await first.shutdown();
   await later.shutdown();
 });
+
+it("takes back only its own workspace's rows and VMs, beside another workspace in the same process", async () => {
+  const machine = await testMachine();
+  machines.push(machine);
+  const runtime = createFakeContainerRuntime();
+  const registry = (scope: string, holder: string) =>
+    createContainers({
+      holder,
+      instanceLabel: `marbles-${scope}`,
+      runtime,
+      store: workspaceStores(machine.database.database, scope).containers,
+    });
+  const gone = await goneProcess();
+  // Alpha: one row this live process holds, one a gone process left.
+  const alphaLive = registry("alpha", containerHolder());
+  const alphaHeld = await alphaLive.start(SPEC);
+  const alphaLeft = await registry(
+    "alpha",
+    JSON.stringify({ ...gone, registry: "gone" })
+  ).start(SPEC);
+  // Beta: only a row a gone process left.
+  const betaLeft = await registry(
+    "beta",
+    JSON.stringify({ ...gone, registry: "gone" })
+  ).start(SPEC);
+
+  const beta = workspaceStores(machine.database.database, "beta");
+  const betaNext = registry("beta", containerHolder());
+  const lines: string[] = [];
+  await new CrashRecovery({
+    activities: new HarnessActivities(),
+    artifacts: { recover: () => Promise.resolve() },
+    containerRows: beta.containers,
+    containers: () => Promise.resolve(betaNext),
+    executions: () => [],
+    print: (line) => lines.push(line),
+    runs: new MemoryRunStore(),
+  }).recover(RUNS);
+
+  expect(lines).toEqual([
+    "[recovery] containers: done, 1 container(s) removed, 0 VM(s) swept",
+  ]);
+  const removed = new Map(runtime.instances.map((vm) => [vm.id, vm.removed]));
+  expect(removed.get(`${betaLeft.id}-1`)).toBe(true);
+  // Alpha's are alpha's start's to take back, live or left.
+  expect(removed.get(`${alphaHeld.id}-1`)).toBe(false);
+  expect(removed.get(`${alphaLeft.id}-1`)).toBe(false);
+  const alpha = workspaceStores(machine.database.database, "alpha");
+  expect((await alpha.containers.list()).map((row) => row.id).sort()).toEqual(
+    [alphaHeld.id, alphaLeft.id].sort()
+  );
+  expect(await beta.containers.list()).toEqual([]);
+  await alphaHeld.close();
+  await alphaLive.shutdown();
+  await betaNext.shutdown();
+});

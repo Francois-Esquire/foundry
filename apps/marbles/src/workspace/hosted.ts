@@ -76,6 +76,13 @@ export interface HostedWorkspacesOptions {
   readonly env?: "require" | "warn";
   /** Each workspace's status lines, with the root it was registered at. */
   readonly print?: (root: string, line: string) => void;
+  /**
+   * Where this process's children are recorded for recovery
+   * (`MARBLES_SPAWN_RECOVERY`), shared by every workspace hosted here:
+   * each engine's start stops what a process that is gone left running,
+   * never what one of the others, alive in this process, started.
+   */
+  readonly spawned?: string;
   /** The Marbles state root. */
   readonly state: string;
 }
@@ -192,6 +199,9 @@ export class HostedWorkspaces {
         dry: args.dry,
         print: (line) => this.#options.print?.(root, line),
         source: found.configPath,
+        ...(this.#options.spawned === undefined
+          ? {}
+          : { spawned: this.#options.spawned }),
         state: args.state,
       });
     } catch (error) {
