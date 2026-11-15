@@ -391,11 +391,11 @@ export async function stopProcess(
 
 export interface StopProcessOptions {
   readonly layout: Layout;
-  /** Called once the daemon has agreed to stop, before the wait for its workers to drain. */
+  /** Called once the daemon has agreed to stop, before the wait for its engine generations to drain. */
   readonly onStopping?: (hello: HelloResult) => void;
   /**
    * How long to wait for the daemon to exit; by default long enough for
-   * every worker to drain or be killed.
+   * every engine generation to drain or be killed.
    */
   readonly timeoutMs?: number;
 }

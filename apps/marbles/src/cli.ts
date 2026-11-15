@@ -420,7 +420,7 @@ async function stopDaemon(): Promise<void> {
     // Draining can take a while when a run is mid-flight; say so up front.
     onStopping: (hello) =>
       print(
-        `stopping Marbles process pid ${String(hello.pid)}; waiting for its workers to drain`
+        `stopping Marbles process pid ${String(hello.pid)}; waiting for its engine generations to drain`
       ),
   });
   print(
