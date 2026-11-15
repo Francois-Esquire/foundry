@@ -41,6 +41,17 @@ export const MODULE_PLATFORM_ALLOWED_PACKAGE_IMPORTS = [
   "@foundry/sandbox/container/types",
 ] as const;
 
+/**
+ * Drizzle stays in the SQLite store and its table definitions, which a host
+ * imports only when it keeps Module records in SQLite.
+ */
+export const MODULE_SQLITE_ALLOWED_PACKAGE_IMPORTS = [
+  "drizzle-orm",
+  "drizzle-orm/sqlite-core",
+] as const;
+
+const MODULE_SQLITE_SOURCES = ["/store/sqlite.ts", "/store/tables.ts"] as const;
+
 /** Filesystem access stays inside the separate Node entry. */
 export const MODULE_NODE_ALLOWED_PACKAGE_IMPORTS = [
   "node:events",
@@ -75,6 +86,10 @@ export function isModuleAllowedImport(
     ) ||
     (normalizedPath.includes("/platform/") &&
       MODULE_PLATFORM_ALLOWED_PACKAGE_IMPORTS.some(
+        (allowed) => specifier === allowed
+      )) ||
+    (MODULE_SQLITE_SOURCES.some((source) => normalizedPath.endsWith(source)) &&
+      MODULE_SQLITE_ALLOWED_PACKAGE_IMPORTS.some(
         (allowed) => specifier === allowed
       )) ||
     (normalizedPath.includes("/node/") &&

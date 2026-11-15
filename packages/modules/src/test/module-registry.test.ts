@@ -11,8 +11,10 @@ import { ModuleStoreConflictError } from "../errors";
 import { ModuleRegistry } from "../registry";
 import type { ModuleStore } from "../store";
 import { MemoryModuleStore } from "../store/memory";
+import { SqliteModuleStore } from "../store/sqlite";
 import { moduleFixture, VALID_MANIFEST } from "./helpers/module-fixture";
 import { describeModuleRegistry } from "./helpers/registry-conformance";
+import { libsqlDatabases } from "./helpers/sqlite";
 
 /** A store for the registry under test, and how to reach it again. */
 interface StoreRun {
@@ -24,12 +26,39 @@ interface StoreRun {
   }>;
 }
 
+const memoryDatabases = libsqlDatabases("memory");
+const fileDatabases = libsqlDatabases("file");
+
 const RUNS: readonly StoreRun[] = [
   {
     name: "MemoryModuleStore",
     open: () => {
       const store = new MemoryModuleStore();
       return Promise.resolve({ reopen: () => Promise.resolve(store), store });
+    },
+  },
+  {
+    name: "SqliteModuleStore on libSQL (memory)",
+    async open() {
+      const store = new SqliteModuleStore({
+        database: await memoryDatabases.open(),
+        scope: "workspace",
+      });
+      return { reopen: () => Promise.resolve(store), store };
+    },
+  },
+  {
+    name: "SqliteModuleStore on libSQL (file)",
+    async open() {
+      let database = await fileDatabases.open();
+      return {
+        // A new connection to the same file, as a restarted host opens.
+        async reopen() {
+          database = await fileDatabases.reopen(database);
+          return new SqliteModuleStore({ database, scope: "workspace" });
+        },
+        store: new SqliteModuleStore({ database, scope: "workspace" }),
+      };
     },
   },
 ];
