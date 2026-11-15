@@ -20,11 +20,28 @@ import type { ModuleManifest } from "../manifest";
  * - `scope`, an opaque partition key the host chooses, first in every key.
  * - `position`, the order a row was first put in its scope. Reads list rows
  *   by it, as the memory store lists its records, and a row put again keeps
- *   its position.
+ *   its position. Positions come from `module_positions` and are never
+ *   reused in a scope.
  *
  * Timestamps, which the records hold as `Date`s, are ISO 8601 text
  * (`Date.prototype.toISOString`), exact to the millisecond.
  */
+
+/**
+ * One row per scope: `next`, the position the scope's next new row of any
+ * table takes. Positions only ever grow, so a cursor a page returned stays
+ * valid however many rows are deleted before or after it, and a deleted
+ * row's position is never handed out again, across connections and
+ * reopening. It is the only table no record defines.
+ */
+export const modulePositions = sqliteTable(
+  "module_positions",
+  {
+    next: integer("next").notNull(),
+    scope: text("scope").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.scope] })]
+);
 
 /** One row per `Module`. */
 export const modules = sqliteTable(

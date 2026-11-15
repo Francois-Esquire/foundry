@@ -10,6 +10,7 @@ import { afterAll, afterEach } from "vitest";
 import {
   moduleInstallations,
   moduleManifests,
+  modulePositions,
   modules,
 } from "../../store/tables";
 
@@ -111,6 +112,7 @@ export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
         modules,
         moduleManifests,
         moduleInstallations,
+        modulePositions,
       ]);
       return database;
     },

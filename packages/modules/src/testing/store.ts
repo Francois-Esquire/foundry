@@ -40,6 +40,17 @@ export function describeModuleStore(
   }
 
   describe(`${name} module store conformance`, () => {
+    test("a read by a key that is not text finds nothing", async () => {
+      const target = await store();
+      await target.commit({ putModules: [module("5")] });
+      const numeric = 5 as unknown as string;
+      expect(await target.getModule(numeric as ModuleId)).toBeNull();
+      expect(await target.getManifest(numeric as ContentId)).toBeNull();
+      expect(
+        await target.getInstallation(numeric as InstallationId)
+      ).toBeNull();
+    });
+
     test("an empty store holds nothing", async () => {
       const empty = await store();
       expect(await empty.getModule(moduleId("missing"))).toBeNull();
@@ -191,6 +202,109 @@ export function describeModuleStore(
         manifests: [],
         modules: [a],
       });
+    });
+
+    test("takes each property a write names by name, a getter on a prototype included", async () => {
+      const target = await store();
+      const a = module("a");
+      const write = Object.create({
+        putInstallations: [installation("a", a)],
+        putModules: [a],
+      }) as ModuleStoreWrite;
+      await target.commit(write);
+      await transactionOf(target)((view) =>
+        view.commit(Object.create({ putManifests: [manifest("a", a)] }))
+      );
+
+      expect(await held(target)).toEqual({
+        installations: [installation("a", a)],
+        manifests: [manifest("a", a)],
+        modules: [a],
+      });
+    });
+
+    test("refuses, naming the property, a write neither store could keep as it shows, and applies none of it", async () => {
+      const target = await store();
+      const kept = module("kept");
+      await target.commit({ putModules: [kept] });
+      const before = await held(target);
+      const hidden = { grants: [] } as unknown as StoredInstallation;
+      Object.defineProperty(hidden, "installation", {
+        enumerable: false,
+        value: installation("hidden", kept).installation,
+      });
+      const refusals: [unknown, string][] = [
+        [
+          { putInstallations: [hidden], putModules: [module("partial")] },
+          "putInstallations[0] must be a plain object",
+        ],
+        [
+          {
+            putModules: [
+              module("first"),
+              Object.create({ artifactId: "proto-artifact", id: "proto" }),
+            ],
+          },
+          "putModules[1] must be a plain object",
+        ],
+        [{ putModules: { 0: module("x") } }, "putModules must be an array"],
+        [
+          { deleteModules: [kept.id, 5], putModules: [module("x")] },
+          "deleteModules[1] must be text",
+        ],
+        [
+          {
+            putInstallations: [
+              installation("i", kept, {
+                installation: { id: 5 as unknown as InstallationId },
+              }),
+            ],
+          },
+          "putInstallations[0].installation.id must be text",
+        ],
+        [
+          {
+            putInstallations: [
+              installation("i", kept, {
+                installation: { updatedAt: "2026" as unknown as Date },
+              }),
+            ],
+          },
+          "putInstallations[0].installation.updatedAt must be a Date",
+        ],
+        [
+          {
+            putInstallations: [
+              installation("i", kept, {
+                grants: [
+                  Object.create(grant("inherited")) as InstallationGrant,
+                ],
+              }),
+            ],
+          },
+          "putInstallations[0].grants[0] must be a plain object",
+        ],
+        [
+          { putManifests: [manifest("m", kept, { when: new Date(0) })] },
+          "putManifests[0].manifest.when must be a plain object",
+        ],
+        [
+          { putManifests: [manifest("m", kept, { description: undefined })] },
+          "putManifests[0].manifest.description must be JSON data",
+        ],
+      ];
+      for (const [write, message] of refusals) {
+        await expect(target.commit(write as ModuleStoreWrite)).rejects.toThrow(
+          message
+        );
+        await expect(
+          transactionOf(target)((view) =>
+            view.commit(write as ModuleStoreWrite)
+          )
+        ).rejects.toThrow(message);
+      }
+
+      expect(await held(target)).toEqual(before);
     });
 
     test("a failing commit leaves nothing behind", async () => {
@@ -357,6 +471,39 @@ export function describeModuleStore(
 
       expect(await held(first)).toEqual(contents);
       expect(await held(stores("scope-a"))).toEqual(contents);
+    });
+
+    test("never hands a position out twice, so a cursor stays valid across deletes", async () => {
+      const target = await store();
+      const [a, b, c, d] = ["a", "b", "c", "d"].map((id) => module(id));
+      await target.commit({ putModules: [a, b, c] as Module[] });
+      const first = await target.listModules({ limit: 2 });
+      expect(first.items).toEqual([a, b]);
+
+      await target.commit({ deleteModules: [b?.id, c?.id] as ModuleId[] });
+      await target.commit({ putModules: [d] as Module[] });
+      expect(
+        await target.listModules({ after: first.next as number, limit: 2 })
+      ).toEqual({ items: [d] });
+
+      // A deleted record put again is new: it lands past the cursor too.
+      await target.commit({ deleteModules: [a?.id] as ModuleId[] });
+      await target.commit({ putModules: [a] as Module[] });
+      expect(
+        await target.listModules({ after: first.next as number, limit: 5 })
+      ).toEqual({ items: [d, a] });
+
+      // One counter across every kind: an Installation and a manifest
+      // filed after the deletes land past the cursor as well.
+      await target.commit({
+        putInstallations: [installation("i", d as Module)],
+        putManifests: [manifest("m", d as Module)],
+      });
+      const installations = await target.listInstallations({
+        after: first.next as number,
+        limit: 5,
+      });
+      expect(installations.items).toHaveLength(1);
     });
 
     test("list reads page in put order, and filter by exact values", async () => {

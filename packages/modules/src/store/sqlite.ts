@@ -8,14 +8,12 @@ import {
   getTableColumns,
   gt,
   inArray,
+  is,
   max,
   sql,
 } from "drizzle-orm";
-import type {
-  BaseSQLiteDatabase,
-  SQLiteColumn,
-  SQLiteTransaction,
-} from "drizzle-orm/sqlite-core";
+import type { BaseSQLiteDatabase, SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 
 import type { InstallationId, ModuleId } from "../domain";
 import type {
@@ -24,13 +22,20 @@ import type {
   Module,
   ModuleListQuery,
   ModuleStore,
+  ModuleStoreDurability,
   ModuleStorePage,
   ModuleStoreWrite,
   StoredInstallation,
   StoredManifest,
 } from "../store";
+import { capturedQuery, capturedWrite } from "./captured";
 import { ownedQuery } from "./query";
-import { moduleInstallations, moduleManifests, modules } from "./tables";
+import {
+  moduleInstallations,
+  moduleManifests,
+  modulePositions,
+  modules,
+} from "./tables";
 
 /**
  * An async Drizzle SQLite database, with or without a relational schema, or a
@@ -54,6 +59,16 @@ export type ModuleTransaction = SQLiteTransaction<
 export interface SqliteModuleStoreOptions {
   /** Opened, migrated, and owned by the host; the store never closes it. */
   readonly database: ModuleDatabase;
+  /**
+   * When a commit that resolved is there for good (see
+   * `ModuleStoreDurability`). A Drizzle transaction handed in as `database`
+   * is one the host owns and may roll back, so the store is `"host"` over
+   * it whatever this says, and refuses `"commit"`. Over a plain database the
+   * default is `"commit"`; pass `"host"` when the host has begun a
+   * transaction of its own on the connection (a raw `BEGIN`), which the
+   * store cannot see.
+   */
+  readonly durability?: ModuleStoreDurability;
   /**
    * Runs inside the commit's transaction after the store's own statements,
    * so the host can record the change atomically with it. A throw rolls the
@@ -109,6 +124,7 @@ type StoreTable =
  * write lock (see there).
  */
 export class SqliteModuleStore implements ModuleStore {
+  readonly durability: ModuleStoreDurability;
   readonly #database: ModuleDatabase;
   readonly #scope: string;
   readonly #onCommit: SqliteModuleStoreOptions["onCommit"];
@@ -120,18 +136,25 @@ export class SqliteModuleStore implements ModuleStore {
         "scope must be a nonempty string with no U+0000 and no lone surrogate"
       );
     }
+    const joined = is(options.database, SQLiteTransaction);
+    if (joined && options.durability === "commit") {
+      throw new RangeError(
+        'database is a transaction the host owns, which it may roll back: a commit is durable only when the host\'s is, so durability cannot be "commit"'
+      );
+    }
+    this.durability = joined ? "host" : (options.durability ?? "commit");
     this.#database = options.database;
     this.#scope = options.scope;
     this.#onCommit = options.onCommit;
   }
 
   /**
-   * Takes the write as it stands when `commit` is called: one
-   * `structuredClone` of the whole write, as the memory store takes it,
-   * made before the commit waits its turn. That copy alone is checked, made
-   * into every row, and handed to `onCommit`, so a caller changing its
-   * write later changes nothing. A write the clone refuses rejects with the
-   * clone's error, as in the memory store.
+   * Takes the write as it stands when `commit` is called: a capture of each
+   * property it names (`./captured`), copied with `structuredClone`, as the
+   * memory store takes it, made before the commit waits its turn. That copy
+   * alone is checked, made into every row, and handed to `onCommit`, so a
+   * caller changing its write later changes nothing. A write the capture or
+   * the copy refuses rejects as it does in the memory store.
    *
    * Rejects, before writing anything, a write that puts a value SQLite
    * would not give back as it was (see {@link unstorable}), naming the
@@ -141,13 +164,16 @@ export class SqliteModuleStore implements ModuleStore {
     let owned: ModuleStoreWrite;
     let rows: Rows;
     try {
-      owned = structuredClone(write);
+      owned = structuredClone(capturedWrite(write));
       rows = rowsOf(owned);
     } catch (error) {
       return Promise.reject(error);
     }
     return this.#turns.run(() =>
       this.#database.transaction(async (transaction) => {
+        // Before the deletes: a scope's first counter starts past every
+        // position it holds now, rows about to go included.
+        const positions = await this.#positions(transaction, owned);
         await this.#delete(
           transaction,
           moduleInstallations,
@@ -166,19 +192,28 @@ export class SqliteModuleStore implements ModuleStore {
           modules.id,
           owned.deleteModules ?? []
         );
-        await this.#put(transaction, modules, [modules.id], rows.modules);
+        await this.#put(
+          transaction,
+          modules,
+          [modules.id],
+          rows.modules,
+          positions
+        );
         await this.#put(
           transaction,
           moduleManifests,
           [moduleManifests.contentId],
-          rows.manifests
+          rows.manifests,
+          positions
         );
         await this.#put(
           transaction,
           moduleInstallations,
           [moduleInstallations.id],
-          rows.installations
+          rows.installations,
+          positions
         );
+        await this.#savePositions(transaction, positions);
         await this.#onCommit?.(transaction, owned);
       })
     );
@@ -318,7 +353,7 @@ export class SqliteModuleStore implements ModuleStore {
   ): Promise<readonly StoredManifest[]> {
     let owned: ManifestListQuery;
     try {
-      owned = structuredClone(query);
+      owned = capturedQuery(query);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -359,7 +394,7 @@ export class SqliteModuleStore implements ModuleStore {
   ): Promise<ModuleStorePage<T>> {
     let owned: Q;
     try {
-      owned = ownedQuery(query);
+      owned = ownedQuery(capturedQuery(query));
     } catch (error) {
       return Promise.reject(error);
     }
@@ -403,20 +438,24 @@ export class SqliteModuleStore implements ModuleStore {
     );
   }
 
-  /** A new row takes the next position; one put again keeps its own. */
+  /**
+   * Files each row. A new row takes the scope's next position; a row put
+   * again keeps its own, and the position it was offered is not handed out
+   * again, so positions only ever grow.
+   */
   async #put(
     transaction: ModuleTransaction,
     table: StoreTable,
     keys: readonly SQLiteColumn[],
-    records: readonly object[]
+    records: readonly object[],
+    positions: Positions
   ): Promise<void> {
     const columns: Record<string, SQLiteColumn> = getTableColumns(table);
-    const first = await this.#nextPosition(transaction, table);
-    const rows = records.map((record, index) => ({
-      ...record,
-      position: first + index,
-      scope: this.#scope,
-    }));
+    const rows = records.map((record) => {
+      const position = positions.next;
+      positions.next += 1;
+      return { ...record, position, scope: this.#scope };
+    });
     const replace = Object.fromEntries(
       Object.entries(recordColumns(columns)).map(([field, column]) => [
         field,
@@ -438,19 +477,67 @@ export class SqliteModuleStore implements ModuleStore {
   }
 
   /**
-   * One past the last position in this scope. A row that turns out to exist
-   * keeps its own and leaves a gap; only the order of positions matters.
+   * The scope's next position, from `module_positions`, read once for a
+   * write that puts or deletes anything, before its deletes. A scope with no
+   * counter row yet starts past every position any of its tables holds at
+   * that moment, and the commit records the counter, so a delete-only
+   * commit keeps the high-water mark of the rows it removes.
    */
-  async #nextPosition(
+  async #positions(
     transaction: ModuleTransaction,
-    table: StoreTable
-  ): Promise<number> {
-    const [last] = await transaction
-      .select({ position: max(table.position) })
-      .from(table)
-      .where(eq(table.scope, this.#scope));
-    return (last?.position ?? 0) + 1;
+    write: ModuleStoreWrite
+  ): Promise<Positions> {
+    const changes =
+      (write.deleteInstallations?.length ?? 0) +
+      (write.deleteManifests?.length ?? 0) +
+      (write.deleteModules?.length ?? 0) +
+      (write.putInstallations?.length ?? 0) +
+      (write.putManifests?.length ?? 0) +
+      (write.putModules?.length ?? 0);
+    if (changes === 0) {
+      return { next: 0, start: 0 };
+    }
+    const [counter] = await transaction
+      .select({ next: modulePositions.next })
+      .from(modulePositions)
+      .where(eq(modulePositions.scope, this.#scope));
+    if (counter !== undefined) {
+      return { next: counter.next, start: counter.next };
+    }
+    let highest = 0;
+    for (const table of [modules, moduleManifests, moduleInstallations]) {
+      const [last] = await transaction
+        .select({ position: max(table.position) })
+        .from(table)
+        .where(eq(table.scope, this.#scope));
+      highest = Math.max(highest, Number(last?.position ?? 0));
+    }
+    // No counter row yet: `start` matches no `next`, so the commit saves one.
+    return { next: highest + 1, start: Number.NaN };
   }
+
+  /** Records the scope's counter when it is new or the write moved it. */
+  async #savePositions(
+    transaction: ModuleTransaction,
+    positions: Positions
+  ): Promise<void> {
+    if (positions.next === positions.start) {
+      return;
+    }
+    await transaction
+      .insert(modulePositions)
+      .values({ next: positions.next, scope: this.#scope })
+      .onConflictDoUpdate({
+        set: { next: positions.next },
+        target: [modulePositions.scope],
+      });
+  }
+}
+
+/** The scope's counter within one commit: where it stood, and where it is now. */
+interface Positions {
+  next: number;
+  readonly start: number;
 }
 
 /** A write's rows, without `scope` and `position`. */
@@ -565,7 +652,13 @@ function unstorable(field: string, reason: string): RangeError {
  * row. JSON columns are exempt: JSON escapes both.
  */
 function storable(value: string): boolean {
-  return value.isWellFormed() && !value.includes("\u0000");
+  // A key that is not text (a read the types allow no other way) matches
+  // no row, as in the memory store.
+  return (
+    typeof value === "string" &&
+    value.isWellFormed() &&
+    !value.includes("\u0000")
+  );
 }
 
 /** A plain-text column value; see {@link storable}. */

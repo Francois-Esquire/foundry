@@ -25,6 +25,16 @@ export interface ModuleStoreWrite {
 }
 
 /**
+ * When a commit that resolved is there for good. `"commit"`: at once. `"host"`:
+ * only once a transaction the store does not own commits, so a rollback
+ * there can still remove it; a transaction's view is `"host"`, and so is a
+ * SQLite store over a transaction the host began. Anything that acts on a
+ * committed change outside the store (cancelling Invocations, say) refuses
+ * a `"host"` store.
+ */
+export type ModuleStoreDurability = "commit" | "host";
+
+/**
  * Where a list read stops and the next page starts. Opaque: pass back the
  * `next` a page returned, and nothing else.
  */
@@ -70,8 +80,14 @@ export interface ManifestListQuery {
  * takes its own copy of a write when `commit` is called, and a caller
  * changing the write afterwards changes nothing it keeps.
  *
+ * A store takes a write by reading each property the interface names once,
+ * by name, when `commit` is called (`./store/captured`), and refuses a
+ * record that is not plain data. A commit lands whole or not at all.
+ *
  * List reads return records in the order they were first put, filtered by
- * exact values and paged by cursor. Sorting by id stays with the registry.
+ * exact values and paged by cursor. A record's position is never handed
+ * out again in its scope, so a cursor stays valid across deletes. Sorting
+ * by id stays with the registry.
  *
  * `@foundry/modules/store/memory` and `@foundry/modules/store/sqlite`
  * implement it; `@foundry/modules/testing/store` is the suite every
@@ -79,6 +95,12 @@ export interface ManifestListQuery {
  */
 export interface ModuleStore {
   commit(write: ModuleStoreWrite): Promise<void>;
+  /**
+   * When a commit that resolved is there for good; `"commit"` when absent.
+   * A transaction's view is `"host"`: its commits stand only if the work
+   * succeeds.
+   */
+  readonly durability?: ModuleStoreDurability;
   getInstallation(id: InstallationId): Promise<StoredInstallation | null>;
   /** The manifest retained for a Content. */
   getManifest(contentId: ContentId): Promise<StoredManifest | null>;

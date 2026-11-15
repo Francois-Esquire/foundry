@@ -22,7 +22,12 @@ import {
 } from "../schema";
 import type { ModuleStoreWrite } from "../store";
 import { SqliteModuleStore } from "../store/sqlite";
-import { moduleInstallations, moduleManifests, modules } from "../store/tables";
+import {
+  moduleInstallations,
+  moduleManifests,
+  modulePositions,
+  modules,
+} from "../store/tables";
 import { libsqlDatabases } from "./helpers/sqlite";
 
 const memory = libsqlDatabases("memory");
@@ -213,6 +218,8 @@ describe("SqliteModuleStore", () => {
     }
   );
 
+  // What every store refuses (a field of the wrong type, data that is not
+  // plain) is in the conformance suite; these are SQLite's own limits.
   test("refuses, before writing anything, a value SQLite or JSON would give back changed, naming it", async () => {
     let committed = 0;
     const store = await storeOn({
@@ -224,18 +231,10 @@ describe("SqliteModuleStore", () => {
     const shaped = (overrides: Parameters<typeof installation>[2]) => ({
       putInstallations: [installation("i", owner, overrides)],
     });
-    const hole: unknown[] = [1];
-    hole[2] = 3;
     const refusals: [ModuleStoreWrite, string][] = [
       [
         shaped({ installation: { createdAt: new Date(Number.NaN) } }),
         "putInstallations[0].installation.createdAt: an invalid Date is not a valid Date",
-      ],
-      [
-        shaped({
-          installation: { updatedAt: "2026" as unknown as Date },
-        }),
-        'putInstallations[0].installation.updatedAt: "2026" is not a valid Date',
       ],
       [
         shaped({ grants: [grant("g", { createdAt: new Date(Number.NaN) })] }),
@@ -256,16 +255,6 @@ describe("SqliteModuleStore", () => {
         "putInstallations[0].grants[0].version",
       ]),
       [
-        shaped({
-          installation: { id: 5 as unknown as InstallationId },
-        }),
-        "putInstallations[0].installation.id: 5 is not text",
-      ],
-      [
-        { putManifests: [manifest("m", owner, { description: undefined })] },
-        "putManifests[0].manifest.description: a property holding undefined",
-      ],
-      [
         {
           putManifests: [
             manifest("m", owner, { nested: { list: [1, Number.NaN] } }),
@@ -276,18 +265,6 @@ describe("SqliteModuleStore", () => {
       [
         { putManifests: [manifest("m", owner, { "odd key": -0 })] },
         'putManifests[0].manifest["odd key"]: -0',
-      ],
-      [
-        { putManifests: [manifest("m", owner, { when: new Date(0) })] },
-        "putManifests[0].manifest.when: a Date is not a plain object",
-      ],
-      [
-        { putManifests: [manifest("m", owner, { list: hole })] },
-        "putManifests[0].manifest.list[1]: a hole in an array",
-      ],
-      [
-        { putManifests: [manifest("m", owner, { map: new Map() })] },
-        "putManifests[0].manifest.map: a Map is not a plain object",
       ],
     ];
     for (const [write, message] of refusals) {
@@ -661,6 +638,108 @@ describe("SqliteModuleStore", () => {
     });
   });
 
+  test("never hands a position out twice across reopening the file", async () => {
+    const first = await files.open();
+    const store = new SqliteModuleStore({ database: first, scope: "s" });
+    await store.commit({ putModules: ["a", "b", "c"].map((id) => module(id)) });
+    const page = await store.listModules({ limit: 2 });
+    await store.commit({
+      deleteModules: ["b", "c"].map((id) => id as ModuleId),
+    });
+
+    const reopened = new SqliteModuleStore({
+      database: await files.reopen(first),
+      scope: "s",
+    });
+    await reopened.commit({ putModules: [module("d")] });
+    expect(
+      await reopened.listModules({ after: page.next as number, limit: 2 })
+    ).toEqual({ items: [module("d")] });
+  });
+
+  test.each([
+    ["a put", { putModules: [module("d")] }],
+    ["a delete-only commit", { deleteModules: ["c" as ModuleId] }],
+  ] as const)(
+    "a scope with rows but no counter yet starts past them, from %s",
+    async (_first, write: ModuleStoreWrite) => {
+      const database = await memory.open();
+      // Rows a store wrote before it kept a counter.
+      await database.insert(modules).values(
+        ["a", "b", "c"].map((id, index) => ({
+          ...module(id),
+          position: index + 1,
+          scope: "s",
+        }))
+      );
+      const store = new SqliteModuleStore({ database, scope: "s" });
+      await store.commit(write);
+      await store.commit({
+        deleteModules: ["c" as ModuleId],
+        putModules: [module("e")],
+      });
+
+      const positions = await database
+        .select({ id: modules.id, position: modules.position })
+        .from(modules)
+        .where(eq(modules.scope, "s"));
+      const e = positions.find((row) => row.id === "e");
+      // Never 3, the position `c` held, nor any other a row has had.
+      expect(e?.position).toBeGreaterThan(3);
+      expect(new Set(positions.map((row) => row.position)).size).toBe(
+        positions.length
+      );
+    }
+  );
+
+  test("a write that fails part-way through its transaction leaves nothing", async () => {
+    const database = await memory.open();
+    // The installations table is gone, so the commit fails after it has
+    // written the Module and the manifest, inside its transaction.
+    await database.run(sql`DROP TABLE "module_installations"`);
+    const store = new SqliteModuleStore({ database, scope: "s" });
+    const owner = module("a");
+
+    await expect(
+      store.commit({
+        putInstallations: [installation("a", owner)],
+        putManifests: [manifest("a", owner)],
+        putModules: [owner],
+      })
+    ).rejects.toThrow();
+    expect(await store.getModule(owner.id)).toBeNull();
+    expect(await store.getManifest("a" as ContentId)).toBeNull();
+    expect(await store.listModules({ limit: 10 })).toEqual({ items: [] });
+  });
+
+  test('states its durability: over a host\'s transaction it is "host", and refuses "commit" there', async () => {
+    const database = await memory.open();
+    expect(new SqliteModuleStore({ database, scope: "s" }).durability).toBe(
+      "commit"
+    );
+    expect(
+      new SqliteModuleStore({ database, durability: "host", scope: "s" })
+        .durability
+    ).toBe("host");
+    await database
+      .transaction(async (transaction) => {
+        expect(
+          new SqliteModuleStore({ database: transaction, scope: "s" })
+            .durability
+        ).toBe("host");
+        expect(
+          () =>
+            new SqliteModuleStore({
+              database: transaction,
+              durability: "commit",
+              scope: "s",
+            })
+        ).toThrow("durability cannot be");
+        throw new Error("host rolled back");
+      })
+      .catch(() => undefined);
+  });
+
   test("a transaction holds the write lock against another connection", async () => {
     const database = await files.open();
     const store = new SqliteModuleStore({ database, scope: "s" });
@@ -719,6 +798,10 @@ describe("SqliteModuleStore", () => {
 
 describe("module tables", () => {
   test("hold each record field for field, plus scope and position", () => {
+    expect(Object.keys(getTableColumns(modulePositions)).sort()).toEqual([
+      "next",
+      "scope",
+    ]);
     expect(columnsOf(modules)).toEqual(fieldsOf(moduleSchema.unwrap().shape));
     expect(columnsOf(moduleManifests)).toEqual(
       fieldsOf(storedManifestSchema.unwrap().shape)
