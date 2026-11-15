@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ChannelMessage } from "../channels";
 
-import { Channels, StepCompleteEvent, StepStartedEvent } from "../channels";
+import { Channels } from "../channels";
+import { StepCompleteEvent, StepStartedEvent } from "../schema";
 import { Snapshot } from "../snapshot";
 
 const path = ["root"] as const;
@@ -21,7 +22,13 @@ describe("Channels.stream — multiplexed ChannelMessage", () => {
           yield* Effect.sleep(5);
 
           channels.events.push(
-            StepStartedEvent.make({ at, attempt: 1, name: "root", path })
+            StepStartedEvent.parse({
+              _tag: "step.started",
+              at,
+              attempt: 1,
+              name: "root",
+              path,
+            })
           );
           channels.chunks.push({
             at,
@@ -30,7 +37,8 @@ describe("Channels.stream — multiplexed ChannelMessage", () => {
             stepId: "root",
           });
           channels.events.push(
-            StepCompleteEvent.make({
+            StepCompleteEvent.parse({
+              _tag: "step.complete",
               at,
               attempt: 1,
               name: "root",

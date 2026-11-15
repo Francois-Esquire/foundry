@@ -17,6 +17,7 @@ import {
   StaleContentError,
 } from "../index";
 import type { ArtifactStore } from "../store";
+import { interceptCommits } from "./index";
 import { isTransactional } from "./transactional";
 
 const text = (value: string, mime = "text/html") => ({ bytes: value, mime });
@@ -101,6 +102,21 @@ function pausable(store: ArtifactStore) {
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+/**
+ * `promise`, or a rejection saying it hung once `ms` pass, so a call that
+ * would wait forever fails its test instead of stalling it.
+ */
+function within<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const hung = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Still pending after ${ms} ms`)),
+      ms
+    );
+  });
+  return Promise.race([promise, hung]).finally(() => clearTimeout(timer));
+}
 
 /**
  * Registers the manager's behaviour over a store: rules, sharing, fences,
@@ -660,6 +676,40 @@ export function describeArtifactManager(
       expect((await artifacts.list()).total).toBe(2);
     }, 2000);
 
+    test("runs a call made by work a transaction scheduled, while that transaction commits, once it settles", async () => {
+      const reached = Promise.withResolvers<undefined>();
+      const held = Promise.withResolvers<undefined>();
+      let holding = true;
+      const store = interceptCommits(createStore(), async (write, commit) => {
+        if (holding) {
+          holding = false;
+          reached.resolve(undefined);
+          await held.promise;
+        }
+        await commit(write);
+      });
+      const artifacts = new ArtifactManager({ store });
+      const trigger = Promise.withResolvers<undefined>();
+      let later: Promise<ArtifactResolved> | undefined;
+      const outer = artifacts.transaction(async (transaction) => {
+        await transaction.create({ name: "Outer", type: "text/plain" });
+        // Runs once the callback has returned, while its commit is held.
+        trigger.promise.then(() => {
+          later = artifacts.create({ name: "Later", type: "text/plain" });
+        });
+      });
+      await reached.promise;
+      trigger.resolve(undefined);
+      await settle();
+      held.resolve(undefined);
+      await outer;
+
+      expect((await within(later ?? Promise.reject(), 1000)).name).toBe(
+        "Later"
+      );
+      expect((await artifacts.list()).total).toBe(2);
+    });
+
     test("discards after-commit work when the change rolls back", async () => {
       const { artifacts } = await harness();
       let ran = false;
@@ -715,6 +765,147 @@ export function describeArtifactManager(
       ]);
       expect(await deleted).toBe(true);
       expect((await reader.list()).items).toEqual([]);
+    });
+
+    test("refuses at once a call on another manager from inside a transaction, even with that manager's own call waiting", async ({
+      skip,
+    }) => {
+      const store = createStore();
+      if (!isTransactional(store)) {
+        return skip();
+      }
+      const first = new ArtifactManager({ store });
+      const second = new ArtifactManager({ store });
+      const entered = Promise.withResolvers<undefined>();
+      const proceed = Promise.withResolvers<undefined>();
+      const outer = first.transaction(async () => {
+        entered.resolve(undefined);
+        await proceed.promise;
+        return await second.list();
+      });
+      await entered.promise;
+      // Independent of the transaction: it waits for it at the store.
+      const waiting = second.create({ name: "Waiting", type: "text/plain" });
+      await settle();
+      proceed.resolve(undefined);
+
+      await expect(within(outer, 1000)).rejects.toThrow(
+        "inside its own transaction"
+      );
+      expect((await within(waiting, 1000)).name).toBe("Waiting");
+      expect((await first.list()).total).toBe(1);
+    });
+
+    /** An async source of `text`, as a stream write takes its bytes. */
+    async function* streamOf(label: string): AsyncIterable<Uint8Array> {
+      await Promise.resolve();
+      yield new TextEncoder().encode(label);
+    }
+
+    for (const [kind, call] of [
+      [
+        "a write with bytes",
+        (
+          artifacts: ArtifactManager,
+          created: ArtifactResolved,
+          label: string
+        ) =>
+          artifacts.write({
+            artifactId: created.id,
+            changes: { put: { "file.txt": { bytes: label } } },
+          }),
+      ],
+      [
+        "a stream write",
+        (
+          artifacts: ArtifactManager,
+          created: ArtifactResolved,
+          label: string
+        ) =>
+          artifacts.write({
+            artifactId: created.id,
+            changes: { put: { "file.txt": { source: streamOf(label) } } },
+          }),
+      ],
+      [
+        "a Content-named change",
+        (
+          artifacts: ArtifactManager,
+          created: ArtifactResolved,
+          label: string
+        ) => artifacts.setMetadata(contentOf(created).id, { label }),
+      ],
+    ] as const) {
+      test(`refuses at once ${kind} to an Artifact another manager's own call to it waits on, from inside a transaction`, async ({
+        skip,
+      }) => {
+        const store = createStore();
+        if (!isTransactional(store)) {
+          return skip();
+        }
+        const first = new ArtifactManager({ store });
+        const second = new ArtifactManager({ store });
+        const created = await second.create({
+          entries: { "file.txt": { bytes: "start" } },
+          name: "Shared",
+          type: "text/plain",
+        });
+        const entered = Promise.withResolvers<undefined>();
+        const proceed = Promise.withResolvers<undefined>();
+        const outer = first.transaction(async () => {
+          entered.resolve(undefined);
+          await proceed.promise;
+          return await call(second, created, "inner");
+        });
+        await entered.promise;
+        // Independent of the transaction: it waits for it at the store.
+        const waiting = call(second, created, "outer");
+        await settle();
+        proceed.resolve(undefined);
+
+        await expect(within(outer, 1000)).rejects.toThrow(
+          "inside its own transaction"
+        );
+        await within(waiting, 1000);
+      });
+    }
+
+    /** Two patches of one Content's metadata, the first paused at its read. */
+    async function patchConcurrently(
+      shared: ReturnType<typeof pausable>,
+      created: ArtifactResolved,
+      patchers: readonly [ArtifactManager, ArtifactManager]
+    ) {
+      const contentId = contentOf(created).id;
+      const paused = shared.pause("getContent");
+      const firstPatch = patchers[0].setMetadata(contentId, { first: 1 });
+      await paused.reached;
+      const secondPatch = patchers[1].setMetadata(contentId, { second: 2 });
+      await settle();
+      paused.release();
+      await Promise.all([firstPatch, secondPatch]);
+      return (await patchers[0].getContent(contentId))?.metadata;
+    }
+
+    test("keeps concurrent read-modify-writes on one manager from interleaving", async () => {
+      const { created, shared, writer } = await sharedStore();
+
+      expect(
+        await patchConcurrently(shared, created, [writer, writer])
+      ).toMatchObject({ first: 1, second: 2 });
+    });
+
+    test("keeps concurrent read-modify-writes on two managers over one store from interleaving", async ({
+      skip,
+    }) => {
+      const { created, reader, shared, writer } = await sharedStore();
+      if (!isTransactional(shared.store)) {
+        return skip();
+      }
+
+      expect(
+        await patchConcurrently(shared, created, [reader, writer])
+      ).toMatchObject({ first: 1, second: 2 });
     });
 
     test("reads a file from one state while another manager rewrites it", async () => {

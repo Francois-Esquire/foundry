@@ -25,6 +25,26 @@
       "types": "./dist/node/watch.d.ts",
       "import": "./src/node/watch.ts",
       "default": "./src/node/watch.ts"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./src/schema.ts",
+      "default": "./src/schema.ts"
+    },
+    "./store": {
+      "types": "./dist/store/index.d.ts",
+      "import": "./src/store/index.ts",
+      "default": "./src/store/index.ts"
+    },
+    "./store/memory": {
+      "types": "./dist/store/memory.d.ts",
+      "import": "./src/store/memory.ts",
+      "default": "./src/store/memory.ts"
+    },
+    "./testing/store": {
+      "types": "./dist/testing/store.d.ts",
+      "import": "./src/testing/store.ts",
+      "default": "./src/testing/store.ts"
     }
   },
   "files": [
@@ -43,7 +63,8 @@
     "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
     "ignore": "^7.0.6",
-    "simple-git": "^3.36.0"
+    "simple-git": "^3.36.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@foundry/tsconfig": "workspace:*",

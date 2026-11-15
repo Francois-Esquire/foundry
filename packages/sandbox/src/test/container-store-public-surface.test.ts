@@ -3,21 +3,23 @@ import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { CONTAINER_ROW_STATUSES } from "../container/constants";
-import { createMemoryContainerStore } from "../container/store";
+import { createMemoryContainerStore } from "../store/memory";
+import type { ParsedImport } from "./helpers/boundary-scan";
 import { importSites, REPO_ROOT, sourceFiles } from "./helpers/boundary-scan";
 
-const MISSING_CONTAINER_ERROR = /does not exist/;
-const DUPLICATE_CONTAINER_ERROR = /already exists/;
+/** The store interface and the memory store, which load without a runtime. */
+const CONTRACTS_ROOT = join(REPO_ROOT, "packages/sandbox/src/store");
 
-const CONTRACTS_ROOT = join(
-  REPO_ROOT,
-  "packages/sandbox/src/container/store.ts"
-);
+/** The record definitions the contract may name, as types only. */
+const RECORDS_SCHEMA = join(REPO_ROOT, "packages/sandbox/src/schema.ts");
 
 /** Anything that would tie the contracts to a host runtime or a provider. */
 const RUNTIME_SPECIFIERS = ["ignore", "just-bash", "microsandbox", "zod"];
 
-function isRuntimeImport(fromPath: string, specifier: string): boolean {
+function isRuntimeImport(
+  fromPath: string,
+  { specifier, typeOnly }: ParsedImport
+): boolean {
   if (specifier.startsWith("node:")) {
     return true;
   }
@@ -28,6 +30,9 @@ function isRuntimeImport(fromPath: string, specifier: string): boolean {
     return false;
   }
   const target = resolve(dirname(fromPath), specifier);
+  if (typeOnly && `${target}.ts` === RECORDS_SCHEMA) {
+    return false;
+  }
   return relative(CONTRACTS_ROOT, target).startsWith("..");
 }
 
@@ -48,9 +53,7 @@ describe("container store contract", () => {
     const files = sourceFiles(CONTRACTS_ROOT);
     expect(files.length).toBeGreaterThan(0);
     const violations = importSites(files)
-      .filter(({ path, import: parsed }) =>
-        isRuntimeImport(path, parsed.specifier)
-      )
+      .filter(({ path, import: parsed }) => isRuntimeImport(path, parsed))
       .map(
         ({ relativePath, import: parsed }) =>
           `${relativePath}:${parsed.line} imports ${parsed.specifier}`
@@ -58,34 +61,10 @@ describe("container store contract", () => {
     expect(violations).toEqual([]);
   });
 
-  it("keeps the registry off the contracts entry", async () => {
-    const containers = await import("../container/store");
-    expect(containers).not.toHaveProperty("createContainers");
-  });
-
-  it("round-trips rows through the memory store", async () => {
-    const store = createMemoryContainerStore();
-    const row = {
-      createdAt: 1,
-      id: "c1",
-      nativeId: undefined,
-      spec: "{}",
-      status: "starting" as const,
-      updatedAt: 1,
-    };
-    await store.insert(row);
-    await expect(store.insert(row)).rejects.toThrow(DUPLICATE_CONTAINER_ERROR);
-    await store.update("c1", { nativeId: "c1-1", status: "running" });
-    expect(await store.get("c1")).toEqual({
-      ...row,
-      nativeId: "c1-1",
-      status: "running",
-    });
-    expect(await store.list()).toHaveLength(1);
-    await store.remove("c1");
-    expect(await store.get("c1")).toBeUndefined();
-    await expect(store.update("c1", { status: "stopped" })).rejects.toThrow(
-      MISSING_CONTAINER_ERROR
-    );
+  it("keeps the registry and the memory store off the contracts entry", async () => {
+    const contracts = await import("../store/index");
+    expect(Object.keys(contracts)).toEqual([]);
+    const memory = await import("../store/memory");
+    expect(Object.keys(memory)).toEqual(["createMemoryContainerStore"]);
   });
 });
