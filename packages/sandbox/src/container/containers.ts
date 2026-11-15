@@ -150,6 +150,8 @@ type RowPatch = Partial<Pick<ContainerRow, "nativeId" | "spec" | "status">>;
 interface Live {
   facets: ContainerFacets;
   handles: number;
+  /** The labels `sandbox` was booted with. */
+  labels: Readonly<Record<string, string>>;
   /** The native name `sandbox` was booted under. */
   nativeId: string;
   row: ContainerRow;
@@ -187,32 +189,61 @@ export function createContainers(options: CreateContainersOptions): Containers {
    * remove: `sweep` and `shutdown` retry them. A native name is never booted
    * twice, so a name here never becomes live again.
    */
-  const abandoned = new Set<string>();
+  const abandoned = new Map<string, string>();
+
+  /**
+   * Keep the VM `machine` to retry, as the row `rowId`'s: only one that is
+   * that row's by the one rule (`isRowsMachine`), so no other row's VM
+   * ever comes to be removed as left over.
+   */
+  const abandon = (machine: Machine, rowId: string): void => {
+    if (isRowsMachine(machine, rowId)) {
+      abandoned.set(machine.name, rowId);
+    }
+  };
 
   /** Remove a VM no live row holds; one that will not go is kept to retry. */
   const discard = async (
-    name: string,
+    machine: Machine,
+    rowId: string,
     sandbox: ContainerSandbox
   ): Promise<void> => {
+    if (!isRowsMachine(machine, rowId)) {
+      return;
+    }
     try {
       await sandbox.remove();
     } catch {
-      abandoned.add(name);
+      abandon(machine, rowId);
     }
   };
 
   /**
-   * Remove an old VM by its native name. A stop or remove that fails may mean
-   * the VM is gone (the expected case) or that it is stuck, and the runtime
-   * cannot say which, so the name is kept for `sweep` and `shutdown`: their
-   * inventory drops it if it is gone and retries it if it is not.
+   * Remove the row `rowId`'s old VM `name`, as the inventory lists it, and
+   * only if it is that row's by the one rule (`isRowsMachine`): one that is
+   * not is no row's to remove here, and is left. A stop or remove that
+   * fails may mean the VM is gone (the expected case) or that it is stuck,
+   * and the runtime cannot say which, so the name is kept for `sweep` and
+   * `shutdown`: their inventory drops it if it is gone and retries it if it
+   * is not. An inventory that cannot be read proves nothing of whose it
+   * is: it is left, for the row's removal, which takes every VM of it.
    */
-  const removeNative = async (name: string): Promise<void> => {
+  const removeNative = async (name: string, rowId: string): Promise<void> => {
+    let resource: ContainerResourceSummary | undefined;
     try {
-      await runtime.stopResource(name);
-      await runtime.removeResource(name);
+      resource = (await enumerate(runtime, selection, undefined)).find(
+        (each) => each.name === name
+      );
     } catch {
-      abandoned.add(name);
+      return;
+    }
+    if (resource === undefined || !isRowsMachine(resource, rowId)) {
+      return;
+    }
+    try {
+      await dispose(runtime, resource);
+    } catch {
+      abandon(resource, rowId);
     }
   };
 
@@ -236,13 +267,19 @@ export function createContainers(options: CreateContainersOptions): Containers {
     );
     const removed: string[] = [];
     let failure: { readonly error: unknown } | undefined;
-    for (const name of candidates) {
-      if (!abandoned.has(name)) {
+    for (const [name, rowId] of candidates) {
+      if (abandoned.get(name) !== rowId) {
         continue;
       }
       const resource = listed.get(name);
       try {
-        if (resource !== undefined) {
+        // Asked again right before acting: the row's by the one rule, and
+        // no other row records it now.
+        if (
+          resource !== undefined &&
+          isRowsMachine(resource, rowId) &&
+          !(await recordedByAnother(name, rowId))
+        ) {
           await dispose(runtime, resource);
           removed.push(name);
         }
@@ -254,7 +291,10 @@ export function createContainers(options: CreateContainersOptions): Containers {
     if (failure !== undefined) {
       throw new SandboxError(
         "provider-failed",
-        `could not remove ${candidates.filter((name) => abandoned.has(name)).join(", ")}`,
+        `could not remove ${candidates
+          .filter(([name]) => abandoned.has(name))
+          .map(([name]) => name)
+          .join(", ")}`,
         { cause: failure.error }
       );
     }
@@ -350,7 +390,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
     entry: { row: ContainerRow },
     constraints: ContainerSandboxConstraints,
     signal: AbortSignal | undefined
-  ): Promise<Pick<Live, "facets" | "nativeId" | "sandbox">> => {
+  ): Promise<Pick<Live, "facets" | "labels" | "nativeId" | "sandbox">> => {
     assertNotAborted(signal, "container start was cancelled");
     const { row } = entry;
     const { nativeId } = row;
@@ -384,7 +424,16 @@ export function createContainers(options: CreateContainersOptions): Containers {
       sandbox = await startContainerSandbox(
         await provisionContainerSandbox(config, { runtime }, mounts),
         // The VM exists and would not go: keep it for `sweep` and `shutdown`.
-        { onLeftBehind: () => abandoned.add(nativeId) }
+        {
+          // The setup's own cleanup removes only the VM it made, the row's.
+          mayRemove: () =>
+            isRowsMachine(
+              { labels: config.labels ?? {}, name: nativeId },
+              row.id
+            ),
+          onLeftBehind: () =>
+            abandon({ labels: config.labels ?? {}, name: nativeId }, row.id),
+        }
       );
     } catch (error: unknown) {
       // The boot's own error is the one to report; the row is best effort.
@@ -396,7 +445,11 @@ export function createContainers(options: CreateContainersOptions): Containers {
     } catch (error: unknown) {
       // The VM is up but its row could not say so, and no live row will
       // hold it: remove it now, or keep it for `sweep` and `shutdown`.
-      await discard(nativeId, sandbox);
+      await discard(
+        { labels: config.labels ?? {}, name: nativeId },
+        row.id,
+        sandbox
+      );
       await update(entry, { status: "failed" }).catch(() => undefined);
       throw error;
     }
@@ -406,6 +459,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         mounts,
         (options.allowedMountRoots?.length ?? 0) > 0
       ),
+      labels: config.labels ?? {},
       nativeId,
       sandbox,
     };
@@ -433,12 +487,15 @@ export function createContainers(options: CreateContainersOptions): Containers {
     const done = (async () => {
       // A restart under way finishes first, so the VM removed is its VM.
       await entry.turn;
-      try {
-        await entry.sandbox.remove();
-      } catch (error: unknown) {
-        // No live row holds it any more: keep it for `sweep` and `shutdown`.
-        abandoned.add(entry.nativeId);
-        throw error;
+      const machine = { labels: entry.labels, name: entry.nativeId };
+      if (isRowsMachine(machine, entry.row.id)) {
+        try {
+          await entry.sandbox.remove();
+        } catch (error: unknown) {
+          // No live row holds it any more: keep it for `sweep` and `shutdown`.
+          abandon(machine, entry.row.id);
+          throw error;
+        }
       }
       await update(entry, { status: "stopped" });
     })().finally(() => releasing.delete(entry.row.id));
@@ -580,13 +637,16 @@ export function createContainers(options: CreateContainersOptions): Containers {
     const conflicts: string[] = [];
     let removed = true;
     for (const resource of resources) {
+      // Every VM that bears one of the row's names or its label: the one
+      // rule then says which are the row's, and the rest are conflicts.
       if (
         resource.labels[CONTAINER_ID_LABEL] !== row.id &&
-        resource.name !== row.nativeId
+        resource.name !== row.nativeId &&
+        !ownsNativeName(row.id, resource.name)
       ) {
         continue;
       }
-      const others = await anotherOwns(row, resource.name);
+      const others = await anotherOwns(row, resource);
       if (others === undefined) {
         return { conflicts, removed: false };
       }
@@ -611,11 +671,12 @@ export function createContainers(options: CreateContainersOptions): Containers {
    */
   const anotherOwns = async (
     row: ContainerRow,
-    name: string
+    machine: Machine
   ): Promise<boolean | undefined> => {
     try {
       return (
-        !ownsNativeName(row.id, name) || (await recordedByAnother(name, row.id))
+        !isRowsMachine(machine, row.id) ||
+        (await recordedByAnother(machine.name, row.id))
       );
     } catch {
       // A store that cannot be read says nothing either way: `undefined`.
@@ -686,7 +747,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
             return claimed;
           });
           if (previous !== undefined) {
-            await removeNative(previous);
+            await removeNative(previous, id);
           }
           return bringUp({ row }, parseSpec(JSON.parse(row.spec)), signal);
         })().finally(() => pending.delete(id));
@@ -803,7 +864,9 @@ export function createContainers(options: CreateContainersOptions): Containers {
           status: "restarting",
           ...(given === undefined ? {} : { spec: JSON.stringify(given) }),
         });
-        await entry.sandbox.remove();
+        if (isRowsMachine({ labels: entry.labels, name: entry.nativeId }, id)) {
+          await entry.sandbox.remove();
+        }
         assertStillLive();
         try {
           await update(entry, (current) => ({
@@ -814,6 +877,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
           entry.sandbox = booted.sandbox;
           entry.facets = booted.facets;
           entry.nativeId = booted.nativeId;
+          entry.labels = booted.labels;
           // A close during the boot is waiting to remove the VM just booted.
           assertStillLive();
         } catch (error: unknown) {
@@ -860,17 +924,16 @@ export function createContainers(options: CreateContainersOptions): Containers {
           continue;
         }
         const id = resource.labels[CONTAINER_ID_LABEL];
-        // Each asked of the store right before this VM's removal: a VM
-        // whose name is not its labelled row's own is no row's to sweep,
-        // and one a row has, or one recording its name, is that row's.
+        // Each asked right before this VM's removal: one that is no row's
+        // by the one rule (no id label, or a name and a label that do not
+        // agree) is left; one whose row there is, or that a row records,
+        // is that row's.
         if (
-          id !== undefined &&
-          (!ownsNativeName(id, resource.name) ||
-            (await store.get(id)) !== undefined)
+          id === undefined ||
+          !isRowsMachine(resource, id) ||
+          (await store.get(id)) !== undefined ||
+          (await recordedByAnother(resource.name))
         ) {
-          continue;
-        }
-        if (await recordedByAnother(resource.name)) {
           continue;
         }
         await dispose(runtime, resource);
@@ -895,13 +958,33 @@ function parseSpec(input: unknown): ContainerSandboxConstraints {
   return Object.freeze(result.data);
 }
 
+/** A VM as the runtime names and labels it. */
+interface Machine {
+  readonly labels: Readonly<Record<string, string>>;
+  readonly name: string;
+}
+
+/**
+ * Whether the VM `machine` is the row `rowId`'s: its name is one of that
+ * row's own native names, and its id label names that row. Both, or
+ * neither: a VM whose name and label disagree is no row's. The one rule
+ * asked right before any VM is stopped or removed, and before one is kept
+ * to retry.
+ */
+function isRowsMachine(machine: Machine, rowId: string): boolean {
+  return (
+    ownsNativeName(rowId, machine.name) &&
+    machine.labels[CONTAINER_ID_LABEL] === rowId
+  );
+}
+
 /**
  * Whether `name` is a native name of the row `rowId`'s own: the
  * `<rowId>-<generation>` that `nextNativeId` makes for it, and that the
  * VM booted under it is labelled with. Row ids are UUIDs, so no name is
  * two rows' own.
  */
-export function ownsNativeName(rowId: string, name: string): boolean {
+function ownsNativeName(rowId: string, name: string): boolean {
   return (
     name.startsWith(`${rowId}-`) &&
     GENERATION.test(name.slice(rowId.length + 1))

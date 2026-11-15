@@ -787,6 +787,123 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     await next.shutdown();
   });
 
+  it("never removes a VM named as a row's own but labelled with another row's id: a conflict, left", async () => {
+    const runtime = createFakeContainerRuntime();
+    const store = newStore();
+    const gone = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const left = await gone.start(SPEC);
+    const other = await gone.start(SPEC);
+    const list = runtime.listResources.bind(runtime);
+    // `left`'s VM, by name, as the runtime lists it, labelled `other`'s.
+    runtime.listResources = async (query) => {
+      const listed = await list(query);
+      return {
+        ...listed,
+        resources: listed.resources.map((resource) =>
+          resource.name === `${left.id}-1`
+            ? {
+                ...resource,
+                labels: { ...resource.labels, [CONTAINER_ID_LABEL]: other.id },
+              }
+            : resource
+        ),
+      };
+    };
+    const next = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    expect(await next.recover((each) => each.id === left.id)).toMatchObject({
+      conflicts: [`${left.id}-1`],
+      kept: [left.id],
+      removed: [],
+    });
+    const instance = runtime.instances.find((i) => i.id === `${left.id}-1`);
+    expect(instance?.removed).toBe(false);
+    expect(instance?.stopped).toBe(false);
+    await next.shutdown();
+  });
+
+  it("never abandons, nor reclaims, a previous VM that is not the reopened row's own", async () => {
+    const runtime = createFakeContainerRuntime();
+    const store = newStore();
+    const holder = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const held = await holder.start(SPEC);
+    const heldName = held.row.nativeId ?? "";
+    // A row, written past the registry, recording the live row's VM.
+    const stray = "33333333-3333-4333-8333-333333333333";
+    await store.commit({
+      putContainers: [
+        {
+          createdAt: 1,
+          holder: "dead",
+          id: stray,
+          nativeId: heldName,
+          spec: JSON.stringify(SPEC),
+          status: "running",
+          updatedAt: 1,
+        },
+      ],
+    });
+    const stop = runtime.stopResource.bind(runtime);
+    let failed = false;
+    runtime.stopResource = (name) => {
+      if (!failed && name === heldName) {
+        failed = true;
+        return Promise.reject(new Error("transient"));
+      }
+      return stop(name);
+    };
+    const next = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const reopened = await next.open(stray);
+    await next.sweep();
+    await next.shutdown().catch(() => undefined);
+    const instance = runtime.instances.find((i) => i.id === heldName);
+    expect(instance?.removed).toBe(false);
+    expect(instance?.stopped).toBe(false);
+    expect(await store.get(held.id)).toMatchObject({ status: "running" });
+    await reopened.close().catch(() => undefined);
+    await held.close();
+    await holder.shutdown();
+  });
+
+  it("leaves, in a sweep, a VM with this instance's labels that no row's id labels", async () => {
+    const { runtime, containers } = fixture();
+    const instance = await runtime.create({
+      cpus: 1,
+      detached: false,
+      disableNetwork: true,
+      env: {},
+      image: "test-image",
+      labels: {
+        [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
+        [CONTAINER_INSTANCE_LABEL]: "instance-a",
+      },
+      memoryMib: 512,
+      mounts: [],
+      name: "unlabelled",
+      ports: [],
+      pull: "missing",
+      workdir: "/work",
+    });
+    expect(await containers.sweep()).toEqual([]);
+    expect(instance.removed).toBe(false);
+    await containers.shutdown();
+  });
+
   it("keeps the row of a VM a recovery could not remove, removing, and the next recovery takes it over and removes it", async () => {
     const runtime = createFakeContainerRuntime();
     const store = newStore();
@@ -898,6 +1015,8 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     "sweeps an orphan in the %s runtime state",
     async (status) => {
       const { runtime, containers } = fixture();
+      // A VM of a row that is gone: its label, and that row's own name.
+      const id = globalThis.crypto.randomUUID();
       try {
         const instance = await runtime.create({
           cpus: 1,
@@ -908,10 +1027,11 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
           labels: {
             [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
             [CONTAINER_INSTANCE_LABEL]: "instance-a",
+            [CONTAINER_ID_LABEL]: id,
           },
           memoryMib: 512,
           mounts: [],
-          name: `orphan-${status}`,
+          name: `${id}-1`,
           ports: [],
           pull: "missing",
           workdir: "/work",

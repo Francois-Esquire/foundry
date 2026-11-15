@@ -448,6 +448,17 @@ A VM is not adopted across processes. `open` on a row that is not live in this
 process removes whatever the runtime still holds under the old native name and
 boots again under `<rowId>-<generation>`.
 
+A VM is a row's only when both its name and its id label say so: its name is
+one of that row's own (`<rowId>-<generation>`) and its label names that row.
+Every stop or removal asks this right before it acts (`recover`, `remove`,
+`sweep`, the retries of `sweep` and `shutdown`, `open`'s removal of the old
+VM, a close, a restart, a failed boot), and a VM is kept to retry only if it
+passes. A VM whose name and label disagree is no row's: `recover` and
+`remove` name it in `conflicts` and keep the row `removing`; `sweep` leaves
+it, as it leaves a VM with this instance's labels and no id label. `open`
+reads the runtime's inventory for the old VM's label; when it cannot, the old
+VM is left for the row's removal, which takes every VM of the row.
+
 A registry owns every VM it boots. If the commit that records a boot fails
 (a SQLite store busy under another connection's lock, say), `start`, `open`
 or `restart` removes the VM it just booted, tries to mark the row `failed`,
