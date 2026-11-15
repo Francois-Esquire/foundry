@@ -9,9 +9,11 @@ import {
   isProcessIdentity,
   lookProcesses,
   ownerOf,
+  type ProcessLookup,
   procStat,
   psLine,
   psStart,
+  type SeenProcess,
   sameProcess,
   startedAt,
   thisProcess,
@@ -208,3 +210,69 @@ console.log(JSON.stringify({ after, before, former }));`
     }
   }
 );
+
+/**
+ * A made-up system: `alive` answers whether a signal reaches the pid,
+ * `seen` what a listing says of it (`undefined`: the listing failed).
+ * The pids are above any system's limit, and nothing is signalled.
+ */
+function madeUp(
+  alive: boolean,
+  seen: SeenProcess | "absent" | undefined
+): ProcessLookup {
+  return {
+    alive: () => alive,
+    look: (pids) =>
+      seen === undefined
+        ? undefined
+        : new Map(
+            seen === "absent" ? [] : pids.map((pid) => [pid, seen] as const)
+          ),
+  };
+}
+
+const AT = "ps:Sun Nov 15 08:00:00 2026";
+
+it("takes an owner that has exited and is not reaped (a zombie) for gone, though a signal still reaches it", () => {
+  const asked: number[] = [];
+  const exited = madeUp(true, { exited: true, pgid: 1, started: AT });
+  const zombie: ProcessLookup = {
+    alive: exited.alive,
+    look: (pids) => {
+      asked.push(...pids);
+      return exited.look(pids);
+    },
+  };
+  expect(isGone({ pid: 4_200_101, started: AT }, zombie)).toBe(true);
+  // With no start to compare, too: an exited process is gone, whoever it was.
+  expect(isGone({ pid: 4_200_102, started: null }, zombie)).toBe(true);
+  expect(startedAt(4_200_103, zombie)).toBeNull();
+  // Each was decided on what this system said of it.
+  expect(asked).toEqual([4_200_101, 4_200_102, 4_200_103]);
+});
+
+it("never takes a running owner for gone when the system cannot say, or lists nothing for a pid that answers", () => {
+  const running = madeUp(true, { pgid: 1, started: AT });
+  expect(isGone({ pid: 4_200_111, started: AT }, running)).toBe(false);
+  expect(isGone({ pid: 4_200_112, started: null }, running)).toBe(false);
+  // The listing failed: cannot tell.
+  expect(isGone({ pid: 4_200_113, started: AT }, madeUp(true, undefined))).toBe(
+    false
+  );
+  expect(startedAt(4_200_114, madeUp(true, undefined))).toBeUndefined();
+  // The listing printed nothing for it, yet it answers a signal.
+  expect(isGone({ pid: 4_200_115, started: AT }, madeUp(true, "absent"))).toBe(
+    false
+  );
+  // Gone for certain: no signal reaches it, or it started at another time.
+  expect(isGone({ pid: 4_200_116, started: AT }, madeUp(false, "absent"))).toBe(
+    true
+  );
+  expect(
+    isGone(
+      { pid: 4_200_117, started: AT },
+      madeUp(true, { pgid: 1, started: "ps:Sun Nov 15 09:00:00 2026" })
+    )
+  ).toBe(true);
+  expect(startedAt(4_200_118, running)).toBe(AT);
+});

@@ -55,9 +55,9 @@ import { basename, dirname, join } from "node:path";
 import {
   compareStarts,
   groupMembers,
+  lookProcesses,
   type ProcessIdentity,
   type SeenProcess,
-  startedAt,
   thisProcess,
 } from "./process-identity";
 
@@ -73,7 +73,7 @@ export interface SpawnRecord {
   /** The process that started it, on a recovery record. */
   readonly owner?: ProcessIdentity;
   readonly pid: number;
-  /** As `startedAt` reads it. */
+  /** As `lookProcesses` reads it: the same kind `startedAt` gives. */
   readonly started: string;
 }
 
@@ -526,13 +526,16 @@ function write(
       privateDirectory(dir);
     }
   }
-  const started = startedAt(pid);
-  if (started === null) {
+  const seen = lookProcesses([pid]);
+  if (seen === undefined) {
+    throw new Error("ps could not say when it started");
+  }
+  // One that has exited but is not reaped yet is recorded all the same:
+  // a group it led may still hold what it started.
+  const started = seen.get(pid)?.started;
+  if (started === undefined) {
     // It has already exited and been reaped: nothing is left to record.
     return;
-  }
-  if (started === undefined) {
-    throw new Error("ps could not say when it started");
   }
   const written = started;
   const record: SpawnRecord = { group, pid, started };
