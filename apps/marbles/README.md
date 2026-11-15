@@ -269,6 +269,8 @@ Everything Marbles keeps is under one Foundry home, `$FOUNDRY_HOME`, else
       process.json            who holds that claim
   artifacts/
     workspaces/<workspace-id>/blobs/   each artifact's bytes
+<workspace root>/
+  .marbles/artifacts/<id>/<path>       links to the artifact files it shows (`marbles relink`)
 ```
 
 The database holds the rest, for every workspace: its record, tasks and
@@ -286,6 +288,27 @@ foreground for a service manager, and `marbles status` shows it and which
 workspaces it hosts. `--dry-run` hosts the workspace in the calling process
 instead, substitutes Marbles-owned operations, and avoids state writes;
 ordinary TypeScript and monitor I/O still execute.
+
+### Resources and workspaces
+
+Runs, sessions, artifacts, sandbox containers and modules are kept in the
+Marbles database, each belonging to the workspace it was created in.
+`marbles share <kind> <id> <dir>` shows one of this workspace's resources in
+the workspace at `<dir>` as well (a sandbox container stays with the
+workspace that started it), and `marbles unshare` stops it; neither changes
+the resource. `marbles runs`, `sessions`, `artifacts`, `sandboxes` and
+`modules` list what this workspace shows, its own and what is shared with
+it, and `--all` lists every workspace's; a run's steps are listed under it.
+`marbles status` and the dashboard's Feed read the same way.
+
+`<workspace root>/.marbles/` holds links into the database's files for the
+resources a workspace shows: for now, one link per artifact file whose
+bytes a blob file holds. Nothing reads them back. `marbles relink [--all]`
+removes them and makes them again from the database, leaving anything that
+is not a link, and sharing or unsharing an artifact relinks the other
+workspace. A file the database holds inline (or in chunks) has no link,
+and a file rewritten since the last relink points at its old bytes until
+the next one. `.marbles/.gitignore` keeps the directory out of git.
 
 ## Embedding and execution
 

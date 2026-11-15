@@ -265,6 +265,28 @@ directories, in the artifact store under the Foundry home
 A `records.json` an earlier Marbles left there is ignored. An engine with
 no database (a script no host loaded) keeps its artifacts in memory.
 
+### Resources and workspaces
+
+Runs, sessions, artifacts, sandbox containers and modules are resources:
+each is kept once, by its kind's store, under the workspace that created it
+(its owner), which it belongs to for good. `marbles share` shows a run,
+session, artifact or module in another registered workspace as well, a row
+of `marbles_resource_workspaces`; `marbles unshare` removes the row and
+never the resource. A sandbox container cannot be shared. `status`, the
+resource listings (`runs`, `sessions`, `artifacts`, `sandboxes`, `modules`)
+and the dashboard's Feed read a workspace's view: what it owns and what is
+shared with it, or with `--all` (the Feed's "All workspaces") every
+workspace's. A share naming a resource its owner no longer keeps shows
+nothing.
+
+Links are derived, never read: `<workspace root>/.marbles/artifacts/<id>/<path>`
+points at the blob file holding each file of an artifact the workspace
+shows. A file the database holds inline, or in chunks, has no link, and a
+rewritten file's link points at its old bytes until the next relink.
+`marbles relink` removes every link there and makes them again from the
+database; anything else in the directory is left and reported, and
+`.marbles/.gitignore` keeps the directory out of git.
+
 ### Execution Runs
 
 An Execution Run record is written when its run is queued, before it

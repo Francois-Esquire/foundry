@@ -29,11 +29,16 @@ process, persists nothing, and never touches the Marbles process.
 | `init [developer \| design \| product]` | Create a starter module in `.foundry/marbles`, without running it or overwriting it. Defaults to Product. |
 | `list` | Load modules and list named work, schedules, and monitors with their keys and cadence. Runs no step body. |
 | `roll <name-or-key> [--input <json>]` | Attach this workspace and dispatch one step, workflow, schedule, or monitor in its worker now; print the lines it logged and its result as JSON, and exit. The workspace stays hosted. |
-| `status` | Read the state root: the Marbles process (pid, version, socket) and every workspace with whether it is hosted, its worker's pid, schedules, recent runs, and session count. Reads files only: needs no running process and loads no module. |
+| `status` | Read the state root: the Marbles process (pid, version, socket) and every workspace with whether it is hosted, its worker's pid, schedules, recent runs with their top-level steps (a run shared from another workspace says so), and how many sessions and artifacts it shows. Reads files only: needs no running process and loads no module. |
 | `watch <runId>` | Replay saved output, follow new output, and exit when an agent or workflow run finishes. |
 | `mcp` | Serve this workspace to an MCP client over stdin and stdout; stdout carries only MCP messages. Never starts the Marbles process or attaches the workspace: task tools work without one, and dispatch tools need a process that hosts the workspace. Under `--dry-run` it hosts nothing, keeps its tasks in memory, and refuses the dispatch tools. See [the MCP server](/marbles/reference/mcp). |
 | `tasks <action> [--json]` | Read or change this workspace's tasks: `list`, `ready`, `get`, `deps`, `create`, `update`, `start`, `complete`, `cancel`, `reopen`, `move`, `depend`, `undepend`, or `change --input <json>` for one atomic batch. `marbles help` lists each action's options. `create` and `update` take `--metadata <json>`; on update each key is set over the stored metadata and a `null` value removes its key. A `__proto__` key at any depth is refused. A worker that already hosts the workspace answers; otherwise the command opens the tasks itself. Loads no module and never starts the Marbles process. |
-| `sessions` | List the current workspace's agent sessions: id, message count, last update, and whether a compaction summary exists. Loads no module. |
+| `sessions [--all]` | List the agent sessions this workspace shows, its own and those shared with it: id, message count, last update, and whether a compaction summary exists. `--all` lists every workspace's. Loads no module. |
+| `runs [--all]` | List the workflow runs this workspace shows, newest first, each with its steps indented under it. `--all` lists every workspace's. Loads no module. |
+| `artifacts [--all]`, `sandboxes [--all]`, `modules [--all]` | List the artifacts (id, name, type, status, last update), sandbox containers (id, status, creation) or modules (id and their artifact) this workspace shows; `--all` lists every workspace's. A resource another workspace owns ends with `from <id>`, and one shared beyond the workspace listing it with `shared with <ids>`. Loads no module. |
+| `share <kind> <id> <dir>` | Show one resource this workspace shows (a `run`, `session`, `artifact` or `module`) in the registered workspace at `<dir>` as well. A sandbox container stays with the workspace that started it. Changes no resource; sharing an artifact relinks the other workspace. |
+| `unshare <kind> <id> <dir>` | Stop showing the resource in the workspace at `<dir>`. The resource stays with the workspace that owns it, which it always belongs to. |
+| `relink [--all]` | Rebuild this workspace's links under `<root>/.marbles/` from the Marbles database: each file of an artifact it shows whose bytes one blob file holds becomes a link at `.marbles/artifacts/<id>/<path>`. Every link there is replaced; anything that is not a link is left and reported. `--all` relinks every registered workspace. |
 | `daemon` | Run the Marbles process in the foreground until interrupted, for launchd, systemd, or a terminal you keep open. Refused with the holder's pid when one already runs on this state root. |
 | `stop` | Stop the Marbles process, whatever version it runs, and return once it has drained every worker and exited; prints `no Marbles process is running` otherwise. While it stops, it refuses new attaches, reloads, and calls that would start work (`roll`, launches, dispatches, resumes); reads, answers, and cancels still go through, so a run holding up the drain can be cut short. Prints `stopping Marbles process pid N; waiting for its workers to drain` first, then `stopped Marbles process pid N`. |
 | `attach` | Host this workspace in the Marbles process, starting one when none runs, and exit; it stays hosted and its triggers keep running. |
@@ -47,7 +52,8 @@ to stderr and exit 1 before importing modules or touching state.
 
 `list` imports the discovered modules in the calling process; `run` and
 `roll` have the workspace's worker import them, or import them here under
-`--dry-run`; `help`, `init`, `status`, `sessions`, `tasks`, `watch`,
+`--dry-run`; `help`, `init`, `status`, the resource listings, `share`,
+`unshare`, `relink`, `tasks`, `watch`,
 `mcp`, `daemon`, and `stop` import nothing. Keep module scope to declarations: importing the
 file must not do work. Attaching (`attach`, `run`, `roll`, and the dashboard) records the
 workspace in the Marbles database with `hosted: true`; nothing is recorded

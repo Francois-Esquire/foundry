@@ -167,7 +167,14 @@ Five buckets, each importing only what sits below it:
   handle open. Its settings may hold secrets: `initializeDatabase` keeps
   the database file and its side files mode 0600, and nothing the provider
   store throws quotes a setting. The modules
-  tables are composed and migrated, but nothing in Marbles uses them yet. Every writer handle goes through `guard.ts`, which
+  tables are composed and migrated; only the resource view reads them yet.
+  `associations.ts` keeps which workspaces other than its owner each
+  resource is shared with (`marbles_resource_workspaces`), under the rules
+  `ResourceAssociations` in `lib/resources.ts` states; `resources.ts`
+  (`ResourceView`) is what a workspace shows of the resources every
+  package store keeps, its own and those shared with it, or every
+  workspace's, each read through its owner's package store. `status`, the
+  resource listings and the dashboard's Feed read through it. Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no worker opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
@@ -200,7 +207,8 @@ Five buckets, each importing only what sits below it:
 - `src/workspace/` hosts one workspace in the process it runs in: source
   discovery (`source.ts`), the Varlock environment (`env.ts`), module
   loading and the engine builder (`open.ts`), the schedule loop
-  (`loop.ts`), the dashboard snapshot (`snapshot.ts`) with its usage
+  (`loop.ts`), the dashboard snapshot (`snapshot.ts`) with its feed of
+  every workspace (`feed.ts`) and its usage
   totals (`usage.ts`) and the host's own lines (`diagnostics.ts`), source
   watching (`watch.ts`), starter templates and creation, background agent
   dispatch, the task commands the CLI and MCP share (`tasks.ts`), and
@@ -245,7 +253,9 @@ Five buckets, each importing only what sits below it:
 - The app sits on top and may import anything: `src/cli.ts`, `src/args.ts`
   (which parses a command line completely, before anything loads),
   `src/dashboard/`, `src/views/`, `src/components/`, `src/mcp/`,
-  `src/status/`, `src/sessions/`. The dashboard is a client of the process.
+  `src/status/`, `src/resources/` (the resource listings, sharing, and
+  each workspace's links under `<root>/.marbles/`, made from the database
+  and never read back). The dashboard is a client of the process.
   `src/mcp/stdio.ts` is the `marbles mcp` server, which `cli.ts` loads
   only when that command runs. `src/mcp/relay.ts` runs it in a child
   process whose stdout is the relay's stderr. Protocol frames go out on

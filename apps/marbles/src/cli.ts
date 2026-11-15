@@ -100,7 +100,11 @@ roll start it when none runs. Everything lives under the Foundry home
 ($FOUNDRY_HOME, else ~/.foundry): every workspace's record, tasks, agent
 sessions, runs, providers and the rest in marbles/marbles.db; each workspace
 (the project above .foundry/marbles) gets marbles/<id>/ for its run output and
-worktrees; artifact files are under artifacts/. --dry-run
+worktrees; artifact files are under artifacts/. Each resource (run, session, artifact,
+sandbox, module) belongs to the workspace it was made in and can be shared with others;
+the listings show this workspace's own and shared resources, or with --all every
+workspace's. .marbles/ in a workspace holds links to its artifact files, rebuilt by
+relink from the database. --dry-run
 hosts the workspace in this process instead, persists nothing, and echoes every
 model turn and git mutation; custom code still runs.
 
