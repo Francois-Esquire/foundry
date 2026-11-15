@@ -1,5 +1,6 @@
 import {
   type StorageEntry,
+  type StorageNode,
   withParentDirectories,
 } from "@foundry/core/storage";
 import { FILE_KINDS } from "@foundry/lib/file-classification";
@@ -73,10 +74,27 @@ export type WorkspaceRegistration = z.infer<typeof workspaceRegistrationSchema>;
 /** A valid node at a valid path, by core's rules. */
 function isStorageEntry(entry: StorageEntry): boolean {
   try {
-    withParentDirectories({ [entry.path]: entry });
+    withParentDirectories({ [entry.path]: storageNode(entry) });
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Only the fields core's node carries; the record's own fields stay here. */
+function storageNode(entry: StorageEntry): StorageNode {
+  switch (entry.type) {
+    case "file":
+      return {
+        bytes: entry.bytes,
+        digest: entry.digest,
+        mime: entry.mime,
+        type: "file",
+      };
+    case "symlink":
+      return { target: entry.target, type: "symlink" };
+    default:
+      return { type: entry.type };
   }
 }
 

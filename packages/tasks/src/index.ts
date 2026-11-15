@@ -46,8 +46,7 @@ export {
   taskQuerySchema,
   taskRelationsSchema,
 } from "./schemas";
-export type { TaskSnapshot, TaskStore, TaskStoreWrite } from "./store";
-export { MemoryTaskStore } from "./store";
+export type { TaskSnapshot, TaskStore, TaskStoreWrite } from "./store/index";
 export { type CreateOptions, Tasks, type TasksOptions } from "./tasks";
 export type {
   DepthOptions,
