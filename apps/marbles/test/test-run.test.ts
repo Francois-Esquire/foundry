@@ -806,10 +806,10 @@ it("judges the guard's paths with their links resolved", () => {
   });
   expect(escaped.status).not.toBe(0);
   expect(escaped.stderr).toContain("would use the developer's home");
-  // `/tmp` is a link to `/private/tmp` on macOS: either spelling passes.
-  const other = root.startsWith("/private/")
-    ? root.slice("/private".length)
-    : `/private${root}`;
+  // A second spelling of the root, through a link to it, passes too, as
+  // `/tmp` and `/private/tmp` do on macOS.
+  const other = join(temporaryDirectory("gd-alias-"), "root");
+  symlinkSync(root, other);
   const spelled = guard({
     ...process.env,
     FOUNDRY_HOME: join(root, "home"),
