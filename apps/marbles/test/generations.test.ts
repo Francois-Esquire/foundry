@@ -923,6 +923,44 @@ describe("engine generations", () => {
     fixture.client.close();
   }, 150_000);
 
+  it("drains a detached workspace in the retired generation too, its runs reachable until they end", async () => {
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: { print: (line) => lines.push(line) },
+    });
+    const first = fixture.summary.pid ?? 0;
+    const workspace = fixture.client.workspace(fixture.summary);
+    const runId = await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    const second = await switchFrom(fixture, first, 1);
+    // Still running in the retired generation as the workspace goes.
+    const detaching = fixture.client.detach(fixture.summary.id);
+    const waitingOnRetired = vi.waitFor(
+      () =>
+        expect(
+          lines.some((line) =>
+            line.includes("detaching · waiting for engine generation 1")
+          )
+        ).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    const settled = await Promise.race([
+      detaching.then(() => "detached" as const),
+      waitingOnRetired.then(() => "waiting" as const),
+    ]);
+    // The detach must not be done while the retired generation runs it.
+    expect(settled).toBe("waiting");
+    // Reachable while it drains: the run is cancelled where it runs.
+    await workspace.actions.runs.cancel(runId);
+    await detaching;
+    const rows = await executions(fixture, fixture.summary.id);
+    expect(rows.find((row) => row.name === "hold1")?.status).toBe("cancelled");
+    await gone(first);
+    expect(processAlive(second)).toBe(true);
+    expect(await fixture.client.workspaces()).toEqual([]);
+    fixture.client.close();
+  }, 150_000);
+
   it("hands a released run to the current generation from the database when the notice is lost", async () => {
     const fixture = await setUp({
       daemon: {

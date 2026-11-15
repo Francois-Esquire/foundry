@@ -1660,6 +1660,31 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   }
 
   /**
+   * Drains a workspace in every live generation that hosts it, a retired
+   * one too, before its routing goes: until then its runs stay reachable.
+   */
+  async function drainEverywhere(id: string): Promise<void> {
+    for (const generation of hostsOf(id)) {
+      if (generation !== current) {
+        print(
+          `[${id}] detaching · waiting for engine generation ${String(generation.number)} to finish its work`
+        );
+      }
+      try {
+        await ask(generation, GENERATION_METHODS.unhost, { id });
+      } catch (error) {
+        // A retired generation that exits as it drains has drained.
+        const going =
+          generation.exit !== undefined || !generation.channel?.open;
+        if (generation === current || !going) {
+          throw error;
+        }
+      }
+      generation.hosts.delete(id);
+    }
+  }
+
+  /**
    * Stop hosting workspace `id`: its running work in the current
    * generation finishes, then it closes there, and it is recorded as not
    * hosted. A detach that finds it gone already has nothing to do.
@@ -1670,11 +1695,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       if (workspace === undefined) {
         return;
       }
-      const target = current;
-      if (target?.hosts.has(id)) {
-        await ask(target, GENERATION_METHODS.unhost, { id });
-        target.hosts.delete(id);
-      }
+      await drainEverywhere(id);
       // The record first: a write that fails leaves it listed, so the
       // detach can be retried, rather than hosted again at the next boot.
       await registry.unhost(id);
