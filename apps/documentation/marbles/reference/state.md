@@ -414,7 +414,8 @@ run that later fails or is cancelled is not started again.
 
 Under `--dry-run` the workspace is hosted in the calling process, which
 never touches the Marbles process, and nothing under the state root or the
-artifact store is written. Sessions and the feed live in memory, monitor
+artifact store is written, but for the SQLite side files a read of the
+Marbles database may create or update (`marbles.db-shm`, `marbles.db-wal`). Sessions and the feed live in memory, monitor
 observations live in the process, worktrees are cut under the system
 temporary directory, and parked runs are cancelled when the process quits. Step bodies still execute; see
 [safety and limits](/marbles/reference/safety).
