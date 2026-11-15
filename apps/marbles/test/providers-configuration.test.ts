@@ -38,6 +38,8 @@ class TestStore implements ProviderStore {
   readonly texts = new Map<string, string>();
   key: string | undefined;
   revisions = 0;
+  /** Run once an edit has landed, before its result is handed back: another process's commit. */
+  between: (() => void) | undefined;
   #held: Promise<undefined> = Promise.resolve(undefined);
 
   /** Keep `file` as the configuration of `scope`, as another process would. */
@@ -67,7 +69,9 @@ class TestStore implements ProviderStore {
 
   read(): Promise<ProviderConfigurations> {
     try {
-      return Promise.resolve(keptConfigurations(new Map(this.texts)));
+      return Promise.resolve(
+        keptConfigurations(new Map(this.texts), this.revisions)
+      );
     } catch (error) {
       return Promise.reject(error);
     }
@@ -84,7 +88,7 @@ class TestStore implements ProviderStore {
     await this.#held;
     const written = writtenTexts(
       workspace,
-      edit(keptConfigurations(new Map(this.texts)))
+      edit(keptConfigurations(new Map(this.texts), this.revisions))
     );
     for (const [scope, text] of written) {
       this.texts.set(scope, text);
@@ -92,7 +96,9 @@ class TestStore implements ProviderStore {
     if (written.size > 0) {
       this.revisions += 1;
     }
-    return this.read();
+    const landed = await this.read();
+    this.between?.();
+    return landed;
   }
 }
 
@@ -427,6 +433,100 @@ describe("edits", () => {
     await expect(loaded(configuration().config)).rejects.toThrow(
       expect.objectContaining({ code: "CONFIGURATION_UNREADABLE" })
     );
+  });
+});
+
+describe("a configuration and the store's revision", () => {
+  it("digests a first configuration's identities with the key the store keeps, so they survive a restart", async () => {
+    const { config } = configuration();
+    await config.read();
+    expect(store.key).toBeUndefined();
+    await config.initialize([{ enabled: true, id: "codex", plugin: "codex" }]);
+    expect(store.key).toEqual(expect.any(String));
+    const first = config.identityOf("codex");
+    const restarted = configuration().config;
+    await loaded(restarted);
+    expect(restarted.identityOf("codex")).toBe(first);
+  });
+
+  it("keeps the revision its own write left, so the watcher sees an edit another process committed right after it", async () => {
+    store.put(MACHINE_SCOPE, {
+      providers: [{ enabled: true, id: "codex", plugin: "codex" }],
+    });
+    const { config, models } = configuration();
+    await loaded(config);
+    const stop = config.watch(() => undefined);
+    try {
+      store.between = () => {
+        store.between = undefined;
+        store.put(MACHINE_SCOPE, {
+          providers: [
+            { enabled: true, id: "codex", plugin: "codex" },
+            { enabled: true, id: "vercel", plugin: "vercel" },
+          ],
+        });
+      };
+      await config.disable("codex");
+      expect(ids(models)).toEqual([]);
+      await vi.waitFor(() => expect(ids(models)).toEqual(["codex", "vercel"]), {
+        timeout: 5000,
+      });
+    } finally {
+      stop();
+    }
+  });
+});
+
+describe("an edit after another host moved the entry", () => {
+  it("applies to the scope that holds it now, and refuses one no scope holds", async () => {
+    store.put(MACHINE_SCOPE, {
+      providers: [{ enabled: true, id: "codex", plugin: "codex" }],
+    });
+    const a = configuration().config;
+    const b = configuration().config;
+    await loaded(a);
+    await loaded(b);
+    await b.replace([
+      { enabled: true, id: "codex", plugin: "codex", scope: "workspace" },
+    ]);
+    await a.disable("codex");
+    const kept = await store.read();
+    expect(kept.machine?.providers).toEqual([]);
+    expect(kept.workspace("ws1")?.providers).toEqual([
+      { enabled: false, id: "codex", plugin: "codex" },
+    ]);
+    await b.remove("codex");
+    await expect(a.enable("codex")).rejects.toThrow(
+      '"codex" is not configured'
+    );
+    await expect(a.remove("codex")).rejects.toThrow(
+      '"codex" is not configured'
+    );
+  });
+});
+
+describe("a write a newer read overtook", () => {
+  it("loads what that read found, not the older configuration it wrote", async () => {
+    store.put(MACHINE_SCOPE, {
+      providers: [{ enabled: true, id: "codex", plugin: "codex" }],
+    });
+    const { config, models } = configuration();
+    await loaded(config);
+    let reading: Promise<void> | undefined;
+    store.between = () => {
+      store.between = undefined;
+      store.put(MACHINE_SCOPE, {
+        providers: [
+          { enabled: true, id: "codex", plugin: "codex" },
+          { enabled: true, id: "vercel", plugin: "vercel" },
+        ],
+      });
+      // A read of the newer configuration lands before the write loads.
+      reading = config.read();
+    };
+    await config.disable("codex");
+    await reading;
+    expect(ids(models)).toEqual(["codex", "vercel"]);
   });
 });
 
