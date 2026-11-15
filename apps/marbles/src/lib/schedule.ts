@@ -116,6 +116,13 @@ export interface TickOptions {
   readonly scheduled?: boolean;
   /** Cancels the run a tick started. */
   readonly signal?: AbortSignal;
+  /**
+   * Once aborted, this tick launches nothing: checked again after every
+   * wait that comes before a launch, never only before the first. The
+   * claim is given up, and a monitor's pending launch is left for the
+   * next tick to start.
+   */
+  readonly stopped?: AbortSignal;
 }
 
 export interface LoopOptions {
@@ -157,7 +164,10 @@ export async function tick(
   let status: ScheduleHistory["lastStatus"] = "failed";
   let dispatched = false;
   try {
-    if (!(await shouldDispatch(engine, schedule, options, now()))) {
+    if (
+      !(await shouldDispatch(engine, schedule, options, now())) ||
+      options.stopped?.aborted
+    ) {
       return undefined;
     }
     dispatched = true;
@@ -169,9 +179,12 @@ export async function tick(
     );
     const launch =
       schedule.kind === "monitor" ? pendingOf(detected) : undefined;
-    const value = launch
-      ? await startPending(engine, schedule.key, launch, options.signal)
-      : detected;
+    // Stopped while the detector ran: its launch stays pending, for the
+    // next tick, wherever it runs.
+    const value =
+      launch && !options.stopped?.aborted
+        ? await startPending(engine, schedule.key, launch, options.signal)
+        : detected;
     status = "complete";
     return { value };
   } finally {
@@ -333,6 +346,10 @@ export async function runSchedules(
 
   while (!signal.aborted) {
     const active = await engine.schedules();
+    // Every wait below may span a stop: each is followed by a look at it.
+    if (signal.aborted) {
+      break;
+    }
     if (active.length === 0) {
       await sleep(POLL_MS, signal);
       continue;
@@ -340,6 +357,9 @@ export async function runSchedules(
     const dues: (readonly [Schedule, number])[] = [];
     for (const entry of active) {
       dues.push([entry, nextDue(entry, await baseline(entry))]);
+    }
+    if (signal.aborted) {
+      break;
     }
     const [schedule, due] = dues.reduce((soonest, candidate) =>
       candidate[1] < soonest[1] ? candidate : soonest
@@ -356,6 +376,7 @@ export async function runSchedules(
       print: options.print,
       scheduled: true,
       signal: options.cancel ?? signal,
+      stopped: signal,
     });
     attempted.set(schedule.key, now());
   }
