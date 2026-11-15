@@ -45,10 +45,27 @@ export interface Touched {
   readonly blobs: readonly string[];
 }
 
+/** A store whose commits land only with its host's transaction, which says nothing of when that commits. */
+export class HostBoundStoreError extends Error {
+  override readonly name = "HostBoundStoreError";
+}
+
+/**
+ * `store`, keeping the workspaces' links current after each write that
+ * lands. Refused for a store whose commits land only when a transaction
+ * its host owns commits (`durability: "host"`): nothing tells it when that
+ * is, or that it rolled back, so its links would follow writes that never
+ * land.
+ */
 export function keepingLinks<T extends ArtifactStore>(
   store: T,
   options: KeptLinksOptions
 ): T {
+  if (store.durability === "host") {
+    throw new HostBoundStoreError(
+      "keepingLinks needs an artifact store over the database itself: this one's commits land only when its host's transaction commits, and nothing tells it when, so its links would follow writes that may roll back"
+    );
+  }
   return followingCommits(store, artifactLinker(options));
 }
 
@@ -65,8 +82,8 @@ export function followingCommits<T extends ArtifactStore>(
   store: T,
   landed: (touched: Touched) => void
 ): T {
-  return observed(store, (changes) => {
-    for (const touched of changes) {
+  return observed(store, (touched) => {
+    if (touched.artifacts.length > 0 || touched.blobs.length > 0) {
       landed(touched);
     }
   });
@@ -75,7 +92,7 @@ export function followingCommits<T extends ArtifactStore>(
 /** `store`, handing what its commits and transactions changed to `sink` once each resolves. */
 function observed<T extends ArtifactStore>(
   store: T,
-  sink: (changes: readonly Touched[]) => void
+  sink: (touched: Touched) => void
 ): T {
   return new Proxy(store, {
     get(target, property) {
@@ -88,7 +105,7 @@ function observed<T extends ArtifactStore>(
           ]);
           const touched = touchedBy(write);
           await committed;
-          sink([touched]);
+          sink(touched);
         };
       }
       if (property === "transaction" && typeof value === "function") {
@@ -96,13 +113,24 @@ function observed<T extends ArtifactStore>(
           work: (view: ArtifactStore) => Promise<R>,
           ...rest: unknown[]
         ): Promise<R> => {
-          const pending: Touched[] = [];
+          // Each id once, however many of the transaction's commits name it.
+          const artifacts = new Set<string>();
+          const blobs = new Set<string>();
           const result = (await Reflect.apply(value, target, [
             (view: ArtifactStore) =>
-              work(observed(view, (changes) => pending.push(...changes))),
+              work(
+                observed(view, (touched) => {
+                  for (const id of touched.artifacts) {
+                    artifacts.add(id);
+                  }
+                  for (const id of touched.blobs) {
+                    blobs.add(id);
+                  }
+                })
+              ),
             ...rest,
           ])) as R;
-          sink(pending);
+          sink({ artifacts: [...artifacts], blobs: [...blobs] });
           return result;
         };
       }
@@ -116,11 +144,13 @@ function touchedBy(write: ArtifactStoreWrite): Touched {
   try {
     return {
       artifacts: [
-        ...(write.putArtifacts ?? []).map((artifact) => artifact.id),
-        ...(write.deleteArtifacts ?? []),
-        ...(write.putContents ?? []).map((content) => content.artifactId),
+        ...new Set([
+          ...(write.putArtifacts ?? []).map((artifact) => artifact.id),
+          ...(write.deleteArtifacts ?? []),
+          ...(write.putContents ?? []).map((content) => content.artifactId),
+        ]),
       ],
-      blobs: (write.putBlobs ?? []).map((blob) => blob.id),
+      blobs: [...new Set((write.putBlobs ?? []).map((blob) => blob.id))],
     };
   } catch {
     return { artifacts: [], blobs: [] };
@@ -161,37 +191,33 @@ async function relinkTouched(
     return;
   }
   const records = await new WorkspaceRegistry({ database, state }).list();
-  const shares = await new DatabaseAssociationStore({ database }).list(
-    "artifact"
-  );
   const view = new ResourceView({ database, scope: ALL_WORKSPACES, state });
+  const shares = new DatabaseAssociationStore({ database });
   for (const id of ids) {
     const ref: ResourceRef = { id, kind: "artifact", owner };
-    let files: readonly ArtifactFile[];
-    try {
-      files = await view.artifactFiles(ref);
-    } catch (error) {
-      failed(`the links of artifact ${id}`, error);
-      continue;
-    }
-    const shownIn = new Set([
-      owner,
-      ...shares
-        .filter((share) => sameResource(share.ref, ref))
-        .map((share) => share.workspace),
-    ]);
     for (const record of records) {
+      // Read under the workspace's links lock, right before the links are
+      // put in place: what the database says then, not when this began.
+      const files = async (): Promise<readonly ArtifactFile[]> => {
+        const shown =
+          record.id === owner ||
+          (await shares.list("artifact")).some(
+            (share) =>
+              sameResource(share.ref, ref) && share.workspace === record.id
+          );
+        return shown ? view.artifactFiles(ref) : [];
+      };
       try {
         const done = await relinkArtifact({
           artifacts,
-          files: shownIn.has(record.id) ? files : [],
+          files,
           ref,
           root: record.root,
           workspace: record.id,
         });
         for (const path of done?.refused ?? []) {
           report(
-            `[links] ${record.root}: ${path} goes through a link or a file; artifact ${id} is not linked there`
+            `[links] ${record.root}: ${path} goes through a link, a file or a path outside .marbles; artifact ${id} is not linked there`
           );
         }
       } catch (error) {

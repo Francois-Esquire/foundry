@@ -235,7 +235,7 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     });
     await settled(() => expect(lines).toHaveLength(1));
     expect(lines[0]).toContain(
-      ".marbles/artifacts/notes goes through a link or a file"
+      ".marbles/artifacts/notes goes through a link, a file or a path outside .marbles"
     );
     expect(readdirSync(outside)).toEqual([]);
   });
