@@ -65,6 +65,7 @@ import type { ResourceRef } from "~/lib/resources";
  * undone.
  */
 
+/** What one reconcile did; its paths sorted, the same on every machine. */
 export interface LinksReport {
   /** What was in the way and left as it was: not a link Marbles made. */
   readonly kept: readonly string[];
@@ -781,13 +782,21 @@ class LinkTree {
   }
 }
 
+/** The report in an order no machine's directory listing decides. */
 function reportOf(tally: Tally): LinksReport {
   return {
-    kept: [...tally.kept],
+    kept: [...tally.kept].sort(byCodeUnit),
     linked: tally.linked,
-    refused: [...tally.refused],
+    refused: [...tally.refused].sort(byCodeUnit),
     unlinkable: tally.unlinkable,
   };
+}
+
+function byCodeUnit(a: string, b: string): number {
+  if (a === b) {
+    return 0;
+  }
+  return a < b ? -1 : 1;
 }
 
 /** Make `path` alone, not its parents; whether this call made it. */
@@ -818,9 +827,11 @@ function isRealDirectory(stats: Stats): boolean {
   return stats.isDirectory() && !stats.isSymbolicLink();
 }
 
+/** The entries of `dir` by name, so every machine works through them alike. */
 async function entriesOf(dir: string) {
   try {
-    return await readdir(dir, { withFileTypes: true });
+    const entries = await readdir(dir, { withFileTypes: true });
+    return entries.sort((a, b) => byCodeUnit(a.name, b.name));
   } catch (error) {
     if (hasErrorCode(error, "ENOENT") || hasErrorCode(error, "ENOTDIR")) {
       return [];
