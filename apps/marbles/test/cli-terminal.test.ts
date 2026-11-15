@@ -17,8 +17,18 @@ import { type TestHome, testHome } from "./helpers/home";
 /** Configs live in a tmpdir with no node_modules, so zod is imported by URL. */
 const ZOD = import.meta.resolve("zod");
 
-async function until(predicate: () => boolean) {
-  const deadline = Date.now() + 8000;
+/** How long a screen gets to appear once its process is up. */
+const SCREEN_MS = 8000;
+/**
+ * How long the first screen gets when it waits for the Marbles process to
+ * start and its worker to load the workspace. Under a loaded machine (ten
+ * of these tests at once) that took 6.7 to 7.4 seconds, against the 8 a
+ * screen gets, and the test failed before the dashboard had drawn.
+ */
+const STARTUP_MS = 30_000;
+
+async function until(predicate: () => boolean, ms = SCREEN_MS) {
+  const deadline = Date.now() + ms;
   while (!predicate()) {
     if (Date.now() > deadline) {
       throw new Error("Terminal did not reach the expected state");
@@ -202,9 +212,9 @@ async function openTestCli(
     },
     mark: () => output.length,
     output: () => stripANSI(output),
-    async see(value: string, from = 0) {
+    async see(value: string, from = 0, ms = SCREEN_MS) {
       try {
-        await until(() => output.includes(value, from));
+        await until(() => output.includes(value, from), ms);
       } catch (cause) {
         throw new Error(
           `Terminal did not show ${JSON.stringify(value)} (exit ${child.exitCode}). Output:\n${stripANSI(output).slice(-8000)}`,
@@ -300,7 +310,7 @@ test("a missing authoring folder onboards against the Marbles process, which pos
   const file = join(config, "summarize-codebase.ts");
   const terminal = await openTestCli(home, config, ["run"]);
   try {
-    await terminal.see("Choose a starter");
+    await terminal.see("Choose a starter", 0, STARTUP_MS);
     expect(existsSync(config)).toBe(false);
     await terminal.send("\r");
     await terminal.see("Step name");
@@ -310,7 +320,8 @@ test("a missing authoring folder onboards against the Marbles process, which pos
     await terminal.see("summarizeCodebase");
     expect(existsSync(config)).toBe(false);
     await terminal.send("\r");
-    await terminal.see("Press Enter to enter");
+    // The workspace now attaches to the Marbles process, whose worker loads it.
+    await terminal.see("Press Enter to enter", 0, STARTUP_MS);
     expect(readFileSync(file, "utf8")).toContain(
       "@foundry.sh/marbles/prebuilt"
     );
@@ -331,7 +342,7 @@ test("a missing authoring folder onboards against the Marbles process, which pos
     await terminal.dispose();
     rmSync(dir, { force: true, recursive: true });
   }
-}, 30_000);
+}, 90_000);
 
 test("setup skip leaves the config absent and opens the empty dashboard", async () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-skip-"));
@@ -431,7 +442,7 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
     existsSync(ticks) ? readFileSync(ticks, "utf8").length : 0;
   const terminal = await openTestCli(home, config, ["run"]);
   try {
-    await terminal.see("Press Enter to enter");
+    await terminal.see("Press Enter to enter", 0, STARTUP_MS);
     expect(readProcess(state)?.host).toBe("daemon");
     await terminal.send("\r");
     await terminal.see("remote-step");
@@ -478,7 +489,7 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
     await terminal.dispose();
     rmSync(dir, { force: true, recursive: true });
   }
-}, 30_000);
+}, 60_000);
 
 test("a command line that cannot run prints usage and touches nothing", () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-usage-"));
