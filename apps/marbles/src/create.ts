@@ -16,11 +16,13 @@ import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/git";
 import { Catalog } from "~/authoring/catalog";
+import { Engine as PublishedEngine } from "~/entries/engine";
 import { layout } from "~/layout";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
+import type { WorkspaceRecords } from "~/lib/events/records";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { echoInstance } from "~/lib/models/echo";
@@ -59,6 +61,12 @@ export interface CreateEngineOptions {
   readonly print: (line: string) => void;
   /** A complete, ordered provider set that supersedes the stored configuration. */
   readonly providers?: readonly Provider[];
+  /**
+   * This workspace's tasks and their recorded changes, in the Marbles
+   * database. Under `dry` the engine gets none and keeps them in memory, as
+   * it does when this is omitted.
+   */
+  readonly records?: WorkspaceRecords;
   /** The workspace root: the config's directory, or the cwd without one. */
   readonly root: string;
   /**
@@ -226,7 +234,8 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const state = persisted(dry, options.stateDir);
   // Its sandboxes may mount what is cut there; see `containersFor`.
   const worktrees = Engine.worktreesFor(state);
-  const engine = new Engine({
+  // The class the package publishes, so a host's engine is that `Engine`.
+  const engine = new PublishedEngine({
     artifacts: artifactsAt(dry ? undefined : options.artifacts),
     // A dry run writes to memory but reads what real runs left, if any.
     ...(dry && options.artifacts && existsSync(options.artifacts)
@@ -240,6 +249,9 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...(options.log ? { log: options.log } : {}),
     ...modelsFor(options),
     print,
+    ...(dry || options.records === undefined
+      ? {}
+      : { records: options.records }),
     root,
     sessions: sessionsFor(state, print),
     state,

@@ -20,7 +20,7 @@ export const MIGRATIONS = fileURLToPath(
 );
 
 /** The table and columns `drizzle-kit` itself records applied migrations in. */
-const APPLIED = "__drizzle_migrations";
+export const APPLIED = "__drizzle_migrations";
 
 /** One migration this Marbles ships, in the order they apply. */
 export interface ShippedMigration {

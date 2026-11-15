@@ -5,7 +5,8 @@
  * dashboard, the CLI, and MCP are written against; `run` ticks its
  * triggers until a signal aborts. `watchSource` says when the source
  * changed, `createStarter` writes a starter module, and `layout` decides
- * where everything lives.
+ * where everything lives. `openWorkspaceRecords` opens a workspace's tasks
+ * in the Marbles database of a state root, for an engine's `records`.
  *
  * The host process records its own environment as the machine's, so start
  * Bun with `--no-env-file`; otherwise a `.env` in its working directory
@@ -13,7 +14,12 @@
  */
 
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for single-workspace hosts.
+export {
+  type OpenWorkspaceRecordsOptions,
+  openWorkspaceRecords,
+} from "~/database/managed";
 export { type Layout, type LayoutOptions, layout } from "~/layout";
+export type { WorkspaceRecords } from "~/lib/events/records";
 export type {
   DispatchInfo,
   DispatchOptions,

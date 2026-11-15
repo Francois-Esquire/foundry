@@ -29,7 +29,9 @@ workspace this machine has run, and says which of them the process hosts.
   marbles.sock            the Unix socket it answers on, owner-only (mode 0600)
   marbles.db              the Marbles database (SQLite, WAL mode, with its
                           -wal and -shm files): every workspace's id, root,
-                          config, firstSeen, lastSeen, and whether it is hosted
+                          config, firstSeen, lastSeen, and whether it is hosted;
+                          every workspace's tasks, by workspace id, with each
+                          change they committed and which observers completed it
   daemon.log              stdout and stderr of a process a client started;
                           `marbles daemon` prints to its own terminal instead
   settings.json           global dashboard preferences (the theme), shared by
@@ -58,9 +60,9 @@ workspace this machine has run, and says which of them the process hosts.
   usage/direct.<sessionId>.json  turns taken outside a run, by message id
   usage/<key>+<turnId>.json  a turn saved separately when its document is locked
                           or unreadable, or a marker for usage not saved
-  tasks.json              the workspace's tasks and the changes they emitted
   locks/usage-<key>       writer of a run or direct-session usage document
-  locks/tasks             pid of the process that owns the workspace's tasks
+  locks/tasks             pid of the process delivering the workspace's task
+                          changes to its observers
   locks/schedule:<key>    pid of the tick running a schedule or monitor
   locks/run-<runId>       pid of the process that owns a recovered run
   locks/execution-<runId> pid of the process recovering an Execution Run record
@@ -104,15 +106,18 @@ its existing spelling and records the authoring folder or single-module path.
 A workspace is recorded in the database when it is attached to the Marbles
 process (`run`, `roll`, the dashboard, or the MCP server), which sets
 `hosted: true`, and by a program that hosts it itself; `list`, `status`,
-`sessions`, `watch`, and anything under `--dry-run` leave an empty state
-root empty. Only a process holding `locks/process` at the state root
-creates the database and applies the migrations its Marbles ships: the
-Marbles process, which holds it while it runs, or a program hosting a
-workspace itself, which takes it only while it records the workspace, so a
-Marbles process can still start beside it. When another process holds the
-lock, such a program waits up to five seconds for the database to be
-current and otherwise fails to start. The workers and the CLI write only
-to a database that is there and current. `status`, the MCP server, and every
+`sessions`, `watch`, a task read, and anything under `--dry-run` leave an
+empty state root empty. Only a process holding `locks/process` at the state
+root creates the database and applies the migrations its Marbles ships:
+the Marbles process, which holds it while it runs, or another writer of a
+workspace's state, which takes it only while it makes the database
+current: a program hosting a workspace itself, as it starts, and a task
+change from the CLI or the MCP server with no Marbles process running. A
+Marbles process can still start beside either once that moment has passed.
+When another process holds the lock, such a writer waits up to five
+seconds for the database to be current and otherwise fails. The workers,
+and the CLI and the MCP server while a Marbles process runs, write only to
+a database that is there and current. `status`, every task read, and every
 other reader open it read-only: they never create, migrate, or change it,
 and never switch its journal mode. A reader that meets the last writer
 closing at the moment it opens can leave an empty `marbles.db-wal`; it
@@ -120,8 +125,64 @@ holds nothing, and readers and the Marbles process pass over it. A database whos
 migrations are behind or ahead of the reading Marbles, or differ from the
 ones it ships, is refused with an error that says which. The daemon, its
 workers, and the CLI hold it at once: a writer waits up to five seconds for
-another process's write to finish. `hosted` goes back to `false` when
+another process's write to finish. A handle that waited past that, and
+so failed with SQLite's busy error, opens a fresh connection before it
+runs anything else, because the driver (`@libsql/client` 0.18) leaves the
+failed one unable to commit; the failed operation is not retried, and a
+refused commit is rolled back. `hosted` goes back to `false` when
 `marbles detach` or a client of the process detaches the workspace.
+
+### Tasks
+
+A workspace's tasks live in the Marbles database, scoped by the workspace
+id, with each change they commit, written in the same transaction, and the
+record of which observers completed it. Detaching a workspace keeps them.
+A `tasks.json` left in a workspace's directory by an earlier Marbles is
+ignored, not imported, and left as it is, like the other JSON state the
+database replaced.
+
+Any number of processes read and write a workspace's tasks at once: the
+worker hosting it, a program hosting it itself, and the CLI and the MCP
+server. A change takes the database's write lock for its whole
+read-check-write, so two processes changing one workspace never lose
+either's update; one whose token went stale meanwhile is refused with
+`conflict`. A task command with no worker hosting the workspace opens the
+database itself for that one command. A read (`tasks list`, `ready`,
+`get`, `deps`, and the MCP tools that read) opens it read-only, and without
+a database finds no tasks and creates nothing. A change is a writer, and
+with no Marbles process running makes and migrates the database under
+`locks/process`, as a program hosting a workspace does. Under `--dry-run`
+the tasks are in memory and nothing is written.
+
+One process delivers a workspace's changes to its observers at a time: the
+host that holds `locks/tasks` in the workspace's directory, from its start
+until it stops. A second host of the same workspace reads and writes its
+tasks but prints `[observe] not delivering here` and leaves delivery to the
+first until it stops. The claim lives in the state directory, not the
+database: engines over the same records with different state
+directories, or without one, each deliver.
+
+Delivery is at least once per observer: a handler that completed but
+whose completion was not saved runs again. A handler that throws keeps its
+change and is handed nothing later until it completes that one; other
+handlers go on. The delivering host is woken at once by a change made
+through it and notices one made in another process within a second. When
+it stops, or its process exits, a host that was refused delivery takes it
+over within a second and delivers what was written meanwhile.
+
+Known limits: nothing prunes `marbles_task_changes` or
+`marbles_task_change_deliveries`, so they grow with every task change; a
+workspace's rows stay in the database after its directory or checkout is
+deleted, and after it is detached. A host that keeps the database open
+while another Marbles migrates it further refuses every write from then on
+with an error saying so; restart it with the newer Marbles. Until then, if
+it is the one delivering, it keeps the delivery claim: each new change
+runs its observers again, and their completion cannot be recorded.
+
+Text the database cannot give back intact is refused before anything is
+written: a title, description, id, or time holding U+0000, or a lone
+surrogate (not well-formed UTF-16). The error names the field. Metadata and
+tags are JSON and keep such characters.
 
 ### Run output
 

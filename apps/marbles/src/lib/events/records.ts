@@ -1,392 +1,249 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { isMissingPath, writeFileAtomic } from "@foundry/lib/atomic-file";
-import type { JsonValue } from "@foundry/lib/json";
-import type {
-  Task,
-  TaskDependency,
-  TaskSnapshot,
-  TaskStore,
-  TaskStoreWrite,
-} from "@foundry/tasks";
-import { TASK_STATUSES, taskId } from "@foundry/tasks";
-import { z } from "zod";
-import type { Source } from "~/lib/events/source";
-import { sourceKey, sourceNamed, TASKS } from "~/lib/events/source";
-import type { Lock } from "~/lib/state/locks";
-import { acquireLock } from "~/lib/state/locks";
+import type { TaskEvent, TaskStore, TaskStoreWrite } from "@foundry/tasks";
+import { MemoryTaskStore } from "@foundry/tasks/store/memory";
+import { TASKS } from "~/lib/events/source";
 
 /**
- * A workspace's durable records: its tasks, and the stream of every item
- * their changes emitted, each with the hashes of the handlers that completed
- * it. Both live in one document, so a task change and the item it emits are
- * written together, by one rename, or not at all. On disk that is
- * `<state>/tasks.json`; without a state dir it is memory, which lasts as long
- * as this object.
+ * A workspace's durable records, as the engine reads and writes them: its
+ * tasks, and every change they committed, each with the hashes of the
+ * observers that completed it. A commit through `taskStore` that changes
+ * something records its change with it, atomically, whether or not
+ * anything observes it; delivery (`delivery.ts`) reads them back later,
+ * after a restart too. Nothing removes a change or a recorded hash.
  *
- * A commit with an event emits an item whether or not anything observes it.
- * Nothing here removes an item or a recorded hash: an observer declared
- * later receives what was emitted before it, and what was delivered stays
- * recorded as delivered. Nothing compacts the stream, so it grows with every
- * emitted event.
- *
- * Every write takes one turn, task commits and delivered hashes alike, and
- * applies to the records as they are when its turn comes, so neither can
- * overwrite the other. A write is applied to a copy, persisted, and only then
- * made current in memory. A directory-sync failure can occur after the file is
- * replaced, leaving disk ahead of memory. No handler runs inside a turn.
- *
- * One process owns a state dir's records at a time, from the first read until
- * `close`, through `<state>/locks/tasks`. A document that cannot be read is an
- * error, never an empty start; it is left as it is.
+ * The engine is handed one (`EngineOptions.records`); Marbles hands it the
+ * workspace's rows in the Marbles database (`database/tasks.ts`). Without
+ * one it keeps them in memory (`MemoryWorkspaceRecords`), which lasts as
+ * long as the engine.
  */
+export interface WorkspaceRecords {
+  /** Refuse every later call, once the calls already made have settled. */
+  close(): Promise<void>;
+  /** Record that the handler with `hash` completed the change `id`, beside every hash already there. */
+  deliver(id: string, hash: string): Promise<void>;
+  /**
+   * The position of the newest recorded change, 0 before the first: a
+   * cheap read for noticing a change another process recorded.
+   */
+  latest(): Promise<number>;
+  /**
+   * The recorded changes after `query.after` that a handler in
+   * `query.handlers` has not completed, oldest first, at most
+   * `query.limit`, detached. A handler with no completion yet (one declared
+   * later) is handed the whole history this way.
+   */
+  pending(query: PendingQuery): Promise<readonly StreamItem[]>;
+  /** The tasks, through the `@foundry/tasks` store seam. */
+  readonly taskStore: TaskStore;
+  /**
+   * Call `listener` after each call through `taskStore` that recorded a
+   * change, once that call has settled, never inside it; the function
+   * returned stops that.
+   */
+  watch(listener: () => void): () => void;
+}
 
-/** An item as delivery reads it: detached, with its source resolved. */
+/** Which recorded changes `pending` reads. */
+export interface PendingQuery {
+  /** Only changes after this position; from the first when omitted. */
+  readonly after?: number;
+  /** The hashes of the handlers that are to complete each change. */
+  readonly handlers: readonly string[];
+  /** At most this many; `PENDING_BATCH` when omitted. */
+  readonly limit?: number;
+}
+
+/** How many changes one `pending` read returns by default. */
+export const PENDING_BATCH = 100;
+
+/** A recorded change as delivery reads it: detached, with its source resolved. */
 export interface StreamItem {
-  /** Hashes of the handlers that completed it. */
+  /** Hashes of the handlers, among those asked about, that completed it. */
   readonly delivered: readonly string[];
   readonly id: string;
   readonly payload: unknown;
+  /** Its place among the workspace's changes, in the order they were committed. */
+  readonly position: number;
   readonly source: symbol;
 }
 
-/** Another process owns these records; nothing here may read or write them. */
-export class RecordsHeldError extends Error {
-  override readonly name = "RecordsHeldError";
-}
+const CLOSED = "workspace records are closed";
 
-export interface WorkspaceRecordsOptions {
-  /** The workspace state dir. Omit to keep the records in memory. */
-  readonly dir?: string;
-  /** Called after a turn whose write emitted an item, once the turn is over. */
-  readonly emitted?: () => void;
-}
-
-const FILE = "tasks.json";
-const LOCK = "tasks";
-const VERSION = 1;
-
-const taskSchema = z.looseObject({
-  createdAt: z.string(),
-  description: z.string().nullable(),
-  id: z.string().transform(taskId),
-  metadata: z.record(z.string(), z.json()),
-  parentId: z.string().transform(taskId).nullable(),
-  settledAt: z.string().nullable(),
-  status: z.enum(TASK_STATUSES),
-  // Absent on a record written before tasks had tags; Tasks reads it as none.
-  tags: z.array(z.string()).optional(),
-  title: z.string(),
-  updatedAt: z.string(),
-});
-
-const dependencySchema = z.looseObject({
-  dependsOnId: z.string().transform(taskId),
-  taskId: z.string().transform(taskId),
-});
-
-const itemSchema = z.looseObject({
-  delivered: z.array(z.string()),
-  id: z.string().min(1),
-  payload: z.json(),
-  source: z.string().min(1),
-});
-
-const documentSchema = z.strictObject({
-  dependencies: z.array(dependencySchema),
-  items: z.array(itemSchema),
-  tasks: z.array(taskSchema),
-  version: z.literal(VERSION),
-});
-
-interface StoredItem {
-  delivered: string[];
-  readonly id: string;
-  readonly payload: JsonValue;
-  /** The source's key; see `source.ts`. */
-  readonly source: string;
-}
-
-interface Records {
-  dependencies: TaskDependency[];
-  items: StoredItem[];
-  tasks: Task[];
-}
-
-/** What a write did: nothing, or changed the records, emitting or not. */
-type Outcome = "unchanged" | "changed" | "emitted";
-
-export class WorkspaceRecords {
-  /**
-   * The tasks, through the `@foundry/tasks` store seam. A commit with an event
-   * adds it to the stream in the same write; `transaction` holds the
-   * turn for a whole read-modify-write.
-   */
-  readonly taskStore: TaskStore;
-  readonly #path: string | undefined;
-  readonly #dir: string | undefined;
-  readonly #options: WorkspaceRecordsOptions;
-  #state: Records | undefined;
-  #opening: Promise<Records> | undefined;
-  #lock: Lock | undefined;
+/**
+ * Calls that may still be running, and the refusal of new ones once
+ * `close` begins, for a `WorkspaceRecords`.
+ */
+export class RecordsGate {
+  readonly #running = new Set<Promise<unknown>>();
   #phase: "open" | "closed" = "open";
-  #turn: Promise<unknown> = Promise.resolve();
-  /** Items emitted by writes whose turn has not ended yet. */
-  #unannounced = 0;
 
-  constructor(options: WorkspaceRecordsOptions = {}) {
-    this.#options = options;
-    this.#dir = options.dir;
-    this.#path =
-      options.dir === undefined ? undefined : join(options.dir, FILE);
-    const get = (records: Records, id: string): Task | null => {
-      const task = records.tasks.find((item) => item.id === id);
-      return task === undefined ? null : structuredClone(task);
-    };
-    // Inside a turn: reads see the records as committed, and the commit
-    // applies without taking the turn again. A turn already waiting when
-    // `close` began still finishes.
-    const view: TaskStore = {
-      commit: (write) =>
-        this.#write((draft) => this.#applyTaskWrite(draft, write)),
-      get: async (id) => get(await this.#open(), id),
-      snapshot: async () => snapshotOf(await this.#open()),
-    };
-    this.taskStore = {
-      commit: (write) => this.#exclusive(() => view.commit(write)),
-      get: async (id) => get(await this.#read(), id),
-      snapshot: async () => snapshotOf(await this.#read()),
-      transaction: (work) => this.#exclusive(() => work(view)),
-    };
-  }
-
-  /** Every item whose source is defined here, oldest first. */
-  async pending(): Promise<readonly StreamItem[]> {
-    const { items } = await this.#read();
-    return items.flatMap((item) => {
-      const source = sourceNamed(item.source);
-      return source === undefined
-        ? []
-        : [
-            {
-              delivered: [...item.delivered],
-              id: item.id,
-              payload: structuredClone(item.payload),
-              source,
-            },
-          ];
-    });
-  }
-
-  /** Record that the handler with `hash` completed the item, beside every hash already there. */
-  deliver(id: string, hash: string): Promise<void> {
-    return this.#exclusive(() =>
-      this.#write((draft) => {
-        const item = draft.items.find((candidate) => candidate.id === id);
-        if (item === undefined || item.delivered.includes(hash)) {
-          return "unchanged";
-        }
-        item.delivered.push(hash);
-        return "changed";
-      })
+  /** Run `call`, unless the records are closed. */
+  run<T>(call: () => Promise<T>): Promise<T> {
+    if (this.#phase === "closed") {
+      return Promise.reject(new Error(CLOSED));
+    }
+    const running = call();
+    const settled = running.then(
+      () => undefined,
+      () => undefined
     );
+    this.#running.add(settled);
+    settled.finally(() => this.#running.delete(settled));
+    return running;
   }
 
-  /** Take ownership and read the records now, so a problem surfaces here. */
-  async open(): Promise<void> {
-    await this.#read();
-  }
-
-  /**
-   * Refuse new reads and writes, let the writes already waiting finish, then
-   * give up ownership for good.
-   */
   async close(): Promise<void> {
     this.#phase = "closed";
-    await this.#turn;
-    await this.#opening?.catch(() => undefined);
-    this.#lock?.release();
-    this.#lock = undefined;
-    this.#state = undefined;
+    await Promise.all(this.#running);
+  }
+}
+
+/**
+ * Run `work` on a copy of `write` taken now, when the caller hands it
+ * over; a write the copy refuses rejects without running `work`.
+ */
+function owning(
+  write: TaskStoreWrite,
+  work: (owned: TaskStoreWrite) => Promise<void>
+): Promise<void> {
+  let owned: TaskStoreWrite;
+  try {
+    owned = structuredClone(write);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  return work(owned);
+}
+
+/** Who to tell that a call recorded a change, and the telling. */
+export class EmitListeners {
+  readonly #listeners = new Set<() => void>();
+
+  add(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
   }
 
-  #read(): Promise<Records> {
-    return this.#phase === "closed"
-      ? Promise.reject(new Error("workspace records are closed"))
-      : this.#open();
-  }
-
-  #open(): Promise<Records> {
-    if (this.#state !== undefined) {
-      return Promise.resolve(this.#state);
+  emit(): void {
+    for (const listener of this.#listeners) {
+      listener();
     }
-    this.#opening ??= this.#load().then(
-      (state) => {
-        this.#state = state;
-        return state;
-      },
-      (error: unknown) => {
-        // Nothing was taken; the next read tries again.
-        this.#opening = undefined;
-        throw error;
+  }
+}
+
+interface MemoryChange {
+  readonly delivered: string[];
+  readonly id: string;
+  readonly payload: TaskEvent;
+}
+
+/**
+ * The records in this process's memory: a `MemoryTaskStore` for the tasks,
+ * and the changes beside it. A transaction's changes are kept only if it
+ * succeeds, as its tasks are.
+ */
+export class MemoryWorkspaceRecords implements WorkspaceRecords {
+  readonly taskStore: TaskStore;
+  readonly #changes: MemoryChange[] = [];
+  readonly #gate = new RecordsGate();
+  readonly #listeners = new EmitListeners();
+
+  constructor() {
+    const store = new MemoryTaskStore();
+    /**
+     * Commit `owned`, then keep its change in `into`: both from the one
+     * copy each `commit` takes when it is called (`owning`), so a caller
+     * changing its write later, while the commit waits its turn or after,
+     * changes neither.
+     */
+    const recorded =
+      (target: TaskStore, into: TaskEvent[]) =>
+      async (owned: TaskStoreWrite): Promise<void> => {
+        await target.commit(owned);
+        if (owned.event !== undefined) {
+          into.push(owned.event);
+        }
+      };
+    const settle = (events: readonly TaskEvent[]): void => {
+      for (const payload of events) {
+        this.#changes.push({ delivered: [], id: randomUUID(), payload });
       }
-    );
-    return this.#opening;
-  }
-
-  async #load(): Promise<Records> {
-    const dir = this.#dir;
-    const path = this.#path;
-    if (dir === undefined || path === undefined) {
-      return { dependencies: [], items: [], tasks: [] };
-    }
-    const lock = acquireLock(dir, LOCK);
-    if (!("release" in lock)) {
-      throw new RecordsHeldError(
-        `the tasks of this workspace (${path}) are in use by ${lock.holder}`
-      );
-    }
-    try {
-      const records = await readRecords(path);
-      this.#lock = lock;
-      return records;
-    } catch (error) {
-      lock.release();
-      throw error;
-    }
-  }
-
-  /** Run `work` alone among writes, then tell delivery about anything it emitted. */
-  #exclusive<T>(work: () => Promise<T>): Promise<T> {
-    if (this.#phase === "closed") {
-      return Promise.reject(new Error("workspace records are closed"));
-    }
-    const run = this.#turn.then(work);
-    this.#turn = run.catch(() => undefined);
-    return run.finally(() => {
-      if (this.#unannounced > 0) {
-        this.#unannounced = 0;
-        this.#options.emitted?.();
+      if (events.length > 0) {
+        this.#listeners.emit();
       }
+    };
+    this.taskStore = {
+      commit: (write) =>
+        owning(write, (owned) =>
+          this.#gate.run(async () => {
+            const events: TaskEvent[] = [];
+            await recorded(store, events)(owned);
+            settle(events);
+          })
+        ),
+      get: (id) => this.#gate.run(() => store.get(id)),
+      snapshot: () => this.#gate.run(() => store.snapshot()),
+      transaction: (work) =>
+        this.#gate.run(async () => {
+          const events: TaskEvent[] = [];
+          const result = await store.transaction((view) =>
+            work({
+              commit: (write) => owning(write, recorded(view, events)),
+              get: (id) => view.get(id),
+              snapshot: () => view.snapshot(),
+            })
+          );
+          settle(events);
+          return result;
+        }),
+    };
+  }
+
+  close(): Promise<void> {
+    return this.#gate.close();
+  }
+
+  deliver(id: string, hash: string): Promise<void> {
+    return this.#gate.run(() => {
+      const change = this.#changes.find((candidate) => candidate.id === id);
+      if (change !== undefined && !change.delivered.includes(hash)) {
+        change.delivered.push(hash);
+      }
+      return Promise.resolve();
     });
   }
 
-  /** Apply `mutate` to a copy, persist the copy, and only then make it current. */
-  async #write(mutate: (draft: Records) => Outcome): Promise<void> {
-    const draft = structuredClone(await this.#open());
-    const outcome = mutate(draft);
-    if (outcome === "unchanged") {
-      return;
-    }
-    if (this.#path !== undefined) {
-      await writeFileAtomic(
-        this.#path,
-        `${JSON.stringify({ version: VERSION, ...draft }, null, 2)}\n`,
-        { createDirectory: true, fsync: true }
-      );
-    }
-    this.#state = draft;
-    if (outcome === "emitted") {
-      this.#unannounced += 1;
-    }
+  latest(): Promise<number> {
+    return this.#gate.run(() => Promise.resolve(this.#changes.length));
   }
 
-  #applyTaskWrite(draft: Records, write: TaskStoreWrite): Outcome {
-    const empty =
-      write.event === undefined &&
-      [
-        write.deleteTasks,
-        write.deleteDependencies,
-        write.putTasks,
-        write.putDependencies,
-      ].every((list) => (list?.length ?? 0) === 0);
-    if (empty) {
-      return "unchanged";
-    }
-    const tasks = new Map(draft.tasks.map((task) => [task.id, task]));
-    const edges = new Map(
-      draft.dependencies.map((edge) => [edgeKey(edge), edge])
+  pending(query: PendingQuery): Promise<readonly StreamItem[]> {
+    const after = query.after ?? 0;
+    const limit = query.limit ?? PENDING_BATCH;
+    return this.#gate.run(() =>
+      Promise.resolve(
+        this.#changes
+          .map((change, index) => ({ change, position: index + 1 }))
+          .filter(
+            ({ change, position }) =>
+              position > after &&
+              query.handlers.some((hash) => !change.delivered.includes(hash))
+          )
+          .slice(0, limit)
+          .map(({ change, position }) => ({
+            delivered: change.delivered.filter((hash) =>
+              query.handlers.includes(hash)
+            ),
+            id: change.id,
+            payload: structuredClone(change.payload),
+            position,
+            source: TASKS,
+          }))
+      )
     );
-    for (const id of write.deleteTasks ?? []) {
-      tasks.delete(id);
-    }
-    for (const edge of write.deleteDependencies ?? []) {
-      edges.delete(edgeKey(edge));
-    }
-    for (const task of write.putTasks ?? []) {
-      tasks.set(task.id, structuredClone(task));
-    }
-    for (const edge of write.putDependencies ?? []) {
-      edges.set(edgeKey(edge), { ...edge });
-    }
-    draft.tasks = [...tasks.values()];
-    draft.dependencies = [...edges.values()];
-    if (write.event === undefined) {
-      return "changed";
-    }
-    this.#emit(draft, TASKS, write.event);
-    return "emitted";
   }
 
-  /** Add an item for `payload` to the stream in this write, undelivered. */
-  #emit<T>(draft: Records, source: Source<T>, payload: NoInfer<T>): void {
-    const key = sourceKey(source);
-    if (key === undefined) {
-      throw new Error(`${String(source)} is not a defined source`);
-    }
-    draft.items.push({
-      delivered: [],
-      id: randomUUID(),
-      payload: structuredClone(payload) as JsonValue,
-      source: key,
-    });
+  watch(listener: () => void): () => void {
+    return this.#listeners.add(listener);
   }
-}
-
-function edgeKey(edge: TaskDependency): string {
-  return JSON.stringify([edge.taskId, edge.dependsOnId]);
-}
-
-function snapshotOf(records: Records): TaskSnapshot {
-  return {
-    dependencies: records.dependencies.map((edge) => ({ ...edge })),
-    tasks: records.tasks.map((task) => structuredClone(task)),
-  };
-}
-
-/** The records at `path`; none when it does not exist; an error when it is not records. */
-async function readRecords(path: string): Promise<Records> {
-  let text: string;
-  try {
-    text = await readFile(path, "utf8");
-  } catch (error) {
-    if (isMissingPath(error)) {
-      return { dependencies: [], items: [], tasks: [] };
-    }
-    throw error;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch (error) {
-    throw unreadable(path, String(error));
-  }
-  const result = documentSchema.safeParse(parsed);
-  if (!result.success) {
-    throw unreadable(path, z.prettifyError(result.error));
-  }
-  const { dependencies, items, tasks } = result.data;
-  return {
-    dependencies: dependencies as TaskDependency[],
-    items: items as StoredItem[],
-    // A stored record keeps the fields it has; Tasks fills in missing tags.
-    tasks: tasks as unknown as Task[],
-  };
-}
-
-function unreadable(path: string, detail: string): Error {
-  return new Error(
-    `${path} does not hold Marbles task records, so it was left as it is; fix or move it to go on: ${detail}`
-  );
 }

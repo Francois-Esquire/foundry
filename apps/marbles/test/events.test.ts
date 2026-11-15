@@ -1,56 +1,78 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
-import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve as resolvePath } from "node:path";
 import type { TaskEvent } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { sql } from "drizzle-orm";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import type { Engine } from "~/lib/engine";
-import { WorkspaceRecords } from "~/lib/events/records";
+import { DELIVERY_POLL_MS } from "~/lib/events/delivery";
+import type { WorkspaceRecords } from "~/lib/events/records";
+import { MemoryWorkspaceRecords, PENDING_BATCH } from "~/lib/events/records";
 import type { Handler } from "~/lib/events/source";
 import { TASKS } from "~/lib/events/source";
 import { testEngine } from "./helpers/engine";
-import { temporaryDirectory } from "./helpers/temporary";
+import type { TestMachine } from "./helpers/records";
+import { testMachine } from "./helpers/records";
 
-const IN_USE = /in use by/;
-const NOT_RECORDS = /does not hold Marbles task records/;
 const CLOSED = /closed/;
+const REFUSED = /refused/;
 
-interface StoredItem {
-  readonly delivered: readonly string[];
-  readonly id: string;
-  readonly payload: TaskEvent;
-  readonly source: string;
+/** Whether `error`, or anything in its causes, has a message matching `pattern`. */
+function causedBy(pattern: RegExp): (error: unknown) => boolean {
+  return (error) => {
+    for (let cause = error; cause instanceof Error; cause = cause.cause) {
+      if (pattern.test(cause.message)) {
+        return true;
+      }
+    }
+    return false;
+  };
 }
 
-interface StoredRecords {
-  readonly items: readonly StoredItem[];
-  readonly tasks: readonly { readonly id: string; readonly title: string }[];
-  readonly version: number;
-}
-
+let machine: TestMachine;
 const engines: Engine[] = [];
+
+beforeAll(async () => {
+  machine = await testMachine();
+});
+
+afterAll(() => {
+  machine.close();
+});
 
 afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
 });
 
+/** A workspace's state dir; its rows are scoped by the dir's name. */
 function stateDir(): string {
-  return temporaryDirectory("marbles-events-");
+  return machine.workspace();
 }
 
-/** An engine over `state` (memory without one) with these observers of tasks. */
+/**
+ * An engine over `state`, its tasks in the machine's database (in memory
+ * without a state dir), with these observers of tasks.
+ */
 function engineWith(
   state: string | undefined,
   handlers: readonly Handler<TaskEvent>[],
   print: (line: string) => void = () => undefined
 ): Engine {
-  const engine = testEngine({ print, ...(state ? { state } : {}) });
+  const engine = testEngine({
+    print,
+    ...(state ? { records: machine.records(state), state } : {}),
+  });
   for (const handler of handlers) {
     engine.observe(TASKS, handler);
   }
@@ -64,18 +86,46 @@ async function shutDown(engine: Engine): Promise<void> {
   engines.splice(engines.indexOf(engine), 1);
 }
 
-function stored(state: string): StoredRecords {
-  return JSON.parse(readFileSync(join(state, "tasks.json"), "utf8"));
+function deliveredCounts(state: string): Promise<number[]> {
+  return machine.deliveredCounts(state);
 }
 
-function deliveredCounts(state: string): number[] {
-  return stored(state).items.map((item) => item.delivered.length);
+async function storedTitles(state: string): Promise<string[]> {
+  const records = machine.records(state);
+  try {
+    return (await records.taskStore.snapshot()).tasks.map((task) => task.title);
+  } finally {
+    await records.close();
+  }
 }
 
 function titles(events: readonly TaskEvent[]): string[] {
   return events.flatMap((event) =>
     event.tasks.map((delta) => delta.after?.title ?? `-${delta.id}`)
   );
+}
+
+/** `deliver` on every database records, failing the first `fail` calls. */
+function losingDeliveries(fail: number): {
+  readonly lost: () => number;
+  restore(): void;
+} {
+  const { deliver } = DatabaseWorkspaceRecords.prototype;
+  let lost = 0;
+  const spy = vi
+    .spyOn(DatabaseWorkspaceRecords.prototype, "deliver")
+    .mockImplementation(function (
+      this: DatabaseWorkspaceRecords,
+      id: string,
+      hash: string
+    ) {
+      if (lost < fail) {
+        lost += 1;
+        return Promise.reject(new Error("the database is gone"));
+      }
+      return deliver.call(this, id, hash);
+    });
+  return { lost: () => lost, restore: () => spy.mockRestore() };
 }
 
 describe("observing tasks", () => {
@@ -106,9 +156,9 @@ describe("observing tasks", () => {
 
     expect(titles(seen)).toEqual(["First"]);
     expect(seen[0]?.tasks[0]?.after?.tags).toEqual(["review"]);
-    const [item] = stored(state).items;
-    expect(item?.source).toBe("tasks");
-    expect(item?.delivered).toHaveLength(1);
+    const [change] = await machine.changes(state);
+    expect(change?.payload).toEqual(seen[0]);
+    expect(change?.delivered).toHaveLength(1);
     expect(lines.some((line) => line.includes("not today"))).toBe(true);
   });
 
@@ -139,13 +189,17 @@ describe("observing tasks", () => {
     // Each change wakes a pass that tries "First" again, and fails.
     await tasks.create({ title: "Second" });
     await vi.waitFor(() => expect(failures).toBe(2));
-    await vi.waitFor(() => expect(deliveredCounts(state)).toEqual([1, 1]));
+    await vi.waitFor(async () =>
+      expect(await deliveredCounts(state)).toEqual([1, 1])
+    );
     expect(steady).toEqual(["First", "Second"]);
     expect(flaky).toEqual([]);
 
     outage.down = false;
     await tasks.create({ title: "Third" });
-    await vi.waitFor(() => expect(deliveredCounts(state)).toEqual([2, 2, 2]));
+    await vi.waitFor(async () =>
+      expect(await deliveredCounts(state)).toEqual([2, 2, 2])
+    );
     await engine.stop();
     expect(steady).toEqual(["First", "Second", "Third"]);
     expect(flaky).toEqual(["First", "Second", "Third"]);
@@ -159,28 +213,20 @@ describe("observing tasks", () => {
         calls.push(titles([payload]).join());
       },
     ]);
-    const { deliver } = WorkspaceRecords.prototype;
-    let lost = 0;
-    const spy = vi
-      .spyOn(WorkspaceRecords.prototype, "deliver")
-      .mockImplementation(function (this: WorkspaceRecords, id, hash) {
-        if (lost === 0) {
-          lost += 1;
-          return Promise.reject(new Error("the disk is full"));
-        }
-        return deliver.call(this, id, hash);
-      });
+    const losing = losingDeliveries(1);
     try {
       const tasks = new Tasks({ store: engine.taskStore });
       await tasks.create({ title: "First" });
       await tasks.create({ title: "Second" });
       await engine.start();
-      await vi.waitFor(() => expect(lost).toBe(1));
+      await vi.waitFor(() => expect(losing.lost()).toBe(1));
       await tasks.create({ title: "Third" });
-      await vi.waitFor(() => expect(deliveredCounts(state)).toEqual([1, 1, 1]));
+      await vi.waitFor(async () =>
+        expect(await deliveredCounts(state)).toEqual([1, 1, 1])
+      );
       await engine.stop();
     } finally {
-      spy.mockRestore();
+      losing.restore();
     }
     // "First" ran twice (at least once), and never after "Second".
     expect(calls).toEqual(["First", "First", "Second", "Third"]);
@@ -196,9 +242,9 @@ describe("observing tasks", () => {
     ]);
     const tasks = new Tasks({ store: engine.taskStore });
     await engine.start();
-    // The start's own pass has no items and does no I/O; once it is over,
-    // the write below is what starts the next pass.
-    await new Promise((done) => setTimeout(done, 0));
+    // Let the start's own pass, which finds nothing, end; the write below
+    // is then what starts the next pass.
+    await new Promise((done) => setTimeout(done, 20));
     await caller.run("a command's output", () =>
       tasks.create({ title: "Woken" })
     );
@@ -226,7 +272,7 @@ describe("observing tasks", () => {
     await new Tasks({ store: first.taskStore }).create({ title: "Kept" });
     await vi.waitFor(() => expect(delivered).toEqual(["steady:Kept"]));
     await shutDown(first);
-    expect(stored(state).items).toHaveLength(1);
+    expect(await machine.changes(state)).toHaveLength(1);
 
     outage.down = false;
     const second = engineWith(state, [steady, flaky]);
@@ -235,8 +281,8 @@ describe("observing tasks", () => {
       expect(delivered).toEqual(["steady:Kept", "flaky:Kept"])
     );
     await second.stop();
-    expect(deliveredCounts(state)).toEqual([2]);
-    expect(stored(state).tasks.map((task) => task.title)).toEqual(["Kept"]);
+    expect(await deliveredCounts(state)).toEqual([2]);
+    expect(await storedTitles(state)).toEqual(["Kept"]);
   });
 
   it("observers with identical text are told apart by their order, across restarts with fresh functions", async () => {
@@ -260,20 +306,17 @@ describe("observing tasks", () => {
     await vi.waitFor(() => expect(delivered).toEqual(["a:Same"]));
     await shutDown(first);
     // Same text, so only their order tells them apart: one hash is recorded.
-    expect(stored(state).items[0]?.delivered).toHaveLength(1);
+    expect((await machine.changes(state))[0]?.delivered).toHaveLength(1);
 
     outage.down = false;
     const second = engineWith(state, [notify("a", false), notify("b", true)]);
     await second.start();
     await vi.waitFor(() => expect(delivered).toEqual(["a:Same", "b:Same"]));
     await second.stop();
-    expect(deliveredCounts(state)).toEqual([2]);
+    expect(await deliveredCounts(state)).toEqual([2]);
   });
 
-  it("a failed write publishes neither the task nor its item", async () => {
-    if (process.getuid?.() === 0) {
-      return;
-    }
+  it("commits a task change and its recorded change together, or neither", async () => {
     const state = stateDir();
     const seen: TaskEvent[] = [];
     const engine = engineWith(state, [
@@ -284,74 +327,79 @@ describe("observing tasks", () => {
     const tasks = new Tasks({ store: engine.taskStore });
     await engine.start();
     await tasks.create({ title: "Before" });
-    // Delivered and its hash saved, so the failure below is the task's alone.
-    await vi.waitFor(() => expect(deliveredCounts(state)).toEqual([1]));
-    expect(titles(seen)).toEqual(["Before"]);
-    const before = readFileSync(join(state, "tasks.json"), "utf8");
-
-    chmodSync(state, 0o500);
+    await vi.waitFor(async () =>
+      expect(await deliveredCounts(state)).toEqual([1])
+    );
+    const { database } = machine.database;
+    // The database refuses the change's row: the task must go with it.
+    await database.run(
+      sql.raw(
+        "CREATE TRIGGER refuse_change BEFORE INSERT ON marbles_task_changes WHEN NEW.payload LIKE '%Lost change%' BEGIN SELECT RAISE(ABORT, 'refused'); END"
+      )
+    );
+    // The database refuses the task's row: no change may be recorded.
+    await database.run(
+      sql.raw(
+        "CREATE TRIGGER refuse_task BEFORE INSERT ON tasks WHEN NEW.title = 'Lost task' BEGIN SELECT RAISE(ABORT, 'refused'); END"
+      )
+    );
     try {
-      await expect(tasks.create({ title: "Lost" })).rejects.toThrow();
+      await expect(tasks.create({ title: "Lost change" })).rejects.toSatisfy(
+        causedBy(REFUSED)
+      );
+      await expect(tasks.create({ title: "Lost task" })).rejects.toSatisfy(
+        causedBy(REFUSED)
+      );
     } finally {
-      chmodSync(state, 0o700);
+      await database.run(sql.raw("DROP TRIGGER refuse_change"));
+      await database.run(sql.raw("DROP TRIGGER refuse_task"));
     }
 
-    expect((await tasks.list()).items.map((task) => task.title)).toEqual([
-      "Before",
-    ]);
-    expect(readFileSync(join(state, "tasks.json"), "utf8")).toBe(before);
+    expect(await storedTitles(state)).toEqual(["Before"]);
+    expect(await machine.changes(state)).toHaveLength(1);
     await tasks.create({ title: "After" });
     await vi.waitFor(() => expect(titles(seen)).toEqual(["Before", "After"]));
   });
 
   it("a handler whose completion could not be saved runs again: at least once, not exactly once", async () => {
-    if (process.getuid?.() === 0) {
-      return;
-    }
     const state = stateDir();
     const seen: string[] = [];
-    let release: () => void = () => undefined;
-    let gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
     const lines: string[] = [];
     const engine = engineWith(
       state,
       [
-        async (payload) => {
-          await gate;
+        (payload) => {
           seen.push(...titles([payload]));
         },
       ],
       (line) => lines.push(line)
     );
-    const tasks = new Tasks({ store: engine.taskStore });
-    await engine.start();
-    await tasks.create({ title: "Once" });
-
-    chmodSync(state, 0o500);
+    const losing = losingDeliveries(1);
     try {
-      release();
+      const tasks = new Tasks({ store: engine.taskStore });
+      await engine.start();
+      await tasks.create({ title: "Once" });
       await vi.waitFor(() =>
         expect(lines.some((line) => line.includes("may run again"))).toBe(true)
       );
+      await tasks.create({ title: "Twice" });
+      await vi.waitFor(async () =>
+        expect(await deliveredCounts(state)).toEqual([1, 1])
+      );
     } finally {
-      chmodSync(state, 0o700);
+      losing.restore();
     }
-    gate = Promise.resolve();
-    await tasks.create({ title: "Twice" });
-    await vi.waitFor(() => expect(deliveredCounts(state)).toEqual([1, 1]));
     expect(seen).toEqual(["Once", "Once", "Twice"]);
   });
 
   it("delivered hashes and task commits that race all survive", async () => {
     const state = stateDir();
-    const records = new WorkspaceRecords({ dir: state });
+    const records = machine.records(state);
     const tasks = new Tasks({ store: records.taskStore });
     await tasks.create({ title: "Shared" });
-    const [item] = await records.pending();
+    const [item] = await records.pending({ handlers: ["a", "b"] });
     if (item === undefined) {
-      throw new Error("no item emitted");
+      throw new Error("no change recorded");
     }
 
     await Promise.all([
@@ -362,12 +410,11 @@ describe("observing tasks", () => {
     ]);
     await records.close();
 
-    const reopened = new WorkspaceRecords({ dir: state });
-    const items = await reopened.pending();
-    expect(items.find((entry) => entry.id === item.id)?.delivered).toEqual([
-      "a",
-      "b",
-    ]);
+    const reopened = machine.records(state);
+    const items = await machine.changes(state);
+    expect(
+      items.find((entry) => entry.id === item.id)?.delivered.toSorted()
+    ).toEqual(["a", "b"]);
     expect(items).toHaveLength(2);
     const snapshot = await reopened.taskStore.snapshot();
     expect(snapshot.tasks.map((task) => task.title).sort()).toEqual([
@@ -377,9 +424,9 @@ describe("observing tasks", () => {
     await reopened.close();
   });
 
-  it("refuses a __proto__ metadata key before it is stored, and reads one written by hand without it", async () => {
+  it("refuses a __proto__ metadata key before it is stored", async () => {
     const state = stateDir();
-    const records = new WorkspaceRecords({ dir: state });
+    const records = machine.records(state);
     const tasks = new Tasks({ store: records.taskStore });
     // A quoted `__proto__` in an object literal sets the prototype; parsed
     // JSON defines the key.
@@ -399,51 +446,41 @@ describe("observing tasks", () => {
     );
     await records.close();
 
-    const reopened = new WorkspaceRecords({ dir: state });
+    const reopened = machine.records(state);
     const [kept] = (await reopened.taskStore.snapshot()).tasks;
     expect(kept?.metadata).toEqual({ nested: { owner: "alice" } });
-    const items = await reopened.pending();
+    const items = await reopened.pending({ handlers: ["new"] });
     expect(items).toHaveLength(1);
     expect(JSON.stringify(items[0]?.payload)).toContain(
       '"metadata":{"nested":{"owner":"alice"}}'
     );
     await reopened.close();
-
-    // No write stores the key, so only a hand-edited file can hold one.
-    const path = join(state, "tasks.json");
-    const document = JSON.parse(readFileSync(path, "utf8"));
-    document.tasks[0].metadata = JSON.parse(
-      '{"__proto__":{"x":1},"nested":{"__proto__":2,"owner":"alice"}}'
-    );
-    writeFileSync(path, JSON.stringify(document));
-    expect(readFileSync(path, "utf8")).toContain('"__proto__":2');
-    const edited = new WorkspaceRecords({ dir: state });
-    const [read] = (await edited.taskStore.snapshot()).tasks;
-    expect(read?.metadata).toEqual({ nested: { owner: "alice" } });
-    expect(Object.getPrototypeOf(read?.metadata)).toBe(Object.prototype);
-    await edited.close();
   });
 
   it("a handler can change tasks without a deadlock, and that change is delivered too", async () => {
-    const seen: TaskEvent[] = [];
-    let follow: Tasks | undefined;
-    const engine = engineWith(undefined, [
-      async (payload) => {
-        seen.push(payload);
-        const created = payload.tasks.find(
-          (delta) =>
-            delta.before === null && delta.after?.tags.includes("review")
-        );
-        if (created !== undefined) {
-          await follow?.create({ title: `Review ${created.after?.title}` });
-        }
-      },
-    ]);
-    follow = new Tasks({ store: engine.taskStore });
-    await engine.start();
+    for (const state of [undefined, stateDir()]) {
+      const seen: TaskEvent[] = [];
+      let follow: Tasks | undefined;
+      const engine = engineWith(state, [
+        async (payload) => {
+          seen.push(payload);
+          const created = payload.tasks.find(
+            (delta) =>
+              delta.before === null && delta.after?.tags.includes("review")
+          );
+          if (created !== undefined) {
+            await follow?.create({ title: `Review ${created.after?.title}` });
+          }
+        },
+      ]);
+      follow = new Tasks({ store: engine.taskStore });
+      await engine.start();
 
-    await follow.create({ tags: ["review"], title: "API" });
-    await vi.waitFor(() => expect(titles(seen)).toEqual(["API", "Review API"]));
+      await follow.create({ tags: ["review"], title: "API" });
+      await vi.waitFor(() =>
+        expect(titles(seen)).toEqual(["API", "Review API"])
+      );
+    }
   });
 
   it("remove, edge-only, and no-op changes reach observers as they committed", async () => {
@@ -482,42 +519,6 @@ describe("observing tasks", () => {
     ]);
   });
 
-  it("restores the source by its key and keeps items from a source it does not define", async () => {
-    const state = stateDir();
-    const first = engineWith(state, [
-      () => {
-        throw new Error("later");
-      },
-    ]);
-    await new Tasks({ store: first.taskStore }).create({ title: "Pending" });
-    await shutDown(first);
-    const written = stored(state);
-    const foreign = {
-      delivered: [],
-      id: "elsewhere",
-      payload: { kind: "other.changed" },
-      source: "other",
-    };
-    writeFileSync(
-      join(state, "tasks.json"),
-      JSON.stringify({ ...written, items: [...written.items, foreign] })
-    );
-
-    const seen: TaskEvent[] = [];
-    const second = engineWith(state, [
-      (payload) => {
-        seen.push(payload);
-      },
-    ]);
-    await second.start();
-    await vi.waitFor(() => expect(titles(seen)).toEqual(["Pending"]));
-    await second.stop();
-    const [restored, kept] = stored(state).items;
-    expect(restored?.source).toBe("tasks");
-    expect(restored?.delivered).toHaveLength(1);
-    expect(kept).toEqual(foreign);
-  });
-
   it("keeps each workspace's tasks and deliveries apart", async () => {
     const seenA: TaskEvent[] = [];
     const seenB: TaskEvent[] = [];
@@ -543,25 +544,30 @@ describe("observing tasks", () => {
     expect(
       (await b.taskStore.snapshot()).tasks.map((task) => task.title)
     ).toEqual(["Only B"]);
+    expect(await storedTitles(stateA)).toEqual(["Only A"]);
+    expect(
+      (await machine.changes(stateB)).map((c) => titles([c.payload]))
+    ).toEqual([["Only B"]]);
   });
 
-  it("refuses records it cannot read, and leaves them as they are", async () => {
+  it("ignores a tasks.json an earlier Marbles left, and leaves it as it is", async () => {
     const state = stateDir();
     const path = join(state, "tasks.json");
-    const garbage = '{"version": 1, "tasks": [';
-    writeFileSync(path, garbage);
+    const old = JSON.stringify({
+      dependencies: [],
+      items: [],
+      tasks: [{ id: "tk-old", title: "From the file" }],
+      version: 1,
+    });
+    writeFileSync(path, old);
 
-    const observed = engineWith(state, [() => undefined]);
-    await expect(observed.start()).rejects.toThrow(NOT_RECORDS);
-    const plain = engineWith(state, []);
-    await expect(plain.taskStore.snapshot()).rejects.toThrow(NOT_RECORDS);
-    writeFileSync(path, JSON.stringify({ items: [], version: 1 }));
-    await expect(plain.taskStore.snapshot()).rejects.toThrow(NOT_RECORDS);
-    writeFileSync(path, garbage);
-    await expect(
-      new Tasks({ store: plain.taskStore }).create({ title: "No" })
-    ).rejects.toThrow(NOT_RECORDS);
-    expect(readFileSync(path, "utf8")).toBe(garbage);
+    const engine = engineWith(state, [() => undefined]);
+    await engine.start();
+    const tasks = new Tasks({ store: engine.taskStore });
+    expect((await tasks.list()).items).toEqual([]);
+    await tasks.create({ title: "New" });
+    expect(await storedTitles(state)).toEqual(["New"]);
+    expect(readFileSync(path, "utf8")).toBe(old);
   });
 
   it("keeps a change made with no observer, for an observer declared after a restart", async () => {
@@ -569,7 +575,7 @@ describe("observing tasks", () => {
     const unobserved = engineWith(state, []);
     await unobserved.start();
     await new Tasks({ store: unobserved.taskStore }).create({ title: "Quiet" });
-    expect(deliveredCounts(state)).toEqual([0]);
+    expect(await deliveredCounts(state)).toEqual([0]);
     await shutDown(unobserved);
 
     const seen: TaskEvent[] = [];
@@ -581,10 +587,10 @@ describe("observing tasks", () => {
     await observed.start();
     await vi.waitFor(() => expect(titles(seen)).toEqual(["Quiet"]));
     await observed.stop();
-    expect(deliveredCounts(state)).toEqual([1]);
+    expect(await deliveredCounts(state)).toEqual([1]);
   });
 
-  it("keeps a completed item and every hash, and never hands it to a handler that completed it", async () => {
+  it("keeps a completed change and every hash, and never hands it to a handler that completed it", async () => {
     const state = stateDir();
     const calls: string[] = [];
     const first: Handler<TaskEvent> = (payload) => {
@@ -596,8 +602,10 @@ describe("observing tasks", () => {
     const engine = engineWith(state, [first, second]);
     await engine.start();
     await new Tasks({ store: engine.taskStore }).create({ title: "Done" });
-    await vi.waitFor(() => expect(deliveredCounts(state)).toEqual([2]));
-    const [item] = stored(state).items;
+    await vi.waitFor(async () =>
+      expect(await deliveredCounts(state)).toEqual([2])
+    );
+    const [item] = await machine.changes(state);
     expect(new Set(item?.delivered).size).toBe(2);
     await shutDown(engine);
 
@@ -609,10 +617,10 @@ describe("observing tasks", () => {
       await shutDown(again);
     }
     expect(calls).toEqual(["first:Done", "second:Done"]);
-    expect(stored(state).items).toEqual([item]);
+    expect(await machine.changes(state)).toEqual([item]);
   });
 
-  it("keeps a failing observer's pending item while it is not declared, and delivers it when it is again", async () => {
+  it("keeps a failing observer's pending change while it is not declared, and delivers it when it is again", async () => {
     const state = stateDir();
     const calls: string[] = [];
     const outage: { down: boolean } = { down: true };
@@ -629,14 +637,16 @@ describe("observing tasks", () => {
     const both = engineWith(state, [steady, flaky]);
     await both.start();
     await new Tasks({ store: both.taskStore }).create({ title: "Pending" });
-    await vi.waitFor(() => expect(deliveredCounts(state)).toEqual([1]));
+    await vi.waitFor(async () =>
+      expect(await deliveredCounts(state)).toEqual([1])
+    );
     await shutDown(both);
 
     const without = engineWith(state, [steady]);
     await without.start();
     await without.stop();
     await shutDown(without);
-    expect(deliveredCounts(state)).toEqual([1]);
+    expect(await deliveredCounts(state)).toEqual([1]);
 
     outage.down = false;
     const restored = engineWith(state, [steady, flaky]);
@@ -645,12 +655,12 @@ describe("observing tasks", () => {
       expect(calls).toEqual(["steady:Pending", "flaky:Pending"])
     );
     await restored.stop();
-    expect(deliveredCounts(state)).toEqual([2]);
+    expect(await deliveredCounts(state)).toEqual([2]);
   });
 
   it("removal asks inUse outside the records' turn, so it may write through another Tasks", async () => {
     const state = stateDir();
-    const records = new WorkspaceRecords({ dir: state });
+    const records = machine.records(state);
     const writer = new Tasks({ store: records.taskStore });
     const other = await writer.create({ title: "Other" });
     const guarded = new Tasks({
@@ -666,10 +676,10 @@ describe("observing tasks", () => {
     await writer.update(other.id, { title: "Later" });
     await records.close();
 
-    const reopened = new WorkspaceRecords({ dir: state });
+    const reopened = machine.records(state);
     const { tasks } = await reopened.taskStore.snapshot();
     expect(tasks.map((task) => task.title)).toEqual(["Later"]);
-    const payloads = (await reopened.pending()).map(
+    const payloads = (await reopened.pending({ handlers: ["new"] })).map(
       (item) => item.payload as TaskEvent
     );
     expect(
@@ -695,19 +705,24 @@ describe("delivery lifecycle", () => {
     await vi.waitFor(() => expect(titles(seen)).toEqual(["Early"]));
   });
 
-  it("one engine owns a state dir's records until it is disposed", async () => {
+  it("lets several engines over one workspace read and write its tasks, and refuses them to a disposed one", async () => {
     const state = stateDir();
     const first = engineWith(state, []);
-    await first.taskStore.snapshot();
     const second = engineWith(state, []);
-    await expect(second.taskStore.snapshot()).rejects.toThrow(IN_USE);
+    await new Tasks({ store: first.taskStore }).create({ title: "From first" });
+    await new Tasks({ store: second.taskStore }).create({
+      title: "From second",
+    });
+    expect(
+      (await first.taskStore.snapshot()).tasks.map((task) => task.title)
+    ).toEqual(["From first", "From second"]);
 
     await shutDown(first);
     await expect(first.taskStore.snapshot()).rejects.toThrow(CLOSED);
-    expect((await second.taskStore.snapshot()).tasks).toEqual([]);
+    expect((await second.taskStore.snapshot()).tasks).toHaveLength(2);
   });
 
-  it("stopping waits for the running handler before ownership is given up", async () => {
+  it("stopping waits for the running handler before delivery is given up", async () => {
     const state = stateDir();
     let release: () => void = () => undefined;
     const blocked = new Promise<void>((resolve) => {
@@ -715,13 +730,12 @@ describe("delivery lifecycle", () => {
     });
     let entered = false;
     let finished = false;
-    const first = engineWith(state, [
-      async () => {
-        entered = true;
-        await blocked;
-        finished = true;
-      },
-    ]);
+    const slow: Handler<TaskEvent> = async () => {
+      entered = true;
+      await blocked;
+      finished = true;
+    };
+    const first = engineWith(state, [slow]);
     await first.start();
     await new Tasks({ store: first.taskStore }).create({ title: "Slow" });
     await vi.waitFor(() => expect(entered).toBe(true));
@@ -732,21 +746,35 @@ describe("delivery lifecycle", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(disposed).toBe(false);
-    const second = engineWith(state, []);
-    await expect(second.taskStore.snapshot()).rejects.toThrow(IN_USE);
+    const lines: string[] = [];
+    const second = engineWith(state, [() => undefined], (line) =>
+      lines.push(line)
+    );
+    await second.start();
+    expect(
+      lines.some((line) => line.startsWith("[observe] not delivering"))
+    ).toBe(true);
 
     release();
     await disposing;
     engines.splice(engines.indexOf(first), 1);
     expect(finished).toBe(true);
     // The handler completed before the stop, so its hash was saved.
-    expect(deliveredCounts(state)).toEqual([1]);
-    expect((await second.taskStore.snapshot()).tasks).toHaveLength(1);
+    expect(await deliveredCounts(state)).toEqual([1]);
+    // Delivery is free again, and the completed change is not handed over.
+    const after: TaskEvent[] = [];
+    const third = engineWith(state, [
+      slow,
+      (payload) => {
+        after.push(payload);
+      },
+    ]);
+    await third.start();
+    await vi.waitFor(() => expect(titles(after)).toEqual(["Slow"]));
   });
 
-  it("a process that does not own the records still starts, and leaves delivery to the owner", async () => {
+  it("a process that does not deliver still starts, and leaves delivery to the one that does", async () => {
     const state = stateDir();
-    mkdirSync(state, { recursive: true });
     const owner = engineWith(state, [() => undefined]);
     await owner.start();
     const lines: string[] = [];
@@ -757,6 +785,202 @@ describe("delivery lifecycle", () => {
     expect(
       lines.some((line) => line.startsWith("[observe] not delivering"))
     ).toBe(true);
+    await new Tasks({ store: other.taskStore }).create({ title: "Written" });
+    expect(await storedTitles(state)).toEqual(["Written"]);
     expect(existsSync(join(state, "tasks.json"))).toBe(false);
+  });
+});
+
+describe("delivery across processes", () => {
+  it("delivers a change recorded through other records without any change made here", async () => {
+    const state = stateDir();
+    const seen: TaskEvent[] = [];
+    const owner = engineWith(state, [
+      (payload) => {
+        seen.push(payload);
+      },
+    ]);
+    await owner.start();
+    // Let the start's own pass end, so only noticing the change can deliver it.
+    await new Promise((settle) => setTimeout(settle, 200));
+    // Another process's records, on the same workspace in the same database.
+    const elsewhere = machine.records(state);
+    try {
+      await new Tasks({ store: elsewhere.taskStore }).create({
+        title: "From elsewhere",
+      });
+      await vi.waitFor(() => expect(titles(seen)).toEqual(["From elsewhere"]), {
+        timeout: DELIVERY_POLL_MS * 5,
+      });
+    } finally {
+      await elsewhere.close();
+    }
+  });
+
+  it("takes delivery over once the deliverer stops, and delivers what was written meanwhile", async () => {
+    const state = stateDir();
+    const first = engineWith(state, [() => undefined]);
+    await first.start();
+    const seen: TaskEvent[] = [];
+    const lines: string[] = [];
+    const survivor = engineWith(
+      state,
+      [
+        (payload) => {
+          seen.push(payload);
+        },
+      ],
+      (line) => lines.push(line)
+    );
+    await survivor.start();
+    expect(lines.some((line) => line.includes("not delivering here"))).toBe(
+      true
+    );
+    await shutDown(first);
+    await new Tasks({ store: survivor.taskStore }).create({ title: "Later" });
+    await vi.waitFor(() => expect(titles(seen)).toEqual(["Later"]), {
+      timeout: DELIVERY_POLL_MS * 5,
+    });
+  });
+
+  it("takes delivery over from a process that exited holding it", async () => {
+    const state = stateDir();
+    const script = join(state, "holder.ts");
+    writeFileSync(
+      script,
+      `import { acquireLock } from ${JSON.stringify(resolvePath("src/lib/state/locks.ts"))};
+const claim = acquireLock(${JSON.stringify(state)}, "tasks");
+if (!("release" in claim)) throw new Error("not claimed");
+process.stdout.write("held\\n");
+setInterval(() => undefined, 1000);
+`
+    );
+    const holder = spawn("bun", [script], { cwd: resolvePath(".") });
+    await new Promise<void>((ready, failed) => {
+      holder.stdout?.on("data", (chunk: Buffer) => {
+        if (chunk.toString().includes("held")) {
+          ready();
+        }
+      });
+      holder.once("exit", (code) => failed(new Error(`exited ${code}`)));
+    });
+    const seen: TaskEvent[] = [];
+    const survivor = engineWith(state, [
+      (payload) => {
+        seen.push(payload);
+      },
+    ]);
+    try {
+      await survivor.start();
+      await new Tasks({ store: survivor.taskStore }).create({
+        title: "Waiting",
+      });
+      await new Promise((settle) => setTimeout(settle, DELIVERY_POLL_MS * 2));
+      expect(seen).toEqual([]);
+    } finally {
+      holder.kill("SIGKILL");
+    }
+    await new Promise((settle) => holder.once("exit", settle));
+    await vi.waitFor(() => expect(titles(seen)).toEqual(["Waiting"]), {
+      timeout: DELIVERY_POLL_MS * 5,
+    });
+  });
+});
+
+describe("the work of a pass", () => {
+  it("reads from the first change an observer has not completed, not from the start of the history", async () => {
+    const memory = new MemoryWorkspaceRecords();
+    const reads: number[] = [];
+    const records: WorkspaceRecords = {
+      close: () => memory.close(),
+      deliver: (id, hash) => memory.deliver(id, hash),
+      latest: () => memory.latest(),
+      pending: (query) => {
+        reads.push(query.after ?? 0);
+        return memory.pending(query);
+      },
+      taskStore: memory.taskStore,
+      watch: (listener) => memory.watch(listener),
+    };
+    let delivered = 0;
+    const engine = testEngine({ print: () => undefined, records });
+    engines.push(engine);
+    engine.observe(TASKS, () => {
+      delivered += 1;
+    });
+    const tasks = new Tasks({ store: engine.taskStore });
+    const history = PENDING_BATCH * 2 + 50;
+    for (let index = 0; index < history; index += 1) {
+      await tasks.create({ title: `T${String(index)}` });
+    }
+    await engine.start();
+    await vi.waitFor(() => expect(delivered).toBe(history));
+    reads.length = 0;
+    await tasks.create({ title: "One more" });
+    await vi.waitFor(() => expect(delivered).toBe(history + 1));
+    expect(reads.length).toBeGreaterThan(0);
+    expect(Math.min(...reads)).toBeGreaterThanOrEqual(history);
+  });
+});
+
+describe("the delivery timer", () => {
+  it("does not keep a process alive", async () => {
+    const dir = stateDir();
+    const script = join(dir, "never-stopped.ts");
+    writeFileSync(
+      script,
+      `import { Delivery } from ${JSON.stringify(resolvePath("src/lib/events/delivery.ts"))};
+import { MemoryWorkspaceRecords } from ${JSON.stringify(resolvePath("src/lib/events/records.ts"))};
+import { TASKS } from ${JSON.stringify(resolvePath("src/lib/events/source.ts"))};
+const delivery = new Delivery({ print: () => undefined, records: new MemoryWorkspaceRecords(), state: ${JSON.stringify(dir)} });
+delivery.observe(TASKS, () => undefined);
+await delivery.start();
+process.stdout.write("started\\n");
+`
+    );
+    const started = Date.now();
+    const child = spawn("bun", [script], { cwd: resolvePath(".") });
+    let output = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    // A process the timer keeps alive is killed, and fails the exit check.
+    const deadline = setTimeout(
+      () => child.kill("SIGKILL"),
+      DELIVERY_POLL_MS * 10
+    );
+    const code = await new Promise((settle) => child.once("exit", settle));
+    clearTimeout(deadline);
+    expect(output).toContain("started");
+    expect(code).toBe(0);
+    expect(Date.now() - started).toBeLessThan(DELIVERY_POLL_MS * 10);
+  });
+
+  it("reads nothing once delivery has stopped", async () => {
+    const memory = new MemoryWorkspaceRecords();
+    let reads = 0;
+    const records: WorkspaceRecords = {
+      close: () => memory.close(),
+      deliver: (id, hash) => memory.deliver(id, hash),
+      latest: () => {
+        reads += 1;
+        return memory.latest();
+      },
+      pending: (query) => memory.pending(query),
+      taskStore: memory.taskStore,
+      watch: (listener) => memory.watch(listener),
+    };
+    const engine = testEngine({ print: () => undefined, records });
+    engines.push(engine);
+    engine.observe(TASKS, () => undefined);
+    await engine.start();
+    // Running, it polls.
+    await vi.waitFor(() => expect(reads).toBeGreaterThan(1), {
+      timeout: DELIVERY_POLL_MS * 5,
+    });
+    await engine.stop();
+    const after = reads;
+    await new Promise((settle) => setTimeout(settle, DELIVERY_POLL_MS * 3));
+    expect(reads).toBe(after);
   });
 });

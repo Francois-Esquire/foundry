@@ -1,5 +1,6 @@
+import { Tasks } from "@foundry/tasks";
+import { changeTasks, readTasks } from "~/database/tasks";
 import { layout } from "~/layout";
-import { RecordsHeldError } from "~/lib/events/records";
 import { insideState } from "~/lib/state/workspace";
 import type { WorkspaceConnection } from "~/model/connection";
 import type {
@@ -12,7 +13,6 @@ import { connect, NoProcessError } from "~/process/client";
 import type { HostWorkspaceOptions, WorkspaceHost } from "~/workspace/host";
 import { hostWorkspace } from "~/workspace/host";
 import type { HostOptions, OpenedWorkspace } from "~/workspace/open";
-import { hostTasks, workspaceEngine } from "~/workspace/open";
 import { resolveSource } from "~/workspace/source";
 import { runTaskCommand } from "~/workspace/tasks";
 
@@ -20,8 +20,8 @@ import { runTaskCommand } from "~/workspace/tasks";
  * How a command reaches its workspace, for the CLI and the MCP server
  * alike. There are three ways:
  *
- * - Stored state: an engine over the workspace's state that is never
- *   started, given up when the work is done. No source runs.
+ * - Stored state: the workspace's rows in the Marbles database, opened
+ *   for each command and closed after it. No source runs.
  * - A running instance: the worker of a Marbles process that already hosts
  *   the workspace, joined without starting anything.
  * - Start and host: attach the workspace to the Marbles process, starting
@@ -39,6 +39,11 @@ export class NotHostedError extends Error {
   override readonly name = "NotHostedError";
 }
 
+/** A worker is about to host the workspace whose tasks a command asked for: retry once it is ready. */
+export class RecordsHeldError extends Error {
+  override readonly name = "RecordsHeldError";
+}
+
 const ATTACH_HINT = "`marbles attach` in its root hosts it";
 
 function machine(args: HostOptions) {
@@ -46,23 +51,29 @@ function machine(args: HostOptions) {
 }
 
 /**
- * The workspace's tasks through an engine this process never starts, given
- * up when `work` ends. Under `--dry-run` they are in memory, and records
- * another process owns are refused, never answered from memory.
+ * The workspace's tasks from stored state, each command on its own opening
+ * of the Marbles database: a read through a read-only connection that
+ * never creates, migrates or changes it (no database reads as no tasks);
+ * a change as a writer under the state root's lock rule, which makes the
+ * database when no Marbles process holds the state root. Under `--dry-run`
+ * they are in memory, for as long as `work` runs.
  */
-async function withStoredTasks<T>(
+function withStoredTasks<T>(
   args: HostOptions,
   opened: OpenedWorkspace,
-  print: (line: string) => void,
   work: (tasks: TaskRunner) => Promise<T>
 ): Promise<T> {
-  const engine = workspaceEngine(args, opened, { print });
-  try {
-    const tasks = hostTasks(engine);
-    return await work((command) => runTaskCommand(tasks, command));
-  } finally {
-    await engine.dispose();
+  if (args.dry) {
+    const tasks = new Tasks();
+    return work((command) => runTaskCommand(tasks, command));
   }
+  const { state } = machine(args);
+  const { id } = opened.workspace;
+  return work((command) =>
+    (command.kind === "change" ? changeTasks : readTasks)(state, id, (tasks) =>
+      runTaskCommand(tasks, command)
+    )
+  );
 }
 
 /** The running Marbles process, joined without starting one; undefined when none runs. */
@@ -82,8 +93,8 @@ export async function joinProcess(
 /**
  * The worker that hosts the workspace now, when a Marbles process runs and
  * has it ready. Nothing is started or attached to find out. A worker that
- * is starting is about to own the tasks, so the command is refused rather
- * than racing it for them.
+ * is starting is about to host the tasks, so the command is refused rather
+ * than going around it.
  */
 async function hostingWorker(
   args: HostOptions,
@@ -125,7 +136,6 @@ async function hostingWorker(
 export async function withTasks<T>(
   args: HostOptions,
   opened: OpenedWorkspace,
-  print: (line: string) => void,
   work: (tasks: TaskRunner) => Promise<T>
 ): Promise<T> {
   const { dir, id } = opened.workspace;
@@ -138,7 +148,7 @@ export async function withTasks<T>(
   }
   const hosted = args.dry ? undefined : await hostingWorker(args, id);
   if (hosted === undefined) {
-    return withStoredTasks(args, opened, print, work);
+    return withStoredTasks(args, opened, work);
   }
   try {
     return await work((command) => hosted.workspace.tasks(command));

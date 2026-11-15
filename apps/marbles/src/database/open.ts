@@ -9,6 +9,7 @@ import { drizzle } from "drizzle-orm/libsql";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 
 import { serialClient } from "~/database/client";
+import { guardedClient } from "~/database/guard";
 import {
   IncompatibleDatabaseError,
   MIGRATIONS,
@@ -49,6 +50,8 @@ export class UnreadableDatabaseError extends Error {
 }
 
 const BUSY_TIMEOUT_MS = 5000;
+/** Every writer's connection enforces foreign keys. */
+const FOREIGN_KEYS = "PRAGMA foreign_keys = ON";
 /** How many times a read starts again because the file changed under it. */
 const READ_ATTEMPTS = 3;
 
@@ -56,14 +59,18 @@ const READ_ATTEMPTS = 3;
  * Three ways in, one per role:
  *
  * - `initializeDatabase`, for whoever holds the state root's process lock:
- *   the Marbles process for its lifetime, or a program hosting a workspace
- *   itself for as long as it records it (`recordWorkspace`). Creates the
+ *   the Marbles process for its lifetime, or another writer of a
+ *   workspace's state (a program hosting it itself, a task change with no
+ *   process running) while it makes the database current
+ *   (`openHostDatabase`). Creates the
  *   file, puts it in WAL mode, and migrates it. Nothing else migrates, so
  *   no two processes migrate at once.
- * - `writeDatabase`, for a write by a process without that lock (a
- *   worker's record, a detach with no process running): opens only a file
- *   that is there, never creates or migrates one, and refuses a schema
- *   that is not current.
+ * - `openDatabase` and `writeDatabase`, for writes by a process without
+ *   that lock (a worker hosting a workspace, a detach with no process
+ *   running): open only a file that is there, never create or migrate
+ *   one, and refuse a schema that is not current. `openDatabase` keeps the
+ *   handle open for the caller; `writeDatabase` closes it after one piece
+ *   of work.
  * - `readDatabase`, for every reader: a read-only connection that never
  *   creates the file, migrates it, or changes its content.
  */
@@ -83,21 +90,52 @@ export async function initializeDatabase(
   const path = resolve(file);
   const busyTimeout = options.busyTimeout ?? BUSY_TIMEOUT_MS;
   mkdirSync(dirname(path), { recursive: true });
-  const client = serialClient(
+  const connect = () =>
     createClient({
       concurrency: 1,
       timeout: busyTimeout,
       url: pathToFileURL(path).href,
-    }),
-    path,
-    busyTimeout
-  );
+    });
+  // Applied before its first operation, and again to any client that
+  // replaces it (`serialClient`).
+  const client = serialClient(connect(), path, busyTimeout, {
+    connect,
+    settings: ["PRAGMA journal_mode = WAL", FOREIGN_KEYS],
+  });
   try {
-    await client.execute("PRAGMA journal_mode = WAL");
-    await client.execute("PRAGMA foreign_keys = ON");
-    const database = drizzle({ client });
-    await migrate(client, database, path, options.migrations ?? MIGRATIONS);
-    return { close: () => client.close(), database, file: path };
+    const folder = options.migrations ?? MIGRATIONS;
+    await migrate(client, drizzle({ client }), path, folder);
+    return writer(client, path, folder);
+  } catch (error) {
+    client.close();
+    throw error;
+  }
+}
+
+/**
+ * Open the database at `file` as a writer, if the Marbles process (or a
+ * host under the state root's process lock) has made it: for a process
+ * that writes to it for as long as it runs, such as one hosting a
+ * workspace. Undefined when there is no file or nothing was ever migrated
+ * into it. A schema that is not exactly the one this Marbles ships is
+ * refused (`IncompatibleDatabaseError`): only the holder of that lock
+ * migrates. The caller closes the handle.
+ */
+export async function openDatabase(
+  file: string,
+  options: OpenDatabaseOptions = {}
+): Promise<MarblesDatabase | undefined> {
+  const path = resolve(file);
+  if (!existsSync(path)) {
+    return;
+  }
+  const client = existing(path, "mode=rw", options, [FOREIGN_KEYS]);
+  try {
+    if (!(await usable(drizzle({ client }), path, options))) {
+      client.close();
+      return;
+    }
+    return writer(client, path, options.migrations ?? MIGRATIONS);
   } catch (error) {
     client.close();
     throw error;
@@ -106,30 +144,22 @@ export async function initializeDatabase(
 
 /**
  * Run `work` on the database at `file` if the Marbles process has made it,
- * and close it after. Undefined, and `work` not run, when there is no file
- * or nothing was ever migrated into it. A schema that is not exactly the
- * one this Marbles ships is refused (`IncompatibleDatabaseError`): only the
- * Marbles process migrates.
+ * and close it after (`openDatabase`). Undefined, and `work` not run, when
+ * there is no file or nothing was ever migrated into it.
  */
 export async function writeDatabase<T>(
   file: string,
   work: (database: StoreDatabase) => Promise<T>,
   options: OpenDatabaseOptions = {}
 ): Promise<T | undefined> {
-  const path = resolve(file);
-  if (!existsSync(path)) {
+  const opened = await openDatabase(file, options);
+  if (opened === undefined) {
     return;
   }
-  const client = existing(path, "mode=rw", options);
   try {
-    await client.execute("PRAGMA foreign_keys = ON");
-    const database = drizzle({ client });
-    if (!(await usable(database, path, options))) {
-      return;
-    }
-    return await work(database);
+    return await work(opened.database);
   } finally {
-    client.close();
+    opened.close();
   }
 }
 
@@ -226,6 +256,21 @@ async function readOnce<T>(
 }
 
 /**
+ * A writer's handle over `client`, whose schema was just found to be the
+ * one the migrations in `folder` make: every transaction on it checks that
+ * it still is (`guardedClient`), so a handle kept open for hours never
+ * writes to a database a newer Marbles has migrated since.
+ */
+function writer(client: Client, path: string, folder: string): MarblesDatabase {
+  const guarded = guardedClient(client, path, shippedMigrations(folder));
+  return {
+    close: () => guarded.close(),
+    database: drizzle({ client: guarded }),
+    file: path,
+  };
+}
+
+/**
  * A connection to the file at `path`, which must exist, in the SQLite URI
  * `query` mode. The public `createClient` refuses URI parameters, so this
  * builds the local client from the configuration it would expand to.
@@ -233,10 +278,11 @@ async function readOnce<T>(
 function existing(
   path: string,
   query: string,
-  options: OpenDatabaseOptions
+  options: OpenDatabaseOptions,
+  settings: readonly string[] = []
 ): Client {
   const busyTimeout = options.busyTimeout ?? BUSY_TIMEOUT_MS;
-  return serialClient(
+  const connect = () =>
     _createClient({
       authority: undefined,
       authToken: undefined,
@@ -253,10 +299,8 @@ function existing(
       syncUrl: undefined,
       timeout: busyTimeout,
       tls: false,
-    }),
-    path,
-    busyTimeout
-  );
+    });
+  return serialClient(connect(), path, busyTimeout, { connect, settings });
 }
 
 /**

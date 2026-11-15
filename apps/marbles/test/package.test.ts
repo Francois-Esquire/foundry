@@ -247,8 +247,13 @@ console.log(String(review), "|", String(prompts.codex\`Use \${ref.skill("review"
     writeFileSync(
       join(consumer, "embedded.ts"),
       `
+import { Tasks } from "@foundry.sh/marbles";
 import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager, Sessions } from "@foundry.sh/marbles/engine";
 import type { SessionStore, SessionStoreWrite } from "@foundry.sh/marbles/engine";
+import { openWorkspaceRecords, type WorkspaceRecords } from "@foundry.sh/marbles/workspace";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 // A host can wrap the store it hands the engine and still write sessions.
 const inner = new InMemorySessionStore();
 const sessions: SessionStore = {
@@ -285,6 +290,38 @@ const [recorded] = engine.executions.list();
 await engine.dispose();
 console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.observations.length);
 console.log("host sessions", (await sessions.listMessages("host")).length, typeof sessions.transaction);
+// Given a state dir, the engine keeps its tasks across a dispose, in the
+// Marbles database it opens there; a host may hand in its own records.
+const state = mkdtempSync(join(tmpdir(), "marbles-embedded-"));
+const persisted = () => new Engine({
+  artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+  containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
+  models: new ModelManager(),
+  root: ".",
+  sessions: new InMemorySessionStore(),
+  state,
+  workspaceId: "embedded",
+});
+const writer = persisted();
+const created = await new Tasks({ store: writer.taskStore }).create({ title: "Kept across a dispose" });
+await writer.dispose();
+const reader = persisted();
+const kept = await new Tasks({ store: reader.taskStore }).get(created.id);
+await reader.dispose();
+const stateRoot = mkdtempSync(join(tmpdir(), "marbles-records-"));
+const records: WorkspaceRecords = openWorkspaceRecords({ state: stateRoot, workspaceId: "own" });
+const own = new Engine({
+  artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+  containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
+  models: new ModelManager(),
+  records,
+  root: ".",
+  sessions: new InMemorySessionStore(),
+  workspaceId: "own",
+});
+await new Tasks({ store: own.taskStore }).create({ title: "In the host's records" });
+await own.dispose();
+console.log("persisted", kept?.title, existsSync(join(state, "marbles.db")), existsSync(join(stateRoot, "marbles.db")));
 `
     );
     // Loading the engine entry loads no CLI SDK: they sit behind dynamic imports.
@@ -324,6 +361,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
     const embedded = run("bun", ["embedded.ts"], consumer);
     expect(embedded).toContain("embedded 2 system complete 1");
     expect(embedded).toContain("host sessions 1 function");
+    expect(embedded).toContain("persisted Kept across a dispose true true");
     const cli = join(consumer, "node_modules/.bin/marbles");
     for (const command of [[], ["run"]]) {
       const terminal = await inspectDashboard(cli, consumer, command);
@@ -385,6 +423,14 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       // The daemon recorded the workspace in the database it opened.
       expect(readdirSync(state)).toContain("marbles.db");
       expect(status).toContain(consumer);
+      // A task made through the worker that hosts the workspace.
+      expect(
+        run(
+          cli,
+          ["tasks", "create", "Through the worker", "--state", state],
+          consumer
+        )
+      ).toContain("Through the worker");
     } finally {
       expect(run(cli, ["stop", "--state", state], consumer)).toContain(
         "stopped Marbles process"
@@ -394,6 +440,24 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
     expect(run(cli, ["status", "--state", state], consumer)).toContain(
       consumer
     );
+    const listedTasks = (args: string[]) =>
+      (
+        JSON.parse(run(cli, ["tasks", "list", "--json", ...args], consumer))
+          .items as { title: string }[]
+      ).map((task) => task.title);
+    expect(listedTasks(["--state", state])).toEqual(["Through the worker"]);
+    // With no Marbles process and no database yet, a task change makes and
+    // migrates it from the installed migrations; a listing reads it back.
+    const taskState = mkdtempSync(join(tmpdir(), "mt-"));
+    try {
+      expect(
+        run(cli, ["tasks", "create", "Packed", "--state", taskState], consumer)
+      ).toContain("Packed");
+      expect(readdirSync(taskState)).toContain("marbles.db");
+      expect(listedTasks(["--state", taskState])).toEqual(["Packed"]);
+    } finally {
+      rmSync(taskState, { force: true, recursive: true });
+    }
     // The installed bin serves MCP over STDIO, stdout carries only frames,
     // and serving starts no Marbles process.
     const mcpState = mkdtempSync(join(tmpdir(), "mp-"));

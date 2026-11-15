@@ -2,9 +2,10 @@ import type { TaskEvent } from "@foundry/tasks";
 
 /**
  * Sources: what emits the items a workspace's observers receive. Each is a
- * unique symbol defined here under a fixed key. Stored items use that key
- * because symbols have no JSON form and their descriptions are not unique.
- * Keys are Marbles constants, not author-supplied values.
+ * unique symbol defined here under a fixed key, which tells a defined
+ * source from any other symbol. Keys are Marbles constants, not
+ * author-supplied values. One source exists, `TASKS`, and its changes are
+ * recorded in the Marbles database (`database/tasks.ts`).
  */
 
 declare const payloadType: unique symbol;
@@ -39,11 +40,6 @@ function defineSource<T>(key: string): Source<T> {
 /** The key a stored item names `source` by; `undefined` for a symbol that is not one. */
 export function sourceKey(source: symbol): string | undefined {
   return keys.get(source);
-}
-
-/** The source a stored item names; `undefined` for a key no source has here. */
-export function sourceNamed(key: string): symbol | undefined {
-  return sources.get(key);
 }
 
 /** Every committed task change, as one `tasks.changed` payload per write. */

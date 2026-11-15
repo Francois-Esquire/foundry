@@ -69,9 +69,9 @@ export default defineConfig({
   },
   entry: {
     cli: "src/cli.ts",
-    engine: "src/lib/embedded.ts",
+    engine: "src/entries/engine.ts",
     index: "src/authoring/index.ts",
-    lib: "src/lib/index.ts",
+    lib: "src/entries/lib.ts",
     prebuilt: "src/authoring/prebuilt.ts",
     process: "src/process/index.ts",
     statuses: "src/lib/execution-statuses.ts",

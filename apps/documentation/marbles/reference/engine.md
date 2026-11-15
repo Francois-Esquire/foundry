@@ -34,8 +34,8 @@ const engine = new Engine({
   artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
   root: process.cwd(),
   workspaceId: "my-app",
-  // Add a state directory to persist run records. Configure persistent
-  // session and artifact stores separately; these two stores are in memory.
+  // Add a state directory to persist run records and tasks. Configure
+  // persistent session and artifact stores separately; these two are in memory.
   askable: false, // true when something in this process can answer `ask`
 });
 
@@ -145,7 +145,8 @@ and defines them.
 | `store` | Provides trigger history, observations, agent-created triggers, and their locks. |
 
 `store` defaults to `JsonStateStore` when `state` is set, or
-`InMemoryStateStore` otherwise. Both adapters are exported.
+`InMemoryStateStore` otherwise. Both adapters are exported. `records`, the
+workspace's tasks, is described [below](#tasks).
 
 ## Persistence and durability
 
@@ -157,12 +158,68 @@ you embed the engine; the library's broader recovery APIs do not change
 Marbles' adoption rules.
 
 The example above deliberately keeps everything in memory. Supplying
-`state` enables run persistence and the default persistent trigger store;
+`state` enables run persistence, the default persistent trigger store, and
+[persistent tasks](#tasks);
 provide a persistent session store and artifact store with durable bytes
 separately. Persisting run records alone cannot retain agent transcripts
 or report files. Set `askable: true` only when the host can present and
 answer questions. Define the same named work before `start()` so parked
 runs can be adopted.
+
+## Tasks
+
+The engine's `taskStore` holds the workspace's tasks, which `observe`
+handlers receive the changes of. With `state` set and no `records`, the
+`Engine` from `@foundry.sh/marbles/engine` and `@foundry.sh/marbles/lib`
+keeps them in a Marbles database, opened at the first task call and
+closed by `dispose()`:
+
+- When `state` is the directory Marbles itself keeps the workspace at
+  `root` in (`<state root>/<workspace id>`, the id Marbles derives from
+  `root`, and `workspaceId` that id), it is the database of that state
+  root, `<state root>/marbles.db`: the tasks the CLI and the MCP server see
+  for that workspace.
+- Otherwise it is a database of the engine's own, `<state>/marbles.db`.
+
+The database is made and migrated only by a process holding
+`locks/process` beside it: the engine takes it for that moment alone, or
+uses it when this process already holds it (a host that claimed its own
+`state` with `claimProcess`). When another process holds it, the engine
+waits up to five seconds for the database to be current, and its first
+task call fails otherwise. Without `state` the
+tasks are in memory. A `tasks.json` an earlier Marbles left in `state` is
+ignored.
+
+To choose yourself, pass `records`. `new MemoryWorkspaceRecords()` (from
+either engine entry) keeps them in memory on purpose, even with `state`.
+`openWorkspaceRecords` from `@foundry.sh/marbles/workspace` opens a
+workspace's tasks in the database of any state root, under the same rule,
+and is closed by the engine that is handed it:
+
+```ts
+import { Engine } from "@foundry.sh/marbles/lib";
+import { layout, openWorkspaceRecords } from "@foundry.sh/marbles/workspace";
+
+const marbles = layout();
+const { id } = marbles.workspace(process.cwd());
+const engine = new Engine({
+  ...instances, // models, sessions, containers, artifacts, as above
+  records: openWorkspaceRecords({ state: marbles.state, workspaceId: id }),
+  root: process.cwd(),
+  workspaceId: id,
+});
+```
+
+Delivery to observers is claimed by a lock in the engine's own `state`
+directory, not in the records' database. An engine without `state`
+claims nothing. Two engines that share a workspace's records without
+sharing one `state` directory both deliver, so an observer can run twice
+for one change. A claim held in the database itself is planned, with the
+outbox that replaces this delivery path.
+
+`WorkspaceRecords` is the type a host implements to keep the tasks
+elsewhere: `taskStore`, the changes it records (`pending`, `latest`,
+`deliver`), `watch`, and `close`.
 
 ## Package instances
 
