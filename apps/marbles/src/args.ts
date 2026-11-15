@@ -13,6 +13,8 @@ import {
 } from "@foundry/tasks";
 import { z } from "zod";
 import { layout } from "~/layout";
+import type { ResourceKind } from "~/lib/resources";
+import { isResourceKind, RESOURCE_KINDS } from "~/lib/resources";
 import type { TaskCommand } from "~/model/tasks";
 import type { HostOptions } from "~/workspace/open";
 import { DEFAULT_SOURCE } from "~/workspace/source";
@@ -33,7 +35,21 @@ function isStarter(id: string): id is StarterId {
 
 type NoPositionals = Record<never, never>;
 
+/** A listing of one kind of resource: this workspace's, or with `--all` every workspace's. */
+interface Listing {
+  readonly all: boolean;
+}
+
+/** One resource of this workspace, and the workspace to share it with or unshare it from. */
+interface Association {
+  readonly id: string;
+  readonly kind: ResourceKind;
+  /** The other workspace's directory, as given. */
+  readonly with: string;
+}
+
 interface Positionals {
+  readonly artifacts: Listing;
   readonly attach: NoPositionals;
   readonly daemon: NoPositionals;
   readonly detach: NoPositionals;
@@ -41,12 +57,18 @@ interface Positionals {
   readonly init: { readonly starter: StarterId };
   readonly list: NoPositionals;
   readonly mcp: NoPositionals;
+  readonly modules: Listing;
+  readonly relink: Listing;
   readonly roll: { readonly name: string };
   readonly run: NoPositionals;
-  readonly sessions: NoPositionals;
+  readonly runs: Listing;
+  readonly sandboxes: Listing;
+  readonly sessions: Listing;
+  readonly share: Association;
   readonly status: NoPositionals;
   readonly stop: NoPositionals;
   readonly tasks: { readonly json: boolean; readonly task: TaskCommand };
+  readonly unshare: Association;
   readonly watch: { readonly runId: string };
 }
 
@@ -63,6 +85,43 @@ const none =
     return { command };
   };
 
+/** `<command> [--all]`. */
+const listing =
+  <C extends Command>(command: C) =>
+  (positionals: readonly string[]): { readonly command: C } & Listing => {
+    const all = positionals[0] === "--all";
+    if (positionals.length > (all ? 1 : 0)) {
+      throw new UsageError(`${command} takes no arguments but --all`);
+    }
+    return { all, command };
+  };
+
+const KIND_LIST = RESOURCE_KINDS.join(", ");
+
+/** `<command> <kind> <id> <directory>`. */
+const association =
+  <C extends "share" | "unshare">(command: C) =>
+  ([kind, id, other, ...rest]: readonly string[]): {
+    readonly command: C;
+  } & Association => {
+    if (
+      kind === undefined ||
+      id === undefined ||
+      other === undefined ||
+      rest.length > 0
+    ) {
+      throw new UsageError(
+        `${command} takes a kind (${KIND_LIST}), an id, and another workspace's directory`
+      );
+    }
+    if (!isResourceKind(kind)) {
+      throw new UsageError(
+        `${command}: no resource kind "${kind}"; one of ${KIND_LIST}`
+      );
+    }
+    return { command, id, kind, with: other };
+  };
+
 /**
  * Every command and how it reads the positionals after its name. Run by
  * `parseArgs`, so a command line that cannot run is refused before anything
@@ -75,6 +134,7 @@ const GRAMMAR: {
     flags: Flags
   ) => Parsed<C>;
 } = {
+  artifacts: listing("artifacts"),
   attach: none("attach"),
   daemon: none("daemon"),
   detach: none("detach"),
@@ -88,6 +148,8 @@ const GRAMMAR: {
   },
   list: none("list"),
   mcp: none("mcp"),
+  modules: listing("modules"),
+  relink: listing("relink"),
   roll: ([name, ...rest]) => {
     if (name === undefined || rest.length > 0) {
       throw new UsageError("roll takes one workflow or schedule name");
@@ -104,7 +166,10 @@ const GRAMMAR: {
     }
     return { command: "run" };
   },
-  sessions: none("sessions"),
+  runs: listing("runs"),
+  sandboxes: listing("sandboxes"),
+  sessions: listing("sessions"),
+  share: association("share"),
   status: none("status"),
   stop: none("stop"),
   tasks: ([action, ...rest], { inputJson }) => {
@@ -117,6 +182,7 @@ const GRAMMAR: {
     line.done();
     return { command: "tasks", json, task };
   },
+  unshare: association("unshare"),
   watch: ([runId, ...rest]) => {
     if (!runId || rest.length > 0) {
       throw new UsageError("watch takes one run ID");

@@ -11,6 +11,7 @@ function report(orphaned = false): StatusReport {
     workspaces: [
       {
         alive: true,
+        artifacts: 3,
         config: "/repo/one/marbles.config.ts",
         host: "worker",
         hosted: true,
@@ -26,9 +27,22 @@ function report(orphaned = false): StatusReport {
               orphaned,
               status: orphaned ? "running" : "complete",
               step: "guides",
+              steps: [
+                { name: "gather", status: "complete" },
+                { name: "write", status: orphaned ? "running" : "complete" },
+              ],
+            },
+            {
+              createdAt: 0,
+              id: "rn-0",
+              orphaned: false,
+              sharedFrom: "ws2",
+              status: "complete",
+              step: "review",
+              steps: [],
             },
           ],
-          total: 1,
+          total: 2,
         },
         schedules: [
           {
@@ -72,7 +86,7 @@ describe("OpenTUI status", () => {
       "/repo/one (here)",
       "guides",
       "complete",
-      "runs (1)",
+      "runs (2)",
       "rn-1",
     ]) {
       expect(output).toContain(value);
@@ -103,5 +117,12 @@ describe("OpenTUI status", () => {
     expect(output).toContain("orphaned (pid gone)");
     expect(output).toContain("pid 123");
     expect(output).not.toContain("\u001b");
+  });
+
+  test("lists each run's steps as its detail, and marks a run shared from another workspace", () => {
+    const output = statusText(report(), "ws1");
+    expect(output).toContain("artifacts: 3");
+    expect(output).toContain("  steps: gather [complete] · write [complete]");
+    expect(output).toContain("review  [complete] shared from ws2");
   });
 });

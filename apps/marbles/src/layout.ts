@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
+import type { ResourceKind } from "~/lib/resources";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 
@@ -66,4 +67,20 @@ export function layout(options: LayoutOptions = {}): Layout {
  */
 export function stateDatabase(state: string): string {
   return join(resolve(state), DATABASE_FILE);
+}
+
+const LINKS_DIR = ".marbles";
+
+/**
+ * Where a workspace rooted at `root` keeps links to the resources it shows,
+ * `<root>/.marbles`: nothing there is truth, and all of it can be made
+ * again from the Marbles database (`marbles relink`).
+ */
+export function workspaceLinks(root: string): string {
+  return join(resolve(root), LINKS_DIR);
+}
+
+/** The links of one kind of resource in the workspace rooted at `root`: `<root>/.marbles/<kind>s`. */
+export function resourceLinks(root: string, kind: ResourceKind): string {
+  return join(workspaceLinks(root), `${kind}s`);
 }

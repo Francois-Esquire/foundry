@@ -57,6 +57,12 @@ export interface RunResource {
   readonly record: RunRecord;
 }
 
+/** A file of an artifact's Content, and the blob file holding its bytes, if one does. */
+export interface ArtifactFile {
+  readonly blob: string | null;
+  readonly path: string;
+}
+
 export interface ResourceViewOptions {
   readonly database: StoreDatabase;
   readonly scope: ViewScope;
@@ -114,6 +120,34 @@ export class ResourceView {
     return shown.sort(
       (a, b) => b.value.createdAt.getTime() - a.value.createdAt.getTime()
     );
+  }
+
+  /**
+   * The files of the artifact `ref`'s active Content, by path, each with
+   * the name of the blob file that holds its bytes under its owner's blob
+   * directory, or null when no one file does (bytes kept inline in the
+   * database, or chunked). Empty for an artifact with no active Content,
+   * or one its owner does not keep.
+   */
+  artifactFiles(ref: ResourceRef): Promise<readonly ArtifactFile[]> {
+    const store = new SqliteArtifactStore({
+      database: this.#database,
+      scope: ref.owner,
+    });
+    return asBusy(async () => {
+      const artifact = await store.getArtifact(ref.id as ArtifactId);
+      const contentId = artifact?.contentId ?? null;
+      const content =
+        contentId === null ? null : await store.getContent(contentId);
+      const files: ArtifactFile[] = [];
+      for (const [path, node] of Object.entries(content?.tree ?? {})) {
+        if (node.type === "file") {
+          const blob = await store.getBlob(node.blobId);
+          files.push({ blob: blob?.path ?? null, path });
+        }
+      }
+      return files;
+    });
   }
 
   /** Sandbox containers, newest first. */

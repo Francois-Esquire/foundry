@@ -19,7 +19,6 @@ import type { Triggers } from "~/create";
 import { DatabaseBusyError } from "~/database/client";
 import { IncompatibleDatabaseError } from "~/database/migrate";
 import { UnreadableDatabaseError, writeDatabase } from "~/database/open";
-import { readSessions } from "~/database/sessions";
 import { TaskStorageError } from "~/database/tasks";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { layout, stateDatabase } from "~/layout";
@@ -28,6 +27,8 @@ import { RunEndedError } from "~/lib/engine";
 import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
 import { ConfigurationError } from "~/lib/providers/store";
+import type { ResourceKind } from "~/lib/resources";
+import { ResourceAssociationError } from "~/lib/resources";
 import { describeTrigger } from "~/lib/schedule";
 import { RunOutputError } from "~/lib/state/output";
 import type { TaskCommandResult } from "~/model/tasks";
@@ -42,7 +43,9 @@ import { startDaemon } from "~/process/daemon";
 import { ProcessHeldError } from "~/process/instance";
 import { RemoteError } from "~/process/protocol";
 import { envFilesLoaded } from "~/process/runtime";
-import { sessionLines } from "~/sessions/list";
+import type { ResourceCommandContext } from "~/resources/commands";
+import { changeAssociation, listResources, relink } from "~/resources/commands";
+import { LinksPlacementError } from "~/resources/links";
 import { readStatus } from "~/status/model";
 import { statusText } from "~/status/text";
 import { taskCommandText } from "~/tasks/text";
@@ -71,7 +74,14 @@ const USAGE = `marbles — programmable workspace automation
   roll <name> [--input json] dispatch one workflow or schedule now, then exit
   list                       workflows, then each schedule and monitor with its cadence
   status                     the Marbles process and every workspace it has run
-  sessions                   agent sessions: id, messages, updated, summary
+  runs [--all]               workflow runs, each with its steps; --all: every workspace's
+  sessions [--all]           agent sessions: id, messages, updated, summary
+  artifacts [--all]          artifacts: id, name, type, status, updated
+  sandboxes [--all]          sandbox containers: id, status, created
+  modules [--all]            modules: id and the artifact behind it
+  share <kind> <id> <dir>    show one of this workspace's resources in the workspace at <dir> too
+  unshare <kind> <id> <dir>  stop showing it there; the resource itself stays
+  relink [--all]             rebuild .marbles/ links to this workspace's artifact files from the database
   tasks <action> [--json]    read or change this workspace's tasks (below)
   watch <runId>              replay output, follow it live, and exit when the run ends
   mcp                        serve this workspace to an MCP client over stdio; starts and hosts nothing
@@ -173,19 +183,38 @@ async function showStatus(
   print(statusText(report, workspace.id));
 }
 
-async function listSessions(
-  args: Args,
+function resourceContext(
+  args: Flags,
   { workspace }: OpenedWorkspace
-): Promise<void> {
-  // Read only: no database reads as no sessions, and is left without one.
-  const lines = await readSessions(
-    resolve(args.state),
-    workspace.id,
-    sessionLines
-  );
-  for (const line of lines ?? []) {
-    print(line);
-  }
+): ResourceCommandContext {
+  return {
+    artifacts: resolve(args.artifacts),
+    directory: args.directory,
+    print,
+    state: resolve(args.state),
+    workspace,
+  };
+}
+
+/** A listing of one kind, through this workspace's view or, with `--all`, every workspace's. */
+function listing<
+  C extends "artifacts" | "modules" | "runs" | "sandboxes" | "sessions",
+>(kind: ResourceKind): Handler<ArgsOf<C>> {
+  return {
+    needs: "workspace",
+    run: (args, opened) =>
+      listResources(kind, args.all, resourceContext(args, opened)),
+  };
+}
+
+function association<C extends "share" | "unshare">(
+  change: C
+): Handler<ArgsOf<C>> {
+  return {
+    needs: "workspace",
+    run: (args, opened) =>
+      changeAssociation(change, args, resourceContext(args, opened)),
+  };
 }
 
 async function listTriggers(
@@ -472,6 +501,7 @@ async function serveMcp(args: ArgsOf<"mcp">): Promise<void> {
 }
 
 const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
+  artifacts: listing("artifact"),
   attach: { needs: "nothing", run: attachWorkspace },
   daemon: { needs: "nothing", run: runDaemon },
   detach: { needs: "workspace", run: detachWorkspace },
@@ -479,12 +509,21 @@ const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   init: { needs: "nothing", run: createStarterModule },
   list: { needs: "triggers", run: listTriggers },
   mcp: { needs: "nothing", run: serveMcp },
+  modules: listing("module"),
+  relink: {
+    needs: "workspace",
+    run: (args, opened) => relink(args.all, resourceContext(args, opened)),
+  },
   roll: { needs: "connection", run: roll },
   run: { needs: "connection", run: runUntilStopped },
-  sessions: { needs: "workspace", run: listSessions },
+  runs: listing("run"),
+  sandboxes: listing("sandbox"),
+  sessions: listing("session"),
+  share: association("share"),
   status: { needs: "workspace", run: showStatus },
   stop: { needs: "nothing", run: stopDaemon },
   tasks: { needs: "tasks", run: runTasks },
+  unshare: association("unshare"),
   watch: { needs: "nothing", run: watch },
 };
 
@@ -619,6 +658,7 @@ function actionable(error: unknown): error is Error {
     error instanceof EnvironmentError ||
     error instanceof IncompatibleDatabaseError ||
     error instanceof LaunchInputError ||
+    error instanceof LinksPlacementError ||
     error instanceof NoProcessError ||
     error instanceof NotHostedError ||
     error instanceof ProcessMismatchError ||
@@ -627,6 +667,7 @@ function actionable(error: unknown): error is Error {
     error instanceof RecordsHeldError ||
     error instanceof ReentrantCallError ||
     error instanceof RemoteError ||
+    error instanceof ResourceAssociationError ||
     error instanceof RunEndedError ||
     error instanceof RunOutputError ||
     error instanceof TaskStorageError ||
