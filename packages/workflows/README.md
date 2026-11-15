@@ -324,11 +324,11 @@ Retained queued Jobs use the admission participant too.
 
 Job admission returns its handle before behavior starts on a later host turn.
 Committed handles are already indexed and counted by `drain`. Dispatch and
-cancellation signals follow the store call that committed them; over a
-`SqliteWorkflowStore` whose `database` is a host's own transaction, that is
-before the host commits (see [Storage](#storage)). Cancellation participants
-serialize their decision with settlement; already-settled success stays
-intact.
+cancellation signals follow the store call that committed them, so the
+`Orchestrator` and `Queue` refuse, at construction, a store whose commits a
+host transaction may still roll back (`durability: "host"`; see
+[Storage](#storage)). Cancellation participants serialize their decision
+with settlement; already-settled success stays intact.
 
 The Run journal retains one terminal lifecycle frame. Explicit output receipts
 and named effect claims can follow it for reconciliation, presentation changes
@@ -562,6 +562,12 @@ link only in its metadata, and `listFrames()` reads every frame. That is
 what the memory store did before. A store-side search and a Job-link column
 are later work.
 
+A cursor stays valid however many records are deleted around it: a store
+never hands a position out twice in a scope, so a record put after the
+cursor was taken lists after it. The memory store counts positions for its
+whole life; the SQLite store keeps the count in `workflow_positions`, so it
+survives deletes, other connections and reopening.
+
 ### Tables
 
 Every table holds its record from `./schema` with one column per top-level
@@ -572,7 +578,11 @@ counters are integers. A field holding an object, an array or any JSON value
 `error`, `lastError`) is JSON text, read back whole. Every table also has
 `scope`, first in every key, and `position`, the order a row was first put in
 its scope. A row put again keeps its position. No read filters or orders on
-anything inside a JSON column.
+anything inside a JSON column. `workflow_positions` holds one row per scope,
+`next`, the position the scope's next new row of any table takes. It is the
+one table no record defines: positions computed from the rows that survive
+would be handed out again after a delete, and a cursor past them would skip
+the new rows.
 
 | Table                  | Key                         | Indexes                                    |
 | ---------------------- | --------------------------- | ------------------------------------------ |
@@ -581,6 +591,7 @@ anything inside a JSON column.
 | `workflow_runs`        | `(scope, id)`               | `(scope, position)`                        |
 | `workflow_suspensions` | `(scope, id)`               | `(scope, position)`, `(scope, run_id, position)` |
 | `workflow_run_frames`  | `(scope, run_id, cursor)`   | `(scope, position)`, `(scope, run_id, position)` |
+| `workflow_positions`   | `(scope)`                   |                                            |
 
 A NULL is `null` where the record takes `null` (`error`, `last_error`,
 `resolution`, and a JSON value that is `null`). It is the field left out where
@@ -687,13 +698,19 @@ The same holds a level up: a participant that calls the Orchestrator's own
 wait cycles: a transaction that awaits a continuation registered outside it
 while that continuation calls the outer store still deadlocks.
 
-The coordinator's own queue of changes, and the signals it gives the
-runtime, assume a store transaction that commits when it resolves. A
-`SqliteWorkflowStore` handed a host's transaction as its `database` joins
-that transaction instead: its commits land only when the host commits, and a
-host rollback undoes them. The runtime does not wait for that outer commit,
-so a dispatch or a cancellation it signals may outlive a rollback. Run the
-Orchestrator over a store on the database itself.
+A store states when a commit that resolved is there for good, as
+`durability`. `"commit"` (the default): at once. `"host"`: only once a
+transaction the store sits inside, which someone else owns, commits; until
+then that owner may roll it back. A `SqliteWorkflowStore` handed a Drizzle
+transaction as its `database` is `"host"` and refuses `"commit"`; over a
+plain database pass `"host"` when the host has begun a transaction of its own
+on the connection, which the store cannot see. A transaction's view is
+`"host"` on every store, and `ExecutionCoordinator.durability` is its
+store's. The coordinator and plain record work run over a `"host"` store.
+The `Orchestrator` and `Queue` refuse one at construction: they start
+workflow code, dispatch and signal cancellations once a commit resolves, and
+would act on Runs a rollback removes. Run them over a store on the database
+itself, outside the host's transaction.
 
 The package ships table definitions only. It owns no migrations and opens no
 database; the host composes the tables into its own schema. `drizzle-orm` is
@@ -725,13 +742,43 @@ rejects with a `RangeError` naming the field, such as `putRuns[0].queueId` or
   `definition` or `links`, a field a Job, Queue, Suspension or frame does not
   have, which no column would keep, and a record its schema refuses.
 
-The memory store keeps all of these as `structuredClone` copies them. The
+The memory store keeps all of these as `structuredClone` copies them, with
+byte memory unshared (below). The
 coordinator writes none but the text and `-0` cases: it
 drops `undefined` entries from a Run's and a Job's `definition` and `links`,
 and normalizes a Run's JSON data. A JSON value is bound as one text value,
 under SQLite's default limit of 1,000,000,000 bytes. A commit of many records
 is batched under SQLite's limit of 32,766 bound parameters per statement,
 inside its one transaction.
+
+Claiming or cancelling a Job reads every Run in the scope, under the store's
+exclusion, to find the Job's attempts (a legacy Run names its Job only in its
+metadata). Over SQLite that holds the write lock for the read of the whole
+`workflow_runs` scope, so its cost grows with the number of Runs kept.
+
+### Ownership
+
+A store takes its own copy of a write when `commit` is called, before it
+waits for its turn: one read of each of the write's properties, and of every
+record in it, which is what it checks, writes and hands to `onCommit`. A
+getter that answers differently a second time changes nothing. List queries
+are copied the same way. The memory store copies with `structuredClone` and
+then moves any bytes in shared memory (a `SharedArrayBuffer`, which
+`structuredClone` keeps shared on Node) into memory of their own, on every
+write and on every read: `get*`, `list*`, `snapshot()` and a transaction's
+view. The SQLite store refuses bytes in a record, naming the field, so it
+holds none.
+
+`ExecutionCoordinator` takes every command's arguments as they stand when the
+command is called: one deep copy, bytes unshared, taken before anything
+else runs, and the only one the command reads. Every public method gets it
+in one place, so a command added later does too. An argument the copy
+refuses (a function, say) rejects the call.
+
+Inside `ExecutionCoordinator.transaction`, a claim of a Job whose earlier
+attempt completed settles the Job as complete and then refuses: the
+transaction commits that settlement, and the refusal reaches the caller once
+it has. Any other failure of the work rolls everything back.
 
 ---
 
