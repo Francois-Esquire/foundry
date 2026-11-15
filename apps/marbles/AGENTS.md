@@ -77,7 +77,13 @@ Five buckets, each importing only what sits below it:
   `lib/held-runs.ts` follows held workflow runs to their end;
   `lib/run-store.ts` is where their Runs are kept (`RunStore`, in memory
   by default), and `lib/run-recovery.ts` is the one rule for which parked
-  Runs a starting engine adopts.
+  Runs a starting engine adopts and which Runs a gone process left it
+  closes out. `lib/crash-recovery.ts` is the one entry point that puts
+  right what a crash left, run once per start after the launcher settles
+  the Execution Runs of exited processes and before the host schedules
+  anything; each part's rule is its own package's or module's, and it
+  only orders the calls (orphaned children, container rows, Runs,
+  harness activities, artifact files).
   `lib/cli-harnesses.ts` describes each CLI harness once (ids in
   preference order, executor, guest artifact and environment). Provider
   plugins (`lib/providers/plugins.ts`) build instances from configuration
@@ -126,8 +132,10 @@ Five buckets, each importing only what sits below it:
   and puts that record again so it is raised too. Nothing reads the
   package's tables directly. `stores.ts` is a workspace's artifacts,
   sandbox containers and workspace catalogue: each package's SQLite store
-  scoped by the workspace id, handed over as the package makes it, with no
-  hook. Artifact blob files stay on disk, under
+  scoped by the workspace id, handed over as the package makes it, the
+  container store with one hook, which files who holds each row in
+  `marbles_container_owners` (`containers.ts`), so a start takes back the
+  rows a gone process left. Artifact blob files stay on disk, under
   `<artifacts>/workspaces/<id>/blobs`; `readArtifacts` is the read-only
   view of them a dry run reads through to. `runs.ts` is a workspace's workflow Runs: the package's
   `SqliteWorkflowStore` scoped by the workspace id, whose `onCommit` hook
