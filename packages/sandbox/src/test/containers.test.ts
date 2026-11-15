@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CONTAINER_ENVIRONMENT_ID_LABEL,
   CONTAINER_ID_LABEL,
@@ -16,7 +16,9 @@ import { createContainers } from "../container/containers";
 import type { ContainerRow } from "../schema";
 import type { ContainerStore, ContainerStoreWrite } from "../store/index";
 import { createMemoryContainerStore } from "../store/memory";
+import { createSqliteContainerStore } from "../store/sqlite";
 import { createFakeContainerRuntime } from "../testing";
+import { libsqlDatabases } from "./helpers/sqlite";
 
 const MISSING_HYPERVISOR_ERROR = /no hypervisor/;
 const MISSING_CONTAINER_ERROR = /does not exist/;
@@ -34,9 +36,48 @@ const SPEC: ContainerSandboxConstraints = {
   ports: [3000],
 };
 
+const databases = {
+  file: libsqlDatabases("file"),
+  memory: libsqlDatabases("memory"),
+};
+
+/**
+ * A SQLite store on a new database, usable at once: each call waits for the
+ * tables. It refuses re-entry as the memory store does, so the whole suite
+ * runs over a store that would catch the registry calling it from inside
+ * its own transaction.
+ */
+function sqliteStore(location: keyof typeof databases): ContainerStore {
+  const ready = databases[location]
+    .open()
+    .then((database) => createSqliteContainerStore({ database, scope: "s" }));
+  return {
+    commit: async (write) => await (await ready).commit(write),
+    get: async (id) => await (await ready).get(id),
+    list: async () => await (await ready).list(),
+    async transaction(work) {
+      const store = await ready;
+      if (store.transaction === undefined) {
+        throw new Error("the SQLite store offers a transaction");
+      }
+      return await store.transaction(work);
+    },
+  };
+}
+
+/** Every store the registry is tested over. */
+const STORES: [string, () => ContainerStore][] = [
+  ["the memory store", createMemoryContainerStore],
+  ["the SQLite store in memory", () => sqliteStore("memory")],
+  ["the SQLite store on a file", () => sqliteStore("file")],
+];
+
+/** The store under test, set by each run of the suite. */
+let newStore: () => ContainerStore = createMemoryContainerStore;
+
 function fixture(instanceLabel = "instance-a") {
   const runtime = createFakeContainerRuntime();
-  const store = createMemoryContainerStore();
+  const store = newStore();
   const containers = createContainers({ instanceLabel, runtime, store });
   return { containers, runtime, store };
 }
@@ -48,7 +89,7 @@ function fixture(instanceLabel = "instance-a") {
  * commits made through a transaction's view.
  */
 function gatedStore({ transactional = false } = {}) {
-  const inner = createMemoryContainerStore();
+  const inner = newStore();
   const writes: ContainerStoreWrite[] = [];
   let gate:
     | { matches: (write: ContainerStoreWrite) => boolean; open: Promise<void> }
@@ -73,7 +114,7 @@ function gatedStore({ transactional = false } = {}) {
         ...gated(inner),
         transaction<T>(work: (view: ContainerStore) => Promise<T>) {
           if (inner.transaction === undefined) {
-            throw new Error("the memory store offers a transaction");
+            throw new Error("the store under test offers a transaction");
           }
           return inner.transaction((view) => work(gated(view)));
         },
@@ -106,7 +147,11 @@ function puts(writes: readonly ContainerStoreWrite[]): Partial<ContainerRow>[] {
   );
 }
 
-describe("containers registry", () => {
+describe.each(STORES)("containers registry over %s", (_name, open) => {
+  beforeEach(() => {
+    newStore = open;
+  });
+
   it("resolves every spec over the registry's config defaults", async () => {
     const runtime = createFakeContainerRuntime();
     const containers = createContainers({
@@ -119,7 +164,7 @@ describe("containers registry", () => {
       },
       instanceLabel: "defaults",
       runtime,
-      store: createMemoryContainerStore(),
+      store: newStore(),
     });
 
     const inherited = await containers.start({
@@ -214,7 +259,7 @@ describe("containers registry", () => {
 
   it("open after a process restart removes the old native and boots anew", async () => {
     const runtime = createFakeContainerRuntime();
-    const store = createMemoryContainerStore();
+    const store = newStore();
     const before = createContainers({
       instanceLabel: "instance-a",
       runtime,
@@ -351,7 +396,7 @@ describe("containers registry", () => {
   it("marks the row failed when the VM will not boot", async () => {
     const runtime = createFakeContainerRuntime();
     runtime.create = () => Promise.reject(new Error("no hypervisor"));
-    const store = createMemoryContainerStore();
+    const store = newStore();
     const containers = createContainers({
       instanceLabel: "instance-a",
       runtime,
@@ -376,11 +421,11 @@ describe("containers registry", () => {
 
   it("sweep stops VMs with our labels and no row, ignoring other instances and the harness", async () => {
     const runtime = createFakeContainerRuntime();
-    const store = createMemoryContainerStore();
+    const store = newStore();
     const other = createContainers({
       instanceLabel: "instance-b",
       runtime,
-      store: createMemoryContainerStore(),
+      store: newStore(),
     });
     const mine = createContainers({
       instanceLabel: "instance-a",
@@ -725,7 +770,7 @@ describe("containers registry", () => {
         instanceLabel: "instance-a",
         mountTargetRoot: "/foundry/files",
         runtime,
-        store: createMemoryContainerStore(),
+        store: newStore(),
       });
       const mount = {
         access: "read-write" as const,

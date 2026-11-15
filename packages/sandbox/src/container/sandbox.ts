@@ -72,16 +72,36 @@ export async function provisionContainerSandbox<TNative = unknown>(
  * keeps any workdir usable on any image.
  */
 export async function startContainerSandbox<TNative>(
-  provisioned: ProvisionedContainerSandbox<TNative>
+  provisioned: ProvisionedContainerSandbox<TNative>,
+  options: StartContainerSandboxOptions = {}
 ): Promise<ContainerSandbox<TNative>> {
   const instance = await provisioned.runtime.create(provisioned.spec);
   try {
     await instance.ensureDirectory(provisioned.spec.workdir);
     return new ContainerSandboxHandle(instance, provisioned.spec);
   } catch (error) {
-    await instance.remove();
+    // The setup's error is the one to report, whatever the removal does.
+    try {
+      await instance.remove();
+    } catch (cleanup: unknown) {
+      try {
+        options.onLeftBehind?.(cleanup);
+      } catch {
+        // A callback that throws does not replace the setup's error.
+      }
+    }
     throw error;
   }
+}
+
+export interface StartContainerSandboxOptions {
+  /**
+   * Called when the VM was created, its setup failed, and removing it failed
+   * too, with the removal's error. The VM may still be there under the spec's
+   * name; the start still rejects with the setup's error, even if this
+   * callback throws.
+   */
+  readonly onLeftBehind?: (error: unknown) => void;
 }
 
 export async function resolveContainerSpec(
