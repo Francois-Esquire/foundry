@@ -173,7 +173,8 @@ however deep in the call stack. Reads see its uncommitted writes, and a nested
 `transaction` commits with the outer one. Joined calls are not savepoints: if one fails
 and the callback still returns, the whole transaction rolls back with
 `TransactionRolledBackError` (its `cause` is the failure). Work scheduled during the
-callback but run after it returns starts its own transaction.
+callback but run after it returns starts its own transaction, once the callback's
+transaction has settled.
 
 The callback's second argument is a transaction-scoped effects handle:
 `effects.afterCommit(async () => ...)` registers work with the outermost commit.
@@ -274,7 +275,11 @@ take the filter, cursor and limit, so a page never loads the catalogue. An optio
 change's reads and its commit; a plain commit waits for it, and a failed `work` keeps
 none of its commits. Inside `work`, call the view: a `commit` or `transaction` on the
 store itself from there rejects at once rather than waiting on itself. The manager runs
-every change, and every read of several records, through it.
+every change, and every read of several records, through it, and then queues nothing of
+its own: the store orders every manager's changes. So a call on a second manager over the
+same store, made from inside the first manager's `transaction`, reaches the store and is
+refused there at once instead of waiting forever. Over a store without `transaction`, a
+manager runs its own changes one at a time and no further.
 
 `create`, `write` and `revise` take their bytes in before the change enters that
 exclusion when `files` offers staging (`BlobFiles.staging`, an optional capability that

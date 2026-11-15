@@ -4,9 +4,9 @@ import {
   deriveAvailability,
   readyTaskIds,
 } from "../availability";
-import type { TaskSnapshot } from "../store";
-import type { Task, TaskDependency, TaskStatus } from "../types";
-import { TASK_STATUSES, taskId } from "../types";
+import type { Task, TaskDependency, TaskSnapshot, TaskStatus } from "../schema";
+import { TASK_STATUSES } from "../schema";
+import { taskId } from "../types";
 
 const AT = "2026-10-29T00:00:00.000Z";
 
