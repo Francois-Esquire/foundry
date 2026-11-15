@@ -21,6 +21,11 @@
       "import": "./src/operations.ts",
       "default": "./src/operations.ts"
     },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./src/schema.ts",
+      "default": "./src/schema.ts"
+    },
     "./store": {
       "types": "./dist/store.d.ts",
       "import": "./src/store.ts",

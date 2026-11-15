@@ -72,8 +72,9 @@ describe("what a session keeps of a turn's values", () => {
   it("fails the turn loudly, keeping an error result that names the tool, when its output has no JSON form", async () => {
     const { harness, store } = harnessWithTool({ count: 1n });
     const onError = vi.fn();
+    const onToolResult = vi.fn();
 
-    const reply = await harness.generate("go", { onError });
+    const reply = await harness.generate("go", { onError, onToolResult });
 
     const why = expect.stringContaining(
       'Tool "probe" (call call-1) returned a value with no JSON form'
@@ -92,6 +93,10 @@ describe("what a session keeps of a turn's values", () => {
     expect(toolResults(history)).toEqual([
       { isError: true, output: why, toolCallId: "call-1", type: "tool_result" },
     ]);
+    // Listeners hear the failure the session kept, not a successful-looking output.
+    expect(onToolResult).toHaveBeenCalledWith(
+      expect.objectContaining({ isError: true, output: why })
+    );
   });
 
   it("keeps a structured output in its JSON form", async () => {
