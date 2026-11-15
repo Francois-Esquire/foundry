@@ -111,6 +111,41 @@ describe("the stores an engine keeps beside its records", () => {
 });
 
 describe("who delivers a workspace's task changes", () => {
+  it("stays held when its release fails, so a retry gives it up", async () => {
+    const opened = await initializeDatabase(join(scratch(), "marbles.db"));
+    try {
+      let failing = false;
+      // The database, refusing the next update as a held write lock would.
+      const database = new Proxy(opened.database, {
+        get(target, property) {
+          if (property === "update" && failing) {
+            failing = false;
+            return () => {
+              throw new Error("SQLITE_BUSY: database is locked");
+            };
+          }
+          const value: unknown = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      const first = new DatabaseWorkspaceRecords({ database, scope: "ws" });
+      const second = new DatabaseWorkspaceRecords({
+        database: opened.database,
+        scope: "ws",
+      });
+      expect(await first.claimDelivery()).toBeUndefined();
+      failing = true;
+      await expect(first.releaseDelivery()).rejects.toThrow("SQLITE_BUSY");
+      expect(await second.claimDelivery()).toBe(
+        "another engine in this process"
+      );
+      await first.releaseDelivery();
+      expect(await second.claimDelivery()).toBeUndefined();
+    } finally {
+      opened.close();
+    }
+  });
+
   it("is given up by records closed while their claim was under way", async () => {
     const opened = await initializeDatabase(join(scratch(), "marbles.db"));
     try {

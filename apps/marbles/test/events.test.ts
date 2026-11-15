@@ -998,6 +998,48 @@ process.stdout.write("started\\n");
     expect(reads).toBe(0);
   });
 
+  it("never runs once stopped while its start was still reading, and gives the claim up", async () => {
+    const memory = new MemoryWorkspaceRecords();
+    const { promise: read, resolve: answer } = Promise.withResolvers<number>();
+    let reading: (() => void) | undefined;
+    const entered = new Promise<void>((resolve) => {
+      reading = resolve;
+    });
+    let released = 0;
+    let passes = 0;
+    const records: WorkspaceRecords = {
+      claimDelivery: () => memory.claimDelivery(),
+      close: () => memory.close(),
+      deliver: (id, hash) => memory.deliver(id, hash),
+      latest: () => {
+        reading?.();
+        return read;
+      },
+      pending: (query) => {
+        passes += 1;
+        return memory.pending(query);
+      },
+      releaseDelivery: () => {
+        released += 1;
+        return Promise.resolve();
+      },
+      taskStore: memory.taskStore,
+      watch: (listener) => memory.watch(listener),
+    };
+    const delivery = new Delivery({ print: () => undefined, records });
+    delivery.observe(TASKS, () => undefined);
+    const starting = delivery.start();
+    await entered;
+    await delivery.stop();
+    expect(released).toBe(1);
+    answer(1);
+    await starting;
+    delivery.wake();
+    await new Promise((settle) => setTimeout(settle, DELIVERY_POLL_MS * 2));
+    expect(passes).toBe(0);
+    expect(released).toBe(1);
+  });
+
   it("reads nothing once delivery has stopped", async () => {
     const memory = new MemoryWorkspaceRecords();
     let reads = 0;

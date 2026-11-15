@@ -179,7 +179,6 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     if (!this.#claimed) {
       return;
     }
-    this.#claimed = false;
     try {
       await this.#database
         .update(marblesDeliveryClaims)
@@ -191,8 +190,10 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
           )
         );
     } catch (error) {
+      // Still these records' until a release lands: a retry tries again.
       throw busyError(error) ?? error;
     }
+    this.#claimed = false;
   }
 
   /** Only for a change that is recorded; a hash already there stays one row. */
