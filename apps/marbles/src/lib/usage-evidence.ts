@@ -107,7 +107,10 @@ export interface ListedSessionStore extends SessionStore {
 export function listsSessions(
   store: SessionStore
 ): store is ListedSessionStore {
-  return typeof (store as Partial<ListedSessionStore>).stamps === "function";
+  // A host in plain JavaScript may build an engine with no store; that
+  // fails when a session is used, not while the engine is constructed.
+  const listed = store as Partial<ListedSessionStore> | undefined;
+  return typeof listed?.stamps === "function";
 }
 
 /**
