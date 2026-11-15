@@ -12,7 +12,16 @@ import { aroundCalls, asBusy } from "~/database/busy";
 import { followExecution, readExecution } from "~/database/executions";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
-import { heldBy, NO_OWNER, ownedHere, rowOwner } from "~/database/owner";
+import {
+  CHANGED,
+  claimJudged,
+  heldBy,
+  NO_OWNER,
+  type OwnerColumns,
+  ownedHere,
+  rowOwner,
+  sameOwnerColumns,
+} from "~/database/owner";
 import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { RecordsGate } from "~/lib/events/records";
@@ -71,45 +80,72 @@ export class DatabaseRunStore implements RunStore {
 
   claim(runId: string, when: ClaimCondition): Promise<boolean> {
     return this.#call(() =>
-      this.#database.transaction(async (transaction) => {
-        // Read in the claim's own transaction, the Run and its Execution
-        // Run beside it: no write lands between them and the claim, from
-        // this process or another.
-        const stored = await new SqliteWorkflowStore({
-          database: transaction,
-          scope: this.#scope,
-        }).getRun(runId);
-        const execution = await readExecution(transaction, this.#scope, runId);
-        if (!when(stored, execution)) {
-          return false;
-        }
-        const [row] = await transaction
-          .select({
-            ownerId: marblesWorkflowRuns.ownerId,
-            ownerPid: marblesWorkflowRuns.ownerPid,
-            ownerStarted: marblesWorkflowRuns.ownerStarted,
-          })
-          .from(marblesWorkflowRuns)
-          .where(this.#run(runId));
-        if (row !== undefined && this.#heldElsewhere(row)) {
-          return false;
-        }
-        await transaction
-          .insert(marblesWorkflowRuns)
-          .values({
-            ledger: {},
-            literals: {},
-            ...this.#owned(),
-            runId,
-            scope: this.#scope,
-          })
-          .onConflictDoUpdate({
-            set: this.#owned(),
-            target: [marblesWorkflowRuns.scope, marblesWorkflowRuns.runId],
-          });
-        return true;
-      })
+      claimJudged(
+        () => this.#ownerOf(this.#database, runId),
+        // Asked outside the transaction: no process is asked under its lock.
+        (seen) => seen !== undefined && this.#heldElsewhere(seen),
+        (seen, held) => this.#claimIn(runId, when, seen, held),
+        false
+      )
     );
+  }
+
+  /** The owner columns of the Run `runId`'s row, as `database` reads them now. */
+  async #ownerOf(
+    database: StoreDatabase | WorkflowTransaction,
+    runId: string
+  ): Promise<OwnerColumns | undefined> {
+    const [row] = await database
+      .select({
+        ownerId: marblesWorkflowRuns.ownerId,
+        ownerPid: marblesWorkflowRuns.ownerPid,
+        ownerStarted: marblesWorkflowRuns.ownerStarted,
+      })
+      .from(marblesWorkflowRuns)
+      .where(this.#run(runId));
+    return row;
+  }
+
+  /** The claim's transaction, on the owner `seen` and whether it was `held`. */
+  #claimIn(
+    runId: string,
+    when: ClaimCondition,
+    seen: OwnerColumns | undefined,
+    held: boolean
+  ): Promise<boolean | typeof CHANGED> {
+    return this.#database.transaction(async (transaction) => {
+      // Read in the claim's own transaction, the Run and its Execution
+      // Run beside it: no write lands between them and the claim, from
+      // this process or another.
+      const stored = await new SqliteWorkflowStore({
+        database: transaction,
+        scope: this.#scope,
+      }).getRun(runId);
+      const execution = await readExecution(transaction, this.#scope, runId);
+      if (!when(stored, execution)) {
+        return false;
+      }
+      if (!sameOwnerColumns(await this.#ownerOf(transaction, runId), seen)) {
+        return CHANGED;
+      }
+      if (held) {
+        return false;
+      }
+      await transaction
+        .insert(marblesWorkflowRuns)
+        .values({
+          ledger: {},
+          literals: {},
+          ...this.#owned(),
+          runId,
+          scope: this.#scope,
+        })
+        .onConflictDoUpdate({
+          set: this.#owned(),
+          target: [marblesWorkflowRuns.scope, marblesWorkflowRuns.runId],
+        });
+      return true;
+    });
   }
 
   /**

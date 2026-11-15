@@ -43,6 +43,11 @@ function ownedHere(run: ExecutionRun): boolean {
   );
 }
 
+/** Whether two records name one owner, start and all, exactly as stored. */
+function sameOwner(one: ProcessIdentity, other: ProcessIdentity): boolean {
+  return one.pid === other.pid && one.started === other.started;
+}
+
 /** How a settled run ends. */
 type Ending = "complete" | "failed" | "cancelled" | "interrupted";
 
@@ -525,12 +530,20 @@ export class ExecutionRecords {
    * cannot be read or written, cancelling nothing.
    */
   protected async cancelQueued(id: string): Promise<boolean> {
+    // Whether its owner is gone is judged before the transaction, which
+    // only checks the owner is still the one judged: no process is asked
+    // while the store's write lock is held.
+    const before = this.#parse(await this.#store.get(id));
+    const mayCancel =
+      before !== undefined &&
+      (sameProcess(before.owner, thisProcess()) || isGone(before.owner));
     const written = await this.#persist(() =>
       this.#store.transaction(async (view): Promise<Written> => {
         const stored = this.#parse(await view.get(id));
         if (
           stored?.status !== "queued" ||
-          !(sameProcess(stored.owner, thisProcess()) || isGone(stored.owner))
+          !mayCancel ||
+          !sameOwner(stored.owner, before.owner)
         ) {
           return { applied: false, record: stored };
         }
@@ -608,10 +621,11 @@ export class ExecutionRecords {
       const written = await this.#persist(() =>
         this.#store.transaction(async (view): Promise<Written> => {
           const stored = this.#parse(await view.get(id));
+          // Judged gone above, outside the transaction: still that owner.
           if (
             !stored ||
             SETTLED_EXECUTION_STATUSES.has(stored.status) ||
-            !isGone(stored.owner)
+            !sameOwner(stored.owner, known.owner)
           ) {
             return { applied: false, record: stored };
           }
@@ -662,7 +676,10 @@ export class ExecutionRecords {
         taken = await this.#persist(() =>
           this.#store.transaction(async (view) => {
             const run = this.#parse(await view.get(orphan.id));
-            const next = run && recovered(run, options);
+            // Judged before the transaction; here only checked unchanged.
+            const next =
+              run &&
+              recovered(run, options, sameOwner(run.owner, orphan.owner));
             if (!next) {
               return {
                 readmit: false,
@@ -918,13 +935,11 @@ async function removing(
  */
 function recovered(
   run: ExecutionRun,
-  options: Parameters<ExecutionRecords["recover"]>[0]
+  options: Parameters<ExecutionRecords["recover"]>[0],
+  judgedGone: boolean
 ): { readonly change: LifecycleChange; readonly readmit: boolean } | undefined {
   const ours = options.adopted.has(run.id);
-  if (
-    SETTLED_EXECUTION_STATUSES.has(run.status) ||
-    !(ours || isGone(run.owner))
-  ) {
+  if (SETTLED_EXECUTION_STATUSES.has(run.status) || !(ours || judgedGone)) {
     return;
   }
   const at = now();

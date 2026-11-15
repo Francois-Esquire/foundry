@@ -4,7 +4,14 @@ import { and, asc, eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
-import { heldBy, NO_OWNER, ownedHere } from "~/database/owner";
+import {
+  CHANGED,
+  claimJudged,
+  heldBy,
+  NO_OWNER,
+  ownedHere,
+  sameOwnerColumns,
+} from "~/database/owner";
 import { marblesMonitorStates, marblesScheduleTicks } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { RecordsGate } from "~/lib/events/records";
@@ -50,34 +57,55 @@ export class DatabaseTriggerStore implements TriggerStore {
   }
 
   claimTick(key: string): Promise<TickClaim> {
+    const look = (database: StoreDatabase) =>
+      database
+        .select({
+          ownerId: marblesScheduleTicks.ownerId,
+          ownerPid: marblesScheduleTicks.ownerPid,
+          ownerStarted: marblesScheduleTicks.ownerStarted,
+        })
+        .from(marblesScheduleTicks)
+        .where(this.#key(key))
+        .then(([row]) => row);
+    const refused = {
+      claimed: false,
+      holder: "an owner that kept changing",
+    } as const;
     return this.#call(() =>
-      this.#database.transaction(async (transaction) => {
-        const [row] = await transaction
-          .select({
-            ownerPid: marblesScheduleTicks.ownerPid,
-            ownerStarted: marblesScheduleTicks.ownerStarted,
-          })
-          .from(marblesScheduleTicks)
-          .where(this.#key(key));
-        const holder = row === undefined ? null : heldBy(row);
-        if (holder !== null) {
-          return {
-            claimed: false,
-            holder: sameProcess(holder, thisProcess())
-              ? "this process"
-              : `pid ${String(holder.pid)}`,
-          } as const;
-        }
-        const owner = ownedHere(this.#owner);
-        await transaction
-          .insert(marblesScheduleTicks)
-          .values({ ...owner, key, scope: this.#scope })
-          .onConflictDoUpdate({
-            set: owner,
-            target: [marblesScheduleTicks.scope, marblesScheduleTicks.key],
-          });
-        return { claimed: true } as const;
-      })
+      claimJudged(
+        () => look(this.#database),
+        // Asked outside the transaction: no process is asked under its lock.
+        (seen) => (seen === undefined ? null : heldBy(seen)),
+        (seen, holder) =>
+          this.#database.transaction(
+            async (transaction): Promise<TickClaim | typeof CHANGED> => {
+              if (!sameOwnerColumns(await look(transaction), seen)) {
+                return CHANGED;
+              }
+              if (holder !== null) {
+                return {
+                  claimed: false,
+                  holder: sameProcess(holder, thisProcess())
+                    ? "this process"
+                    : `pid ${String(holder.pid)}`,
+                } as const;
+              }
+              const owner = ownedHere(this.#owner);
+              await transaction
+                .insert(marblesScheduleTicks)
+                .values({ ...owner, key, scope: this.#scope })
+                .onConflictDoUpdate({
+                  set: owner,
+                  target: [
+                    marblesScheduleTicks.scope,
+                    marblesScheduleTicks.key,
+                  ],
+                });
+              return { claimed: true } as const;
+            }
+          ),
+        refused
+      )
     );
   }
 

@@ -88,8 +88,11 @@ Five buckets, each importing only what sits below it:
   `database/recoveries.ts`). Every owner Marbles records, of a claim, a
   Run, an Execution Run, a container row, a lock or a background child,
   is a `ProcessIdentity` (`@foundry/lib/process-identity`, pid and start
-  time), judged gone only by `isGone`; `database/owner.ts` maps a claim
-  row's owner columns to and from one.
+  time), judged gone only by `isGone`, and never while a write
+  transaction is open: a claim judges its row's owner first and, in the
+  transaction, only checks it is still that owner (`claimJudged` in
+  `database/owner.ts`, which maps a claim row's owner columns to and from
+  a `ProcessIdentity`).
   `lib/cli-harnesses.ts` describes each CLI harness once (ids in
   preference order, executor, guest artifact and environment). Provider
   plugins (`lib/providers/plugins.ts`) build instances from configuration
@@ -138,10 +141,10 @@ Five buckets, each importing only what sits below it:
   and puts that record again so it is raised too. Nothing reads the
   package's tables directly. `stores.ts` is a workspace's artifacts,
   sandbox containers and workspace catalogue: each package's SQLite store
-  scoped by the workspace id, handed over as the package makes it, the
-  container store with one hook, which files who holds each row in
-  `marbles_container_owners` (`containers.ts`), so a start takes back the
-  rows a gone process left. Artifact blob files stay on disk, under
+  scoped by the workspace id, handed over as the package makes it, with
+  no hook; each container row names its holder itself, which Marbles
+  makes its process identity (`lib/sandbox/holders.ts`), so a start takes
+  back the rows a gone process left. Artifact blob files stay on disk, under
   `<artifacts>/workspaces/<id>/blobs`; `readArtifacts` is the read-only
   view of them a dry run reads through to. `runs.ts` is a workspace's workflow Runs: the package's
   `SqliteWorkflowStore` scoped by the workspace id, whose `onCommit` hook
