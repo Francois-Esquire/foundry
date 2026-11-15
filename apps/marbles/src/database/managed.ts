@@ -151,22 +151,28 @@ export function openWorkspaceDatabase(
     () => Promise.resolve()
   );
   const side = new RecordsGate("the workspace database is closed");
+  // One close, however often it is asked for.
+  let closing: Promise<void> | undefined;
+  const shutDown = async () => {
+    try {
+      await records.close();
+      await runs.close();
+      await triggers.close();
+      await usage.close();
+      await automations.close();
+      await executions.close();
+      await sessions.close();
+      await side.close();
+    } finally {
+      await database.close();
+    }
+  };
   return {
     ...sideStores(database, options.workspaceId, side),
     automations,
-    async close() {
-      try {
-        await records.close();
-        await runs.close();
-        await triggers.close();
-        await usage.close();
-        await automations.close();
-        await executions.close();
-        await sessions.close();
-        await side.close();
-      } finally {
-        await database.close();
-      }
+    close() {
+      closing ??= shutDown();
+      return closing;
     },
     executions,
     records,
@@ -411,6 +417,8 @@ function placedByMarbles(
 class LazyDatabase {
   readonly #options: OpenWorkspaceRecordsOptions;
   #opening: Promise<MarblesDatabase> | undefined;
+  /** Every close so far, in turn. */
+  #closed: Promise<void> = Promise.resolve();
 
   constructor(options: OpenWorkspaceRecordsOptions) {
     this.#options = options;
@@ -427,12 +435,29 @@ class LazyDatabase {
     return this.#opening;
   }
 
-  /** Close the handle, if one was opened; a later `open` opens another. */
-  async close(): Promise<void> {
+  /**
+   * Close the handle, if one was opened; a later `open` opens another.
+   * Each close resolves only once every close before it has closed what
+   * it took, so one that overlaps a close under way waits for it.
+   */
+  close(): Promise<void> {
     const opening = this.#opening;
     this.#opening = undefined;
-    (await opening?.catch(() => undefined))?.close();
+    const before = this.#closed;
+    this.#closed = (async () => {
+      await before;
+      (await settledOpen(opening))?.close();
+    })();
+    return this.#closed;
   }
+}
+
+/** The handle `opening` opened, or nothing if it failed or none was opening. */
+async function settledOpen(
+  opening: Promise<MarblesDatabase> | undefined
+): Promise<MarblesDatabase | undefined> {
+  // An open that failed left nothing to close.
+  return await opening?.catch(() => undefined);
 }
 
 /**
@@ -443,6 +468,8 @@ class OverDatabase<T> {
   readonly #database: LazyDatabase;
   readonly #make: (database: MarblesDatabase) => T;
   #built: Promise<T> | undefined;
+  /** What `built` hands out, once it has been asked. */
+  #taken: Promise<T | undefined> | undefined;
 
   constructor(database: LazyDatabase, make: (database: MarblesDatabase) => T) {
     this.#database = database;
@@ -450,6 +477,9 @@ class OverDatabase<T> {
   }
 
   get(): Promise<T> {
+    if (this.#taken !== undefined) {
+      return Promise.reject(new Error("the workspace database is closed"));
+    }
     this.#built ??= this.#database
       .open()
       .then(this.#make)
@@ -460,11 +490,13 @@ class OverDatabase<T> {
     return this.#built;
   }
 
-  /** What was built, if anything was; nothing is built after this. */
-  async built(): Promise<T | undefined> {
-    const built = this.#built;
-    this.#built = undefined;
-    return await built?.catch(() => undefined);
+  /**
+   * What was built, if anything was, the same for every call; nothing is
+   * built after the first.
+   */
+  built(): Promise<T | undefined> {
+    this.#taken ??= (async () => await this.#built?.catch(() => undefined))();
+    return this.#taken;
   }
 }
 
@@ -474,6 +506,7 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
   readonly #listeners = new EmitListeners();
   readonly #records: OverDatabase<DatabaseWorkspaceRecords>;
   readonly #release: () => Promise<void>;
+  #closing: Promise<void> | undefined;
 
   constructor(
     database: LazyDatabase,
@@ -513,7 +546,16 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
     };
   }
 
-  async close(): Promise<void> {
+  /**
+   * Close once, cleanup and then the release of this store's claim, and
+   * hand every caller that same close: one meanwhile waits for it.
+   */
+  close(): Promise<void> {
+    this.#closing ??= this.#shutDown();
+    return this.#closing;
+  }
+
+  async #shutDown(): Promise<void> {
     await this.#gate.close();
     try {
       await (await this.#records.built())?.close();
@@ -625,6 +667,7 @@ class ManagedRunStore implements RunStore {
   readonly durable = true;
   readonly #gate = new RecordsGate("the run store is closed");
   readonly #release: () => Promise<void>;
+  #closing: Promise<void> | undefined;
   readonly #store: OverDatabase<DatabaseRunStore>;
 
   constructor(
@@ -647,7 +690,16 @@ class ManagedRunStore implements RunStore {
     return this.#run((store) => store.claim(runId, when));
   }
 
-  async close(): Promise<void> {
+  /**
+   * Close once, cleanup and then the release of this store's claim, and
+   * hand every caller that same close: one meanwhile waits for it.
+   */
+  close(): Promise<void> {
+    this.#closing ??= this.#shutDown();
+    return this.#closing;
+  }
+
+  async #shutDown(): Promise<void> {
     await this.#gate.close();
     try {
       await (await this.#store.built())?.close();
@@ -687,6 +739,7 @@ class ManagedRunStore implements RunStore {
 class ManagedTriggerStore implements TriggerStore {
   readonly #gate = new RecordsGate("the trigger store is closed");
   readonly #release: () => Promise<void>;
+  #closing: Promise<void> | undefined;
   readonly #store: OverDatabase<DatabaseTriggerStore>;
 
   constructor(
@@ -713,7 +766,16 @@ class ManagedTriggerStore implements TriggerStore {
     return this.#run((store) => store.clearPendingLaunch(key));
   }
 
-  async close(): Promise<void> {
+  /**
+   * Close once, cleanup and then the release of this store's claim, and
+   * hand every caller that same close: one meanwhile waits for it.
+   */
+  close(): Promise<void> {
+    this.#closing ??= this.#shutDown();
+    return this.#closing;
+  }
+
+  async #shutDown(): Promise<void> {
     await this.#gate.close();
     try {
       await (await this.#store.built())?.close();
@@ -751,6 +813,7 @@ class ManagedTriggerStore implements TriggerStore {
 class ManagedUsageStore implements UsageStore {
   readonly #gate = new RecordsGate("the usage store is closed");
   readonly #release: () => Promise<void>;
+  #closing: Promise<void> | undefined;
   readonly #store: OverDatabase<DatabaseUsageStore>;
 
   constructor(
@@ -769,7 +832,16 @@ class ManagedUsageStore implements UsageStore {
     );
   }
 
-  async close(): Promise<void> {
+  /**
+   * Close once, cleanup and then the release of this store's claim, and
+   * hand every caller that same close: one meanwhile waits for it.
+   */
+  close(): Promise<void> {
+    this.#closing ??= this.#shutDown();
+    return this.#closing;
+  }
+
+  async #shutDown(): Promise<void> {
     await this.#gate.close();
     try {
       await (await this.#store.built())?.close();
@@ -823,6 +895,7 @@ class ManagedUsageStore implements UsageStore {
 class ManagedAutomationStore implements AutomationStore {
   readonly #gate = new RecordsGate("the automation store is closed");
   readonly #release: () => Promise<void>;
+  #closing: Promise<void> | undefined;
   readonly #store: OverDatabase<DatabaseAutomationStore>;
 
   constructor(
@@ -841,7 +914,16 @@ class ManagedAutomationStore implements AutomationStore {
     );
   }
 
-  async close(): Promise<void> {
+  /**
+   * Close once, cleanup and then the release of this store's claim, and
+   * hand every caller that same close: one meanwhile waits for it.
+   */
+  close(): Promise<void> {
+    this.#closing ??= this.#shutDown();
+    return this.#closing;
+  }
+
+  async #shutDown(): Promise<void> {
     await this.#gate.close();
     try {
       await (await this.#store.built())?.close();
@@ -885,6 +967,7 @@ class ManagedAutomationStore implements AutomationStore {
 class ManagedExecutionStore implements ExecutionStore {
   readonly #gate = new RecordsGate("the execution store is closed");
   readonly #release: () => Promise<void>;
+  #closing: Promise<void> | undefined;
   readonly #store: OverDatabase<DatabaseExecutionStore>;
 
   constructor(
@@ -903,7 +986,16 @@ class ManagedExecutionStore implements ExecutionStore {
     );
   }
 
-  async close(): Promise<void> {
+  /**
+   * Close once, cleanup and then the release of this store's claim, and
+   * hand every caller that same close: one meanwhile waits for it.
+   */
+  close(): Promise<void> {
+    this.#closing ??= this.#shutDown();
+    return this.#closing;
+  }
+
+  async #shutDown(): Promise<void> {
     await this.#gate.close();
     try {
       await (await this.#store.built())?.close();

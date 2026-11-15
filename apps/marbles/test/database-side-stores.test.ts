@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { WorkspaceDatabaseOptions } from "~/database/managed";
-import { withWorkspaceDatabase } from "~/database/managed";
+import {
+  defaultWorkspaceTriggers,
+  openWorkspaceDatabase,
+  withWorkspaceDatabase,
+} from "~/database/managed";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { MemoryAutomationStore } from "~/lib/automation/store";
@@ -182,6 +186,72 @@ describe("the stores an engine keeps beside its records", () => {
     expect(await options.activityStore?.load()).toEqual([]);
     await kept.release();
     await expect(options.activityStore?.load()).rejects.toThrow("closed");
+  });
+
+  it("finish one close of a store, cleanup first, whoever else closes it meanwhile", async () => {
+    const stores = [
+      "records",
+      "runs",
+      "triggers",
+      "usageStore",
+      "automationStore",
+      "executionStore",
+    ] as const;
+    for (const overlapping of stores) {
+      const kept = withWorkspaceDatabase({
+        ...testInstances({ root: scratch() }),
+        root: scratch(),
+        state: join(scratch(), `overlap-${overlapping}`),
+        workspaceId: "overlap",
+      });
+      const { options } = kept;
+      // Opened, with something each store gives up as it closes.
+      await options.triggers?.lastTick("tick");
+      await options.records?.claimDelivery();
+      for (const other of stores.filter((each) => each !== overlapping)) {
+        await options[other]?.close();
+      }
+      const first = options[overlapping]?.close();
+      const second = options[overlapping]?.close();
+      expect(second, overlapping).toBe(first);
+      await second;
+      await kept.release();
+      expect(
+        (await Promise.allSettled([first, second])).map((each) => each.status),
+        overlapping
+      ).toEqual(["fulfilled", "fulfilled"]);
+    }
+  });
+
+  it("close the handle a workspace's own database opened once, for every overlapping close", async () => {
+    const database = openWorkspaceDatabase({
+      state: join(scratch(), "own"),
+      workspaceId: "own",
+    });
+    await database.triggers.lastTick("tick");
+    let firstDone = false;
+    const first = database.close().then(() => {
+      firstDone = true;
+    });
+    await database.close();
+    expect(firstDone).toBe(true);
+    await first;
+  });
+
+  it("finish an overlapping close of a store that owns its handle before either resolves", async () => {
+    const root = scratch();
+    const triggers = defaultWorkspaceTriggers(
+      join(scratch(), "triggers"),
+      root,
+      "triggers"
+    );
+    await triggers.lastTick("tick");
+    const first = triggers.close();
+    const second = triggers.close();
+    expect(second).toBe(first);
+    expect(
+      (await Promise.allSettled([first, second])).map((each) => each.status)
+    ).toEqual(["fulfilled", "fulfilled"]);
   });
 
   it("keep an activity's highest revision", async () => {
