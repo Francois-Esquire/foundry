@@ -320,6 +320,14 @@ export function declaringCatalog(): Catalog {
   const owner =
     route !== undefined && "load" in route ? loads.get(route.load) : undefined;
   if (owner !== undefined) {
+    // A load's module declaring after its host closed, from a timer or a
+    // callback: no engine uses that catalog any more.
+    if (
+      liveHosting(owner.workspaceId) === undefined &&
+      released.has(owner.workspaceId)
+    ) {
+      throw releasedError(owner.workspaceId);
+    }
     return owner.catalog;
   }
   if (importing > 0) {

@@ -616,3 +616,25 @@ it("lets every workspace finish closing before it closes the database, and repor
   expect(report.lastWrite).toBe("kept");
   expect(report.errors).toEqual(["alpha failed to close"]);
 }, 120_000);
+
+it("refuses what a closed workspace's module declares later, rather than keep it in a catalog no engine uses", async () => {
+  const root = await scratch();
+  const a = await workspace(
+    root,
+    "alpha",
+    // Declared from a module callback, outside every run, once alpha closed.
+    'globalThis.declareLate = () => step("late").do(() => "late");\n'
+  );
+  const report = await inProcess(
+    root,
+    `const alpha = await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  await alpha.close();
+  try {
+    globalThis.declareLate();
+    report.late = "declared";
+  } catch (error) {
+    report.late = error.name;
+  }`
+  );
+  expect(report.late).toBe("WorkspaceReleasedError");
+}, 120_000);
