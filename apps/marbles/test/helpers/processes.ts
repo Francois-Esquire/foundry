@@ -2,7 +2,11 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { compareStarts, lookProcesses } from "@foundry/lib/process-identity";
+import {
+  lookProcesses,
+  processAlive,
+  processState,
+} from "@foundry/lib/process-identity";
 import {
   notPrivate,
   recordSpawned,
@@ -48,12 +52,16 @@ export interface StopLimits {
 
 /** What the system says about a process right now. */
 interface Seen {
+  /** It has exited and waits to be reaped (a zombie): it is gone. */
+  readonly exited?: true;
   readonly pgid: number;
   readonly started: string;
 }
 
 /** How a stop reaches the system; a test replaces it to model pid reuse. */
 export interface ProcessSystem {
+  /** Whether a signal reaches `pid`: one the listing leaves out may still run. */
+  alive(pid: number): boolean;
   /**
    * The environment of `pid`, one `NAME=value` per entry; empty when it
    * cannot be read, `undefined` when no process has the pid.
@@ -146,7 +154,13 @@ class RecordedStop {
       // Read last, right before this one's own signal: what an earlier
       // record's stop took long enough to change shows here.
       const found = this.#system.look([record.pid]).get(record.pid);
-      const proof = prove(record, found, environment, this.#marker);
+      const proof = prove(
+        record,
+        found,
+        environment,
+        this.#marker,
+        this.#system
+      );
       if (typeof proof === "object") {
         this.#problems.set(record.pid, proof.problem);
       } else if (proof === "recorded") {
@@ -243,16 +257,28 @@ function prove(
   record: SpawnRecord,
   seen: Seen | undefined,
   environment: readonly string[] | undefined,
-  marker: Marker
+  marker: Marker,
+  system: Pick<ProcessSystem, "alive" | "look">
 ): Proof {
-  // The recorder's own proof: the same start, of the same kind.
-  if (
-    seen === undefined ||
-    compareStarts(seen.started, record.started) !== "same"
-  ) {
+  const pid = String(record.pid);
+  // The one rule (`processState`): gone only on proof; a pid the listing
+  // leaves out that a signal reaches, or a start it cannot compare, is
+  // neither gone nor proved.
+  const state = processState(record, {
+    alive: (each) => system.alive(each),
+    look: (pids) => system.look(pids),
+  });
+  if (state === "gone") {
     return "gone";
   }
-  const pid = String(record.pid);
+  if (state === "unknown" || seen === undefined || seen.exited === true) {
+    return {
+      problem:
+        seen === undefined
+          ? `process ${pid} is not listed but a signal still reaches it; not signalled, its record kept`
+          : `process ${pid}'s record names a start of a kind this system cannot compare (${record.started}); not signalled, its record kept`,
+    };
+  }
   if (record.group && seen.pgid !== record.pid) {
     return {
       problem: `process ${pid} was recorded leading its own group and is now in group ${String(seen.pgid)}; not signalled`,
@@ -371,6 +397,7 @@ function gone(error: unknown): boolean {
 }
 
 const SYSTEM: ProcessSystem = {
+  alive: processAlive,
   environment(pid) {
     return process.platform === "linux"
       ? linuxEnvironment(pid)
@@ -382,9 +409,10 @@ const SYSTEM: ProcessSystem = {
     if (seen === undefined) {
       throw new Error(`the system could not say how ${pids.join(", ")} run`);
     }
-    // One that has exited and waits to be reaped (a zombie) is gone: no
-    // signal reaches it, and where no one reaps it, it would never go.
-    return new Map([...seen].filter(([, entry]) => entry.exited !== true));
+    // One that has exited and waits to be reaped (a zombie) stays listed,
+    // marked so: it is gone, and not to be taken for one the listing leaves
+    // out (`processState`).
+    return seen;
   },
   members(pgid) {
     return ps(["-A", "-o", "pid=,pgid="])

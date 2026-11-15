@@ -163,6 +163,7 @@ it("proves a recorded process again before every signal, so a reused pid gets no
   let started = "Sun Nov 15 08:00:00 2026";
   const sent: [number, NodeJS.Signals][] = [];
   const system: ProcessSystem = {
+    alive: () => true,
     environment: () => [entry(marker)],
     kill(target, signal) {
       sent.push([target, signal]);
@@ -177,6 +178,60 @@ it("proves a recorded process again before every signal, so a reused pid gets no
     await stopRecorded(records, marker, { graceMs: 0, killMs: 0 }, system)
   ).toEqual([]);
   expect(sent).toEqual([[-4242, "SIGTERM"]]);
+});
+
+it("forgets a run's record only on proof its process is gone: never one unlisted that a signal reaches, nor one of a start it cannot compare", async () => {
+  const marker = uniqueMarker();
+  const records = temporaryDirectory("rec-");
+  const pid = 4_200_400;
+  const started = "ps:Sun Nov 15 08:00:00 2026";
+  const path = join(records, `${String(pid)}.json`);
+  const stop = (system: Partial<ProcessSystem>) =>
+    stopRecorded(
+      records,
+      marker,
+      { graceMs: 0, killMs: 0 },
+      {
+        alive: () => false,
+        environment: () => [entry(marker)],
+        kill: () => {
+          throw new Error("nothing here may be signalled");
+        },
+        look: () => new Map(),
+        members: () => [],
+        sleep: () => Promise.resolve(),
+        ...system,
+      }
+    );
+  const put = (start: string) =>
+    writePrivateFile(
+      path,
+      JSON.stringify({ group: false, pid, started: start })
+    );
+
+  put(started);
+  expect(await stop({ alive: (each) => each === pid })).toEqual([
+    expect.stringContaining("is not listed but a signal still reaches it"),
+  ]);
+  expect(existsSync(path)).toBe(true);
+
+  put("linux:00000000-0000-0000-0000-000000000000:1");
+  expect(
+    await stop({
+      alive: () => true,
+      look: () => new Map([[pid, { pgid: 1, started }]]),
+    })
+  ).toEqual([expect.stringContaining("a start of a kind this system cannot")]);
+  expect(existsSync(path)).toBe(true);
+
+  put(started);
+  expect(
+    await stop({
+      alive: () => true,
+      look: () => new Map([[pid, { exited: true, pgid: 1, started }]]),
+    })
+  ).toEqual([]);
+  expect(existsSync(records)).toBe(false);
 });
 
 it("does not signal a recorded process whose pid now names one that started later", async () => {
@@ -311,6 +366,7 @@ it("does not signal a recorded process whose environment cannot be read, and rep
   );
   const sent: [number, NodeJS.Signals][] = [];
   const system: ProcessSystem = {
+    alive: () => true,
     environment: () => undefined,
     kill: (target, signal) => {
       sent.push([target, signal]);
@@ -517,6 +573,7 @@ it("reads each process's identity again right before its own signal", async () =
   ]);
   const sent: [number, NodeJS.Signals][] = [];
   const system: ProcessSystem = {
+    alive: (pid) => started.has(pid),
     environment: () => [entry(marker)],
     kill(target, signal) {
       sent.push([target, signal]);
