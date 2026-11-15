@@ -495,13 +495,27 @@ interface OwnedWrite {
 }
 
 /**
- * `write` as the store's own copy, taken now and read once, and the rows it
- * puts. Throws a `RangeError` naming the first field SQLite would not give
+ * `write` as the store's own copy, taken now, and the rows it puts. Each
+ * property of the caller's write, and of every record in it, is read once:
+ * the copy those reads make is what the store checks, writes and hands to
+ * `onCommit`, so a getter answering differently a second time changes
+ * nothing. Throws a `RangeError` naming the first field SQLite would not give
  * back intact, such as `putRuns[2].queueId` or
  * `putRuns[0].metadata.list[3]`; a field that throws when read rejects the
  * write too.
  */
 function owned(write: WorkflowStoreWrite): OwnedWrite {
+  const {
+    deleteJobs,
+    deleteRunFrames,
+    deleteRuns,
+    deleteSuspensions,
+    putFrames,
+    putJobs,
+    putQueues,
+    putRuns,
+    putSuspensions,
+  } = write;
   const take = <T>(list: string, kind: RecordKind<T>, puts?: readonly T[]) =>
     (puts ?? []).map((record, index) => {
       const at = `${list}[${index}]`;
@@ -517,11 +531,11 @@ function owned(write: WorkflowStoreWrite): OwnedWrite {
         throw error;
       }
     });
-  const queues = take("putQueues", QUEUE, write.putQueues);
-  const jobs = take("putJobs", JOB, write.putJobs);
-  const runs = take("putRuns", RUN, write.putRuns);
-  const suspensions = take("putSuspensions", SUSPENSION, write.putSuspensions);
-  const frames = take("putFrames", FRAME, write.putFrames);
+  const queues = take("putQueues", QUEUE, putQueues);
+  const jobs = take("putJobs", JOB, putJobs);
+  const runs = take("putRuns", RUN, putRuns);
+  const suspensions = take("putSuspensions", SUSPENSION, putSuspensions);
+  const frames = take("putFrames", FRAME, putFrames);
   const records = <T>(list: readonly { record: T }[]) =>
     list.map(({ record }) => record);
   return {
@@ -534,15 +548,15 @@ function owned(write: WorkflowStoreWrite): OwnedWrite {
     })),
     suspensions: suspensions.map(({ record }) => rowOf(SUSPENSION, record)),
     write: {
-      deleteJobs: [...(write.deleteJobs ?? [])],
-      deleteRunFrames: [...(write.deleteRunFrames ?? [])],
-      deleteRuns: [...(write.deleteRuns ?? [])],
-      deleteSuspensions: [...(write.deleteSuspensions ?? [])],
-      ...(write.putFrames === undefined ? {} : { putFrames: records(frames) }),
-      ...(write.putJobs === undefined ? {} : { putJobs: records(jobs) }),
-      ...(write.putQueues === undefined ? {} : { putQueues: records(queues) }),
-      ...(write.putRuns === undefined ? {} : { putRuns: records(runs) }),
-      ...(write.putSuspensions === undefined
+      deleteJobs: [...(deleteJobs ?? [])],
+      deleteRunFrames: [...(deleteRunFrames ?? [])],
+      deleteRuns: [...(deleteRuns ?? [])],
+      deleteSuspensions: [...(deleteSuspensions ?? [])],
+      ...(putFrames === undefined ? {} : { putFrames: records(frames) }),
+      ...(putJobs === undefined ? {} : { putJobs: records(jobs) }),
+      ...(putQueues === undefined ? {} : { putQueues: records(queues) }),
+      ...(putRuns === undefined ? {} : { putRuns: records(runs) }),
+      ...(putSuspensions === undefined
         ? {}
         : { putSuspensions: records(suspensions) }),
     },

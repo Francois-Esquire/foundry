@@ -78,4 +78,25 @@ describe("MemoryWorkflowStore.snapshot", () => {
 
     expect(store.snapshot().runs).toStrictEqual([run("rn-a")]);
   });
+
+  test("unshares byte memory in what it returns", async () => {
+    const store = new MemoryWorkflowStore();
+    const bytes = new Uint8Array(new SharedArrayBuffer(1));
+    bytes[0] = 1;
+    await store.commit({
+      putRuns: [{ ...run("rn-a"), bytes } as unknown as RunRecord],
+    });
+    bytes[0] = 9;
+    const [read] = store.snapshot().runs as unknown as {
+      bytes: Uint8Array;
+    }[];
+    expect(read?.bytes[0]).toBe(1);
+    expect(read?.bytes.buffer).not.toBeInstanceOf(SharedArrayBuffer);
+    if (read !== undefined) {
+      read.bytes[0] = 7;
+    }
+    expect(
+      (store.snapshot().runs[0] as unknown as { bytes: Uint8Array }).bytes[0]
+    ).toBe(1);
+  });
 });

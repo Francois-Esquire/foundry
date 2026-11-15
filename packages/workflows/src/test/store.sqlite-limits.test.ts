@@ -552,6 +552,31 @@ describe("SqliteWorkflowStore storage limits", () => {
   });
 });
 
+describe("SqliteWorkflowStore writes and positions", () => {
+  test("onCommit receives the write its one read of each property gave", async () => {
+    let reads = 0;
+    let received: WorkflowStoreWrite | undefined;
+    const store = new SqliteWorkflowStore({
+      database: await memory.open(),
+      onCommit: (_transaction, write) => {
+        received = write;
+        return Promise.resolve();
+      },
+      scope: "s",
+    });
+    await store.commit({
+      get putRuns() {
+        reads += 1;
+        return reads === 1 ? [run] : undefined;
+      },
+    });
+
+    expect(reads).toBe(1);
+    expect(received?.putRuns).toStrictEqual([run]);
+    expect(await store.getRun(run.id)).toStrictEqual(run);
+  });
+});
+
 describe("workflow tables", () => {
   test.each([
     ["workflow_queues", workflowQueues, QUEUE, QueueRecordSchema.shape],

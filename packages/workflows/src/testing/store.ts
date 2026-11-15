@@ -363,6 +363,98 @@ export function describeWorkflowStore(
       expect(await allRuns(target, 1)).toStrictEqual(runs);
     });
 
+    test("reads each property of a write once, and keeps what that read gave", async () => {
+      const target = await store();
+      const reads = new Map<string, number>();
+      const once = <T>(property: string, value: T) => ({
+        enumerable: true,
+        get(): T | undefined {
+          const count = (reads.get(property) ?? 0) + 1;
+          reads.set(property, count);
+          // A second read answers differently; a store that asks again
+          // would write one thing and report another.
+          return count === 1 ? value : undefined;
+        },
+      });
+      const write = (prefix: string) =>
+        Object.defineProperties(
+          {},
+          {
+            deleteRuns: once(`${prefix}.deleteRuns`, ["rn-gone"]),
+            putFrames: once(`${prefix}.putFrames`, [frame("rn-a", 0)]),
+            putJobs: once(`${prefix}.putJobs`, [job("jb-a")]),
+            putQueues: once(`${prefix}.putQueues`, [queue("default")]),
+            putRuns: once(`${prefix}.putRuns`, [run("rn-a")]),
+            putSuspensions: once(`${prefix}.putSuspensions`, [
+              suspension("su-a", "rn-a"),
+            ]),
+          }
+        ) as WorkflowStoreWrite;
+      await target.commit({ putRuns: [run("rn-gone")] });
+
+      await target.commit(write("direct"));
+      await transactionOf(target)((view) => view.commit(write("view")));
+
+      for (const [property, count] of reads) {
+        expect([property, count]).toEqual([property, 1]);
+      }
+      expect(reads.size).toBe(12);
+      expect(await contents(target)).toStrictEqual({
+        frames: [frame("rn-a", 0)],
+        jobs: [job("jb-a")],
+        queues: [queue("default")],
+        runs: [run("rn-a")],
+        suspensions: [suspension("su-a", "rn-a")],
+      });
+    });
+
+    test("shares no byte memory with a caller, through a commit, a read or a view", async () => {
+      const target = await store();
+      const bytes = new Uint8Array(new SharedArrayBuffer(2));
+      bytes.set([1, 2]);
+      const holding = {
+        ...run("rn-bytes"),
+        archived: { bytes },
+      } as unknown as RunRecord;
+      let refusal: unknown;
+      try {
+        await target.commit({ putRuns: [holding] });
+      } catch (error) {
+        refusal = error;
+      }
+      if (refusal !== undefined) {
+        // A store that cannot keep bytes refuses them, naming the field,
+        // and keeps nothing of the write.
+        expect(String(refusal)).toContain("putRuns[0].archived.bytes");
+        expect(await target.getRun("rn-bytes")).toBeNull();
+        return;
+      }
+      bytes[0] = 9;
+      const stored = (record: RunRecord | null) =>
+        (record as unknown as { archived: { bytes: Uint8Array } } | null)
+          ?.archived.bytes;
+      const read = stored(await target.getRun("rn-bytes"));
+      expect([...(read ?? [])]).toEqual([1, 2]);
+      expect(read?.buffer).not.toBeInstanceOf(SharedArrayBuffer);
+      if (read !== undefined) {
+        read[1] = 7;
+      }
+      const [listed] = (await target.listRuns({ limit: 1 })).items;
+      expect([...(stored(listed ?? null) ?? [])]).toEqual([1, 2]);
+      await transactionOf(target)(async (view) => {
+        const seen = stored(await view.getRun("rn-bytes"));
+        if (seen !== undefined) {
+          seen[0] = 5;
+        }
+        expect([...(stored(await view.getRun("rn-bytes")) ?? [])]).toEqual([
+          1, 2,
+        ]);
+      });
+      expect([...(stored(await target.getRun("rn-bytes")) ?? [])]).toEqual([
+        1, 2,
+      ]);
+    });
+
     test("list reads refuse a limit or cursor they could not honour alike", async () => {
       const target = await store();
       for (const limit of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {

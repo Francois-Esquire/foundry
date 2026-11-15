@@ -1,5 +1,6 @@
 import { Turns } from "@foundry/lib/turns";
 
+import { detached } from "../detached";
 import type {
   JobRecord,
   OrchestratorStoreSnapshot,
@@ -246,19 +247,22 @@ interface OwnedWrite {
   readonly putSuspensions: readonly SuspensionRecord[];
 }
 
+/**
+ * The store's own copy of `write`: one deep copy, which reads each of the
+ * caller's properties once, with byte memory unshared (see `detached`).
+ */
 function owned(write: WorkflowStoreWrite): OwnedWrite {
+  const copy = detached(write);
   return {
-    deleteJobs: [...(write.deleteJobs ?? [])],
-    deleteRunFrames: [...(write.deleteRunFrames ?? [])],
-    deleteRuns: [...(write.deleteRuns ?? [])],
-    deleteSuspensions: [...(write.deleteSuspensions ?? [])],
-    putFrames: (write.putFrames ?? []).map((frame) => structuredClone(frame)),
-    putJobs: (write.putJobs ?? []).map((job) => structuredClone(job)),
-    putQueues: (write.putQueues ?? []).map((queue) => structuredClone(queue)),
-    putRuns: (write.putRuns ?? []).map((run) => structuredClone(run)),
-    putSuspensions: (write.putSuspensions ?? []).map((suspension) =>
-      structuredClone(suspension)
-    ),
+    deleteJobs: copy.deleteJobs ?? [],
+    deleteRunFrames: copy.deleteRunFrames ?? [],
+    deleteRuns: copy.deleteRuns ?? [],
+    deleteSuspensions: copy.deleteSuspensions ?? [],
+    putFrames: copy.putFrames ?? [],
+    putJobs: copy.putJobs ?? [],
+    putQueues: copy.putQueues ?? [],
+    putRuns: copy.putRuns ?? [],
+    putSuspensions: copy.putSuspensions ?? [],
   };
 }
 
@@ -292,7 +296,7 @@ class Tables {
 
   get<T>(table: ReadonlyMap<string, Row<T>>, id: string): T | null {
     const row = table.get(id);
-    return row === undefined ? null : structuredClone(row.record);
+    return row === undefined ? null : detached(row.record);
   }
 
   apply(write: OwnedWrite): void {
@@ -328,7 +332,7 @@ class Tables {
 
   listQueues(): QueueRecord[] {
     return ordered([...this.queues.values()]).map((row) =>
-      structuredClone(row.record)
+      detached(row.record)
     );
   }
 
@@ -372,7 +376,7 @@ class Tables {
 
   snapshot(): OrchestratorStoreSnapshot {
     const records = <T>(rows: Iterable<Row<T>>): T[] =>
-      ordered([...rows]).map((row) => structuredClone(row.record));
+      ordered([...rows]).map((row) => detached(row.record));
     return {
       frames: records(
         [...this.frames.values()].flatMap((frames) => [...frames.values()])
@@ -427,7 +431,7 @@ function page<T>(
   const items = found.slice(0, query.limit);
   const last = items.at(-1);
   return {
-    items: items.map((row) => structuredClone(row.record)),
+    items: items.map((row) => detached(row.record)),
     ...(found.length > items.length && last !== undefined
       ? { next: last.position }
       : {}),
