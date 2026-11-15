@@ -78,9 +78,10 @@ export class GenerationRecords {
 
   /**
    * Every generation recorded live, marked exited: for a Marbles process
-   * starting, whose predecessor left them so when it died. Their processes
-   * are stopped through their spawn records, and what they owned is put
-   * right by the next engine start's recovery.
+   * starting, whose predecessor left them so when it died. A generation
+   * whose Marbles process is gone drains its runs and exits on its own, and
+   * what it held once it is gone is put right by the next engine start's
+   * recovery.
    */
   endAll(): Promise<void> {
     return asBusy(async () => {

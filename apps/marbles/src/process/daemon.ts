@@ -1,12 +1,12 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { holdsLock } from "@foundry/lib/file-lock";
 import {
+  isGone,
   type ProcessIdentity,
   sameProcess,
 } from "@foundry/lib/process-identity";
@@ -23,6 +23,12 @@ import {
 } from "~/lib/state/workspace";
 import type { WorkspaceSummary } from "~/model/connection";
 import { Channel, socketTransport } from "~/process/channel";
+import {
+  type Fingerprint,
+  fingerprintOf,
+  installationDigest,
+  sourceDigests,
+} from "~/process/fingerprint";
 import type { ProcessInstance } from "~/process/instance";
 import { claimProcess } from "~/process/instance";
 import {
@@ -55,7 +61,6 @@ import {
   sourceFiles,
   sourceRoot,
 } from "~/workspace/source";
-import { sourceDigest } from "~/workspace/watch";
 import { version } from "../../package.json";
 
 /**
@@ -165,14 +170,6 @@ interface Hosted {
   summary: WorkspaceSummary;
 }
 
-/** What a generation loaded: the installation, and each workspace's source. */
-interface Fingerprint {
-  readonly digest: string;
-  readonly installation: string;
-  /** By workspace id. */
-  readonly sources: ReadonlyMap<string, string>;
-}
-
 interface Client {
   readonly channel: Channel;
   readonly subscriptions: Set<string>;
@@ -243,64 +240,6 @@ async function everyOf<T>(
   }
 }
 
-/**
- * A digest of the installation a generation runs from: the Marbles
- * version, and the size and modification time of every file under the
- * directory its entry sits in, the build (`dist`) or the source (`src`).
- */
-function installationDigest(entry: string): string {
-  const hash = createHash("sha256");
-  hash.update(version);
-  const top = dirname(dirname(entry));
-  const root = entry.endsWith(".ts") ? top : dirname(entry);
-  const walk = (dir: string): void => {
-    let names: string[];
-    try {
-      names = readdirSync(dir).sort();
-    } catch {
-      return;
-    }
-    for (const name of names) {
-      const path = join(dir, name);
-      const files = sourceFiles(path, { helpers: true });
-      if (files === undefined) {
-        walk(path);
-        continue;
-      }
-      hash.update(path);
-      hash.update(sourceDigest(path) ?? "missing");
-    }
-  };
-  walk(root);
-  return hash.digest("hex");
-}
-
-/** Every hosted registration's source digest, by workspace id. */
-function sourceDigests(
-  records: readonly WorkspaceRecord[]
-): ReadonlyMap<string, string> {
-  const digests = new Map<string, string>();
-  for (const record of records) {
-    const source = record.config ?? join(record.root, DEFAULT_SOURCE);
-    digests.set(record.id, sourceDigest(source) ?? "none");
-  }
-  return digests;
-}
-
-function fingerprintOf(
-  installation: string,
-  sources: ReadonlyMap<string, string>
-): Fingerprint {
-  const hash = createHash("sha256");
-  hash.update(installation);
-  for (const [id, digest] of [...sources].sort(([a], [b]) =>
-    a.localeCompare(b)
-  )) {
-    hash.update(`\0${id}\0${digest}`);
-  }
-  return { digest: hash.digest("hex"), installation, sources };
-}
-
 /** Signal the process group `child` leads; a group already gone is fine. */
 function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   if (child.pid === undefined) {
@@ -356,7 +295,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   let stopping = false;
   /** The fingerprint the last candidate that did not load was given: not tried again on its own. */
   let refused: string | undefined;
-  let installation = installationDigest(script);
+  let installation = installationDigest(script, version);
   let installationAt = Date.now();
   let switchTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -592,10 +531,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         setState(workspace, "failed", { error: why });
       }
     }
-    // A generation that keeps dying as it starts is left down, for a
-    // change to its sources, or a reload, to bring back.
+    // A generation that dies soon after it took over is not started again
+    // as it was: a change to what it loaded, or a reload, brings one back.
     if (Date.now() - (generation.since ?? 0) >= SETTLE_MS) {
       scheduleSwitch("the engine generation exited", { force: true });
+    } else {
+      refused = generation.fingerprint.digest;
     }
   }
 
@@ -689,7 +630,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   /** What would be loaded now, with the installation read again only every so often. */
   async function fingerprintNow(): Promise<Fingerprint> {
     if (Date.now() - installationAt >= INSTALLATION_POLL_MS) {
-      installation = installationDigest(script);
+      installation = installationDigest(script, version);
       installationAt = Date.now();
     }
     const registered = (await registry.list()).filter((each) => each.hosted);
@@ -789,7 +730,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     previous: Generation | undefined
   ): Promise<Fingerprint> {
     const registered = (await registry.list()).filter((each) => each.hosted);
-    installation = installationDigest(script);
+    installation = installationDigest(script, version);
     installationAt = Date.now();
     const fingerprint = fingerprintOf(installation, sourceDigests(registered));
     for (const record of registered) {
@@ -905,26 +846,37 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         ? new Map(error.loads.map((load) => [loadedId(load), load.error]))
         : undefined;
     for (const workspace of hosted.values()) {
-      const { id } = workspace.summary;
-      const own = failures === undefined ? why : failures.get(id);
-      if (previous?.hosts.has(id)) {
-        // Still running as it was: ready, saying the change did not load.
-        setState(workspace, "ready", {
-          ...(own === undefined
-            ? {}
-            : {
-                error: `a change did not load, so the previous load still runs: ${own}`,
-              }),
-        });
-      } else if (
-        workspace.summary.state === "starting" ||
-        workspace.summary.state === "reloading"
-      ) {
-        setState(workspace, "failed", { error: own ?? why });
-      }
+      const own =
+        failures === undefined ? why : failures.get(workspace.summary.id);
+      tellRefused(workspace, previous, own, why);
     }
     await stopGeneration(candidate);
     await records.mark(candidate.number, "failed", why).catch(() => undefined);
+  }
+
+  /**
+   * Tell `workspace` the candidate did not take over: one `previous` still
+   * runs stays ready, saying the change did not load, in its summary and
+   * to whoever follows its lines; one that was coming up has failed.
+   */
+  function tellRefused(
+    workspace: Hosted,
+    previous: Generation | undefined,
+    own: string | undefined,
+    why: string
+  ): void {
+    const { id, state } = workspace.summary;
+    if (previous?.hosts.has(id)) {
+      if (own === undefined) {
+        setState(workspace, "ready");
+        return;
+      }
+      const said = `a change did not load, so the previous load still runs: ${own}`;
+      setState(workspace, "ready", { error: said });
+      forwardLine(id, said);
+    } else if (state === "starting" || state === "reloading") {
+      setState(workspace, "failed", { error: own ?? why });
+    }
   }
 
   /** A switch soon, once the edits that asked for it have settled. */
@@ -965,14 +917,19 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     polling = true;
     (async () => {
       const now = await fingerprintNow();
+      // With none current, any change to what is registered is worth a
+      // try, unless it is what was refused last.
       const loaded = current?.fingerprint.digest;
       if (
-        loaded !== undefined &&
+        (loaded !== undefined || hosted.size > 0) &&
         now.digest !== loaded &&
         now.digest !== refused
       ) {
         for (const [id, digest] of now.sources) {
-          if (current?.fingerprint.sources.get(id) !== digest) {
+          if (
+            current !== undefined &&
+            current.fingerprint.sources.get(id) !== digest
+          ) {
             print(`[${id}] source changed · reloading`);
           }
         }
@@ -1085,13 +1042,26 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     };
     hosted.set(workspace.id, entry);
     publish(entry);
+    // Not registered unless it was, when it does not load: it must not
+    // keep every later generation from loading cleanly.
+    const unregister = async (): Promise<void> => {
+      if (before?.hosted !== true) {
+        await registry.unhost(workspace.id);
+      }
+    };
     const target = current;
     if (target === undefined) {
-      await runSwitch(
-        `workspace ${workspace.id} attached`,
-        setup === undefined ? {} : { [workspace.id]: setup }
-      );
+      try {
+        await runSwitch(
+          `workspace ${workspace.id} attached`,
+          setup === undefined ? {} : { [workspace.id]: setup }
+        );
+      } catch (error) {
+        await unregister();
+        throw error;
+      }
       if (entry.summary.state === "failed") {
+        await unregister();
         throw new Error(entry.summary.error ?? "the workspace did not load");
       }
       return entry.summary;
@@ -1109,11 +1079,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         )
       );
     } catch (error) {
-      // Not registered unless it was: it must not keep every later
-      // generation from loading cleanly.
-      if (before?.hosted !== true) {
-        await registry.unhost(workspace.id);
-      }
+      await unregister();
       setState(entry, "failed", { error: message(error) });
       throw error;
     }
@@ -1199,10 +1165,17 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       });
   }
 
-  /** The generation that owns run `runId` of workspace `id`: its run's owner's. */
+  /**
+   * The generation that owns run `runId` of workspace `id`: its run's
+   * owner's. `undefined` when the run is not stored, or its owner is gone,
+   * which the current generation answers for. A run a live process owns
+   * that is not one of these generations is refused when `acting`: nothing
+   * here may change it.
+   */
   async function ownerOf(
     id: string,
-    runId: unknown
+    runId: unknown,
+    acting: boolean
   ): Promise<Generation | undefined> {
     if (typeof runId !== "string") {
       return;
@@ -1213,14 +1186,18 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (run === null) {
       return;
     }
-    return hostsOf(id).find(
+    const owner = { pid: run.owner.pid, started: run.owner.started ?? null };
+    const found = hostsOf(id).find(
       (generation) =>
         generation.identity !== undefined &&
-        sameProcess(generation.identity, {
-          pid: run.owner.pid,
-          started: run.owner.started ?? null,
-        })
+        sameProcess(generation.identity, owner)
     );
+    if (acting && found === undefined && !isGone(owner)) {
+      throw new Error(
+        `run ${runId} is owned by pid ${String(owner.pid)}, which is not an engine generation of this Marbles process`
+      );
+    }
+    return found;
   }
 
   /**
@@ -1257,7 +1234,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     const params = { ...rest, id };
     const hosts = hostsOf(id);
     if (RUN_METHODS.has(name)) {
-      const owner = await ownerOf(id, rest.runId);
+      const owner = await ownerOf(
+        id,
+        rest.runId,
+        name !== WORKSPACE_METHODS.getRun
+      );
       if (owner !== undefined) {
         return await ask(owner, method, params);
       }
@@ -1431,7 +1412,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     // Whoever can connect can run workflows and agents as this user.
     chmodSync(layout.socket, 0o600);
     print(`[marbles] pid ${String(process.pid)} · ${layout.socket}`);
-    // What an earlier Marbles process left recorded live died with it.
+    // What an earlier Marbles process left recorded live is not this
+    // one's: a generation it left drains and exits once its connection to
+    // that process is gone, and what it held is a gone process's then.
     await records.endAll();
     const registered = (await registry.list()).filter((each) => each.hosted);
     if (registered.length > 0) {
