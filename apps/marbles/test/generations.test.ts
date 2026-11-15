@@ -989,7 +989,7 @@ describe("engine generations", () => {
     fixture.client.close();
   }, 150_000);
 
-  it("lets other work through while a detach waits for a retired generation, refusing new work for the detaching workspace", async () => {
+  it("lets other work through while a detach waits for a retired generation, refusing new work for the detaching workspace and holding its attaches until it ends", async () => {
     const lines: string[] = [];
     const fixture = await setUp({
       daemon: { print: (line) => lines.push(line) },
@@ -1010,14 +1010,19 @@ describe("engine generations", () => {
         ).toBe(true),
       { interval: 50, timeout: 60_000 }
     );
-    // New work for it is refused, and so is attaching it again.
+    // New work for it is refused; attaching it again waits for the detach.
     await expect(workspace.actions.launch("hold2", {})).rejects.toThrow(
       "is detaching"
     );
-    await expect(fixture.client.attach(fixture.source)).rejects.toThrow(
-      "is detaching"
-    );
     await expect(workspace.snapshot()).rejects.toThrow("is detaching");
+    const order: string[] = [];
+    const attaches = [1, 2].map((n) =>
+      fixture.client.attach(fixture.source).then((summary) => {
+        order.push(`attach ${String(n)}`);
+        return summary;
+      })
+    );
+    const detached = detaching.then(() => order.push("detach"));
     // Another workspace attaches meanwhile: the daemon's turn is free.
     const otherRoot = join(fixture.gates, "..", "other");
     mkdirSync(otherRoot);
@@ -1027,11 +1032,17 @@ describe("engine generations", () => {
     expect(other.state).toBe("ready");
     // Its run is still reachable where it runs, and ending it ends the detach.
     await workspace.actions.runs.cancel(runId);
-    await detaching;
+    await detached;
     await gone(first);
-    expect((await fixture.client.workspaces()).map((each) => each.id)).toEqual([
-      other.id,
-    ]);
+    // Then both attaches host it afresh, as one workspace.
+    const [again, twice] = await Promise.all(attaches);
+    expect(order[0]).toBe("detach");
+    expect(again?.state).toBe("ready");
+    expect(twice?.id).toBe(again?.id);
+    expect(again?.pid).not.toBe(first);
+    expect(
+      (await fixture.client.workspaces()).map((each) => each.id).sort()
+    ).toEqual([other.id, fixture.summary.id].sort());
     fixture.client.close();
   }, 150_000);
 
@@ -1087,7 +1098,7 @@ describe("engine generations", () => {
     fixture.client.close();
   }, 150_000);
 
-  it("completes a daemon stop while a detach waits for a retired generation", async () => {
+  it("completes a daemon stop while a detach waits for a retired generation, refusing the attach that waited on it", async () => {
     const lines: string[] = [];
     const fixture = await setUp({
       daemon: { print: (line) => lines.push(line) },
@@ -1111,11 +1122,17 @@ describe("engine generations", () => {
         ).toBe(true),
       { interval: 50, timeout: 60_000 }
     );
+    // An attach waiting for the detach is settled by the stop too.
+    const attaching = fixture.client.attach(fixture.source).then(
+      () => "attached",
+      () => "refused"
+    );
     // Within the stop's bounds: each generation is asked, then killed.
     await daemons.pop()?.close();
     expect(processAlive(first)).toBe(false);
     expect(processAlive(second)).toBe(false);
     expect(["detached", "refused"]).toContain(await settled);
+    expect(await attaching).toBe("refused");
     fixture.client.close();
   }, 150_000);
 

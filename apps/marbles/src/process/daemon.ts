@@ -1587,28 +1587,55 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     const workspace = layout.workspace(placed);
     const config = found ? configPath : null;
-    return inTurn(async () => {
-      refuseWhileStopping();
-      // Its runs and sessions would be written through the link.
-      if (!insideState(layout.state, workspace.id)) {
-        throw new Error(
-          `the state of workspace ${workspace.id} at ${workspace.dir} links out of the state root; it is not hosted`
-        );
-      }
-      const existing = hosted.get(workspace.id);
-      if (existing?.detaching !== undefined) {
-        throw new Error(
-          `workspace ${workspace.id} is detaching; attach it again once it has`
-        );
-      }
-      if (existing !== undefined && existing.summary.state !== "stopped") {
-        const again = await attachAgain(existing, configPath, setup);
-        if (again !== undefined) {
-          return again;
+    return attachInTurn(workspace, config, configPath, setup);
+  }
+
+  /**
+   * The attach itself, in the daemon's turn. One that finds the workspace
+   * detaching waits for that detach out of the turn, then tries again: it
+   * hosts the workspace afresh once the detach is done, and is refused as
+   * any attach is if the daemon began to stop meanwhile.
+   */
+  async function attachInTurn(
+    workspace: Workspace,
+    config: string | null,
+    configPath: string,
+    setup: SetupDraftParams | undefined
+  ): Promise<WorkspaceSummary> {
+    for (;;) {
+      const attached = await inTurn(
+        async (): Promise<
+          | { readonly summary: WorkspaceSummary }
+          | { readonly detaching: Promise<void> }
+        > => {
+          refuseWhileStopping();
+          // Its runs and sessions would be written through the link.
+          if (!insideState(layout.state, workspace.id)) {
+            throw new Error(
+              `the state of workspace ${workspace.id} at ${workspace.dir} links out of the state root; it is not hosted`
+            );
+          }
+          const existing = hosted.get(workspace.id);
+          if (existing?.detaching !== undefined) {
+            return { detaching: existing.detaching };
+          }
+          if (existing !== undefined && existing.summary.state !== "stopped") {
+            const again = await attachAgain(existing, configPath, setup);
+            if (again !== undefined) {
+              return { summary: again };
+            }
+          }
+          return {
+            summary: await hostNew(workspace, config, configPath, setup),
+          };
         }
+      );
+      if ("summary" in attached) {
+        return attached.summary;
       }
-      return await hostNew(workspace, config, configPath, setup);
-    });
+      // Done or failed, the detach is over: the next try decides.
+      await attached.detaching.catch(() => undefined);
+    }
   }
 
   /**
