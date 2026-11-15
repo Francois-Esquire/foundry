@@ -654,6 +654,139 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     await next.shutdown();
   });
 
+  it("asks afresh, right before each VM it removes, whether another row records it", async () => {
+    const runtime = createFakeContainerRuntime();
+    const store = newStore();
+    const gone = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const left = await gone.start(SPEC);
+    const other = await gone.start(SPEC);
+    const row = await store.get(left.id);
+    const otherRow = await store.get(other.id);
+    if (row === undefined || otherRow === undefined) {
+      throw new Error("no rows");
+    }
+    // `left` has two VMs: an open committed its next name, then died.
+    await store.commit({
+      putContainers: [{ ...row, nativeId: `${left.id}-2`, status: "starting" }],
+    });
+    await runtime.create({
+      cpus: 1,
+      detached: false,
+      disableNetwork: false,
+      env: {},
+      image: "x",
+      labels: {
+        [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
+        [CONTAINER_INSTANCE_LABEL]: "instance-a",
+        [CONTAINER_ID_LABEL]: left.id,
+      },
+      memoryMib: 1,
+      mounts: [],
+      name: `${left.id}-2`,
+      ports: [],
+      pull: "missing",
+      workdir: "/w",
+    });
+    // While the first is stopping, a row written past the registry comes
+    // to record the second: from then on it is that row's.
+    const names = [`${left.id}-1`, `${left.id}-2`];
+    const stop = runtime.stopResource.bind(runtime);
+    let claimed: string | undefined;
+    runtime.stopResource = async (name) => {
+      if (claimed === undefined && names.includes(name)) {
+        claimed = names.find((each) => each !== name);
+        await store.commit({
+          putContainers: [
+            {
+              ...otherRow,
+              holder: "alive",
+              nativeId: claimed,
+              status: "running",
+            },
+          ],
+        });
+      }
+      await stop(name);
+    };
+    const next = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+
+    const recovered = await next.recover((each) => each.id === left.id);
+
+    expect(recovered).toMatchObject({
+      conflicts: [claimed],
+      kept: [left.id],
+      removed: [],
+    });
+    const instance = runtime.instances.find((i) => i.id === claimed);
+    expect(instance?.removed).toBe(false);
+    expect(instance?.stopped).toBe(false);
+    await next.shutdown();
+  });
+
+  it("never acts on a VM whose name is not its labelled row's own, nor writes a row recording another's", async () => {
+    const runtime = createFakeContainerRuntime();
+    const store = newStore();
+    const gone = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const left = await gone.start(SPEC);
+    const other = await gone.start(SPEC);
+    // A VM labelled `left`'s whose name is `other`'s, as the runtime lists it.
+    const list = runtime.listResources.bind(runtime);
+    runtime.listResources = async (query) => {
+      const listed = await list(query);
+      return {
+        ...listed,
+        resources: listed.resources.map((resource) =>
+          resource.name === `${other.id}-1`
+            ? {
+                ...resource,
+                labels: { ...resource.labels, [CONTAINER_ID_LABEL]: left.id },
+              }
+            : resource
+        ),
+      };
+    };
+    await store.commit({ deleteContainers: [other.id] });
+    const next = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const recovered = await next.recover((each) => each.id === left.id);
+    expect(recovered).toMatchObject({
+      conflicts: [`${other.id}-1`],
+      kept: [left.id],
+    });
+    expect(await next.sweep()).not.toContain(`${other.id}-1`);
+    const instance = runtime.instances.find((i) => i.id === `${other.id}-1`);
+    expect(instance?.removed).toBe(false);
+
+    // A row that records another row's name, written past the registry,
+    // is refused when the registry would write it back.
+    const row = await store.get(left.id);
+    if (row === undefined) {
+      throw new Error("no row");
+    }
+    await store.commit({
+      putContainers: [{ ...row, nativeId: `${other.id}-1`, status: "stopped" }],
+    });
+    await expect(next.restart(left.id, SPEC)).rejects.toThrow(
+      "records the native name"
+    );
+    await next.shutdown();
+  });
+
   it("keeps the row of a VM a recovery could not remove, removing, and the next recovery takes it over and removes it", async () => {
     const runtime = createFakeContainerRuntime();
     const store = newStore();

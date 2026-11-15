@@ -1,7 +1,7 @@
 import { SandboxError } from "../errors";
 import { assertNotAborted } from "../sandbox";
 import type { ContainerRow } from "../schema";
-import type { ContainerStore } from "../store/index";
+import type { ContainerStore, ContainerStoreWrite } from "../store/index";
 import { createMemoryContainerStore } from "../store/memory";
 import {
   ACTIVE_CONTAINER_RESOURCE_STATUSES,
@@ -166,7 +166,7 @@ interface Live {
  */
 export function createContainers(options: CreateContainersOptions): Containers {
   const { runtime } = options;
-  const store = options.store ?? createMemoryContainerStore();
+  const store = ownNamesOnly(options.store ?? createMemoryContainerStore());
   const holder = options.holder ?? globalThis.crypto.randomUUID();
   const live = new Map<string, Live>();
   const pending = new Map<string, Promise<Live>>();
@@ -572,10 +572,8 @@ export function createContainers(options: CreateContainersOptions): Containers {
     readonly removed: boolean;
   }> => {
     let resources: readonly ContainerResourceSummary[];
-    let recorded: ReadonlyMap<string, string>;
     try {
       resources = await enumerate(runtime, selection, undefined);
-      recorded = await recordedNames(row.id);
     } catch {
       return { conflicts: [], removed: false };
     }
@@ -588,7 +586,11 @@ export function createContainers(options: CreateContainersOptions): Containers {
       ) {
         continue;
       }
-      if (recorded.has(resource.name)) {
+      const others = await anotherOwns(row, resource.name);
+      if (others === undefined) {
+        return { conflicts, removed: false };
+      }
+      if (others) {
         conflicts.push(resource.name);
       } else if (!(await disposeListed(resource))) {
         removed = false;
@@ -601,16 +603,32 @@ export function createContainers(options: CreateContainersOptions): Containers {
     return { conflicts, removed: true };
   };
 
-  /** Every native name a row other than `except` records, with the row that does. */
-  const recordedNames = async (
+  /**
+   * Whether the VM `name` is not `row`'s to remove: its name is not one of
+   * `row`'s own, or another row records it, asked of the store right
+   * before its removal, never of anything read before an earlier one.
+   * `undefined` when the store cannot say.
+   */
+  const anotherOwns = async (
+    row: ContainerRow,
+    name: string
+  ): Promise<boolean | undefined> => {
+    try {
+      return (
+        !ownsNativeName(row.id, name) || (await recordedByAnother(name, row.id))
+      );
+    } catch {
+      // A store that cannot be read says nothing either way: `undefined`.
+    }
+  };
+
+  /** Whether a row other than `except` records the native name `name`, read now. */
+  const recordedByAnother = async (
+    name: string,
     except?: string
-  ): Promise<ReadonlyMap<string, string>> =>
-    new Map(
-      (await store.list()).flatMap((stored) =>
-        stored.id === except || stored.nativeId === undefined
-          ? []
-          : [[stored.nativeId, stored.id] as const]
-      )
+  ): Promise<boolean> =>
+    (await store.list()).some(
+      (stored) => stored.id !== except && stored.nativeId === name
     );
 
   /** Remove a VM the inventory listed: whether the runtime no longer lists it. */
@@ -836,15 +854,23 @@ export function createContainers(options: CreateContainersOptions): Containers {
     async sweep(signal) {
       assertOpen();
       const { removed: swept, resources } = await reclaim(signal);
-      // A VM a row records is that row's, whatever its label says.
-      const recorded = await recordedNames();
       for (const resource of resources) {
         assertNotAborted(signal, "container sweep was cancelled");
-        if (swept.includes(resource.name) || recorded.has(resource.name)) {
+        if (swept.includes(resource.name)) {
           continue;
         }
         const id = resource.labels[CONTAINER_ID_LABEL];
-        if (id !== undefined && (await store.get(id)) !== undefined) {
+        // Each asked of the store right before this VM's removal: a VM
+        // whose name is not its labelled row's own is no row's to sweep,
+        // and one a row has, or one recording its name, is that row's.
+        if (
+          id !== undefined &&
+          (!ownsNativeName(id, resource.name) ||
+            (await store.get(id)) !== undefined)
+        ) {
+          continue;
+        }
+        if (await recordedByAnother(resource.name)) {
           continue;
         }
         await dispose(runtime, resource);
@@ -867,6 +893,63 @@ function parseSpec(input: unknown): ContainerSandboxConstraints {
     );
   }
   return Object.freeze(result.data);
+}
+
+/**
+ * Whether `name` is a native name of the row `rowId`'s own: the
+ * `<rowId>-<generation>` that `nextNativeId` makes for it, and that the
+ * VM booted under it is labelled with. Row ids are UUIDs, so no name is
+ * two rows' own.
+ */
+export function ownsNativeName(rowId: string, name: string): boolean {
+  return (
+    name.startsWith(`${rowId}-`) &&
+    GENERATION.test(name.slice(rowId.length + 1))
+  );
+}
+
+const GENERATION = /^\d+$/;
+
+/**
+ * `store`, refusing any write of a row that records a native name not of
+ * its own, through a transaction's view as well: so no row the registry
+ * writes can claim a VM another row's id labels. Everything else passes
+ * through to `store` unchanged.
+ */
+function ownNamesOnly(store: ContainerStore): ContainerStore {
+  const checked = (write: ContainerStoreWrite): SandboxError | undefined => {
+    const row = (write.putContainers ?? []).find(
+      (each) =>
+        each.nativeId !== undefined && !ownsNativeName(each.id, each.nativeId)
+    );
+    return row === undefined
+      ? undefined
+      : new SandboxError(
+          "invalid-contract",
+          `container ${row.id} records the native name ${String(row.nativeId)}, which is not one of its own`
+        );
+  };
+  const guard = (view: ContainerStore): ContainerStore =>
+    new Proxy(view, {
+      get(target, property, receiver) {
+        if (property === "commit") {
+          return (write: ContainerStoreWrite) => {
+            const refused = checked(write);
+            return refused === undefined
+              ? target.commit(write)
+              : Promise.reject(refused);
+          };
+        }
+        if (property === "transaction" && target.transaction !== undefined) {
+          const { transaction } = target;
+          return <T>(work: (inner: ContainerStore) => Promise<T>) =>
+            transaction.call(target, (inner) => work(guard(inner)));
+        }
+        const value: unknown = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  return guard(store);
 }
 
 /** `<rowId>-<generation>`, the generation read back off the previous native id. */
