@@ -838,70 +838,108 @@ export class Orchestrator {
       readonly workflow: Workflow;
     }[] = [];
     for (const row of rows) {
-      const definition = row.definition ?? { name: row.step };
-      const factory = this.registry.resolve(definition.name);
-      const construction = this.#runContext(
-        row.id,
-        definition,
-        row.links ?? {}
-      );
-      let suspensionRecords = await collectPageItems((page) =>
-        this.#suspensions.list({ runId: row.id, ...page })
-      );
-      if (row.lastStatus === "suspended" && row.suspension) {
-        await this.#suspensions.park(row.id, row.step, row.suspension);
-        suspensionRecords = await collectPageItems((page) =>
-          this.#suspensions.list({ runId: row.id, ...page })
-        );
-      } else if (
-        row.lastStatus === "suspended" &&
-        !suspensionRecords.some((record) => record.status === "pending")
-      ) {
-        throw new Error(`Suspended Run ${row.id} has no suspension authority`);
-      }
-      const workflow = await runEffectPromise(
-        Effect.gen(this, function* () {
-          const instance = yield* factoryToEffect(
-            factory,
-            row.input,
-            construction.context
-          );
-          const runWorkflow = yield* Orchestrator.#asWorkflow(
-            instance,
-            row.input
-          );
-          const seedSteps = Orchestrator.#snapshotStepsFromMetadata(
-            row.metadata
-          );
-          if (seedSteps !== null) {
-            yield* runWorkflow.root.snapshot.seed(seedSteps);
-          }
-          for (const suspension of suspensionRecords) {
-            if (suspension.status === "resolved") {
-              yield* Effect.promise(() =>
-                runWorkflow.resolveOccurrence(
-                  suspension.stepPath,
-                  suspension.name,
-                  suspension.occurrence,
-                  suspension.resolution
-                )
-              );
-            }
-          }
-          this.#wireWorkflowObservation(runWorkflow, row.id);
-          return runWorkflow;
-        }).pipe(Scope.extend(this.#scope))
-      );
-      construction.finish();
-      this.#throwIfStopped();
-      await this.#participants.recover(row.id, row.links?.jobId);
-      prepared.push({ row, workflow });
+      prepared.push({ row, workflow: await this.#rebuild(row) });
     }
     this.#throwIfStopped();
     return prepared.map(({ row, workflow }) => {
       queue.adopt(workflow, row);
       return row.id;
     });
+  }
+
+  /**
+   * Take on one suspended Run after start, as `start` takes on those it
+   * recovers: rebuilt from its definition, its recorded steps and its
+   * resolved suspensions, parked again, and resumed here once its pending
+   * suspension is resolved. For a host whose other Orchestrator over the
+   * same store has let the Run go; the host decides that it may (`recovers`
+   * is not asked). Resolves with its handle, or `null` when this queue's
+   * store holds no suspended Run of that id. A Run that is queued or
+   * running is refused: it may be executing elsewhere. Rejects when the
+   * Orchestrator has not started, the Run's definition is not registered,
+   * or this Orchestrator holds the Run already.
+   */
+  async adopt(runId: string): Promise<DispatchedWorkflow | null> {
+    if (this.#lifecycle !== "started") {
+      throw new Error(
+        "An Orchestrator takes on a Run after start only once it has started"
+      );
+    }
+    const queue = this.#requireQueue();
+    const row = (await queue.findRecoverableRuns()).find(
+      (candidate) => candidate.id === runId
+    );
+    if (row === undefined || row.lastStatus !== "suspended") {
+      if (row !== undefined) {
+        throw new Error(
+          `Run ${runId} is ${row.lastStatus}, not suspended; only a parked Run is taken on after start`
+        );
+      }
+      return null;
+    }
+    const definition = row.definition?.name ?? row.step;
+    if (!this.registry.has(definition)) {
+      throw new RecoverableDefinitionMissingError(row.id, definition);
+    }
+    const workflow = await this.#rebuild(row);
+    this.#throwIfStopped();
+    return queue.adopt(workflow, row);
+  }
+
+  /** A recoverable Run's workflow, rebuilt as it stood, its suspension authority restored. */
+  async #rebuild(row: RecoverableRun): Promise<Workflow> {
+    const definition = row.definition ?? { name: row.step };
+    const factory = this.registry.resolve(definition.name);
+    const construction = this.#runContext(row.id, definition, row.links ?? {});
+    let suspensionRecords = await collectPageItems((page) =>
+      this.#suspensions.list({ runId: row.id, ...page })
+    );
+    if (row.lastStatus === "suspended" && row.suspension) {
+      await this.#suspensions.park(row.id, row.step, row.suspension);
+      suspensionRecords = await collectPageItems((page) =>
+        this.#suspensions.list({ runId: row.id, ...page })
+      );
+    } else if (
+      row.lastStatus === "suspended" &&
+      !suspensionRecords.some((record) => record.status === "pending")
+    ) {
+      throw new Error(`Suspended Run ${row.id} has no suspension authority`);
+    }
+    const workflow = await runEffectPromise(
+      Effect.gen(this, function* () {
+        const instance = yield* factoryToEffect(
+          factory,
+          row.input,
+          construction.context
+        );
+        const runWorkflow = yield* Orchestrator.#asWorkflow(
+          instance,
+          row.input
+        );
+        const seedSteps = Orchestrator.#snapshotStepsFromMetadata(row.metadata);
+        if (seedSteps !== null) {
+          yield* runWorkflow.root.snapshot.seed(seedSteps);
+        }
+        for (const suspension of suspensionRecords) {
+          if (suspension.status === "resolved") {
+            yield* Effect.promise(() =>
+              runWorkflow.resolveOccurrence(
+                suspension.stepPath,
+                suspension.name,
+                suspension.occurrence,
+                suspension.resolution
+              )
+            );
+          }
+        }
+        this.#wireWorkflowObservation(runWorkflow, row.id);
+        return runWorkflow;
+      }).pipe(Scope.extend(this.#scope))
+    );
+    construction.finish();
+    this.#throwIfStopped();
+    await this.#participants.recover(row.id, row.links?.jobId);
+    return workflow;
   }
 
   #throwIfStopped(): void {
