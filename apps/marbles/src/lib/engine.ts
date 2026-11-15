@@ -950,7 +950,10 @@ export class Engine {
       );
       // Once the Execution Runs of exited processes have settled, and
       // before the host schedules anything: what a crash left.
-      await this.#crashRecovery.recover(store);
+      for (const runId of await this.#crashRecovery.recover(store)) {
+        // Settled now, after the listing read the settled ones.
+        listing.add(runId);
+      }
       this.#delivery.wake();
     } catch (error) {
       this.#phase = "failed";

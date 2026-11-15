@@ -45,8 +45,13 @@ step("hold").do(async ({ exec }) => {
   return "done";
 });
 const lines = [];
+const killOn = process.env.MARBLES_TEST_KILL_ON;
 const engine = testEngine({
-  print: (line) => lines.push(line),
+  print: (line) => {
+    lines.push(line);
+    // Dies right after this point of recovery, as a crash would.
+    if (killOn && line.startsWith(killOn)) process.kill(process.pid, "SIGKILL");
+  },
   spawned: process.env.${SPAWN_RECOVERY_ENV},
   state: ${JSON.stringify(state)},
 });
@@ -81,6 +86,22 @@ function run(home: TestHome, script: string): Record<string, unknown> {
     timeout: PROCESS_TIMEOUT,
   });
   return JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
+}
+
+/** Run `script` until it kills itself at the first line starting `killOn`. */
+function runKilled(home: TestHome, script: string, killOn: string): unknown {
+  try {
+    execFileSync("bun", [script], {
+      cwd: resolve("."),
+      encoding: "utf8",
+      env: { ...phaseEnv(home), MARBLES_TEST_KILL_ON: killOn },
+      stdio: "pipe",
+      timeout: PROCESS_TIMEOUT,
+    });
+  } catch (error) {
+    return (error as { signal?: string }).signal;
+  }
+  return "exited";
 }
 
 /** The recovery records the host's children left, other than `except`'s. */
@@ -121,14 +142,18 @@ function runs(home: TestHome) {
   return readStoredRuns(join(home.path, "state"), "test");
 }
 
-it(
-  "a start after a host is killed mid-run stops what it left running and closes out its run, once",
-  async () => {
-    const home = testHome();
-    const crash = phase(
-      home,
-      "crash",
-      `const launched = await engine.launch("hold", {});
+/**
+ * A host over `home` that launched `hold`, whose step started `sleep`,
+ * recorded a harness activity, and was killed with SIGKILL: the run, and
+ * the command it left running.
+ */
+async function crashedHost(
+  home: TestHome
+): Promise<{ readonly command: SpawnRecord; readonly runId: string }> {
+  const crash = phase(
+    home,
+    "crash",
+    `const launched = await engine.launch("hold", {});
 launched.result.catch(() => undefined);
 await until(async () => engine.executions.get(launched.id)?.status === "running");
 await engine.activities.record(
@@ -148,61 +173,92 @@ await engine.activities.record(
 );
 process.stdout.write(JSON.stringify({ runId: launched.id }) + "\\n");
 await new Promise(() => undefined);`
-    );
-    const host = spawn("bun", [crash], {
-      cwd: resolve("."),
-      env: phaseEnv(home),
-      stdio: ["ignore", "pipe", "inherit"],
-    });
-    home.track(host.pid, false);
-    let output = "";
-    host.stdout?.on("data", (chunk: Buffer) => {
-      output += chunk.toString();
-    });
-    const { runId } = await waitFor(() =>
-      output.includes("\n")
-        ? (JSON.parse(output.split("\n")[0] ?? "{}") as { runId: string })
-        : undefined
-    );
-    // The command the step started, recorded with the host as its owner.
-    const command = await waitFor(() =>
-      recoveryRecords(home, host.pid ?? 0).at(0)
-    );
-    expect(command.owner?.pid).toBe(host.pid);
-    host.kill("SIGKILL");
-    await exited(host);
-    // Left running by the host it outlived, its Run unsettled.
-    expect(startedAt(command.pid)).toBe(command.started);
-    expect(
-      (await runs(home)).find((entry) => entry.id === runId)?.status
-    ).toMatch(UNSETTLED);
+  );
+  const host = spawn("bun", [crash], {
+    cwd: resolve("."),
+    env: phaseEnv(home),
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  home.track(host.pid, false);
+  let output = "";
+  host.stdout?.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+  });
+  const { runId } = await waitFor(() =>
+    output.includes("\n")
+      ? (JSON.parse(output.split("\n")[0] ?? "{}") as { runId: string })
+      : undefined
+  );
+  // The command the step started, recorded with the host as its owner.
+  const command = await waitFor(() =>
+    recoveryRecords(home, host.pid ?? 0).at(0)
+  );
+  expect(command.owner?.pid).toBe(host.pid);
+  host.kill("SIGKILL");
+  await exited(host);
+  // Left running by the host it outlived, its Run unsettled.
+  expect(startedAt(command.pid)).toBe(command.started);
+  expect(
+    (await runs(home)).find((entry) => entry.id === runId)?.status
+  ).toMatch(UNSETTLED);
 
-    const inspect = (name: string) =>
-      phase(
-        home,
-        name,
-        `const id = ${JSON.stringify(runId)};
+  return { command, runId };
+}
+
+/** A phase that reports how the engine sees the run after its start. */
+function inspection(home: TestHome, name: string, runId: string): string {
+  return phase(
+    home,
+    name,
+    `const id = ${JSON.stringify(runId)};
 report.execution = engine.executions.get(id);
+report.run = (await engine.runs()).find((run) => run.id === id);
 report.activities = engine.activities.list().map((record) => record.event);`
-      );
-    const recovered = run(home, inspect("recover"));
-    expect(startedAt(command.pid)).not.toBe(command.started);
-    expect(recoveryRecords(home, recovered.pid as number)).toEqual([]);
-    expect(recovered.execution).toMatchObject({
-      error: { code: "interrupted" },
-      status: "interrupted",
-    });
-    expect(
-      (await runs(home)).find((entry) => entry.id === runId)
-    ).toMatchObject({ owner: null, status: "failed" });
-    expect(recovered.activities).toEqual([
-      expect.objectContaining({
-        actions: [],
-        revision: 2,
-        status: "failed",
-        summary: "its process exited while it was running",
-      }),
-    ]);
+  );
+}
+
+/** What every start after the crash leaves, however many it took. */
+async function expectRecovered(
+  home: TestHome,
+  report: Record<string, unknown>,
+  command: SpawnRecord,
+  runId: string
+): Promise<void> {
+  expect(startedAt(command.pid)).not.toBe(command.started);
+  expect(recoveryRecords(home, report.pid as number)).toEqual([]);
+  expect(report.execution).toMatchObject({
+    error: { code: "interrupted" },
+    status: "interrupted",
+  });
+  expect(report.run).toMatchObject({
+    error: {
+      message: "its process exited while it was running",
+      name: "Interrupted",
+    },
+    status: "failed",
+  });
+  expect((await runs(home)).find((entry) => entry.id === runId)).toMatchObject({
+    owner: null,
+    status: "failed",
+  });
+  expect(report.activities).toEqual([
+    expect.objectContaining({
+      actions: [],
+      revision: 2,
+      status: "failed",
+      summary: "its process exited while it was running",
+    }),
+  ]);
+}
+
+it(
+  "a start after a host is killed mid-run stops what it left running and closes out its run, once",
+  async () => {
+    const home = testHome();
+    const { command, runId } = await crashedHost(home);
+
+    const recovered = run(home, inspection(home, "recover", runId));
+    await expectRecovered(home, recovered, command, runId);
     expect(recovered.lines).toEqual(
       expect.arrayContaining([
         "[recovery] stopped 1 process(es) a gone engine left running",
@@ -212,17 +268,33 @@ report.activities = engine.activities.list().map((record) => record.event);`
     );
 
     // Again: nothing is left to put right, and nothing changes.
-    const again = run(home, inspect("again"));
+    const again = run(home, inspection(home, "again", runId));
     expect(
       (again.lines as string[]).filter(
         (line) => line.startsWith("[recovery]") || line.includes("closed out")
       )
     ).toEqual([]);
     expect(again.execution).toEqual(recovered.execution);
+    expect(again.run).toEqual(recovered.run);
     expect(again.activities).toEqual(recovered.activities);
-    expect((await runs(home)).find((entry) => entry.id === runId)?.status).toBe(
-      "failed"
+  },
+  TEST_TIMEOUT
+);
+
+it.each([
+  ["once its orphans are stopped, the Run still open", "[recovery] stopped"],
+  ["once its Run is closed out, the activity still open", "[run] hold"],
+])(
+  "a start killed during recovery, %s, is finished by the next",
+  async (_point, killOn) => {
+    const home = testHome();
+    const { command, runId } = await crashedHost(home);
+
+    expect(runKilled(home, inspection(home, "cut", runId), killOn)).toBe(
+      "SIGKILL"
     );
+    const finished = run(home, inspection(home, "finish", runId));
+    await expectRecovered(home, finished, command, runId);
   },
   TEST_TIMEOUT
 );
