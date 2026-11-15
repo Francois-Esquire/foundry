@@ -382,7 +382,9 @@ const SYSTEM: ProcessSystem = {
     if (seen === undefined) {
       throw new Error(`the system could not say how ${pids.join(", ")} run`);
     }
-    return seen;
+    // One that has exited and waits to be reaped (a zombie) is gone: no
+    // signal reaches it, and where no one reaps it, it would never go.
+    return new Map([...seen].filter(([, entry]) => entry.exited !== true));
   },
   members(pgid) {
     return ps(["-A", "-o", "pid=,pgid="])

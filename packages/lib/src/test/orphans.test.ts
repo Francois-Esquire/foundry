@@ -9,8 +9,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { stopOrphans } from "../orphans";
-import { type ProcessIdentity, startedAt } from "../process-identity";
+import { type ProcessTable, stopOrphans } from "../orphans";
+import {
+  type ProcessIdentity,
+  type SeenProcess,
+  startedAt,
+} from "../process-identity";
 import {
   recordChild,
   recordPath,
@@ -419,4 +423,88 @@ it("keeps, and reports, a record whose start is of another kind than the system 
     stopped: [],
   });
   expect(existsSync(recordPath(dir, 123))).toBe(true);
+});
+
+/**
+ * A table of made-up processes, by pid: a signal to a pid, or to a group
+ * by its id, ends each one it reaches that is running; one that has
+ * exited (a zombie) stays listed, as no signal reaches it. Every signal
+ * is kept in `sent`; none reaches a real process.
+ */
+function madeUpTable(processes: Map<number, SeenProcess>): {
+  readonly sent: [number, NodeJS.Signals][];
+  readonly table: ProcessTable;
+} {
+  const sent: [number, NodeJS.Signals][] = [];
+  const pick = (keep: (pid: number, seen: SeenProcess) => boolean) =>
+    new Map([...processes].filter(([pid, seen]) => keep(pid, seen)));
+  return {
+    sent,
+    table: {
+      kill(target, name) {
+        sent.push([target, name]);
+        for (const [pid, seen] of processes) {
+          const reached = target < 0 ? seen.pgid === -target : pid === target;
+          if (reached && seen.exited !== true) {
+            processes.delete(pid);
+          }
+        }
+      },
+      look: (pids) => pick((pid) => pids.includes(pid)),
+      members: (pgid) => pick((_pid, seen) => seen.pgid === pgid),
+      sleep: () => Promise.resolve(),
+    },
+  };
+}
+
+const MADE_UP = "ps:Sun Nov 15 08:00:00 2026";
+const OWNER = { pid: 4_200_000, started: MADE_UP };
+
+it("takes a recorded process that has exited and is not reaped (a zombie) for gone, and signals nothing", async () => {
+  const dir = scratch();
+  record(dir, { group: false, owner: OWNER, pid: 4_200_001, started: MADE_UP });
+  const { sent, table } = madeUpTable(
+    new Map([[4_200_001, { exited: true, pgid: 4_200_001, started: MADE_UP }]])
+  );
+  expect(await stopOrphans(dir, { system: table })).toEqual({
+    problems: [],
+    stopped: [],
+  });
+  expect(sent).toEqual([]);
+  expect(existsSync(recordPath(dir, 4_200_001))).toBe(false);
+});
+
+it("takes an owner that has exited and is not reaped (a zombie) for gone, so its children are stopped", async () => {
+  const dir = scratch();
+  record(dir, { group: false, owner: OWNER, pid: 4_200_002, started: MADE_UP });
+  const { sent, table } = madeUpTable(
+    new Map([
+      [OWNER.pid, { exited: true, pgid: OWNER.pid, started: MADE_UP }],
+      [4_200_002, { pgid: OWNER.pid, started: MADE_UP }],
+    ])
+  );
+  expect(
+    await stopOrphans(dir, { graceMs: 0, killMs: 0, system: table })
+  ).toEqual({ problems: [], stopped: [4_200_002] });
+  expect(sent).toEqual([[4_200_002, "SIGTERM"]]);
+});
+
+it("forgets a group whose leader is gone once only exited, unreaped members (zombies) are left", async () => {
+  const dir = scratch();
+  record(dir, {
+    group: true,
+    members: [{ pid: 4_200_004, started: MADE_UP }],
+    owner: OWNER,
+    pid: 4_200_003,
+    started: MADE_UP,
+  });
+  const { sent, table } = madeUpTable(
+    new Map([[4_200_004, { exited: true, pgid: 4_200_003, started: MADE_UP }]])
+  );
+  expect(await stopOrphans(dir, { system: table })).toEqual({
+    problems: [],
+    stopped: [],
+  });
+  expect(sent).toEqual([]);
+  expect(existsSync(recordPath(dir, 4_200_003))).toBe(false);
 });

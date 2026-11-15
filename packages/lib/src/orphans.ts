@@ -35,6 +35,9 @@
  * Stopping an orphan can leave orphans of its own, its recorded
  * children, so the directory is read again until a pass stops nothing.
  *
+ * A process that has exited and waits to be reaped (a zombie) is gone
+ * here, whoever it is.
+ *
  * Safe to run at any time and more than once, from any process: a
  * process whose owner is alive is never touched, and a stop cut short
  * leaves records that the next run reads again.
@@ -99,7 +102,7 @@ export async function stopOrphans(
   dir: string,
   options: OrphanStopOptions = {}
 ): Promise<OrphanStop> {
-  const system = options.system ?? SYSTEM;
+  const system = running(options.system ?? SYSTEM);
   const limits = {
     graceMs: options.graceMs ?? GRACE_MS,
     killMs: options.killMs ?? KILL_MS,
@@ -416,6 +419,29 @@ async function emptied(
     }
     await system.sleep(POLL_MS);
   }
+}
+
+/**
+ * `table`, with every process that has exited and waits to be reaped (a
+ * zombie) left out: it runs nothing and no signal reaches it, so it is
+ * gone to a stop, as is an owner that is one. Its pid is not free until
+ * it is reaped, so this frees nothing early; counted as running, it would
+ * keep its record, and its group's, pending forever where no one reaps it,
+ * as in a container whose first process does not.
+ */
+function running(table: ProcessTable): ProcessTable {
+  const live = (
+    seen: ReadonlyMap<number, SeenProcess> | undefined
+  ): ReadonlyMap<number, SeenProcess> | undefined =>
+    seen === undefined
+      ? undefined
+      : new Map([...seen].filter(([, entry]) => entry.exited !== true));
+  return {
+    kill: (target, name) => table.kill(target, name),
+    look: (pids) => live(table.look(pids)),
+    members: (pgid) => live(table.members(pgid)),
+    sleep: (ms) => table.sleep(ms),
+  };
 }
 
 function signalTarget(

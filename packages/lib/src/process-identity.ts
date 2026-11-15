@@ -35,8 +35,13 @@ export interface ProcessIdentity {
   readonly started: string | null;
 }
 
-/** What the system says about a running process. */
+/** What the system says about a process it lists. */
 export interface SeenProcess {
+  /**
+   * It has exited and waits to be reaped (a zombie): it runs nothing, no
+   * signal reaches it, and its pid is not free for another process yet.
+   */
+  readonly exited?: true;
   readonly pgid: number;
   readonly started: string;
 }
@@ -47,18 +52,28 @@ const PS_TIMEOUT_MS = 5000;
 const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
 const SPACES = /\s+/g;
 const DIGITS = /^\d+$/;
-const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(.+)$/;
+const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/;
+/** What `ps` is asked for each process: `psLine` reads it back. */
+const PS_COLUMNS = "pid=,pgid=,state=,lstart=";
 /** How long a start read for a live pid is trusted. */
 const SEEN_MS = 1000;
 const LINUX = "linux:";
 const PS = "ps:";
 /** The fields of `/proc/<pid>/stat` after the command's closing parenthesis start at field 3. */
+const STAT_STATE = 3 - 3;
 const STAT_PGID = 5 - 3;
 const STAT_START = 22 - 3;
 
+/** A process state, from `/proc` or `ps`, that says it has exited (`Z`, or `X` as it goes). */
+function exitedState(state: string | undefined): boolean {
+  return (
+    state !== undefined && (state.startsWith("Z") || state.startsWith("X"))
+  );
+}
+
 /**
  * How `pid` runs now, from a `/proc/<pid>/stat` line and the boot id:
- * its group and its start. The command, field 2, is in parentheses and
+ * its group, its start, and whether it has exited. The command, field 2, is in parentheses and
  * may hold spaces and parentheses itself, so the fields after it are read
  * from its last closing parenthesis. `undefined` for a line that is not
  * one.
@@ -80,7 +95,32 @@ export function procStat(
   if (!Number.isInteger(pgid) || ticks === undefined || !DIGITS.test(ticks)) {
     return;
   }
-  return { pgid, started: `${LINUX}${bootId.trim()}:${ticks}` };
+  return {
+    ...(exitedState(fields[STAT_STATE]) ? { exited: true as const } : {}),
+    pgid,
+    started: `${LINUX}${bootId.trim()}:${ticks}`,
+  };
+}
+
+/**
+ * One line `ps -o pid=,pgid=,state=,lstart=` printed: the pid, and how
+ * it runs; `undefined` for a line that is not one.
+ */
+export function psLine(
+  line: string
+): readonly [number, SeenProcess] | undefined {
+  const parsed = PS_LINE.exec(line);
+  if (parsed === null) {
+    return;
+  }
+  return [
+    Number(parsed[1]),
+    {
+      ...(exitedState(parsed[3]) ? { exited: true as const } : {}),
+      pgid: Number(parsed[2]),
+      started: psStart(parsed[4] ?? ""),
+    },
+  ];
 }
 
 /** A start `ps -o lstart` printed, as this module keeps it. */
@@ -144,22 +184,19 @@ function lookPs(
   pids: readonly number[],
   seen: Map<number, SeenProcess>
 ): ReadonlyMap<number, SeenProcess> | undefined {
-  const listed = spawnSync(
-    "ps",
-    ["-o", "pid=,pgid=,lstart=", "-p", pids.join(",")],
-    { encoding: "utf8", env: PS_ENV, timeout: PS_TIMEOUT_MS }
-  );
+  const listed = spawnSync("ps", ["-o", PS_COLUMNS, "-p", pids.join(",")], {
+    encoding: "utf8",
+    env: PS_ENV,
+    timeout: PS_TIMEOUT_MS,
+  });
   // `ps` exits 1 when one of the pids has no process, and lists the rest.
   if (listed.error !== undefined || (listed.status ?? 2) > 1) {
     return;
   }
   for (const line of listed.stdout.split("\n")) {
-    const parsed = PS_LINE.exec(line);
+    const parsed = psLine(line);
     if (parsed) {
-      seen.set(Number(parsed[1]), {
-        pgid: Number(parsed[2]),
-        started: psStart(parsed[3] ?? ""),
-      });
+      seen.set(...parsed);
     }
   }
   return seen;
@@ -192,7 +229,7 @@ function allProc(): ReadonlyMap<number, SeenProcess> | undefined {
 }
 
 function allPs(): ReadonlyMap<number, SeenProcess> | undefined {
-  const listed = spawnSync("ps", ["-A", "-o", "pid=,pgid=,lstart="], {
+  const listed = spawnSync("ps", ["-A", "-o", PS_COLUMNS], {
     encoding: "utf8",
     env: PS_ENV,
     maxBuffer: 64 * 1024 * 1024,
@@ -203,12 +240,9 @@ function allPs(): ReadonlyMap<number, SeenProcess> | undefined {
   }
   const seen = new Map<number, SeenProcess>();
   for (const line of listed.stdout.split("\n")) {
-    const parsed = PS_LINE.exec(line);
+    const parsed = psLine(line);
     if (parsed) {
-      seen.set(Number(parsed[1]), {
-        pgid: Number(parsed[2]),
-        started: psStart(parsed[3] ?? ""),
-      });
+      seen.set(...parsed);
     }
   }
   return seen;

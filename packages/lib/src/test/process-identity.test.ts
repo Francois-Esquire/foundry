@@ -10,6 +10,7 @@ import {
   lookProcesses,
   ownerOf,
   procStat,
+  psLine,
   psStart,
   sameProcess,
   startedAt,
@@ -89,6 +90,30 @@ it("reads a start under /proc from the ticks since boot and the boot's id, whate
   expect(procStat("1 (x) S 1", BOOT)).toBeUndefined();
 });
 
+it("reads whether a process has exited and waits to be reaped (a zombie), under /proc and from ps", () => {
+  const rest =
+    "1 4242 4242 0 -1 4194560 120 0 0 0 3 1 0 0 20 0 1 0 987654 1000 200";
+  expect(procStat(`4243 (sleep) Z ${rest}`, BOOT)).toEqual({
+    exited: true,
+    pgid: 4242,
+    started: `linux:${BOOT}:987654`,
+  });
+  expect(procStat(`4243 (sleep) X ${rest}`, BOOT)?.exited).toBe(true);
+  expect(procStat(`4243 (sleep) S ${rest}`, BOOT)?.exited).toBeUndefined();
+  expect(psLine("  101   101 Ss   Sun Nov 15 08:00:00 2026  ")).toEqual([
+    101,
+    { pgid: 101, started: "ps:Sun Nov 15 08:00:00 2026" },
+  ]);
+  expect(psLine("  102   101 Z    Sun Nov 15 08:00:01 2026")).toEqual([
+    102,
+    { exited: true, pgid: 101, started: "ps:Sun Nov 15 08:00:01 2026" },
+  ]);
+  expect(psLine("  103   101 ZN   Sun Nov 15 08:00:02 2026")?.[1].exited).toBe(
+    true
+  );
+  expect(psLine("not a line")).toBeUndefined();
+});
+
 it("compares starts of one kind only: another kind, or none, says nothing", () => {
   const linux = `linux:${BOOT}:987654`;
   expect(compareStarts(linux, `linux:${BOOT}:987654`)).toBe("same");
@@ -153,7 +178,7 @@ it.skipIf(process.platform === "linux")(
       writeFileSync(seen, "Sun Nov 15 12:00:00 2026");
       writeFileSync(
         join(dir, "ps"),
-        `#!/bin/sh\nif [ "$4" = "${String(pid)}" ]; then printf '${String(pid)} ${String(pid)} '; cat '${seen}'; else exec /bin/ps "$@"; fi\n`,
+        `#!/bin/sh\nif [ "$4" = "${String(pid)}" ]; then printf '${String(pid)} ${String(pid)} S '; cat '${seen}'; else exec /bin/ps "$@"; fi\n`,
         { mode: 0o700 }
       );
       const script = join(dir, "check.ts");
