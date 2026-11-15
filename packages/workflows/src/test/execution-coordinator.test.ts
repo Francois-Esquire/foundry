@@ -199,6 +199,155 @@ for (const [name, open] of STORES) {
   });
 
   describe(`ExecutionCoordinator rules over the ${name}`, () => {
+    test("takes every command's input as it stands when the command is called", async () => {
+      const coordinator = new ExecutionCoordinator({ store: await open() });
+      await coordinator.ensureQueue({ id: "q", name: "q" });
+      const mutate = <T extends object>(
+        value: T,
+        change: (value: T) => void
+      ) => {
+        change(value);
+        return value;
+      };
+
+      const queueInput = {
+        extensions: { "host.q": { v: 1 } },
+        id: "q2",
+        name: "kept",
+      };
+      const queue = coordinator.ensureQueue(queueInput);
+      mutate(queueInput, (value) => {
+        value.name = "changed";
+        value.extensions["host.q"].v = 2;
+      });
+      const jobInput = {
+        definition: { name: "kept" },
+        id: "jb-own",
+        input: { v: "kept" },
+        links: { sessionId: "kept" },
+      };
+      const job = coordinator.createJob(jobInput);
+      mutate(jobInput, (value) => {
+        value.definition.name = "changed";
+        value.input.v = "changed";
+        value.links.sessionId = "changed";
+      });
+      const runInput = {
+        id: "rn-own",
+        input: { v: "kept" },
+        metadata: { list: ["kept"] },
+        queueId: "q",
+        step: "kept",
+      };
+      const created = coordinator.createRun(runInput);
+      mutate(runInput, (value) => {
+        value.step = "changed";
+        value.input.v = "changed";
+        value.metadata.list.push("changed");
+        value.id = "rn-other";
+      });
+      await Promise.all([queue, job, created]);
+
+      const patch = { output: { v: "kept" }, tags: { kept: "yes" } };
+      const updated = coordinator.updateRun("rn-own", patch);
+      mutate(patch, (value) => {
+        value.output.v = "changed";
+        value.tags.kept = "no";
+      });
+      const append = {
+        payload: { kind: "output" as const, value: { v: "kept" } },
+        runId: "rn-own",
+      };
+      const appended = coordinator.appendRunFrame(append);
+      mutate(append, (value) => {
+        value.runId = "rn-missing";
+        value.payload.value.v = "changed";
+      });
+      const park = {
+        kind: "approval",
+        name: "approve",
+        reason: "kept",
+        request: { v: "kept" },
+        runId: "rn-own",
+        stepPath: ["kept"],
+      };
+      const parked = coordinator.parkSuspension(park);
+      mutate(park, (value) => {
+        value.reason = "changed";
+        value.request.v = "changed";
+        value.stepPath.push("changed");
+      });
+      await Promise.all([updated, appended, parked]);
+
+      expect(
+        (await coordinator.listQueues()).find((q) => q.id === "q2")
+      ).toMatchObject({ extensions: { "host.q": { v: 1 } }, name: "kept" });
+      expect(await coordinator.getJob("jb-own")).toMatchObject({
+        definition: { name: "kept" },
+        input: { v: "kept" },
+        links: { sessionId: "kept" },
+      });
+      expect(await coordinator.getRun("rn-other")).toBeNull();
+      expect(await coordinator.getRun("rn-own")).toMatchObject({
+        input: { v: "kept" },
+        metadata: { list: ["kept"] },
+        output: { v: "kept" },
+        status: "suspended",
+        step: "kept",
+        tags: { kept: "yes" },
+      });
+      expect(
+        (await coordinator.listRunFrames("rn-own")).map(
+          (frame) => frame.payload
+        )
+      ).toStrictEqual([{ kind: "output", value: { v: "kept" } }]);
+      expect(
+        (await coordinator.listSuspensions({ runId: "rn-own" })).items
+      ).toMatchObject([
+        { reason: "kept", request: { v: "kept" }, stepPath: ["kept"] },
+      ]);
+    });
+
+    test("keeps a settled Job inside a transaction, and refuses the claim once it commits", async () => {
+      const coordinator = new ExecutionCoordinator({ store: await open() });
+      const job = await coordinator.createJob({
+        definition: { name: "documents.generate" },
+        input: null,
+      });
+      const { run } = await coordinator.claimJobRun(job.id, {
+        input: null,
+        queueId: "q",
+        step: "documents.generate",
+      });
+      await coordinator.updateRun(run.id, { status: "complete" });
+
+      await expect(
+        coordinator.transaction?.((bound) =>
+          bound.claimJobRun(job.id, {
+            input: null,
+            queueId: "q",
+            step: "documents.generate",
+          })
+        )
+      ).rejects.toBeInstanceOf(JobAlreadySettledError);
+      expect(await coordinator.getJob(job.id)).toMatchObject({
+        status: "complete",
+      });
+      // Any other failure of the work still rolls everything back.
+      await expect(
+        coordinator.transaction?.(async (bound) => {
+          await bound.createRun({
+            id: "rn-lost",
+            input: null,
+            queueId: "q",
+            step: "s",
+          });
+          throw new JobAlreadySettledError(job.id);
+        })
+      ).rejects.toBeInstanceOf(JobAlreadySettledError);
+      expect(await coordinator.getRun("rn-lost")).toBeNull();
+    });
+
     test("states its store's durability, and a transaction's is host", async () => {
       const coordinator = new ExecutionCoordinator({ store: await open() });
       expect(coordinator.durability).toBe("commit");

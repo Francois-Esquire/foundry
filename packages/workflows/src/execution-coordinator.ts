@@ -1,4 +1,5 @@
 import type { Page } from "@foundry/core/pagination";
+import { detached } from "./detached";
 import {
   JobAlreadySettledError,
   JobAttemptAlreadyActiveError,
@@ -155,8 +156,7 @@ export class ExecutionCoordinator implements OrchestratorStore {
     this.#store = store;
     this.durability = store.durability ?? "commit";
     if (store.transaction !== undefined) {
-      this.transaction = (work) =>
-        this.#transaction((view) => work(ExecutionCoordinator.#over(view)));
+      this.transaction = (work) => this.#bound(work);
     }
   }
 
@@ -166,6 +166,31 @@ export class ExecutionCoordinator implements OrchestratorStore {
    */
   static #over(view: WorkflowStore): ExecutionCoordinator {
     return new ExecutionCoordinator({ store: withoutTransaction(view) });
+  }
+
+  /**
+   * `work` over a coordinator bound to one store transaction. A refusal
+   * that follows a commit (a claim of a Job whose earlier attempt completed
+   * settles the Job, then refuses) keeps that commit: the transaction
+   * commits, and the refusal is raised once it has.
+   */
+  async #bound<T>(work: (store: OrchestratorStore) => Promise<T>): Promise<T> {
+    const outcome = await this.#transaction(
+      async (view): Promise<{ refusal: unknown } | { value: T }> => {
+        try {
+          return { value: await work(ExecutionCoordinator.#over(view)) };
+        } catch (error) {
+          if (REFUSED_AFTER_COMMIT.has(error as object)) {
+            return { refusal: error };
+          }
+          throw error;
+        }
+      }
+    );
+    if ("refusal" in outcome) {
+      throw outcome.refusal;
+    }
+    return outcome.value;
   }
 
   /**
@@ -398,7 +423,9 @@ export class ExecutionCoordinator implements OrchestratorStore {
       }
     );
     if (outcome.status === "settled") {
-      throw new JobAlreadySettledError(jobId);
+      const refusal = new JobAlreadySettledError(jobId);
+      REFUSED_AFTER_COMMIT.add(refusal);
+      throw refusal;
     }
     return outcome.claim;
   }
@@ -919,6 +946,44 @@ export function requireDurableStore(
     );
   }
 }
+
+/**
+ * Refusals raised after their command committed. Inside a coordinator's
+ * `transaction`, the work's failure with one of these still commits.
+ */
+const REFUSED_AFTER_COMMIT = new WeakSet<object>();
+
+/**
+ * Makes every public method of `prototype` take its arguments as they stand
+ * when it is called: one deep copy, with byte memory unshared, taken before
+ * anything else runs, and the only one the method sees. So no command reads
+ * a caller's input after an await, and a command added later is covered
+ * without asking. A value the copy refuses (a function, say) rejects the
+ * call.
+ */
+function takeArgumentsWhenCalled(prototype: object): void {
+  for (const name of Object.getOwnPropertyNames(prototype)) {
+    const method: unknown = Reflect.get(prototype, name);
+    if (name === "constructor" || typeof method !== "function") {
+      continue;
+    }
+    Object.defineProperty(prototype, name, {
+      configurable: true,
+      value(this: unknown, ...args: unknown[]): unknown {
+        let owned: unknown[];
+        try {
+          owned = detached(args);
+        } catch (error) {
+          return Promise.reject(error);
+        }
+        return Reflect.apply(method, this, owned);
+      },
+      writable: true,
+    });
+  }
+}
+
+takeArgumentsWhenCalled(ExecutionCoordinator.prototype);
 
 type JobRunClaimOutcome =
   | { readonly status: "claimed"; readonly claim: JobRunClaim }
