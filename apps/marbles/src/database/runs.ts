@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { processAlive } from "@foundry/lib/process-identity";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import type {
   WorkflowStore,
   WorkflowStoreWrite,
@@ -12,6 +12,7 @@ import { aroundCalls, asBusy } from "~/database/busy";
 import { followExecution, readExecution } from "~/database/executions";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
+import { heldBy, NO_OWNER, ownedHere, rowOwner } from "~/database/owner";
 import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { RecordsGate } from "~/lib/events/records";
@@ -86,6 +87,7 @@ export class DatabaseRunStore implements RunStore {
           .select({
             ownerId: marblesWorkflowRuns.ownerId,
             ownerPid: marblesWorkflowRuns.ownerPid,
+            ownerStarted: marblesWorkflowRuns.ownerStarted,
           })
           .from(marblesWorkflowRuns)
           .where(this.#run(runId));
@@ -165,7 +167,7 @@ export class DatabaseRunStore implements RunStore {
     return this.#call(async () => {
       await this.#database
         .update(marblesWorkflowRuns)
-        .set({ ownerId: null, ownerPid: null })
+        .set(NO_OWNER)
         .where(
           and(
             eq(marblesWorkflowRuns.scope, this.#scope),
@@ -203,7 +205,7 @@ export class DatabaseRunStore implements RunStore {
     recorded: (runId: string) => RecordedScope | undefined
   ): Promise<void> {
     for (const { runId, scope, settled } of filedRuns(write, recorded)) {
-      const owner = settled ? { ownerId: null, ownerPid: null } : this.#owned();
+      const owner = settled ? NO_OWNER : this.#owned();
       // Without a recording, the row keeps what it had and changes owner.
       const recording =
         scope === undefined
@@ -255,21 +257,21 @@ export class DatabaseRunStore implements RunStore {
     }
   }
 
-  /** Owned by another engine whose process is alive. */
+  /** Owned by another engine whose process is still there. */
   #heldElsewhere(row: {
     readonly ownerId: string | null;
     readonly ownerPid: number | null;
+    readonly ownerStarted: string | null;
   }): boolean {
     return (
       row.ownerId !== null &&
       row.ownerId !== this.#owner &&
-      row.ownerPid !== null &&
-      processAlive(row.ownerPid)
+      heldBy(row) !== null
     );
   }
 
   #owned() {
-    return { ownerId: this.#owner, ownerPid: process.pid };
+    return ownedHere(this.#owner);
   }
 
   #run(runId: string) {
@@ -291,7 +293,7 @@ export interface StoredRun {
   readonly createdAt: number;
   readonly id: string;
   /** The process of the engine that owns it; `null` when none does. */
-  readonly owner: number | null;
+  readonly owner: ProcessIdentity | null;
   readonly status: string;
   readonly step: string;
 }
@@ -313,11 +315,12 @@ export async function readStoredRuns(
           await database
             .select({
               ownerPid: marblesWorkflowRuns.ownerPid,
+              ownerStarted: marblesWorkflowRuns.ownerStarted,
               runId: marblesWorkflowRuns.runId,
             })
             .from(marblesWorkflowRuns)
             .where(eq(marblesWorkflowRuns.scope, scope))
-        ).map((row) => [row.runId, row.ownerPid])
+        ).map((row) => [row.runId, rowOwner(row)])
       );
       const runs: StoredRun[] = [];
       let after: number | undefined;

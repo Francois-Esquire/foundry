@@ -1,14 +1,14 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { processAlive } from "@foundry/lib/process-identity";
+import { isGone } from "@foundry/lib/process-identity";
 import { expect, it, vi } from "vitest";
 import { RunOutput } from "~/lib/state/output";
 import { watchRun } from "~/watch";
 
 vi.mock("@foundry/lib/process-identity", async (actual) => ({
   ...(await actual<typeof import("@foundry/lib/process-identity")>()),
-  processAlive: vi.fn(),
+  isGone: vi.fn(),
 }));
 
 it.each(["completed", "failed", "cancelled"] as const)(
@@ -22,12 +22,12 @@ it.each(["completed", "failed", "cancelled"] as const)(
       () => undefined
     );
     const finalText = `${"x".repeat(100_000)}final burst 🌿`;
-    const alive = vi.mocked(processAlive);
-    alive.mockImplementationOnce(() => {
+    const gone = vi.mocked(isGone);
+    gone.mockImplementationOnce(() => {
       // Simulate the owner writing after the zero-byte read, then exiting.
       output.text(finalText);
       output.finish(status);
-      return false;
+      return true;
     });
     let text = "";
     try {
@@ -40,9 +40,9 @@ it.each(["completed", "failed", "cancelled"] as const)(
       ).toBe(status);
       expect(text).toContain(finalText);
       expect(text).toContain(`[run] rn-race ${status}`);
-      expect(alive).toHaveBeenCalledTimes(1);
+      expect(gone).toHaveBeenCalledTimes(1);
     } finally {
-      alive.mockReset();
+      gone.mockReset();
       await rm(root, { force: true, recursive: true });
     }
   }

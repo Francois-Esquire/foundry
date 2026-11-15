@@ -15,13 +15,19 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { thisProcess } from "@foundry/lib/process-identity";
+import { eq } from "drizzle-orm";
 import { expect, it } from "vitest";
+import { writeDatabase } from "~/database/open";
 import { readStoredRuns } from "~/database/runs";
+import { marblesExecutions, marblesWorkflowRuns } from "~/database/tables";
+import { stateDatabase } from "~/layout";
 import {
   SPAWN_RECOVERY_ENV,
   type SpawnRecord,
   startedAt,
 } from "~/process/spawned";
+import { testEngine } from "./helpers/engine";
 import { type TestHome, testHome } from "./helpers/home";
 
 const SRC = resolve("src");
@@ -29,6 +35,7 @@ const HELPERS = resolve("test/helpers");
 const PROCESS_TIMEOUT = 60_000;
 const TEST_TIMEOUT = 180_000;
 const POLL_MS = 50;
+const LONG_AGO = "Thu Jan  1 00:00:00 1970";
 /** A Run its process still owes an outcome. */
 const UNSETTLED = /^(queued|running)$/;
 
@@ -295,6 +302,51 @@ it.each([
     );
     const finished = run(home, inspection(home, "finish", runId));
     await expectRecovered(home, finished, command, runId);
+  },
+  TEST_TIMEOUT
+);
+
+it(
+  "a start after a reboot takes a run whose owner had this process's pid, started earlier, for a gone engine's, and settles it",
+  async () => {
+    const home = testHome();
+    const { command, runId } = await crashedHost(home);
+    const state = join(home.path, "state");
+    // As after a reboot: the run's owner had the pid this process has now.
+    const before = { ownerPid: process.pid, ownerStarted: LONG_AGO };
+    await writeDatabase(stateDatabase(state), async (database) => {
+      await database
+        .update(marblesExecutions)
+        .set(before)
+        .where(eq(marblesExecutions.id, runId));
+      await database
+        .update(marblesWorkflowRuns)
+        .set(before)
+        .where(eq(marblesWorkflowRuns.runId, runId));
+    });
+
+    const engine = testEngine({
+      print: () => undefined,
+      spawned: home.layout.spawned,
+      state,
+    });
+    await engine.start();
+    try {
+      await expectRecovered(
+        home,
+        {
+          activities: engine.activities.list().map((record) => record.event),
+          execution: engine.executions.get(runId),
+          pid: process.pid,
+          run: (await engine.runs()).find((entry) => entry.id === runId),
+        },
+        command,
+        runId
+      );
+      expect(engine.executions.get(runId)?.owner).toEqual(thisProcess());
+    } finally {
+      await engine.dispose();
+    }
   },
   TEST_TIMEOUT
 );

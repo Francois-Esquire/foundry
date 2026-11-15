@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { processAlive } from "@foundry/lib/process-identity";
+import { isGone } from "@foundry/lib/process-identity";
 import type { StoredRun } from "~/database/runs";
 import { readStoredRuns } from "~/database/runs";
 import { sessionCounts } from "~/database/sessions";
@@ -132,7 +132,7 @@ function runsStatus(stored: readonly StoredRun[]): RunsStatus {
         id: run.id,
         orphaned:
           !TERMINAL_RUN_STATUSES.has(run.status) &&
-          (run.owner === null || !processAlive(run.owner)),
+          (run.owner === null || isGone(run.owner)),
         status: run.status,
         step: run.step,
       })

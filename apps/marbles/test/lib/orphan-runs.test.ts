@@ -1,3 +1,4 @@
+import { thisProcess } from "@foundry/lib/process-identity";
 /**
  * What an exited process leaves behind: queued runs are let in again only
  * by a start that succeeds, and a parked workflow nothing here can adopt can
@@ -83,7 +84,7 @@ async function leftBehind(
       kind: "task",
       name: "save",
       observations: [],
-      owner: { pid: exitedPid() },
+      owner: { pid: exitedPid(), started: null },
       queue: "system",
       revision: 1,
       sequence: 1,
@@ -171,7 +172,7 @@ async function parkedThenOrphaned(): Promise<string> {
   catalog.reset();
 
   // Its stop gave up the Run; the record names a process that has exited.
-  await rewriteRecord(id, { owner: { pid: exitedPid() } });
+  await rewriteRecord(id, { owner: { pid: exitedPid(), started: null } });
   return id;
 }
 
@@ -185,7 +186,7 @@ it("cancels a parked run whose process exited when nothing here can adopt it", a
   await engine.cancel(id);
 
   expect(engine.executions.get(id)).toMatchObject({
-    owner: { pid: process.pid },
+    owner: thisProcess(),
     status: "cancelled",
   });
   expect(await storedExecution(state, id)).toMatchObject({
@@ -223,7 +224,7 @@ it("leaves a parked run alone while a live process owns it", async () => {
     id: "rn-remote",
     kind: "workflow",
     name: "gone",
-    owner: { pid: process.ppid },
+    owner: { pid: process.ppid, started: null },
     queue: "marbles",
     status: "suspended",
   });
@@ -233,7 +234,7 @@ it("leaves a parked run alone while a live process owns it", async () => {
   await expect(engine.cancel("rn-remote")).rejects.toThrow();
 
   expect(engine.executions.get("rn-remote")).toMatchObject({
-    owner: { pid: process.ppid },
+    owner: { pid: process.ppid, started: null },
     status: "suspended",
   });
 });
@@ -298,7 +299,7 @@ it("records suspended a run it adopts whose process exited before its record saw
 
   expect(engine.scopes.has(id)).toBe(true);
   expect(engine.executions.get(id)).toMatchObject({
-    owner: { pid: process.pid },
+    owner: thisProcess(),
     status: "suspended",
   });
 });
@@ -312,7 +313,7 @@ it("leaves a parked run it cannot adopt suspended for a process that can, even w
   await engine.start();
 
   expect(engine.executions.get(id)).toMatchObject({
-    owner: { pid: dead },
+    owner: { pid: dead, started: null },
     status: "suspended",
   });
   await engine.dispose();
@@ -336,7 +337,7 @@ it("gives a parked run saved before Execution Runs existed a record when it is a
   expect(engine.executions.get(id)).toMatchObject({
     kind: "workflow",
     name: "probe",
-    owner: { pid: process.pid },
+    owner: thisProcess(),
     status: "suspended",
   });
   await engine.cancel(id);
@@ -382,7 +383,7 @@ it("reads an orphan's record again once its Run is claimed, and leaves one an ad
     kind: "workflow",
     name: "gone",
     observations: [],
-    owner: { pid: exitedPid() },
+    owner: { pid: exitedPid(), started: null },
     queue: "marbles",
     revision: 1,
     sequence: 1,
@@ -390,7 +391,11 @@ it("reads an orphan's record again once its Run is claimed, and leaves one an ad
     timestamps: { queuedAt: at, updatedAt: at },
   };
   await store.create(left);
-  const adopted = { ...left, owner: { pid: process.ppid }, revision: 2 };
+  const adopted = {
+    ...left,
+    owner: { pid: process.ppid, started: null },
+    revision: 2,
+  };
   const executions = new Executions({
     runs: {
       claim: async () => {

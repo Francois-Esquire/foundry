@@ -187,6 +187,12 @@ export function lockOwner(path: string): ProcessIdentity | undefined {
   return lock.kind === "holder" ? lock.owner : undefined;
 }
 
+/** Whether the lock at `path` names this process as its holder. */
+export function holdsLock(path: string): boolean {
+  const owner = lockOwner(path);
+  return owner !== undefined && sameProcess(owner, thisProcess());
+}
+
 /** What a lock file records of this process: its pid, and its start time when known. */
 export function lockContents(): string {
   const { pid, started } = thisProcess();
@@ -273,8 +279,7 @@ function releaser(path: string): () => void {
       return;
     }
     released = true;
-    const owner = lockOwner(path);
-    if (owner !== undefined && sameProcess(owner, thisProcess())) {
+    if (holdsLock(path)) {
       rmSync(path, { force: true });
     }
   };

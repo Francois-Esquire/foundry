@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d103165c-9155-48fe-b30a-c25e9456f8cf",
+  "id": "b1d08ada-e722-413b-b9d6-0a65c2127a4e",
   "prevId": "63972cbe-690d-4b5a-ae1e-cd1e2edc7547",
   "tables": {
     "agent_messages": {
@@ -2155,6 +2155,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "owner_started": {
+          "name": "owner_started",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "scope": {
           "name": "scope",
           "type": "text",
@@ -2343,6 +2350,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "owner_started": {
+          "name": "owner_started",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "progress": {
@@ -2668,6 +2682,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "owner_started": {
+          "name": "owner_started",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "scope": {
           "name": "scope",
           "type": "text",
@@ -2913,6 +2934,13 @@
         "owner_pid": {
           "name": "owner_pid",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "owner_started": {
+          "name": "owner_started",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

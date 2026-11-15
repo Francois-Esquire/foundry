@@ -92,7 +92,7 @@ export const marblesSessionRevisions = sqliteTable(
  * recorded (its ledger, each node's literal input, the run's session), so
  * a parked run rebuilt in a later process finds the same sessions and
  * artifacts, and the engine that owns the Run (`owner_id`, unique per
- * engine, and its process, `owner_pid`), null once no engine does. Written
+ * engine, and its process, `owner_pid` and `owner_started`), null once no engine does. Written
  * by the workflow store's `onCommit` hook in the commit's own transaction
  * (`database/runs.ts`), and by a claim in a transaction of its own. A row
  * goes with its Run.
@@ -106,6 +106,7 @@ export const marblesWorkflowRuns = sqliteTable(
       .notNull(),
     ownerId: text("owner_id"),
     ownerPid: integer("owner_pid"),
+    ownerStarted: text("owner_started"),
     runId: text("run_id").notNull(),
     scope: text().notNull(),
     sessionId: text("session_id"),
@@ -120,7 +121,7 @@ export const marblesWorkflowRuns = sqliteTable(
  * Each schedule's and monitor's tick, by the trigger's key, as a newer
  * engine declaring the same trigger finds it: how its last tick went (all
  * null until the first one has run), and the engine whose tick is under
- * way (`owner_id`, unique per engine, and its process, `owner_pid`), null
+ * way (`owner_id`, unique per engine, and its process, `owner_pid` and `owner_started`), null
  * between ticks. Written by `database/triggers.ts`, a claim and a finished
  * tick each in a transaction of its own.
  */
@@ -136,6 +137,7 @@ export const marblesScheduleTicks = sqliteTable(
     nextDue: text("next_due"),
     ownerId: text("owner_id"),
     ownerPid: integer("owner_pid"),
+    ownerStarted: text("owner_started"),
     scope: text().notNull(),
   },
   (table) => [primaryKey({ columns: [table.scope, table.key] })]
@@ -220,7 +222,7 @@ export const marblesAutomations = sqliteTable(
  * Every Execution Run a workspace retains, one per id: what launched it
  * (`kind`, `name`, `queue`, the caller's `source` and `correlation`), where
  * it is (`status`, `progress`, `error_*`, the times), the process that owns
- * it while it is unsettled (`owner_pid`), its admission order
+ * it while it is unsettled (`owner_pid` and `owner_started`), its admission order
  * (`sequence`), and the `revision` every change raises. `input` and
  * `progress` are JSON text, `null` included; SQL NULL when the run has
  * none. Its observations are rows of their own
@@ -242,6 +244,7 @@ export const marblesExecutions = sqliteTable(
     kind: text({ enum: ["workflow", "task"] }).notNull(),
     name: text().notNull(),
     ownerPid: integer("owner_pid").notNull(),
+    ownerStarted: text("owner_started"),
     progress: text(),
     queue: text().notNull(),
     queuedAt: text("queued_at").notNull(),
@@ -390,13 +393,16 @@ export const marblesHarnessActivities = sqliteTable(
 
 /**
  * Which engine delivers a workspace's task changes to its observers: the
- * engine (`owner_id`, unique per engine) and its process (`owner_pid`),
+ * engine (`owner_id`, unique per engine) and its process (`owner_pid` and
+ * `owner_started`, its start time, so a pid given to another since is not
+ * taken for it),
  * null once it let go. A claim is a transaction that reads the row and
  * takes it; an owner whose process has exited holds nothing.
  */
 export const marblesDeliveryClaims = sqliteTable("marbles_delivery_claims", {
   ownerId: text("owner_id"),
   ownerPid: integer("owner_pid"),
+  ownerStarted: text("owner_started"),
   scope: text().primaryKey(),
 });
 

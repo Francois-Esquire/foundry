@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { processAlive } from "@foundry/lib/process-identity";
+import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
 import { and, asc, eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
+import { heldBy, NO_OWNER, ownedHere } from "~/database/owner";
 import { marblesMonitorStates, marblesScheduleTicks } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { RecordsGate } from "~/lib/events/records";
@@ -52,18 +53,22 @@ export class DatabaseTriggerStore implements TriggerStore {
     return this.#call(() =>
       this.#database.transaction(async (transaction) => {
         const [row] = await transaction
-          .select({ ownerPid: marblesScheduleTicks.ownerPid })
+          .select({
+            ownerPid: marblesScheduleTicks.ownerPid,
+            ownerStarted: marblesScheduleTicks.ownerStarted,
+          })
           .from(marblesScheduleTicks)
           .where(this.#key(key));
-        const holder = row?.ownerPid ?? null;
-        if (holder !== null && processAlive(holder)) {
+        const holder = row === undefined ? null : heldBy(row);
+        if (holder !== null) {
           return {
             claimed: false,
-            holder:
-              holder === process.pid ? "this process" : `pid ${String(holder)}`,
+            holder: sameProcess(holder, thisProcess())
+              ? "this process"
+              : `pid ${String(holder.pid)}`,
           } as const;
         }
-        const owner = { ownerId: this.#owner, ownerPid: process.pid };
+        const owner = ownedHere(this.#owner);
         await transaction
           .insert(marblesScheduleTicks)
           .values({ ...owner, key, scope: this.#scope })
@@ -100,7 +105,7 @@ export class DatabaseTriggerStore implements TriggerStore {
     await asBusy(() =>
       this.#database
         .update(marblesScheduleTicks)
-        .set({ ownerId: null, ownerPid: null })
+        .set(NO_OWNER)
         .where(
           and(
             eq(marblesScheduleTicks.scope, this.#scope),
@@ -121,8 +126,7 @@ export class DatabaseTriggerStore implements TriggerStore {
           ...(tick === undefined
             ? {}
             : { kind: tick.kind ?? null, label: tick.label ?? null }),
-          ownerId: null,
-          ownerPid: null,
+          ...NO_OWNER,
         })
         .where(
           and(this.#key(key), eq(marblesScheduleTicks.ownerId, this.#owner))
@@ -259,8 +263,7 @@ export async function readStoredTicks(
     } catch {
       last = undefined;
     }
-    const running =
-      row.ownerPid !== null && processAlive(row.ownerPid) ? row.ownerPid : null;
+    const running = heldBy(row)?.pid ?? null;
     // A claim its dead owner left, on a trigger that never ticked, is nothing.
     if (last === undefined && running === null) {
       return [];

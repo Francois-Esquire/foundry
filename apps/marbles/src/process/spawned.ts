@@ -5,9 +5,7 @@
  * recorder and its contract are `@foundry/lib/spawn-record`, which the
  * packages Marbles uses share.
  */
-// biome-ignore lint/performance/noBarrelFile: the one name Marbles and its tests give the shared recorder, kept so the tiers above `lib/` import it from `process/`.
-
-// biome-ignore lint/performance/noBarrelFile: as above, the recorder's start-time proof under the same name.
+// biome-ignore lint/performance/noBarrelFile: the one name Marbles and its tests give the shared recorder and its start-time proof, kept so the tiers above `lib/` import them from `process/`.
 export { startedAt } from "@foundry/lib/process-identity";
 export {
   notPrivate,

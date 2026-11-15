@@ -1,3 +1,4 @@
+import { thisProcess } from "@foundry/lib/process-identity";
 import { afterEach, describe, expect, it } from "vitest";
 import type {
   ExecutionObservation,
@@ -25,7 +26,7 @@ function queued(id: string, extra: Partial<ExecutionRun> = {}): ExecutionRun {
     kind: "task",
     name: "save",
     observations: [],
-    owner: { pid: process.pid },
+    owner: thisProcess(),
     queue: "system",
     revision: 1,
     sequence: 10,
@@ -50,7 +51,7 @@ function effect(id: string, status: "running" | "complete" = "complete") {
 }
 
 /** A process that does not own the runs here. */
-const OTHER = 2_147_483_646;
+const OTHER = { pid: 2_147_483_646, started: null } as const;
 const AT = "2026-11-01T09:00:01.000Z";
 const LATER = "2026-11-01T09:00:09.000Z";
 
@@ -59,7 +60,7 @@ function start(extra: Partial<LifecycleChange> = {}): LifecycleChange {
   return {
     dropInput: true,
     from: ["queued"],
-    owner: process.pid,
+    owner: thisProcess(),
     startedAt: AT,
     status: "running",
     updatedAt: AT,
@@ -171,7 +172,7 @@ export function describeExecutionStore(
         error: { code: "Error", message: "it broke" },
         from: ["running"],
         newOwner: OTHER,
-        owner: process.pid,
+        owner: thisProcess(),
         settledAt: LATER,
         startedAt: LATER,
         status: "failed",
@@ -180,7 +181,7 @@ export function describeExecutionStore(
       expect(settled.applied).toBe(true);
       expect(await read(executions, "a")).toMatchObject({
         error: { code: "Error", message: "it broke" },
-        owner: { pid: OTHER },
+        owner: OTHER,
         progress: { step: 1 },
         revision: 4,
         status: "failed",
@@ -204,7 +205,7 @@ export function describeExecutionStore(
       const settled = await executions.transition("a", {
         dropInput: true,
         from: ["queued", "running", "suspended"],
-        owner: process.pid,
+        owner: thisProcess(),
         settledAt: LATER,
         status: "complete",
         updatedAt: LATER,
@@ -230,7 +231,7 @@ export function describeExecutionStore(
       await executions.transition("a", {
         dropInput: true,
         from: ["queued"],
-        owner: process.pid,
+        owner: thisProcess(),
         settledAt: LATER,
         status: "complete",
         updatedAt: LATER,
@@ -421,7 +422,7 @@ export function describeExecutionStore(
         const settled = await first.transition("a", {
           dropInput: true,
           from: ["running"],
-          owner: process.pid,
+          owner: thisProcess(),
           settledAt: LATER,
           status: "complete",
           updatedAt: LATER,

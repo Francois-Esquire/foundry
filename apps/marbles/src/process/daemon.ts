@@ -4,7 +4,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { lockHolder } from "@foundry/lib/file-lock";
+import { holdsLock } from "@foundry/lib/file-lock";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
@@ -861,7 +861,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   // The claim is the daemon's reason to run: a state root that was removed,
   // or a lock someone else now holds, means this process answers for nothing.
   const claimCheck = setInterval(() => {
-    if (lockHolder(join(layout.state, "locks", "process")) !== process.pid) {
+    if (!holdsLock(join(layout.state, "locks", "process"))) {
       print("[daemon] the claim at the state root is gone; stopping");
       close({ claimLost: true }).catch(() => undefined);
     }

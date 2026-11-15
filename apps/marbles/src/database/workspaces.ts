@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { lockHolder } from "@foundry/lib/file-lock";
+import { holdsLock } from "@foundry/lib/file-lock";
 
 import { and, asc, eq } from "drizzle-orm";
 import { IncompatibleDatabaseError } from "~/database/migrate";
@@ -183,7 +183,7 @@ export async function openHostDatabase(
     }
     // This process holds the lock already (a host that claimed it as
     // `claimProcess` does), so it is the one that may migrate.
-    if (lockHolder(join(root, "locks", PROCESS_LOCK)) === process.pid) {
+    if (holdsLock(join(root, "locks", PROCESS_LOCK))) {
       return await initializeDatabase(file, options);
     }
     let opened: MarblesDatabase | undefined;

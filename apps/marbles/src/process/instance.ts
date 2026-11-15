@@ -1,8 +1,8 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { lockHolder } from "@foundry/lib/file-lock";
-import { processAlive } from "@foundry/lib/process-identity";
+import { lockOwner } from "@foundry/lib/file-lock";
+import { isGone } from "@foundry/lib/process-identity";
 
 import { isRecord, readJson, writeJson } from "~/lib/state/json";
 import { acquireLock, PROCESS_LOCK as LOCK } from "~/lib/state/locks";
@@ -117,12 +117,13 @@ export function claimProcess(
 
 /** The claim on `dir`, as the files describe it; `undefined` when nothing is recorded. */
 export function readProcess(dir: string): ProcessStatus | undefined {
-  const holder = lockHolder(join(dir, "locks", LOCK));
+  const owner = lockOwner(join(dir, "locks", LOCK));
+  const holder = owner?.pid;
   const info = readInfo(join(dir, FILE));
   if (holder === undefined && info === undefined) {
     return undefined;
   }
-  const alive = holder !== undefined && processAlive(holder);
+  const alive = owner !== undefined && !isGone(owner);
   // Metadata is the holder's only while it describes the holder.
   const described =
     info !== undefined && (holder === undefined || info.pid === holder);
