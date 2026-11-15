@@ -122,10 +122,10 @@ export async function stopRecorded(
       (record) => !handled.has(handledKey(record))
     );
     if (fresh.length === 0) {
-      if (problems.size > 0 || removeEmpty(dir)) {
+      if (problems.size > 0 || removeEmpty(dir) === 0) {
         return [...problems];
       }
-      // Something new is there, or is being written: read it next pass.
+      // A record arrived after the read: stop it next pass.
       await system.sleep(POLL_MS);
       continue;
     }
@@ -151,7 +151,7 @@ export async function stopRecorded(
     }
   }
   problems.add(
-    `${dir} still held new records after ${String(MAX_PASSES)} passes; kept`
+    `${dir} still held files that are not records of stopped processes after ${String(MAX_PASSES)} passes; kept`
   );
   return [...problems];
 }
@@ -175,39 +175,49 @@ function forget(record: ReadRecord): void {
 /**
  * Remove `dir` and the directories under it, without removing any file
  * but a stale partial record (`.tmp`), which a writer that died left:
- * whether all of it went. A record, or a partial one still being written,
- * keeps its directory.
+ * how many records, or other files, are left, `0` once there are none.
+ * A partial record still being written keeps its directory without
+ * counting: a stop it interrupted is what makes one, its record would
+ * name a process that was recorded too late to run, and whatever sweep
+ * comes next reads it once it is renamed into place, or removes it once
+ * it is stale.
  */
-function removeEmpty(dir: string): boolean {
+function removeEmpty(dir: string): number {
   let entries: Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch (error) {
     if (gone(error)) {
-      return true;
+      return 0;
     }
     throw error;
   }
-  let empty = true;
+  let left = 0;
+  let partial = false;
   for (const entry of entries) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      empty = removeEmpty(path) && empty;
-    } else if (entry.name.endsWith(".tmp") && stale(path)) {
-      rmSync(path, { force: true });
+      left += removeEmpty(path);
+      partial ||= existsSync(path);
+    } else if (entry.name.endsWith(".tmp")) {
+      if (stale(path)) {
+        rmSync(path, { force: true });
+      } else {
+        partial = true;
+      }
     } else {
-      empty = false;
+      left += 1;
     }
   }
-  if (!empty) {
-    return false;
+  if (left > 0 || partial) {
+    return left;
   }
   try {
     rmdirSync(dir);
-    return true;
+    return 0;
   } catch (error) {
     // Not empty: an entry arrived after it was listed.
-    return gone(error);
+    return gone(error) ? 0 : 1;
   }
 }
 

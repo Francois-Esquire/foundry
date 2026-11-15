@@ -259,12 +259,22 @@ it("keeps the records directory while a record is still being written there, and
   ).toEqual([]);
   expect(existsSync(records)).toBe(false);
 
+  // One a writer is still writing keeps the directory, for the next sweep,
+  // and is no problem of this stop's.
   const writing = temporaryDirectory("rec-");
   writePrivateFile(join(writing, ".2.json.live.tmp"), "{");
   expect(
     await stopRecorded(writing, marker, { graceMs: 0, killMs: 0 }, system)
-  ).toEqual([expect.stringContaining("still held new records")]);
+  ).toEqual([]);
   expect(existsSync(join(writing, ".2.json.live.tmp"))).toBe(true);
+
+  // A record that is not one of this stop's keeps it, reported.
+  const odd = temporaryDirectory("rec-");
+  writePrivateFile(join(odd, "notes.txt"), "?");
+  expect(
+    await stopRecorded(odd, marker, { graceMs: 0, killMs: 0 }, system)
+  ).toEqual([expect.stringContaining("not records of stopped processes")]);
+  expect(existsSync(odd)).toBe(true);
 });
 
 it("takes a process that has exited but is not reaped (a zombie) for gone", () => {
