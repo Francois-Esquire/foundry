@@ -23,6 +23,7 @@ import {
   startDaemon,
 } from "~/process/daemon";
 import { startedAt } from "~/process/spawned";
+import { readStatus } from "~/status/model";
 import { testHome } from "./helpers/home";
 
 /**
@@ -959,6 +960,41 @@ describe("engine generations", () => {
     expect(processAlive(second)).toBe(true);
     expect(await fixture.client.workspaces()).toEqual([]);
     fixture.client.close();
+  }, 150_000);
+
+  it("reports a workspace that did not load at boot as not running, and the one that did with its generation", async () => {
+    const fixture = await setUp();
+    const otherRoot = join(fixture.gates, "..", "other");
+    mkdirSync(otherRoot);
+    const otherSource = join(otherRoot, "marbles.config.ts");
+    writeFileSync(otherSource, moduleText(fixture, 0));
+    const other = await fixture.client.attach(otherSource);
+    fixture.client.close();
+    await daemons.pop()?.close();
+    // The next Marbles process boots with one workspace that will not load.
+    writeFileSync(otherSource, 'throw new Error("never loads");\n');
+    daemons.push(
+      await startDaemon({ layout: fixture.machine, print: () => undefined })
+    );
+    const client = await connect({ layout: fixture.machine, start: false });
+    const pid = await vi.waitFor(
+      async () => {
+        const now = await client.workspaces();
+        const healthy = now.find((each) => each.id === fixture.summary.id);
+        expect(healthy?.state).toBe("ready");
+        expect(now.find((each) => each.id === other.id)?.state).toBe("failed");
+        return healthy?.pid ?? 0;
+      },
+      { interval: 200, timeout: 60_000 }
+    );
+    const status = await readStatus(fixture.machine.state);
+    expect(
+      status.workspaces.find((each) => each.id === fixture.summary.id)
+    ).toMatchObject({ alive: true, host: "generation", pid });
+    expect(
+      status.workspaces.find((each) => each.id === other.id)
+    ).toMatchObject({ alive: false, host: null, pid: null });
+    client.close();
   }, 150_000);
 
   it("hands a released run to the current generation from the database when the notice is lost", async () => {

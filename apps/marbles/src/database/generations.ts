@@ -25,6 +25,8 @@ export interface GenerationRecord {
   readonly pid: number;
   readonly started: string | null;
   readonly state: GenerationState;
+  /** The workspaces whose engines it started and still hosts. */
+  readonly workspaces: readonly string[];
 }
 
 /** The states of a generation whose process may still be alive. */
@@ -66,6 +68,11 @@ export class GenerationRecords {
   /** Keep the start time generation `number`'s process reported. */
   identify(number: number, started: string | null): Promise<void> {
     return this.#set(number, { started });
+  }
+
+  /** Generation `number` hosts `workspaces` now: each whose engine started there. */
+  hosting(number: number, workspaces: readonly string[]): Promise<void> {
+    return this.#set(number, { workspaces: [...workspaces].sort() });
   }
 
   /** Generation `number` is in `state` now, with why when it failed or died. */
@@ -129,5 +136,6 @@ export async function readLiveGenerations(
     pid: row.pid,
     started: row.started,
     state: row.state,
+    workspaces: row.workspaces,
   }));
 }

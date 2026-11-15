@@ -367,6 +367,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     state: layout.state,
   });
   const records = new GenerationRecords({ database: database.database });
+  let hostsWritten: Promise<void> = Promise.resolve();
   const hosted = new Map<string, Hosted>();
   const generations = new Set<Generation>();
   let current: Generation | undefined;
@@ -1155,6 +1156,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       ...loaded.loads.filter((each) => each.error !== undefined),
     ]);
     candidate.started.resolve();
+    await recordHosts(candidate);
     print(`[marbles] engine generation ${String(number)} is current`);
     changed();
     // A workspace whose engine did not start loaded, so no edit will bring
@@ -1292,6 +1294,26 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         setState(workspace, "failed", { error: load.error });
       }
     }
+  }
+
+  /**
+   * Keep which workspaces `generation` hosts in its record, for `status`
+   * to read. Written in turn, each the set as it is when the write runs,
+   * so the last one is the set as it is now. A failed write is reported
+   * and leaves the record as it was; it fails nothing the daemon does.
+   */
+  function recordHosts(generation: Generation): Promise<void> {
+    const write = async (): Promise<void> => {
+      try {
+        await records.hosting(generation.number, [...generation.hosts]);
+      } catch (error) {
+        print(
+          `[marbles] which workspaces engine generation ${String(generation.number)} hosts was not recorded: ${message(error)}`
+        );
+      }
+    };
+    hostsWritten = hostsWritten.then(write);
+    return hostsWritten;
   }
 
   /**
@@ -1646,6 +1668,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       throw error;
     }
     target.hosts.add(workspace.id);
+    await recordHosts(target);
     entry.setup = undefined;
     setState(entry, "ready", { pid: target.child.pid ?? -1 });
     return entry.summary;
@@ -1681,6 +1704,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         }
       }
       generation.hosts.delete(id);
+      await recordHosts(generation);
     }
   }
 

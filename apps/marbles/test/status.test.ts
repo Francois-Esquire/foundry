@@ -115,7 +115,7 @@ describe("readStatus", () => {
     ]);
   });
 
-  it("marks a registered workspace alive only while the current generation's process is", async () => {
+  it("marks a registered workspace alive only while the current generation that started it is", async () => {
     const { state } = await layout();
     await seedWorkspace(state, {
       config: null,
@@ -148,6 +148,13 @@ describe("readStatus", () => {
       await generations.spawned(live, process.pid);
       await generations.identify(live, startedAt(process.pid) ?? null);
       await generations.mark(live, "current");
+      // Registered, but its engine has not started there.
+      expect(await hosted()).toMatchObject({
+        alive: false,
+        host: null,
+        pid: null,
+      });
+      await generations.hosting(live, ["ws2"]);
       expect(await hosted()).toMatchObject({
         alive: true,
         host: "generation",

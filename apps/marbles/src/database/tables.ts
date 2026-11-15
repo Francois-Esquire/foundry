@@ -438,7 +438,8 @@ export const marblesRecoveries = sqliteTable("marbles_recoveries", {
  * workspace, `current` once it took over, `retiring` while it finishes
  * the runs it had when the next took over, `failed` when it did not load,
  * and `exited` once its process is gone. `fingerprint` is what it loaded:
- * the installation and every workspace's source.
+ * the installation and every workspace's source. `workspaces` is which of
+ * them it hosts: each whose engine started there, until it is detached.
  */
 export const marblesGenerations = sqliteTable(
   "marbles_generations",
@@ -456,6 +457,11 @@ export const marblesGenerations = sqliteTable(
       enum: ["loading", "current", "retiring", "failed", "exited"],
     }).notNull(),
     updatedAt: text("updated_at").notNull(),
+    /** The workspaces whose engines it started and still hosts. */
+    workspaces: text({ mode: "json" })
+      .$type<readonly string[]>()
+      .notNull()
+      .default([]),
   },
   (table) => [index("marbles_generations_state_idx").on(table.state)]
 );
