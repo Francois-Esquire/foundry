@@ -23,7 +23,6 @@ import { errorToShape } from "./helpers";
 import { workflowEffectAccess } from "./internal/workflow-effect-access";
 import type { OrchestratorLogger, RunLifecycleEvent } from "./logger";
 import { BaseOrchestratorLogger } from "./logger";
-import type { PersistedWorkflow } from "./metadata-codec";
 import {
   decodeMetadataValue,
   encodePersistedMetadata,
@@ -32,6 +31,7 @@ import {
   streamFromMetadata,
   workflowStateFromMetadata,
 } from "./metadata-codec";
+import { defineOwnEntry } from "./own-entry";
 import { QueueEvents } from "./queue-events";
 import type {
   DispatchOptions,
@@ -41,6 +41,7 @@ import type {
   QueueSize,
   RecoverableRun,
 } from "./queue-types";
+import type { PersistedWorkflow } from "./schema";
 import type { OrchestratorStore, RunLinks, UpdateRunInput } from "./store";
 import { InMemoryOrchestratorStore } from "./store";
 import type { TelemetryState } from "./telemetry";
@@ -499,7 +500,7 @@ export class Queue {
     const out: Record<string, unknown> = {};
     for (const [key, step] of Object.entries(steps)) {
       if (step.status === "complete" && step.output !== undefined) {
-        out[key] = step.output;
+        defineOwnEntry(out, key, step.output);
       }
     }
     return out;

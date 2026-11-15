@@ -1,18 +1,17 @@
 import { z } from "zod";
-import { taskMetadataSchema } from "./operations";
-import { TASK_STATUSES, taskId } from "./types";
+import { taskSchema, taskStatusSchema } from "./schema";
+import { taskId } from "./types";
 
 /**
- * Runtime shapes for reads: the records the package returns and the queries
- * it takes, for edges (CLI, MCP tools) that check values crossing a process
- * boundary. Queries are strict, so a filter the package does not apply is
- * refused rather than ignored. A field added to a record or query type
- * belongs here too; the package tests parse real records strictly.
+ * Runtime shapes for reads: what the package returns around its records and
+ * the queries it takes, for edges (CLI, MCP tools) that check values crossing
+ * a process boundary. The task record itself is `taskSchema` in `./schema`.
+ * Queries are strict, so a filter the package does not apply is refused
+ * rather than ignored. A field added to a query type belongs here too; the
+ * package tests parse real results strictly.
  */
 
 const taskIdInput = z.string().min(1).transform(taskId);
-const instant = z.iso.datetime();
-const taskStatusSchema = z.enum(TASK_STATUSES);
 /** Exact strings, as create and update take them in `taskChangeSchema`. */
 const tagsSchema = z.array(z.string()).readonly();
 
@@ -44,19 +43,6 @@ export const taskQuerySchema = z.strictObject({
 export const readyQuerySchema = z.strictObject({
   ...pageInput,
   tags: tagQuerySchema.optional(),
-});
-
-export const taskSchema = z.strictObject({
-  createdAt: instant,
-  description: z.string().nullable(),
-  id: z.string().min(1),
-  metadata: taskMetadataSchema,
-  parentId: z.string().min(1).nullable(),
-  settledAt: instant.nullable(),
-  status: taskStatusSchema,
-  tags: tagsSchema,
-  title: z.string().min(1),
-  updatedAt: instant,
 });
 
 export const taskNodeSchema = taskSchema.extend({

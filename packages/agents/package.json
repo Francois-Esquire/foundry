@@ -37,6 +37,10 @@
     "./prompts": {
       "types": "./src/prompts.ts",
       "import": "./src/prompts.ts"
+    },
+    "./schema": {
+      "types": "./src/schema.ts",
+      "import": "./src/schema.ts"
     }
   },
   "scripts": {

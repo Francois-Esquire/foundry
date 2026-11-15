@@ -1,8 +1,22 @@
-import { Effect, Exit, Option, PubSub, Schema, Scope, Stream } from "effect";
+import { Effect, Exit, Option, PubSub, Scope, Stream } from "effect";
 
 import { MessageLog } from "./channel-log";
 
-import type { JsonValue } from "./execution-records";
+import type { JsonValue } from "./json-value";
+import type { ChannelEvent, ErrorShape, SuspensionState } from "./schema";
+import {
+  CustomEvent,
+  StepAbortedEvent,
+  StepBailedEvent,
+  StepCompleteEvent,
+  StepFailedEvent,
+  StepPausedEvent,
+  StepProgressEvent,
+  StepResumedEvent,
+  StepSkippedEvent,
+  StepStartedEvent,
+  StepSuspendedEvent,
+} from "./schema";
 import type { SnapshotState, StepStatus } from "./snapshot";
 import { Snapshot } from "./snapshot";
 import type { LogCallback, TelemetryLogEntry } from "./telemetry";
@@ -15,24 +29,7 @@ import type { LogCallback, TelemetryLogEntry } from "./telemetry";
  * see eventual consistency. Scope-managed.
  */
 
-// ── Event schemas ──
-
-/** Suspension metadata payload (carried on `step.suspended`). */
-export const SuspensionStateSchema = Schema.Struct({
-  kind: Schema.optional(Schema.String),
-  meta: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown })
-  ),
-  name: Schema.String,
-  occurrence: Schema.optional(
-    Schema.Number.pipe(Schema.int(), Schema.nonNegative())
-  ),
-  reason: Schema.String,
-  request: Schema.optional(Schema.Unknown),
-  stepPath: Schema.optional(Schema.Array(Schema.String)),
-  suspendedAt: Schema.String,
-});
-export type SuspensionState = Schema.Schema.Type<typeof SuspensionStateSchema>;
+export type { ChannelEvent, SuspensionState } from "./schema";
 
 /** Input accepted by Step suspension while legacy `meta` remains supported. */
 export interface SuspensionRequest {
@@ -42,97 +39,6 @@ export interface SuspensionRequest {
   readonly reason: string;
   readonly request?: JsonValue;
 }
-
-/** Captured error shape (carried on `step.failed`). */
-export const ErrorShapeSchema = Schema.Struct({
-  message: Schema.String,
-  name: Schema.String,
-  stack: Schema.optional(Schema.String),
-});
-type ErrorShape = Schema.Schema.Type<typeof ErrorShapeSchema>;
-
-const lifecycleCommon = {
-  at: Schema.String,
-  attempt: Schema.Number,
-  name: Schema.String,
-  path: Schema.Array(Schema.String),
-};
-
-export const StepStartedEvent = Schema.TaggedStruct(
-  "step.started",
-  lifecycleCommon
-);
-export const StepCompleteEvent = Schema.TaggedStruct("step.complete", {
-  ...lifecycleCommon,
-  value: Schema.Unknown,
-});
-export const StepFailedEvent = Schema.TaggedStruct("step.failed", {
-  ...lifecycleCommon,
-  error: ErrorShapeSchema,
-});
-export const StepBailedEvent = Schema.TaggedStruct("step.bailed", {
-  ...lifecycleCommon,
-  bail: Schema.Unknown,
-});
-export const StepSuspendedEvent = Schema.TaggedStruct("step.suspended", {
-  ...lifecycleCommon,
-  suspension: SuspensionStateSchema,
-});
-
-export const StepPausedEvent = Schema.TaggedStruct("step.paused", {
-  ...lifecycleCommon,
-  reason: Schema.optional(Schema.String),
-});
-
-export const StepResumedEvent = Schema.TaggedStruct(
-  "step.resumed",
-  lifecycleCommon
-);
-
-export const StepSkippedEvent = Schema.TaggedStruct("step.skipped", {
-  ...lifecycleCommon,
-  reason: Schema.optional(Schema.String),
-});
-
-export const StepAbortedEvent = Schema.TaggedStruct("step.aborted", {
-  ...lifecycleCommon,
-  reason: Schema.optional(Schema.Unknown),
-});
-
-export const StepProgressEvent = Schema.TaggedStruct("step.progress", {
-  ...lifecycleCommon,
-  value: Schema.Number,
-});
-
-export const StepResolvedEvent = Schema.TaggedStruct("step.resolved", {
-  ...lifecycleCommon,
-  suspensionName: Schema.String,
-  value: Schema.Unknown,
-});
-
-export const CustomEvent = Schema.TaggedStruct("custom", {
-  at: Schema.String,
-  path: Schema.Array(Schema.String),
-  payload: Schema.optional(Schema.Unknown),
-  stepId: Schema.String,
-  type: Schema.String,
-});
-
-export const ChannelEventSchema = Schema.Union(
-  StepStartedEvent,
-  StepCompleteEvent,
-  StepFailedEvent,
-  StepBailedEvent,
-  StepSuspendedEvent,
-  StepPausedEvent,
-  StepResumedEvent,
-  StepSkippedEvent,
-  StepAbortedEvent,
-  StepResolvedEvent,
-  StepProgressEvent,
-  CustomEvent
-);
-export type ChannelEvent = Schema.Schema.Type<typeof ChannelEventSchema>;
 
 // ── Other message types ──
 
@@ -366,7 +272,12 @@ export class Channels<S = unknown> {
 
   /** Push `step.started`. */
   started(path: readonly string[], name: string, attempt: number): void {
-    this.events.push(StepStartedEvent.make(this.#base(path, name, attempt)));
+    this.events.push(
+      StepStartedEvent.parse({
+        _tag: "step.started",
+        ...this.#base(path, name, attempt),
+      })
+    );
   }
 
   /** Push `step.complete`. */
@@ -377,7 +288,11 @@ export class Channels<S = unknown> {
     value: unknown
   ): void {
     this.events.push(
-      StepCompleteEvent.make({ ...this.#base(path, name, attempt), value })
+      StepCompleteEvent.parse({
+        _tag: "step.complete",
+        ...this.#base(path, name, attempt),
+        value,
+      })
     );
   }
 
@@ -389,7 +304,11 @@ export class Channels<S = unknown> {
     error: ErrorShape
   ): void {
     this.events.push(
-      StepFailedEvent.make({ ...this.#base(path, name, attempt), error })
+      StepFailedEvent.parse({
+        _tag: "step.failed",
+        ...this.#base(path, name, attempt),
+        error,
+      })
     );
   }
 
@@ -401,7 +320,11 @@ export class Channels<S = unknown> {
     bail: unknown
   ): void {
     this.events.push(
-      StepBailedEvent.make({ ...this.#base(path, name, attempt), bail })
+      StepBailedEvent.parse({
+        _tag: "step.bailed",
+        ...this.#base(path, name, attempt),
+        bail,
+      })
     );
   }
 
@@ -413,7 +336,8 @@ export class Channels<S = unknown> {
     suspension: SuspensionState
   ): void {
     this.events.push(
-      StepSuspendedEvent.make({
+      StepSuspendedEvent.parse({
+        _tag: "step.suspended",
         ...this.#base(path, name, attempt),
         suspension,
       })
@@ -428,7 +352,8 @@ export class Channels<S = unknown> {
     reason?: string
   ): void {
     this.events.push(
-      StepPausedEvent.make({
+      StepPausedEvent.parse({
+        _tag: "step.paused",
         ...this.#base(path, name, attempt),
         ...(reason === undefined ? {} : { reason }),
       })
@@ -437,7 +362,12 @@ export class Channels<S = unknown> {
 
   /** Push `step.resumed`. */
   resumed(path: readonly string[], name: string, attempt: number): void {
-    this.events.push(StepResumedEvent.make(this.#base(path, name, attempt)));
+    this.events.push(
+      StepResumedEvent.parse({
+        _tag: "step.resumed",
+        ...this.#base(path, name, attempt),
+      })
+    );
   }
 
   /** Push `step.skipped`. */
@@ -448,7 +378,8 @@ export class Channels<S = unknown> {
     reason?: string
   ): void {
     this.events.push(
-      StepSkippedEvent.make({
+      StepSkippedEvent.parse({
+        _tag: "step.skipped",
         ...this.#base(path, name, attempt),
         ...(reason === undefined ? {} : { reason }),
       })
@@ -463,7 +394,8 @@ export class Channels<S = unknown> {
     reason?: unknown
   ): void {
     this.events.push(
-      StepAbortedEvent.make({
+      StepAbortedEvent.parse({
+        _tag: "step.aborted",
         ...this.#base(path, name, attempt),
         ...(reason === undefined ? {} : { reason }),
       })
@@ -478,7 +410,11 @@ export class Channels<S = unknown> {
     value: number
   ): void {
     this.events.push(
-      StepProgressEvent.make({ ...this.#base(path, name, attempt), value })
+      StepProgressEvent.parse({
+        _tag: "step.progress",
+        ...this.#base(path, name, attempt),
+        value,
+      })
     );
     this.#onProgress?.(value, path);
   }
@@ -491,7 +427,8 @@ export class Channels<S = unknown> {
     payload?: unknown
   ): void {
     this.events.push(
-      CustomEvent.make({
+      CustomEvent.parse({
+        _tag: "custom",
         at: new Date().toISOString(),
         path,
         stepId,

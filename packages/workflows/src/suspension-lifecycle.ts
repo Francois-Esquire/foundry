@@ -1,11 +1,11 @@
 import type { Page } from "@foundry/core/pagination";
-import { Schema } from "effect";
 
 import type { SuspensionState } from "./channels";
 import {
   SuspensionAlreadySettledError,
   SuspensionNotFoundError,
 } from "./errors";
+import { isJsonValue } from "./json-value";
 import type {
   JsonValue,
   OrchestratorStore,
@@ -14,7 +14,6 @@ import type {
   SuspensionRecord,
   UpdateRunInput,
 } from "./store";
-import { JsonValueSchema } from "./store";
 
 export interface ResolveSuspensionOptions {
   readonly expectedRevision?: number;
@@ -144,7 +143,7 @@ function assertJsonValue(
   value: unknown,
   label: string
 ): asserts value is JsonValue {
-  if (!Schema.is(JsonValueSchema)(value)) {
+  if (!isJsonValue(value)) {
     throw new Error(`${label} must be a finite, acyclic JSON value`);
   }
 }
