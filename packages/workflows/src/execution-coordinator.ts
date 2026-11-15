@@ -126,6 +126,13 @@ const LIVE_RUN_STATUSES: readonly RunStatus[] = [
   "suspended",
 ];
 
+/** Set by `ExecutionCoordinator`'s static block: its claim, as an outcome. */
+let claimOn: (
+  coordinator: ExecutionCoordinator,
+  jobId: string,
+  input: CreateJobRunInput
+) => Promise<JobRunClaimOutcome>;
+
 /**
  * Every rule of the execution records, over a `WorkflowStore` that keeps
  * them: creation defaults, lifecycle transitions, patch semantics, the
@@ -156,8 +163,14 @@ export class ExecutionCoordinator implements OrchestratorStore {
     this.#store = store;
     this.durability = store.durability ?? "commit";
     if (store.transaction !== undefined) {
-      this.transaction = (work) => this.#bound(work);
+      this.transaction = (work) =>
+        this.#transaction((view) => work(ExecutionCoordinator.#over(view)));
     }
+  }
+
+  static {
+    claimOn = (coordinator, jobId, input) =>
+      coordinator.#claim(jobId, detached(input));
   }
 
   /**
@@ -166,31 +179,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
    */
   static #over(view: WorkflowStore): ExecutionCoordinator {
     return new ExecutionCoordinator({ store: withoutTransaction(view) });
-  }
-
-  /**
-   * `work` over a coordinator bound to one store transaction. A refusal
-   * that follows a commit (a claim of a Job whose earlier attempt completed
-   * settles the Job, then refuses) keeps that commit: the transaction
-   * commits, and the refusal is raised once it has.
-   */
-  async #bound<T>(work: (store: OrchestratorStore) => Promise<T>): Promise<T> {
-    const outcome = await this.#transaction(
-      async (view): Promise<{ refusal: unknown } | { value: T }> => {
-        try {
-          return { value: await work(ExecutionCoordinator.#over(view)) };
-        } catch (error) {
-          if (REFUSED_AFTER_COMMIT.has(error as object)) {
-            return { refusal: error };
-          }
-          throw error;
-        }
-      }
-    );
-    if ("refusal" in outcome) {
-      throw outcome.refusal;
-    }
-    return outcome.value;
   }
 
   /**
@@ -380,54 +368,60 @@ export class ExecutionCoordinator implements OrchestratorStore {
     jobId: string,
     input: CreateJobRunInput
   ): Promise<JobRunClaim> {
-    const outcome = await this.#exclusive(
-      async (store): Promise<JobRunClaimOutcome> => {
-        const job = await store.getJob(jobId);
-        if (!job) {
-          throw new JobNotFoundError(jobId);
-        }
-        if (isTerminalJobStatus(job.status)) {
-          throw new JobAlreadySettledError(jobId);
-        }
-        const jobRuns = await runsOfJob(store, jobId);
-        const active = jobRuns.find((attempt) =>
-          isNonTerminalRunStatus(attempt.status)
-        );
-        if (active) {
-          throw new JobAttemptAlreadyActiveError(jobId, active.id);
-        }
-        if (jobRuns.some((attempt) => attempt.status === "complete")) {
-          const settled = decodeJobRecord({
-            ...job,
-            status: "complete",
-            timestamps: { ...job.timestamps, completedAt: Date.now() },
-          });
-          await store.commit({ putJobs: [settled] });
-          return { status: "settled" };
-        }
-        const runId = input.id ?? generateId("rn");
-        if (await store.getRun(runId)) {
-          throw new RecordAlreadyExistsError("run", runId);
-        }
-        const nextJob = decodeJobRecord({
-          ...job,
-          status: "active",
-          timestamps: { ...job.timestamps, completedAt: null, failedAt: null },
-        });
-        const run = buildRunRecord(runId, {
-          ...input,
-          links: { ...(input.links ?? {}), jobId },
-        });
-        await store.commit({ putJobs: [nextJob], putRuns: [run] });
-        return { claim: { job: nextJob, run }, status: "claimed" };
-      }
-    );
+    const outcome = await this.#claim(jobId, input);
     if (outcome.status === "settled") {
-      const refusal = new JobAlreadySettledError(jobId);
-      REFUSED_AFTER_COMMIT.add(refusal);
-      throw refusal;
+      throw new JobAlreadySettledError(jobId);
     }
     return outcome.claim;
+  }
+
+  /**
+   * `claimJobRun` as an outcome: the claim, or that the Job was found
+   * settled, as an earlier attempt completed, and was written as complete.
+   * Admission uses it inside its transaction, so the settlement commits and
+   * the refusal follows the commit; see `claimJobAttempt`.
+   */
+  #claim(jobId: string, input: CreateJobRunInput): Promise<JobRunClaimOutcome> {
+    return this.#exclusive(async (store): Promise<JobRunClaimOutcome> => {
+      const job = await store.getJob(jobId);
+      if (!job) {
+        throw new JobNotFoundError(jobId);
+      }
+      if (isTerminalJobStatus(job.status)) {
+        throw new JobAlreadySettledError(jobId);
+      }
+      const jobRuns = await runsOfJob(store, jobId);
+      const active = jobRuns.find((attempt) =>
+        isNonTerminalRunStatus(attempt.status)
+      );
+      if (active) {
+        throw new JobAttemptAlreadyActiveError(jobId, active.id);
+      }
+      if (jobRuns.some((attempt) => attempt.status === "complete")) {
+        const settled = decodeJobRecord({
+          ...job,
+          status: "complete",
+          timestamps: { ...job.timestamps, completedAt: Date.now() },
+        });
+        await store.commit({ putJobs: [settled] });
+        return { job: settled, status: "settled" };
+      }
+      const runId = input.id ?? generateId("rn");
+      if (await store.getRun(runId)) {
+        throw new RecordAlreadyExistsError("run", runId);
+      }
+      const nextJob = decodeJobRecord({
+        ...job,
+        status: "active",
+        timestamps: { ...job.timestamps, completedAt: null, failedAt: null },
+      });
+      const run = buildRunRecord(runId, {
+        ...input,
+        links: { ...(input.links ?? {}), jobId },
+      });
+      await store.commit({ putJobs: [nextJob], putRuns: [run] });
+      return { claim: { job: nextJob, run }, status: "claimed" };
+    });
   }
 
   async getRun(id: string): Promise<RunRecord | null> {
@@ -948,12 +942,6 @@ export function requireDurableStore(
 }
 
 /**
- * Refusals raised after their command committed. Inside a coordinator's
- * `transaction`, the work's failure with one of these still commits.
- */
-const REFUSED_AFTER_COMMIT = new WeakSet<object>();
-
-/**
  * Makes every public method of `prototype` take its arguments as they stand
  * when it is called: one deep copy, with byte memory unshared, taken before
  * anything else runs, and the only one the method sees. So no command reads
@@ -1016,7 +1004,28 @@ function refuseHiddenFields(method: string, index: number, arg: unknown): void {
  */
 type JobRunClaimOutcome =
   | { readonly status: "claimed"; readonly claim: JobRunClaim }
-  | { readonly status: "settled" };
+  | { readonly status: "settled"; readonly job: JobRecord };
+
+/**
+ * Claims a managed attempt of a Job through `store` without raising on a
+ * settled Job, for a caller inside a transaction that must keep the
+ * settlement: admission returns the outcome out of its transaction, lets
+ * it commit, and refuses afterwards. Over an `ExecutionCoordinator` the
+ * settled case is a value; over any other `OrchestratorStore`, which offers
+ * only `claimJobRun`, it stays the rejection that store raises.
+ */
+export function claimJobAttempt(
+  store: OrchestratorStore,
+  jobId: string,
+  input: CreateJobRunInput
+): Promise<JobRunClaimOutcome> {
+  if (store instanceof ExecutionCoordinator) {
+    return claimOn(store, jobId, input);
+  }
+  return store
+    .claimJobRun(jobId, input)
+    .then((claim) => ({ claim, status: "claimed" as const }));
+}
 
 /** `view` without `transaction`: a coordinator over it runs its work directly. */
 function withoutTransaction(view: WorkflowStore): WorkflowStore {

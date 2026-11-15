@@ -1,4 +1,5 @@
 import { ExecutionCoordinator } from "../../index";
+import type { WorkflowStore } from "../../store/index";
 import { MemoryWorkflowStore } from "../../store/memory";
 import { SqliteWorkflowStore } from "../../store/sqlite";
 import { libsqlDatabases } from "./sqlite";
@@ -9,6 +10,8 @@ export interface OpenedCoordinator {
   readonly coordinator: ExecutionCoordinator;
   /** Errors the store rejected a commit with; the runtime may swallow them. */
   readonly failures: readonly unknown[];
+  /** The storage under `coordinator`, for a test that builds its own. */
+  readonly store: WorkflowStore;
 }
 
 /**
@@ -27,6 +30,7 @@ export function coordinatorStores(): readonly [
     return {
       coordinator: new ExecutionCoordinator({ store: recorded }),
       failures: recorded.failures,
+      store: recorded,
     };
   };
   return [

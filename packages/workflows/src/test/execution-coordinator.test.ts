@@ -6,6 +6,8 @@ import {
   JobAttemptAlreadyActiveError,
   RecordAlreadyExistsError,
 } from "../errors";
+import { ExecutionParticipants } from "../execution-participants";
+import type { CreateRunInput } from "../index";
 import { ExecutionCoordinator } from "../index";
 import type { RunFramePayload, RunRecord } from "../schema";
 import type { WorkflowStore } from "../store/index";
@@ -308,7 +310,70 @@ for (const [name, open] of STORES) {
       ]);
     });
 
-    test("keeps a settled Job inside a transaction, and refuses the claim once it commits", async () => {
+    test("refuses an argument whose fields a copy would not keep", async () => {
+      const coordinator = new ExecutionCoordinator({ store: await open() });
+      class RunInput {
+        readonly input = null;
+        readonly queueId = "q";
+        get step() {
+          return "s";
+        }
+      }
+      const hidden = Object.defineProperty(
+        { input: null, queueId: "q" },
+        "step",
+        { enumerable: false, value: "s" }
+      );
+
+      for (const input of [new RunInput(), hidden]) {
+        await expect(
+          coordinator.createRun(input as unknown as CreateRunInput)
+        ).rejects.toThrow(
+          "ExecutionCoordinator.createRun takes plain objects: argument 1"
+        );
+      }
+      expect((await coordinator.listRuns({})).total).toBe(0);
+    });
+
+    test("admission keeps a Job its claim found settled, and refuses the claim once that commits", async () => {
+      const coordinator = new ExecutionCoordinator({ store: await open() });
+      const job = await coordinator.createJob({
+        definition: { name: "documents.generate" },
+        input: null,
+      });
+      const { run } = await coordinator.claimJobRun(job.id, {
+        input: null,
+        queueId: "q",
+        step: "documents.generate",
+      });
+      await coordinator.updateRun(run.id, { status: "complete" });
+      const admitted: string[] = [];
+      const participants = new ExecutionParticipants(
+        coordinator,
+        ({ run: claimed }) => {
+          admitted.push(claimed.id);
+          return Promise.resolve(null);
+        },
+        undefined
+      );
+
+      await expect(
+        participants.claim(job.id, {
+          input: null,
+          queueId: "q",
+          step: "documents.generate",
+        })
+      ).rejects.toBeInstanceOf(JobAlreadySettledError);
+      expect(await coordinator.getJob(job.id)).toMatchObject({
+        status: "complete",
+      });
+      expect(admitted).toEqual([]);
+      expect(
+        (await coordinator.listRuns({ links: { jobId: job.id } })).total
+      ).toBe(1);
+    });
+
+    test("rolls a transaction back whenever its work throws, a settled claim's refusal included", async () => {
       const coordinator = new ExecutionCoordinator({ store: await open() });
       const job = await coordinator.createJob({
         definition: { name: "documents.generate" },
@@ -322,18 +387,26 @@ for (const [name, open] of STORES) {
       await coordinator.updateRun(run.id, { status: "complete" });
 
       await expect(
-        coordinator.transaction?.((bound) =>
-          bound.claimJobRun(job.id, {
+        coordinator.transaction?.(async (bound) => {
+          await bound.createRun({
+            id: "rn-unrelated",
+            input: null,
+            queueId: "q",
+            step: "s",
+          });
+          await bound.claimJobRun(job.id, {
             input: null,
             queueId: "q",
             step: "documents.generate",
-          })
-        )
+          });
+        })
       ).rejects.toBeInstanceOf(JobAlreadySettledError);
+      // Neither the unrelated Run nor the settlement the claim wrote stays.
+      expect(await coordinator.getRun("rn-unrelated")).toBeNull();
       expect(await coordinator.getJob(job.id)).toMatchObject({
-        status: "complete",
+        status: "active",
       });
-      // Any other failure of the work still rolls everything back.
+
       await expect(
         coordinator.transaction?.(async (bound) => {
           await bound.createRun({
@@ -342,9 +415,9 @@ for (const [name, open] of STORES) {
             queueId: "q",
             step: "s",
           });
-          throw new JobAlreadySettledError(job.id);
+          throw new Error("work failed");
         })
-      ).rejects.toBeInstanceOf(JobAlreadySettledError);
+      ).rejects.toThrow("work failed");
       expect(await coordinator.getRun("rn-lost")).toBeNull();
     });
 

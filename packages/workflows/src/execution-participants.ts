@@ -1,5 +1,6 @@
-import { RunNotFoundError } from "./errors";
+import { JobAlreadySettledError, RunNotFoundError } from "./errors";
 import type { OrchestratorStore } from "./execution-coordinator";
+import { claimJobAttempt } from "./execution-coordinator";
 import type { OrchestratorOptions } from "./orchestrator";
 import type { RunRecord } from "./schema";
 
@@ -36,11 +37,32 @@ export class ExecutionParticipants {
     if (!(admission && transaction)) {
       return this.store.claimJobRun(jobId, input);
     }
-    return transaction(async (store) => {
-      const claimed = await store.claimJobRun(jobId, input);
-      await admission({ ...claimed, store });
-      return claimed;
+    return this.#admit(transaction, admission, jobId, input);
+  }
+
+  /**
+   * The claim and its admission in one transaction. A Job found settled is
+   * an outcome, not a throw, inside it: the transaction commits the Job as
+   * complete, and the claim is refused once it has. Any throw rolls the
+   * whole transaction back.
+   */
+  async #admit(
+    transaction: NonNullable<OrchestratorStore["transaction"]>,
+    admission: NonNullable<OrchestratorOptions["admissionParticipant"]>,
+    jobId: string,
+    input: Parameters<OrchestratorStore["claimJobRun"]>[1]
+  ) {
+    const outcome = await transaction(async (store) => {
+      const attempt = await claimJobAttempt(store, jobId, input);
+      if (attempt.status === "claimed") {
+        await admission({ ...attempt.claim, store });
+      }
+      return attempt;
     });
+    if (outcome.status === "settled") {
+      throw new JobAlreadySettledError(jobId);
+    }
+    return outcome.claim;
   }
 
   async recover(runId: string, jobId: string | undefined): Promise<void> {
