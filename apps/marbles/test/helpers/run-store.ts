@@ -156,6 +156,20 @@ export function describeRunStore(
     });
 
     it.runIf(shared)(
+      "owns every Run it puts unsettled, one its engine recorded nothing for too",
+      async () => {
+        const first = await store();
+        const second = await store();
+        const workflows = await first.open(() => undefined);
+        await putRun(workflows, "rn-1", "running");
+
+        expect(await second.claim("rn-1")).toBe(false);
+        await putRun(workflows, "rn-1", "complete");
+        expect(await second.claim("rn-1")).toBe(true);
+      }
+    );
+
+    it.runIf(shared)(
       "lets one store own a Run at a time, until its owner gives it up or settles it",
       async () => {
         const first = await store();

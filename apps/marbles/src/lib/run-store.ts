@@ -36,9 +36,8 @@ export interface RunStore {
   readonly durable: boolean;
   /**
    * The workflow records, once per engine. Every commit that puts a Run
-   * `recorded` answers for files that record beside it, in the same
-   * transaction, and makes this store its owner until the Run settles; a
-   * commit that settles a Run gives it up.
+   * files beside it, in the same transaction, what `recorded` answers for
+   * it, and makes this store its owner until a commit settles it.
    */
   open(
     recorded: (runId: string) => RecordedScope | undefined
@@ -205,10 +204,11 @@ export class MemoryRunStore implements RunStore {
     for (const run of runs) {
       if (run.scope !== undefined) {
         this.#scopes.set(run.runId, run.scope);
-        this.#owners.set(run.runId, this.#owner);
       }
       if (run.settled) {
         this.#owners.delete(run.runId);
+      } else {
+        this.#owners.set(run.runId, this.#owner);
       }
     }
     for (const runId of deleted) {

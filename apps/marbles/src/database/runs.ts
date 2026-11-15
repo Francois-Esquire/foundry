@@ -134,11 +134,10 @@ export class DatabaseRunStore implements RunStore {
         return { ledger: {} };
       }
       const { ledger, literals, sessionId } = recordedRow.parse(row);
-      return {
-        ledger,
-        literals,
-        ...(sessionId === null ? {} : { session: sessionId }),
-      };
+      // A recording always names the run's session; a row without one is an owner's alone.
+      return sessionId === null
+        ? { ledger }
+        : { ledger, literals, session: sessionId };
     });
   }
 
@@ -174,9 +173,9 @@ export class DatabaseRunStore implements RunStore {
 
   /**
    * What `write` files beside its Runs, in its own `transaction`: each Run
-   * put with a scope recorded here gets that recording and this store as
-   * its owner; each Run it settles is owned by no one; each Run it deletes
-   * loses its row.
+   * it puts unsettled has this store as its owner, and the recording of
+   * its scope when there is one here; each Run it settles is owned by no
+   * one; each Run it deletes loses its row.
    */
   async #file(
     transaction: WorkflowTransaction,
@@ -185,24 +184,25 @@ export class DatabaseRunStore implements RunStore {
   ): Promise<void> {
     for (const { runId, scope, settled } of filedRuns(write, recorded)) {
       const owner = settled ? { ownerId: null, ownerPid: null } : this.#owned();
-      if (scope === undefined) {
-        if (settled) {
-          await transaction
-            .update(marblesWorkflowRuns)
-            .set(owner)
-            .where(this.#run(runId));
-        }
-        continue;
-      }
-      const recording = {
-        ledger: { ...scope.ledger },
-        literals: { ...scope.literals },
-        ...owner,
-        sessionId: scope.session.id,
-      };
+      // Without a recording, the row keeps what it had and changes owner.
+      const recording =
+        scope === undefined
+          ? owner
+          : {
+              ledger: { ...scope.ledger },
+              literals: { ...scope.literals },
+              ...owner,
+              sessionId: scope.session.id,
+            };
       await transaction
         .insert(marblesWorkflowRuns)
-        .values({ ...recording, runId, scope: this.#scope })
+        .values({
+          ledger: {},
+          literals: {},
+          ...recording,
+          runId,
+          scope: this.#scope,
+        })
         .onConflictDoUpdate({
           set: recording,
           target: [marblesWorkflowRuns.scope, marblesWorkflowRuns.runId],

@@ -60,6 +60,7 @@ import { localCatalogue, WorkspacesManager } from "~/lib/managers/workspaces";
 import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
+import { RunListing } from "~/lib/run-listing";
 import { adoptParkedRuns, workflowStatuses } from "~/lib/run-recovery";
 import type { ReadonlyRunScopes, RecordedScope } from "~/lib/run-scope";
 import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
@@ -278,6 +279,8 @@ function recordedIn(
 /** What a started engine holds; absent until `start` and after a failed one. */
 interface Running {
   readonly held: HeldRuns;
+  /** The Runs `runs()` lists. */
+  readonly listing: RunListing;
   readonly orchestrator: Orchestrator;
   readonly router: FeedRouter;
   /** The workflow records the Orchestrator keeps its Runs in, over `runs`. */
@@ -352,11 +355,6 @@ export class Engine {
   readonly #runs: RunStore;
   readonly #delivery: Delivery;
   readonly #directNames = new WeakMap<AnyDefinition, string>();
-  /**
-   * Workflow runs pruned since start: the Orchestrator's store still holds
-   * them, but `runs()`, and so the dashboard and usage, no longer list them.
-   */
-  readonly #pruned = new Set<string>();
   #running: Running | undefined;
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
   #starting: Promise<this> | undefined;
@@ -573,7 +571,7 @@ export class Engine {
       removeRunOutput(this.state, run.id);
     }
     await this.#runs.remove(run.id);
-    this.#pruned.add(run.id);
+    this.#running?.listing.remove(run.id);
   }
 
   /** Harness ids agents can route to on this machine, in preference order. */
@@ -820,7 +818,12 @@ export class Engine {
       await feed
         .cancelAbandoned()
         .catch((error: unknown) => print(`[feed] ${String(error)}`));
-      this.#running = { held, orchestrator, router, store };
+      const listing = new RunListing(store);
+      await listing.load();
+      for (const { dispatched } of recovered) {
+        listing.add(dispatched.id);
+      }
+      this.#running = { held, listing, orchestrator, router, store };
       for (const { createdAt, name, dispatched } of recovered) {
         // A run parked before Execution Runs existed gets one now, before
         // anything it does is recorded on it.
@@ -904,7 +907,9 @@ export class Engine {
       await this.#scopes.settle(run.id);
       throw error;
     }
-    return this.#live().held.follow(run.name, dispatched);
+    const { held, listing } = this.#live();
+    listing.add(run.id);
+    return held.follow(run.name, dispatched);
   }
 
   #live(): Running {
@@ -1110,40 +1115,22 @@ export class Engine {
   }
 
   /**
-   * The workspace's settled Runs the store retains, and every Run this
-   * process holds, oldest first. A Run another process left unsettled is
-   * not listed: its Execution Run says how far it got.
+   * The workspace's settled Runs the store retained at start, and every Run
+   * this engine dispatched or adopted since, oldest first (see
+   * `RunListing`), each one still held here as it stands now.
    */
   async runs(): Promise<readonly RunRecord[]> {
-    const { held, store } = this.#live();
-    const listed: RunRecord[] = [];
-    let cursor: number | undefined;
-    do {
-      const page = await store.listRuns({
-        limit: 200,
-        order: "oldest",
-        ...(cursor === undefined ? {} : { cursor }),
-      });
-      listed.push(...page.items);
-      cursor = page.nextCursor;
-    } while (cursor !== undefined);
-    return listed
-      .filter(
-        (record) =>
-          !this.#pruned.has(record.id) &&
-          (TERMINAL_RUN_STATUSES.has(record.status) ||
-            held.workflow(record.id) !== undefined)
-      )
-      .map((record) => {
-        const current = held.workflow(record.id)?.state;
-        return current
-          ? {
-              ...record,
-              metadata: { ...record.metadata, workflow: current },
-              snapshot: current.tree ?? record.snapshot,
-            }
-          : record;
-      });
+    const { held, listing } = this.#live();
+    return (await listing.list()).map((record) => {
+      const current = held.workflow(record.id)?.state;
+      return current
+        ? {
+            ...record,
+            metadata: { ...record.metadata, workflow: current },
+            snapshot: current.tree ?? record.snapshot,
+          }
+        : record;
+    });
   }
 
   /** The live triggers: what the host scheduled, plus what agents created. */
