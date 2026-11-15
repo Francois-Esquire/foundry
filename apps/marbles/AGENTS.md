@@ -78,6 +78,11 @@ Five buckets, each importing only what sits below it:
   `lib/run-store.ts` is where their Runs are kept (`RunStore`, in memory
   by default), and `lib/run-recovery.ts` is the one rule for which parked
   Runs a starting engine adopts.
+  Each engine has an execution context (`lib/execution-context.ts`): its
+  workspace id, where its work starts (`cwd`, the root by default) and the
+  environment its commands inherit. Runs reach it through their bindings,
+  observers through `inContext`, and nothing in `lib/` reads
+  `process.cwd()` or `process.env` for it.
   `lib/cli-harnesses.ts` describes each CLI harness once (ids in
   preference order, executor, guest artifact and environment). Provider
   plugins (`lib/providers/plugins.ts`) build instances from configuration
@@ -202,11 +207,24 @@ Five buckets, each importing only what sits below it:
   `hostWorkspace()` in `host.ts`, which ties them into the
   `WorkspaceConnection` every host is written against. A host opens one
   writer handle on the database (`openHostDatabase`) before it builds the
-  engine, keeps it until the engine is disposed, and records the workspace
-  through it once the engine has started; under `--dry-run` it opens none. It imports `lib/`,
+  engine, or is handed one, keeps it until the engine is disposed, and
+  records the workspace's registration (root, source, where its work
+  starts) through it once the engine has started; under `--dry-run` it
+  opens none. Nothing under `workspace/` reads `process.cwd()`: the CLI
+  passes the directory it runs in (`directory`), and a workspace's
+  registration says where its work starts (`cwd`). Each workspace loads
+  into a `Catalog` of its own (`loadSource`, through `loadInto` in
+  `authoring/runtime.ts`, one load at a time), and its Varlock values into
+  the engine's execution context, never `process.env`; the authoring host
+  slot is kept per workspace, and a call resolves its workspace from the
+  calling work's execution context (`lib/execution-context.ts`).
+  `hosted.ts` (`HostedWorkspaces`) hosts several workspaces in one
+  process over one database handle, addresses what each declared by
+  workspace id and local name, and reports a load that fails per
+  workspace (`load`, `loadRegistered`). The Marbles process still runs one
+  worker per workspace. It imports `lib/`,
   `authoring/`, `database/`, `layout.ts` and `model/`; never views, `args`, or
-  `process/`. The catalog, the authoring host slot, `process.env` and the
-  module cache are per-process, so one process hosts one workspace.
+  `process/`.
 - `src/process/` is the Marbles process: one daemon per machine
   (`daemon.ts`) that claims `locks/process` at the state root, listens on
   the layout's Unix socket, and hosts each attached workspace in a worker

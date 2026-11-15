@@ -310,8 +310,15 @@ over a bare engine. `describe`, `snapshot`, `dispatchWorkflow`,
 tools and the dashboard call. `close` stops the engine, cancelling live
 runs, and disposes what it opened.
 
-The catalog, `process.env`, and the module cache are per process, so one
-process hosts one workspace. Claim the workspace's state directory
+Each host loads its workspace's source into a catalog of its own, and its
+`.env.schema` into the environment the workspace's runs carry, leaving
+`process.env` as it was; two hosts in one process never see each other's
+definitions, triggers, agents, tasks or values, and two workspaces may use
+the same names. Sources load one at a time. A relative `source`, or a
+workspace with no source at all, needs `directory`: the directory the
+source is relative to, which is the workspace's root without one. `cwd`
+sets where the workspace's runs start and its commands run, the root when
+omitted. Claim the workspace's state directory
 (`engine.state`, which is `<state>/<workspace-id>`) inside `prepare`, so
 the engine starts only once the claim holds: a worker of the Marbles
 process hosting the same workspace claims the same `locks/process`, and the
