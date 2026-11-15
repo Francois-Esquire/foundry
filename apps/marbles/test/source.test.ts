@@ -14,9 +14,13 @@ import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
-import { readTriggers } from "~/create";
+import { DatabaseAutomationStore } from "~/database/automations";
+import { initializeDatabase } from "~/database/open";
+import { stateDatabase } from "~/layout";
+import { AutomationService } from "~/lib/automation/service";
 import { workspaceState } from "~/lib/state/workspace";
 import { sourceFiles, sourceRoot } from "~/workspace/source";
+import { declared } from "./helpers/engine";
 
 afterEach(() => {
   catalog.reset();
@@ -150,9 +154,14 @@ it("lists what agents created from the same triggers, and leaves the state root 
     const state = join(root, "state");
     const { dir } = workspaceState(state, root);
     step("target").do(() => 1);
-    const { automations } = readTriggers(catalog, {
-      dry: false,
-      stateDir: dir,
+    // What an engine of the workspace's keeps, in the database at the state root.
+    const opened = await initializeDatabase(stateDatabase(state));
+    const automations = new AutomationService({
+      registry: declared(),
+      store: new DatabaseAutomationStore({
+        database: opened.database,
+        scope: workspaceState(state, root).id,
+      }),
     });
     const owner = {
       agentId: "worker",
@@ -172,6 +181,7 @@ it("lists what agents created from the same triggers, and leaves the state root 
       { at: "1h", key: "hourly", workflow: "target" },
       owner
     );
+    opened.close();
     const listed = cli(root, "list", "--config", config, "--state", state)
       .split("\n")
       .filter((line) => line.startsWith("["));

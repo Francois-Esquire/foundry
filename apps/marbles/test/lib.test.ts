@@ -40,7 +40,7 @@ function loopEngine(
       started();
       return Promise.resolve({ id: "run", result: Promise.resolve() });
     },
-    schedules: () => schedules,
+    schedules: () => Promise.resolve(schedules),
     triggers: new MemoryTriggerStore(),
   } as ScheduledEngine;
 }

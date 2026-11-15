@@ -206,7 +206,7 @@ async function runLocal(
       return;
     }
     running.setStatus(
-      running.engine.schedules().length === 0
+      (await running.engine.schedules()).length === 0
         ? "Ready · no triggers configured"
         : "Watching triggers"
     );

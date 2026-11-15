@@ -43,12 +43,12 @@ function engineIn(root: string, stateDir?: string) {
   }).start();
 }
 
-function view(engine: Engine) {
+async function view(engine: Engine) {
   return {
     ...options,
     definitions: engine.definitions(),
     monitors: engine.monitors(),
-    schedules: engine.schedules(),
+    schedules: await engine.schedules(),
   };
 }
 
@@ -83,7 +83,7 @@ it("projects real nested runs, logs and trigger provenance, including restored h
       throw new Error("missing fixture schedule");
     }
     await tick(engine, scheduled, { print });
-    const snapshot = dashboardSnapshot(await engine.runs(), view(engine));
+    const snapshot = dashboardSnapshot(await engine.runs(), await view(engine));
     expect(snapshot.mode).toBe("live");
     // Anonymous `bang` is internal; the schema gives each entry its form.
     // Declared in this test file, outside the workspace root: external.
@@ -137,7 +137,7 @@ it("projects real nested runs, logs and trigger provenance, including restored h
     await engine.stop();
     await engine.dispose();
     engine = await engineIn(dir, dir);
-    const restored = dashboardSnapshot(await engine.runs(), view(engine));
+    const restored = dashboardSnapshot(await engine.runs(), await view(engine));
     expect(restored.runs).toEqual(snapshot.runs);
   } finally {
     await engine.stop();
@@ -177,7 +177,7 @@ it("shows a running step and cancels it on shutdown without starting queued work
     const queued = engine
       .run("wait", {}, "other")
       .catch((error: unknown) => error);
-    const snapshot = dashboardSnapshot(await engine.runs(), view(engine));
+    const snapshot = dashboardSnapshot(await engine.runs(), await view(engine));
     expect(
       snapshot.runs.find((run) => run.triggerId === "watch")?.steps[0]?.status
     ).toBe("running");

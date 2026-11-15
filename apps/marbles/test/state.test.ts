@@ -273,7 +273,7 @@ describe("schedule state", () => {
         launches += 1;
         return Promise.resolve({ id: "run", result: Promise.resolve("ok") });
       },
-      schedules: () => [schedule],
+      schedules: () => Promise.resolve([schedule]),
       triggers,
     } as ScheduledEngine;
 
@@ -309,7 +309,7 @@ describe("schedule state", () => {
         controller.abort();
         return Promise.resolve({ id: "run", result: Promise.resolve() });
       },
-      schedules: () => [schedule],
+      schedules: () => Promise.resolve([schedule]),
       triggers,
     } as ScheduledEngine;
 
@@ -341,49 +341,49 @@ describe.each([
 ] as const)("%s", (_name, open: () => StateStore, holder: string) => {
   it("reads, lists and removes documents by collection and key", () => {
     const store = open();
-    expect(store.read("automations", "m")).toBeUndefined();
-    expect(store.list("automations")).toEqual([]);
-    store.write("automations", "m", { seen: [1] });
-    store.write("automations", "a", { seen: [] });
-    store.write("usage", "m", { other: true });
-    expect(store.read("automations", "m")).toEqual({ seen: [1] });
+    expect(store.read("executions", "m")).toBeUndefined();
+    expect(store.list("executions")).toEqual([]);
+    store.write("executions", "m", { seen: [1] });
+    store.write("executions", "a", { seen: [] });
+    store.write("retention", "m", { other: true });
+    expect(store.read("executions", "m")).toEqual({ seen: [1] });
     expect(
-      store.list("automations").map(({ key, value }) => [key, value])
+      store.list("executions").map(({ key, value }) => [key, value])
     ).toEqual([
       ["a", { seen: [] }],
       ["m", { seen: [1] }],
     ]);
-    expect(store.list("automations")[0]?.modified).toBeGreaterThan(0);
-    store.remove("automations", "m");
-    store.remove("automations", "never");
-    expect(store.read("automations", "m")).toBeUndefined();
-    expect(store.read("usage", "m")).toEqual({ other: true });
+    expect(store.list("executions")[0]?.modified).toBeGreaterThan(0);
+    store.remove("executions", "m");
+    store.remove("executions", "never");
+    expect(store.read("executions", "m")).toBeUndefined();
+    expect(store.read("retention", "m")).toEqual({ other: true });
   });
 
   it("hands out copies, never its own documents", () => {
     const store = open();
     const written = { files: { "a.md": "1" } };
-    store.write("automations", "m", written);
+    store.write("executions", "m", written);
     written.files["a.md"] = "2";
-    const read = store.read("automations", "m") as typeof written;
+    const read = store.read("executions", "m") as typeof written;
     read.files["a.md"] = "3";
-    expect(store.read("automations", "m")).toEqual({ files: { "a.md": "1" } });
+    expect(store.read("executions", "m")).toEqual({ files: { "a.md": "1" } });
   });
 
   it("moves a collection's revision on every write and removal, and only then", () => {
     const store = open();
-    const empty = store.revision("automations");
-    expect(store.revision("automations")).toBe(empty);
-    store.write("automations", "x", { n: 1 });
-    const one = store.revision("automations");
+    const empty = store.revision("executions");
+    expect(store.revision("executions")).toBe(empty);
+    store.write("executions", "x", { n: 1 });
+    const one = store.revision("executions");
     expect(one).not.toBe(empty);
-    store.write("usage", "x", { n: 1 });
-    expect(store.revision("automations")).toBe(one);
-    store.write("automations", "x", { n: 1 });
-    const rewritten = store.revision("automations");
+    store.write("retention", "x", { n: 1 });
+    expect(store.revision("executions")).toBe(one);
+    store.write("executions", "x", { n: 1 });
+    const rewritten = store.revision("executions");
     expect(rewritten).not.toBe(one);
-    store.remove("automations", "x");
-    expect(store.revision("automations")).not.toBe(rewritten);
+    store.remove("executions", "x");
+    expect(store.revision("executions")).not.toBe(rewritten);
   });
 
   it("holds a lock for one holder until it is released, and says who holds it", () => {
@@ -408,14 +408,14 @@ describe.each([
   it("refuses a key or lock name that is not one plain name", () => {
     const store = open();
     for (const name of ["", ".", "..", "a/b", "../escape", "a\\b", "nul\0"]) {
-      expect(() => store.write("automations", name, {})).toThrow(PLAIN_NAME);
-      expect(() => store.read("automations", name)).toThrow(PLAIN_NAME);
-      expect(() => store.remove("automations", name)).toThrow(PLAIN_NAME);
+      expect(() => store.write("executions", name, {})).toThrow(PLAIN_NAME);
+      expect(() => store.read("executions", name)).toThrow(PLAIN_NAME);
+      expect(() => store.remove("executions", name)).toThrow(PLAIN_NAME);
       expect(() => store.lock(name)).toThrow(PLAIN_NAME);
     }
-    expect(store.list("automations")).toEqual([]);
-    store.write("automations", "automation-1.v2", {});
-    expect(store.read("automations", "automation-1.v2")).toEqual({});
+    expect(store.list("executions")).toEqual([]);
+    store.write("executions", "automation-1.v2", {});
+    expect(store.read("executions", "automation-1.v2")).toEqual({});
   });
 });
 
@@ -423,17 +423,17 @@ describe("JsonStateStore", () => {
   it("keeps the layout status reads, and lists an unreadable document with its error", () => {
     const state = temporaryDirectory("marbles-store-");
     const store = new JsonStateStore(state);
-    store.write("usage", "s", { lastFinish: "x", version: 1 });
-    expect(readJson(join(state, "usage", "s.json"))).toEqual({
+    store.write("retention", "s", { lastFinish: "x", version: 1 });
+    expect(readJson(join(state, "retention", "s.json"))).toEqual({
       lastFinish: "x",
       version: 1,
     });
-    writeFileSync(join(state, "usage", "broken.json"), "{ nope");
-    writeFileSync(join(state, "usage", "notes.txt"), "ignored");
-    const [broken, kept] = store.list("usage");
+    writeFileSync(join(state, "retention", "broken.json"), "{ nope");
+    writeFileSync(join(state, "retention", "notes.txt"), "ignored");
+    const [broken, kept] = store.list("retention");
     expect(broken?.key).toBe("broken");
     expect(broken?.error).toContain("SyntaxError");
-    expect(store.read("usage", "broken")).toBeUndefined();
+    expect(store.read("retention", "broken")).toBeUndefined();
     expect(kept).toMatchObject({ key: "s", value: { lastFinish: "x" } });
   });
 });

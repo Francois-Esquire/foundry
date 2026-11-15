@@ -184,3 +184,36 @@ export const marblesUsageFacts = sqliteTable(
     index("marbles_usage_facts_scope_revision").on(table.scope, table.revision),
   ]
 );
+
+/**
+ * The automations agents created in a workspace, one per id: what each
+ * targets and when (`workflow`, `at`, `input`, and `source` for a
+ * monitor), whether it is on, and the agent session that owns it, which
+ * alone may change it. `at`, `input` and `source` are the spec's own
+ * shapes, read back through the record's schema. Written by
+ * `database/automations.ts`, an edit that reads first in a transaction.
+ */
+export const marblesAutomations = sqliteTable(
+  "marbles_automations",
+  {
+    agentId: text("agent_id").notNull(),
+    at: text({ mode: "json" }).$type<unknown>().notNull(),
+    createdAt: text("created_at").notNull(),
+    enabled: integer({ mode: "boolean" }).notNull(),
+    id: text().notNull(),
+    /** The launch input as JSON text, `null` included; SQL NULL when the spec has none. */
+    input: text(),
+    key: text().notNull(),
+    ownerDefinition: text("owner_definition").notNull(),
+    ownerPath: text("owner_path", { mode: "json" })
+      .$type<readonly string[]>()
+      .notNull(),
+    ownerRunId: text("owner_run_id").notNull(),
+    scope: text().notNull(),
+    sessionId: text("session_id").notNull(),
+    source: text({ mode: "json" }).$type<unknown>(),
+    version: integer().notNull(),
+    workflow: text().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.scope, table.id] })]
+);

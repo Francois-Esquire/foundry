@@ -246,7 +246,7 @@ it("projects recorded turns onto real runs and steps, and catalog origins onto t
     lastFinish: new Map(),
     monitors: engine.monitors(),
     root: HERE,
-    schedules: engine.schedules(),
+    schedules: await engine.schedules(),
     startedAt: 0,
     status: "Ready",
     usage: await engine.usage.read(),

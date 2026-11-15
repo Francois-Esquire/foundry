@@ -290,7 +290,7 @@ async function main(): Promise<void> {
     signal: controller.signal,
   });
   host.setStatus(
-    host.engine.schedules().length === 0
+    (await host.engine.schedules()).length === 0
       ? "Ready · no triggers configured"
       : "Watching triggers"
   );

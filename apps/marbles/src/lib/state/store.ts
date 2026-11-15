@@ -14,36 +14,27 @@ import type { HeldLock, Lock } from "~/lib/state/locks";
 import { acquireLock } from "~/lib/state/locks";
 
 /**
- * Where agent-created triggers, Execution Runs and usage keep what must
- * outlive the process: JSON documents by collection and key, and named
- * locks. An engine owns one: on disk under its state dir, or in memory when
- * nothing should survive the process. A host may hand the engine its own.
- * Schedules' ticks and monitors' state are kept apart, in a `TriggerStore`
- * (`lib/trigger-store.ts`).
+ * Where Execution Runs keep what must outlive the process: JSON documents
+ * by collection and key, and named locks. An engine owns one: on disk
+ * under its state dir, or in memory when nothing should survive the
+ * process. A host may hand the engine its own. Schedules' ticks and
+ * monitors' state (`lib/trigger-store.ts`), agent-created triggers
+ * (`lib/automation/store.ts`) and usage (`lib/usage-store.ts`) are kept
+ * apart.
  *
- * - `automations`: the triggers agents created, one record per id.
  * - `executions`: every Execution Run's lifecycle record, one per run id,
  *   written when it is queued and at each change after (`lib/executions.ts`).
  * - `observations`: an unsettled run's observations, one log per run id,
  *   appended one at a time and folded into its record once it settles.
  * - `retention`: what pruning removed from `executions`, so a reader can
  *   tell a gap in the history from a quiet time.
- * - `usage`: what each run's agent turns consumed, one document per run.
  *
- * `executions`, `observations` and `retention` are newer than the others. A
- * host's own store must accept those collection names to run an engine
- * that records Execution Runs; one that refuses them fails each launch.
  * `append` and `log` are optional: a store without them keeps each
  * unsettled run's observations on its `executions` record instead, which is
  * rewritten whole for every observation.
  */
 
-export type StateCollection =
-  | "automations"
-  | "executions"
-  | "observations"
-  | "retention"
-  | "usage";
+export type StateCollection = "executions" | "observations" | "retention";
 
 export type StoredDocument = {
   readonly key: string;

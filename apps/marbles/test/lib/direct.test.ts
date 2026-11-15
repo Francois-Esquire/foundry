@@ -95,7 +95,7 @@ describe("the managers on the engine", () => {
     await expect(engine.run<string>("late", {})).resolves.toBe("late");
     await expect(engine.run("notes", {})).resolves.toEqual({ changed: true });
     expect(seen).toEqual(["notes.md"]);
-    expect(engine.schedules().map((schedule) => schedule.key)).toEqual([
+    expect((await engine.schedules()).map((schedule) => schedule.key)).toEqual([
       "notes",
     ]);
     // A monitor's step is not something a host launches by hand.

@@ -11,9 +11,13 @@ import { AUTOMATION_MONITOR } from "~/lib/registry";
 import { parseAt } from "~/lib/schedule";
 import { validate } from "~/lib/schema";
 import { jsonData } from "~/lib/state/json";
-import type { StateStore, StoredDocument } from "~/lib/state/store";
 import type { Schedule } from "~/lib/triggers";
 import { WEEKDAYS } from "~/lib/triggers";
+import type {
+  AutomationStore,
+  AutomationView,
+  StoredAutomation,
+} from "./store";
 
 const PATH_SEGMENTS = /[\\/]/;
 const weekday = z.enum(WEEKDAYS);
@@ -47,7 +51,7 @@ const ownerSchema = z.object({
   }),
 });
 const recordSchema = specSchema.extend({
-  createdAt: z.iso.datetime().optional(),
+  createdAt: z.iso.datetime(),
   enabled: z.boolean(),
   id: z.string().regex(/^automation-[a-f0-9]{24}$/),
   owner: ownerSchema,
@@ -55,9 +59,7 @@ const recordSchema = specSchema.extend({
 });
 export type AutomationOwner = z.infer<typeof ownerSchema>;
 export type AutomationSpec = z.infer<typeof specSchema>;
-export type AutomationRecord = z.infer<typeof recordSchema> & {
-  readonly createdAt: string;
-};
+export type AutomationRecord = z.infer<typeof recordSchema>;
 const monitorInput = z.object({ id: z.string() });
 
 function sameOwner(a: AutomationOwner, b: AutomationOwner): boolean {
@@ -83,24 +85,28 @@ export interface AutomationOptions {
   /** Where targets are looked up and the triggers agents create are registered. */
   readonly registry: Registry;
   /**
-   * Where records live, one `automations` document per id, and where edits
-   * are locked. Another process sharing it sees each change.
+   * Where records live, one per id, and where an edit reads them first.
+   * Another process sharing it sees each change.
    */
-  readonly store: StateStore;
+  readonly store: AutomationStore;
 }
 
 /**
  * Declarative trigger storage. Execution stays in the host's existing
- * schedule loop. The store is the one source: every read first checks its
- * revision and re-reads only when a record was written or removed, by this
- * service or another process.
+ * schedule loop. The store is the one source: every read reads it again,
+ * one read at a time, and registers the triggers anew only when a record
+ * was written or removed, by this service or another process. So a read
+ * sees every change any process had made when it began.
  */
 export class AutomationService {
   readonly #options: AutomationOptions;
   readonly #registry: Registry;
-  readonly #store: StateStore;
+  readonly #store: AutomationStore;
   #loaded = new Map<string, Loaded>();
-  #revision: string | undefined;
+  /** What the store held at the last read, to tell whether it changed. */
+  #read: string | undefined;
+  /** The read under way, after which the next one starts. */
+  #reading: Promise<void> = Promise.resolve();
 
   constructor(options: AutomationOptions) {
     this.#options = options;
@@ -111,7 +117,7 @@ export class AutomationService {
     const poll: StepFn<z.infer<typeof monitorInput>, Detection> = async (
       context
     ) => {
-      this.#refresh();
+      await this.#refresh();
       const { error, record } = this.#loaded.get(context.input.id) ?? {};
       if (error !== undefined || !(record?.enabled && record.source)) {
         return { changed: false };
@@ -136,19 +142,32 @@ export class AutomationService {
       kind: "step",
       name: AUTOMATION_MONITOR,
     });
-    this.#refresh();
   }
 
-  #refresh(): void {
-    const revision = this.#store.revision("automations");
-    if (revision === this.#revision) {
+  /**
+   * Read the store again, once every read before it has settled, and
+   * register what it holds; a read that fails rejects and leaves what was
+   * registered.
+   */
+  #refresh(): Promise<void> {
+    const reading = this.#reading.then(async () =>
+      this.#take(await this.#store.list())
+    );
+    this.#reading = reading.catch(() => undefined);
+    return reading;
+  }
+
+  /** Register what the store holds, unless it holds what it did at the last read. */
+  #take(stored: readonly StoredAutomation[]): void {
+    const read = JSON.stringify(stored);
+    if (read === this.#read) {
       return;
     }
-    this.#revision = revision;
+    this.#read = read;
     const loaded = new Map(
-      this.#store
-        .list("automations")
-        .map((document) => [document.key, this.#load(document)] as const)
+      stored.map(
+        (automation) => [automation.id, this.#load(automation)] as const
+      )
     );
     for (const id of this.#loaded.keys()) {
       this.#registry.unschedule(id);
@@ -161,26 +180,16 @@ export class AutomationService {
     }
   }
 
-  #load(document: StoredDocument): Loaded {
-    if (document.error !== undefined) {
-      return { error: document.error };
-    }
+  #load(stored: StoredAutomation): Loaded {
     let record: AutomationRecord;
     try {
-      const parsed = recordSchema.parse(document.value);
-      // Earlier records lacked a creation timestamp. When the store last
-      // wrote them gives a stable first deadline until the next edit.
-      record = {
-        ...parsed,
-        createdAt:
-          parsed.createdAt ?? new Date(document.modified).toISOString(),
-      };
+      record = recordSchema.parse(stored.value);
     } catch (error) {
       return { error: String(error) };
     }
-    if (record.id !== document.key) {
+    if (record.id !== stored.id) {
       return {
-        error: `Automation "${document.key}" holds the record of ${record.id}`,
+        error: `Automation "${stored.id}" holds the record of ${record.id}`,
       };
     }
     try {
@@ -198,8 +207,8 @@ export class AutomationService {
   }
 
   /** Why each stored automation that cannot run does not, by id. */
-  errors(): Readonly<Record<string, string>> {
-    this.#refresh();
+  async errors(): Promise<Readonly<Record<string, string>>> {
+    await this.#refresh();
     return Object.fromEntries(
       [...this.#loaded].flatMap(([id, { error }]) =>
         error === undefined ? [] : [[id, error]]
@@ -207,20 +216,23 @@ export class AutomationService {
     );
   }
 
-  #edit<T>(id: string, action: () => T): T {
+  /**
+   * `action` once the store is read inside an edit, so no other process
+   * changes it until the action's writes land; what it wrote is registered
+   * then. The read inside goes ahead of any read waiting outside, which
+   * may be waiting for the edit.
+   */
+  async #edit<T>(
+    id: string,
+    action: (view: AutomationView) => Promise<T>
+  ): Promise<T> {
     recordSchema.shape.id.parse(id);
-    const lock = this.#store.lock(`edit-${id}`);
-    if ("holder" in lock) {
-      throw new Error(
-        `Automation is being edited by another host (held by ${lock.holder}); retry the operation`
-      );
-    }
-    try {
-      this.#refresh();
-      return action();
-    } finally {
-      lock.release();
-    }
+    const result = await this.#store.edit(async (view) => {
+      this.#take(await view.list());
+      return await action(view);
+    });
+    await this.#refresh();
+    return result;
   }
 
   #checkSource(spec: AutomationSpec): void {
@@ -249,10 +261,6 @@ export class AutomationService {
     parseAt(spec.at);
   }
 
-  #save(record: AutomationRecord): void {
-    this.#store.write("automations", record.id, record);
-  }
-
   #owned(id: string, owner?: AutomationOwner): AutomationRecord {
     const { record } = this.#loaded.get(id) ?? {};
     if (!record || (owner && !sameOwner(record.owner, owner))) {
@@ -263,8 +271,8 @@ export class AutomationService {
     return record;
   }
 
-  list(owner?: AutomationOwner): readonly AutomationRecord[] {
-    this.#refresh();
+  async list(owner?: AutomationOwner): Promise<readonly AutomationRecord[]> {
+    await this.#refresh();
     return structuredClone(
       this.#records().filter(
         (record) => !owner || sameOwner(record.owner, owner)
@@ -272,8 +280,9 @@ export class AutomationService {
     );
   }
 
-  schedules(): readonly Schedule[] {
-    this.#refresh();
+  /** The live triggers, what the host declared and what agents created, read afresh. */
+  async schedules(): Promise<readonly Schedule[]> {
+    await this.#refresh();
     return [...this.#registry.schedules.values()];
   }
 
@@ -303,7 +312,7 @@ export class AutomationService {
       .update(canonicalizeJson([owner.agentId, owner.sessionId, spec.key]))
       .digest("hex")
       .slice(0, 24)}`;
-    return this.#edit(creationKey, () => {
+    return await this.#edit(creationKey, async (view) => {
       const previous = this.#records().find(
         (existing) =>
           existing.key === spec.key && sameOwner(existing.owner, owner)
@@ -328,7 +337,7 @@ export class AutomationService {
         owner,
         version: 1,
       };
-      this.#save(record);
+      await view.put(record);
       return structuredClone(record);
     });
   }
@@ -337,21 +346,21 @@ export class AutomationService {
     id: string,
     enabled: boolean,
     owner?: AutomationOwner
-  ): AutomationRecord {
-    return this.#edit(id, () => {
+  ): Promise<AutomationRecord> {
+    return this.#edit(id, async (view) => {
       const record = { ...this.#owned(id, owner), enabled };
       if (enabled) {
         this.#checkSource(record);
       }
-      this.#save(record);
+      await view.put(record);
       return structuredClone(record);
     });
   }
 
-  delete(id: string, owner?: AutomationOwner): void {
-    this.#edit(id, () => {
+  delete(id: string, owner?: AutomationOwner): Promise<void> {
+    return this.#edit(id, async (view) => {
       this.#owned(id, owner);
-      this.#store.remove("automations", id);
+      await view.remove(id);
     });
   }
 
@@ -367,7 +376,7 @@ export class AutomationService {
         description:
           "Delete this session's automation. A running workflow continues.",
         execute: async ({ id }) => {
-          this.delete(id, owner);
+          await this.delete(id, owner);
           return { deleted: true };
         },
         inputSchema: z.object({ id: z.string() }),
@@ -379,13 +388,14 @@ export class AutomationService {
       }),
       list_automations: tool({
         description: "List schedules and monitors owned by this agent session.",
-        execute: async () => this.list(owner),
+        execute: async () => await this.list(owner),
         inputSchema: z.object({}),
       }),
       set_automation_enabled: tool({
         description:
           "Pause or resume this session's automation. A running workflow continues.",
-        execute: async ({ id, enabled }) => this.setEnabled(id, enabled, owner),
+        execute: async ({ id, enabled }) =>
+          await this.setEnabled(id, enabled, owner),
         inputSchema: z.object({ enabled: z.boolean(), id: z.string() }),
       }),
     };

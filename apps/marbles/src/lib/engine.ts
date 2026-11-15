@@ -24,6 +24,8 @@ import { Orchestrator } from "@foundry/workflows/orchestrator";
 import type { RunRecord } from "@foundry/workflows/schema";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
+import type { AutomationStore } from "~/lib/automation/store";
+import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { Bindings } from "~/lib/bindings";
 import { harnessOf } from "~/lib/cli-harnesses";
 import { commandRunner } from "~/lib/command";
@@ -132,6 +134,12 @@ export interface EngineOptions {
    */
   readonly askable?: boolean;
   /**
+   * Where the triggers agents create are kept, by id. In memory when
+   * omitted; the `Engine` the package publishes keeps them in a Marbles
+   * database when `state` is set.
+   */
+  readonly automationStore?: AutomationStore;
+  /**
    * Where sandboxes run. A function is called at the first sandbox and its
    * result kept, for a runtime that is optional or slow to start.
    */
@@ -207,8 +215,7 @@ export interface EngineOptions {
    */
   readonly state?: string;
   /**
-   * Where agents keep the triggers they create, Execution Runs their
-   * records and retention, and turns their usage. By default a
+   * Where Execution Runs keep their records and retention. By default a
    * `JsonStateStore` over `state`, or in memory without one.
    */
   readonly store?: StateStore;
@@ -270,6 +277,7 @@ function sessionListing(
  * memory without one.
  */
 function storesOf(options: EngineOptions): {
+  readonly automations: AutomationStore;
   readonly runs: RunStore;
   readonly store: StateStore;
   readonly triggers: TriggerStore;
@@ -277,6 +285,7 @@ function storesOf(options: EngineOptions): {
 } {
   const { state } = options;
   return {
+    automations: options.automationStore ?? new MemoryAutomationStore(),
     runs: options.runs ?? new MemoryRunStore(),
     store:
       options.store ??
@@ -356,7 +365,7 @@ export class Engine {
   readonly scopes: ReadonlyRunScopes;
   readonly sessions: SessionStore;
   readonly state: string | undefined;
-  /** Agent-created triggers, Execution Run records and usage, and their locks. */
+  /** Execution Run records and retention, and their locks. */
   readonly store: StateStore;
   /** Each trigger's last tick, each monitor's state, and their tick claims. */
   readonly triggers: TriggerStore;
@@ -390,6 +399,7 @@ export class Engine {
   readonly #records: WorkspaceRecords;
   readonly #runs: RunStore;
   readonly #usageStore: UsageStore;
+  readonly #automationStore: AutomationStore;
   readonly #delivery: Delivery;
   readonly #directNames = new WeakMap<AnyDefinition, string>();
   #running: Running | undefined;
@@ -447,7 +457,8 @@ export class Engine {
     this.scopes = this.#scopes;
     this.sessions = sessions;
     this.state = state;
-    const { runs, store, triggers, usage } = storesOf(options);
+    const { automations, runs, store, triggers, usage } = storesOf(options);
+    this.#automationStore = automations;
     this.store = store;
     this.triggers = triggers;
     this.#usageStore = usage;
@@ -503,7 +514,7 @@ export class Engine {
     this.automations = new AutomationService({
       allowHttp: configuredMonitorUrl(this.#registry),
       registry: this.#registry,
-      store: this.store,
+      store: automations,
     });
     this.interactions = new HarnessInteractions({
       askable,
@@ -1172,8 +1183,11 @@ export class Engine {
     });
   }
 
-  /** The live triggers: what the host scheduled, plus what agents created. */
-  schedules(): readonly Schedule[] {
+  /**
+   * The live triggers: what the host scheduled, plus what agents created,
+   * read afresh, so one another process created or removed is in or out.
+   */
+  schedules(): Promise<readonly Schedule[]> {
     return this.automations.schedules();
   }
 
@@ -1327,6 +1341,7 @@ export class Engine {
     await close(() => this.#records.close());
     await close(() => this.#runs.close());
     await close(() => this.triggers.close());
+    await close(() => this.#automationStore.close());
     await close(() => this.interactions.close());
     await close(() => this.workspaces.close());
     await close(() => this.sandboxes.close());

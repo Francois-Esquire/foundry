@@ -4,6 +4,7 @@ import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import type { WorkflowStore } from "@foundry/workflows/store";
+import { DatabaseAutomationStore } from "~/database/automations";
 import type { MarblesDatabase } from "~/database/open";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
@@ -12,6 +13,12 @@ import { DatabaseTriggerStore } from "~/database/triggers";
 import { DatabaseUsageStore } from "~/database/usage";
 import type { HostDatabaseOptions } from "~/database/workspaces";
 import { openHostDatabase } from "~/database/workspaces";
+import type { AutomationRecord } from "~/lib/automation/service";
+import type {
+  AutomationStore,
+  AutomationView,
+  StoredAutomation,
+} from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import type {
   PendingQuery,
@@ -67,6 +74,8 @@ export function openWorkspaceRecords(
  * `close`, after the engine is disposed, closes both and the handle.
  */
 export interface WorkspaceDatabase {
+  /** The workspace's automations over the same handle. */
+  readonly automations: AutomationStore;
   close(): Promise<void>;
   readonly records: WorkspaceRecords;
   /** The workspace's workflow Runs over the same handle. */
@@ -98,13 +107,20 @@ export function openWorkspaceDatabase(
   const usage = new ManagedUsageStore(database, options.workspaceId, () =>
     Promise.resolve()
   );
+  const automations = new ManagedAutomationStore(
+    database,
+    options.workspaceId,
+    () => Promise.resolve()
+  );
   return {
+    automations,
     async close() {
       try {
         await records.close();
         await runs.close();
         await triggers.close();
         await usage.close();
+        await automations.close();
         await sessions.close();
       } finally {
         await database.close();
@@ -191,12 +207,13 @@ export function defaultWorkspaceTriggers(
 /** What an engine keeps in the Marbles database when it is given `state`. */
 type DatabaseKept = Pick<
   EngineOptions,
-  "records" | "runs" | "triggers" | "usageStore"
+  "automationStore" | "records" | "runs" | "triggers" | "usageStore"
 >;
 
 /**
  * `options`, with each store it keeps in the Marbles database that it was
- * not handed (its tasks, workflow Runs, trigger state and usage facts)
+ * not handed (its tasks, workflow Runs, trigger state, automations and
+ * usage facts)
  * over one handle on the database `defaultWorkspaceRecords` chooses for
  * `state`, opened at the first call to any of them under the rule a host
  * keeps. The handle closes once every store made here has closed, as the
@@ -215,6 +232,8 @@ export function withWorkspaceDatabase(
       done: () => Promise<void>
     ) => NonNullable<DatabaseKept[K]>;
   } = {
+    automationStore: (done) =>
+      new ManagedAutomationStore(database, workspaceId, done),
     records: (done) => new ManagedWorkspaceRecords(database, workspaceId, done),
     runs: (done) => new ManagedRunStore(database, workspaceId, done),
     triggers: (done) => new ManagedTriggerStore(database, workspaceId, done),
@@ -657,6 +676,67 @@ class ManagedUsageStore implements UsageStore {
   }
 
   #run<T>(call: (store: DatabaseUsageStore) => Promise<T>): Promise<T> {
+    return this.#gate.run(async () => call(await this.#store.get()));
+  }
+}
+
+/**
+ * A workspace's automations over a `LazyDatabase`, as `ManagedUsageStore`
+ * keeps its facts: a record put is owned from the call, before the open.
+ */
+class ManagedAutomationStore implements AutomationStore {
+  readonly #gate = new RecordsGate("the automation store is closed");
+  readonly #release: () => Promise<void>;
+  readonly #store: OverDatabase<DatabaseAutomationStore>;
+
+  constructor(
+    database: LazyDatabase,
+    workspaceId: string,
+    release: () => Promise<void>
+  ) {
+    this.#release = release;
+    this.#store = new OverDatabase(
+      database,
+      (opened) =>
+        new DatabaseAutomationStore({
+          database: opened.database,
+          scope: workspaceId,
+        })
+    );
+  }
+
+  async close(): Promise<void> {
+    await this.#gate.close();
+    try {
+      await (await this.#store.built())?.close();
+    } finally {
+      await this.#release();
+    }
+  }
+
+  edit<T>(work: (view: AutomationView) => Promise<T>): Promise<T> {
+    return this.#run((store) => store.edit(work));
+  }
+
+  list(): Promise<readonly StoredAutomation[]> {
+    return this.#run((store) => store.list());
+  }
+
+  put(record: AutomationRecord): Promise<void> {
+    let owned: AutomationRecord;
+    try {
+      owned = structuredClone(record);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#run((store) => store.put(owned));
+  }
+
+  remove(id: string): Promise<void> {
+    return this.#run((store) => store.remove(id));
+  }
+
+  #run<T>(call: (store: DatabaseAutomationStore) => Promise<T>): Promise<T> {
     return this.#gate.run(async () => call(await this.#store.get()));
   }
 }

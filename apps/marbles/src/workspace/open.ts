@@ -262,7 +262,11 @@ export function hostTriggers(
   args: HostOptions,
   { workspace }: OpenedWorkspace
 ): Triggers {
-  return readTriggers(catalog, { dry: args.dry, stateDir: workspace.dir });
+  return readTriggers(catalog, {
+    dry: args.dry,
+    stateRoot: resolve(args.state),
+    workspaceId: workspace.id,
+  });
 }
 
 /**

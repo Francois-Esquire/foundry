@@ -109,7 +109,7 @@ export type ScheduledEngine = Pick<
 
 export interface TickOptions {
   /** Recheck a live trigger after taking its execution lock. */
-  readonly canRun?: (schedule: Schedule) => boolean;
+  readonly canRun?: (schedule: Schedule) => boolean | Promise<boolean>;
   readonly now?: () => number;
   readonly print: (line: string) => void;
   /** Loop ticks recheck persisted completion under lock; manual ticks are forced. */
@@ -219,7 +219,7 @@ async function shouldDispatch(
   const last = finishedAt(await engine.triggers.lastTick(schedule.key));
   const noLongerDue =
     options.scheduled && last !== undefined && nextDue(schedule, last) > now;
-  return !noLongerDue && options.canRun?.(schedule) !== false;
+  return !noLongerDue && (await options.canRun?.(schedule)) !== false;
 }
 
 /** What a monitor's detector asked to start, if anything. */
@@ -325,7 +325,7 @@ export async function runSchedules(
   };
 
   while (!signal.aborted) {
-    const active = engine.schedules();
+    const active = await engine.schedules();
     if (active.length === 0) {
       await sleep(POLL_MS, signal);
       continue;
@@ -343,8 +343,8 @@ export async function runSchedules(
       continue;
     }
     await loopTick(engine, schedule, {
-      canRun: (candidate) =>
-        engine.schedules().some((entry) => entry.key === candidate.key),
+      canRun: async (candidate) =>
+        (await engine.schedules()).some((entry) => entry.key === candidate.key),
       now,
       print: options.print,
       scheduled: true,
