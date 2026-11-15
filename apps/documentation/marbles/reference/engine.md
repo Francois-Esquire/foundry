@@ -232,7 +232,7 @@ built from another copy of the same class is a different type. Besides
 | Instance | Exports | Underlying library |
 | --- | --- | --- |
 | `models` | `ModelManager`, `claudeCodeProvider`, `codexProvider`, `piProvider` | [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md) |
-| `sessions` | `InMemorySessionStore`, `JsonSessionStore` | [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md); JSON adapter in Marbles. |
+| `sessions` | `InMemorySessionStore`, `JsonSessionStore` | [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md); JSON adapter in Marbles, which Marbles itself no longer uses: its own hosts keep sessions in the [Marbles database](/marbles/reference/state#sessions). |
 | `workspaces` | `WorkspaceSystem`, `directory`, `git`, `nodeObserver` | [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md) |
 | `containers` | `createContainers`, `createMemoryContainerStore` | [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md) |
 | `artifacts` | `ArtifactManager`, `InMemoryArtifactStore`, `JsonArtifactStore`, `blobFiles` | [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) |

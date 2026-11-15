@@ -6,16 +6,19 @@ import { Sessions } from "@foundry/agents/session";
 import type { SessionStore } from "@foundry/agents/store";
 import { processAlive } from "@foundry/lib/file-lock";
 import { agent, step } from "@foundry.sh/marbles";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
+import { DatabaseSessionStore } from "~/database/sessions";
 import { CLAUDE_CODE } from "~/lib/harnesses";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
+import type { ListedSessionStore } from "~/lib/usage-evidence";
 import { sessionLines } from "~/sessions/list";
 
 import type { MockBindings } from "./helpers/bindings";
 import { bindMock } from "./helpers/bindings";
 import { launch } from "./helpers/launch";
+import { testMachine } from "./helpers/records";
 import { temporaryDirectory } from "./helpers/temporary";
 
 let mock: MockBindings | undefined;
@@ -407,11 +410,35 @@ describe("JsonSessionStore across instances", () => {
   });
 });
 
-describe("sessionLines", () => {
+/** Each store `marbles sessions` has listed: the JSON files once, the database now. */
+const LISTED: readonly {
+  readonly name: string;
+  readonly open: () => Promise<ListedSessionStore>;
+}[] = [
+  {
+    name: "JsonSessionStore",
+    open: () =>
+      Promise.resolve(
+        new JsonSessionStore(temporaryDirectory("marbles-sessions-"))
+      ),
+  },
+  {
+    name: "DatabaseSessionStore",
+    async open() {
+      const machine = await testMachine();
+      onTestFinished(() => machine.close());
+      return new DatabaseSessionStore({
+        database: machine.database.database,
+        scope: "ws",
+      });
+    },
+  },
+];
+
+describe.each(LISTED)("sessionLines over $name", ({ open }) => {
   it("lists id, count, updated, and summary flag, newest first", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    const dir = temporaryDirectory("marbles-sessions-");
-    const store = new JsonSessionStore(dir);
+    const store = await open();
     const sessions = new Sessions({ store });
     const parts: SessionPart[] = [{ text: "hi", type: "text" }];
 

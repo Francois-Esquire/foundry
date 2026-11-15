@@ -289,7 +289,6 @@ const value = await engine.run<number>("host-save", { n: 1 });
 const [recorded] = engine.executions.list();
 await engine.dispose();
 console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.observations.length);
-console.log("host sessions", (await sessions.listMessages("host")).length, typeof sessions.transaction);
 // Given a state dir, the engine keeps its tasks across a dispose, in the
 // Marbles database it opens there; a host may hand in its own records.
 const state = mkdtempSync(join(tmpdir(), "marbles-embedded-"));
@@ -322,6 +321,7 @@ const own = new Engine({
 await new Tasks({ store: own.taskStore }).create({ title: "In the host's records" });
 await own.dispose();
 console.log("persisted", kept?.title, existsSync(join(state, "marbles.db")), existsSync(join(stateRoot, "marbles.db")));
+console.log("host sessions", (await sessions.listMessages("host")).length, typeof sessions.transaction);
 `
     );
     // Loading the engine entry loads no CLI SDK: they sit behind dynamic imports.
@@ -360,8 +360,8 @@ console.log("persisted", kept?.title, existsSync(join(state, "marbles.db")), exi
     );
     const embedded = run("bun", ["embedded.ts"], consumer);
     expect(embedded).toContain("embedded 2 system complete 1");
-    expect(embedded).toContain("host sessions 1 function");
     expect(embedded).toContain("persisted Kept across a dispose true true");
+    expect(embedded).toContain("host sessions 1 function");
     const cli = join(consumer, "node_modules/.bin/marbles");
     for (const command of [[], ["run"]]) {
       const terminal = await inspectDashboard(cli, consumer, command);

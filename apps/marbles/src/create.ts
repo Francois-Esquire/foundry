@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { SessionStore } from "@foundry/agents/store";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts } from "@foundry/artifacts";
 import { ArtifactManager } from "@foundry/artifacts";
@@ -16,13 +15,18 @@ import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/git";
 import { Catalog } from "~/authoring/catalog";
+import type { WorkspaceDatabase } from "~/database/managed";
+import { defaultWorkspaceDatabase } from "~/database/managed";
+import type { StoreDatabase } from "~/database/open";
+import { DatabaseSessionStore } from "~/database/sessions";
+import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { Engine as PublishedEngine } from "~/entries/engine";
 import { layout } from "~/layout";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
+import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
-import type { WorkspaceRecords } from "~/lib/events/records";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { echoInstance } from "~/lib/models/echo";
@@ -30,7 +34,6 @@ import { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { RegisteredPlugin } from "~/lib/providers/plugins";
 import { FIRST_PARTY_PLUGINS } from "~/lib/providers/plugins";
 import { Registry } from "~/lib/registry";
-import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 
 /**
@@ -46,6 +49,15 @@ export interface CreateEngineOptions {
   readonly artifacts?: string;
   readonly askable?: boolean;
   readonly catalog: Catalog;
+  /**
+   * The Marbles database the host keeps open, which holds this workspace's
+   * tasks, their recorded changes, and its agent sessions; the host closes
+   * it once the engine is disposed. Without it, an engine given a state dir
+   * opens a handle of its own at its first task or session call and closes
+   * it when disposed. Under `dry` the engine gets neither and keeps them in
+   * memory.
+   */
+  readonly database?: StoreDatabase;
   readonly dry: boolean;
   /** The machine environment and the workspace's Varlock values; the process's own when omitted. */
   readonly environment?: {
@@ -61,12 +73,6 @@ export interface CreateEngineOptions {
   readonly print: (line: string) => void;
   /** A complete, ordered provider set that supersedes the stored configuration. */
   readonly providers?: readonly Provider[];
-  /**
-   * This workspace's tasks and their recorded changes, in the Marbles
-   * database. Under `dry` the engine gets none and keeps them in memory, as
-   * it does when this is omitted.
-   */
-  readonly records?: WorkspaceRecords;
   /** The workspace root: the config's directory, or the cwd without one. */
   readonly root: string;
   /**
@@ -193,13 +199,53 @@ function modelsFor(options: CreateEngineOptions): {
   return { models, providers };
 }
 
-function sessionsFor(
+/**
+ * Where the engine keeps the workspace's tasks and agent sessions: in the
+ * host's database, scoped by the workspace id; without one but with a
+ * state dir, in a handle on the database the engine opens itself (`own`),
+ * which it closes once disposed; with neither, in memory.
+ */
+function recordsFor(
   state: string | undefined,
-  print: (line: string) => void
-): SessionStore {
-  return state === undefined
-    ? new InMemorySessionStore()
-    : new JsonSessionStore(join(state, "sessions"), { warn: print });
+  database: StoreDatabase | undefined,
+  { root, workspaceId }: CreateEngineOptions
+): Pick<EngineOptions, "records" | "sessions"> & {
+  readonly own?: WorkspaceDatabase;
+} {
+  if (database !== undefined) {
+    const scope = workspaceId;
+    return {
+      records: new DatabaseWorkspaceRecords({ database, scope }),
+      sessions: new DatabaseSessionStore({ database, scope }),
+    };
+  }
+  if (state === undefined) {
+    return { sessions: new InMemorySessionStore() };
+  }
+  const own = defaultWorkspaceDatabase(state, root, workspaceId);
+  return { own, records: own.records, sessions: own.sessions };
+}
+
+/**
+ * The published `Engine` over a database handle it opened itself, which it
+ * closes after everything else it holds: its agents and interactions may
+ * still write a session once its records are closed.
+ */
+class OwnDatabaseEngine extends PublishedEngine {
+  readonly #database: WorkspaceDatabase;
+
+  constructor(options: EngineOptions, database: WorkspaceDatabase) {
+    super(options);
+    this.#database = database;
+  }
+
+  override async dispose(): Promise<void> {
+    try {
+      await super.dispose();
+    } finally {
+      await this.#database.close();
+    }
+  }
 }
 
 /** Started at the first sandbox: the runtime is optional and slow to start. */
@@ -234,8 +280,13 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const state = persisted(dry, options.stateDir);
   // Its sandboxes may mount what is cut there; see `containersFor`.
   const worktrees = Engine.worktreesFor(state);
+  const { own, ...kept } = recordsFor(
+    state,
+    dry ? undefined : options.database,
+    options
+  );
   // The class the package publishes, so a host's engine is that `Engine`.
-  const engine = new PublishedEngine({
+  const engineOptions: EngineOptions = {
     artifacts: artifactsAt(dry ? undefined : options.artifacts),
     // A dry run writes to memory but reads what real runs left, if any.
     ...(dry && options.artifacts && existsSync(options.artifacts)
@@ -249,15 +300,16 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...(options.log ? { log: options.log } : {}),
     ...modelsFor(options),
     print,
-    ...(dry || options.records === undefined
-      ? {}
-      : { records: options.records }),
+    ...kept,
     root,
-    sessions: sessionsFor(state, print),
     state,
     workspaceId,
     worktrees,
-  });
+  };
+  const engine =
+    own === undefined
+      ? new PublishedEngine(engineOptions)
+      : new OwnDatabaseEngine(engineOptions, own);
   declareCatalog(engine, catalog);
   return engine;
 }

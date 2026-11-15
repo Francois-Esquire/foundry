@@ -67,3 +67,21 @@ export const marblesTaskChangeDeliveries = sqliteTable(
     primaryKey({ columns: [table.scope, table.changeId, table.handler] }),
   ]
 );
+
+/**
+ * A workspace's sessions, each with a revision that grows with every
+ * commit that puts the session or a message in it: written by the session
+ * store's `onCommit` hook in the commit's own transaction
+ * (`database/sessions.ts`), so it lists exactly the sessions the
+ * `@foundry/agents` tables hold, and a reader can tell which of them
+ * changed since it last read them without reading their messages.
+ */
+export const marblesSessionRevisions = sqliteTable(
+  "marbles_session_revisions",
+  {
+    revision: integer().notNull(),
+    scope: text().notNull(),
+    sessionId: text("session_id").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.scope, table.sessionId] })]
+);

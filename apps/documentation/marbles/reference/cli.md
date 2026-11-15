@@ -213,8 +213,8 @@ when it finished. A delegated child session's turn is found the same way:
 its parent's turn reports only its own tokens. A transcript that is missing
 or cannot be read is noted as an unreadable usage record on every total,
 whoever named its session: any run or the host may have taken the turns it
-lost. So is a sessions directory
-that cannot be listed. A settled run's file that cannot be read is noted on
+lost. So is a workspace whose
+sessions cannot be listed. A settled run's file that cannot be read is noted on
 that run and its workflow.
 
 A workspace without a source offers setup: choosing a starter writes it,

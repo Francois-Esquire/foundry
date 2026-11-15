@@ -70,7 +70,6 @@ import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
-import { JsonSessionStore } from "~/lib/sessions/json-store";
 import type { Lock } from "~/lib/state/locks";
 import {
   loadRuns,
@@ -86,7 +85,7 @@ import type { Schedule } from "~/lib/triggers";
 import type { UsageRecords } from "~/lib/usage";
 import { UsageLedger, withRecovered } from "~/lib/usage";
 import type { ReconciledRun, SessionListing } from "~/lib/usage-evidence";
-import { UsageEvidence } from "~/lib/usage-evidence";
+import { listsSessions, UsageEvidence } from "~/lib/usage-evidence";
 
 /**
  * The engine: the one place the packages meet. It is handed the instances
@@ -217,8 +216,9 @@ export interface EngineOptions {
 }
 
 /**
- * How usage recovery finds sessions in `sessions`. A store that cannot list
- * them is read only where a record names a session; that misses a session
+ * How usage recovery finds sessions in `sessions`: through its listing when
+ * it has one (`ListedSessionStore`). A store that cannot list them is read
+ * only where a record names a session; that misses a session
  * whose only record was a `lost` marker held in memory by an earlier
  * process. That needs both the ledger and the sessions to outlive the
  * process, so a store kept in memory, or a ledger kept in memory, is not
@@ -229,7 +229,7 @@ function sessionListing(
   sessions: SessionStore,
   store: StateStore
 ): { readonly stamps?: SessionListing } {
-  if (sessions instanceof JsonSessionStore) {
+  if (listsSessions(sessions)) {
     return { stamps: () => sessions.stamps() };
   }
   const outlives = !(

@@ -37,12 +37,9 @@ export interface OwnedWrite {
  * sees.
  */
 export function owned(scope: string, write: SessionStoreWrite): OwnedWrite {
-  const sessions = (write.putSessions ?? []).map((session, index) =>
-    stored(`putSessions[${index}]`, () => keptSession(session))
-  );
-  const messages = (write.putMessages ?? []).map((message, index) =>
-    stored(`putMessages[${index}]`, () => keptMessage(message))
-  );
+  const taken = captured(write);
+  const messages = taken.putMessages ?? [];
+  const sessions = taken.putSessions ?? [];
   return {
     messages: messages.map((message) => ({
       createdAt: message.createdAt,
@@ -67,10 +64,25 @@ export function owned(scope: string, write: SessionStoreWrite): OwnedWrite {
       title: session.title,
       updatedAt: session.updatedAt,
     })),
-    write: {
-      ...(write.putMessages === undefined ? {} : { putMessages: messages }),
-      ...(write.putSessions === undefined ? {} : { putSessions: sessions }),
-    },
+    write: taken,
+  };
+}
+
+/**
+ * `write` as the store's own copy, without the rows: each record read once,
+ * now, and checked as `owned` checks it, throwing the same errors. The copy
+ * shares nothing with `write`.
+ */
+export function captured(write: SessionStoreWrite): SessionStoreWrite {
+  const sessions = write.putSessions?.map((session, index) =>
+    stored(`putSessions[${index}]`, () => keptSession(session))
+  );
+  const messages = write.putMessages?.map((message, index) =>
+    stored(`putMessages[${index}]`, () => keptMessage(message))
+  );
+  return {
+    ...(messages === undefined ? {} : { putMessages: messages }),
+    ...(sessions === undefined ? {} : { putSessions: sessions }),
   };
 }
 

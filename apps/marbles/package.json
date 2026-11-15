@@ -57,7 +57,7 @@
   "scripts": {
     "build": "NODE_OPTIONS=--max-old-space-size=8192 tsup",
     "clean": "rm -rf dist .cache .turbo coverage",
-    "db:generate": "drizzle-kit generate",
+    "db:generate": "NODE_OPTIONS=--conditions=import drizzle-kit generate",
     "dev": "bun run --no-env-file --watch src/cli.ts",
     "mcp": "bun run --no-env-file src/cli.ts mcp",
     "prepack": "bun run build",
