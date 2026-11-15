@@ -46,7 +46,7 @@
  * Node-bound: import it from main-process code only.
  */
 
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
@@ -58,6 +58,7 @@ import {
   type SeenProcess,
 } from "./process-identity";
 import {
+  forgetRecord,
   notPrivate,
   recordPath,
   type SpawnRecord,
@@ -170,7 +171,7 @@ function orphansIn(dir: string, system: ProcessTable): Found {
   for (const record of records) {
     const verdict = judge(record, seen, system);
     if (verdict === "gone") {
-      forget(dir, record.pid);
+      forget(dir, record);
     } else if (verdict === "orphan") {
       orphans.push(record);
     } else if (verdict === "group" || verdict === "members") {
@@ -299,8 +300,10 @@ async function stopAll(
   const stopped = orphans
     .filter(({ pid }) => !survivors.has(pid))
     .map(({ pid }) => pid);
-  for (const pid of stopped) {
-    forget(dir, pid);
+  for (const record of orphans) {
+    if (!survivors.has(record.pid)) {
+      forget(dir, record);
+    }
   }
   return {
     problems: left.map(
@@ -386,7 +389,7 @@ async function stopGroup(
       whole = false;
       const left = leftMembers(record, system);
       if (left === "gone") {
-        forget(dir, pgid);
+        forget(dir, record);
         return;
       }
       if (typeof left === "object") {
@@ -417,7 +420,7 @@ async function stopGroup(
   ] as const) {
     send(name);
     if (await emptied(pgid, ms, system)) {
-      forget(dir, pgid);
+      forget(dir, record);
       return;
     }
   }
@@ -581,8 +584,9 @@ function isRecord(value: unknown): value is SpawnRecord {
   );
 }
 
-function forget(dir: string, pid: number): void {
-  rmSync(recordPath(dir, pid), { force: true });
+/** Remove `record`'s file, only if it still names `record`'s process. */
+function forget(dir: string, record: SpawnRecord): void {
+  forgetRecord(recordPath(dir, record.pid), record);
 }
 
 function gone(error: unknown): boolean {

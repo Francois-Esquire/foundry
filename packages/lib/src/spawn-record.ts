@@ -42,6 +42,7 @@ import { randomUUID } from "node:crypto";
 import {
   closeSync,
   constants,
+  linkSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -160,13 +161,22 @@ export function recordSpawned(
   group: boolean,
   env: Readonly<Record<string, string | undefined>> = process.env
 ): void {
+  recordInto(pid, group, env);
+}
+
+/** `recordSpawned`, giving back the start its records name, if it wrote them. */
+function recordInto(
+  pid: number | undefined,
+  group: boolean,
+  env: Readonly<Record<string, string | undefined>>
+): string | undefined {
   const all = named(env[SPAWN_RECORD_ENV]);
   const recovery = named(env[SPAWN_RECOVERY_ENV]);
   if ((all === undefined && recovery === undefined) || pid === undefined) {
     return;
   }
   try {
-    write(pid, group, all, recovery);
+    return write(pid, group, all, recovery);
   } catch (error) {
     if (!reported) {
       reported = true;
@@ -186,13 +196,14 @@ export function recordChild(
   group = false,
   env: Readonly<Record<string, string | undefined>> = process.env
 ): void {
-  recordSpawned(child.pid, group, env);
+  const started = recordInto(child.pid, group, env);
   const recovery = named(env[SPAWN_RECOVERY_ENV]);
   const { pid } = child;
-  if (recovery !== undefined && pid !== undefined) {
+  if (recovery !== undefined && pid !== undefined && started !== undefined) {
     child.once("exit", () => {
-      // The exit is its reaping: no later child can have had this pid yet.
-      rmSync(recordPath(recovery, pid), { force: true });
+      // Its exit is its reaping, so the pid may be another's by now, and
+      // that one recorded: only this child's record goes.
+      forgetRecord(recordPath(recovery, pid), { pid, started });
     });
   }
 }
@@ -280,7 +291,7 @@ export function recordGroup(
 ): () => Promise<GroupStopResult> {
   const env = options.env ?? process.env;
   const { pid } = child;
-  recordSpawned(pid, true, env);
+  const started = recordInto(pid, true, env);
   if (pid === undefined) {
     return () => Promise.resolve({ emptied: true, saved: true });
   }
@@ -302,8 +313,8 @@ export function recordGroup(
       killMs: options.killMs ?? GROUP_KILL_MS,
       save,
     }).then((emptied) => {
-      if (emptied && record !== undefined) {
-        rmSync(record, { force: true });
+      if (emptied && record !== undefined && started !== undefined) {
+        forgetRecord(record, { pid, started });
       }
       return { emptied, saved };
     });
@@ -503,12 +514,13 @@ function named(dir: string | undefined): string | undefined {
   return dir === undefined || dir === "" ? undefined : dir;
 }
 
+/** Write the records of `pid`; the start they name, `undefined` when none was written. */
 function write(
   pid: number,
   group: boolean,
   all: string | undefined,
   recovery: string | undefined
-): void {
+): string | undefined {
   for (const dir of [all, recovery]) {
     if (dir !== undefined) {
       privateDirectory(dir);
@@ -522,6 +534,7 @@ function write(
   if (started === undefined) {
     throw new Error("ps could not say when it started");
   }
+  const written = started;
   const record: SpawnRecord = { group, pid, started };
   if (all !== undefined) {
     writePrivate(recordPath(all, pid), JSON.stringify(record));
@@ -533,6 +546,7 @@ function write(
       JSON.stringify({ ...record, owner })
     );
   }
+  return written;
 }
 
 /** Make `dir`, private, if it is missing; refuse one that is not private. */
@@ -542,6 +556,76 @@ function privateDirectory(dir: string): void {
   if (problem !== undefined) {
     throw new Error(problem);
   }
+}
+
+/** The file operations `forgetRecord` makes; a test replaces them to land a write between two. */
+export interface RecordFiles {
+  /** Make `path` name `existing`'s file; throws `EEXIST` when `path` is taken. */
+  link(existing: string, path: string): void;
+  read(path: string): string;
+  remove(path: string): void;
+  rename(from: string, to: string): void;
+}
+
+const RECORD_FILES: RecordFiles = {
+  link: (existing, path) => linkSync(existing, path),
+  read: (path) => readFileSync(path, "utf8"),
+  remove: (path) => rmSync(path, { force: true }),
+  rename: (from, to) => renameSync(from, to),
+};
+
+/**
+ * Remove the record at `path`, only if what is removed names `identity`,
+ * a process that is gone. Another process given its pid since may record
+ * itself there at any moment, so nothing read before decides: the file is
+ * moved aside first, under a fresh name in the same directory (a rename,
+ * atomic), read there, and deleted only if it names `identity`. One that
+ * does not is linked back, never over a file that took its place
+ * meanwhile: that one is newer, and this one then stays aside, under a
+ * name that is still a record's (`.json`), for the next reader. So no
+ * interleaving removes the record of a process that runs, and a removal
+ * cut short leaves every record readable.
+ */
+export function forgetRecord(
+  path: string,
+  identity: { readonly pid: number; readonly started: string },
+  files: RecordFiles = RECORD_FILES
+): void {
+  const aside = join(
+    dirname(path),
+    `.${basename(path)}.${randomUUID()}.forget.json`
+  );
+  try {
+    files.rename(path, aside);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+  let moved: Partial<SpawnRecord> | undefined;
+  try {
+    moved = JSON.parse(files.read(aside)) as Partial<SpawnRecord>;
+  } catch {
+    moved = undefined;
+  }
+  if (
+    moved?.pid === identity.pid &&
+    typeof moved.started === "string" &&
+    compareStarts(moved.started, identity.started) === "same"
+  ) {
+    files.remove(aside);
+    return;
+  }
+  try {
+    files.link(aside, path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      return;
+    }
+    throw error;
+  }
+  files.remove(aside);
 }
 
 /**
