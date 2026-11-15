@@ -11,7 +11,7 @@ import {
   type ModuleCapabilityRequest,
   type StrictModuleManifest,
 } from "./manifest";
-import type { InstallationGrant } from "./store/contract";
+import type { InstallationGrant } from "./registry";
 
 /**
  * The Grant a strict Manifest's `network` request asks for. Capability names

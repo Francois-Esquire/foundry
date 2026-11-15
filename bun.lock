@@ -316,11 +316,19 @@
       },
       "devDependencies": {
         "@foundry/tsconfig": "workspace:*",
+        "@libsql/client": "^0.18.0",
         "@types/node": "^26.4.1",
         "@vitest/coverage-v8": "^4.1.9",
+        "drizzle-orm": "^0.45.4",
         "typescript": "^6.0.3",
         "vitest": "^4.1.9",
       },
+      "peerDependencies": {
+        "drizzle-orm": "^0.45.4",
+      },
+      "optionalPeers": [
+        "drizzle-orm",
+      ],
     },
     "packages/prompts": {
       "name": "@foundry/prompts",

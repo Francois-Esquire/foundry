@@ -6,11 +6,11 @@ import type {
   ModuleRuntimeIdentity,
 } from "../gateway/types";
 import type { ActivationPreflight } from "../preflight";
+import type { ModuleCommands } from "../registry";
 import type {
   ModuleSettingsHostPolicy,
   ModuleSettingValues,
 } from "../settings";
-import type { ModuleStore } from "../store/contract";
 import type { ModuleProgramLaunch, ModuleProgramSupervisor } from "./contracts";
 import type { ModuleSelectedCheckouts } from "./files";
 
@@ -78,7 +78,7 @@ export interface CreateModuleInstallationsOptions {
     "selectVersion" | "activate" | "stop"
   >;
   readonly providers: readonly ModuleCapabilityProvider[];
-  readonly store: ModuleStore;
+  readonly store: ModuleCommands;
 }
 
 export function createModuleInstallations(
