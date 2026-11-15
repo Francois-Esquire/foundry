@@ -4,8 +4,6 @@ import type { StreamItem, WorkspaceRecords } from "~/lib/events/records";
 import { PENDING_BATCH } from "~/lib/events/records";
 import type { Handler, Source } from "~/lib/events/source";
 import { current } from "~/lib/run-scope";
-import type { Lock } from "~/lib/state/locks";
-import { acquireLock } from "~/lib/state/locks";
 
 /**
  * Hands each stored item to every observer of its source that has not
@@ -42,10 +40,10 @@ import { acquireLock } from "~/lib/state/locks";
  * cost is the usual one of ordered delivery: an item a handler keeps failing
  * on holds back that handler's later items until it completes it.
  *
- * One process delivers a workspace's changes at a time: the one holding
- * `<state>/locks/tasks` from a successful start until `stop` (the lock
- * keeps the name it had when it also guarded the tasks' file). Any number
- * of processes read and write the tasks themselves. The deliverer is woken
+ * One engine delivers a workspace's changes at a time: the one whose
+ * records granted it the claim (`claimDelivery`), from a successful start
+ * until `stop`. Any number of processes read and write the tasks
+ * themselves. The deliverer is woken
  * at once by a change made through its own records, and notices one made
  * elsewhere within `DELIVERY_POLL_MS`. A process refused the claim tries
  * again on the same interval, and delivers the backlog once it has it.
@@ -69,9 +67,6 @@ interface Observer {
 
 const HASH_LENGTH = 32;
 
-/** The lock at a workspace's state dir that makes its holder the one delivering there. */
-const DELIVERY_LOCK = "tasks";
-
 /**
  * How often, in ms, a running delivery looks for changes another process
  * recorded (one cheap read: the newest change's position against the one
@@ -82,17 +77,18 @@ export const DELIVERY_POLL_MS = 1000;
 
 export interface DeliveryOptions {
   readonly print: (line: string) => void;
+  /** The workspace's records, which also decide who delivers its changes. */
   readonly records: WorkspaceRecords;
-  /** The workspace state dir, where delivery is claimed; without one, nothing is claimed. */
-  readonly state?: string;
 }
 
 export class Delivery {
   readonly #observers: Observer[] = [];
   readonly #records: WorkspaceRecords;
   readonly #print: (line: string) => void;
-  readonly #state: string | undefined;
-  #lock: Lock | undefined;
+  /** Whether this delivery holds the claim, so `stop` gives it up. */
+  #claimed = false;
+  /** A tick's claim under way, so the next tick does not start another. */
+  #claiming: Promise<void> | undefined;
   /** `waiting`: another process delivers here; this one tries to claim it on each tick. */
   #phase: "new" | "waiting" | "running" | "stopped" = "new";
   #pass: Promise<void> | undefined;
@@ -120,7 +116,6 @@ export class Delivery {
   constructor(options: DeliveryOptions) {
     this.#records = options.records;
     this.#print = options.print;
-    this.#state = options.state;
   }
 
   /** Follow `source` with `handler`, from the next start or the next pass. */
@@ -152,10 +147,10 @@ export class Delivery {
     if (this.#phase !== "new" || this.#observers.length === 0) {
       return;
     }
-    const holder = this.#claim();
+    const holder = await this.#claim();
     if (holder !== undefined) {
       this.#print(
-        `[observe] not delivering here: the changes of this workspace (${this.#state}) are delivered by ${holder}; delivering here once it stops`
+        `[observe] not delivering here: the changes of this workspace are delivered by ${holder}; delivering here once it stops`
       );
       this.#phase = "waiting";
       this.#tickEvery();
@@ -164,7 +159,7 @@ export class Delivery {
     try {
       await this.#records.latest();
     } catch (error) {
-      this.#release();
+      await this.#release();
       throw error;
     }
     this.#phase = "running";
@@ -197,26 +192,27 @@ export class Delivery {
     this.#timer = undefined;
     try {
       await this.#pass;
+      await this.#claiming;
     } finally {
-      this.#release();
+      await this.#release();
     }
   }
 
-  /** Take the claim; who holds it instead, when another process does. */
-  #claim(): string | undefined {
-    if (this.#state === undefined) {
-      return;
+  /** Take the claim; who holds it instead, when another engine does. */
+  async #claim(): Promise<string | undefined> {
+    const holder = await this.#records.claimDelivery();
+    if (holder === undefined) {
+      this.#claimed = true;
     }
-    const claim = acquireLock(this.#state, DELIVERY_LOCK);
-    if (!("release" in claim)) {
-      return claim.holder;
-    }
-    this.#lock = claim;
+    return holder;
   }
 
-  #release(): void {
-    this.#lock?.release();
-    this.#lock = undefined;
+  async #release(): Promise<void> {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; a claim sets it.
+    if (this.#claimed) {
+      this.#claimed = false;
+      await this.#records.releaseDelivery();
+    }
   }
 
   /** Tick on `DELIVERY_POLL_MS`, without keeping the process alive. */
@@ -234,23 +230,33 @@ export class Delivery {
       this.wake();
       return;
     }
-    if (this.#phase !== "waiting") {
+    if (this.#phase !== "waiting" || this.#claiming !== undefined) {
       return;
     }
+    this.#claiming = this.#claimWaiting().finally(() => {
+      this.#claiming = undefined;
+    });
+  }
+
+  /** One tick's try at the claim another engine held. */
+  async #claimWaiting(): Promise<void> {
     let holder: string | undefined;
     try {
-      holder = this.#claim();
+      holder = await this.#claim();
     } catch (error) {
       this.#report(error);
       return;
     }
-    if (holder === undefined) {
-      this.#print(
-        "[observe] delivering here: the process that delivered let go"
-      );
-      this.#phase = "running";
-      this.wake();
+    if (holder !== undefined) {
+      return;
     }
+    if (this.#phase !== "waiting") {
+      // Stopped while it was claimed: `stop` gives it up.
+      return;
+    }
+    this.#print("[observe] delivering here: the engine that delivered let go");
+    this.#phase = "running";
+    this.wake();
   }
 
   /** Whether a wake came since this was last asked, and forget it. */

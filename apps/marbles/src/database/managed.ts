@@ -4,9 +4,12 @@ import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import type { WorkflowStore } from "@foundry/workflows/store";
+import { DatabaseActivityStore } from "~/database/activities";
+import { DatabaseDeferredApprovalStore } from "~/database/approvals";
 import { DatabaseAutomationStore } from "~/database/automations";
 import { DatabaseExecutionStore } from "~/database/executions";
-import type { MarblesDatabase } from "~/database/open";
+import { DatabaseGrantStorage } from "~/database/grants";
+import type { MarblesDatabase, StoreDatabase } from "~/database/open";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
@@ -96,7 +99,7 @@ export function openWorkspaceRecords(
  * closes its records before the agents that may still write a session;
  * `close`, after the engine is disposed, closes both and the handle.
  */
-export interface WorkspaceDatabase {
+export interface WorkspaceDatabase extends SideStores {
   /** The workspace's automations over the same handle. */
   readonly automations: AutomationStore;
   close(): Promise<void>;
@@ -142,7 +145,9 @@ export function openWorkspaceDatabase(
     options.workspaceId,
     () => Promise.resolve()
   );
+  const side = new RecordsGate("the workspace database is closed");
   return {
+    ...sideStores(database, options.workspaceId, side),
     automations,
     async close() {
       try {
@@ -153,6 +158,7 @@ export function openWorkspaceDatabase(
         await automations.close();
         await executions.close();
         await sessions.close();
+        await side.close();
       } finally {
         await database.close();
       }
@@ -216,6 +222,56 @@ export function defaultWorkspaceTriggers(
   return new ManagedTriggerStore(database, workspaceId, () => database.close());
 }
 
+/**
+ * The stores an engine keeps beside its records whose owners never close
+ * them (`grants`, `approvals`, `activityStore`): what is written there
+ * happens while agents run.
+ */
+type SideStores = Required<
+  Pick<EngineOptions, "activityStore" | "approvals" | "grants">
+>;
+
+/**
+ * The side stores over `database`, scoped by `workspaceId`, each built at
+ * its first call once the database is open. Every call runs through
+ * `gate`, which the owner of the handle closes before it closes the
+ * handle: that waits for calls under way and refuses later ones, so none
+ * opens the handle again.
+ */
+function sideStores(
+  database: LazyDatabase,
+  workspaceId: string,
+  gate: RecordsGate
+): SideStores {
+  const over = <T>(make: (database: StoreDatabase) => T) => {
+    const built = new OverDatabase(database, (opened) => make(opened.database));
+    return <R>(call: (store: T) => Promise<R>): Promise<R> =>
+      gate.run(async () => call(await built.get()));
+  };
+  const kept = (opened: StoreDatabase) => ({
+    database: opened,
+    scope: workspaceId,
+  });
+  const activities = over((opened) => new DatabaseActivityStore(kept(opened)));
+  const approvals = over(
+    (opened) => new DatabaseDeferredApprovalStore(kept(opened))
+  );
+  const grants = over((opened) => new DatabaseGrantStorage(kept(opened)));
+  return {
+    activityStore: {
+      load: () => activities((store) => store.load()),
+      put: (key, record) => activities((store) => store.put(key, record)),
+    },
+    approvals: {
+      change: (update) => approvals((store) => store.change(update)),
+      load: () => approvals((store) => store.load()),
+    },
+    grants: {
+      transact: (apply) => grants((store) => store.transact(apply)),
+    },
+  };
+}
+
 /** What an engine keeps in the Marbles database when it is given `state`. */
 type DatabaseKept = Pick<
   EngineOptions,
@@ -261,16 +317,29 @@ export function withWorkspaceDatabase(
   const missing = (Object.keys(make) as (keyof DatabaseKept)[]).filter(
     (key) => options[key] === undefined
   );
+  const side = new RecordsGate("the workspace database is closed");
   let open = missing.length;
   const release = async () => {
     open -= 1;
     if (open === 0) {
-      await database.close();
+      try {
+        await side.close();
+      } finally {
+        await database.close();
+      }
     }
   };
+  const sides = sideStores(database, workspaceId, side);
   return {
     ...options,
     ...Object.fromEntries(missing.map((key) => [key, make[key](release)])),
+    ...(open === 0
+      ? {}
+      : {
+          activityStore: options.activityStore ?? sides.activityStore,
+          approvals: options.approvals ?? sides.approvals,
+          grants: options.grants ?? sides.grants,
+        }),
   };
 }
 
@@ -426,6 +495,12 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
     }
   }
 
+  claimDelivery(): Promise<string | undefined> {
+    return this.#gate.run(async () =>
+      (await this.#records.get()).claimDelivery()
+    );
+  }
+
   deliver(id: string, hash: string): Promise<void> {
     return this.#gate.run(async () =>
       (await this.#records.get()).deliver(id, hash)
@@ -434,6 +509,12 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
 
   latest(): Promise<number> {
     return this.#gate.run(async () => (await this.#records.get()).latest());
+  }
+
+  releaseDelivery(): Promise<void> {
+    return this.#gate.run(async () =>
+      (await this.#records.get()).releaseDelivery()
+    );
   }
 
   pending(query: PendingQuery): Promise<readonly StreamItem[]> {

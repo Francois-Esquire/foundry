@@ -16,11 +16,14 @@ import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/git";
 import { Catalog } from "~/authoring/catalog";
+import { DatabaseActivityStore } from "~/database/activities";
+import { DatabaseDeferredApprovalStore } from "~/database/approvals";
 import {
   DatabaseAutomationStore,
   readAutomations,
 } from "~/database/automations";
 import { DatabaseExecutionStore } from "~/database/executions";
+import { DatabaseGrantStorage } from "~/database/grants";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { defaultWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
@@ -275,8 +278,11 @@ function recordsFor(
   { root, workspaceId }: CreateEngineOptions
 ): Pick<
   EngineOptions,
+  | "activityStore"
+  | "approvals"
   | "automationStore"
   | "executionStore"
+  | "grants"
   | "records"
   | "runs"
   | "sessions"
@@ -288,8 +294,11 @@ function recordsFor(
   if (database !== undefined) {
     const scope = workspaceId;
     return {
+      activityStore: new DatabaseActivityStore({ database, scope }),
+      approvals: new DatabaseDeferredApprovalStore({ database, scope }),
       automationStore: new DatabaseAutomationStore({ database, scope }),
       executionStore: new DatabaseExecutionStore({ database, scope }),
+      grants: new DatabaseGrantStorage({ database, scope }),
       records: new DatabaseWorkspaceRecords({ database, scope }),
       runs: new DatabaseRunStore({ database, scope }),
       sessions: new DatabaseSessionStore({ database, scope }),
@@ -302,8 +311,11 @@ function recordsFor(
   }
   const own = defaultWorkspaceDatabase(state, root, workspaceId);
   return {
+    activityStore: own.activityStore,
+    approvals: own.approvals,
     automationStore: own.automations,
     executionStore: own.executions,
+    grants: own.grants,
     own,
     records: own.records,
     runs: own.runs,

@@ -322,7 +322,8 @@ export const marblesExecutionGaps = sqliteTable(
 export const marblesProviderConfigurations = sqliteTable(
   "marbles_provider_configurations",
   {
-    configuration: text({ mode: "json" }).$type<unknown>().notNull(),
+    /** JSON text, parsed by the store itself, so no parser message can quote a secret. */
+    configuration: text().notNull(),
     revision: integer().notNull(),
     scope: text().primaryKey(),
   },
@@ -350,7 +351,8 @@ export const marblesIdentityKeys = sqliteTable("marbles_identity_keys", {
  * writes it.
  */
 export const marblesAgentGrants = sqliteTable("marbles_agent_grants", {
-  grants: text({ mode: "json" }).$type<unknown>().notNull(),
+  /** JSON text, which the repository parses itself, so no parser message can quote it. */
+  grants: text().notNull(),
   scope: text().primaryKey(),
 });
 

@@ -21,6 +21,7 @@ import {
 import type { FeedPublisher } from "~/lib/feed/publish";
 import {
   type DeferredApproval,
+  type DeferredApprovalStore,
   DeferredApprovals,
   type InteractionSession,
 } from "./deferred-approvals";
@@ -53,9 +54,10 @@ interface PendingInput {
 }
 
 export interface HarnessInteractionsOptions {
+  /** Where deferred approvals are kept across restarts; memory when omitted. */
+  readonly approvals?: DeferredApprovalStore;
   readonly askable: boolean;
   readonly feed: FeedPublisher;
-  readonly pendingPath?: string;
   readonly policy: AgentAuthorizer;
   readonly sessions: SessionStore;
 }
@@ -76,7 +78,7 @@ export class HarnessInteractions {
 
   constructor(options: HarnessInteractionsOptions) {
     this.#options = options;
-    this.#deferred = new DeferredApprovals(options.pendingPath);
+    this.#deferred = new DeferredApprovals(options.approvals);
   }
 
   async restore(): Promise<void> {

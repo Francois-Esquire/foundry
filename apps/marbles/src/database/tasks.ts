@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { processAlive } from "@foundry/lib/file-lock";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import type { TaskTransaction } from "@foundry/tasks/store/sqlite";
@@ -8,6 +9,7 @@ import { busyError } from "~/database/client";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import {
+  marblesDeliveryClaims,
   marblesTaskChangeDeliveries,
   marblesTaskChanges,
 } from "~/database/tables";
@@ -50,11 +52,21 @@ export interface DatabaseWorkspaceRecordsOptions {
   readonly scope: string;
 }
 
-/** The engine's `WorkspaceRecords` over the Marbles database. */
+/**
+ * The engine's `WorkspaceRecords` over the Marbles database. Who delivers
+ * the workspace's changes is its row of `marbles_delivery_claims`: a claim
+ * is a transaction that reads the row's owner and takes it, so two
+ * engines, in this process or another, never both deliver; an owner whose
+ * process has exited holds nothing.
+ */
 export class DatabaseWorkspaceRecords implements WorkspaceRecords {
   readonly taskStore: TaskStore;
   readonly #database: StoreDatabase;
   readonly #scope: string;
+  /** These records' identity as the delivery claim's owner: one per engine. */
+  readonly #owner = randomUUID();
+  /** Whether these records took the delivery claim and have not given it up. */
+  #claimed = false;
   readonly #gate = new RecordsGate();
   readonly #listeners = new EmitListeners();
 
@@ -101,8 +113,82 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     };
   }
 
-  close(): Promise<void> {
-    return this.#gate.close();
+  /**
+   * Refuse every call from now on, once those under way have settled, then
+   * give up the delivery claim if these records still hold it, so the
+   * next engine delivers at once, not once this process exits.
+   */
+  async close(): Promise<void> {
+    await this.#gate.close();
+    await this.#release();
+  }
+
+  async claimDelivery(): Promise<string | undefined> {
+    const holder = await this.#call(() => this.#claim());
+    if (holder === undefined) {
+      this.#claimed = true;
+    }
+    return holder;
+  }
+
+  /** The claim's transaction: who holds it instead, or undefined once these records do. */
+  #claim(): Promise<string | undefined> {
+    return this.#database.transaction(
+      async (transaction): Promise<string | undefined> => {
+        const [row] = await transaction
+          .select({
+            ownerId: marblesDeliveryClaims.ownerId,
+            ownerPid: marblesDeliveryClaims.ownerPid,
+          })
+          .from(marblesDeliveryClaims)
+          .where(eq(marblesDeliveryClaims.scope, this.#scope));
+        const holder = row?.ownerPid ?? null;
+        if (
+          holder !== null &&
+          row?.ownerId !== this.#owner &&
+          processAlive(holder)
+        ) {
+          return holder === process.pid
+            ? "another engine in this process"
+            : `pid ${String(holder)}`;
+        }
+        const owner = { ownerId: this.#owner, ownerPid: process.pid };
+        await transaction
+          .insert(marblesDeliveryClaims)
+          .values({ ...owner, scope: this.#scope })
+          .onConflictDoUpdate({
+            set: owner,
+            target: marblesDeliveryClaims.scope,
+          });
+        return undefined;
+      }
+    );
+  }
+
+  releaseDelivery(): Promise<void> {
+    return this.#call(() => this.#release());
+  }
+
+  /** Give up the delivery claim, if these records hold it. */
+  async #release(): Promise<void> {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; a claim sets it.
+    if (!this.#claimed) {
+      return;
+    }
+    this.#claimed = false;
+    try {
+      await this.#database
+        .update(marblesDeliveryClaims)
+        .set({ ownerId: null, ownerPid: null })
+        .where(
+          and(
+            eq(marblesDeliveryClaims.scope, this.#scope),
+            eq(marblesDeliveryClaims.ownerId, this.#owner)
+          )
+        );
+    } catch (error) {
+      throw busyError(error) ?? error;
+    }
   }
 
   /** Only for a change that is recorded; a hash already there stays one row. */

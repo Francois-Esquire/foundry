@@ -17,7 +17,14 @@ import { TASKS } from "~/lib/events/source";
  * long as the engine.
  */
 export interface WorkspaceRecords {
-  /** Refuse every later call, once the calls already made have settled. */
+  /**
+   * Make this engine the one that delivers the workspace's changes to its
+   * observers, unless another engine is: who that is, for people, then
+   * (`pid 1234`), else undefined. Claiming again while holding it is a
+   * claim kept.
+   */
+  claimDelivery(): Promise<string | undefined>;
+  /** Refuse every later call, once the calls already made have settled; give up a delivery claim still held. */
   close(): Promise<void>;
   /** Record that the handler with `hash` completed the change `id`, beside every hash already there. */
   deliver(id: string, hash: string): Promise<void>;
@@ -33,6 +40,8 @@ export interface WorkspaceRecords {
    * later) is handed the whole history this way.
    */
   pending(query: PendingQuery): Promise<readonly StreamItem[]>;
+  /** Stop being the engine that delivers the workspace's changes, if this one is. */
+  releaseDelivery(): Promise<void>;
   /** The tasks, through the `@foundry/tasks` store seam. */
   readonly taskStore: TaskStore;
   /**
@@ -205,8 +214,17 @@ export class MemoryWorkspaceRecords implements WorkspaceRecords {
     };
   }
 
+  /** Nothing else reads these records, so this engine always delivers them. */
+  claimDelivery(): Promise<string | undefined> {
+    return this.#gate.run(() => Promise.resolve(undefined));
+  }
+
   close(): Promise<void> {
     return this.#gate.close();
+  }
+
+  releaseDelivery(): Promise<void> {
+    return this.#gate.run(() => Promise.resolve());
   }
 
   deliver(id: string, hash: string): Promise<void> {

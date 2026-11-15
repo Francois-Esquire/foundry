@@ -8,6 +8,7 @@ import type { SessionStore } from "@foundry/agents/store";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import { Config } from "@foundry/lib/config";
+import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
 import type { ModelManager } from "@foundry/models";
 import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
@@ -70,8 +71,10 @@ import type { ReadonlyRunScopes, RecordedScope } from "~/lib/run-scope";
 import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
 import type { RunStore } from "~/lib/run-store";
 import { MemoryRunStore, TERMINAL_RUN_STATUSES } from "~/lib/run-store";
+import type { ActivityStore } from "~/lib/sandbox/activities";
 import { HarnessActivities } from "~/lib/sandbox/activities";
-import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
+import type { DeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
+import { StoredAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { removeRunOutput } from "~/lib/state/output";
 import type { TaskDefinition } from "~/lib/tasks";
@@ -119,6 +122,19 @@ import { MemoryUsageStore } from "~/lib/usage-store";
  */
 
 export interface EngineOptions {
+  /**
+   * Where each agent harness activity is kept for the dashboard, its
+   * latest revision each. Only in the engine's memory when omitted; the
+   * `Engine` the package publishes keeps them in a Marbles database when
+   * `state` is set.
+   */
+  readonly activityStore?: ActivityStore;
+  /**
+   * Where approvals agents left waiting for a person are kept across
+   * restarts. In memory when omitted; the `Engine` the package publishes
+   * keeps them in a Marbles database when `state` is set.
+   */
+  readonly approvals?: DeferredApprovalStore;
   /** Read by `artifacts.latest` when `artifacts` has nothing: the real store under `--dry-run`. */
   readonly artifactReads?: Pick<ArtifactSubstrate, "get" | "readFile">;
   /**
@@ -163,6 +179,13 @@ export interface EngineOptions {
    * scanning it, and the root workspace stays unread until a step needs it.
    */
   readonly git?: GitOptions;
+  /**
+   * Where the agent grants a person issued are kept, one document the
+   * engine validates before it trusts it. Without it grants last as long
+   * as the engine; the `Engine` the package publishes keeps them in a
+   * Marbles database when `state` is set.
+   */
+  readonly grants?: GrantDocumentStorage;
   /** The user's home, whose skill folders `skills.load()` reads; the OS home by default. */
   readonly home?: string;
   /**
@@ -215,9 +238,9 @@ export interface EngineOptions {
   /** Where agent transcripts live. */
   readonly sessions: SessionStore;
   /**
-   * Workspace state dir: each run's output, worktrees, agent grants and
-   * approvals, and, with the published `Engine`, the Marbles database's
-   * stores. Omit for in-memory: nothing survives the process.
+   * Workspace state dir: each run's output and worktrees, and, with the
+   * published `Engine`, the Marbles database's stores. Omit for in-memory:
+   * nothing survives the process.
    */
   readonly state?: string;
 
@@ -491,11 +514,7 @@ export class Engine {
       },
     });
     this.#records = options.records ?? new MemoryWorkspaceRecords();
-    this.#delivery = new Delivery({
-      print,
-      records: this.#records,
-      ...(state === undefined ? {} : { state }),
-    });
+    this.#delivery = new Delivery({ print, records: this.#records });
     this.#unwatchRecords = this.#records.watch(() => this.#delivery.wake());
     this.taskStore = this.#records.taskStore;
     const catalogue = options.workspaces ?? localCatalogue(options.git ?? {});
@@ -507,7 +526,10 @@ export class Engine {
       root,
     });
     this.feed = feedReader(options.artifacts);
-    this.activities = new HarnessActivities({ feed: this.#publisher, state });
+    this.activities = new HarnessActivities({
+      feed: this.#publisher,
+      ...(options.activityStore ? { store: options.activityStore } : {}),
+    });
     this.automations = new AutomationService({
       allowHttp: configuredMonitorUrl(this.#registry),
       registry: this.#registry,
@@ -516,15 +538,13 @@ export class Engine {
     this.interactions = new HarnessInteractions({
       askable,
       feed: this.#publisher,
-      policy: state
+      policy: options.grants
         ? createAgentAuthorizer({
-            grants: new JsonAgentGrantRepository(
-              join(state, "agent-grants.json")
-            ),
+            grants: new StoredAgentGrantRepository(options.grants),
           })
         : createInMemoryAgentAuthorizer().authorizer,
       sessions,
-      ...(state ? { pendingPath: join(state, "agent-approvals.json") } : {}),
+      ...(options.approvals ? { approvals: options.approvals } : {}),
     });
     const sandboxes = new SandboxesManager({
       containers:
@@ -785,6 +805,7 @@ export class Engine {
     const print = this.#print;
     // Before anything runs, so a listed model can be named from the first turn.
     await this.#listModels();
+    await this.activities.load();
     const config = new Config();
     contributeQueueConfig(config, {
       concurrency: ORCHESTRATOR_CONCURRENCY,

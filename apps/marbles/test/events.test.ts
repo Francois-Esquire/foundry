@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve as resolvePath } from "node:path";
+import { basename, join, resolve as resolvePath } from "node:path";
 import type { TaskEvent } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import { sql } from "drizzle-orm";
@@ -849,9 +849,12 @@ describe("delivery across processes", () => {
     const script = join(state, "holder.ts");
     writeFileSync(
       script,
-      `import { acquireLock } from ${JSON.stringify(resolvePath("src/lib/state/locks.ts"))};
-const claim = acquireLock(${JSON.stringify(state)}, "tasks");
-if (!("release" in claim)) throw new Error("not claimed");
+      `import { openDatabase } from ${JSON.stringify(resolvePath("src/database/open.ts"))};
+import { DatabaseWorkspaceRecords } from ${JSON.stringify(resolvePath("src/database/tasks.ts"))};
+const opened = await openDatabase(${JSON.stringify(machine.database.file)});
+if (opened === undefined) throw new Error("no database");
+const records = new DatabaseWorkspaceRecords({ database: opened.database, scope: ${JSON.stringify(basename(state))} });
+if ((await records.claimDelivery()) !== undefined) throw new Error("not claimed");
 process.stdout.write("held\\n");
 setInterval(() => undefined, 1000);
 `
@@ -894,6 +897,7 @@ describe("the work of a pass", () => {
     const memory = new MemoryWorkspaceRecords();
     const reads: number[] = [];
     const records: WorkspaceRecords = {
+      claimDelivery: () => memory.claimDelivery(),
       close: () => memory.close(),
       deliver: (id, hash) => memory.deliver(id, hash),
       latest: () => memory.latest(),
@@ -901,6 +905,7 @@ describe("the work of a pass", () => {
         reads.push(query.after ?? 0);
         return memory.pending(query);
       },
+      releaseDelivery: () => memory.releaseDelivery(),
       taskStore: memory.taskStore,
       watch: (listener) => memory.watch(listener),
     };
@@ -963,6 +968,7 @@ process.stdout.write("started\\n");
     const memory = new MemoryWorkspaceRecords();
     let reads = 0;
     const records: WorkspaceRecords = {
+      claimDelivery: () => memory.claimDelivery(),
       close: () => memory.close(),
       deliver: (id, hash) => memory.deliver(id, hash),
       latest: () => {
@@ -970,6 +976,7 @@ process.stdout.write("started\\n");
         return memory.latest();
       },
       pending: (query) => memory.pending(query),
+      releaseDelivery: () => memory.releaseDelivery(),
       taskStore: memory.taskStore,
       watch: (listener) => memory.watch(listener),
     };

@@ -1,13 +1,10 @@
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
 import type {
   HarnessActivityEvent,
   HarnessSession,
 } from "@foundry/agents/harness";
 import { z } from "zod";
 import type { FeedPublisher } from "~/lib/feed/publish";
-import { readJson, writeJson } from "~/lib/state/json";
 import { wrapSession } from "./wrapped-session";
 
 const sourceSchema = z.object({
@@ -17,7 +14,8 @@ const sourceSchema = z.object({
 });
 export type ActivitySource = z.infer<typeof sourceSchema>;
 
-const savedSchema = z.object({
+/** An activity as it is kept, read back through this. */
+export const activityRecordSchema = z.object({
   event: z.object({
     actions: z.array(z.literal("stop")).optional(),
     agentId: z.string(),
@@ -48,30 +46,35 @@ export interface ActivityRecord {
   readonly source: ActivitySource;
 }
 
+/**
+ * Where a workspace's harness activities are kept: the Marbles database's
+ * for a host (`database/activities.ts`), nowhere but the projection's own
+ * memory without one.
+ */
+export interface ActivityStore {
+  /** Every activity kept, its latest revision each. */
+  load(): Promise<readonly ActivityRecord[]>;
+  /** Keep `record` as the activity `key`, unless a revision as high is kept already. */
+  put(key: string, record: ActivityRecord): Promise<void>;
+}
+
 /** A dashboard projection. The complete activity history remains in the session store. */
 export class HarnessActivities {
   readonly #records = new Map<string, ActivityRecord>();
   readonly #sessions = new Map<string, HarnessSession>();
   readonly #observed = new Map<string, Set<string>>();
-  readonly #dir: string | undefined;
+  readonly #store: ActivityStore | undefined;
   readonly #feed: FeedPublisher | undefined;
 
-  constructor(options: { state?: string; feed?: FeedPublisher } = {}) {
-    this.#dir = options.state
-      ? join(options.state, "harness-activities")
-      : undefined;
+  constructor(options: { store?: ActivityStore; feed?: FeedPublisher } = {}) {
+    this.#store = options.store;
     this.#feed = options.feed;
-    if (this.#dir && existsSync(this.#dir)) {
-      for (const file of readdirSync(this.#dir)) {
-        if (!file.endsWith(".json")) {
-          continue;
-        }
-        const parsed = savedSchema.safeParse(readJson(join(this.#dir, file)));
-        if (parsed.success) {
-          const record: ActivityRecord = parsed.data;
-          this.#records.set(this.#key(record), record);
-        }
-      }
+  }
+
+  /** Read what the store keeps, before the engine runs anything; without one there is nothing. */
+  async load(): Promise<void> {
+    for (const record of (await this.#store?.load()) ?? []) {
+      this.#records.set(this.#key(record), record);
     }
   }
 
@@ -129,9 +132,7 @@ export class HarnessActivities {
     if (previous && previous.event.revision >= event.revision) {
       return;
     }
-    if (this.#dir) {
-      writeJson(join(this.#dir, `${key}.json`), record);
-    }
+    await this.#store?.put(key, record);
     this.#records.set(key, record);
     this.#observed.get(event.sessionId)?.add(event.id);
     if (

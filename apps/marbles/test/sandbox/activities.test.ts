@@ -6,7 +6,9 @@ import type {
   HarnessSession,
 } from "@foundry/agents/harness";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, onTestFinished, vi } from "vitest";
+import { DatabaseActivityStore } from "~/database/activities";
+import { initializeDatabase } from "~/database/open";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 
 const roots: string[] = [];
@@ -51,7 +53,12 @@ function session(): HarnessSession {
 it("persists activity, ignores stale events, and revokes live controls after restart", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-activities-"));
   roots.push(root);
-  const host = new HarnessActivities({ state: root });
+  const opened = await initializeDatabase(join(root, "marbles.db"));
+  onTestFinished(() => opened.close());
+  const store = () =>
+    new DatabaseActivityStore({ database: opened.database, scope: "ws" });
+  const host = new HarnessActivities({ store: store() });
+  await host.load();
   host.attach(event.sessionId, session());
   await host.record(event, source);
   await host.record(
@@ -63,7 +70,8 @@ it("persists activity, ignores stale events, and revokes live controls after res
     revision: 2,
     status: "running",
   });
-  const restored = new HarnessActivities({ state: root });
+  const restored = new HarnessActivities({ store: store() });
+  await restored.load();
   expect(restored.list()[0]?.event).toMatchObject({
     actions: [],
     revision: 2,
