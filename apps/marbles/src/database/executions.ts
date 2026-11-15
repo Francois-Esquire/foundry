@@ -1,3 +1,4 @@
+import type { JsonValue } from "@foundry/lib/json";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
@@ -16,11 +17,18 @@ import { parseStored } from "~/lib/execution-record";
 import type {
   ExecutionStore,
   ExecutionView,
+  LifecycleChange,
   StoredExecution,
+  Written,
 } from "~/lib/execution-store";
 import {
+  advisable,
+  allows,
+  changed,
+  storedChange,
   storedExecutionRun,
   storedObservation,
+  storedProgress,
   storedRetentionGap,
 } from "~/lib/execution-store";
 
@@ -28,12 +36,12 @@ import {
  * A workspace's Execution Runs in the Marbles database, scoped by the
  * workspace id: each record in `marbles_executions`, its observations in
  * `marbles_execution_observations`, and what pruning removed in
- * `marbles_execution_gaps`. A record put is one statement that lands only
- * over a lower revision; an observation is one row written and its run's
- * revision raised, in one transaction, whatever the run holds already. A
- * `transaction` is a write transaction, which takes the database's write
- * lock before it reads, so two engines, in this process or another, never
- * act on one run at once. Every call surfaces a lock waited on too long as
+ * `marbles_execution_gaps`. A lifecycle change, a progress or an
+ * observation reads the run's row and writes it, one row more for an
+ * observation, in one write transaction, whatever the run holds already,
+ * under the rules `ExecutionStore` states. A `transaction` is a write
+ * transaction, which takes the database's write lock before it reads, so
+ * two engines, in this process or another, never act on one run at once. Every call surfaces a lock waited on too long as
  * a `DatabaseBusyError`.
  */
 
@@ -85,21 +93,43 @@ export class DatabaseExecutionStore implements ExecutionStore {
     return this.#call(() => this.#view().withSource(name, source));
   }
 
-  observe(
+  advise(
     id: string,
-    observation: ExecutionObservation,
-    at: { readonly revision: number; readonly updatedAt: string }
-  ): Promise<boolean> {
+    change: { readonly progress: JsonValue; readonly updatedAt: string }
+  ): Promise<Written> {
     return this.#owning(
-      observation,
-      (value) => storedObservation(id, value),
-      (owned) => this.transaction((view) => view.observe(id, owned, at))
+      change,
+      (value) => ({
+        progress: storedProgress(id, value.progress),
+        updatedAt: value.updatedAt,
+      }),
+      (owned) => this.transaction((view) => view.advise(id, owned))
     );
   }
 
-  put(run: ExecutionRun): Promise<boolean> {
+  create(run: ExecutionRun): Promise<boolean> {
     return this.#owning(run, storedExecutionRun, (owned) =>
-      this.#view().put(owned)
+      this.#view().create(owned)
+    );
+  }
+
+  observe(
+    id: string,
+    observation: ExecutionObservation,
+    updatedAt: string
+  ): Promise<Written> {
+    return this.#owning(
+      observation,
+      (value) => storedObservation(id, value),
+      (owned) => this.transaction((view) => view.observe(id, owned, updatedAt))
+    );
+  }
+
+  transition(id: string, change: LifecycleChange): Promise<Written> {
+    return this.#owning(
+      change,
+      (value) => storedChange(id, value),
+      (owned) => this.transaction((view) => view.transition(id, owned))
     );
   }
 
@@ -141,30 +171,20 @@ export class DatabaseExecutionStore implements ExecutionStore {
 }
 
 /**
- * Replace the record of `run` kept in the Execution Runs of `scope` on
- * `database`, or a transaction on it, when a lower revision of it is
- * kept there: whether it was. A run this database does not keep (its
- * engine keeps Execution Runs elsewhere) is left alone. For a store whose
- * commit carries a run's record with its own.
+ * Make `change` on the Execution Run `id` of `scope` on `database`, or a
+ * transaction on it, when it allows the run as stored there: whether it
+ * was made. A run this database does not keep (its engine keeps Execution
+ * Runs elsewhere) is left alone. For a store whose commit carries a run's
+ * lifecycle with its own; run it inside that commit's transaction.
  */
 export async function followExecution(
   database: Queries,
   scope: string,
-  run: ExecutionRun
+  id: string,
+  change: LifecycleChange
 ): Promise<boolean> {
-  const { id: _id, scope: _scope, ...fields } = rowOf(run, scope);
-  const replaced = await database
-    .update(marblesExecutions)
-    .set(fields)
-    .where(
-      and(
-        eq(marblesExecutions.scope, scope),
-        eq(marblesExecutions.id, run.id),
-        sql`${marblesExecutions.revision} < ${run.revision}`
-      )
-    )
-    .returning({ id: marblesExecutions.id });
-  return replaced.length > 0;
+  return (await new DatabaseView(database, scope).transition(id, change))
+    .applied;
 }
 
 /**
@@ -182,6 +202,9 @@ export async function readExecution(
 }
 
 type ExecutionRow = typeof marblesExecutions.$inferSelect;
+
+/** A run's record as its row holds it, its observations aside. */
+type KeptRecord = Omit<ExecutionRun, "observations">;
 
 /** What a view reads and writes through: the database, or any transaction on it. */
 type Queries = Pick<StoreDatabase, "delete" | "insert" | "select" | "update">;
@@ -244,23 +267,44 @@ class DatabaseView implements ExecutionView {
     return row && (await this.#stored([row]))[0];
   }
 
+  async advise(
+    id: string,
+    change: { readonly progress: JsonValue; readonly updatedAt: string }
+  ): Promise<Written> {
+    const record = await this.#record(id);
+    if (!(record && advisable(record.status))) {
+      return { applied: false, record };
+    }
+    return {
+      applied: true,
+      record: await this.#replace({
+        ...record,
+        progress: storedProgress(id, change.progress),
+        revision: record.revision + 1,
+        timestamps: { ...record.timestamps, updatedAt: change.updatedAt },
+      }),
+    };
+  }
+
+  async create(run: ExecutionRun): Promise<boolean> {
+    const kept = await this.#database
+      .insert(marblesExecutions)
+      .values(rowOf(run, this.#scope))
+      .onConflictDoNothing()
+      .returning({ id: marblesExecutions.id });
+    return kept.length > 0;
+  }
+
   async observe(
     id: string,
     observation: ExecutionObservation,
-    at: { readonly revision: number; readonly updatedAt: string }
-  ): Promise<boolean> {
-    const kept = storedObservation(id, observation);
-    const raised = await this.#database
-      .update(marblesExecutions)
-      .set({
-        revision: sql`max(${marblesExecutions.revision}, ${at.revision})`,
-        updatedAt: sql`case when ${marblesExecutions.revision} < ${at.revision} then ${at.updatedAt} else ${marblesExecutions.updatedAt} end`,
-      })
-      .where(this.#run(id))
-      .returning({ id: marblesExecutions.id });
-    if (raised.length === 0) {
-      return false;
+    updatedAt: string
+  ): Promise<Written> {
+    const record = await this.#record(id);
+    if (!(record && advisable(record.status))) {
+      return { applied: false, record };
     }
+    const kept = storedObservation(id, observation);
     // After every observation the run has, by the index on its positions.
     const position = sql<number>`(select coalesce(max("position"), 0) + 1 from "marbles_execution_observations" where "scope" = ${this.#scope} and "run_id" = ${id})`;
     const row = {
@@ -281,22 +325,48 @@ class DatabaseView implements ExecutionView {
           marblesExecutionObservations.observationId,
         ],
       });
-    return true;
+    return {
+      applied: true,
+      record: await this.#replace({
+        ...record,
+        revision: record.revision + 1,
+        timestamps: { ...record.timestamps, updatedAt },
+      }),
+    };
   }
 
-  async put(run: ExecutionRun): Promise<boolean> {
-    const row = rowOf(run, this.#scope);
-    const { id: _id, scope: _scope, ...fields } = row;
-    const kept = await this.#database
-      .insert(marblesExecutions)
-      .values(row)
-      .onConflictDoUpdate({
-        set: fields,
-        setWhere: sql`excluded.revision > ${marblesExecutions.revision}`,
-        target: [marblesExecutions.scope, marblesExecutions.id],
-      })
-      .returning({ id: marblesExecutions.id });
-    return kept.length > 0;
+  async transition(id: string, change: LifecycleChange): Promise<Written> {
+    const record = await this.#record(id);
+    if (!(record && allows(change, record))) {
+      return { applied: false, record };
+    }
+    return {
+      applied: true,
+      record: await this.#replace(changed(record, storedChange(id, change))),
+    };
+  }
+
+  /** The record of the run `id` as its row holds it, its observations aside. */
+  async #record(id: string): Promise<KeptRecord | undefined> {
+    const [row] = await this.#database
+      .select()
+      .from(marblesExecutions)
+      .where(this.#run(id));
+    return row && (recordOf(row) as KeptRecord);
+  }
+
+  /** Write `record` over its row, inside the call's transaction: what it holds now. */
+  async #replace(record: KeptRecord): Promise<KeptRecord> {
+    const {
+      id: _id,
+      scope: _scope,
+      ...fields
+    } = rowOf({ ...record, observations: [] }, this.#scope);
+    await this.#database
+      .update(marblesExecutions)
+      .set(fields)
+      .where(this.#run(record.id));
+    return record;
   }
 
   async putGap(given: RetentionGap): Promise<void> {

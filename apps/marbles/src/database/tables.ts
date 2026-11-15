@@ -225,8 +225,9 @@ export const marblesAutomations = sqliteTable(
  * `progress` are JSON text, `null` included; SQL NULL when the run has
  * none. Its observations are rows of their own
  * (`marbles_execution_observations`). Written by
- * `database/executions.ts`: a record lands only over a lower revision of
- * itself.
+ * `database/executions.ts`, under the rules `ExecutionStore` states: a
+ * lifecycle change only from a status it allows and by the owner it
+ * names, an advisory one only while the run is unsettled.
  */
 export const marblesExecutions = sqliteTable(
   "marbles_executions",

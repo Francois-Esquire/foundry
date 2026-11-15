@@ -62,9 +62,10 @@ host that brings its own `WorkspaceSystem` builds its `git()` layer with the
 same options it passes as `git`. The engine hands the instances back
 (`engine.models`, `engine.sessions`, `engine.workspaces.system`,
 `engine.sandboxes.containers()`) and closes them in `dispose()`.
-`engine.store` is the state store it keeps trigger state in, and
-`engine.scopes` is a read-only view of the runs in flight: each run's
-`RunScope` by run id.
+`engine.triggers` is the store it keeps trigger state in,
+`engine.executions` its Execution Runs (`subscribe` is async: its snapshot
+is read from the store), and `engine.scopes` is a read-only view of the
+runs in flight: each run's `RunScope` by run id.
 
 ## Launch without waiting
 

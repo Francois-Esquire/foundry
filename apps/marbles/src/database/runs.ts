@@ -248,9 +248,9 @@ export class DatabaseRunStore implements RunStore {
     follows: RunFollower | undefined
   ): Promise<void> {
     for (const run of follows === undefined ? [] : (write.putRuns ?? [])) {
-      const execution = follows?.(run.id, run.status);
-      if (execution !== undefined) {
-        await followExecution(transaction, this.#scope, execution);
+      const change = follows?.(run.id, run.status);
+      if (change !== undefined) {
+        await followExecution(transaction, this.#scope, run.id, change);
       }
     }
   }

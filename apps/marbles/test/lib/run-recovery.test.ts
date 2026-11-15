@@ -88,7 +88,7 @@ async function parkedByAnOwner() {
     status: "suspended",
     timestamps: { queuedAt: at, startedAt: at, updatedAt: at },
   };
-  await executions.put(execution);
+  await executions.create(execution);
   /** Its Execution Run as the database holds it now. */
   const storedExecution = async () => {
     const stored = await executions.get("rn-1");
@@ -165,10 +165,13 @@ it("does not adopt a parked Run whose Execution Run settled after the scan", asy
     registered: () => true,
     runs: interleaved(next, async () => {
       // A canceller settles it between the scan and the claim.
-      await executions.put({
-        ...execution,
-        revision: execution.revision + 1,
+      await executions.transition("rn-1", {
+        from: ["suspended"],
+        newOwner: process.pid,
+        owner: execution.owner.pid,
+        settledAt: execution.timestamps.updatedAt,
         status: "cancelled",
+        updatedAt: execution.timestamps.updatedAt,
       });
     }),
     settled: unasked,

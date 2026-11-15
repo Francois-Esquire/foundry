@@ -898,7 +898,13 @@ export class Engine {
       for (const { createdAt, name, dispatched } of recovered) {
         // A run parked before Execution Runs existed gets one now, before
         // anything it does is recorded on it.
-        this.#executions.adoptParked({ createdAt, id: dispatched.id, name });
+        await this.#executions
+          .adoptParked({ createdAt, id: dispatched.id, name })
+          .catch((error: unknown) =>
+            print(
+              `[state] run ${dispatched.id} has no record: ${String(error)}`
+            )
+          );
         this.#launcher.follow(dispatched.id, held.follow(name, dispatched));
       }
       // Before anything is let in, so a handler never runs on an engine
@@ -1282,8 +1288,11 @@ export class Engine {
     } finally {
       try {
         await orchestrator.stop();
-        // Every change to a record made so far is on disk.
+        // Every change to a record made so far is on disk, and every
+        // settlement a write failed is tried again: one that still fails
+        // fails the stop.
         await this.#executions.flush();
+        await this.#executions.retrySettlements();
       } finally {
         // What is parked is left for the next process that can answer it.
         await this.#runs.release();
@@ -1365,6 +1374,8 @@ export class Engine {
     await close(() => this.triggers.close());
     await close(() => this.#automationStore.close());
     await close(() => this.#executions.flush());
+    await close(() => this.#executions.retrySettlements());
+    this.#executions.stopRetrying();
     await close(() => this.#executionStore.close());
     await close(() => this.interactions.close());
     await close(() => this.workspaces.close());

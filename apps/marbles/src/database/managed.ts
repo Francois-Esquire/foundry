@@ -2,6 +2,7 @@ import { dirname, resolve } from "node:path";
 import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
+import type { JsonValue } from "@foundry/lib/json";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import type { WorkflowStore } from "@foundry/workflows/store";
 import { DatabaseActivityStore } from "~/database/activities";
@@ -39,11 +40,15 @@ import type {
 import type {
   ExecutionStore,
   ExecutionView,
+  LifecycleChange,
   StoredExecution,
+  Written,
 } from "~/lib/execution-store";
 import {
+  storedChange,
   storedExecutionRun,
   storedObservation,
+  storedProgress,
   storedRetentionGap,
 } from "~/lib/execution-store";
 import type { RecordedScope } from "~/lib/run-scope";
@@ -897,21 +902,43 @@ class ManagedExecutionStore implements ExecutionStore {
     return this.#run((store) => store.list());
   }
 
-  observe(
+  advise(
     id: string,
-    observation: ExecutionObservation,
-    at: { readonly revision: number; readonly updatedAt: string }
-  ): Promise<boolean> {
+    change: { readonly progress: JsonValue; readonly updatedAt: string }
+  ): Promise<Written> {
     return this.#owning(
-      observation,
-      (value) => storedObservation(id, value),
-      (store, owned) => store.observe(id, owned, at)
+      change,
+      (value) => ({
+        progress: storedProgress(id, value.progress),
+        updatedAt: value.updatedAt,
+      }),
+      (store, owned) => store.advise(id, owned)
     );
   }
 
-  put(run: ExecutionRun): Promise<boolean> {
+  create(run: ExecutionRun): Promise<boolean> {
     return this.#owning(run, storedExecutionRun, (store, owned) =>
-      store.put(owned)
+      store.create(owned)
+    );
+  }
+
+  observe(
+    id: string,
+    observation: ExecutionObservation,
+    updatedAt: string
+  ): Promise<Written> {
+    return this.#owning(
+      observation,
+      (value) => storedObservation(id, value),
+      (store, owned) => store.observe(id, owned, updatedAt)
+    );
+  }
+
+  transition(id: string, change: LifecycleChange): Promise<Written> {
+    return this.#owning(
+      change,
+      (value) => storedChange(id, value),
+      (store, owned) => store.transition(id, owned)
     );
   }
 

@@ -8,6 +8,7 @@ import { MemoryWorkflowStore } from "@foundry/workflows/store/memory";
 
 import { RecordsGate } from "~/lib/events/records";
 import type { ExecutionRun } from "~/lib/execution-record";
+import type { LifecycleChange } from "~/lib/execution-store";
 import type { RecordedScope } from "~/lib/run-scope";
 import { storableJson } from "~/lib/state/json";
 
@@ -66,14 +67,16 @@ export interface RunStore {
 }
 
 /**
- * The Execution Run a Run committed with `status` must have in the same
- * commit, from what its engine holds now; `undefined` to leave it. Asked
- * inside the commit's transaction, so it changes nothing itself.
+ * The lifecycle change a Run committed with `status` makes of its
+ * Execution Run in the same commit, from what its engine holds now;
+ * `undefined` to leave it. Asked inside the commit's transaction, so it
+ * changes nothing itself; the store makes the change only when it allows
+ * the Execution Run as stored (`ExecutionStore`).
  */
 export type RunFollower = (
   runId: string,
   status: string
-) => ExecutionRun | undefined;
+) => LifecycleChange | undefined;
 
 /**
  * Whether a Run may be claimed: as the store holds it at the claim
