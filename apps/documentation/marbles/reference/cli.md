@@ -293,9 +293,12 @@ parked on a question or a pause survives a stop and is adopted when its
 workspace is hosted again, as long as the step is still registered.
 
 Source edits need no restart. The Marbles process polls a fingerprint of
-what its current engine generation loaded every second: each workspace's
-entry modules and every module and data file their load read, wherever it
-is, and the Marbles installation itself. A change starts the next
+what its current engine generation loaded every second, taken before that
+generation loaded: every file under each workspace's root (but
+`node_modules`, `.git`, `.marbles` and build output), whether a load read
+it or not, every module and data file a load or a run read outside it, as
+it was when read, and the Marbles installation itself. Contents are read
+again only for a file whose size or modification time changed. A change starts the next
 generation, and the header shows `reloading` meanwhile. It loads every
 registered workspace first; one that does not load, a source that throws
 when imported, is an error on that workspace (the header keeps `ready`

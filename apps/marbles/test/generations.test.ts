@@ -866,7 +866,6 @@ describe("engine generations", () => {
       await holding;
       fixture.client.close();
     } finally {
-      // biome-ignore lint/performance/noDelete: an unset variable, not an empty one.
       delete process.env.MARBLES_TEST_STANDIN;
     }
   }, 150_000);
