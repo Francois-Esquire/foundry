@@ -465,6 +465,34 @@ describe("a configuration and the store's revision", () => {
   });
 });
 
+describe("an edit after another host moved the entry", () => {
+  it("applies to the scope that holds it now, and refuses one no scope holds", async () => {
+    store.put(MACHINE_SCOPE, {
+      providers: [{ enabled: true, id: "codex", plugin: "codex" }],
+    });
+    const a = configuration().config;
+    const b = configuration().config;
+    await loaded(a);
+    await loaded(b);
+    await b.replace([
+      { enabled: true, id: "codex", plugin: "codex", scope: "workspace" },
+    ]);
+    await a.disable("codex");
+    const kept = await store.read();
+    expect(kept.machine?.providers).toEqual([]);
+    expect(kept.workspace("ws1")?.providers).toEqual([
+      { enabled: false, id: "codex", plugin: "codex" },
+    ]);
+    await b.remove("codex");
+    await expect(a.enable("codex")).rejects.toThrow(
+      '"codex" is not configured'
+    );
+    await expect(a.remove("codex")).rejects.toThrow(
+      '"codex" is not configured'
+    );
+  });
+});
+
 describe("a write a newer read overtook", () => {
   it("loads what that read found, not the older configuration it wrote", async () => {
     store.put(MACHINE_SCOPE, {

@@ -568,15 +568,18 @@ export class ProviderConfiguration {
     return this.#edit(id, (entry) => ({ ...entry, enabled: false }), false);
   }
 
+  /** Remove `id` from the scope that holds it as stored, or refuse when neither does. */
   async remove(id: string): Promise<void> {
-    const scope = this.#scopeOf(id);
-    await this.#scope(scope).update((current) => {
-      const file = current ?? empty();
+    await this.#write(() => {
+      const scope = this.#scopeOf(id);
+      const file = this.#scope(scope).read() ?? empty();
       const order = file.order?.filter((each) => each !== id);
       return {
-        ...file,
-        providers: file.providers.filter((entry) => entry.id !== id),
-        ...(order ? { order } : {}),
+        [scope]: {
+          ...file,
+          providers: file.providers.filter((entry) => entry.id !== id),
+          ...(order ? { order } : {}),
+        },
       };
     });
     this.load();
@@ -735,6 +738,7 @@ export class ProviderConfiguration {
     return this.#workspace;
   }
 
+  /** The scope that holds `id`, as the edit under way reads it, else as last read. */
   #scopeOf(id: string): ProviderScope {
     if (this.#workspace?.read()?.providers.some((entry) => entry.id === id)) {
       return "workspace";
@@ -753,25 +757,31 @@ export class ProviderConfiguration {
     ) => ProviderEntryRecord,
     validate = true
   ): Promise<void> {
-    const scope = this.#scopeOf(id);
+    // The scope is the one that holds `id` as stored, read in the write's
+    // own transaction: an entry another host moved meanwhile is edited
+    // where it is now, and one no scope holds is refused, never left as
+    // it was by an edit that reports success.
     await this.#commit((drafts) =>
-      this.#scope(scope).update((current) => {
-        const file = current ?? empty();
+      this.#write(() => {
+        const scope = this.#scopeOf(id);
+        const file = this.#scope(scope).read() ?? empty();
         return {
-          ...file,
-          providers: file.providers.map((entry) => {
-            if (entry.id !== id) {
-              return entry;
-            }
-            const next = change(entry, scope);
-            if (validate) {
-              this.#ready(next, scope, drafts);
-              if (next.enabled) {
-                this.#refuseTaken(next.id, scope);
+          [scope]: {
+            ...file,
+            providers: file.providers.map((entry) => {
+              if (entry.id !== id) {
+                return entry;
               }
-            }
-            return next;
-          }),
+              const next = change(entry, scope);
+              if (validate) {
+                this.#ready(next, scope, drafts);
+                if (next.enabled) {
+                  this.#refuseTaken(next.id, scope);
+                }
+              }
+              return next;
+            }),
+          },
         };
       })
     );
