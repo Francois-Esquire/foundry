@@ -1156,7 +1156,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       ...loaded.loads.filter((each) => each.error !== undefined),
     ]);
     candidate.started.resolve();
-    await recordHosts(candidate);
     print(`[marbles] engine generation ${String(number)} is current`);
     changed();
     // A workspace whose engine did not start loaded, so no edit will bring
@@ -1173,6 +1172,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         )
       );
     }
+    // Last: everything above runs in the turn the liveness check passed.
+    await recordHosts(candidate);
   }
 
   /**
@@ -1668,9 +1669,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       throw error;
     }
     target.hosts.add(workspace.id);
-    await recordHosts(target);
     entry.setup = undefined;
     setState(entry, "ready", { pid: target.child.pid ?? -1 });
+    await recordHosts(target);
     return entry.summary;
   }
 
