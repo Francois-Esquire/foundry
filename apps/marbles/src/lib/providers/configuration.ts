@@ -133,13 +133,16 @@ export class ProviderConfiguration {
   /** `read` kept a newer `#kept` than the manager's set was loaded from. */
   #unloaded = false;
   /**
-   * Why the store could not be reached when it was last asked: its last
-   * read, the identity key a read or write needed, or the revision the
-   * watcher polls. Not what it holds, which reads the same until it
-   * changes. The watcher retries until a read succeeds, though the
-   * revision may say nothing changed.
+   * Which read of the store could not reach it, and why: the
+   * configuration, the identity key a read or write needed, or the
+   * revision the watcher polls. Not what the store holds, which reads the
+   * same until it changes. It is cleared only once that same read
+   * succeeds; the watcher retries it until then, though the revision may
+   * say nothing changed.
    */
-  #unreached: string | undefined;
+  #unreached:
+    | { readonly message: string; readonly read: StoreRead }
+    | undefined;
   /** Every scope as the edit under way reads it, inside the store's transaction. */
   #editing: ProviderConfigurations | undefined;
   readonly #plugins: ReadonlyMap<string, RegisteredPlugin>;
@@ -245,20 +248,30 @@ export class ProviderConfiguration {
     if (this.#key !== undefined || !this.#configuredIn(kept)) {
       return;
     }
-    const key = await this.#reaching(() => this.#store.identityKey(true));
+    const key = await this.#reaching("identity key", () =>
+      this.#store.identityKey(true)
+    );
     this.#key ??= key;
   }
 
-  /** `call` on the store, marking it unreached when it could not be reached. */
-  async #reaching<T>(call: () => Promise<T>): Promise<T> {
+  /**
+   * `read` of the store: marking it unreached when it could not reach the
+   * store, and reached again when it succeeds after it could not.
+   */
+  async #reaching<T>(read: StoreRead, call: () => Promise<T>): Promise<T> {
+    let result: T;
     try {
-      return await call();
+      result = await call();
     } catch (error) {
       if (!(error instanceof InvalidStoredConfiguration)) {
-        this.#unreached = messageOf(error);
+        this.#unreached = { message: messageOf(error), read };
       }
       throw error;
     }
+    if (this.#unreached?.read === read) {
+      this.#unreached = undefined;
+    }
+    return result;
   }
 
   /** Apply edits to several scopes as one write: every edit runs before any is kept. */
@@ -287,8 +300,9 @@ export class ProviderConfiguration {
     // With the revision of the same read: one that cannot be read is
     // reported once per change, not on every poll, and a later repair is
     // still noticed.
-    const kept = await this.#reaching(() => this.#store.read());
-    this.#unreached = undefined;
+    const kept = await this.#reaching("configuration", () =>
+      this.#store.read()
+    );
     if (this.#adopt(kept)) {
       this.#unloaded = true;
     }
@@ -717,9 +731,10 @@ export class ProviderConfiguration {
    * process: the store's revision is polled. One that cannot be read keeps
    * the last good set and is reported once per change. A store that could
    * not be reached (a lock held too long, say) is tried again on every
-   * poll until it is, whatever its revision; a failure is reported when it
-   * differs from the one before it, so the one the engine reported as it
-   * started is not reported again, and the recovery once. Nothing is
+   * poll, the very read that failed, until it succeeds, whatever the
+   * revision; a failure is reported when it differs from the one before
+   * it, so the one the engine reported as it started is not reported
+   * again, and the recovery once, when that read succeeds. Nothing is
    * polled before the first `refresh`, or for a programmatic host's set.
    */
   watch(report: (problem: string) => void): () => void {
@@ -728,13 +743,21 @@ export class ProviderConfiguration {
     }
     let polling = false;
     const poll = async () => {
-      const seen = this.#revision;
-      if (
-        this.#unreached === undefined &&
-        (seen === undefined ||
-          (await this.#reaching(() => this.#store.revision())) === seen)
-      ) {
-        return;
+      // A configuration or key read that failed is tried again by
+      // refreshing; a revision read that failed by reading it again, and
+      // only a revision that moved is refreshed.
+      const failed = this.#unreached?.read;
+      if (failed === undefined || failed === "revision") {
+        const seen = this.#revision;
+        if (seen === undefined) {
+          return;
+        }
+        const revision = await this.#reaching("revision", () =>
+          this.#store.revision()
+        );
+        if (revision === seen) {
+          return;
+        }
       }
       for (const problem of await this.refresh()) {
         report(problem);
@@ -751,8 +774,8 @@ export class ProviderConfiguration {
           const unreached = this.#unreached;
           if (unreached === undefined) {
             report(messageOf(error));
-          } else if (unreached !== before) {
-            report(unreached);
+          } else if (unreached.message !== before?.message) {
+            report(unreached.message);
           }
         })
         .finally(() => {
@@ -1342,6 +1365,9 @@ function taken(message: string): ConfigurationError {
 function invalid(message: string): ConfigurationError {
   return new ConfigurationError("PROVIDER_ENTRY_INVALID", message);
 }
+
+/** A read of the store that can fail to reach it. */
+type StoreRead = "configuration" | "identity key" | "revision";
 
 /** What the watcher reports once a store it could not reach is read again. */
 const RECOVERED = "the provider configuration can be read again";

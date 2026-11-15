@@ -42,7 +42,14 @@ class TestStore implements ProviderStore {
   /** Run once an edit has landed, before its result is handed back: another process's commit. */
   between: (() => void) | undefined;
   /** Refusals for the next reads, or the next identity key asks, as a write lock held too long would. */
-  refusing: { key: Error[]; read: Error[] } = { key: [], read: [] };
+  refusing: { key: Error[]; read: Error[]; revision: Error[] } = {
+    key: [],
+    read: [],
+    revision: [],
+  };
+  /** How many times the configuration, and its revision, were read. */
+  reads = 0;
+  revisionReads = 0;
   /** How many times the identity key was asked for. */
   keyAsks = 0;
   #held: Promise<undefined> = Promise.resolve(undefined);
@@ -78,6 +85,7 @@ class TestStore implements ProviderStore {
   }
 
   read(): Promise<ProviderConfigurations> {
+    this.reads += 1;
     const refusal = this.refusing.read.shift();
     if (refusal !== undefined) {
       return Promise.reject(refusal);
@@ -92,6 +100,11 @@ class TestStore implements ProviderStore {
   }
 
   revision(): Promise<number> {
+    this.revisionReads += 1;
+    const refusal = this.refusing.revision.shift();
+    if (refusal !== undefined) {
+      return Promise.reject(refusal);
+    }
     return Promise.resolve(this.revisions);
   }
 
@@ -537,6 +550,75 @@ describe("a store that could not be reached", () => {
       });
       expect(problems).toEqual([
         "still locked",
+        "the provider configuration can be read again",
+      ]);
+    } finally {
+      stop();
+    }
+  });
+
+  it("reports a revision read that keeps failing once, and its recovery only once that read succeeds", async () => {
+    store.put(MACHINE_SCOPE, codex);
+    const { config } = configuration();
+    await config.refresh();
+    store.refusing.revision = Array.from({ length: 4 }, () =>
+      busy("the revision is locked")
+    );
+    const { problems, stop } = watched(config);
+    try {
+      // Every poll asks the revision again; the configuration read that
+      // succeeds meanwhile, if any, recovers nothing.
+      await vi.waitFor(() => expect(store.revisionReads).toBe(4), {
+        timeout: 8000,
+      });
+      expect(problems).toEqual(["the revision is locked"]);
+      await vi.waitFor(() => expect(store.revisionReads).toBe(5), {
+        timeout: 5000,
+      });
+      await vi.waitFor(() =>
+        expect(problems).toEqual([
+          "the revision is locked",
+          "the provider configuration can be read again",
+        ])
+      );
+    } finally {
+      stop();
+    }
+  });
+
+  it("recovers a configuration read that failed only once that read succeeds", async () => {
+    store.put(MACHINE_SCOPE, codex);
+    const { config, models } = configuration();
+    store.refusing.read = [busy(), busy(), busy()];
+    await expect(config.refresh()).rejects.toThrow("the database is locked");
+    const { problems, stop } = watched(config);
+    try {
+      await vi.waitFor(() => expect(ids(models)).toEqual(["codex"]), {
+        timeout: 8000,
+      });
+      expect(store.reads).toBe(4);
+      expect(problems).toEqual([
+        "the provider configuration can be read again",
+      ]);
+    } finally {
+      stop();
+    }
+  });
+
+  it("recovers an identity key that could not be made only once it is, though the configuration reads", async () => {
+    store.put(MACHINE_SCOPE, codex);
+    const { config, models } = configuration();
+    store.refusing.key = [busy("no key"), busy("no key"), busy("no key")];
+    await expect(config.refresh()).rejects.toThrow("no key");
+    const { problems, stop } = watched(config);
+    try {
+      await vi.waitFor(() => expect(store.keyAsks).toBe(3), { timeout: 8000 });
+      // The configuration read each poll; the key did not come.
+      expect(problems).toEqual([]);
+      await vi.waitFor(() => expect(ids(models)).toEqual(["codex"]), {
+        timeout: 5000,
+      });
+      expect(problems).toEqual([
         "the provider configuration can be read again",
       ]);
     } finally {
