@@ -161,6 +161,29 @@ describe("the stores an engine keeps beside its records", () => {
     await expect(options.activityStore?.load()).rejects.toThrow("closed");
   });
 
+  it("stay open when a store made beside them is closed more than once", async () => {
+    const kept = withWorkspaceDatabase({
+      ...testInstances({ root: scratch() }),
+      root: scratch(),
+      state: join(scratch(), "twice"),
+      workspaceId: "twice",
+    });
+    const { options } = kept;
+    await options.activityStore?.load();
+    // Each close of the same store gives up that store's claim once.
+    await options.records?.close();
+    await options.records?.close();
+    await options.runs?.close();
+    await options.triggers?.close();
+    await options.usageStore?.close();
+    await options.automationStore?.close();
+    await options.executionStore?.close();
+    await options.executionStore?.close();
+    expect(await options.activityStore?.load()).toEqual([]);
+    await kept.release();
+    await expect(options.activityStore?.load()).rejects.toThrow("closed");
+  });
+
   it("keep an activity's highest revision", async () => {
     const { options, release } = withWorkspaceDatabase({
       ...testInstances({ root: scratch() }),

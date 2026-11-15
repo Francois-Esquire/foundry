@@ -337,32 +337,36 @@ export function withWorkspaceDatabase(
     (key) => options[key] === undefined
   );
   const side = new RecordsGate("the workspace database is closed");
-  // Each store made here holds the handle, and so does the engine.
-  let open = missing.length + 1;
-  const release = async () => {
-    open -= 1;
-    if (open === 0) {
-      try {
-        await side.close();
-      } finally {
-        await database.close();
-      }
-    }
+  // Each store made here holds the handle, and so does the engine: each
+  // by a claim of its own, given up once however often it is released.
+  let open = 0;
+  const claim = (): (() => Promise<void>) => {
+    open += 1;
+    let released: Promise<void> | undefined;
+    return () => {
+      released ??= (async () => {
+        open -= 1;
+        if (open === 0) {
+          try {
+            await side.close();
+          } finally {
+            await database.close();
+          }
+        }
+      })();
+      return released;
+    };
   };
-  let released: Promise<void> | undefined;
   const sides = sideStores(database, workspaceId, side);
   return {
     options: {
       ...options,
-      ...Object.fromEntries(missing.map((key) => [key, make[key](release)])),
+      ...Object.fromEntries(missing.map((key) => [key, make[key](claim())])),
       activityStore: options.activityStore ?? sides.activityStore,
       approvals: options.approvals ?? sides.approvals,
       grants: options.grants ?? sides.grants,
     },
-    release: () => {
-      released ??= release();
-      return released;
-    },
+    release: claim(),
   };
 }
 
