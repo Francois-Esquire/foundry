@@ -123,12 +123,16 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     await this.#release();
   }
 
-  async claimDelivery(): Promise<string | undefined> {
-    const holder = await this.#call(() => this.#claim());
-    if (holder === undefined) {
-      this.#claimed = true;
-    }
-    return holder;
+  claimDelivery(): Promise<string | undefined> {
+    // The flag is set inside the call, so `close`, which waits for the
+    // calls under way, always finds a claim it must give up.
+    return this.#call(async () => {
+      const holder = await this.#claim();
+      if (holder === undefined) {
+        this.#claimed = true;
+      }
+      return holder;
+    });
   }
 
   /** The claim's transaction: who holds it instead, or undefined once these records do. */

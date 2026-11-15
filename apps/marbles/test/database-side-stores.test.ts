@@ -111,6 +111,24 @@ describe("the stores an engine keeps beside its records", () => {
 });
 
 describe("who delivers a workspace's task changes", () => {
+  it("is given up by records closed while their claim was under way", async () => {
+    const opened = await initializeDatabase(join(scratch(), "marbles.db"));
+    try {
+      const records = () =>
+        new DatabaseWorkspaceRecords({
+          database: opened.database,
+          scope: "ws",
+        });
+      const first = records();
+      const claiming = first.claimDelivery();
+      await first.close();
+      expect(await claiming).toBeUndefined();
+      expect(await records().claimDelivery()).toBeUndefined();
+    } finally {
+      opened.close();
+    }
+  });
+
   it("is one engine's records at a time, until they let go or close", async () => {
     const opened = await initializeDatabase(join(scratch(), "marbles.db"));
     try {

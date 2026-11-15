@@ -9,6 +9,7 @@ import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { DatabaseActivityStore } from "~/database/activities";
 import { initializeDatabase } from "~/database/open";
+import type { ActivityRecord } from "~/lib/sandbox/activities";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 
 const roots: string[] = [];
@@ -101,6 +102,43 @@ it("persists activity, ignores stale events, and revokes live controls after res
   );
   expect(restored.list()[0]?.event.status).toBe("complete");
 });
+it("keeps the highest of two overlapping revisions, as its store does", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-activities-"));
+  roots.push(root);
+  const opened = await initializeDatabase(join(root, "marbles.db"));
+  onTestFinished(() => opened.close());
+  const store = new DatabaseActivityStore({
+    database: opened.database,
+    scope: "ws",
+  });
+  const host = new HarnessActivities({ store });
+  await Promise.all([
+    host.record({ ...event, revision: 2, status: "complete" }, source),
+    host.record({ ...event, revision: 1, title: "stale" }, source),
+  ]);
+  expect((await store.load())[0]?.event.revision).toBe(2);
+  expect(host.list()[0]?.event).toMatchObject({
+    revision: 2,
+    status: "complete",
+  });
+});
+
+it("keeps an activity recorded while the store was still being read, when it is newer", async () => {
+  const { promise: read, resolve: answer } =
+    Promise.withResolvers<readonly ActivityRecord[]>();
+  const host = new HarnessActivities({
+    store: { load: () => read, put: () => Promise.resolve() },
+  });
+  const loading = host.load();
+  await host.record({ ...event, revision: 2, status: "complete" }, source);
+  answer([{ event: { ...event, revision: 1 }, source }]);
+  await loading;
+  expect(host.list()[0]?.event).toMatchObject({
+    revision: 2,
+    status: "complete",
+  });
+});
+
 it("stops only the selected live child and rejects stale actions after close", async () => {
   const host = new HarnessActivities();
   const child = session();

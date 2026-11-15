@@ -148,6 +148,11 @@ export class Delivery {
       return;
     }
     const holder = await this.#claim();
+    // Stopped while it claimed: `stop` found no claim to give up, so this does.
+    if (this.#phase !== "new") {
+      await this.#release();
+      return;
+    }
     if (holder !== undefined) {
       this.#print(
         `[observe] not delivering here: the changes of this workspace are delivered by ${holder}; delivering here once it stops`

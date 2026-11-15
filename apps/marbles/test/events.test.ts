@@ -16,7 +16,7 @@ import {
 } from "vitest";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import type { Engine } from "~/lib/engine";
-import { DELIVERY_POLL_MS } from "~/lib/events/delivery";
+import { DELIVERY_POLL_MS, Delivery } from "~/lib/events/delivery";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords, PENDING_BATCH } from "~/lib/events/records";
 import type { Handler } from "~/lib/events/source";
@@ -939,7 +939,7 @@ describe("the delivery timer", () => {
       `import { Delivery } from ${JSON.stringify(resolvePath("src/lib/events/delivery.ts"))};
 import { MemoryWorkspaceRecords } from ${JSON.stringify(resolvePath("src/lib/events/records.ts"))};
 import { TASKS } from ${JSON.stringify(resolvePath("src/lib/events/source.ts"))};
-const delivery = new Delivery({ print: () => undefined, records: new MemoryWorkspaceRecords(), state: ${JSON.stringify(dir)} });
+const delivery = new Delivery({ print: () => undefined, records: new MemoryWorkspaceRecords() });
 delivery.observe(TASKS, () => undefined);
 await delivery.start();
 process.stdout.write("started\\n");
@@ -962,6 +962,40 @@ process.stdout.write("started\\n");
     expect(output).toContain("started");
     expect(code).toBe(0);
     expect(Date.now() - started).toBeLessThan(DELIVERY_POLL_MS * 10);
+  });
+
+  it("gives up a claim granted after it was stopped, and never starts delivering", async () => {
+    const memory = new MemoryWorkspaceRecords();
+    const { promise: granted, resolve: grant } = Promise.withResolvers<
+      string | undefined
+    >();
+    let released = 0;
+    let reads = 0;
+    const records: WorkspaceRecords = {
+      claimDelivery: () => granted,
+      close: () => memory.close(),
+      deliver: (id, hash) => memory.deliver(id, hash),
+      latest: () => {
+        reads += 1;
+        return memory.latest();
+      },
+      pending: (query) => memory.pending(query),
+      releaseDelivery: () => {
+        released += 1;
+        return Promise.resolve();
+      },
+      taskStore: memory.taskStore,
+      watch: (listener) => memory.watch(listener),
+    };
+    const delivery = new Delivery({ print: () => undefined, records });
+    delivery.observe(TASKS, () => undefined);
+    const starting = delivery.start();
+    await delivery.stop();
+    grant(undefined);
+    await starting;
+    expect(released).toBe(1);
+    await new Promise((settle) => setTimeout(settle, DELIVERY_POLL_MS * 2));
+    expect(reads).toBe(0);
   });
 
   it("reads nothing once delivery has stopped", async () => {
