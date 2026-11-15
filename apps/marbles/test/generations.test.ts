@@ -790,26 +790,64 @@ describe("engine generations", () => {
 
   it("starts exactly one generation for an idle reload, and one more for each after it", async () => {
     const clock = handClock();
-    const fixture = await setUp({ daemon: { clock } });
+    // What the daemon said, so a failure shows why it scheduled a switch.
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: { clock, print: (line) => lines.push(line) },
+    });
     const first = fixture.summary.pid ?? 0;
     const second = (await fixture.client.reload(fixture.summary.id)).pid ?? 0;
     expect(second).not.toBe(first);
     await gone(first);
     // Past every backoff a replacement could wait: nothing was scheduled.
-    expect(await fixture.daemon.idle()).toEqual({ scheduled: false });
+    expect(await fixture.daemon.idle(), lines.join("\n")).toEqual({
+      reasons: [],
+      scheduled: false,
+    });
     clock.advance(10 * 60_000);
     await fixture.daemon.idle();
     expect(await numbered(fixture)).toBe(2);
 
     const third = (await fixture.client.reload(fixture.summary.id)).pid ?? 0;
     await gone(second);
-    expect(await fixture.daemon.idle()).toEqual({ scheduled: false });
+    expect(await fixture.daemon.idle(), lines.join("\n")).toEqual({
+      reasons: [],
+      scheduled: false,
+    });
     clock.advance(10 * 60_000);
     await fixture.daemon.idle();
     expect(await numbered(fixture)).toBe(3);
     const workspace = fixture.client.workspace(fixture.summary);
     expect((await workspace.roll("where")).value).toBe(third);
     fixture.client.close();
+  }, 120_000);
+
+  it("asks for no switch while one is under way, however long its load takes", async () => {
+    const clock = handClock();
+    const lines: string[] = [];
+    const home = testHome({ providers: false });
+    const root = join(home.path, "project");
+    mkdirSync(root);
+    const source = join(root, "marbles.config.ts");
+    // Loads for longer than a poll of the fingerprint takes to come round.
+    writeFileSync(
+      source,
+      'await new Promise((resolve) => setTimeout(resolve, 2500));\nimport { step } from "@foundry.sh/marbles";\nexport const where = step("where").do(() => process.pid);\n'
+    );
+    const daemon = await startDaemon({
+      clock,
+      layout: home.layout,
+      print: (line) => lines.push(line),
+    });
+    daemons.push(daemon);
+    const client = await connect({ layout: home.layout, start: false });
+    const attached = await client.attach(source);
+    expect(attached.state).toBe("ready");
+    expect(await daemon.idle(), lines.join("\n")).toEqual({
+      reasons: [],
+      scheduled: false,
+    });
+    client.close();
   }, 120_000);
 
   it("hands a released run to the current generation from the database when the notice is lost", async () => {
