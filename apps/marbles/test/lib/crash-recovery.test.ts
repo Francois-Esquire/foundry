@@ -50,6 +50,7 @@ it("reports a part that fails and goes on to the next", async () => {
       },
     } as HarnessActivities,
     artifacts: { recover: () => Promise.reject(new Error("disk is gone")) },
+    containers: () => Promise.reject(new Error("never opened")),
     executions: () => [],
     print: (line) => lines.push(line),
     runs: new MemoryRunStore(),

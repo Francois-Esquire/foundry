@@ -30,7 +30,7 @@ import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { Bindings } from "~/lib/bindings";
 import { harnessOf } from "~/lib/cli-harnesses";
 import { commandRunner } from "~/lib/command";
-import { CrashRecovery } from "~/lib/crash-recovery";
+import { type ContainerOwners, CrashRecovery } from "~/lib/crash-recovery";
 import type { AnyDefinition } from "~/lib/definition";
 import { Delivery } from "~/lib/events/delivery";
 import type { WorkspaceRecords } from "~/lib/events/records";
@@ -156,6 +156,13 @@ export interface EngineOptions {
    * database when `state` is set.
    */
   readonly automationStore?: AutomationStore;
+  /**
+   * Who holds each container row, so a start takes back the rows, and
+   * their VMs, that a process that is gone left (`lib/crash-recovery.ts`).
+   * The `Engine` the package publishes keeps them in a Marbles database
+   * beside the rows; without it no container is taken back.
+   */
+  readonly containerOwners?: ContainerOwners;
   /**
    * Where sandboxes run. A function is called at the first sandbox and its
    * result kept, for a runtime that is optional or slow to start.
@@ -542,6 +549,10 @@ export class Engine {
     this.#crashRecovery = new CrashRecovery({
       activities: this.activities,
       artifacts: options.artifacts,
+      ...(options.containerOwners === undefined
+        ? {}
+        : { containerOwners: options.containerOwners }),
+      containers: () => this.sandboxes.containers(),
       executions: () => this.#executions.list(),
       print,
       runs,

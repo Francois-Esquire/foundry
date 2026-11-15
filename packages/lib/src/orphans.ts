@@ -37,6 +37,7 @@ import {
   type ProcessIdentity,
   recordPath,
   type SpawnRecord,
+  sameStart,
 } from "./spawn-record";
 
 /** What a stop did: the pids it stopped, and what it could not do. */
@@ -79,7 +80,6 @@ const MAX_PASSES = 8;
 const PS_TIMEOUT_MS = 5000;
 const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
 const LOOK_LINE = /^\s*(\d+)\s+(\d+)\s+(.+)$/;
-const SPACES = /\s+/g;
 
 /** Stop every orphan the recovery records in `dir` name (see above). */
 export async function stopOrphans(
@@ -174,7 +174,7 @@ function running(
   seen: ReadonlyMap<number, SeenProcess>
 ): boolean {
   const found = seen.get(identity.pid);
-  return found !== undefined && found.started === normal(identity.started);
+  return found !== undefined && sameStart(found.started, identity.started);
 }
 
 /** SIGTERM, a grace period, SIGKILL, a last wait; each signal on a fresh proof. */
@@ -338,10 +338,6 @@ function gone(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
-function normal(started: string): string {
-  return started.trim().replace(SPACES, " ");
-}
-
 const SYSTEM: ProcessTable = {
   kill: (target, name) => process.kill(target, name),
   look(pids) {
@@ -363,7 +359,7 @@ const SYSTEM: ProcessTable = {
       if (parsed) {
         seen.set(Number(parsed[1]), {
           pgid: Number(parsed[2]),
-          started: normal(parsed[3] ?? ""),
+          started: parsed[3] ?? "",
         });
       }
     }

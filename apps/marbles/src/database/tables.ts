@@ -399,3 +399,22 @@ export const marblesDeliveryClaims = sqliteTable("marbles_delivery_claims", {
   ownerPid: integer("owner_pid"),
   scope: text().primaryKey(),
 });
+
+/**
+ * Which process holds each of a workspace's container rows: the one that
+ * last wrote the row, by its pid and its start time as `ps` prints it, so
+ * a pid given to another process since is told apart. Written beside the
+ * row in the container store's own commit (`database/containers.ts`) and
+ * removed with it. A start takes back the rows whose holder is gone
+ * (`Containers.recover`).
+ */
+export const marblesContainerOwners = sqliteTable(
+  "marbles_container_owners",
+  {
+    containerId: text("container_id").notNull(),
+    ownerPid: integer("owner_pid").notNull(),
+    ownerStarted: text("owner_started").notNull(),
+    scope: text().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.scope, table.containerId] })]
+);

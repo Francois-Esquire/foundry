@@ -1,5 +1,6 @@
 import type { Artifacts } from "@foundry/artifacts";
 import { stopOrphans } from "@foundry/lib/orphans";
+import type { Containers } from "@foundry/sandbox/container/containers";
 import type { ExecutionCoordinator } from "@foundry/workflows";
 
 import type { ExecutionRun } from "./execution-record";
@@ -16,13 +17,16 @@ import type { HarnessActivities } from "./sandbox/activities";
  * 1. The children a gone process started and left running are stopped
  *    (`stopOrphans`, from the recovery records under `spawned`), first,
  *    so none of them changes what the later parts put right.
- * 2. Runs a gone process left `queued` or `running` are closed out, once
+ * 2. Container rows a gone process left are removed, with their VMs, and
+ *    VMs with no row swept (`Containers.recover`); the runtime is started
+ *    for it only when there is such a row.
+ * 3. Runs a gone process left `queued` or `running` are closed out, once
  *    the launcher has settled their Execution Runs (`closeAbandonedRuns`).
  *    Parked Runs stay parked, for whoever can answer them, and queued
  *    Execution Runs stay queued, as the launcher left them.
- * 3. Harness activities left running in a run that has ended are closed
+ * 4. Harness activities left running in a run that has ended are closed
  *    out (`HarnessActivities.closeOut`); sessions are left as they are.
- * 4. Artifact files no committed record names, and bytes staged by a
+ * 5. Artifact files no committed record names, and bytes staged by a
  *    process that is gone, are removed (`Artifacts.recover`).
  *
  * Every part acts only on what a process that is gone left, so it is safe
@@ -31,9 +35,24 @@ import type { HarnessActivities } from "./sandbox/activities";
  * next start. A part that fails is reported and the next one runs; the
  * engine starts either way.
  */
+/**
+ * Which of a workspace's container rows a process that is gone left, by
+ * who holds each (`database/containers.ts`).
+ */
+export interface ContainerOwners {
+  /** Whether any row was left so: only then is the container runtime started. */
+  anyLeft(): Promise<boolean>;
+  /** Whether the row `id` was left so. */
+  left(id: string): Promise<boolean>;
+}
+
 export interface CrashRecoveryOptions {
   readonly activities: HarnessActivities;
   readonly artifacts: Pick<Artifacts, "recover">;
+  /** Who holds the container rows; without it no container is taken back. */
+  readonly containerOwners?: ContainerOwners;
+  /** The engine's containers, started once, as its sandboxes use them. */
+  readonly containers: () => Promise<Pick<Containers, "recover">>;
   /** The Execution Runs this engine holds, as the launcher left them. */
   readonly executions: () => readonly ExecutionRun[];
   readonly print: (line: string) => void;
@@ -70,6 +89,7 @@ export class CrashRecovery {
         }
       });
     }
+    await this.#part("containers", () => this.#containers());
     await this.#part("runs", () => closeAbandonedRuns({ print, runs, store }));
     await this.#part("activities", async () => {
       const closed = await activities.closeOut(this.#ended());
@@ -78,6 +98,22 @@ export class CrashRecovery {
       }
     });
     await this.#part("artifacts", () => artifacts.recover());
+  }
+
+  async #containers(): Promise<void> {
+    const owners = this.#options.containerOwners;
+    if (!(owners && (await owners.anyLeft()))) {
+      return;
+    }
+    const containers = await this.#options.containers();
+    const { removed, swept } = await containers.recover((row) =>
+      owners.left(row.id)
+    );
+    if (removed.length + swept.length > 0) {
+      this.#options.print(
+        `[recovery] removed ${String(removed.length)} container(s) and swept ${String(swept.length)} VM(s) a gone engine left`
+      );
+    }
   }
 
   /** Whether a run has ended: its Execution Run settled, or none is kept. */

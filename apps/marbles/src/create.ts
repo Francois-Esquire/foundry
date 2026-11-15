@@ -401,6 +401,9 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const engineOptions: EngineOptions = {
     ...artifactsFor(stores, options),
     askable: options.askable,
+    ...(stores === undefined
+      ? {}
+      : { containerOwners: stores.containerOwners }),
     containers: containersFor(options, worktrees, stores?.containers),
     dry,
     git,

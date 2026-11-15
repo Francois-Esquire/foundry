@@ -79,6 +79,7 @@ export const SPAWN_RECOVERY_ENV = "MARBLES_SPAWN_RECOVERY";
  */
 export const SPAWN_OWNER_ENV = "MARBLES_SPAWN_OWNER";
 
+const SPACES = /\s+/g;
 /** How long `ps` gets to answer. */
 const PS_TIMEOUT_MS = 5000;
 /** `ps` prints a start time in its caller's zone and language: one for every caller. */
@@ -113,6 +114,28 @@ export function startedAt(pid: number): string | null | undefined {
   return listed.error === undefined && listed.status === 1 && !started
     ? null
     : undefined;
+}
+
+/**
+ * Whether the process `identity` names still runs: one has its pid and
+ * started when it says. `true` when `ps` cannot tell, so a caller deciding
+ * whether a process is gone never takes a live one for gone.
+ */
+export function stillRunning(identity: ProcessIdentity): boolean {
+  const started = startedAt(identity.pid);
+  return (
+    started === undefined ||
+    (started !== null && sameStart(started, identity.started))
+  );
+}
+
+/** Two start times `ps` printed, however it spaced them. */
+export function sameStart(one: string, other: string): boolean {
+  return normalStart(one) === normalStart(other);
+}
+
+function normalStart(started: string): string {
+  return started.trim().replace(SPACES, " ");
 }
 
 /**
@@ -264,7 +287,7 @@ function privateDirectory(dir: string): void {
 }
 
 /** This process's identity, read once; throws when `ps` cannot say. */
-function thisProcess(): ProcessIdentity {
+export function thisProcess(): ProcessIdentity {
   if (self === undefined) {
     const started = startedAt(process.pid);
     if (typeof started !== "string") {
