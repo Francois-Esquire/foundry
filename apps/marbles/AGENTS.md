@@ -134,8 +134,12 @@ Five buckets, each importing only what sits below it:
   scoped by the workspace id, handed over as the package makes it; only
   the artifact store has an `onCommit` hook, which removes a deleted
   artifact's shares, as the run store's does a Run's. `artifact-links.ts`
-  (`keepingLinks`) follows the engine's artifact commits, after they land,
-  to keep each linked workspace's links (`links.ts`) current. Artifact blob files stay on disk, under
+  (`keepingLinks`, over `followingCommits`) follows the engine's artifact
+  commits, after they land, nested transactions included, to keep each
+  linked workspace's links (`links.ts`) current; `links.ts` is the one
+  routine a rebuild and an update share, which reconciles disk with the
+  database, follows no link, and tolerates a concurrent one. Shares are
+  checked and written in one transaction (`associationTransaction`). Artifact blob files stay on disk, under
   `<artifacts>/workspaces/<id>/blobs`; `readArtifacts` is the read-only
   view of them a dry run reads through to. `runs.ts` is a workspace's workflow Runs: the package's
   `SqliteWorkflowStore` scoped by the workspace id, whose `onCommit` hook

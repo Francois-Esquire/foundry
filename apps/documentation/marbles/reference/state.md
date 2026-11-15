@@ -284,15 +284,23 @@ database at most every two seconds, its triggers from their last tick
 its store deletes takes its shares with it in the same transaction.
 
 Links are derived, never read: `<workspace root>/.marbles/artifacts/<id>/<path>`
-points at the blob file holding each file of an artifact the workspace
-shows. A file the database holds inline, or in chunks, has no link.
-`marbles relink` removes every link there and makes them again from the
-database; anything else in the directory is left and reported, and
-`.marbles/.gitignore` keeps the directory out of git. Once a workspace has
-a `.marbles/` directory, each artifact write is followed after it commits:
-the artifact is relinked in its owner and every workspace it is shared
-with, and unlinked elsewhere. A link that cannot be made is reported and
-never fails the write.
+for an artifact the workspace owns, and `artifacts/@<owner>/<id>/<path>` for
+one shared with it, point at the blob file holding each of its files. Each
+id and owner is percent-encoded, uppercase letters and a bare `.` or `..`
+included, so no two names collide on any file system and none starts with
+`@`. A file the database holds inline, or in chunks, has no link.
+`marbles relink` reconciles the directory with the database: it removes
+the links Marbles made (those pointing into the artifact store) that should
+not be there and makes the missing ones; anything else is left and
+reported, and `.marbles/.gitignore` keeps the directory out of git. Every
+directory from `.marbles` down is checked to be a real directory, never
+followed; one that is a link or a file refuses the links under it, which
+are reported. Once a workspace has a `.marbles/` directory, each artifact
+write is followed after it lands (a write inside a transaction once the
+outermost one commits): the artifact is relinked in its owner and every
+workspace it is shared with, and unlinked elsewhere, each workspace on its
+own. A link that cannot be made is reported and never fails the write.
+Concurrent rebuilds and updates converge.
 
 ### Execution Runs
 

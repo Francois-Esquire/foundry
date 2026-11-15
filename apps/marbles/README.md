@@ -270,7 +270,8 @@ Everything Marbles keeps is under one Foundry home, `$FOUNDRY_HOME`, else
   artifacts/
     workspaces/<workspace-id>/blobs/   each artifact's bytes
 <workspace root>/
-  .marbles/artifacts/<id>/<path>       links to the artifact files it shows (`marbles relink`)
+  .marbles/artifacts/<id>/<path>       links to its own artifacts' files (`marbles relink`)
+  .marbles/artifacts/@<owner>/<id>/<path>   links to those other workspaces share with it
 ```
 
 The database holds the rest, for every workspace: its record, tasks and
@@ -307,13 +308,19 @@ shares with it.
 
 `<workspace root>/.marbles/` holds links into the database's files for the
 resources a workspace shows: for now, one link per artifact file whose
-bytes a blob file holds. Nothing reads them back. `marbles relink [--all]`
-removes them and makes them again from the database, leaving anything that
-is not a link. Once a workspace has links, they follow each artifact write
-after it commits, in the artifact's owner and every workspace it is shared
-with; a link that cannot be made is reported, never failing the write, and
-`relink` repairs it. A file the database holds inline (or in chunks) has
-no link. `.marbles/.gitignore` keeps the directory out of git.
+bytes a blob file holds, its own artifacts' under `artifacts/<id>/` and
+another workspace's under `artifacts/@<owner>/<id>/`, each name encoded so
+no two collide, case-insensitively too. Nothing reads them back.
+`marbles relink [--all]` makes them match the database: it removes the
+links Marbles made that no longer should be there and makes the missing
+ones, leaving anything else (a file, a link of your own) and reporting it.
+Nothing is followed: a directory on the way that is a link or a file
+refuses that link, reported, and nothing is made through it. Once a
+workspace has links, they follow each artifact write after it lands, in
+the artifact's owner and every workspace it is shared with; a link that
+cannot be made is reported, never failing the write, and `relink` repairs
+it. Concurrent updates converge. A file the database holds inline (or in
+chunks) has no link. `.marbles/.gitignore` keeps the directory out of git.
 
 ## Embedding and execution
 
