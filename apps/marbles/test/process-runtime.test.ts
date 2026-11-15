@@ -125,8 +125,8 @@ it("refuses the MCP server when Bun loaded a workspace .env, and starts it as do
   expect(flagged.stdout).toContain("mcp   ");
 }, 30_000);
 
-it("refuses a worker started without the flag beside a workspace .env", () => {
-  const ran = spawnSync(runtime(), [resolve("src/process/worker.ts")], {
+it("refuses a generation started without the flag beside a workspace .env", () => {
+  const ran = spawnSync(runtime(), [resolve("src/process/generation.ts")], {
     cwd: workspace,
     encoding: "utf8",
   });

@@ -22,11 +22,11 @@ import { readProcess } from "~/process/instance";
 import {
   CLIENT_NOTIFICATIONS,
   DAEMON_METHODS,
+  GENERATION_STOP_TIMEOUT_MS,
   type HelloResult,
   helloResultSchema,
   lineParamsSchema,
   type SetupDraftParams,
-  WORKER_STOP_TIMEOUT_MS,
   WORKSPACE_METHODS,
   WORKSPACE_PREFIX,
   type WorkspaceMethod,
@@ -193,7 +193,8 @@ const ANSWER_TIMEOUT_MS = 5000;
  * timeout to answer and as long again to exit before the daemon kills it,
  * then the daemon itself winds down.
  */
-const STOP_PROCESS_TIMEOUT_MS = 2 * WORKER_STOP_TIMEOUT_MS + START_TIMEOUT_MS;
+const STOP_PROCESS_TIMEOUT_MS =
+  2 * GENERATION_STOP_TIMEOUT_MS + START_TIMEOUT_MS;
 const RETRY_MS = 100;
 const LOG_FILE = "daemon.log";
 

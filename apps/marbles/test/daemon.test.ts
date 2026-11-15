@@ -1,4 +1,3 @@
-import { ChildProcess } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -32,7 +31,7 @@ import {
 } from "~/process/client";
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { ProcessHeldError, readProcess } from "~/process/instance";
-import { RemoteError, WORKER_METHODS } from "~/process/protocol";
+import { GENERATION_METHODS, RemoteError } from "~/process/protocol";
 import { testHome } from "./helpers/home";
 import { readWorkspace, touchWorkspace } from "./helpers/registry";
 
@@ -107,7 +106,7 @@ afterEach(async () => {
 });
 
 describe("the Marbles process", () => {
-  it("hosts a workspace in a worker, answers for it, reloads on an edit, and detaches it", async () => {
+  it("hosts a workspace in an engine generation, answers for it, reloads on an edit, and detaches it", async () => {
     const { machine, root, source } = fixture();
     writeFileSync(source, greeter("greet"));
     const lines: string[] = [];
@@ -133,9 +132,10 @@ describe("the Marbles process", () => {
       config: source,
       hosted: true,
     });
-    const worker = readProcess(join(machine.state, summary.id));
-    expect(worker).toMatchObject({ alive: true, host: "worker" });
-    expect(worker?.pid).not.toBe(process.pid);
+    // Hosted in a generation of its own, not in the daemon.
+    expect(summary.pid).toBeGreaterThan(0);
+    expect(summary.pid).not.toBe(process.pid);
+    expect(processAlive(summary.pid ?? 0)).toBe(true);
 
     const workspace = client.workspace(summary);
     expect(
@@ -167,16 +167,15 @@ describe("the Marbles process", () => {
     expect(states).toContain("reloading");
     expect(states.at(-1)).toBe("ready");
     expect(lines).toContain(`[${summary.id}] source changed · reloading`);
-    expect(readProcess(join(machine.state, summary.id))?.pid).not.toBe(
-      worker?.pid
-    );
+    // The edit brought up the next generation, which took over.
+    const [reloaded] = await client.workspaces();
+    expect(reloaded?.pid).not.toBe(summary.pid);
 
     await client.detach(summary.id);
     expect(await client.workspaces()).toEqual([]);
     expect((await readWorkspace(machine.state, summary.id))?.hosted).toBe(
       false
     );
-    expect(readProcess(join(machine.state, summary.id))?.alive).not.toBe(true);
     await expect(workspace.describe()).rejects.toThrow(RemoteError);
     client.close();
   }, 60_000);
@@ -198,20 +197,26 @@ describe("the Marbles process", () => {
     client.close();
   }, 60_000);
 
-  it("marks a workspace failed when its worker cannot be spawned, and keeps running", async () => {
+  it("keeps the current generation running when a reload does not load, and says why", async () => {
     const { machine, root, source } = fixture();
     writeFileSync(source, greeter("greet"));
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
     const summary = await client.attach(source);
-    // The next worker's cwd is gone: spawning it fails with ENOENT.
+    // The next generation cannot load it: its root is gone.
     rmSync(root, { force: true, recursive: true });
-    await expect(client.reload(summary.id)).rejects.toThrow(
-      "the worker did not start"
-    );
-    const [failed] = await client.workspaces();
-    expect(failed).toMatchObject({ id: summary.id, state: "failed" });
-    expect(failed?.error).toContain("ENOENT");
+    await expect(client.reload(summary.id)).rejects.toThrow("did not load");
+    const [kept] = await client.workspaces();
+    expect(kept).toMatchObject({
+      id: summary.id,
+      pid: summary.pid,
+      state: "ready",
+    });
+    expect(kept?.error).toContain("the previous load still runs");
+    const rolled = await client.workspace(summary).roll("greet", {
+      name: "Ada",
+    });
+    expect(rolled.value).toEqual({ greeting: "Hello Ada" });
     client.close();
   }, 60_000);
 
@@ -234,7 +239,7 @@ describe("the Marbles process", () => {
     client.close();
   }, 60_000);
 
-  it("reloads a worker that is still starting into a ready one", async () => {
+  it("reloads a workspace that is still starting into a ready one", async () => {
     const { machine, source } = fixture();
     writeFileSync(source, slowGreeter("greet", 2500));
     await daemonFor(machine);
@@ -252,8 +257,9 @@ describe("the Marbles process", () => {
     await sleep(1000);
     const reloaded = await client.reload(starting?.id ?? "");
     expect(reloaded.state).toBe("ready");
+    // The reload waited for the attach, then a new generation took over.
     expect(reloaded.pid).not.toBe(starting?.pid);
-    expect((await attaching).pid).toBe(reloaded.pid);
+    expect((await attaching).state).toBe("ready");
     expect(await client.workspaces()).toEqual([
       expect.objectContaining({ pid: reloaded.pid, state: "ready" }),
     ]);
@@ -591,7 +597,7 @@ export const hold = step("hold").do(async () => {
     client.close();
   }, 60_000);
 
-  it("keeps a workspace that was attached again while it was being detached", async () => {
+  it("hosts a workspace attached again while it was being detached", async () => {
     const { machine, source } = fixture();
     writeFileSync(
       source,
@@ -600,17 +606,15 @@ export const hold = step("hold").do(async () => {
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
     const summary = await client.attach(source);
-    // A run in flight keeps the worker, and its claim on the workspace,
-    // for longer than its replacement takes to come up and claim it.
+    // A run in flight keeps the detach draining for a while.
     const rolling = client.workspace(summary).roll("slow");
     await sleep(200);
-    // Written together: the attach lands while the detach drains the worker.
+    // Written together: the attach takes its turn once the detach is done.
     const detaching = client.detach(summary.id);
     const attaching = client.attach(source);
-    await expect(detaching).rejects.toThrow("attached again");
+    await detaching;
     const replaced = await attaching;
     expect(replaced.state).toBe("ready");
-    expect(replaced.pid).not.toBe(summary.pid);
     expect((await rolling).value).toBe("slow");
     expect(await client.workspaces()).toEqual([
       expect.objectContaining({ id: summary.id, state: "ready" }),
@@ -625,23 +629,16 @@ export const hold = step("hold").do(async () => {
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
     const summary = await client.attach(source);
-    // The detach drains its worker, then waits here, in the record write.
+    // The detach unhosts it, then waits here, in the record write.
     const writing = Promise.withResolvers<void>();
     const gate = Promise.withResolvers<void>();
-    const { touch } = WorkspaceRegistry.prototype;
+    const { unhost } = WorkspaceRegistry.prototype;
     const paused = vi
-      .spyOn(WorkspaceRegistry.prototype, "touch")
-      .mockImplementation(async function (
-        this: WorkspaceRegistry,
-        workspace,
-        config,
-        options
-      ) {
-        if (options?.hosted === false) {
-          writing.resolve();
-          await gate.promise;
-        }
-        return touch.call(this, workspace, config, options);
+      .spyOn(WorkspaceRegistry.prototype, "unhost")
+      .mockImplementation(async function (this: WorkspaceRegistry, id) {
+        writing.resolve();
+        await gate.promise;
+        return unhost.call(this, id);
       });
     try {
       const detaching = client.detach(summary.id);
@@ -651,12 +648,11 @@ export const hold = step("hold").do(async () => {
       await sleep(300);
       gate.resolve();
       await detaching;
-      expect(await client.workspaces()).toEqual([
-        expect.objectContaining({ id: summary.id }),
-      ]);
       const again = await attaching;
       expect(again.state).toBe("ready");
-      expect(again.pid).not.toBe(summary.pid);
+      expect(await client.workspaces()).toEqual([
+        expect.objectContaining({ id: summary.id, state: "ready" }),
+      ]);
       expect((await readWorkspace(machine.state, summary.id))?.hosted).toBe(
         true
       );
@@ -794,7 +790,7 @@ export const hold = step("hold").do(async () => {
     expect(queuedFiles()).not.toContain(fileIdentity(machine.database));
   }, 30_000);
 
-  it("kills a worker that would not stop even when saying so fails", async () => {
+  it("kills a generation and its group that would not stop even when saying so fails", async () => {
     const { machine, source } = fixture();
     writeFileSync(source, greeter("greet"));
     const printing: { fails: boolean } = { fails: false };
@@ -810,25 +806,26 @@ export const hold = step("hold").do(async () => {
     const { pid } = await client.attach(source);
     client.close();
     if (pid === undefined) {
-      throw new Error("the worker has no pid");
+      throw new Error("the generation has no pid");
     }
-    // The worker does not answer the stop: the daemon has to kill it.
+    // The generation does not answer the stop: the daemon has to kill it.
     const { request } = Channel.prototype;
     vi.spyOn(Channel.prototype, "request").mockImplementation(function (
       this: Channel,
       method,
       ...rest
     ) {
-      return method === WORKER_METHODS.stop
-        ? Promise.reject(new Error("the worker would not stop"))
+      return method === GENERATION_METHODS.stop
+        ? Promise.reject(new Error("the generation would not stop"))
         : request.call(this, method, ...rest);
     });
     // It may also leave once its connection drops; the kill must be sent anyway.
-    const kill = vi.spyOn(ChildProcess.prototype, "kill");
+    const kill = vi.spyOn(process, "kill");
     printing.fails = true;
     try {
       await expect(daemon.close()).rejects.toThrow("print failed");
-      expect(kill).toHaveBeenCalledWith("SIGKILL");
+      // Its whole process group, children and all.
+      expect(kill).toHaveBeenCalledWith(-pid, "SIGKILL");
       await vi.waitFor(() => expect(processAlive(pid)).toBe(false), {
         timeout: 5000,
       });
