@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { processAlive } from "@foundry/lib/process-identity";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readLiveGenerations } from "~/database/generations";
+import { GenerationRecords, readLiveGenerations } from "~/database/generations";
 import { readDatabase } from "~/database/open";
 import { marblesExecutions, marblesGenerations } from "~/database/tables";
 import { type Layout, stateDatabase } from "~/layout";
@@ -995,6 +995,48 @@ describe("engine generations", () => {
       status.workspaces.find((each) => each.id === other.id)
     ).toMatchObject({ alive: false, host: null, pid: null });
     client.close();
+  }, 150_000);
+
+  it("writes which workspaces a generation hosts again, after the backoff, when the write failed", async () => {
+    const clock = handClock();
+    const lines: string[] = [];
+    const original = GenerationRecords.prototype.hosting;
+    let failures = 0;
+    // The first write of the hosts fails, once; every other lands.
+    GenerationRecords.prototype.hosting = () => {
+      GenerationRecords.prototype.hosting = original;
+      failures += 1;
+      return Promise.reject(new Error("injected hosts write failure"));
+    };
+    let fixture: Awaited<ReturnType<typeof setUp>>;
+    try {
+      fixture = await setUp({
+        daemon: { clock, print: (line) => lines.push(line) },
+      });
+    } finally {
+      GenerationRecords.prototype.hosting = original;
+    }
+    expect(failures).toBe(1);
+    const status = async () =>
+      (await readStatus(fixture.machine.state)).workspaces.find(
+        (each) => each.id === fixture.summary.id
+      );
+    const idle = await fixture.daemon.idle();
+    expect(idle.scheduled, lines.join("\n")).toBe(true);
+    expect(idle.reasons.join("\n")).toContain("hosts");
+    expect(await status()).toMatchObject({ alive: false });
+
+    clock.advance(1000);
+    expect(await fixture.daemon.idle()).toEqual({
+      reasons: [],
+      scheduled: false,
+    });
+    expect(await status()).toMatchObject({
+      alive: true,
+      host: "generation",
+      pid: fixture.summary.pid,
+    });
+    fixture.client.close();
   }, 150_000);
 
   it("hands a released run to the current generation from the database when the notice is lost", async () => {

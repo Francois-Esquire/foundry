@@ -375,6 +375,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   });
   const records = new GenerationRecords({ database: database.database });
   let hostsWritten: Promise<void> = Promise.resolve();
+  /** Generations whose hosts are still to be written (`recordHosts`). */
+  const hostsDue = new Set<Generation>();
+  /** The retry of a hosts write that failed, while one is due. */
+  let hostsTimer: unknown;
+  let hostsDelay = REPLACE_MIN_MS;
   const hosted = new Map<string, Hosted>();
   const generations = new Set<Generation>();
   let current: Generation | undefined;
@@ -1306,22 +1311,49 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
 
   /**
    * Keep which workspaces `generation` hosts in its record, for `status`
-   * to read. Written in turn, each the set as it is when the write runs,
-   * so the last one is the set as it is now. A failed write is reported
-   * and leaves the record as it was; it fails nothing the daemon does.
+   * to read. Writes are made one at a time, each of the set as it is when
+   * it runs, so only the latest is ever written, in order. A write that
+   * fails is reported and kept to write again after the replacement
+   * backoff, until one lands; a generation that retires, exits, or whose
+   * daemon stops is written no more. Resolves once the write it asked for
+   * has been tried.
    */
   function recordHosts(generation: Generation): Promise<void> {
-    const write = async (): Promise<void> => {
+    hostsDue.add(generation);
+    hostsWritten = hostsWritten.then(writeHostsDue);
+    return hostsWritten;
+  }
+
+  async function writeHostsDue(): Promise<void> {
+    for (const generation of [...hostsDue]) {
+      hostsDue.delete(generation);
+      if (
+        stopping ||
+        generation.role === "retiring" ||
+        generation.exit !== undefined
+      ) {
+        continue;
+      }
       try {
         await records.hosting(generation.number, [...generation.hosts]);
       } catch (error) {
         print(
-          `[marbles] which workspaces engine generation ${String(generation.number)} hosts was not recorded: ${message(error)}`
+          `[marbles] which workspaces engine generation ${String(generation.number)} hosts was not recorded: ${message(error)}; it is written again after a backoff`
         );
+        hostsDue.add(generation);
       }
-    };
-    hostsWritten = hostsWritten.then(write);
-    return hostsWritten;
+    }
+    if (hostsDue.size === 0) {
+      hostsDelay = REPLACE_MIN_MS;
+      return;
+    }
+    if (hostsTimer === undefined && !stopping) {
+      hostsTimer = clock.setTimeout(() => {
+        hostsTimer = undefined;
+        hostsWritten = hostsWritten.then(writeHostsDue);
+      }, hostsDelay);
+      hostsDelay = Math.min(hostsDelay * 2, REPLACE_MAX_MS);
+    }
   }
 
   /**
@@ -2174,6 +2206,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       clearInterval(poll);
       clearInterval(sweeper);
       clock.clearTimeout(switchTimer);
+      clock.clearTimeout(hostsTimer);
+      hostsTimer = undefined;
       // Every step runs whatever an earlier one threw; the first error wins.
       let failure: { readonly error: unknown } | undefined;
       const attempt = async (step: () => unknown): Promise<void> => {
@@ -2227,11 +2261,20 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       // A turn may queue another while it runs: wait until none is left.
       for (;;) {
         const waited = turn;
+        const written = hostsWritten;
         await waited;
-        if (turn === waited) {
+        await written;
+        if (turn === waited && hostsWritten === written) {
+          const hostsReasons = [...hostsDue].map(
+            (generation) =>
+              `which workspaces engine generation ${String(generation.number)} hosts is to be written again`
+          );
           return {
-            reasons: switchTimer === undefined ? [] : [...switchReasons],
-            scheduled: switchTimer !== undefined,
+            reasons: [
+              ...(switchTimer === undefined ? [] : switchReasons),
+              ...(hostsTimer === undefined ? [] : hostsReasons),
+            ],
+            scheduled: switchTimer !== undefined || hostsTimer !== undefined,
           };
         }
       }
