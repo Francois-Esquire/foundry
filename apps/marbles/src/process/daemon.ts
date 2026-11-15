@@ -17,6 +17,7 @@ import { readExecution } from "~/database/executions";
 import { GenerationRecords } from "~/database/generations";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
+import { unheldParkedRuns } from "~/database/runs";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type { Layout } from "~/layout";
 import {
@@ -154,6 +155,10 @@ const STABLE_MS = 30_000;
 /** How many times a released run is offered to the current generation, and how long between. */
 const HANDOVER_ATTEMPTS = 5;
 const HANDOVER_RETRY_MS = 200;
+/** How often the parked runs no live engine holds are offered to the current generation. */
+const SWEEP_MS = 2000;
+/** How long a run the current generation declined waits before it is offered again. */
+const REOFFER_MS = 30_000;
 /** How long an answer to a question on its way to another generation waits for it to arrive. */
 const HELD_WAIT_MS = 30_000;
 /** Lines of a generation's stderr kept to explain a failure. */
@@ -276,6 +281,24 @@ function lines(onLine: (line: string) => void): (chunk: Buffer) => void {
       newline = buffer.indexOf("\n");
     }
   };
+}
+
+/** What `askOwner` answers when no generation of this daemon owns the run. */
+const NO_OWNER_HERE: unique symbol = Symbol("no generation here owns the run");
+
+/** Whether `error` says a question is on its way to another generation with its run. */
+function isMoving(error: unknown): boolean {
+  return error instanceof Error && error.name === "QuestionMovingError";
+}
+
+/** Resolves once `generation` has started, or failed to; at once without one. */
+function settledStart(generation: Generation | undefined): Promise<void> {
+  return (
+    generation?.started.promise.then(
+      () => undefined,
+      () => undefined
+    ) ?? Promise.resolve()
+  );
 }
 
 function message(error: unknown): string {
@@ -659,7 +682,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (method === GENERATION_NOTIFICATIONS.released) {
       const parsed = releasedParamsSchema.safeParse(params);
       if (parsed.success) {
-        handOver(parsed.data.id, parsed.data.runId);
+        handOver(parsed.data.id, parsed.data.runId).catch(() => undefined);
       }
       return;
     }
@@ -680,6 +703,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
 
   /** Each workspace's handovers of released runs, one after another. */
   const handovers = new Map<string, Promise<void>>();
+  /** The handover of each run under way, by workspace id and run id: one offer at a time. */
+  const offering = new Map<string, Promise<void>>();
+  /** When the current generation last declined each run offered, by workspace id and run id. */
+  const declined = new Map<string, number>();
   /** Who waits for a workspace's next handover or switch, by workspace id. */
   const waiting = new Map<string, Set<() => void>>();
 
@@ -709,17 +736,30 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   }
 
   /**
-   * A retired generation let go run `runId` of workspace `id` as it parked:
-   * the current generation takes it over. A Run whose park is still being
-   * written is asked again a few times. One no generation takes over stays
-   * parked, unowned, for the next engine start to adopt.
+   * Offer parked run `runId` of workspace `id`, which no live engine holds,
+   * to the current generation, after the workspace's handovers before it:
+   * one a retired generation let go (`released`), or one the sweep found.
+   * A Run whose park is still being written is offered again a few times;
+   * one the current generation does not take is offered by the sweep
+   * again later. Resolves once it is settled either way.
    */
-  function handOver(id: string, runId: string): void {
+  function handOver(id: string, runId: string): Promise<void> {
+    const key = `${id}\0${runId}`;
+    const pending = offering.get(key);
+    if (pending !== undefined) {
+      return pending;
+    }
     const previous = handovers.get(id) ?? Promise.resolve();
     const next = previous.then(async () => {
       for (let attempt = 0; attempt < HANDOVER_ATTEMPTS; attempt += 1) {
+        // Read in each turn: a switch may have made another current.
         const target = current;
-        if (target === undefined || !target.hosts.has(id)) {
+        await settledStart(target);
+        if (
+          target === undefined ||
+          target !== current ||
+          !target.hosts.has(id)
+        ) {
           return;
         }
         try {
@@ -727,25 +767,61 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
             (await ask(target, GENERATION_METHODS.adopt, { id, runId })) ===
             true
           ) {
+            declined.delete(key);
             return;
           }
         } catch (error) {
           print(`[${id}] run ${runId} not taken over: ${message(error)}`);
-          return;
+          break;
         }
         await nextChange(id, HANDOVER_RETRY_MS);
       }
-      print(
-        `[${id}] run ${runId} stays parked for the next engine start to take over`
-      );
+      declined.set(key, Date.now());
     });
     const done = next.finally(() => {
+      offering.delete(key);
       if (handovers.get(id) === done) {
         handovers.delete(id);
       }
       changed(id);
     });
+    offering.set(key, done);
     handovers.set(id, done);
+    return done;
+  }
+
+  /**
+   * Offer the current generation every parked run of `ids` (every
+   * workspace it hosts when omitted) that no live engine holds, as the
+   * Marbles database has it: what a retired generation let go whose
+   * notice was lost, or that an adoption gave back. One the current
+   * generation declined is offered again only after `REOFFER_MS`, unless
+   * `now`. Resolves once each offer has settled.
+   */
+  async function sweep(
+    ids: Iterable<string> | undefined,
+    { now = false }: { readonly now?: boolean } = {}
+  ): Promise<void> {
+    const target = current;
+    if (target === undefined || stopping) {
+      return;
+    }
+    const offers: Promise<void>[] = [];
+    for (const id of ids ?? target.hosts) {
+      let parked: readonly string[];
+      try {
+        parked = await unheldParkedRuns(database.database, id);
+      } catch {
+        continue;
+      }
+      for (const runId of parked) {
+        const at = declined.get(`${id}\0${runId}`);
+        if (now || at === undefined || Date.now() - at >= REOFFER_MS) {
+          offers.push(handOver(id, runId));
+        }
+      }
+    }
+    await Promise.all(offers);
   }
 
   /**
@@ -1019,6 +1095,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     candidate.since = Date.now();
     await records.mark(number, "current");
+    // It died while that was written: its exit has replaced it already.
+    if (candidate.exit !== undefined || current !== candidate) {
+      return;
+    }
     showLoads(candidate, [
       ...started,
       ...loaded.loads.filter((each) => each.error !== undefined),
@@ -1094,7 +1174,13 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     candidate.identity = loaded.identity;
     await records.identify(candidate.number, loaded.identity.started);
     const failed = loaded.loads.filter((load) => load.error !== undefined);
-    if (previous !== undefined && failed.length > 0) {
+    // Judged on the generation current now, not when the load began: one
+    // that died meanwhile leaves nothing a partial load would replace.
+    const running =
+      previous !== undefined &&
+      previous === current &&
+      previous.exit === undefined;
+    if (running && failed.length > 0) {
       throw new CandidateError(failed);
     }
     return loaded;
@@ -1290,6 +1376,21 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       });
   }, SOURCE_POLL_MS);
   poll.unref();
+
+  // What was let go and not taken over, notice or none, from the database.
+  let sweeping = false;
+  const sweeper = setInterval(() => {
+    if (sweeping || stopping) {
+      return;
+    }
+    sweeping = true;
+    sweep(undefined)
+      .catch(() => undefined)
+      .finally(() => {
+        sweeping = false;
+      });
+  }, SWEEP_MS);
+  sweeper.unref();
 
   /**
    * The workspace the source names, hosted: in the current generation at
@@ -1570,8 +1671,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
    * took over, the run it belongs to, and the others refuse it, changing
    * nothing. A retired generation refuses a question it is letting go
    * (`QuestionMovingError`): then this waits for the workspace's next
-   * handover or switch and asks again, until `HELD_WAIT_MS` has passed.
-   * Rejects as the first refusal did.
+   * handover or switch and asks again, until `HELD_WAIT_MS` has passed. One
+   * no generation holds may be a run let go whose notice was lost: it is
+   * offered to the current generation at once, and asked once more.
+   * Rejects as the first refusal that is not a move did.
    */
   async function askEach(
     id: string,
@@ -1579,33 +1682,76 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     params: unknown
   ): Promise<unknown> {
     const deadline = Date.now() + HELD_WAIT_MS;
+    let swept = false;
     for (;;) {
-      const errors: unknown[] = [];
-      const hosts = hostsOf(id);
-      if (hosts.length === 0) {
-        throw new Error(`no engine generation hosts workspace ${id} now`);
+      const asked = await askAll(id, method, params);
+      if ("value" in asked) {
+        return asked.value;
       }
-      for (const generation of hosts) {
-        try {
-          return await ask(generation, method, params);
-        } catch (error) {
-          errors.push(error);
-        }
-      }
-      const moving = errors.some(
-        (error) =>
-          error instanceof Error && error.name === "QuestionMovingError"
-      );
+      const moving = asked.errors.some(isMoving);
       const left = deadline - Date.now();
-      if (!moving || left <= 0) {
-        throw (
-          errors.find(
-            (error) =>
-              !(error instanceof Error && error.name === "QuestionMovingError")
-          ) ?? errors[0]
-        );
+      if (left <= 0 || !(moving || !swept)) {
+        throw asked.errors.find((error) => !isMoving(error)) ?? asked.errors[0];
       }
-      await nextChange(id, Math.min(left, HANDOVER_RETRY_MS * 10));
+      if (moving) {
+        await nextChange(id, Math.min(left, HANDOVER_RETRY_MS * 10));
+      } else {
+        swept = true;
+        await sweep([id], { now: true });
+      }
+    }
+  }
+
+  /** One pass of `askEach`: the first answer, or every refusal. */
+  async function askAll(
+    id: string,
+    method: string,
+    params: unknown
+  ): Promise<{ readonly value: unknown } | { readonly errors: unknown[] }> {
+    const hosts = hostsOf(id);
+    if (hosts.length === 0) {
+      throw new Error(`no engine generation hosts workspace ${id} now`);
+    }
+    const errors: unknown[] = [];
+    for (const generation of hosts) {
+      try {
+        return { value: await ask(generation, method, params) };
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    return { errors };
+  }
+
+  /**
+   * Ask the generation owning run `runId` of workspace `id`, read again
+   * for each try: a run on its way to another generation is refused by the
+   * one letting it go (`QuestionMovingError`), and asked of its next owner
+   * once the workspace's next handover or switch lands. `NO_OWNER_HERE`
+   * when no generation of this daemon owns it.
+   */
+  async function askOwner(
+    id: string,
+    name: string,
+    method: string,
+    runId: unknown,
+    params: unknown
+  ): Promise<{ readonly value: unknown } | typeof NO_OWNER_HERE> {
+    const deadline = Date.now() + HELD_WAIT_MS;
+    for (;;) {
+      const owner = await ownerOf(id, runId, name !== WORKSPACE_METHODS.getRun);
+      if (owner === undefined) {
+        return NO_OWNER_HERE;
+      }
+      try {
+        return { value: await ask(owner, method, params) };
+      } catch (error) {
+        const left = deadline - Date.now();
+        if (!isMoving(error) || left <= 0) {
+          throw error;
+        }
+        await nextChange(id, Math.min(left, HANDOVER_RETRY_MS * 10));
+      }
     }
   }
 
@@ -1621,13 +1767,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     const method = `${WORKSPACE_PREFIX}${name}`;
     const params = { ...rest, id };
     if (RUN_METHODS.has(name)) {
-      const owner = await ownerOf(
-        id,
-        rest.runId,
-        name !== WORKSPACE_METHODS.getRun
-      );
-      if (owner !== undefined) {
-        return await ask(owner, method, params);
+      const answered = await askOwner(id, name, method, rest.runId, params);
+      if (answered !== NO_OWNER_HERE) {
+        return answered.value;
       }
     }
     if (HELD_METHODS.has(name)) {
@@ -1637,7 +1779,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     const target = current;
     // A generation current but still starting answers once it has started.
-    await target?.started.promise.catch(() => undefined);
+    await settledStart(target);
     if (
       target === undefined ||
       target !== current ||
@@ -1839,6 +1981,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       stopping = true;
       clearInterval(claimCheck);
       clearInterval(poll);
+      clearInterval(sweeper);
       clock.clearTimeout(switchTimer);
       // Every step runs whatever an earlier one threw; the first error wins.
       let failure: { readonly error: unknown } | undefined;

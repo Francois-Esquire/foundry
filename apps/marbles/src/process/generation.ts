@@ -334,6 +334,10 @@ async function main(): Promise<void> {
       throw new Error("this generation has nothing loaded to start");
     }
     const loads = await staged.start();
+    // Told to stop or retire while the engines started: none ticks.
+    if (stopping !== undefined || retiring !== undefined) {
+      throw new Error("this generation stopped while it started");
+    }
     for (const host of workspaces().list()) {
       tick(host);
       const draft = setups[host.id];
@@ -346,7 +350,17 @@ async function main(): Promise<void> {
 
   const addWorkspace = async (raw: unknown) => {
     const { config, root, setup } = hostParamsSchema.parse(raw);
-    const added = await (await open()).register({ config, root });
+    const away = () => stopping !== undefined || retiring !== undefined;
+    if (away()) {
+      throw new Error("this generation is retiring or stopping");
+    }
+    const all = await open();
+    const added = await all.register({ config, root });
+    // Retiring or stopping meanwhile: it is not ticked here, and closes
+    // with the rest as this generation leaves.
+    if (away()) {
+      throw new Error("this generation began to retire or stop as it loaded");
+    }
     if (!ticking.has(added.id)) {
       tick(added);
     }

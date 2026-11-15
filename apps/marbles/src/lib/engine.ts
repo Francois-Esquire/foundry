@@ -1451,9 +1451,10 @@ export class Engine {
     if (record?.status !== "suspended" || away()) {
       return false;
     }
+    // Said by whoever offered it, through what this answers: not here.
     const scope = await adoptParkedRun(record, {
       askable: this.#askable,
-      print: this.#print,
+      print: () => undefined,
       registered: (name) => this.#registered(name),
       runs: this.#runs,
       settled: (id) => this.#executions.storedSettled(id),

@@ -348,6 +348,54 @@ export class DatabaseRunStore implements RunStore {
 }
 
 /** A workspace's Run as `status` lists it. */
+/**
+ * The parked Runs of the workspace `scope` that no live engine holds, by
+ * id, read through `database`: what an engine let go and none has taken
+ * over yet, for the Marbles process to offer its current generation. An
+ * owner is judged gone outside any transaction.
+ */
+export async function unheldParkedRuns(
+  database: StoreDatabase,
+  scope: string
+): Promise<readonly string[]> {
+  const store = new SqliteWorkflowStore({ database, scope });
+  const parked: string[] = [];
+  let after: number | undefined;
+  do {
+    const page = await asBusy(() =>
+      store.listRuns({
+        limit: 200,
+        status: ["suspended"],
+        ...(after === undefined ? {} : { after }),
+      })
+    );
+    parked.push(...page.items.map((run) => run.id));
+    after = page.next;
+  } while (after !== undefined);
+  if (parked.length === 0) {
+    return [];
+  }
+  const rows = await asBusy(() =>
+    database
+      .select({
+        ownerPid: marblesWorkflowRuns.ownerPid,
+        ownerStarted: marblesWorkflowRuns.ownerStarted,
+        runId: marblesWorkflowRuns.runId,
+      })
+      .from(marblesWorkflowRuns)
+      .where(
+        and(
+          eq(marblesWorkflowRuns.scope, scope),
+          inArray(marblesWorkflowRuns.runId, parked)
+        )
+      )
+  );
+  const held = new Set(
+    rows.filter((row) => heldBy(row) !== null).map((row) => row.runId)
+  );
+  return parked.filter((runId) => !held.has(runId));
+}
+
 export interface StoredRun {
   /** In ms since the epoch. */
   readonly createdAt: number;
