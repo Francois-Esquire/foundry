@@ -6,11 +6,16 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readLiveGenerations } from "~/database/generations";
 import { readDatabase } from "~/database/open";
-import { marblesExecutions } from "~/database/tables";
+import { marblesExecutions, marblesGenerations } from "~/database/tables";
 import { type Layout, stateDatabase } from "~/layout";
 import type { WorkspaceSummary } from "~/model/connection";
 import { connect, type MarblesClient } from "~/process/client";
-import { type Daemon, startDaemon } from "~/process/daemon";
+import {
+  type Daemon,
+  type DaemonClock,
+  type DaemonOptions,
+  startDaemon,
+} from "~/process/daemon";
 import { startedAt } from "~/process/spawned";
 import { testHome } from "./helpers/home";
 
@@ -115,9 +120,16 @@ export const add = step("add")
   ].join("\n");
 }
 
-async function setUp({ ticking = false } = {}): Promise<
+async function setUp({
+  daemon = {},
+  ticking = false,
+}: {
+  readonly daemon?: Partial<DaemonOptions>;
+  readonly ticking?: boolean;
+} = {}): Promise<
   Fixture & {
     readonly client: MarblesClient;
+    readonly daemon: Daemon;
     readonly summary: WorkspaceSummary;
   }
 > {
@@ -134,12 +146,58 @@ async function setUp({ ticking = false } = {}): Promise<
   };
   writeFileSync(fixture.log, "");
   writeFileSync(fixture.source, moduleText(fixture, 0, { ticking }));
-  daemons.push(
-    await startDaemon({ layout: fixture.machine, print: () => undefined })
-  );
+  const started = await startDaemon({
+    layout: fixture.machine,
+    print: () => undefined,
+    ...daemon,
+  });
+  daemons.push(started);
   const client = await connect({ layout: fixture.machine, start: false });
   const summary = await client.attach(fixture.source);
-  return { ...fixture, client, summary };
+  return { ...fixture, client, daemon: started, summary };
+}
+
+/**
+ * A clock the test moves on by hand: a timer fires only once `advance`
+ * passes its time, so a wait the daemon schedules ends when the test says.
+ */
+function handClock(): DaemonClock & { advance(ms: number): void } {
+  let now = 0;
+  const timers = new Map<
+    number,
+    { readonly at: number; readonly work: () => void }
+  >();
+  let next = 0;
+  return {
+    advance(ms) {
+      now += ms;
+      for (const [handle, timer] of [...timers].sort(
+        ([, a], [, b]) => a.at - b.at
+      )) {
+        if (timer.at <= now) {
+          timers.delete(handle);
+          timer.work();
+        }
+      }
+    },
+    clearTimeout(handle) {
+      timers.delete(handle as number);
+    },
+    setTimeout(work, ms) {
+      next += 1;
+      timers.set(next, { at: now + ms, work });
+      return next;
+    },
+  };
+}
+
+/** How many generations the daemon has ever numbered, live or not. */
+async function numbered(fixture: Pick<Fixture, "machine">): Promise<number> {
+  const rows = await readDatabase(
+    stateDatabase(fixture.machine.state),
+    (database) => database.select().from(marblesGenerations)
+  );
+  return rows?.length ?? 0;
 }
 
 /** Each `<step> <pid>` line the steps logged. */
@@ -729,4 +787,173 @@ describe("engine generations", () => {
     ]);
     fixture.client.close();
   }, 60_000);
+
+  it("starts exactly one generation for an idle reload, and one more for each after it", async () => {
+    const clock = handClock();
+    const fixture = await setUp({ daemon: { clock } });
+    const first = fixture.summary.pid ?? 0;
+    const second = (await fixture.client.reload(fixture.summary.id)).pid ?? 0;
+    expect(second).not.toBe(first);
+    await gone(first);
+    // Past every backoff a replacement could wait: nothing was scheduled.
+    expect(await fixture.daemon.idle()).toEqual({ scheduled: false });
+    clock.advance(10 * 60_000);
+    await fixture.daemon.idle();
+    expect(await numbered(fixture)).toBe(2);
+
+    const third = (await fixture.client.reload(fixture.summary.id)).pid ?? 0;
+    await gone(second);
+    expect(await fixture.daemon.idle()).toEqual({ scheduled: false });
+    clock.advance(10 * 60_000);
+    await fixture.daemon.idle();
+    expect(await numbered(fixture)).toBe(3);
+    const workspace = fixture.client.workspace(fixture.summary);
+    expect((await workspace.roll("where")).value).toBe(third);
+    fixture.client.close();
+  }, 120_000);
+
+  it("hands a released run to the current generation from the database when the notice is lost", async () => {
+    const fixture = await setUp({
+      daemon: {
+        generationEntry: join(
+          import.meta.dirname,
+          "helpers",
+          "generation-dropping-released.ts"
+        ),
+      },
+    });
+    const first = fixture.summary.pid ?? 0;
+    const workspace = fixture.client.workspace(fixture.summary);
+    await workspace.actions.launch("late", {});
+    await whenLogged(fixture, `late ${String(first)}`);
+    const second = await switchFrom(fixture, first, 1);
+    open("late", fixture);
+    // Let go as it parks, and no one told: the daemon finds it stored.
+    const entry = await openEntry(workspace, "Late?");
+    await workspace.actions.answer(entry, "yes");
+    await whenLogged(fixture, `answered-late ${String(second)}`);
+    await gone(first);
+    fixture.client.close();
+  }, 150_000);
+
+  it("stops an activity through the generation that holds its session, the other refusing with no effect", async () => {
+    const home = testHome({ providers: false });
+    const marker = join(home.path, "standin");
+    process.env.MARBLES_TEST_STANDIN = marker;
+    try {
+      const fixture = await setUp({
+        daemon: {
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-with-standin.ts"
+          ),
+        },
+      });
+      const first = fixture.summary.pid ?? 0;
+      expect(readFileSync(marker, "utf8")).toBe(String(first));
+      const workspace = fixture.client.workspace(fixture.summary);
+      // Keeps the first generation, which holds the session, alive.
+      const holding = workspace.roll("hold1");
+      await whenLogged(fixture, `hold1 ${String(first)}`);
+      await switchFrom(fixture, first, 1);
+      await workspace.actions.runs.stopActivity("session", "activity");
+      // Stopped once, by its holder; the current one refused, stopping nothing.
+      expect(readFileSync(`${marker}.log`, "utf8")).toBe(
+        `stop ${String(first)}\n`
+      );
+      open(1, fixture);
+      await holding;
+      fixture.client.close();
+    } finally {
+      // biome-ignore lint/performance/noDelete: an unset variable, not an empty one.
+      delete process.env.MARBLES_TEST_STANDIN;
+    }
+  }, 150_000);
+
+  it("switches to an edit a helper got while the first generation loaded it", async () => {
+    const home = testHome({ providers: false });
+    const root = join(home.path, "project");
+    mkdirSync(root);
+    const helper = join(root, "helper.ts");
+    const loading = join(home.path, "loading");
+    const go = join(home.path, "go");
+    writeFileSync(helper, "export const value = 1;\n");
+    const source = join(root, "marbles.config.ts");
+    writeFileSync(
+      source,
+      `import { value } from "./helper.ts";
+import { existsSync, writeFileSync } from "node:fs";
+import { step } from "@foundry.sh/marbles";
+writeFileSync(${JSON.stringify(loading)}, "");
+while (!existsSync(${JSON.stringify(go)})) await new Promise((resolve) => setTimeout(resolve, 20));
+export const read = step("read").do(() => value);
+`
+    );
+    daemons.push(
+      await startDaemon({ layout: home.layout, print: () => undefined })
+    );
+    const client = await connect({ layout: home.layout, start: false });
+    const attaching = client.attach(source);
+    await vi.waitFor(() => expect(existsSync(loading)).toBe(true), {
+      interval: 20,
+      timeout: 60_000,
+    });
+    // Evaluated already, edited before the load has finished.
+    writeFileSync(helper, "export const value = 200;\n");
+    writeFileSync(go, "");
+    const first = await attaching;
+    const workspace = client.workspace(first);
+    await vi.waitFor(
+      async () => expect((await workspace.roll("read")).value).toBe(200),
+      { interval: 250, timeout: 60_000 }
+    );
+    client.close();
+  }, 120_000);
+
+  it("switches to an edit of a helper a run imported after the load", async () => {
+    const fixture = await setUp();
+    const first = fixture.summary.pid ?? 0;
+    const helper = join(fixture.gates, "..", "project", "runtime-helper.ts");
+    writeFileSync(helper, "export const value = 1;\n");
+    writeFileSync(
+      fixture.source,
+      `${moduleText(fixture, 1)}export const runtime = step("runtime").do(async () => (await import("./runtime-helper.ts")).value);\n`
+    );
+    const second = await readyOn(fixture, (pid) => pid !== first);
+    const workspace = fixture.client.workspace(fixture.summary);
+    expect((await workspace.roll("runtime")).value).toBe(1);
+    writeFileSync(helper, "export const value = 200;\n");
+    await readyOn(fixture, (pid) => pid !== second);
+    expect((await workspace.roll("runtime")).value).toBe(200);
+    fixture.client.close();
+  }, 150_000);
+
+  it("switches once a broken helper that kept a candidate from loading is fixed", async () => {
+    const fixture = await setUp();
+    const first = fixture.summary.pid ?? 0;
+    const helper = join(fixture.gates, "..", "project", "broken-helper.ts");
+    writeFileSync(
+      helper,
+      'throw new Error("broken helper");\nexport const value = 2;\n'
+    );
+    writeFileSync(
+      fixture.source,
+      `import { value } from "./broken-helper.ts";\n${moduleText(fixture, 1)}export const fixed = step("fixed").do(() => value);\n`
+    );
+    await vi.waitFor(
+      async () => {
+        const [summary] = await fixture.client.workspaces();
+        expect(summary?.error).toContain("broken helper");
+      },
+      { interval: 200, timeout: 60_000 }
+    );
+    expect((await fixture.client.workspaces())[0]?.pid).toBe(first);
+    // Only the helper changes: the source is the one that was refused.
+    writeFileSync(helper, "export const value = 200;\n");
+    await readyOn(fixture, (pid) => pid !== first);
+    const workspace = fixture.client.workspace(fixture.summary);
+    expect((await workspace.roll("fixed")).value).toBe(200);
+    fixture.client.close();
+  }, 150_000);
 });
