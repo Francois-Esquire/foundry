@@ -852,7 +852,7 @@ it("sweeps a run whose owner's pid now names a process started later", async () 
   }
 });
 
-it("leaves a live run, roots that never named a readable owner, and their processes alone", async () => {
+it("leaves a live run and a root whose owner cannot be read alone, and handles the records of one that names no owner", async () => {
   const parent = temporaryDirectory("sw-");
   const live = startRun(parent, FAST);
   const liveChild = await sleeper({ [RUN_ENV]: live.root });
@@ -869,12 +869,15 @@ it("leaves a live run, roots that never named a readable owner, and their proces
     await sweepFinishedRuns(parent, FAST);
     expect(existsSync(killed.root)).toBe(false);
     await gone(killed.leftover);
+    // A root with records and no owner: its owner is unknown, and what it
+    // records is stopped once proved, as any run's.
+    await gone(silentChild);
     expect([live.root, silent, garbled].map(existsSync)).toEqual([
       true,
-      true,
+      false,
       true,
     ]);
-    expect([liveChild, silentChild].map(alive)).toEqual([true, true]);
+    expect(alive(liveChild)).toBe(true);
   } finally {
     await live.finish();
     kill(silentChild);

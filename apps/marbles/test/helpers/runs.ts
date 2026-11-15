@@ -32,9 +32,11 @@ import {
  * `MARBLES_SPAWN_OWNER=<root>`, in the environment of each of them. The
  * root names its owner, the run's main process, by pid and start time;
  * the run is over once no process with that pid started then. Anything
- * short of that, a root with no owner or one that cannot be read, or a
- * process list that cannot be had, counts as live: its owner may be
- * starting, or be a suite that knows nothing of this.
+ * short of that, an owner that cannot be read, or a process list that
+ * cannot be had, counts as live: its owner may be starting, or be a suite
+ * that knows nothing of this. A root with no owner at all but records in
+ * it is the exception: its owner is unknown, and its records are handled
+ * as any run's, so a lost owner file never hides what a root records.
  *
  * Roots live in one base directory, and nothing there is believed unless
  * it is private (`notPrivate`: a real directory or file, this user's, with
@@ -126,11 +128,16 @@ export function startRun(parent: string, limits?: StopLimits): Run {
 /**
  * Clean up after every run in the base `parent` that is over: stop what
  * its records name, then remove its root. A run that is live, cannot be
- * shown over, or is not private is left alone.
+ * shown over, or is not private is left alone. A root that names no
+ * owner but holds records is never passed over: its owner is unknown,
+ * and its records are handled as any run's (`clear`: what is proved gone
+ * goes, what is not is kept and reported). One with neither is a root
+ * being made, and is left.
  */
 export async function sweepFinishedRuns(
   parent: string,
-  limits?: StopLimits
+  limits?: StopLimits,
+  system?: ProcessSystem
 ): Promise<void> {
   const base = notPrivate(parent, "directory");
   if (base !== undefined) {
@@ -140,20 +147,55 @@ export async function sweepFinishedRuns(
   const roots = readdirSync(parent)
     .filter((name) => name.startsWith(RUN_PREFIX))
     .map((name) => join(parent, name));
+  const removal: RootRemoval = {
+    ...(limits === undefined ? {} : { limits }),
+    ...(system === undefined ? {} : { system }),
+  };
   for (const root of roots) {
-    const problem =
-      notPrivate(root, "directory") ??
-      notPrivate(join(root, OWNER_FILE), "file");
-    if (problem !== undefined) {
-      // A root that is being made, or one that is not this user's alone.
-      if (!problem.includes("ENOENT")) {
-        console.warn(`marbles tests: not sweeping ${root}: ${problem}`);
-      }
-      continue;
+    if (sweepable(root) && (await clear(root, limits, system))) {
+      warnKept(await removeRoot(root, removal));
     }
-    if (isOver(root) && (await clear(root, limits))) {
-      warnKept(await removeRoot(root, limits === undefined ? {} : { limits }));
+  }
+}
+
+/**
+ * Whether a sweep handles `root` now: a private root whose owner is
+ * gone, or one that names no owner but holds records (its owner
+ * unknown). One being made, live, or not this user's alone is left.
+ */
+function sweepable(root: string): boolean {
+  const problem = notPrivate(root, "directory");
+  if (problem !== undefined) {
+    if (!problem.includes("ENOENT")) {
+      console.warn(`marbles tests: not sweeping ${root}: ${problem}`);
     }
+    return false;
+  }
+  const owner = notPrivate(join(root, OWNER_FILE), "file");
+  if (owner === undefined) {
+    return isOver(root);
+  }
+  if (!owner.includes("ENOENT")) {
+    // An owner file someone else could have written decides nothing.
+    console.warn(`marbles tests: not sweeping ${root}: ${owner}`);
+    return false;
+  }
+  if (!holdsRecords(root)) {
+    // A root being made: its owner comes before any record.
+    return false;
+  }
+  console.warn(
+    `marbles tests: ${root} holds records and names no owner; its records are handled as any run's`
+  );
+  return true;
+}
+
+/** Whether `root` holds anything where its processes are recorded. */
+function holdsRecords(root: string): boolean {
+  try {
+    return readdirSync(runRecords(root)).length > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -190,13 +232,19 @@ function readOwner(root: string): Owner | undefined {
 }
 
 /** Whether the run's recorded processes are confirmed gone and nothing else carries its marker. */
-async function clear(root: string, limits?: StopLimits): Promise<boolean> {
+async function clear(
+  root: string,
+  limits?: StopLimits,
+  system?: ProcessSystem
+): Promise<boolean> {
   // The run's processes carry the root it had, which a root moved aside
   // to be removed names.
   const marker: Marker = { name: RUN_ENV, value: movedFrom(root) };
   const problems: string[] = [];
   try {
-    problems.push(...(await stopRecorded(runRecords(root), marker, limits)));
+    problems.push(
+      ...(await stopRecorded(runRecords(root), marker, limits, system))
+    );
     const unrecorded = await outlast(() =>
       unrecordedMarked(runRecords(root), marker)
     );
@@ -285,31 +333,47 @@ export async function removeRoot(
       ? []
       : [`could not move ${root} aside to remove it: ${String(error)}`];
   }
-  const left = await stopRecorded(
-    runRecords(aside),
-    { name: RUN_ENV, value: ran },
-    options.limits,
-    options.system
-  );
-  if (left.length > 0) {
-    kept.push(`kept ${aside}, moved from ${root}:`, ...left);
-  } else {
-    try {
-      files.remove(aside);
-    } catch (error) {
-      kept.push(`could not remove ${aside}: ${String(error)}`);
-    }
-  }
-  if (existsSync(root)) {
-    // Made again by a process that recorded itself after the move.
-    if (owner !== undefined && !existsSync(join(root, OWNER_FILE))) {
-      writePrivate(join(root, OWNER_FILE), JSON.stringify(owner));
-    }
-    kept.push(
-      `${root} was made again after it was moved aside, by a process that recorded itself there; kept for the next sweep`
+  try {
+    const left = await stopRecorded(
+      runRecords(aside),
+      { name: RUN_ENV, value: ran },
+      options.limits,
+      options.system
     );
+    if (left.length > 0) {
+      kept.push(`kept ${aside}, moved from ${root}:`, ...left);
+    } else {
+      files.remove(aside);
+    }
+  } catch (error) {
+    // A process lookup or a removal that fails keeps the moved root, to retry.
+    kept.push(`kept ${aside}, moved from ${root}: ${String(error)}`);
+  } finally {
+    if (existsSync(root)) {
+      // Made again by a process that recorded itself after the move.
+      restoreOwner(root, owner);
+      kept.push(
+        `${root} was made again after it was moved aside, by a process that recorded itself there; kept for the next sweep`
+      );
+    }
   }
   return kept;
+}
+
+/**
+ * Give `root`, made again by a process that recorded itself there, the
+ * run's owner, so a later sweep judges it as the run's. Best effort: a
+ * sweep handles the records of a root with none all the same.
+ */
+function restoreOwner(root: string, owner: Owner | undefined): void {
+  if (owner === undefined || existsSync(join(root, OWNER_FILE))) {
+    return;
+  }
+  try {
+    writePrivate(join(root, OWNER_FILE), JSON.stringify(owner));
+  } catch {
+    // Its records still keep it in every sweep's view (see the sweep).
+  }
 }
 
 /** The root of the run `root` was: itself, unless it was moved aside to be removed. */

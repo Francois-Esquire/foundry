@@ -17,14 +17,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import {
   forgetRecord,
   type ProcessSystem,
   type RecordFiles,
   stopRecorded,
 } from "./helpers/processes";
-import { type RootFiles, removeRoot } from "./helpers/runs";
+import { type RootFiles, removeRoot, sweepFinishedRuns } from "./helpers/runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
 const MARKER = { name: "MARBLES_TEST_PROBE", value: "records" };
@@ -298,4 +298,101 @@ it("forgets a record only on proof its process is gone: never for one unlisted t
     })
   ).toEqual([]);
   expect(existsSync(dir)).toBe(false);
+});
+
+/** A run root under `parent`, recording `record`, with an owner unless `owner` is false. */
+function runRoot(
+  parent: string,
+  name: string,
+  record: typeof OLD,
+  owner = true
+): string {
+  const root = join(parent, name);
+  mkdirSync(join(root, "spawned", "late"), { mode: 0o700, recursive: true });
+  put(join(root, "spawned", "late", `${String(record.pid)}.json`), record);
+  if (owner) {
+    put(join(root, "owner.json"), { ...OLD, pid: 4_200_399 });
+  }
+  return root;
+}
+
+it("restores the owner of a root made again, and reports, when the process lookup fails mid-removal", async () => {
+  const parent = temporaryDirectory("sw-");
+  // A record the stop of the moved root has to look its process up for.
+  const root = runRoot(parent, "marbles-run-lookup-fails", OLD);
+  const files: RootFiles = {
+    remove: (path) => rmSync(path, { force: true, recursive: true }),
+    rename: (from, to) => {
+      renameSync(from, to);
+      // A process records itself through the old path right after.
+      mkdirSync(join(root, "spawned"), { mode: 0o700, recursive: true });
+      put(join(root, "spawned", `${String(PID)}.json`), NEW);
+    },
+  };
+  const kept = await removeRoot(root, {
+    files,
+    limits: { graceMs: 0, killMs: 0 },
+    system: {
+      alive: () => {
+        throw new Error("the process lookup failed");
+      },
+      environment: () => {
+        throw new Error("the process lookup failed");
+      },
+      kill: () => {
+        throw new Error("nothing here may be signalled");
+      },
+      look: () => {
+        throw new Error("the process lookup failed");
+      },
+      members: () => [],
+      sleep: () => Promise.resolve(),
+    },
+  });
+  expect(kept).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining("the process lookup failed"),
+    ])
+  );
+  expect(existsSync(join(root, "owner.json"))).toBe(true);
+  expect(existsSync(join(root, "spawned", `${String(PID)}.json`))).toBe(true);
+});
+
+it("never passes over a run root that holds records and names no owner: its records are handled as any run's", async () => {
+  const parent = temporaryDirectory("sw-");
+  const system: ProcessSystem = {
+    alive: (pid) => pid === NEWER.pid + 1,
+    environment: () => undefined,
+    kill: () => {
+      throw new Error("nothing here may be signalled");
+    },
+    look: () => new Map(),
+    members: () => [],
+    sleep: () => Promise.resolve(),
+  };
+  // Its process is gone: the record is forgotten, the root removed.
+  const gone = runRoot(parent, "marbles-run-ownerless-gone", OLD, false);
+  // Its process is not listed but answers: kept, and reported.
+  const answering = runRoot(
+    parent,
+    "marbles-run-ownerless-answering",
+    { ...NEWER, pid: NEWER.pid + 1 },
+    false
+  );
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  let warned: string;
+  try {
+    await sweepFinishedRuns(parent, { graceMs: 0, killMs: 0 }, system);
+  } finally {
+    warned = warn.mock.calls.flat().join("\n");
+    warn.mockRestore();
+  }
+  expect(existsSync(gone)).toBe(false);
+  expect(existsSync(answering)).toBe(true);
+  expect(warned).toContain("is not listed but a signal still reaches it");
+  // A root being made, with neither owner nor record yet, is left alone.
+  const making = join(parent, "marbles-run-making");
+  mkdirSync(making, { mode: 0o700 });
+  await sweepFinishedRuns(parent, { graceMs: 0, killMs: 0 }, system);
+  expect(existsSync(making)).toBe(true);
 });
