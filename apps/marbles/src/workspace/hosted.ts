@@ -45,6 +45,8 @@ export interface QualifiedName {
 /** How one registration's load went. */
 export type WorkspaceLoad =
   | {
+      /** Every file its source's load read. */
+      readonly files: readonly string[];
       readonly id: string;
       readonly loaded: true;
       readonly root: string;
@@ -293,7 +295,12 @@ export class HostedWorkspaces {
         const found = this.#find(registration);
         const workspace = await this.#stage(registration, found);
         staged.push({ root: found.root, staged: workspace });
-        loads.push({ id: workspace.id, loaded: true, root: found.root });
+        loads.push({
+          files: workspace.files,
+          id: workspace.id,
+          loaded: true,
+          root: found.root,
+        });
       } catch (error) {
         if (!(error instanceof WorkspaceLoadError)) {
           await Promise.allSettled(staged.map((each) => each.staged.abandon()));
@@ -323,7 +330,12 @@ export class HostedWorkspaces {
         for (const each of staged) {
           try {
             const host = await this.#start(each.staged, each.root);
-            started.push({ id: host.id, loaded: true, root: host.root });
+            started.push({
+              files: host.files,
+              id: host.id,
+              loaded: true,
+              root: host.root,
+            });
           } catch (error) {
             if (!(error instanceof WorkspaceLoadError)) {
               throw error;
@@ -360,8 +372,8 @@ export class HostedWorkspaces {
     const loads: WorkspaceLoad[] = [];
     for (const registration of registrations) {
       try {
-        const { id, root } = await this.register(registration);
-        loads.push({ id, loaded: true, root });
+        const { files, id, root } = await this.register(registration);
+        loads.push({ files, id, loaded: true, root });
       } catch (error) {
         if (!(error instanceof WorkspaceLoadError)) {
           throw error;

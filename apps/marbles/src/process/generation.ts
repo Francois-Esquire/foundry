@@ -206,7 +206,7 @@ function dial(path: string): Promise<Socket> {
 
 function loadResult(load: WorkspaceLoad): WorkspaceLoadResult {
   return load.loaded
-    ? { id: load.id, root: load.root }
+    ? { files: [...load.files], id: load.id, root: load.root }
     : { error: load.error.message, root: load.root };
 }
 
@@ -344,7 +344,12 @@ async function main(): Promise<void> {
     if (setup !== undefined) {
       postSetup(added, setup);
     }
-    return { config: added.config, id: added.id, root: added.root };
+    return {
+      config: added.config,
+      files: [...added.files],
+      id: added.id,
+      root: added.root,
+    };
   };
 
   const unhost = async (raw: unknown): Promise<void> => {

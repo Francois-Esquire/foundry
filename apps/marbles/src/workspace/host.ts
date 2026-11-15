@@ -89,6 +89,8 @@ export interface WorkspaceHost extends WorkspaceConnection {
   /** Where the source is, or would be created. */
   readonly configPath: string;
   readonly engine: Engine;
+  /** Every file its source's load read (`OpenedWorkspace.files`). */
+  readonly files: readonly string[];
   /**
    * Tick the live triggers until `signal` aborts. A tick under way then is
    * cancelled with it, unless `cancel` is given: then it runs to its end,
@@ -159,6 +161,8 @@ export interface StagedWorkspace {
   abandon(): Promise<void>;
   readonly config: string | null;
   readonly configPath: string;
+  /** Every file its source's load read (`OpenedWorkspace.files`). */
+  readonly files: readonly string[];
   readonly id: string;
   readonly root: string;
   /** Start the engine and host the workspace; a start that fails abandons it. */
@@ -263,6 +267,7 @@ export async function stageWorkspace(
     },
     config: opened.config,
     configPath: opened.configPath,
+    files: opened.files,
     id: opened.workspace.id,
     root: opened.workspace.root,
     async start() {
@@ -498,6 +503,7 @@ function hosted(
     dispatchWorkflow: (name, input): Promise<DispatchInfo> =>
       dispatches.startWorkflow(name, input),
     engine,
+    files: opened.files,
     getRun: (runId): Promise<RunInfo> => dispatches.get(runId),
     id: workspace.id,
     async roll(name, input): Promise<RollResult> {

@@ -162,7 +162,7 @@ interface Generation {
   /** Resolves when the child exits, or never started. */
   readonly exited: Promise<void>;
   /** What it loaded: compared with what is there now to decide a switch. */
-  readonly fingerprint: Fingerprint;
+  fingerprint: Fingerprint;
   /** The workspaces it hosts, by id. */
   readonly hosts: Set<string>;
   /** Its process, as it reported it once it loaded. */
@@ -329,6 +329,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   let installation = installationDigest(script, version);
   let installationAt = Date.now();
   let switchTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * Every file each hosted workspace's last load read, by workspace id, as
+   * the generation that loaded it reported: what the fingerprint digests
+   * beside each source's entries.
+   */
+  const loadedFiles = new Map<string, readonly string[]>();
   /** Whether the switch `switchTimer` starts must run whatever the sources say. */
   let switchForced = false;
   /** How long the next replacement of a dead generation waits. */
@@ -817,7 +823,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       installationAt = Date.now();
     }
     const registered = (await registry.list()).filter((each) => each.hosted);
-    return fingerprintOf(installation, sourceDigests(registered));
+    return fingerprintOf(installation, sourceDigests(registered, loadedFiles));
   }
 
   /**
@@ -906,6 +912,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       ...started,
       ...loaded.loads.filter((each) => each.error !== undefined),
     ]);
+    // What it loaded, now that it has said which files its loads read.
+    candidate.fingerprint = await fingerprintNow();
     print(`[marbles] engine generation ${String(number)} is current`);
     changed();
   }
@@ -920,7 +928,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     const registered = (await registry.list()).filter((each) => each.hosted);
     installation = installationDigest(script, version);
     installationAt = Date.now();
-    const fingerprint = fingerprintOf(installation, sourceDigests(registered));
+    const fingerprint = fingerprintOf(
+      installation,
+      sourceDigests(registered, loadedFiles)
+    );
     for (const record of registered) {
       const workspace = hosted.get(record.id) ?? summaryOf(record);
       hosted.set(record.id, workspace);
@@ -1007,6 +1018,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
       if (load.error === undefined) {
         generation.hosts.add(id);
+        loadedFiles.set(id, load.files ?? []);
         workspace.setup = undefined;
         setState(workspace, "ready", { pid });
       } else {
@@ -1265,8 +1277,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
       return entry.summary;
     }
+    let result: { readonly files: readonly string[] };
     try {
-      hostResultSchema.parse(
+      result = hostResultSchema.parse(
         await timeout(
           ask(target, GENERATION_METHODS.host, {
             config,
@@ -1283,6 +1296,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       throw error;
     }
     target.hosts.add(workspace.id);
+    loadedFiles.set(workspace.id, result.files);
+    // It loads this one now too: no switch for it.
+    target.fingerprint = await fingerprintNow();
     entry.setup = undefined;
     setState(entry, "ready", { pid: target.child.pid ?? -1 });
     return entry.summary;
@@ -1316,6 +1332,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       // detach can be retried, rather than hosted again at the next boot.
       await registry.unhost(id);
       hosted.delete(id);
+      loadedFiles.delete(id);
+      if (current !== undefined) {
+        // It no longer loads this one: no switch for it.
+        current.fingerprint = await fingerprintNow();
+      }
       setState(workspace, "stopped");
     });
   }

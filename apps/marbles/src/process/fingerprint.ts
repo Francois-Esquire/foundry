@@ -32,13 +32,7 @@ export function installationDigest(entry: string, version: string): string {
   const hash = createHash("sha256");
   hash.update(version);
   for (const file of filesUnder(root)) {
-    hash.update(`\0${file}\0`);
-    try {
-      const stat = statSync(file);
-      hash.update(`${String(stat.size)}:${String(stat.mtimeMs)}`);
-    } catch {
-      hash.update("missing");
-    }
+    hash.update(`\0${file}\0${fileStamp(file)}`);
   }
   return hash.digest("hex");
 }
@@ -68,16 +62,39 @@ function filesUnder(root: string): string[] {
   return files.sort();
 }
 
-/** Every registration's source digest, by workspace id. */
+/**
+ * Every registration's source digest, by workspace id: its source's entry
+ * modules as discovery finds them, so an entry added or removed counts,
+ * and every file its last load read (`files`, by workspace id: the
+ * modules and data files the loader imported, wherever they are), so a
+ * helper or a data file one imports counts too. A workspace no load has
+ * read yet is its entries alone.
+ */
 export function sourceDigests(
-  records: readonly Pick<WorkspaceRecord, "config" | "id" | "root">[]
+  records: readonly Pick<WorkspaceRecord, "config" | "id" | "root">[],
+  files: ReadonlyMap<string, readonly string[]>
 ): ReadonlyMap<string, string> {
   const digests = new Map<string, string>();
   for (const record of records) {
     const source = record.config ?? join(record.root, DEFAULT_SOURCE);
-    digests.set(record.id, sourceDigest(source) ?? "none");
+    const hash = createHash("sha256");
+    hash.update(sourceDigest(source) ?? "none");
+    for (const file of files.get(record.id) ?? []) {
+      hash.update(`\0${file}\0${fileStamp(file)}`);
+    }
+    digests.set(record.id, hash.digest("hex"));
   }
   return digests;
+}
+
+/** A file's size and modification time, as source watching takes them. */
+function fileStamp(file: string): string {
+  try {
+    const stat = statSync(file);
+    return `${String(stat.size)}:${String(stat.mtimeMs)}`;
+  } catch {
+    return "missing";
+  }
 }
 
 /** The fingerprint of `installation` and `sources`, in workspace id order. */

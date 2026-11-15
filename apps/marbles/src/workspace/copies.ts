@@ -360,6 +360,20 @@ function dataExports(
   return { ...named, default: value };
 }
 
+/** Every source file each load has read, its modules and data files alike, by load. */
+const read = new Map<number, Set<string>>();
+
+/**
+ * Every file load `load` read through its copies, its modules and data
+ * files alike, sorted, and forget them: what the load depends on, as a
+ * fingerprint of it digests them.
+ */
+export function filesRead(load: number): readonly string[] {
+  const files = [...(read.get(load) ?? [])].sort();
+  read.delete(load);
+  return files;
+}
+
 /** Load every copy as a copy of its load; registered once. */
 export function copyModules(builder: PluginBuilder): void {
   modules = builder;
@@ -370,6 +384,9 @@ export function copyModules(builder: PluginBuilder): void {
     if (copy === undefined || !roots.has(copy.load)) {
       throw new Error(`${args.path} is a copy of no load`);
     }
+    const files = read.get(copy.load) ?? new Set();
+    files.add(file);
+    read.set(copy.load, files);
     if (copy.format !== undefined) {
       return {
         exports: dataExports(file, copy.format as DataFormat),

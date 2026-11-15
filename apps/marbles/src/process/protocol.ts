@@ -245,6 +245,8 @@ const identitySchema = z.object({
 /** How one registered workspace's load or start went in a generation. */
 const workspaceLoadSchema = z.object({
   error: z.string().optional(),
+  /** Every file its source's load read, for the daemon's fingerprint. */
+  files: z.array(z.string()).optional(),
   id: z.string().optional(),
   root: z.string(),
 });
@@ -275,6 +277,7 @@ export const hostParamsSchema = z.object({
 
 export const hostResultSchema = z.object({
   config: z.string().nullable(),
+  files: z.array(z.string()),
   id: z.string(),
   root: z.string(),
 });
