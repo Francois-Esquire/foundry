@@ -1,4 +1,5 @@
 import { RecordsGate } from "~/lib/events/records";
+import { storableJson } from "~/lib/state/json";
 import type {
   ExecutionObservation,
   ExecutionRun,
@@ -80,10 +81,46 @@ export interface StoredExecution {
   readonly value: unknown;
 }
 
+/**
+ * The copy of a run's record every store keeps, its observations aside:
+ * plain JSON as it reads back (`storableJson`), so a record reads back the
+ * same from memory as from the database. One JSON would not give back as
+ * it is is refused with a `NotStorableError` naming the part.
+ */
+export function storedExecutionRun(run: ExecutionRun): ExecutionRun {
+  const { observations: _observations, ...record } = run;
+  return {
+    ...(storableJson(
+      `execution run ${JSON.stringify(run.id)}`,
+      record
+    ) as unknown as Omit<ExecutionRun, "observations">),
+    observations: [],
+  };
+}
+
+/** The copy of an observation every store keeps, as `storedExecutionRun` keeps a record. */
+export function storedObservation(
+  runId: string,
+  observation: ExecutionObservation
+): ExecutionObservation {
+  return storableJson(
+    `execution run ${JSON.stringify(runId)} observation ${JSON.stringify(observation.id)}`,
+    observation
+  ) as unknown as ExecutionObservation;
+}
+
+/** The copy of a retention gap every store keeps, as `storedExecutionRun` keeps a record. */
+export function storedRetentionGap(gap: RetentionGap): RetentionGap {
+  return storableJson(
+    `retention gap ${JSON.stringify(gap.scope)}`,
+    gap
+  ) as unknown as RetentionGap;
+}
+
 /** A run's record as it is kept: everything but its observations. */
 function recordOf(run: ExecutionRun): Omit<ExecutionRun, "observations"> {
-  const { observations: _observations, ...record } = run;
-  return structuredClone(record);
+  const { observations: _observations, ...record } = storedExecutionRun(run);
+  return record;
 }
 
 interface Kept {
@@ -151,19 +188,21 @@ export class MemoryExecutionStore implements ExecutionStore {
     observation: ExecutionObservation,
     at: { readonly revision: number; readonly updatedAt: string }
   ): Promise<boolean> {
-    return this.#owning(observation, (owned) =>
-      this.transaction((view) => view.observe(id, owned, at))
+    return this.#owning(
+      observation,
+      (value) => storedObservation(id, value),
+      (owned) => this.transaction((view) => view.observe(id, owned, at))
     );
   }
 
   put(run: ExecutionRun): Promise<boolean> {
-    return this.#owning(run, (owned) =>
+    return this.#owning(run, storedExecutionRun, (owned) =>
       this.transaction((view) => view.put(owned))
     );
   }
 
   putGap(gap: RetentionGap): Promise<void> {
-    return this.#owning(gap, (owned) =>
+    return this.#owning(gap, storedRetentionGap, (owned) =>
       this.transaction((view) => view.putGap(owned))
     );
   }
@@ -176,11 +215,18 @@ export class MemoryExecutionStore implements ExecutionStore {
     return this.#gate.run(() => read(new MemoryView(this.#runs, this.#gaps)));
   }
 
-  /** `write` on a copy of `value` taken now; one that cannot be copied rejects. */
-  #owning<V, T>(value: V, write: (owned: V) => Promise<T>): Promise<T> {
+  /**
+   * `write` on the copy of `value` `stored` makes now, as every store keeps
+   * it; one it refuses rejects, keeping nothing.
+   */
+  #owning<V, T>(
+    value: V,
+    stored: (value: V) => V,
+    write: (owned: V) => Promise<T>
+  ): Promise<T> {
     let owned: V;
     try {
-      owned = structuredClone(value);
+      owned = stored(value);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -240,7 +286,7 @@ class MemoryView implements ExecutionView {
       return Promise.resolve(false);
     }
     kept.observations.delete(observation.id);
-    kept.observations.set(observation.id, structuredClone(observation));
+    kept.observations.set(observation.id, storedObservation(id, observation));
     if (kept.record.revision < at.revision) {
       kept.record = {
         ...kept.record,
@@ -264,7 +310,7 @@ class MemoryView implements ExecutionView {
   }
 
   putGap(gap: RetentionGap): Promise<void> {
-    this.#gaps.set(gap.scope, structuredClone(gap));
+    this.#gaps.set(gap.scope, storedRetentionGap(gap));
     return Promise.resolve();
   }
 

@@ -6,7 +6,7 @@ import { marblesUsageFacts } from "~/database/tables";
 import { RecordsGate } from "~/lib/events/records";
 import type { RecordedUsageFact } from "~/lib/usage";
 import type { StoredUsage, UsageStore } from "~/lib/usage-store";
-import { ownerOf } from "~/lib/usage-store";
+import { ownerOf, storedUsageFact } from "~/lib/usage-store";
 
 /**
  * A workspace's usage facts in the Marbles database
@@ -26,7 +26,6 @@ export interface DatabaseUsageStoreOptions {
 
 interface UsageRow {
   readonly fact: unknown;
-  readonly lost: string | null;
   readonly revision: SQL<number>;
   readonly runId: string | null;
   readonly scope: string;
@@ -100,7 +99,6 @@ export class DatabaseUsageStore implements UsageStore {
         .onConflictDoUpdate({
           set: {
             fact: row.fact,
-            lost: row.lost,
             revision: row.revision,
             runId: row.runId,
           },
@@ -110,7 +108,8 @@ export class DatabaseUsageStore implements UsageStore {
   }
 
   /**
-   * `work` on the fact's row, copied as the fact is handed over, which
+   * `work` on the fact's row, in its stored form taken as the fact is
+   * handed over (`storedUsageFact`), which
    * takes the scope's next revision as it lands. A fact that cannot be
    * copied rejects.
    */
@@ -120,7 +119,7 @@ export class DatabaseUsageStore implements UsageStore {
   ): Promise<void> {
     let copy: RecordedUsageFact;
     try {
-      copy = structuredClone(fact);
+      copy = storedUsageFact(fact);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -128,7 +127,6 @@ export class DatabaseUsageStore implements UsageStore {
     return this.#call(() =>
       work({
         fact: copy,
-        lost: copy.lost ?? null,
         revision: sql<number>`(select coalesce(max("revision"), 0) + 1 from "marbles_usage_facts" where "scope" = ${this.#scope})`,
         runId: owner.kind === "run" ? owner.runId : null,
         scope: this.#scope,

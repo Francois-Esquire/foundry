@@ -1,4 +1,5 @@
 import { RecordsGate } from "~/lib/events/records";
+import { storableJson } from "~/lib/state/json";
 import type { AutomationRecord } from "./service";
 
 /**
@@ -41,6 +42,19 @@ export interface StoredAutomation {
 }
 
 /**
+ * The copy of an automation every store keeps: plain JSON as it reads
+ * back (`storableJson`), so a record reads back the same from memory as
+ * from the database. One JSON would not give back as it is is refused
+ * with a `NotStorableError` naming the part.
+ */
+export function storedAutomation(record: AutomationRecord): AutomationRecord {
+  return storableJson(
+    `automation ${JSON.stringify(record.id)}`,
+    record
+  ) as unknown as AutomationRecord;
+}
+
+/**
  * The automations held in this process, for one engine: nothing outlives
  * it. Records are copied in and out, so no caller shares a reference with
  * the store; one edit runs at a time.
@@ -78,7 +92,7 @@ export class MemoryAutomationStore implements AutomationStore {
   put(record: AutomationRecord): Promise<void> {
     let owned: AutomationRecord;
     try {
-      owned = structuredClone(record);
+      owned = storedAutomation(record);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -101,7 +115,7 @@ function viewOf(records: Map<string, AutomationRecord>): AutomationView {
       ),
     put: (record) => {
       try {
-        records.set(record.id, structuredClone(record));
+        records.set(record.id, storedAutomation(record));
         return Promise.resolve();
       } catch (error) {
         return Promise.reject(error);

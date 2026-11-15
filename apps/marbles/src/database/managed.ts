@@ -20,6 +20,7 @@ import type {
   AutomationView,
   StoredAutomation,
 } from "~/lib/automation/store";
+import { storedAutomation } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import type {
   PendingQuery,
@@ -36,6 +37,11 @@ import type {
   ExecutionStore,
   ExecutionView,
   StoredExecution,
+} from "~/lib/execution-store";
+import {
+  storedExecutionRun,
+  storedObservation,
+  storedRetentionGap,
 } from "~/lib/execution-store";
 import type { RecordedScope } from "~/lib/run-scope";
 import type {
@@ -55,6 +61,7 @@ import type {
 import type { RecordedUsageFact } from "~/lib/usage";
 import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
 import type { StoredUsage, UsageStore } from "~/lib/usage-store";
+import { storedUsageFact } from "~/lib/usage-store";
 
 export interface OpenWorkspaceRecordsOptions extends HostDatabaseOptions {
   /** The Marbles state root, whose `marbles.db` holds the tasks. */
@@ -689,7 +696,7 @@ class ManagedUsageStore implements UsageStore {
   ): Promise<void> {
     let owned: RecordedUsageFact;
     try {
-      owned = structuredClone(fact);
+      owned = storedUsageFact(fact);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -746,7 +753,7 @@ class ManagedAutomationStore implements AutomationStore {
   put(record: AutomationRecord): Promise<void> {
     let owned: AutomationRecord;
     try {
-      owned = structuredClone(record);
+      owned = storedAutomation(record);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -814,17 +821,23 @@ class ManagedExecutionStore implements ExecutionStore {
     observation: ExecutionObservation,
     at: { readonly revision: number; readonly updatedAt: string }
   ): Promise<boolean> {
-    return this.#owning(observation, (store, owned) =>
-      store.observe(id, owned, at)
+    return this.#owning(
+      observation,
+      (value) => storedObservation(id, value),
+      (store, owned) => store.observe(id, owned, at)
     );
   }
 
   put(run: ExecutionRun): Promise<boolean> {
-    return this.#owning(run, (store, owned) => store.put(owned));
+    return this.#owning(run, storedExecutionRun, (store, owned) =>
+      store.put(owned)
+    );
   }
 
   putGap(gap: RetentionGap): Promise<void> {
-    return this.#owning(gap, (store, owned) => store.putGap(owned));
+    return this.#owning(gap, storedRetentionGap, (store, owned) =>
+      store.putGap(owned)
+    );
   }
 
   remove(id: string): Promise<void> {
@@ -842,14 +855,15 @@ class ManagedExecutionStore implements ExecutionStore {
     return this.#run((store) => store.withSource(name, source));
   }
 
-  /** `call` on a copy of `value` taken now: the database may still be opening. */
+  /** `call` on the stored form of `value` taken now: the database may still be opening. */
   #owning<V, T>(
     value: V,
+    stored: (value: V) => V,
     call: (store: DatabaseExecutionStore, owned: V) => Promise<T>
   ): Promise<T> {
     let owned: V;
     try {
-      owned = structuredClone(value);
+      owned = stored(value);
     } catch (error) {
       return Promise.reject(error);
     }

@@ -18,6 +18,11 @@ import type {
   ExecutionView,
   StoredExecution,
 } from "~/lib/execution-store";
+import {
+  storedExecutionRun,
+  storedObservation,
+  storedRetentionGap,
+} from "~/lib/execution-store";
 
 /**
  * A workspace's Execution Runs in the Marbles database, scoped by the
@@ -85,17 +90,23 @@ export class DatabaseExecutionStore implements ExecutionStore {
     observation: ExecutionObservation,
     at: { readonly revision: number; readonly updatedAt: string }
   ): Promise<boolean> {
-    return this.#owning(observation, (owned) =>
-      this.transaction((view) => view.observe(id, owned, at))
+    return this.#owning(
+      observation,
+      (value) => storedObservation(id, value),
+      (owned) => this.transaction((view) => view.observe(id, owned, at))
     );
   }
 
   put(run: ExecutionRun): Promise<boolean> {
-    return this.#owning(run, (owned) => this.#view().put(owned));
+    return this.#owning(run, storedExecutionRun, (owned) =>
+      this.#view().put(owned)
+    );
   }
 
   putGap(gap: RetentionGap): Promise<void> {
-    return this.#owning(gap, (owned) => this.#view().putGap(owned));
+    return this.#owning(gap, storedRetentionGap, (owned) =>
+      this.#view().putGap(owned)
+    );
   }
 
   remove(id: string): Promise<void> {
@@ -106,11 +117,18 @@ export class DatabaseExecutionStore implements ExecutionStore {
     return new DatabaseView(this.#database, this.#scope);
   }
 
-  /** `write` on a copy of `value` taken now; one that cannot be copied rejects. */
-  #owning<V, T>(value: V, write: (owned: V) => Promise<T>): Promise<T> {
+  /**
+   * `write` on the copy of `value` `stored` makes now, as every store keeps
+   * it; one it refuses rejects, keeping nothing.
+   */
+  #owning<V, T>(
+    value: V,
+    stored: (value: V) => V,
+    write: (owned: V) => Promise<T>
+  ): Promise<T> {
     let owned: V;
     try {
-      owned = structuredClone(value);
+      owned = stored(value);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -231,6 +249,7 @@ class DatabaseView implements ExecutionView {
     observation: ExecutionObservation,
     at: { readonly revision: number; readonly updatedAt: string }
   ): Promise<boolean> {
+    const kept = storedObservation(id, observation);
     const raised = await this.#database
       .update(marblesExecutions)
       .set({
@@ -245,8 +264,8 @@ class DatabaseView implements ExecutionView {
     // After every observation the run has, by the index on its positions.
     const position = sql<number>`(select coalesce(max("position"), 0) + 1 from "marbles_execution_observations" where "scope" = ${this.#scope} and "run_id" = ${id})`;
     const row = {
-      observation: observation as unknown,
-      observationId: observation.id,
+      observation: kept as unknown,
+      observationId: kept.id,
       position,
       runId: id,
       scope: this.#scope,
@@ -280,7 +299,8 @@ class DatabaseView implements ExecutionView {
     return kept.length > 0;
   }
 
-  async putGap(gap: RetentionGap): Promise<void> {
+  async putGap(given: RetentionGap): Promise<void> {
+    const gap = storedRetentionGap(given);
     const fields = {
       removed: gap.removed,
       through: gap.through,
@@ -368,10 +388,12 @@ function fromJsonText(text: string): unknown {
   }
 }
 
+/** The row of `run`'s record in the form every store keeps it (`storedExecutionRun`). */
 function rowOf(
-  run: ExecutionRun,
+  given: ExecutionRun,
   scope: string
 ): typeof marblesExecutions.$inferInsert {
+  const run = storedExecutionRun(given);
   return {
     correlation: { ...run.correlation },
     errorCode: run.error?.code ?? null,

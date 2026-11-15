@@ -160,6 +160,29 @@ export function describeUsageStore(
       }
     );
 
+    it("keeps a fact as JSON gives it back, and refuses one JSON would not", async () => {
+      const usage = await store();
+      await usage.save({
+        ...directFact("a"),
+        completedAt: -0,
+        model: undefined,
+      } as unknown as RecordedUsageFact);
+      const [kept] = (await usage.facts()).facts;
+      const { model: _model, ...expected } = {
+        ...directFact("a"),
+        completedAt: 0,
+        model: undefined,
+      };
+      expect(kept?.value).toStrictEqual(expected);
+      await expect(
+        usage.save({ ...directFact("b"), completedAt: Number.NaN })
+      ).rejects.toThrow("NaN");
+      await expect(
+        usage.mark({ ...directFact("c"), durationMs: Number.POSITIVE_INFINITY })
+      ).rejects.toThrow("Infinity");
+      expect((await usage.facts()).facts).toHaveLength(1);
+    });
+
     it("refuses every call once closed", async () => {
       const usage = await store();
       await usage.close();

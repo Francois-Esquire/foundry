@@ -1,6 +1,5 @@
 CREATE TABLE `marbles_usage_facts` (
 	`fact` text NOT NULL,
-	`lost` text,
 	`revision` integer NOT NULL,
 	`run_id` text,
 	`scope` text NOT NULL,

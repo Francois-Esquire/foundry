@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { RecordsGate } from "~/lib/events/records";
+import { storableJson } from "~/lib/state/json";
 import type { RecordedUsageFact } from "~/lib/usage";
 
 /**
@@ -47,6 +48,19 @@ export type UsageOwner =
 export interface StoredUsage {
   readonly owner: UsageOwner;
   readonly value: unknown;
+}
+
+/**
+ * The copy of a usage fact every store keeps: plain JSON as it reads back
+ * (`storableJson`), so a fact reads back the same from memory as from the
+ * database. One JSON would not give back as it is is refused with a
+ * `NotStorableError` naming the part.
+ */
+export function storedUsageFact(fact: RecordedUsageFact): RecordedUsageFact {
+  return storableJson(
+    `usage fact for turn ${JSON.stringify(fact.turnId)}`,
+    fact
+  ) as unknown as RecordedUsageFact;
 }
 
 /** The owner a fact is filed under. */
@@ -163,8 +177,9 @@ export class MemoryUsageStore implements UsageStore {
 
   mark(marker: RecordedUsageFact): Promise<void> {
     return this.#gate.run(async () => {
-      if (!this.#facts.has(marker.turnId)) {
-        this.#keep(marker);
+      const stored = storedUsageFact(marker);
+      if (!this.#facts.has(stored.turnId)) {
+        this.#keep(stored);
       }
     });
   }
@@ -175,15 +190,13 @@ export class MemoryUsageStore implements UsageStore {
 
   save(fact: RecordedUsageFact): Promise<void> {
     return this.#gate.run(async () => {
-      this.#keep(fact);
+      this.#keep(storedUsageFact(fact));
     });
   }
 
+  /** Keep `fact`, already in its stored form. */
   #keep(fact: RecordedUsageFact): void {
-    this.#facts.set(fact.turnId, {
-      owner: ownerOf(fact),
-      value: structuredClone(fact),
-    });
+    this.#facts.set(fact.turnId, { owner: ownerOf(fact), value: fact });
     this.#revision += 1;
   }
 }

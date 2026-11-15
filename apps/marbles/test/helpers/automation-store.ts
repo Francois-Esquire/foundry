@@ -114,6 +114,29 @@ export function describeAutomationStore(
       expect((await automations.list())[0]?.value).toEqual(automation("a"));
     });
 
+    it("keeps an automation as JSON gives it back, and refuses one JSON would not", async () => {
+      const automations = await store();
+      await automations.put(
+        automation("a", {
+          input: { gone: undefined, n: -0 } as unknown as Record<
+            string,
+            unknown
+          >,
+        })
+      );
+      const [kept] = await automations.list();
+      expect(kept?.value).toStrictEqual(automation("a", { input: { n: 0 } }));
+      await expect(
+        automations.put(automation("b", { input: { n: Number.NaN } }))
+      ).rejects.toThrow("NaN");
+      await expect(
+        automations.edit((view) =>
+          view.put(automation("c", { input: { list: [undefined] } }))
+        )
+      ).rejects.toThrow("undefined");
+      expect((await automations.list()).map(({ id }) => id)).toEqual(["a"]);
+    });
+
     it.runIf(shared)(
       "lets one edit at a time read and write, across every store over the same state",
       async () => {

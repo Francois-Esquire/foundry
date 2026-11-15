@@ -10,6 +10,7 @@ import type {
   AutomationView,
   StoredAutomation,
 } from "~/lib/automation/store";
+import { storedAutomation } from "~/lib/automation/store";
 import { RecordsGate } from "~/lib/events/records";
 
 /**
@@ -115,9 +116,9 @@ async function putRow(database: StoreDatabase, row: AutomationRow) {
     });
 }
 
-/** The record's row, copied as it stands now. */
+/** The record's row, in its stored form as it stands now (`storedAutomation`). */
 function rowOf(record: AutomationRecord, scope: string): AutomationRow {
-  const copy = structuredClone(record);
+  const copy = storedAutomation(record);
   return {
     agentId: copy.owner.agentId,
     at: copy.at,

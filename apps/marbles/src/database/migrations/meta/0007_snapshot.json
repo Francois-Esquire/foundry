@@ -2322,13 +2322,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "lost": {
-          "name": "lost",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "revision": {
           "name": "revision",
           "type": "integer",

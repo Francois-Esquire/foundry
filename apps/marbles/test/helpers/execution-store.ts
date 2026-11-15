@@ -246,6 +246,53 @@ export function describeExecutionStore(
       ).rejects.toThrow();
     });
 
+    it("keeps a run, its observations and gaps as JSON gives them back, and refuses what JSON would not", async () => {
+      const executions = await store();
+      await executions.put(
+        queued("a", {
+          input: { gone: undefined, n: -0 } as unknown as ExecutionRun["input"],
+          progress: { at: -0 },
+        })
+      );
+      await executions.observe(
+        "a",
+        { ...effect("o"), data: { bytes: -0 }, errorCode: undefined },
+        { revision: 2, updatedAt: "2026-11-01T09:00:02.000Z" }
+      );
+      await executions.putGap({
+        removed: -0,
+        scope: "host",
+        through: "t",
+        updatedAt: "t",
+      });
+      const kept = await read(executions, "a");
+      expect(kept?.input).toStrictEqual({ n: 0 });
+      expect(kept?.progress).toStrictEqual({ at: 0 });
+      expect(kept?.observations).toStrictEqual([
+        { ...effect("o"), data: { bytes: 0 } },
+      ]);
+      expect(await executions.gaps()).toStrictEqual([
+        { removed: 0, scope: "host", through: "t", updatedAt: "t" },
+      ]);
+      await expect(
+        executions.put(queued("b", { input: { n: Number.NaN } }))
+      ).rejects.toThrow("NaN");
+      await expect(
+        executions.observe(
+          "a",
+          { ...effect("p"), data: { n: Number.NEGATIVE_INFINITY } },
+          { revision: 3, updatedAt: "x" }
+        )
+      ).rejects.toThrow("Infinity");
+      await expect(
+        executions.transaction((view) =>
+          view.put(queued("c", { progress: [undefined] as never }))
+        )
+      ).rejects.toThrow("undefined");
+      expect((await executions.list()).map(({ id }) => id)).toEqual(["a"]);
+      expect((await read(executions, "a"))?.observations).toHaveLength(1);
+    });
+
     it.runIf(shared)(
       "lets one transaction at a time read and write, across every store over the same state",
       async () => {
