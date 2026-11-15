@@ -1162,6 +1162,20 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     candidate.started.resolve();
     print(`[marbles] engine generation ${String(number)} is current`);
     changed();
+    // A workspace whose engine did not start loaded, so no edit will bring
+    // it back: it is current for the rest, and the next generation starts
+    // after the replacement backoff, until one starts every workspace.
+    const notStarted = started.filter((load) => load.error !== undefined);
+    if (notStarted.length > 0) {
+      replaceCurrent(
+        "a workspace's engine did not start",
+        undefined,
+        notStarted.map(
+          (load) =>
+            `workspace ${loadedId(load) ?? load.root} did not start in engine generation ${String(number)}: ${load.error ?? "unknown"}`
+        )
+      );
+    }
   }
 
   /**

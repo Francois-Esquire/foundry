@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { processAlive } from "@foundry/lib/process-identity";
@@ -849,6 +855,53 @@ describe("engine generations", () => {
     });
     client.close();
   }, 120_000);
+
+  it("starts the next generation, after the backoff, when a workspace's engine did not start, though nothing changed", async () => {
+    const clock = handClock();
+    const lines: string[] = [];
+    const marker = join(testHome({ providers: false }).path, "fail-start");
+    process.env.MARBLES_TEST_FAIL_START = marker;
+    try {
+      const fixture = await setUp({
+        daemon: {
+          clock,
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-failing-start.ts"
+          ),
+          print: (line) => lines.push(line),
+        },
+      });
+      const first = fixture.summary.pid ?? 0;
+      // The next generation loads, but its engine does not start.
+      writeFileSync(marker, "");
+      await fixture.client.reload(fixture.summary.id).catch(() => undefined);
+      const [failed] = await fixture.client.workspaces();
+      expect(failed?.state).toBe("failed");
+      const idle = await fixture.daemon.idle();
+      expect(idle.scheduled, lines.join("\n")).toBe(true);
+      expect(idle.reasons.join("\n")).toContain("did not start");
+
+      // The failure clears with nothing edited: the replacement starts it.
+      rmSync(marker);
+      clock.advance(1000);
+      await fixture.daemon.idle();
+      const [started] = await fixture.client.workspaces();
+      expect(started?.state).toBe("ready");
+      expect(started?.pid).not.toBe(first);
+      expect(await fixture.daemon.idle()).toEqual({
+        reasons: [],
+        scheduled: false,
+      });
+      const workspace = fixture.client.workspace(fixture.summary);
+      expect((await workspace.roll("where")).value).toBe(started?.pid);
+      fixture.client.close();
+    } finally {
+      // biome-ignore lint/performance/noDelete: an unset variable, not an empty one.
+      delete process.env.MARBLES_TEST_FAIL_START;
+    }
+  }, 150_000);
 
   it("hands a released run to the current generation from the database when the notice is lost", async () => {
     const fixture = await setUp({
