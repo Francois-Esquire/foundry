@@ -1,6 +1,5 @@
-import type { ModuleGatewayContext, ModuleStore } from "../store/contract";
+import type { ModuleGatewayContext, ModuleRegistry } from "../registry";
 import type { ModuleRuntimeIdentity } from "./types";
-
 import { ModuleGatewayError } from "./types";
 
 /**
@@ -9,7 +8,7 @@ import { ModuleGatewayError } from "./types";
  * Admission layers the Installation's runnable status on top of this.
  */
 export async function loadRuntimeGatewayContext(
-  store: Pick<ModuleStore, "loadGatewayContext">,
+  store: Pick<ModuleRegistry, "loadGatewayContext">,
   runtime: ModuleRuntimeIdentity
 ): Promise<ModuleGatewayContext> {
   const context = await store.loadGatewayContext(runtime.installationId);
@@ -31,7 +30,7 @@ export async function loadRuntimeGatewayContext(
  * starting or running. Every effect a Program asks for is admitted here.
  */
 export async function admitRuntimeContext(
-  store: Pick<ModuleStore, "loadGatewayContext">,
+  store: Pick<ModuleRegistry, "loadGatewayContext">,
   runtime: ModuleRuntimeIdentity
 ): Promise<ModuleGatewayContext> {
   const context = await loadRuntimeGatewayContext(store, runtime);

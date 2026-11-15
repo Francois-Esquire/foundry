@@ -1,10 +1,7 @@
 import type { Installation, InstallationId } from "../domain";
 import { MAX_START_ATTEMPTS } from "../domain";
-import type { ModuleStore } from "../store/contract";
-import {
-  ModuleStoreConflictError,
-  ModuleStoreNotFoundError,
-} from "../store/contract";
+import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "../errors";
+import type { ModuleRegistry } from "../registry";
 import type { ModuleProgramLaunch, ModuleProgramSupervisor } from "./contracts";
 import { ModuleProgramSupervisorError } from "./program-supervisor-errors";
 
@@ -60,7 +57,7 @@ export interface CreateModuleRuntimeRecoveryOptions {
   /** Campaigns for unrelated Installations running at once. Default 3. */
   readonly concurrency?: number;
   readonly now?: () => Date;
-  readonly store: ModuleStore;
+  readonly store: ModuleRegistry;
   readonly supervisor: Pick<
     ModuleProgramSupervisor,
     "failStart" | "shutdown" | "start" | "stop"

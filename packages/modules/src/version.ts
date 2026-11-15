@@ -13,8 +13,8 @@ import {
   ModuleManifestValidationError,
   parseModuleManifestSourceText,
 } from "./manifest";
-import type { ModuleStore } from "./store/contract";
-import { page } from "./store/page";
+import { page } from "./page";
+import type { ModuleRegistry } from "./registry";
 
 /** Where a built Content carries its manifest. */
 export const MODULE_CONTENT_MANIFEST_PATH = `source/${MODULE_MANIFEST_SOURCE_PATH}`;
@@ -44,7 +44,7 @@ export interface ModuleVersions {
 
 export function createModuleVersions(options: {
   readonly artifacts: ModuleVersionArtifacts;
-  readonly store: Pick<ModuleStore, "loadModule" | "loadRetainedManifest">;
+  readonly store: Pick<ModuleRegistry, "loadModule" | "loadRetainedManifest">;
 }): ModuleVersions {
   const load: ModuleVersions["load"] = async ({ moduleId, contentId }) => {
     const module = await options.store.loadModule(moduleId);
@@ -121,7 +121,7 @@ export async function embeddedManifest(
 export async function pruneRetainedManifests(options: {
   readonly artifacts: Pick<Artifacts, "readFile">;
   readonly store: Pick<
-    ModuleStore,
+    ModuleRegistry,
     "listRetainedManifests" | "dropRetainedManifest"
   >;
 }): Promise<void> {

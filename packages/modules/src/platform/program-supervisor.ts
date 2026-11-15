@@ -6,7 +6,7 @@ import type {
   ModuleGatewaySession,
   ModuleRuntimeIdentity,
 } from "../gateway/types";
-import type { ModuleStore } from "../store/contract";
+import type { ModuleRegistry } from "../registry";
 import type { ModuleVersions } from "../version";
 import { validateModuleActivation } from "./activation";
 import type {
@@ -45,7 +45,7 @@ export interface CreateModuleProgramSupervisorOptions {
   readonly removeContainer: (containerId: string) => Promise<void>;
   readonly runtime: ModuleProgramRuntimeAdapter;
   readonly stopRetainedContainer: (containerId: string) => Promise<void>;
-  readonly store: ModuleStore;
+  readonly store: ModuleRegistry;
   /** Bounds caller/shutdown observation, never the underlying cleanup task. */
   readonly teardownObservationMs?: number;
   readonly versions: Pick<ModuleVersions, "load">;
@@ -238,18 +238,26 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
       );
       // As for a start, host shutdown leaves the attempt unspent.
       if (!this.#closing.signal.aborted) {
-        const settled = await this.options.store.transaction(async () => {
-          if (!(await this.#startingAt(installationId, expectedGeneration))) {
-            return false;
+        const settled = await this.options.store.transaction(
+          async (registry) => {
+            if (
+              !(await this.#startingAt(
+                installationId,
+                expectedGeneration,
+                registry
+              ))
+            ) {
+              return false;
+            }
+            await registry.settleInstallationStatus({
+              expectedGeneration,
+              installationId,
+              now: this.#now(),
+              status: "failed",
+            });
+            return true;
           }
-          await this.options.store.settleInstallationStatus({
-            expectedGeneration,
-            installationId,
-            now: this.#now(),
-            status: "failed",
-          });
-          return true;
-        });
+        );
         if (settled) {
           this.#notifySettled(installationId);
         }
@@ -742,11 +750,13 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     return context.installation;
   }
 
+  /** Pass the registry a transaction handed its work when called inside one. */
   async #startingAt(
     installationId: InstallationId,
-    generation: number
+    generation: number,
+    registry: Pick<ModuleRegistry, "loadGatewayContext"> = this.options.store
   ): Promise<boolean> {
-    const context = await this.options.store.loadGatewayContext(installationId);
+    const context = await registry.loadGatewayContext(installationId);
     return (
       context?.installation.generation === generation &&
       context.installation.status === "starting"

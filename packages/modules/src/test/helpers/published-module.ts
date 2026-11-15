@@ -11,9 +11,7 @@ import type {
 import type { ModuleInstallationFiles } from "../../platform/files";
 import { createModuleProgramSupervisor } from "../../platform/program-supervisor";
 import { createModuleProjects } from "../../projects";
-import { createArtifactModuleStore } from "../../store/artifact";
-import type { ModuleStore } from "../../store/contract";
-import { InMemoryModuleStore } from "../../store/memory";
+import { ModuleRegistry } from "../../registry";
 import { createModuleVersions } from "../../version";
 
 export const WEATHER = "host.weather.read";
@@ -68,23 +66,19 @@ const catalog = {
 /**
  * One Module over in-memory Artifacts and Store, with Versions published
  * through `ModuleProjects.publish` from saved source, and a supervisor whose
- * Programs "start" at once without a VM. `store: "artifact"` keeps the
- * records in Module Artifact metadata, as a durable host does; `files`
- * replaces the recording files fake, and `stopRetainedContainer` the
- * supervisor's no-op one.
+ * Programs "start" at once without a VM. `registry` replaces the default
+ * in-memory one; `files` replaces the recording files fake, and
+ * `stopRetainedContainer` the supervisor's no-op one.
  */
 export async function publishedModule(
   options: {
     readonly files?: ModuleInstallationFiles;
     readonly stopRetainedContainer?: (containerId: string) => Promise<void>;
-    readonly store?: "artifact" | "memory";
+    readonly registry?: ModuleRegistry;
   } = {}
 ) {
   const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
-  const store: ModuleStore =
-    options.store === "artifact"
-      ? createArtifactModuleStore(artifacts)
-      : new InMemoryModuleStore();
+  const store = options.registry ?? new ModuleRegistry();
   const projects = createModuleProjects({ artifacts, store });
   const moduleId = moduleIdSchema.parse("forecast");
   await projects.create({

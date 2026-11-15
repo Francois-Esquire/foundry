@@ -9,15 +9,16 @@ import type {
   ModuleVersion,
 } from "./domain";
 import { installationIdSchema } from "./domain";
+import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "./errors";
 import { importModulePackage } from "./package";
 import type { ModuleProgramSupervisor } from "./platform/contracts";
 import type { ModuleProjects } from "./projects";
 import { createModuleProjects } from "./projects";
-import type { ModuleGatewayContext, ModuleStore } from "./store/contract";
-import {
-  ModuleStoreConflictError,
-  ModuleStoreNotFoundError,
-} from "./store/contract";
+import type {
+  ModuleGatewayContext,
+  ModuleRegistry,
+  ModuleRegistryUnit,
+} from "./registry";
 import { createModuleVersions } from "./version";
 
 export interface ModuleView {
@@ -63,9 +64,8 @@ export interface ModuleManagement extends ModuleProjects {
  * Installations itself, such as one per Module.
  */
 export function ensureInstallation(input: {
-  readonly store: Pick<
-    ModuleStore,
-    "createInstallation" | "loadGatewayContext" | "transaction"
+  readonly store: ModuleRegistryUnit<
+    "createInstallation" | "loadGatewayContext"
   >;
   readonly installationId: InstallationId;
   readonly version: ModuleVersion;
@@ -73,9 +73,9 @@ export function ensureInstallation(input: {
 }): Promise<Installation> {
   const { installationId, store } = input;
   return store.transaction(
-    async () =>
-      (await store.loadGatewayContext(installationId))?.installation ??
-      (await store.createInstallation({
+    async (registry) =>
+      (await registry.loadGatewayContext(installationId))?.installation ??
+      (await registry.createInstallation({
         id: installationId,
         now: input.now,
         version: input.version,
@@ -85,7 +85,7 @@ export function ensureInstallation(input: {
 
 export function createModuleManagement(options: {
   readonly artifacts: Artifacts;
-  readonly store: ModuleStore;
+  readonly store: ModuleRegistry;
   readonly programs: Pick<ModuleProgramSupervisor, "selectVersion" | "delete">;
   readonly now?: () => Date;
   readonly createInstallationId?: () => InstallationId;
@@ -147,8 +147,8 @@ export function createModuleManagement(options: {
         });
       }
       await artifacts.transaction((scoped) =>
-        store.transaction(async () => {
-          await store.deleteModule({ moduleId });
+        store.transaction(async (registry) => {
+          await registry.deleteModule({ moduleId });
           await scoped.archive(module.artifactId);
         })
       );

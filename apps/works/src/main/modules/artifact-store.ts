@@ -6,11 +6,9 @@ import {
 } from "@foundry/artifacts";
 import { MODULE_MIME } from "@foundry/modules/constants";
 import { type Module, moduleIdSchema } from "@foundry/modules/domain";
+import { ModuleStoreConflictError } from "@foundry/modules/errors";
 import { parseModuleManifest } from "@foundry/modules/manifest";
-import {
-  type ModuleStore,
-  ModuleStoreConflictError,
-} from "@foundry/modules/store/contract";
+import type { ModuleRegistryUnit } from "@foundry/modules/registry";
 
 export function createModulePersistence(store: ArtifactStore) {
   const artifacts = new ArtifactManager({ store });
@@ -44,13 +42,8 @@ export function createModulePersistence(store: ArtifactStore) {
     );
     return artifact ? { artifactId: artifact.id, id } : null;
   }
-  const modules: Pick<
-    ModuleStore,
-    | "loadModule"
-    | "loadRetainedManifest"
-    | "registerModule"
-    | "retainManifest"
-    | "transaction"
+  const modules: ModuleRegistryUnit<
+    "loadModule" | "loadRetainedManifest" | "registerModule" | "retainManifest"
   > = {
     loadModule,
     async loadRetainedManifest(contentId) {
@@ -110,8 +103,10 @@ export function createModulePersistence(store: ArtifactStore) {
         retainedManifests: { ...retained, [contentId]: manifest },
       });
     },
-    async transaction(operation) {
-      return artifacts.transaction((_scoped, effects) => operation(effects));
+    // Nested Artifact transactions join this one, so `work` runs these
+    // same operations inside it.
+    transaction(work) {
+      return artifacts.transaction(() => work(modules));
     },
   };
   return { artifacts, modules, registered };

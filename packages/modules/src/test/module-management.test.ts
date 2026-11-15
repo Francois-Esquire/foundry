@@ -2,11 +2,11 @@ import { ArtifactTransaction } from "@foundry/artifacts/transaction";
 import { describe, expect, it, vi } from "vitest";
 
 import { defineModule, installationIdSchema, moduleIdSchema } from "../domain";
+import { ModuleStoreConflictError } from "../errors";
 import { createModuleGateway } from "../gateway/module-gateway";
 import { createModuleManagement } from "../management";
 import { createModuleProgramSupervisor } from "../platform/program-supervisor";
-import { ModuleStoreConflictError } from "../store/contract";
-import { InMemoryModuleStore } from "../store/memory";
+import { ModuleRegistry } from "../registry";
 import { createModuleVersions } from "../version";
 import {
   moduleFixture,
@@ -30,7 +30,7 @@ async function fixture() {
       },
     },
   });
-  const store = new InMemoryModuleStore();
+  const store = new ModuleRegistry();
   const module = defineModule({ artifact, id: moduleIdSchema.parse("notes") });
   await store.registerModule({ module });
   const versions = createModuleVersions({ artifacts, store });

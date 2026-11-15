@@ -25,6 +25,7 @@ export const MODULE_ALLOWED_PACKAGE_IMPORTS = [
   "@foundry/lib/network",
   "@foundry/lib/ordering",
   "@foundry/lib/pagination",
+  "@foundry/lib/turns",
   "node:async_hooks",
   "typescript",
   "zod",

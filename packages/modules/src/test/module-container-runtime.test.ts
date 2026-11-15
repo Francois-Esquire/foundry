@@ -14,13 +14,13 @@ import type { SandboxService } from "@foundry/sandbox/types";
 import { describe, expect, it, vi } from "vitest";
 
 import { defineModule, installationIdSchema, moduleIdSchema } from "../domain";
+import { ModuleStoreConflictError } from "../errors";
 import { NETWORK_GRANT } from "../grants";
 import { createModuleCheckouts } from "../node/checkouts";
 import { createModuleSystem } from "../node/system";
 import { createContainerModuleProgramRuntime } from "../platform/container-runtime";
 import { ModuleRuntimeCleanupError } from "../platform/contracts";
-import { ModuleStoreConflictError } from "../store/contract";
-import { InMemoryModuleStore } from "../store/memory";
+import { ModuleRegistry } from "../registry";
 import { createModuleVersions } from "../version";
 import {
   moduleFixture,
@@ -41,7 +41,7 @@ async function fixture(manifest: object = VALID_MANIFEST) {
     },
   });
   const module = defineModule({ artifact, id: moduleIdSchema.parse("notes") });
-  const store = new InMemoryModuleStore();
+  const store = new ModuleRegistry();
   await store.registerModule({ module });
   const version = await createModuleVersions({ artifacts, store }).load({
     contentId: content.id,

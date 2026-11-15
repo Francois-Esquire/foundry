@@ -11,6 +11,7 @@ import {
   type ModuleVersion,
   moduleIdSchema,
 } from "@foundry/modules/domain";
+import { ModuleStoreConflictError } from "@foundry/modules/errors";
 import {
   assertSemverTag,
   isPortableRelativePath,
@@ -19,7 +20,6 @@ import {
 } from "@foundry/modules/manifest";
 import { importModulePackage } from "@foundry/modules/package";
 import { createModuleProjects } from "@foundry/modules/projects";
-import { ModuleStoreConflictError } from "@foundry/modules/store/contract";
 import { createModuleVersions } from "@foundry/modules/version";
 import type {
   ModuleDetails,

@@ -2,7 +2,7 @@ import { withAbort } from "@foundry/lib/abort";
 import { isGranted, resolveCapabilityDigest } from "../grants";
 import type { ModuleCapabilityRequest } from "../manifest";
 import { capabilityIdentity } from "../manifest";
-import type { ModuleGatewayContext, ModuleStore } from "../store/contract";
+import type { ModuleGatewayContext, ModuleRegistry } from "../registry";
 import { ModuleGatewayContractError } from "./catalog";
 import { admitRuntimeContext } from "./runtime-context";
 import type {
@@ -29,7 +29,7 @@ export interface CreateModuleGatewayRuntimeDispatcherOptions {
    */
   readonly observe?: (record: ModuleGatewayInvocationRecord) => void;
   readonly providers: readonly ModuleCapabilityProvider[];
-  readonly store: ModuleStore;
+  readonly store: ModuleRegistry;
 }
 
 /**
@@ -331,7 +331,7 @@ function trackInvocation(input: {
  * a Grant removed while the provider was deciding is never honored.
  */
 async function authorizeInvocation(input: {
-  readonly store: ModuleStore;
+  readonly store: ModuleRegistry;
   readonly runtime: ModuleRuntimeIdentity;
   readonly provider: ModuleCapabilityProvider;
   readonly selection: ModuleCapabilityRequest;

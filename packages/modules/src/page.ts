@@ -2,7 +2,7 @@ import type { Page, PageInput } from "@foundry/core/pagination";
 
 import { pageAfter, pageLimit } from "@foundry/lib/pagination";
 
-import { ModuleStoreConflictError } from "./contract";
+import { ModuleStoreConflictError } from "./errors";
 
 export function page<Value>(
   values: readonly Value[],

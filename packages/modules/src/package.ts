@@ -31,7 +31,7 @@ import {
 } from "./domain";
 import type { ModuleManifest } from "./manifest";
 import { parseModuleManifestSourceText } from "./manifest";
-import type { ModuleStore } from "./store/contract";
+import type { ModuleRegistryUnit } from "./registry";
 import { MODULE_CONTENT_MANIFEST_PATH } from "./version";
 
 const MAX_PACKAGE_BYTES = 32 * 1024 * 1024;
@@ -189,15 +189,12 @@ type ModulePackageOperations = Pick<
  */
 export async function importModulePackage(input: {
   readonly artifacts: ModulePackageArtifacts;
-  readonly modules: Pick<
-    ModuleStore,
-    "transaction" | "registerModule" | "retainManifest"
-  >;
+  readonly modules: ModuleRegistryUnit<"registerModule" | "retainManifest">;
   readonly encoded: string;
 }): Promise<ModuleVersion> {
   const validated = await validateModulePackageEnvelope(input.encoded);
   return input.artifacts.transaction(async (artifacts) =>
-    input.modules.transaction(async () => {
+    input.modules.transaction(async (modules) => {
       const content = await landContent(artifacts, validated);
       if (content.digest !== validated.content.digest) {
         throw new ModulePackageError(
@@ -213,9 +210,9 @@ export async function importModulePackage(input: {
         module,
       });
       if (validated.content.embedsManifest) {
-        await input.modules.registerModule({ module });
+        await modules.registerModule({ module });
       } else {
-        await input.modules.retainManifest({
+        await modules.retainManifest({
           contentId: version.contentId,
           manifest: version.manifest,
           module,

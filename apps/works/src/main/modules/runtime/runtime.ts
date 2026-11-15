@@ -13,7 +13,7 @@ import {
   ModuleActivationRefusedError,
 } from "@foundry/modules/platform/installations";
 import { createModuleSystem } from "@foundry/modules/platform/system";
-import { InMemoryModuleStore } from "@foundry/modules/store/memory";
+import { ModuleRegistry } from "@foundry/modules/registry";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { moduleDirectory } from "../local-library";
@@ -30,7 +30,7 @@ export async function createModuleRuntime(
     "@foundry/sandbox/container/microsandbox-runtime"
   );
   const artifacts = new ArtifactManager({ store: artifactStore });
-  const store = new InMemoryModuleStore();
+  const store = new ModuleRegistry();
   const root = path.join(userData, ".runtime");
   const checkoutsRoot = path.join(root, "checkouts");
   const filesRoot = path.join(userData, ".data");

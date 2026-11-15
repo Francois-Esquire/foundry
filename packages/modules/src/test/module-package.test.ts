@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { defineModule, defineModuleVersion, moduleIdSchema } from "../domain";
 import { encodeModulePackage, importModulePackage } from "../package";
-import { InMemoryModuleStore } from "../store/memory";
+import { ModuleRegistry, type ModuleRegistryUnit } from "../registry";
 import { createModuleVersions, MODULE_CONTENT_MANIFEST_PATH } from "../version";
 import {
   moduleFixture,
@@ -76,14 +76,28 @@ function importPackage(artifacts: ArtifactManager, text: string) {
   return importModulePackage({
     artifacts,
     encoded: text,
-    modules: new InMemoryModuleStore(),
+    modules: new ModuleRegistry(),
   });
 }
 
-class RejectingModuleStore extends InMemoryModuleStore {
-  override retainManifest(): Promise<never> {
-    return Promise.reject(new Error("injected Module persistence failure"));
-  }
+/** A registry whose transactions refuse to retain a manifest. */
+function rejectingModules(): ModuleRegistryUnit<
+  "registerModule" | "retainManifest"
+> {
+  const registry = new ModuleRegistry();
+  const reject = () =>
+    Promise.reject(new Error("injected Module persistence failure"));
+  return {
+    registerModule: (input) => registry.registerModule(input),
+    retainManifest: reject,
+    transaction: (work) =>
+      registry.transaction((inner) =>
+        work({
+          registerModule: (input) => inner.registerModule(input),
+          retainManifest: reject,
+        })
+      ),
+  };
 }
 
 interface Envelope {
@@ -140,7 +154,7 @@ describe("Module Package", () => {
     const artifacts = new ArtifactManager({
       store: new InMemoryArtifactStore(),
     });
-    const modules = new InMemoryModuleStore();
+    const modules = new ModuleRegistry();
 
     await expect(
       importModulePackage({
@@ -180,7 +194,7 @@ describe("Module Package", () => {
   it("round-trips one version as a frozen, tagged Content on the target", async () => {
     const source = await fixture();
     const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
-    const modules = new InMemoryModuleStore();
+    const modules = new ModuleRegistry();
 
     const imported = await importModulePackage({
       artifacts: target,
@@ -228,7 +242,7 @@ describe("Module Package", () => {
   it("retains nothing when the Content embeds the manifest it was packaged with", async () => {
     const source = await fixture(withEmbeddedManifest(VALID_MANIFEST));
     const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
-    const modules = new InMemoryModuleStore();
+    const modules = new ModuleRegistry();
 
     const imported = await importModulePackage({
       artifacts: target,
@@ -267,7 +281,7 @@ describe("Module Package", () => {
       const target = new ArtifactManager({
         store: new InMemoryArtifactStore(),
       });
-      const modules = new InMemoryModuleStore();
+      const modules = new ModuleRegistry();
 
       const imported = await importModulePackage({
         artifacts: target,
@@ -289,7 +303,7 @@ describe("Module Package", () => {
   it("retains a strict output-only manifest and resolves it", async () => {
     const source = await fixture(undefined, STRICT_MANIFEST);
     const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
-    const modules = new InMemoryModuleStore();
+    const modules = new ModuleRegistry();
 
     const imported = await importModulePackage({
       artifacts: target,
@@ -305,7 +319,7 @@ describe("Module Package", () => {
   it("rejects a package whose embedded manifest source disagrees, before persisting", async () => {
     const source = await fixture();
     const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
-    const modules = new InMemoryModuleStore();
+    const modules = new ModuleRegistry();
 
     await expect(
       importModulePackage({
@@ -620,7 +634,7 @@ describe("Module Package", () => {
       importModulePackage({
         artifacts,
         encoded: await encoded(source),
-        modules: new RejectingModuleStore(),
+        modules: rejectingModules(),
       })
     ).rejects.toThrow("injected Module persistence failure");
     expect(await artifacts.get(source.artifact.id)).toBeNull();

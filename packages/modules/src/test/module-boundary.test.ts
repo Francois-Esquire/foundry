@@ -225,6 +225,7 @@ describe("Modules boundary", () => {
       "@foundry/lib/network",
       "@foundry/lib/ordering",
       "@foundry/lib/pagination",
+      "@foundry/lib/turns",
       "node:async_hooks",
       "typescript",
       "zod",

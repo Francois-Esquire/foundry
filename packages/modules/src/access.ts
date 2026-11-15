@@ -1,4 +1,5 @@
 import type { Installation, InstallationId, ModuleVersion } from "./domain";
+import { ModuleStoreConflictError } from "./errors";
 import type {
   ModuleCapabilityProvider,
   ModuleConstraintsPrincipal,
@@ -9,8 +10,7 @@ import {
   type ModuleAccessRequest,
   moduleAccessRequests,
 } from "./grants";
-import type { InstallationGrant, ModuleStore } from "./store/contract";
-import { ModuleStoreConflictError } from "./store/contract";
+import type { InstallationGrant, ModuleRegistryUnit } from "./registry";
 
 /**
  * Approving and revoking an Installation's Grants. A request grants nothing
@@ -68,8 +68,13 @@ export interface CreateModuleAccessOptions {
   readonly invocations?: Pick<ModuleGatewayRuntimeDispatcher, "revoke">;
   readonly now?: () => Date;
   readonly providers: readonly ModuleCapabilityProvider[];
-  readonly store: ModuleStore;
+  readonly store: AccessRegistry;
 }
+
+/** The registry commands access reads and changes Grants through. */
+export type AccessRegistry = ModuleRegistryUnit<
+  "loadGatewayContext" | "replaceInstallationGrants" | "revokeInstallationGrant"
+>;
 
 /** Who a provider resolves constraints for, before a Program exists. */
 export function installationPrincipal(
@@ -128,8 +133,8 @@ export function createModuleAccess(
           `This host cannot provide ${capability}, so it cannot be approved`
         );
       }
-      const grants = await store.transaction(async () => {
-        const current = await store.loadGatewayContext(installation.id);
+      const grants = await store.transaction(async (registry) => {
+        const current = await registry.loadGatewayContext(installation.id);
         if (
           !current ||
           current.installation.contentId !== version.contentId ||
@@ -139,7 +144,7 @@ export function createModuleAccess(
             "The Installation changed while approving; review its requests again"
           );
         }
-        return store.replaceInstallationGrants({
+        return registry.replaceInstallationGrants({
           expectedGeneration: current.installation.generation,
           grants: [
             ...current.grants.filter(
@@ -158,8 +163,8 @@ export function createModuleAccess(
       expectedGeneration,
       requests: wanted,
     }: Parameters<ModuleAccess["carryOver"]>[0]) {
-      return store.transaction(async (effects) => {
-        const context = await store.loadGatewayContext(installationId);
+      const outcome = await store.transaction(async (registry) => {
+        const context = await registry.loadGatewayContext(installationId);
         if (!context) {
           throw new ModuleAccessError(
             `Installation ${installationId} is missing`
@@ -175,38 +180,40 @@ export function createModuleAccess(
           (grant) => !carried.includes(grant)
         );
         for (const grant of dropped) {
-          await store.revokeInstallationGrant({
+          await registry.revokeInstallationGrant({
             capability: grant.capability,
             expectedGeneration,
             installationId,
           });
         }
-        for (const grant of dropped) {
-          effects.afterCommit(async () =>
-            cancel(installationId, grant.capability)
-          );
-        }
-        return carried;
+        return { carried, dropped };
       });
+      // Only once the revokes have committed: a rolled-back carry-over
+      // cancels nothing.
+      for (const grant of outcome.dropped) {
+        cancel(installationId, grant.capability);
+      }
+      return outcome.carried;
     },
     requests,
-    revoke({
+    async revoke({
       installationId,
       capability,
     }: Parameters<ModuleAccess["revoke"]>[0]) {
-      return store.transaction(async (effects) => {
-        const current = await store.loadGatewayContext(installationId);
+      const revoked = await store.transaction(async (registry) => {
+        const current = await registry.loadGatewayContext(installationId);
         if (!current?.grants.some((grant) => grant.capability === capability)) {
           throw new ModuleAccessError(`${capability} is not approved`);
         }
-        const revoked = await store.revokeInstallationGrant({
+        return registry.revokeInstallationGrant({
           capability,
           expectedGeneration: current.installation.generation,
           installationId,
         });
-        effects.afterCommit(async () => cancel(installationId, capability));
-        return revoked;
       });
+      // Only once the revoke has committed.
+      cancel(installationId, capability);
+      return revoked;
     },
   });
 }

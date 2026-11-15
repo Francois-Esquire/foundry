@@ -2,10 +2,10 @@ import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { describe, expect, it, vi } from "vitest";
 
 import { moduleIdSchema } from "../domain";
+import { ModuleStoreConflictError } from "../errors";
 import { createModuleProjects, ModuleProjectError } from "../projects";
+import { ModuleRegistry } from "../registry";
 import { MODULE_SOURCE_LIMITS, ModuleSourceAdmissionError } from "../source";
-import { ModuleStoreConflictError } from "../store/contract";
-import { InMemoryModuleStore } from "../store/memory";
 import { VALID_MANIFEST } from "./helpers/module-fixture";
 import {
   builtManifest,
@@ -23,7 +23,7 @@ const source = {
 
 async function fixture() {
   const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
-  const store = new InMemoryModuleStore();
+  const store = new ModuleRegistry();
   const projects = createModuleProjects({ artifacts, store });
   const project = await projects.create({ id, name: "Notes", source });
   return { artifacts, project, projects, store };

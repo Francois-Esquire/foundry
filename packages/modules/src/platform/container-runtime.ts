@@ -5,12 +5,9 @@ import type {
 } from "@foundry/sandbox/container/containers";
 
 import type { InstallationId } from "../domain";
+import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "../errors";
 import { approvedNetworkDestinations } from "../grants";
-import type { ModuleStore } from "../store/contract";
-import {
-  ModuleStoreConflictError,
-  ModuleStoreNotFoundError,
-} from "../store/contract";
+import type { ModuleRegistry } from "../registry";
 import type {
   ModuleProgramResources,
   ModuleProgramRuntimeAdapter,
@@ -35,7 +32,7 @@ export interface CreateContainerModuleProgramRuntimeOptions {
   readonly fetch?: CreateModuleProgramRuntimeOptions["fetch"];
   readonly healthCheckTimeoutMs?: number;
   readonly store: Pick<
-    ModuleStore,
+    ModuleRegistry,
     "loadGatewayContext" | "setInstallationContainerId"
   >;
   readonly transport: CreateModuleProgramRuntimeOptions["transport"];

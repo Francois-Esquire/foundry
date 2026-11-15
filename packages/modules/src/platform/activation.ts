@@ -1,5 +1,6 @@
 import { installationPrincipal } from "../access";
 import type { Installation, ModuleVersion } from "../domain";
+import { ModuleStoreConflictError } from "../errors";
 import type { ModuleCapabilityProvider } from "../gateway/types";
 import { isStrictModuleManifest, moduleSettingRequests } from "../manifest";
 import {
@@ -7,13 +8,12 @@ import {
   type ActivationPreflight,
   preflightModuleActivation,
 } from "../preflight";
+import type { ModuleRegistry } from "../registry";
 import {
   type ModuleSettingsHostPolicy,
   type ModuleSettingValues,
   resolveModuleSettings,
 } from "../settings";
-import type { ModuleStore } from "../store/contract";
-import { ModuleStoreConflictError } from "../store/contract";
 import type { ModuleProgramLaunch } from "./contracts";
 
 export interface ModuleActivationInput {
@@ -43,7 +43,7 @@ export class ModuleActivationRefusedError extends Error {
 export async function validateModuleActivation(
   input: ModuleActivationInput,
   options: {
-    readonly store: Pick<ModuleStore, "loadGatewayContext">;
+    readonly store: Pick<ModuleRegistry, "loadGatewayContext">;
     readonly providers: readonly ModuleCapabilityProvider[];
   }
 ): Promise<ActivationPreflight> {
