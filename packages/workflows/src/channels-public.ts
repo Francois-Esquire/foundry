@@ -25,4 +25,4 @@ export {
   StepStartedEvent,
   StepSuspendedEvent,
   SuspensionStateSchema,
-} from "./channels";
+} from "./schema";
