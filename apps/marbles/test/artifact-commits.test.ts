@@ -1,9 +1,19 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
 import { describeArtifactStore } from "@foundry/artifacts/testing/store";
-import { describe, expect, it, onTestFinished } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+} from "vitest";
 import type { Touched } from "~/database/artifact-links";
 import { followingCommits, keepingLinks } from "~/database/artifact-links";
+import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import { workspaceStores } from "~/database/stores";
 import { temporaryDirectory } from "./helpers/temporary";
@@ -21,16 +31,37 @@ async function database() {
   return { dir, opened };
 }
 
+/** One migrated database for the suite; each opening gets scopes of its own, so its storage starts empty. */
+let shared: Promise<{ readonly dir: string; readonly opened: MarblesDatabase }>;
+let openings = 0;
+
+beforeAll(() => {
+  const dir = mkdtempSync(join(tmpdir(), "marbles-artifact-commits-"));
+  shared = initializeDatabase(join(dir, "marbles.db")).then((opened) => ({
+    dir,
+    opened,
+  }));
+});
+
+afterAll(async () => {
+  const { dir, opened } = await shared;
+  opened.close();
+  rmSync(dir, { force: true, recursive: true });
+});
+
 describeArtifactStore("Marbles' link-keeping", async () => {
-  const { dir, opened } = await database();
+  const { dir, opened } = await shared;
+  openings += 1;
+  const opening = String(openings);
   const scopes = new Map<string, ReturnType<typeof keepingLinks>>();
   return (scope: string) => {
+    const owner = `${opening}-${scope}`;
     const store =
       scopes.get(scope) ??
-      keepingLinks(workspaceStores(opened.database, scope).artifacts, {
+      keepingLinks(workspaceStores(opened.database, owner).artifacts, {
         artifacts: join(dir, "artifacts"),
         database: opened.database,
-        owner: scope,
+        owner,
         report: () => undefined,
         state: dir,
       });

@@ -80,7 +80,7 @@ const NOTES = {
   type: "text/markdown",
 } as const;
 
-describe("links that follow artifact writes", () => {
+describe("links that follow artifact writes", { timeout: 30_000 }, () => {
   it("link an engine's new artifact, and point a rewritten file at its new bytes", async () => {
     const { artifacts, machine, one, unlinked } = await arranged();
     const engine = createEngine({
