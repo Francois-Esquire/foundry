@@ -1,12 +1,13 @@
 import { symlink } from "node:fs/promises";
 import { join } from "node:path";
-import { eq, getTableColumns, sql } from "drizzle-orm";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { asc, eq, getTableColumns, sql } from "drizzle-orm";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, test } from "vitest";
 import type { z } from "zod";
 import { WorkspaceCatalog } from "../catalog";
 import { workspaceEntrySchema, workspaceRegistrationSchema } from "../schema";
 import type { WorkspaceStoreWrite } from "../store";
+import type { WorkspaceDatabase } from "../store/sqlite";
 import { SqliteWorkspaceStore } from "../store/sqlite";
 import { workspaceEntries, workspaces } from "../store/tables";
 import {
@@ -16,10 +17,15 @@ import {
   newRoot,
   seed,
 } from "../testing/records";
+import type {
+  RecordingWorkspaceStores,
+  ScopedWorkspaceStores,
+} from "../testing/store";
 import { describeWorkspaceStore } from "../testing/store";
 import type {
   WorkspaceEntry,
   WorkspaceEntryId,
+  WorkspaceEvent,
   WorkspaceFile,
   WorkspaceId,
   WorkspaceRegistration,
@@ -31,6 +37,52 @@ import { makeRoot } from "./helpers/temp-roots";
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
 
+/** A host's record of the events its stores' commits carry. */
+const recordedEvents = sqliteTable("recorded_events", {
+  payload: text("payload", { mode: "json" }).$type<WorkspaceEvent>().notNull(),
+  seq: integer("seq").primaryKey({ autoIncrement: true }),
+});
+
+/**
+ * Stores over `database` whose `onCommit` writes each event of the write,
+ * in order, in the commit's own transaction, as a host's outbox would.
+ */
+async function recordingStores(
+  database: WorkspaceDatabase
+): Promise<RecordingWorkspaceStores> {
+  await database.run(
+    sql`CREATE TABLE "recorded_events" ("seq" integer PRIMARY KEY AUTOINCREMENT, "payload" text NOT NULL)`
+  );
+  let failNext = false;
+  const stores: ScopedWorkspaceStores = (scope) =>
+    new SqliteWorkspaceStore({
+      database,
+      onCommit: async (transaction, write) => {
+        for (const payload of write.events ?? []) {
+          await transaction.insert(recordedEvents).values({ payload });
+        }
+        if (failNext) {
+          failNext = false;
+          throw new Error("host refused the commit");
+        }
+      },
+      scope,
+    });
+  return {
+    failNextCommit: () => {
+      failNext = true;
+    },
+    recorded: async () =>
+      (
+        await database
+          .select()
+          .from(recordedEvents)
+          .orderBy(asc(recordedEvents.seq))
+      ).map((row) => row.payload),
+    stores,
+  };
+}
+
 for (const [location, databases] of [
   ["memory", memory],
   ["file", files],
@@ -40,7 +92,8 @@ for (const [location, databases] of [
     async () => {
       const database = await databases.open();
       return (scope) => new SqliteWorkspaceStore({ database, scope });
-    }
+    },
+    async () => recordingStores(await databases.open())
   );
 }
 
@@ -530,11 +583,21 @@ describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
     expect(await catalog.remove(workspace.id)).toEqual({ kind: "removed" });
     expect(await rowCounts(database)).toEqual({ entries: 1, registrations: 1 });
     expect(await catalog.getWorkspace(kept.id)).toEqual(kept);
-    // The hook sees the removal as written: the Workspace, and no entry ids.
-    expect(removals).toEqual([
-      { removeWorkspace: workspace.id },
-      { removeWorkspace: workspace.id },
-    ]);
+    // The hook sees the removal as written: the Workspace and its event, and
+    // no entry ids. Each call is its own removal, with its own event.
+    const removal = {
+      events: [
+        {
+          at: expect.any(String),
+          id: expect.any(String),
+          type: "workspace.removed",
+          workspaceId: workspace.id,
+        },
+      ],
+      removeWorkspace: workspace.id,
+    };
+    expect(removals).toEqual([removal, removal]);
+    expect(removals[0]?.events?.[0]?.id).not.toBe(removals[1]?.events?.[0]?.id);
   }, 60_000);
 
   test("a WorkspaceSystem loads a real directory into SQLite and reads it back", async () => {

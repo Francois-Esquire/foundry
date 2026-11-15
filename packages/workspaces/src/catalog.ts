@@ -7,6 +7,7 @@ import type {
   WorkspaceChange,
   WorkspaceEntry,
   WorkspaceEntryId,
+  WorkspaceEvent,
   WorkspaceId,
   WorkspaceRegistration,
 } from "./types";
@@ -42,6 +43,12 @@ export interface CatalogChangeInput {
 /**
  * Every rule over the Workspaces a store holds, and the one place catalog
  * changes are published.
+ *
+ * Each write that changes a Workspace carries the change events that say
+ * what it changed (see {@link WorkspaceEvent}), built here from what the
+ * store held and what the write puts, so a host records them with the
+ * change. A write that changes neither the name nor the entries, such as a
+ * reconciliation that found nothing new, carries none.
  *
  * One Workspace per canonical root and per source reference; entries belong
  * to their Workspace; every change leaves a valid tree and lands whole or not
@@ -99,6 +106,7 @@ export class WorkspaceCatalog {
     readonly workspace: WorkspaceRegistration;
     readonly entries: readonly WorkspaceEntry[];
   }): Promise<CommitCreateResult> {
+    const eventId = crypto.randomUUID();
     return this.mutation<CommitCreateResult>(async (store) => {
       const { workspace, entries } = input;
       const incumbent = await claimant(store, workspace);
@@ -116,7 +124,18 @@ export class WorkspaceCatalog {
         );
       }
       storageTree(entries);
-      await store.commit({ putEntries: entries, workspace });
+      await store.commit({
+        events: [
+          {
+            at: workspace.createdAt.toISOString(),
+            id: eventId,
+            type: "workspace.created",
+            workspaceId: workspace.id,
+          },
+        ],
+        putEntries: entries,
+        workspace,
+      });
       return {
         changes: entries.map((entry) => ({ action: "add", entry })),
         result: { kind: "committed" },
@@ -130,6 +149,7 @@ export class WorkspaceCatalog {
    * Workspace does not hold, or an insert over an existing id, is a conflict.
    */
   applyChange(input: CatalogChangeInput): Promise<CommitChangeResult> {
+    const eventId = crypto.randomUUID();
     return this.mutation<CommitChangeResult>(async (store) => {
       const workspace = await store.getWorkspace(input.workspaceId);
       if (!workspace) {
@@ -147,23 +167,33 @@ export class WorkspaceCatalog {
       }
 
       const { change } = input;
+      const saved: WorkspaceRegistration = {
+        ...workspace,
+        ...(input.updatedAt === undefined
+          ? {}
+          : { updatedAt: input.updatedAt }),
+        ...(input.lastReconciledAt === undefined
+          ? {}
+          : {
+              lastReconciledAt: nextWorkspaceObservation(
+                workspace.lastReconciledAt,
+                input.lastReconciledAt
+              ),
+            }),
+      };
+      // A change that touches the catalog sets `updatedAt`; one that does
+      // not say when is stamped now.
+      const changed = entriesChanged(
+        eventId,
+        workspace.id,
+        input.updatedAt ?? new Date(),
+        change
+      );
       await store.commit({
         deleteEntries: change.deleted.map((entry) => entry.id),
+        ...(changed === undefined ? {} : { events: [changed] }),
         putEntries: [...change.updated, ...change.inserted],
-        workspace: {
-          ...workspace,
-          ...(input.updatedAt === undefined
-            ? {}
-            : { updatedAt: input.updatedAt }),
-          ...(input.lastReconciledAt === undefined
-            ? {}
-            : {
-                lastReconciledAt: nextWorkspaceObservation(
-                  workspace.lastReconciledAt,
-                  input.lastReconciledAt
-                ),
-              }),
-        },
+        workspace: saved,
       });
       const byId = new Map(current.map((entry) => [entry.id, entry]));
       return {
@@ -191,25 +221,48 @@ export class WorkspaceCatalog {
     name: string,
     updatedAt: Date
   ): Promise<WorkspaceRegistration | null> {
+    const eventId = crypto.randomUUID();
     return this.mutation<WorkspaceRegistration | null>(async (store) => {
       const workspace = await store.getWorkspace(workspaceId);
       if (!workspace || workspace.name === name) {
         return { result: workspace };
       }
       const renamed = { ...workspace, name, updatedAt };
-      await store.commit({ workspace: renamed });
+      await store.commit({
+        events: [
+          {
+            at: updatedAt.toISOString(),
+            id: eventId,
+            type: "workspace.updated",
+            workspaceId,
+          },
+        ],
+        workspace: renamed,
+      });
       return { result: renamed };
     });
   }
 
   /** Forgets one Workspace and its catalog; the source is never touched. */
   remove(workspaceId: WorkspaceId): Promise<RemoveWorkspaceResult> {
+    const eventId = crypto.randomUUID();
     return this.mutation<RemoveWorkspaceResult>(async (store) => {
       if (!(await store.getWorkspace(workspaceId))) {
         return { result: { kind: "not-found" } };
       }
       const entries = await store.listEntries(workspaceId);
-      await store.commit({ removeWorkspace: workspaceId });
+      await store.commit({
+        events: [
+          {
+            // A removal stamps no record, so its time is read here.
+            at: new Date().toISOString(),
+            id: eventId,
+            type: "workspace.removed",
+            workspaceId,
+          },
+        ],
+        removeWorkspace: workspaceId,
+      });
       return {
         changes: entries.map((entry) => ({ action: "delete", entry })),
         result: { kind: "removed" },
@@ -252,6 +305,35 @@ export class WorkspaceCatalog {
     );
     return run;
   }
+}
+
+/**
+ * The `workspace.entries.changed` event for `change` to a Workspace, made
+ * `at`, or nothing when it adds, changes and removes no entry.
+ */
+function entriesChanged(
+  id: string,
+  workspaceId: WorkspaceId,
+  at: Date,
+  change: WorkspaceCatalogChange
+): WorkspaceEvent | undefined {
+  const ids = (entries: readonly WorkspaceEntry[]) =>
+    entries.map((entry) => entry.id);
+  const added = ids(change.inserted);
+  const changed = ids(change.updated);
+  const removed = ids(change.deleted);
+  if (added.length + changed.length + removed.length === 0) {
+    return;
+  }
+  return {
+    added,
+    at: at.toISOString(),
+    changed,
+    id,
+    removed,
+    type: "workspace.entries.changed",
+    workspaceId,
+  };
 }
 
 /** What one mutation answers, and the changes it publishes once committed. */

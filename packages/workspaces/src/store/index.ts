@@ -2,6 +2,7 @@ import type { Page, PageInput } from "@foundry/core/pagination";
 import type {
   WorkspaceEntry,
   WorkspaceEntryId,
+  WorkspaceEvent,
   WorkspaceId,
   WorkspaceRegistration,
 } from "../types";
@@ -52,8 +53,22 @@ export interface WorkspaceStore {
   transaction?: <T>(work: (view: WorkspaceStore) => Promise<T>) => Promise<T>;
 }
 
-/** One atomic write to one Workspace: a save or a removal. */
-export type WorkspaceStoreWrite = WorkspaceRemoval | WorkspaceSave;
+/**
+ * One atomic write to one Workspace: a save or a removal, and the events
+ * that say what it changes.
+ */
+export type WorkspaceStoreWrite = (WorkspaceRemoval | WorkspaceSave) &
+  WorkspaceWriteEvents;
+
+/**
+ * What a write changes, as the catalog records it, in order. A store keeps
+ * none of them: it takes them with the rest of the write, refuses them as
+ * it refuses any value it cannot copy, and passes them on to a host hook
+ * (`SqliteWorkspaceStore`'s `onCommit`) unchanged.
+ */
+export interface WorkspaceWriteEvents {
+  readonly events?: readonly WorkspaceEvent[];
+}
 
 /**
  * A registration as it now stands, and the entry changes beside it. Entry

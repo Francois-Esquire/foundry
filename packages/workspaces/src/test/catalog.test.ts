@@ -17,6 +17,9 @@ import type {
   WorkspaceEntry,
   WorkspaceFile,
 } from "../types";
+import { interceptCommits } from "./helpers/commits";
+
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 const EDITED_DIGEST =
   "1fb9f4097256db2d7b1e13aff79cee44339891a31c556b9cf6093885773b3618";
@@ -537,3 +540,112 @@ function pauseAfterFirst(
     release: () => release.resolve(undefined),
   };
 }
+
+describe("WorkspaceCatalog change events", () => {
+  function writes() {
+    const { catalog, store } = fixture();
+    const { intercept } = interceptCommits(store);
+    const events = () =>
+      intercept.mock.calls.map(([write]) => write.events ?? []);
+    return { catalog, events, store };
+  }
+
+  test("each write that changes a Workspace carries one event, built from what it puts", async () => {
+    const { catalog, events } = writes();
+    const workspace = hostWorkspace({ path: newRoot("events") });
+    const docs = directoryRecord(workspace.id, "docs");
+    const old = directoryRecord(workspace.id, "old");
+    const file = fileRecord(workspace.id, { path: "docs/a.md" });
+    await catalog.create({ entries: [docs, old, file], workspace });
+    const edited = {
+      ...file,
+      digest: EDITED_DIGEST,
+      updatedAt: new Date(3000),
+    };
+    const added = fileRecord(workspace.id, { path: "docs/b.md" });
+    await catalog.applyChange({
+      change: change({ deleted: [old], inserted: [added], updated: [edited] }),
+      updatedAt: new Date(3000),
+      workspaceId: workspace.id,
+    });
+    await catalog.rename(workspace.id, "renamed", new Date(4000));
+    await catalog.remove(workspace.id);
+
+    const [created, entries, renamed, removed] = events();
+    expect(created).toEqual([
+      {
+        at: workspace.createdAt.toISOString(),
+        id: expect.any(String),
+        type: "workspace.created",
+        workspaceId: workspace.id,
+      },
+    ]);
+    expect(entries).toEqual([
+      {
+        added: [added.id],
+        at: new Date(3000).toISOString(),
+        changed: [file.id],
+        id: expect.any(String),
+        removed: [old.id],
+        type: "workspace.entries.changed",
+        workspaceId: workspace.id,
+      },
+    ]);
+    expect(renamed).toEqual([
+      {
+        at: new Date(4000).toISOString(),
+        id: expect.any(String),
+        type: "workspace.updated",
+        workspaceId: workspace.id,
+      },
+    ]);
+    expect(removed).toEqual([
+      {
+        at: expect.stringMatching(ISO),
+        id: expect.any(String),
+        type: "workspace.removed",
+        workspaceId: workspace.id,
+      },
+    ]);
+    const ids = events()
+      .flat()
+      .map((event) => event.id);
+    expect(new Set(ids).size).toBe(4);
+  });
+
+  test("a write that changes neither the name nor any entry carries none", async () => {
+    const { catalog, events } = writes();
+    const workspace = hostWorkspace({ path: newRoot("quiet") });
+    await catalog.create({ entries: [], workspace });
+    await catalog.applyChange({
+      change: change({}),
+      lastReconciledAt: new Date(5000),
+      workspaceId: workspace.id,
+    });
+    await catalog.rename(workspace.id, workspace.name, new Date(6000));
+
+    expect(events()).toEqual([
+      [expect.objectContaining({ type: "workspace.created" })],
+      [],
+    ]);
+  });
+
+  test("a refused change carries no event, as it writes nothing", async () => {
+    const { catalog, events } = writes();
+    const workspace = hostWorkspace({ path: newRoot("refused") });
+    await catalog.create({ entries: [], workspace });
+    const stranger = directoryRecord(newWorkspaceId(), "elsewhere");
+
+    expect(
+      await catalog.applyChange({
+        change: change({ deleted: [stranger] }),
+        updatedAt: new Date(7000),
+        workspaceId: workspace.id,
+      })
+    ).toMatchObject({ kind: "conflict" });
+    expect(await catalog.remove(newWorkspaceId())).toEqual({
+      kind: "not-found",
+    });
+    expect(events()).toHaveLength(1);
+  });
+});

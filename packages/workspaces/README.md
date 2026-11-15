@@ -125,6 +125,31 @@ when called too. A caller that changes its write or its input after the
 call changes nothing, even while the call is still queued. A write the
 clone refuses, such as one holding a function, rejects and writes nothing.
 
+### Change events
+
+Each write the catalog makes that changes a Workspace carries the events that
+say so, in `events` on the write, so a host can record them in the same
+transaction as the change (`SqliteWorkspaceStore`'s `onCommit`). The catalog
+builds them; a store keeps none, refuses one its clone refuses, and hands
+them to `onCommit` unchanged and in order. The schema is
+`workspaceEventSchema` on `@foundry/workspaces/schema`; the type,
+`WorkspaceEvent`, is exported from the package root too. Every event has
+`type`, `id` (unique to it, made once per catalog call, so work a store runs
+again keeps it), `at` (an ISO time) and `workspaceId`:
+
+| `type`                      | Emitted by                                                     | Also carries                  |
+| --------------------------- | -------------------------------------------------------------- | ----------------------------- |
+| `workspace.created`         | `create`, when it registers the Workspace; `at` its `createdAt` |                               |
+| `workspace.updated`         | `rename`, when the name changes; `at` the new `updatedAt`      |                               |
+| `workspace.entries.changed` | `applyChange`, when it adds, changes or removes any entry       | `added`, `changed`, `removed` |
+| `workspace.removed`         | `remove`, when the Workspace was there; `at` the time it ran   |                               |
+
+`workspace.entries.changed` carries entry ids only, never the records, and is
+`at` the change's `updatedAt` (the time it ran, when the caller gave none).
+A Workspace's first entries come with `workspace.created`, not as a separate
+entries event, and a removal names no entries. A reconciliation that finds
+nothing new, a rename to the same name, and a refused change carry no event.
+
 ### SQLite
 
 `SqliteWorkspaceStore` takes the host's database and never opens one. The
@@ -174,9 +199,9 @@ the registration. A removal runs two statements, one deleting every entry row
 of the Workspace and one deleting its registration, each through a primary
 key. A save's entries are batched under SQLite's bound-parameter limit inside
 the one transaction, so a save of thousands of entries lands whole.
-`onCommit` receives the write as committed. A removal carries only the
-Workspace id, so a hook that wants to record which entries a removal dropped
-does not get their ids from the store.
+`onCommit` receives the write as committed, its `events` included. A removal
+carries only the Workspace id, so a hook that wants to record which entries
+a removal dropped does not get their ids from the store.
 `onCommit` uses the `transaction` it is given; a call to the store itself
 from the hook is refused (see below). `listWorkspaces` reads its count and
 its page in one database transaction, so it is one state. On libSQL that
@@ -319,7 +344,12 @@ A new `WorkspaceStore` proves itself against the conformance suite on
 `@foundry/workspaces/testing/store`: `describeWorkspaceStore(name, open)`
 registers Vitest tests. `open()` returns fresh, empty storage, or a promise
 of it, as a function `(scope: string) => WorkspaceStore`. Two scopes over one
-storage must never see each other's records. The package runs it against
+storage must never see each other's records. A store with a host hook
+passes a third argument, `recording`, which opens storage whose hook records
+each write's events in the commit's own transaction
+(`RecordingWorkspaceStores`); the suite then also proves the hook gets every
+kept commit's events once, in order, and none for a commit that fails. The
+package runs it against
 the memory store and against the SQLite store on libSQL, in memory and on a
 file, with tables created from `./store/tables` by `createTables` from
 `@foundry/lib/testing/sqlite`.
