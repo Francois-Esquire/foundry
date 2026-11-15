@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { SessionMessage, SessionPart, SessionRecord } from "../schema";
+import type {
+  SessionChangeEvent,
+  SessionMessage,
+  SessionPart,
+  SessionRecord,
+} from "../schema";
 import type { SessionStore } from "../store";
 
 /**
@@ -10,15 +15,65 @@ import type { SessionStore } from "../store";
 export type SessionStorage = (scope: string) => SessionStore;
 
 /**
+ * Fresh, empty storage whose stores hand each commit's write to a host hook
+ * (a SQLite store's `onCommit`), and a record the hook keeps: it writes the
+ * write's events, in order, in the commit's own transaction.
+ */
+export interface RecordingSessionStorage {
+  /** Makes the hook throw on its next call, after it has recorded. */
+  readonly failNextCommit: () => void;
+  /** The events recorded by every commit that was kept, in the order kept. */
+  readonly recorded: () => Promise<readonly SessionChangeEvent[]>;
+  readonly storage: SessionStorage;
+}
+
+/**
  * The behaviour every {@link SessionStore} shares. `open` returns fresh,
- * empty storage for each test. Registers Vitest tests; call it at module
- * level in a test file.
+ * empty storage for each test. A store with a host hook passes `recording`
+ * too, which opens it with one, and the suite also proves the hook is handed
+ * each commit's events. Registers Vitest tests; call it at module level in a
+ * test file.
  */
 export function describeSessionStore(
   name: string,
-  open: () => SessionStorage | Promise<SessionStorage>
+  open: () => SessionStorage | Promise<SessionStorage>,
+  recording?: () => Promise<RecordingSessionStorage>
 ): void {
   const fresh = async (): Promise<SessionStore> => (await open())("scope");
+
+  describe(`${name} (SessionStore events)`, () => {
+    it("keeps no event: a write's events change no record", async () => {
+      const store = await fresh();
+      await store.commit({
+        events: [created("s"), appended("s", ["m1"])],
+        putMessages: [message("m1", "s", 1)],
+        putSessions: [session("s")],
+      });
+      await store.commit({ events: [updated("s")] });
+
+      await expect(store.getSession("s")).resolves.toStrictEqual(session("s"));
+      await expect(store.listMessages("s")).resolves.toStrictEqual([
+        message("m1", "s", 1),
+      ]);
+    });
+
+    it("refuses whole a write whose event it could not hand on intact", async () => {
+      const store = await fresh();
+      const unplain = {
+        ...created("s"),
+        at: () => "now",
+      } as unknown as SessionChangeEvent;
+
+      await expect(
+        store.commit({ events: [unplain], putSessions: [session("s")] })
+      ).rejects.toThrow();
+      await expect(store.getSession("s")).resolves.toBeNull();
+    });
+  });
+
+  if (recording !== undefined) {
+    describeRecordedEvents(name, recording);
+  }
 
   describe(`${name} (SessionStore)`, () => {
     it("reads nothing from an empty store", async () => {
@@ -131,6 +186,23 @@ export function describeSessionStore(
 
       await expect(ids(store, "a")).resolves.toEqual(["a2", "a3"]);
       await expect(ids(store, "b")).resolves.toEqual(["b1", "b2", "a1", "b3"]);
+    });
+
+    it("files each message after every one its session holds, after its last one moved away", async () => {
+      // Only the order of a session's messages is promised: the place a
+      // message left may be taken again, and nothing reads it but the order.
+      const store = await fresh();
+      await store.commit({
+        putMessages: [message("a1", "a", 1), message("a2", "a", 2)],
+        putSessions: [session("a"), session("b")],
+      });
+      await store.commit({ putMessages: [message("a2", "b", 2)] });
+      await store.commit({ putMessages: [message("a3", "a", 3)] });
+      await store.commit({ putMessages: [message("a2", "a", 2)] });
+      await store.commit({ putMessages: [message("a4", "a", 4)] });
+
+      await expect(ids(store, "a")).resolves.toEqual(["a1", "a3", "a2", "a4"]);
+      await expect(ids(store, "b")).resolves.toEqual([]);
     });
 
     it("places a message put more than once in one write as its puts, in order, leave it", async () => {
@@ -819,6 +891,149 @@ const EVERY_PART: SessionPart[] = [
     type: "harness_activity",
   },
 ];
+
+/** The suite's proof that a store hands its host hook every commit's events. */
+function describeRecordedEvents(
+  name: string,
+  recording: () => Promise<RecordingSessionStorage>
+): void {
+  const recorder = async () => {
+    const opened = await recording();
+    return { ...opened, store: opened.storage("scope") };
+  };
+
+  describe(`${name} (SessionStore events handed to the host)`, () => {
+    it("hands on each commit's events once, in order, and none for a write without", async () => {
+      const { recorded, store } = await recorder();
+      const first = [created("s"), appended("s", ["m1", "m2"])];
+      await store.commit({
+        events: first,
+        putMessages: [message("m1", "s", 1), message("m2", "s", 2)],
+        putSessions: [session("s")],
+      });
+      await store.commit({ putMessages: [message("m3", "s", 3)] });
+      await store.commit({ events: [updated("s")] });
+
+      await expect(recorded()).resolves.toStrictEqual([...first, updated("s")]);
+    });
+
+    it("hands on the events as they were when commit was called", async () => {
+      const { recorded, store } = await recorder();
+      const event = appended("s", ["m1"]);
+
+      const pending = store.commit({
+        events: [event],
+        putSessions: [session("s")],
+      });
+      if (event.type === "session.messages.appended") {
+        event.messageIds.push("later");
+      }
+      await pending;
+
+      await expect(recorded()).resolves.toStrictEqual([appended("s", ["m1"])]);
+    });
+
+    it("records nothing for a write it refuses", async () => {
+      const { recorded, store } = await recorder();
+      const unstorable = message("m1", "s", 1);
+      Object.defineProperty(unstorable.parts[0], "text", {
+        enumerable: true,
+        get: () => {
+          throw new Error("unstorable");
+        },
+      });
+
+      await expect(
+        store.commit({
+          events: [created("s")],
+          putMessages: [unstorable],
+          putSessions: [session("s")],
+        })
+      ).rejects.toThrow("unstorable");
+      await expect(recorded()).resolves.toStrictEqual([]);
+    });
+
+    it("runs the hook inside the commit: a throw from it keeps neither the write nor its events", async () => {
+      const { failNextCommit, recorded, store } = await recorder();
+      failNextCommit();
+
+      await expect(
+        store.commit({ events: [created("s")], putSessions: [session("s")] })
+      ).rejects.toThrow();
+      await expect(store.getSession("s")).resolves.toBeNull();
+      await expect(recorded()).resolves.toStrictEqual([]);
+
+      await store.commit({
+        events: [created("s")],
+        putSessions: [session("s")],
+      });
+      await expect(recorded()).resolves.toStrictEqual([created("s")]);
+    });
+
+    it("records a transaction's events only when it is kept", async (context) => {
+      const { recorded, store } = await recorder();
+      if (store.transaction === undefined) {
+        context.skip();
+        return;
+      }
+
+      await expect(
+        store.transaction(async (view) => {
+          await view.commit({
+            events: [created("dropped")],
+            putSessions: [session("dropped")],
+          });
+          throw new Error("work failed");
+        })
+      ).rejects.toThrow("work failed");
+      await store.transaction(async (view) => {
+        await view.commit({
+          events: [created("s")],
+          putSessions: [session("s")],
+        });
+        await view.commit({
+          events: [appended("s", ["m1"])],
+          putMessages: [message("m1", "s", 1)],
+        });
+      });
+
+      await expect(recorded()).resolves.toStrictEqual([
+        created("s"),
+        appended("s", ["m1"]),
+      ]);
+    });
+  });
+}
+
+const AT = "2026-01-01T00:00:00.000Z";
+
+function created(sessionId: string): SessionChangeEvent {
+  return {
+    at: AT,
+    id: `created-${sessionId}`,
+    sessionId,
+    type: "session.created",
+  };
+}
+
+function updated(sessionId: string): SessionChangeEvent {
+  return {
+    at: AT,
+    id: `updated-${sessionId}`,
+    sessionId,
+    type: "session.updated",
+  };
+}
+
+function appended(sessionId: string, messageIds: string[]): SessionChangeEvent {
+  return {
+    at: AT,
+    id: `appended-${sessionId}-${messageIds.join("-")}`,
+    messageIds,
+    sessionId,
+    type: "session.messages.appended",
+  };
+}
 
 /** What a store's refusal of a call from inside its own transaction says. */
 const REFUSAL = /refused: .*use the view/;

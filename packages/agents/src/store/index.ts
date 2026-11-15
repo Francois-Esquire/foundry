@@ -1,4 +1,8 @@
-import type { SessionMessage, SessionRecord } from "../schema";
+import type {
+  SessionChangeEvent,
+  SessionMessage,
+  SessionRecord,
+} from "../schema";
 
 /**
  * One atomic write. A put replaces the record filed under its id, or files
@@ -6,6 +10,13 @@ import type { SessionMessage, SessionRecord } from "../schema";
  * session; a replaced one keeps its place.
  */
 export interface SessionStoreWrite {
+  /**
+   * What the write changes, as `Sessions` records it, in order. A store
+   * keeps none of them: it takes them with the rest of the write, refuses
+   * them as it refuses any value it could not hand back intact, and passes
+   * them on to a host hook (`SqliteSessionStore`'s `onCommit`) unchanged.
+   */
+  readonly events?: readonly SessionChangeEvent[];
   readonly putMessages?: readonly SessionMessage[];
   readonly putSessions?: readonly SessionRecord[];
 }

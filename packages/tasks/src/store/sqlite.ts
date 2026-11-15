@@ -293,6 +293,10 @@ export class SqliteTaskStore implements TaskStore {
   /**
    * One past the last position in this scope. A row that turns out to exist
    * keeps its own and leaves a gap; only the order of positions matters.
+   * The position of a last row deleted is given to the next row put: no
+   * record, change, or reader outside this store sees a position, and the
+   * order stays the order rows were first put (the conformance suite pins
+   * it).
    */
   async #nextPosition(
     transaction: TaskTransaction,

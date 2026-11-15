@@ -1,5 +1,11 @@
 import type { SessionStoreWrite } from "./index";
-import { below, keptMessage, keptSession, RecordFault } from "./sqlite-records";
+import {
+  below,
+  keptEvent,
+  keptMessage,
+  keptSession,
+  RecordFault,
+} from "./sqlite-records";
 import type { agentMessages, agentSessions } from "./tables";
 
 /**
@@ -80,7 +86,11 @@ export function captured(write: SessionStoreWrite): SessionStoreWrite {
   const messages = write.putMessages?.map((message, index) =>
     stored(`putMessages[${index}]`, () => keptMessage(message))
   );
+  const events = write.events?.map((event, index) =>
+    stored(`events[${index}]`, () => keptEvent(event))
+  );
   return {
+    ...(events === undefined ? {} : { events }),
     ...(messages === undefined ? {} : { putMessages: messages }),
     ...(sessions === undefined ? {} : { putSessions: sessions }),
   };

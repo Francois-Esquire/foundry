@@ -289,10 +289,36 @@ interface SessionStore {
 }
 
 interface SessionStoreWrite {
+  events?: readonly SessionChangeEvent[]; // what the write changes; kept by no store
   putMessages?: readonly SessionMessage[]; // new ids go last; known ids keep their place
   putSessions?: readonly SessionRecord[];
 }
 ```
+
+#### Change events
+
+Each write `Sessions` makes that changes what a reader of a session sees
+carries the events that say so, in `events`, so a host can record them in
+the same transaction as the change (`SqliteSessionStore`'s `onCommit`).
+`Sessions` builds them; a store keeps none, refuses one it could not hand on
+intact as it refuses any other value, and hands them to `onCommit` unchanged
+and in order. The schema is `sessionChangeEventSchema` in
+`@foundry/agents/schema`; the type is `SessionChangeEvent`, also exported from
+`@foundry/agents/session`. Every event has `type`, `id` (unique to it, made
+once per call, so work a store runs again keeps it), `at` (an ISO time, the
+stamp of the record it changed) and `sessionId`:
+
+| `type`                      | Emitted by                                                | Also carries |
+| --------------------------- | --------------------------------------------------------- | ------------ |
+| `session.created`           | `createSession`, when it files a new session              |              |
+| `session.updated`           | `updateSession`, when the title or status changes         |              |
+| `session.messages.appended` | `appendMessage` (the message), `summarize` (its summary)  | `messageIds` |
+
+Nothing finer is emitted: `updateMessage`, the folded messages' flags in a
+`summarize`, an `updateSession` that changes neither field, and a
+`createSession` over a session already filed carry no event. Messages travel
+as ids only, never as bodies. No `Sessions` call removes a session, so there
+is no removal event.
 
 A transaction's `work` may read and commit through its `view` across any
 sessions, any number of times. A plain `commit` from outside queues behind it;
@@ -312,6 +338,11 @@ describeSessionStore("MyStore", () => {
   return (scope) => new MyStore({ database, scope });
 });
 ```
+
+A store with a host hook passes a third argument, which opens storage whose
+hook records each write's events in the commit's own transaction
+(`RecordingSessionStorage`), and the suite also proves the hook gets every
+kept commit's events once, in order, and none for a commit that fails.
 
 A session keeps every message in its JSON form, the form every durable
 store writes and a model is sent, so every store keeps and gives back the
@@ -396,7 +427,10 @@ so a put under another session moves the message in the same commit.
 `agent_messages.position` is a message's place in its session. The commit
 assigns it in its transaction by replaying the write's puts in order. A put
 again in the same session keeps its place. A new message, or one moved to
-another session, goes after the last message there. The index
+another session, goes after the last message there, so the place a message
+left as a session's last may be given to the next one: only the order of a
+session's messages is promised, and nothing reads a position but that order.
+No record, event or reader outside the store sees one. The index
 `(scope, session_id, position)` serves `listMessages` and the commit's
 lookup of a session's last position, which reads one entry. Neither scans
 other sessions or sorts.
@@ -417,7 +451,7 @@ session, message and field. One such row rejects its session's whole
 Each `commit` is one transaction, and a throwing `onCommit` rolls it back.
 `onCommit` receives the store's own copy of the write, taken when `commit` was
 called: exactly what the store wrote, every session and message put, whole,
-in order. It does not learn which put filed a record and which replaced one,
+in order, with its `events`. It does not learn which put filed a record and which replaced one,
 what a replaced record held, or which session a moved message left; the store
 has written by the time the hook runs.
 

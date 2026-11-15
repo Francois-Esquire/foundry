@@ -129,6 +129,9 @@ interface Copied {
 }
 
 function copyOf(write: SessionStoreWrite): Copied {
+  // The store keeps no event, but a write whose events cannot be copied is
+  // refused whole, as one whose records cannot.
+  structuredClone(write.events);
   return {
     messages: (write.putMessages ?? []).map((m) => structuredClone(m)),
     sessions: (write.putSessions ?? []).map((s) => structuredClone(s)),
