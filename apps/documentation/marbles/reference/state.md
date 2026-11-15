@@ -169,9 +169,15 @@ notices one made in another within a second. When it stops, or its
 process exits, a host that was refused delivery takes it over within a
 second and delivers what was written meanwhile.
 
-Facts every observer seen in the last week has completed, and committed
-more than a week ago, are removed every ten minutes by the delivering
-host. An engine without the host's database records only what it keeps
+Facts committed more than a week ago that every observer holding them
+back has completed are removed every ten minutes by the delivering host.
+Every observer that host has declared holds them back, whatever it is
+doing, and so does one any host declared in the last week. An observer's
+place never moves past removed facts in silence: the write that moves it
+records the range in `missed_from` and `missed_through`. Every write to an
+observer row, and every compaction, holds only while its writer still
+holds the workspace's delivery claim, in the same statement; a refused
+write is printed and dropped. An engine without the host's database records only what it keeps
 there: one that opens its own for a state dir records its tasks, Runs and
 sessions, not its artifacts, containers or catalogue, which it keeps in
 memory; under `--dry-run` only its tasks, in memory. It says at start which

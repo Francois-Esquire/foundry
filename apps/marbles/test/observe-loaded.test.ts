@@ -43,7 +43,11 @@ it("delivers a loaded module's observers of every word the facts of a step's wor
     source,
     `import { appendFileSync } from "node:fs";
 import { agent, artifact, observe, sandbox, step, tasks, workflow, workspace } from "@foundry.sh/marbles";
-const log = (line) => appendFileSync(${JSON.stringify(seen)}, line + "\\n");
+const log = (line) => {
+  appendFileSync(${JSON.stringify(seen)}, line + "\\n");
+  // The host's barrier: told of each fact handed, once it is written down.
+  globalThis.observed?.();
+};
 observe(workflow, function runFacts(fact) {
   log("runs " + fact.type);
 }, { types: ["run.completed"] });
@@ -71,17 +75,20 @@ export const write = step("write").do(async ({ run }) => {
     script,
     `import { hostEngine, openWorkspace } from ${JSON.stringify(join(SRC, "workspace/open.ts"))};
 import { openHostDatabase } from ${JSON.stringify(join(SRC, "database/workspaces.ts"))};
+// Settled once the three observers have each been handed their fact.
+const { promise: allObserved, resolve: observedAll } = Promise.withResolvers();
+let observed = 0;
+globalThis.observed = () => {
+  observed += 1;
+  if (observed === 3) observedAll();
+};
 const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: ${JSON.stringify(source)}, dry: false, state: ${JSON.stringify(state)} };
 const opened = await openWorkspace(args, { print: () => undefined });
 const database = await openHostDatabase(${JSON.stringify(state)});
 const engine = await hostEngine(args, opened, { database, print: () => undefined });
 await engine.start();
 const runId = await engine.execute(opened.catalog.definitions.get("write"), {});
-for (let i = 0; i < 500; i += 1) {
-  const text = await Bun.file(${JSON.stringify(seen)}).text().catch(() => "");
-  if (text.trim().split("\\n").length >= 3) break;
-  await new Promise((done) => setTimeout(done, 20));
-}
+await allObserved;
 await engine.dispose();
 process.stdout.write(JSON.stringify({ runId }) + "\\n");
 process.exit(0);

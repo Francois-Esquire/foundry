@@ -86,6 +86,7 @@ describe("a writer's handle kept open while a newer Marbles migrates", () => {
         () =>
           records.log.move(observer, {
             from: position,
+            handed: false,
             now: Date.now(),
             to: position + 1,
           }),

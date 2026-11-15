@@ -16,6 +16,7 @@ import {
   vi,
 } from "vitest";
 import { DatabaseChangeLog } from "~/database/changes";
+import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import type { Engine } from "~/lib/engine";
 import { DELIVERY_POLL_MS, Delivery, retryDelay } from "~/lib/events/delivery";
 import type { ChangeLog } from "~/lib/events/log";
@@ -599,6 +600,21 @@ describe("observing tasks", () => {
   });
 });
 
+/** `records`' change log as a plain object of its calls, for a test to replace some of. */
+function logOf(records: WorkspaceRecords): WorkspaceRecords["log"] {
+  const { log } = records;
+  return {
+    compact: (bound) => log.compact(bound),
+    declare: (key, now) => log.declare(key, now),
+    fail: (key, failure) => log.fail(key, failure),
+    head: () => log.head(),
+    move: (key, move) => log.move(key, move),
+    observers: () => log.observers(),
+    read: (query) => log.read(query),
+    unstick: (key) => log.unstick(key),
+  };
+}
+
 /** `records`' own calls, as a test's records built over it start from. */
 function delegate(records: WorkspaceRecords): WorkspaceRecords {
   return {
@@ -866,13 +882,13 @@ describe("delivery lifecycle", () => {
     const disposing = first.dispose().then(() => {
       disposed = true;
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(disposed).toBe(false);
     const lines: string[] = [];
     const second = engineWith(state, { slow: () => undefined }, (line) =>
       lines.push(line)
     );
     await second.start();
+    // The handler is still held: the dispose waits for it.
+    expect(disposed).toBe(false);
     expect(
       lines.some((line) => line.startsWith("[observe] not delivering"))
     ).toBe(true);
@@ -945,28 +961,107 @@ describe("delivery lifecycle", () => {
     await vi.waitFor(() => expect(calls).toEqual(["old:Before", "new:After"]), {
       timeout: DELIVERY_POLL_MS * 5,
     });
-    await new Promise((settle) => setTimeout(settle, DELIVERY_POLL_MS * 2));
+    // `retire` resolved once the older delivery had stopped, its tick
+    // cancelled and its claim given up: nothing there can call again.
     expect(calls).toEqual(["old:Before", "new:After"]);
   });
 
   it("never moves an observer back: a move from a place another deliverer moved it past is refused", async () => {
     const state = stateDir();
     const records = machine.records(state);
+    expect(await records.claimDelivery()).toBeUndefined();
     const key = { name: "racer", source: "tasks" };
     const tasks = new Tasks({ store: records.taskStore });
     const { position } = await records.log.declare(key, Date.now());
     await tasks.create({ title: "A" });
     await tasks.create({ title: "B" });
     const now = Date.now();
-    expect(
-      await records.log.move(key, { from: position, now, to: position + 2 })
-    ).toBe(true);
+    const move = (to: number) =>
+      records.log.move(key, { from: position, handed: false, now, to });
+    expect(await move(position + 2)).toEqual({ kind: "moved", missed: null });
     // A deliverer that read the old place moves from it: nothing changes.
-    expect(
-      await records.log.move(key, { from: position, now, to: position + 1 })
-    ).toBe(false);
+    expect(await move(position + 1)).toEqual({ kind: "elsewhere" });
     expect((await records.log.declare(key, now)).position).toBe(position + 2);
     await records.close();
+  });
+
+  it("refuses, and drops, every observer write from records that no longer hold the claim, however late it lands", async () => {
+    const state = stateDir();
+    const key = { name: "same", source: "tasks" };
+    const older = machine.records(state);
+    expect(await older.claimDelivery()).toBeUndefined();
+    await older.log.declare(key, Date.now());
+    await older.releaseDelivery();
+    const newer = machine.records(state);
+    expect(await newer.claimDelivery()).toBeUndefined();
+    const stuck = {
+      error: "the handler did not finish within 0s",
+      now: Date.now(),
+      retryAt: Date.now() + 1000,
+      stuckSince: 1234,
+    };
+    expect(await newer.log.fail(key, stuck)).toBe(true);
+
+    // The older one's writes, landing after it let go, change nothing.
+    expect(await older.log.unstick(key)).toBe(false);
+    expect(await older.log.fail(key, { ...stuck, stuckSince: null })).toBe(
+      false
+    );
+    expect(
+      await older.log.move(key, {
+        from: 0,
+        handed: false,
+        now: Date.now(),
+        to: 1,
+      })
+    ).toEqual({ kind: "unclaimed" });
+    expect(
+      await older.log.compact({
+        before: Date.now() + 1,
+        now: Date.now(),
+        registered: [],
+        seenSince: Date.now() + 1,
+      })
+    ).toBe(0);
+    expect((await newer.log.observers())[0]).toMatchObject({
+      failures: 1,
+      position: 0,
+      stuckSince: 1234,
+    });
+    await older.close();
+    await newer.close();
+  });
+
+  it("says so, and goes on, when a write it makes about an observer is refused for the claim", async () => {
+    const records = new MemoryWorkspaceRecords();
+    const lines: string[] = [];
+    const refused: WorkspaceRecords["log"] = {
+      ...records.log,
+      move: () => Promise.resolve({ kind: "unclaimed" }),
+    };
+    const delivery = new Delivery({
+      clock: new ManualClock(),
+      print: (line) => lines.push(line),
+      records: { ...delegate(records), log: refused },
+    });
+    let calls = 0;
+    delivery.observe(
+      TASKS,
+      () => {
+        calls += 1;
+      },
+      { name: "fenced" }
+    );
+    await delivery.start();
+    await new Tasks({ store: records.taskStore }).create({ title: "One" });
+    delivery.wake();
+    await delivery.idle();
+    await delivery.stop();
+    // Not retried: one call, one line.
+    expect(calls).toBe(1);
+    expect(lines).toEqual([
+      "[observe] fenced (tasks): not moving its place: this engine no longer delivers this workspace's changes",
+    ]);
   });
 });
 
@@ -1100,14 +1195,27 @@ setInterval(() => undefined, 1000);
         seen.push(payload);
       },
     });
+    // Its tries at the claim, counted: what it is refused while the holder lives.
+    const { claimDelivery } = DatabaseWorkspaceRecords.prototype;
+    let claims = 0;
+    const counting = vi
+      .spyOn(DatabaseWorkspaceRecords.prototype, "claimDelivery")
+      .mockImplementation(function (this: DatabaseWorkspaceRecords) {
+        claims += 1;
+        return claimDelivery.call(this);
+      });
     try {
       await survivor.start();
       await new Tasks({ store: survivor.taskStore }).create({
         title: "Waiting",
       });
-      await new Promise((settle) => setTimeout(settle, DELIVERY_POLL_MS * 2));
+      // Refused at its start and on two ticks since: nothing delivered.
+      await vi.waitFor(() => expect(claims).toBeGreaterThanOrEqual(3), {
+        timeout: DELIVERY_POLL_MS * 5,
+      });
       expect(seen).toEqual([]);
     } finally {
+      counting.mockRestore();
       holder.kill("SIGKILL");
     }
     await new Promise((settle) => holder.once("exit", settle));
@@ -1119,92 +1227,164 @@ setInterval(() => undefined, 1000);
 
 describe("compaction", () => {
   const DAY = 24 * 60 * 60 * 1000;
+  /** Past the retention and the compaction interval both. */
+  const LONG_AFTER = 2 * DAY;
 
-  /** A fact of `type` in the tasks source. */
+  /** A fact of the tasks source. */
   const fact = (id: string): Fact => ({
     at: new Date(0).toISOString(),
     id,
     type: "tasks.changed",
   });
 
-  /** Record `ids` as facts of the workspace at `state`, now. */
-  async function record(state: string, ids: readonly string[]): Promise<void> {
+  /** Record `ids` as facts of the workspace at `state`, committed at `at` (epoch ms). */
+  async function record(
+    state: string,
+    ids: readonly string[],
+    at = Date.now()
+  ): Promise<void> {
     const records = machine.records(state);
+    const spy = vi.spyOn(Date, "now").mockReturnValue(at);
     try {
       await machine.database.database.transaction((transaction) =>
         records.changes.record(transaction, "tasks", ids.map(fact))
       );
     } finally {
+      spy.mockRestore();
       await records.close();
     }
+  }
+
+  /** Records of the workspace at `state` that hold its delivery claim. */
+  async function deliverer(state: string) {
+    const records = machine.records(state);
+    expect(await records.claimDelivery()).toBeUndefined();
+    return records;
   }
 
   it("keeps giving positions from the counter once every fact was removed", async () => {
     const state = stateDir();
     await record(state, ["a", "b", "c"]);
-    const log = new DatabaseChangeLog(
-      machine.database.database,
-      basename(state)
-    );
+    const records = await deliverer(state);
     const later = Date.now() + DAY;
-    expect(await log.compact({ before: later, seenSince: later })).toBe(3);
+    expect(
+      await records.log.compact({
+        before: later,
+        now: later,
+        registered: [],
+        seenSince: later,
+      })
+    ).toBe(3);
     expect(await machine.changes(state)).toEqual([]);
     await record(state, ["d"]);
     expect(
       (await machine.changes(state)).map((change) => change.position)
     ).toEqual([4]);
-    expect(await log.head()).toBe(4);
+    expect(await records.log.head()).toBe(4);
+    await records.close();
   });
 
-  it("removes only old facts every observer seen within the retention has completed", async () => {
+  it("removes only old facts every observer holding them back has completed, and only under the claim", async () => {
     const state = stateDir();
-    const log = new DatabaseChangeLog(
-      machine.database.database,
-      basename(state)
-    );
+    const records = await deliverer(state);
+    const { log } = records;
     const now = Date.now();
     const behind = { name: "behind", source: "tasks" };
     const ahead = { name: "ahead", source: "tasks" };
     await log.declare(behind, now);
     await log.declare(ahead, now);
     await record(state, ["a", "b", "c", "d"]);
-    await log.move(ahead, { from: 0, now, to: 4 });
-    await log.move(behind, { from: 0, now, to: 2 });
+    await log.move(ahead, { from: 0, handed: false, now, to: 4 });
+    await log.move(behind, { from: 0, handed: false, now, to: 2 });
+    const later = now + DAY;
+    // Now is always past `seenSince`, as the deliverer's own bound is.
+    const bound = (seenSince: number, registered = [] as (typeof ahead)[]) => ({
+      before: later,
+      now: seenSince + 1,
+      registered,
+      seenSince,
+    });
 
+    // Not the deliverer: nothing goes.
+    const other = machine.records(state);
+    expect(await other.log.compact(bound(later))).toBe(0);
+    await other.close();
     // Recent facts stay, however far every observer has got.
-    expect(await log.compact({ before: now - DAY, seenSince: now - DAY })).toBe(
+    expect(await log.compact({ ...bound(now - DAY), before: now - DAY })).toBe(
       0
     );
     // Old ones go up to the observer furthest behind.
-    const later = now + DAY;
-    expect(await log.compact({ before: later, seenSince: now - DAY })).toBe(2);
+    expect(await log.compact(bound(now - DAY))).toBe(2);
     expect(
       (await machine.changes(state)).map((change) => change.position)
     ).toEqual([3, 4]);
-    // An observer not seen since the bound holds nothing back.
-    expect(await log.compact({ before: later, seenSince: later })).toBe(2);
+    // An observer registered with the deliverer holds them back, seen or not.
+    expect(await log.compact(bound(later + 1, [ahead, behind]))).toBe(0);
+    // One neither registered nor seen since the bound holds nothing back.
+    expect(await log.compact(bound(later + DAY))).toBe(2);
     expect(await machine.changes(state)).toEqual([]);
+    await records.close();
   });
 
-  it("tells an observer that fell behind what it missed, and goes on after it", async () => {
+  it("loses nothing an observer stuck in a call past the retention still needs, once its call settles", async () => {
     const state = stateDir();
     const records = machine.records(state);
-    const now = { at: Date.now() };
+    const clock = new ManualClock(Date.now());
     const lines: string[] = [];
+    const calls: string[] = [];
+    const { promise: hold, resolve: release } = Promise.withResolvers<void>();
+    const delivery = new Delivery({
+      clock,
+      handlerTimeout: 10,
+      print: (line) => lines.push(line),
+      records,
+      retention: DAY,
+    });
+    delivery.observe(
+      TASKS,
+      (handed: Fact) => {
+        calls.push(handed.id);
+        return calls.length === 1 ? hold : undefined;
+      },
+      { name: "live" }
+    );
+    await delivery.start();
+    await delivery.idle();
+    await record(state, ["first", "second"], clock.now());
+    delivery.wake();
+    await vi.waitFor(() => expect(calls).toEqual(["first"]));
+    clock.advance(10);
+    await delivery.idle();
+
+    // Stuck past the retention: compaction runs, and keeps what it needs.
+    clock.advance(LONG_AFTER);
+    delivery.wake();
+    await delivery.idle();
+    expect(await records.log.read({ after: 0, source: "tasks" })).toHaveLength(
+      2
+    );
+
+    release();
+    await vi.waitFor(() => expect(calls).toEqual(["first", "first", "second"]));
+    await delivery.idle();
+    expect((await records.log.observers())[0]).toMatchObject({
+      failures: 0,
+      missed: null,
+      position: 2,
+      stuckSince: null,
+    });
+    expect(lines.some((line) => line.includes("missed"))).toBe(false);
+    await delivery.stop();
+    await records.close();
+  });
+
+  it("tells an observer no engine registered for longer than the retention what it missed, once, and goes on after it", async () => {
+    const state = stateDir();
+    const records = machine.records(state);
+    const clock = new ManualClock(Date.now());
     const seen: string[] = [];
     const delivery = (print: (line: string) => void) => {
-      const built = new Delivery({
-        clock: {
-          after: () => ({
-            cancel: () => undefined,
-            done: new Promise(() => undefined),
-          }),
-          now: () => now.at,
-        },
-        print,
-        records,
-        retention: DAY,
-      });
+      const built = new Delivery({ clock, print, records, retention: DAY });
       built.observe(
         TASKS,
         (handed: Fact) => {
@@ -1214,41 +1394,97 @@ describe("compaction", () => {
       );
       return built;
     };
-    // Filed once, then never seen again while the log moves on.
+    // Filed once, then registered by no engine while the log moves on.
     const first = delivery(() => undefined);
     await first.start();
     await first.stop();
-    await record(state, ["a", "b"]);
-    now.at += 2 * DAY;
-    await new DatabaseChangeLog(
-      machine.database.database,
-      basename(state)
-    ).compact({ before: now.at - DAY, seenSince: now.at - DAY });
-    await record(state, ["c"]);
+    await record(state, ["a", "b"], clock.now());
+    clock.advance(LONG_AFTER);
+    const compactor = await deliverer(state);
+    await compactor.log.compact({
+      before: clock.now() - DAY,
+      now: clock.now(),
+      registered: [],
+      seenSince: clock.now() - DAY,
+    });
+    await compactor.releaseDelivery();
+    await compactor.close();
+    await record(state, ["c"], clock.now());
 
+    const lines: string[] = [];
     const back = delivery((line) => lines.push(line));
     await back.start();
-    await vi.waitFor(() => expect(seen).toEqual(["c"]));
+    await back.idle();
     await back.stop();
-    expect(
-      lines.some((line) =>
-        line.includes("absent (tasks) missed changes 1 to 2")
-      )
-    ).toBe(true);
-    expect((await records.log.observers())[0]?.missed).toEqual({
-      from: 1,
-      through: 2,
+    expect(seen).toEqual(["c"]);
+    expect(lines.filter((line) => line.includes("missed"))).toEqual([
+      "[observe] absent (tasks) missed changes 1 to 2: they were removed before it received them; it goes on after them",
+    ]);
+    expect((await records.log.observers())[0]).toMatchObject({
+      missed: { from: 1, through: 2 },
+      position: 3,
     });
 
     // Told once: the next start finds it caught up, and says nothing.
     const quiet: string[] = [];
     const again = delivery((line) => quiet.push(line));
     await again.start();
+    await again.idle();
     await again.stop();
     expect(quiet.filter((line) => line.includes("missed"))).toEqual([]);
-    expect((await records.log.observers())[0]?.missed).toEqual({
-      from: 1,
-      through: 2,
+    await records.close();
+  });
+
+  it("records what a compaction landing in the middle of a catch-up removed, in the move that passes it", async () => {
+    const state = stateDir();
+    const records = machine.records(state);
+    const clock = new ManualClock(Date.now());
+    const lines: string[] = [];
+    const seen: string[] = [];
+    let compactions = 0;
+    // A compaction that holds nothing back lands just as the lane reads.
+    const log: WorkspaceRecords["log"] = {
+      ...logOf(records),
+      read: async (query) => {
+        if (compactions === 0) {
+          compactions += 1;
+          await records.log.compact({
+            before: clock.now() + 1,
+            now: clock.now(),
+            registered: [],
+            seenSince: clock.now() + 1,
+          });
+        }
+        return records.log.read(query);
+      },
+    };
+    const delivery = new Delivery({
+      clock,
+      print: (line) => lines.push(line),
+      records: { ...delegate(records), log },
+    });
+    delivery.observe(
+      TASKS,
+      (handed: Fact) => {
+        seen.push(handed.id);
+      },
+      { name: "racing" }
+    );
+    await delivery.start();
+    await delivery.idle();
+    await record(state, ["a", "b"], clock.now());
+    delivery.wake();
+    await delivery.idle();
+    await delivery.stop();
+
+    expect(compactions).toBe(1);
+    expect(seen).toEqual([]);
+    expect(lines.filter((line) => line.includes("missed"))).toEqual([
+      "[observe] racing (tasks) missed changes 1 to 2: they were removed before it received them; it goes on after them",
+    ]);
+    expect((await records.log.observers())[0]).toMatchObject({
+      missed: { from: 1, through: 2 },
+      position: 2,
     });
     await records.close();
   });
@@ -1310,14 +1546,18 @@ process.stdout.write("started\\n");
         return Promise.resolve();
       },
     };
-    const delivery = new Delivery({ print: () => undefined, records });
+    const clock = new ManualClock();
+    const delivery = new Delivery({ clock, print: () => undefined, records });
     delivery.observe(TASKS, () => undefined, { name: "idle" });
     const starting = delivery.start();
     await delivery.stop();
     grant(undefined);
     await starting;
     expect(released).toBe(1);
-    await new Promise((settle) => setTimeout(settle, DELIVERY_POLL_MS * 2));
+    // Ticks pass: none reads.
+    clock.advance(DELIVERY_POLL_MS);
+    clock.advance(DELIVERY_POLL_MS);
+    await delivery.idle();
     expect(reads).toBe(0);
   });
 
@@ -1346,7 +1586,8 @@ process.stdout.write("started\\n");
         return Promise.resolve();
       },
     };
-    const delivery = new Delivery({ print: () => undefined, records });
+    const clock = new ManualClock();
+    const delivery = new Delivery({ clock, print: () => undefined, records });
     delivery.observe(TASKS, () => undefined, { name: "idle" });
     const starting = delivery.start();
     await entered;
@@ -1354,7 +1595,9 @@ process.stdout.write("started\\n");
     file();
     await starting;
     delivery.wake();
-    await new Promise((settle) => setTimeout(settle, DELIVERY_POLL_MS * 2));
+    clock.advance(DELIVERY_POLL_MS);
+    clock.advance(DELIVERY_POLL_MS);
+    await delivery.idle();
     expect(passes).toBe(0);
     expect(released).toBe(1);
   });
@@ -1372,18 +1615,24 @@ process.stdout.write("started\\n");
         },
       },
     };
-    const engine = testEngine({ print: () => undefined, records });
-    engines.push(engine);
-    engine.observe(TASKS, () => undefined, { name: "idle" });
-    await engine.start();
-    // Running, it polls.
-    await vi.waitFor(() => expect(reads).toBeGreaterThan(1), {
-      timeout: DELIVERY_POLL_MS * 5,
-    });
-    await engine.stop();
-    const after = reads;
-    await new Promise((settle) => setTimeout(settle, DELIVERY_POLL_MS * 3));
-    expect(reads).toBe(after);
+    const clock = new ManualClock();
+    const delivery = new Delivery({ clock, print: () => undefined, records });
+    delivery.observe(TASKS, () => undefined, { name: "idle" });
+    await delivery.start();
+    await delivery.idle();
+    // Running, each tick reads the counter.
+    const started = reads;
+    clock.advance(DELIVERY_POLL_MS);
+    await delivery.idle();
+    clock.advance(DELIVERY_POLL_MS);
+    await delivery.idle();
+    expect(reads).toBe(started + 2);
+    await delivery.stop();
+    clock.advance(DELIVERY_POLL_MS);
+    clock.advance(DELIVERY_POLL_MS);
+    clock.advance(DELIVERY_POLL_MS);
+    await delivery.idle();
+    expect(reads).toBe(started + 2);
   });
 });
 

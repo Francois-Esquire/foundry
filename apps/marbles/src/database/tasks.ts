@@ -88,8 +88,9 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
       );
     }
     this.changes = changes;
-    this.log = aroundCalls(new DatabaseChangeLog(database, scope), (call) =>
-      this.#call(call)
+    this.log = aroundCalls(
+      new DatabaseChangeLog(database, scope, this.#owner),
+      (call) => this.#call(call)
     );
     const store = changes.causing(
       new SqliteTaskStore({

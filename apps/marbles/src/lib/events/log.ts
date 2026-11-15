@@ -17,38 +17,64 @@ import type { Fact } from "~/lib/events/source";
  */
 export interface ChangeLog {
   /**
-   * Remove the facts every observer seen since `seenSince` (epoch ms) has
-   * completed and that committed before `before`, oldest first, as one
-   * prefix of the log: how many went. An observer not seen since then does
-   * not hold them back; once declared again it is told what it missed.
+   * Remove the facts that committed before `before` and that every
+   * observer still holding them back has completed, oldest first, as one
+   * prefix of the log: how many went. An observer holds facts back while
+   * the deliverer has it registered (`registered`, whose `seenAt` this
+   * makes now, whatever it is doing: idle, in backoff, or stuck in a
+   * call), or while it was seen since `seenSince`; one no engine has
+   * registered for that long does not, and is told what it missed when it
+   * next moves. Only the deliverer compacts: 0, and nothing removed, when
+   * these records do not hold the claim.
    */
   compact(bound: CompactionBound): Promise<number>;
   /**
    * The observer `key`'s place, filed at the counter (from now) when it is
-   * new, and seen at `now`: one that fell behind the compacted prefix is
-   * moved past it, what it missed is recorded on it (`missed`), and this
-   * call alone says it fell behind (`fellBehind`).
+   * new, and seen at `now`. Nothing about its place changes here.
    */
-  declare(key: ObserverKey, now: number): Promise<DeclaredObserver>;
+  declare(key: ObserverKey, now: number): Promise<ObserverState>;
   /**
    * Record that `key` failed at `now` and is tried again at `retryAt`:
-   * one more failure, with `error`, its place kept.
+   * one more failure, with `error`, its place kept. Whether it was
+   * written: only while these records hold the claim.
    */
-  fail(key: ObserverKey, failure: ObserverFailure): Promise<void>;
+  fail(key: ObserverKey, failure: ObserverFailure): Promise<boolean>;
   /** The position of the newest fact recorded, 0 before the first: a cheap read. */
   head(): Promise<number>;
   /**
-   * Move `key` from `from` to `to`, at `now`, only while it is still at
-   * `from`, clearing its failures: whether it moved. A move another
-   * deliverer made first is never undone.
+   * Move `key` from `from` to `to`, at `now`, clearing its failures, in
+   * one conditional write: only while it is still at `from` (so a move
+   * another deliverer made first is never undone) and these records hold
+   * the claim. When the positions it passes over include some compaction
+   * removed, the same write records them as missed (`missed`), so no move
+   * passes a gap in silence.
    */
-  move(key: ObserverKey, move: ObserverMove): Promise<boolean>;
+  move(key: ObserverKey, move: ObserverMove): Promise<MoveOutcome>;
   /** Every observer filed in the workspace, by source, then name. */
   observers(): Promise<readonly ObserverState[]>;
   /** The facts of one source after a position, oldest first, detached. */
   read(query: ChangeQuery): Promise<readonly LoggedChange[]>;
-  /** Record that `key` is no longer stuck in a call: it settled, or its deliverer is gone. */
-  unstick(key: ObserverKey): Promise<void>;
+  /**
+   * Record that `key` is no longer stuck in a call: it settled, or its
+   * deliverer is gone. Whether it was written: only while these records
+   * hold the claim.
+   */
+  unstick(key: ObserverKey): Promise<boolean>;
+}
+
+/** What a `move` did. */
+export type MoveOutcome =
+  /** Moved; `missed` the positions compaction removed before it was handed them, if any. */
+  | { readonly kind: "moved"; readonly missed: MissedRange | null }
+  /** Not at `from` any more: another deliverer moved it. */
+  | { readonly kind: "elsewhere" }
+  /** These records no longer hold the claim: nothing written. */
+  | { readonly kind: "unclaimed" };
+
+/** Positions an observer passed over that compaction had removed. */
+export interface MissedRange {
+  readonly from: number;
+  readonly through: number;
 }
 
 /** An observer's identity within its workspace. */
@@ -64,8 +90,8 @@ export interface ObserverState extends ObserverKey {
   readonly failures: number;
   /** What its last failure said; `null` while it is well. */
   readonly lastError: string | null;
-  /** The facts it missed, removed before it received them; `null` when it missed none. */
-  readonly missed: { readonly from: number; readonly through: number } | null;
+  /** The facts it last missed, removed before it received them; `null` when it missed none. */
+  readonly missed: MissedRange | null;
   /** The last position it completed or passed over. */
   readonly position: number;
   /** When it is tried again, in epoch ms; `null` while it is well. */
@@ -78,12 +104,6 @@ export interface ObserverState extends ObserverKey {
   readonly stuckSince: number | null;
 }
 
-/** An observer as `declare` finds it. */
-export interface DeclaredObserver extends ObserverState {
-  /** Whether this declaration found it behind the compacted prefix and moved it past: `missed` is new. */
-  readonly fellBehind: boolean;
-}
-
 export interface ObserverFailure {
   readonly error: string;
   readonly now: number;
@@ -94,6 +114,8 @@ export interface ObserverFailure {
 
 export interface ObserverMove {
   readonly from: number;
+  /** Whether the fact at `to` was handed to the observer, so it is not one it missed. */
+  readonly handed: boolean;
   readonly now: number;
   readonly to: number;
 }
@@ -101,6 +123,10 @@ export interface ObserverMove {
 export interface CompactionBound {
   /** Only facts committed before this, in epoch ms. */
   readonly before: number;
+  /** Now, in epoch ms: when the registered observers are seen. */
+  readonly now: number;
+  /** The observers the deliverer has registered: each holds facts back, and is seen now. */
+  readonly registered: readonly ObserverKey[];
   /** Only observers seen since this, in epoch ms, hold facts back. */
   readonly seenSince: number;
 }
@@ -151,7 +177,8 @@ const KEY = (key: ObserverKey) => `${key.source}\0${key.name}`;
 
 /**
  * The change log in this process's memory, for an engine with no
- * database: what `record` was handed, lasting as long as the engine.
+ * database: what `record` was handed, lasting as long as the engine. Its
+ * records grant every claim, so it holds one for every write.
  */
 export class MemoryChangeLog implements ChangeLog {
   readonly #changes: (RecordedFact & { readonly position: number })[] = [];
@@ -174,12 +201,26 @@ export class MemoryChangeLog implements ChangeLog {
   }
 
   compact(bound: CompactionBound): Promise<number> {
-    const through = compactionPoint(
-      [...this.#observers.values()],
-      bound,
+    for (const key of bound.registered) {
+      const observer = this.#observers.get(KEY(key));
+      if (observer !== undefined) {
+        observer.seenAt = bound.now;
+      }
+    }
+    const floor = Math.min(
       this.#position,
-      this.#changes
+      ...[...this.#observers.values()]
+        .filter((observer) => observer.seenAt >= bound.seenSince)
+        .map((observer) => observer.position)
     );
+    let aged = 0;
+    for (const change of this.#changes) {
+      if (change.recordedAt >= bound.before) {
+        break;
+      }
+      aged = change.position;
+    }
+    const through = Math.min(floor, aged);
     const kept = this.#changes.filter((change) => change.position > through);
     const removed = this.#changes.length - kept.length;
     this.#changes.splice(0, this.#changes.length, ...kept);
@@ -187,7 +228,7 @@ export class MemoryChangeLog implements ChangeLog {
     return Promise.resolve(removed);
   }
 
-  declare(key: ObserverKey, now: number): Promise<DeclaredObserver> {
+  declare(key: ObserverKey, now: number): Promise<ObserverState> {
     let observer = this.#observers.get(KEY(key));
     if (observer === undefined) {
       observer = {
@@ -203,18 +244,10 @@ export class MemoryChangeLog implements ChangeLog {
       this.#observers.set(KEY(key), observer);
     }
     observer.seenAt = now;
-    const fellBehind = observer.position < this.#compacted;
-    if (fellBehind) {
-      observer.missed = {
-        from: observer.position + 1,
-        through: this.#compacted,
-      };
-      observer.position = this.#compacted;
-    }
-    return Promise.resolve({ ...stateOf(observer.key, observer), fellBehind });
+    return Promise.resolve(stateOf(observer.key, observer));
   }
 
-  fail(key: ObserverKey, failure: ObserverFailure): Promise<void> {
+  fail(key: ObserverKey, failure: ObserverFailure): Promise<boolean> {
     const observer = this.#observers.get(KEY(key));
     if (observer !== undefined) {
       observer.failures += 1;
@@ -223,24 +256,28 @@ export class MemoryChangeLog implements ChangeLog {
       observer.seenAt = failure.now;
       observer.stuckSince = failure.stuckSince;
     }
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
 
   head(): Promise<number> {
     return Promise.resolve(this.#position);
   }
 
-  move(key: ObserverKey, move: ObserverMove): Promise<boolean> {
+  move(key: ObserverKey, move: ObserverMove): Promise<MoveOutcome> {
     const observer = this.#observers.get(KEY(key));
     if (observer === undefined || observer.position !== move.from) {
-      return Promise.resolve(false);
+      return Promise.resolve({ kind: "elsewhere" });
     }
+    const missed = missedBy(move, this.#compacted);
     observer.position = move.to;
     observer.failures = 0;
     observer.lastError = null;
     observer.retryAt = null;
     observer.seenAt = move.now;
-    return Promise.resolve(true);
+    if (missed !== null) {
+      observer.missed = missed;
+    }
+    return Promise.resolve({ kind: "moved", missed });
   }
 
   observers(): Promise<readonly ObserverState[]> {
@@ -251,12 +288,12 @@ export class MemoryChangeLog implements ChangeLog {
     );
   }
 
-  unstick(key: ObserverKey): Promise<void> {
+  unstick(key: ObserverKey): Promise<boolean> {
     const observer = this.#observers.get(KEY(key));
     if (observer !== undefined) {
       observer.stuckSince = null;
     }
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
 
   read(query: ChangeQuery): Promise<readonly LoggedChange[]> {
@@ -281,30 +318,18 @@ export class MemoryChangeLog implements ChangeLog {
 }
 
 /**
- * The last position compaction may remove through: below every observer
- * seen since `bound.seenSince`, and no later than the last fact committed
- * before `bound.before`, so what goes is one prefix of the log.
+ * The positions `move` passes over that compaction removed: those after
+ * its `from` up to the compacted prefix's end (`compacted`) and its `to`,
+ * or the one before `to` when the fact there was handed.
+ * Facts there of other sources or types it would have passed over anyway,
+ * so a range may name some it would never have been handed.
  */
-function compactionPoint(
-  observers: readonly MemoryObserver[],
-  bound: CompactionBound,
-  head: number,
-  changes: readonly (RecordedFact & { readonly position: number })[]
-): number {
-  const floor = Math.min(
-    head,
-    ...observers
-      .filter((observer) => observer.seenAt >= bound.seenSince)
-      .map((observer) => observer.position)
-  );
-  let aged = 0;
-  for (const change of changes) {
-    if (change.recordedAt >= bound.before) {
-      break;
-    }
-    aged = change.position;
-  }
-  return Math.min(floor, aged);
+export function missedBy(
+  move: ObserverMove,
+  compacted: number
+): MissedRange | null {
+  const through = Math.min(compacted, move.handed ? move.to - 1 : move.to);
+  return through > move.from ? { from: move.from + 1, through } : null;
 }
 
 function stateOf(key: ObserverKey, observer: MemoryObserver): ObserverState {

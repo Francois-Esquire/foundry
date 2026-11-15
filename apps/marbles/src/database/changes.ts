@@ -6,6 +6,7 @@ import { readDatabase } from "~/database/open";
 import {
   marblesChangeLogs,
   marblesChanges,
+  marblesDeliveryClaims,
   marblesObservers,
 } from "~/database/tables";
 import { stateDatabase } from "~/layout";
@@ -13,8 +14,8 @@ import type {
   ChangeLog,
   ChangeQuery,
   CompactionBound,
-  DeclaredObserver,
   LoggedChange,
+  MoveOutcome,
   ObserverFailure,
   ObserverKey,
   ObserverMove,
@@ -195,54 +196,64 @@ export class ChangeRecorder {
 }
 
 /**
- * `write` taken once, as the store is to be handed it: each of its own
- * properties read once, in a plain object, and `events` as the copy
- * already taken, so the store reads that and never the caller's getter
- * again. The values are not copied: the store takes them by its own rules.
+ * `write` as the store is to be handed it: the write itself for every
+ * property the store reads, own or inherited, getter or not, read when
+ * the store reads it, once, and `events` alone answered with the copy
+ * already taken, so the store never reads the caller's events again. No
+ * field is listed here, so none is lost when a store gains one. A write
+ * whose own `events` can never read otherwise (frozen: not configurable,
+ * not writable) is handed as it is; the store takes it in this same turn.
  */
 function withEvents(
   write: object,
   events: readonly Fact[] | undefined
 ): object {
-  const taken: Record<string, unknown> = {};
-  for (const key of Reflect.ownKeys(write)) {
-    if (typeof key !== "string" || key === "events") {
-      continue;
-    }
-    const value: unknown = Reflect.get(write, key);
-    if (value !== undefined) {
-      // Defined, not assigned, so a `__proto__` key stays an own property.
-      Object.defineProperty(taken, key, {
-        configurable: true,
-        enumerable: true,
-        value,
-        writable: true,
-      });
-    }
+  const own = Reflect.getOwnPropertyDescriptor(write, "events");
+  if (own !== undefined && !own.configurable && own.writable === false) {
+    return write;
   }
-  if (events !== undefined) {
-    taken.events = events;
-  }
-  return taken;
+  return new Proxy(write, {
+    get: (target, property, receiver) =>
+      property === "events" ? events : Reflect.get(target, property, receiver),
+  });
 }
 
-/** The change log of the workspace `scope` over `database`. */
+/**
+ * The change log of the workspace `scope` over `database`, its observer
+ * rows written by the records whose delivery claim `owner` names: every
+ * write to a place, a failure or a stuck mark, and every compaction, is
+ * conditional, in the same statement or transaction, on `owner` still
+ * holding the workspace's claim (`marbles_delivery_claims`), so a writer
+ * that let go, however late its write lands, changes nothing.
+ */
 export class DatabaseChangeLog implements ChangeLog {
   readonly #database: StoreDatabase;
   readonly #scope: string;
+  readonly #owner: string;
 
-  constructor(database: StoreDatabase, scope: string) {
+  constructor(database: StoreDatabase, scope: string, owner: string) {
     this.#database = database;
     this.#scope = scope;
+    this.#owner = owner;
   }
 
   /**
-   * One transaction: the floor is the lowest place of an observer seen
-   * since `seenSince`, else the counter; what goes is every fact up to the
-   * floor and up to the last that committed before `before`.
+   * One transaction, under the claim: the registered observers are seen
+   * now; the floor is the lowest place of an observer seen since
+   * `seenSince`, else the counter; what goes is every fact up to the floor
+   * and up to the last that committed before `before`.
    */
   compact(bound: CompactionBound): Promise<number> {
     return this.#database.transaction(async (transaction) => {
+      if (!(await this.#holding(transaction))) {
+        return 0;
+      }
+      for (const key of bound.registered) {
+        await transaction
+          .update(marblesObservers)
+          .set({ seenAt: bound.now })
+          .where(this.#where(key));
+      }
       const head = await counterOf(transaction, this.#scope);
       const [lowest] = await transaction
         .select({ position: min(marblesObservers.position) })
@@ -294,7 +305,7 @@ export class DatabaseChangeLog implements ChangeLog {
     });
   }
 
-  declare(key: ObserverKey, now: number): Promise<DeclaredObserver> {
+  declare(key: ObserverKey, now: number): Promise<ObserverState> {
     return this.#database.transaction(async (transaction) => {
       const head = await counterOf(transaction, this.#scope);
       await transaction
@@ -315,25 +326,12 @@ export class DatabaseChangeLog implements ChangeLog {
       if (row === undefined) {
         throw new Error(`observer ${key.name} was not filed`);
       }
-      if (row.position >= head.compacted) {
-        return { ...stateOf(row), fellBehind: false };
-      }
-      // Fell behind what compaction removed: say so, then go on after it.
-      const behind = {
-        missedFrom: row.position + 1,
-        missedThrough: head.compacted,
-        position: head.compacted,
-      };
-      await transaction
-        .update(marblesObservers)
-        .set(behind)
-        .where(this.#where(key));
-      return { ...stateOf({ ...row, ...behind }), fellBehind: true };
+      return stateOf(row);
     });
   }
 
-  async fail(key: ObserverKey, failure: ObserverFailure): Promise<void> {
-    await this.#database
+  async fail(key: ObserverKey, failure: ObserverFailure): Promise<boolean> {
+    const written = await this.#database
       .update(marblesObservers)
       .set({
         failures: sql`${marblesObservers.failures} + 1`,
@@ -342,33 +340,72 @@ export class DatabaseChangeLog implements ChangeLog {
         seenAt: failure.now,
         stuckSince: failure.stuckSince,
       })
-      .where(this.#where(key));
+      .where(and(this.#where(key), this.#holds()))
+      .returning({ name: marblesObservers.name });
+    return written.length > 0;
   }
 
-  async unstick(key: ObserverKey): Promise<void> {
-    await this.#database
+  async unstick(key: ObserverKey): Promise<boolean> {
+    const written = await this.#database
       .update(marblesObservers)
       .set({ stuckSince: null })
-      .where(this.#where(key));
+      .where(and(this.#where(key), this.#holds()))
+      .returning({ name: marblesObservers.name });
+    return written.length > 0;
   }
 
   async head(): Promise<number> {
     return (await counterOf(this.#database, this.#scope)).position;
   }
 
-  async move(key: ObserverKey, move: ObserverMove): Promise<boolean> {
-    const moved = await this.#database
+  /**
+   * One statement: the place moves only from `from` and under the claim,
+   * and the positions it passes that the compacted prefix covers are
+   * recorded as missed by the same write, read from the counter as the
+   * statement runs, so a compaction landing at any moment around it
+   * cannot leave a gap unrecorded.
+   */
+  async move(key: ObserverKey, move: ObserverMove): Promise<MoveOutcome> {
+    const compacted = sql<number>`coalesce((select ${marblesChangeLogs.compacted} from ${marblesChangeLogs} where ${marblesChangeLogs.scope} = ${this.#scope}), 0)`;
+    // The last position passed over unhanded, as `missedBy` reckons it.
+    const last = move.handed ? move.to - 1 : move.to;
+    const through = sql<number>`min(${compacted}, ${last})`;
+    const passesGap = sql`${through} > ${move.from}`;
+    const [moved] = await this.#database
       .update(marblesObservers)
       .set({
         failures: 0,
         lastError: null,
+        missedFrom: sql`case when ${passesGap} then ${move.from + 1} else ${marblesObservers.missedFrom} end`,
+        missedThrough: sql`case when ${passesGap} then ${through} else ${marblesObservers.missedThrough} end`,
         position: move.to,
         retryAt: null,
         seenAt: move.now,
       })
-      .where(and(this.#where(key), eq(marblesObservers.position, move.from)))
-      .returning({ position: marblesObservers.position });
-    return moved.length > 0;
+      .where(
+        and(
+          this.#where(key),
+          eq(marblesObservers.position, move.from),
+          this.#holds()
+        )
+      )
+      .returning({
+        gap: sql<number>`${passesGap}`,
+        missedFrom: marblesObservers.missedFrom,
+        missedThrough: marblesObservers.missedThrough,
+      });
+    if (moved === undefined) {
+      return (await this.#holding(this.#database))
+        ? { kind: "elsewhere" }
+        : { kind: "unclaimed" };
+    }
+    return {
+      kind: "moved",
+      missed:
+        moved.gap && moved.missedFrom !== null && moved.missedThrough !== null
+          ? { from: moved.missedFrom, through: moved.missedThrough }
+          : null,
+    };
   }
 
   observers(): Promise<readonly ObserverState[]> {
@@ -383,6 +420,20 @@ export class DatabaseChangeLog implements ChangeLog {
       runId: row.runId,
       source: row.source,
     }));
+  }
+
+  /** The condition every observer-row write carries: these records still hold the claim. */
+  #holds() {
+    return sql`exists (select 1 from ${marblesDeliveryClaims} where ${marblesDeliveryClaims.scope} = ${this.#scope} and ${marblesDeliveryClaims.ownerId} = ${this.#owner})`;
+  }
+
+  /** Whether these records hold the claim, as `database` reads it now. */
+  async #holding(database: Pick<StoreDatabase, "select">): Promise<boolean> {
+    const [row] = await database
+      .select({ ownerId: marblesDeliveryClaims.ownerId })
+      .from(marblesDeliveryClaims)
+      .where(eq(marblesDeliveryClaims.scope, this.#scope));
+    return row?.ownerId === this.#owner;
   }
 
   #key(key: ObserverKey) {

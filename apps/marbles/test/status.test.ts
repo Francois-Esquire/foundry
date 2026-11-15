@@ -125,6 +125,7 @@ describe("readStatus", () => {
         database: database.database,
         scope: "ws1",
       });
+      expect(await records.claimDelivery()).toBeUndefined();
       const now = Date.now();
       const steady = { name: "steady", source: "tasks" };
       const flaky = { name: "flaky", source: "tasks" };
@@ -134,7 +135,7 @@ describe("readStatus", () => {
       const tasks = new Tasks({ store: records.taskStore });
       await tasks.create({ title: "A" });
       await tasks.create({ title: "B" });
-      await records.log.move(steady, { from: 2, now, to: 4 });
+      await records.log.move(steady, { from: 2, handed: false, now, to: 4 });
       await records.log.fail(flaky, {
         error: "down",
         now,

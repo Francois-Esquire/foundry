@@ -808,9 +808,11 @@ and outside any run, even when a step's write woke delivery, so a
 definition it calls starts a run of its own. It may change things itself.
 
 Facts every observer has completed are removed a week after they
-committed. An observer not declared for that long is not waited for: when
-it is declared again, it is told which facts it missed (in the host's
-output and in `marbles status`) and goes on after them.
+committed. An observer the delivering host has declared always holds them
+back, whether it is idle, retrying or stuck in a call. One no host has
+declared for a week is not waited for: when it next moves on, it is told
+which facts it missed (once, in the host's output, and in `marbles
+status`) and goes on after them.
 
 `@foundry.sh/marbles/prebuilt` exports the
 [prebuilt step factories](/marbles/reference/project#prebuilt-steps).

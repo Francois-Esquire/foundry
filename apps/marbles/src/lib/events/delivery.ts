@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { LoggedChange, ObserverKey } from "~/lib/events/log";
+import type { LoggedChange, MoveOutcome, ObserverKey } from "~/lib/events/log";
 import { CHANGE_BATCH } from "~/lib/events/log";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import type { Fact, Handler, Source } from "~/lib/events/source";
@@ -38,12 +38,19 @@ import { current } from "~/lib/run-scope";
  * it is tried next are kept with its place, for `marbles status`. A call
  * past its limit is not abandoned to another: until it settles, the
  * observer is stuck in it (kept with its place, since when) and handed
- * nothing, and its retry waits for it. An observer that fell behind what
- * compaction removed is told what it missed, once, and goes on after it.
+ * nothing, and its retry waits for it.
  *
- * Facts every observer seen within the retention has completed, and that
- * committed longer ago than the retention, are removed (`compact`), at
- * most once per `COMPACTION_EVERY_MS`.
+ * Facts every observer registered here, or seen within the retention, has
+ * completed, and that committed longer ago than the retention, are removed
+ * (`compact`), at most once per `COMPACTION_EVERY_MS`: an observer this
+ * engine has registered holds them back however long it is idle, in
+ * backoff or stuck. A place never moves over a gap in silence: a move past
+ * positions compaction removed records them as missed in the same write,
+ * and the observer is told so, once, then goes on after them.
+ *
+ * Every write about an observer is made only while this delivery's
+ * records hold the claim; one refused because they no longer do is
+ * printed and dropped, never retried.
  *
  * One engine delivers a workspace's changes at a time: the one granted the
  * claim (`DeliveryLease`), from a successful start until `stop`. Any
@@ -103,6 +110,8 @@ export function retryDelay(failures: number): number {
  */
 export interface DeliveryClock {
   after(ms: number): { readonly done: Promise<void>; cancel(): void };
+  /** Call `tick` every `ms` until cancelled. */
+  every(ms: number, tick: () => void): { cancel(): void };
   now(): number;
 }
 
@@ -115,6 +124,11 @@ const WALL_CLOCK: DeliveryClock = {
       timer.unref?.();
     });
     return { cancel: () => clearTimeout(timer), done };
+  },
+  every(ms, tick) {
+    const timer = setInterval(tick, ms);
+    timer.unref?.();
+    return { cancel: () => clearInterval(timer) };
   },
   now: () => Date.now(),
 };
@@ -197,7 +211,7 @@ export class Delivery {
   readonly #stopped: { gaveUp: boolean } = { gaveUp: false };
   /** When the log was last compacted here, in epoch ms; never, at first. */
   #compactedAt = Number.NEGATIVE_INFINITY;
-  #timer: ReturnType<typeof setInterval> | undefined;
+  #timer: { cancel(): void } | undefined;
   /** The last problem a tick printed, so a lasting one is printed once. */
   #problem: string | undefined;
   /** Runs a pass in the context this delivery was built in; see above. */
@@ -348,7 +362,7 @@ export class Delivery {
    */
   async stop(): Promise<void> {
     this.#phase = "stopped";
-    clearInterval(this.#timer);
+    this.#timer?.cancel();
     this.#timer = undefined;
     try {
       await this.#pass;
@@ -375,7 +389,7 @@ export class Delivery {
     }
   }
 
-  /** Read `observer`'s place as filed, and tell of it falling behind compaction. */
+  /** Read `observer`'s place as filed. */
   async #declareOne(observer: Observer): Promise<void> {
     const state = await this.#records.log.declare(
       observer.key,
@@ -384,11 +398,6 @@ export class Delivery {
     observer.position = state.position;
     observer.failures = state.failures;
     observer.retryAt = state.retryAt;
-    if (state.fellBehind && state.missed !== null) {
-      this.#print(
-        `[observe] ${describe(observer.key)} missed changes ${String(state.missed.from)} to ${String(state.missed.through)}: they were removed before it received them; it goes on after them`
-      );
-    }
   }
 
   /**
@@ -397,8 +406,17 @@ export class Delivery {
    */
   async #takeOver(): Promise<void> {
     for (const observer of this.#observers) {
-      await this.#records.log.unstick(observer.key);
+      if (!(await this.#records.log.unstick(observer.key))) {
+        this.#dropped(observer, "clearing what a gone deliverer left stuck");
+      }
     }
+  }
+
+  /** Say that a write about `observer` was refused, these records no longer holding the claim; it is not tried again. */
+  #dropped(observer: Observer, what: string): void {
+    this.#print(
+      `[observe] ${describe(observer.key)}: not ${what}: this engine no longer delivers this workspace's changes`
+    );
   }
 
   /** Take the claim; who holds it instead, when another engine does. */
@@ -420,12 +438,11 @@ export class Delivery {
     }
   }
 
-  /** Tick on `DELIVERY_POLL_MS`, without keeping the process alive. */
+  /** Tick on `DELIVERY_POLL_MS`, by the clock, without keeping the process alive. */
   #tickEvery(): void {
-    this.#timer = setInterval(() => {
+    this.#timer = this.#clock.every(DELIVERY_POLL_MS, () => {
       this.#tick();
-    }, DELIVERY_POLL_MS);
-    this.#timer.unref?.();
+    });
   }
 
   /** Claim delivery when waiting; when running, wake to look for facts recorded elsewhere and retries due. */
@@ -545,7 +562,13 @@ export class Delivery {
     }
     this.#compactedAt = now;
     const bound = now - this.#retention;
-    await this.#records.log.compact({ before: bound, seenSince: bound });
+    // Every observer registered here holds facts back, whatever it is doing.
+    await this.#records.log.compact({
+      before: bound,
+      now,
+      registered: this.#observers.map((observer) => observer.key),
+      seenSince: bound,
+    });
   }
 
   /**
@@ -650,7 +673,10 @@ export class Delivery {
       return;
     }
     try {
-      await this.#records.log.unstick(observer.key);
+      if (!(await this.#records.log.unstick(observer.key))) {
+        this.#dropped(observer, "clearing its stuck mark");
+        return;
+      }
     } catch (error) {
       this.#report(error);
     }
@@ -671,10 +697,11 @@ export class Delivery {
     if (this.#stopped.gaveUp) {
       return false;
     }
-    let moved: boolean;
+    let moved: MoveOutcome;
     try {
       moved = await this.#records.log.move(observer.key, {
         from: observer.position,
+        handed: completed !== undefined,
         now: this.#clock.now(),
         to,
       });
@@ -686,10 +713,19 @@ export class Delivery {
       }
       return false;
     }
-    if (!moved) {
+    if (moved.kind === "unclaimed") {
+      this.#dropped(observer, "moving its place");
+      return false;
+    }
+    if (moved.kind === "elsewhere") {
       // Another deliverer moved it: go on from where it is filed.
       await this.#declareOne(observer);
       return false;
+    }
+    if (moved.missed !== null) {
+      this.#print(
+        `[observe] ${describe(observer.key)} missed changes ${String(moved.missed.from)} to ${String(moved.missed.through)}: they were removed before it received them; it goes on after them`
+      );
     }
     observer.position = to;
     observer.failures = 0;
@@ -719,12 +755,15 @@ export class Delivery {
       `[observe] ${describe(observer.key)} failed on ${change.fact.type} ${String(change.position)} (failure ${String(failures)}; trying again in ${seconds(delay)}${stuckSince === null ? "" : ", once this call settles"}): ${message}`
     );
     try {
-      await this.#records.log.fail(observer.key, {
+      const written = await this.#records.log.fail(observer.key, {
         error: message,
         now,
         retryAt: observer.retryAt,
         stuckSince,
       });
+      if (!written) {
+        this.#dropped(observer, "recording its failure");
+      }
     } catch (saving) {
       this.#report(saving);
     }
