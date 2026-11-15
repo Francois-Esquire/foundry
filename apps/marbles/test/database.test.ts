@@ -540,7 +540,12 @@ opened.close();
         "--out",
         relative(resolve("."), out),
       ],
-      { cwd: resolve("."), stdio: ["ignore", "pipe", "pipe"] }
+      {
+        cwd: resolve("."),
+        // As `bun run db:generate` resolves the workspace packages' sources.
+        env: { ...process.env, NODE_OPTIONS: "--conditions=import" },
+        stdio: ["ignore", "pipe", "pipe"],
+      }
     );
     let output = "";
     generated.stdout?.on("data", (chunk: Buffer) => {

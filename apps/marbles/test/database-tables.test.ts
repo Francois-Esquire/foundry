@@ -1,6 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { agentMessages, agentSessions } from "@foundry/agents/store/tables";
 import { createTables } from "@foundry/lib/testing/sqlite";
 import { Tasks } from "@foundry/tasks";
 import { taskDependencies, tasks } from "@foundry/tasks/store/tables";
@@ -23,7 +24,12 @@ import { testMachine } from "./helpers/records";
  */
 
 /** The package tables Marbles' migrations create. */
-const PACKAGE_TABLES: readonly SQLiteTable[] = [tasks, taskDependencies];
+const PACKAGE_TABLES: readonly SQLiteTable[] = [
+  agentMessages,
+  agentSessions,
+  tasks,
+  taskDependencies,
+];
 
 /** Every column, index and indexed column of `table`, as SQLite reports them. */
 async function shape(database: StoreDatabase, table: string) {
