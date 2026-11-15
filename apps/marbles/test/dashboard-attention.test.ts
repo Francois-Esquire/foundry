@@ -1,4 +1,4 @@
-import type { RunRecord } from "@foundry/workflows/store";
+import type { RunRecord } from "@foundry/workflows/schema";
 import { expect, it } from "vitest";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { runRows } from "~/views/dashboard-tree";

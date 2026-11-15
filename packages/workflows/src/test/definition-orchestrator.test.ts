@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import type { DefinitionGraphBuilder } from "../definitions";
 import type { BaseContext } from "../executable";
+import { ExecutionCoordinator } from "../index";
 import type { RunExecutionContext } from "../orchestrator";
-
 import { Orchestrator } from "../orchestrator";
 import { Step } from "../step";
-import { InMemoryOrchestratorStore } from "../store";
 import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
+import { restoredStore } from "./helpers/store";
 
 interface Gate {
   readonly promise: Promise<void>;
@@ -112,7 +112,7 @@ describe("definition factories with Orchestrator", () => {
   it("registers Step and Workflow definitions beside legacy static factories", async () => {
     const orchestrator = new Orchestrator({
       config: makeOrchestratorConfig(),
-      store: new InMemoryOrchestratorStore(),
+      store: new ExecutionCoordinator(),
     });
     const step = new Double();
     const workflow = new DoubleWorkflow();
@@ -159,7 +159,7 @@ describe("definition factories with Orchestrator", () => {
     const config = makeOrchestratorConfig({
       defaultName: "definition-recovery",
     });
-    const source = new InMemoryOrchestratorStore();
+    const source = new ExecutionCoordinator();
     const gate = makeGate();
     const effect = new DurableEffect(gate);
     const definition = new DurableWorkflow(effect);
@@ -173,9 +173,7 @@ describe("definition factories with Orchestrator", () => {
     while (effect.emittedOutputs === 0) {
       await new Promise<void>((resolve) => setTimeout(resolve, 5));
     }
-    const restored = new InMemoryOrchestratorStore({
-      snapshot: source.snapshot(),
-    });
+    const restored = await restoredStore(await source.snapshot());
     await first.stop({ graceMs: 0 });
 
     const recovered = new Orchestrator({ config, store: restored });

@@ -5,15 +5,15 @@ import {
   SuspensionAlreadySettledError,
   SuspensionNotFoundError,
 } from "./errors";
-import { isJsonValue } from "./json-value";
 import type {
-  JsonValue,
-  OrchestratorStore,
   SuspensionCancellation,
   SuspensionQuery,
-  SuspensionRecord,
   UpdateRunInput,
-} from "./store";
+} from "./execution-commands";
+import type { OrchestratorStore } from "./execution-coordinator";
+import type { JsonValue } from "./json-value";
+import { isJsonValue } from "./json-value";
+import type { SuspensionRecord } from "./schema";
 
 export interface ResolveSuspensionOptions {
   readonly expectedRevision?: number;

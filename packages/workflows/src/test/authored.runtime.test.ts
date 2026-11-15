@@ -26,11 +26,9 @@ import {
   materializeLinear,
 } from "../authored";
 import type { DefinitionGraphBuilder } from "../definitions";
-import type { JsonValue } from "../execution-records";
+import type { JsonValue, OrchestratorStore } from "../index";
+import { ExecutionCoordinator } from "../index";
 import { Orchestrator } from "../orchestrator";
-import type { ExecutionPersistence } from "../persistence";
-import { createInMemoryExecutionPersistence } from "../persistence";
-import { orchestratorStoreFromPersistence } from "../persistence-compatibility";
 import type { RunJournal } from "../run-journal";
 import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
@@ -119,18 +117,18 @@ afterEach(async () => {
 async function startOrchestrator(
   plan: LinearPlan,
   resolve: (key: string) => TrustedStep,
-  persistence: ExecutionPersistence,
+  persistence: OrchestratorStore,
   queueName?: string
 ): Promise<{ orch: Orchestrator; host: EvidenceHost }> {
   const orch = new Orchestrator({
     config: makeOrchestratorConfig(
       queueName === undefined ? {} : { defaultName: queueName }
     ),
-    persistence,
+    store: persistence,
   });
   orchestrators.push(orch);
   await orch.setup();
-  const host = journalHost(persistence.journal);
+  const host = journalHost(persistence);
   orch.register<AuthoredRunInput, null, AuthoredContext>(
     "workflow.authored",
     (input, execution) =>
@@ -148,7 +146,7 @@ interface Attribution {
 interface RunOutcome {
   readonly error?: Attribution;
   readonly orch: Orchestrator;
-  readonly persistence: ExecutionPersistence;
+  readonly persistence: OrchestratorStore;
   readonly runId: string;
   readonly status: string;
 }
@@ -158,7 +156,7 @@ async function runPlan(
   resolve: (key: string) => TrustedStep,
   inputs: Record<string, string> = {}
 ): Promise<RunOutcome> {
-  const persistence = createInMemoryExecutionPersistence();
+  const persistence = new ExecutionCoordinator();
   const { orch } = await startOrchestrator(plan, resolve, persistence);
   const dispatched = await orch.run<AuthoredRunInput, null>(
     "workflow.authored",
@@ -175,10 +173,10 @@ async function runPlan(
 }
 
 async function logRecords(
-  persistence: ExecutionPersistence,
+  persistence: OrchestratorStore,
   runId: string
 ): Promise<Record<string, JsonValue>[]> {
-  const frames = await persistence.journal.listRunFrames(runId);
+  const frames = await persistence.listRunFrames(runId);
   const records: Record<string, JsonValue>[] = [];
   for (const frame of frames) {
     if (
@@ -195,10 +193,10 @@ async function logRecords(
 }
 
 async function outputFrames(
-  persistence: ExecutionPersistence,
+  persistence: OrchestratorStore,
   runId: string
 ): Promise<Record<string, JsonValue>[]> {
-  const frames = await persistence.journal.listRunFrames(runId);
+  const frames = await persistence.listRunFrames(runId);
   return frames
     .filter((f) => f.payload.kind === "output")
     .map((f) => f.payload.value as Record<string, JsonValue>);
@@ -302,8 +300,7 @@ describe("Group A — Invocation and evidence", () => {
     ]);
 
     // The persisted row holds status without values.
-    const row =
-      await orchestratorStoreFromPersistence(persistence).getRun(runId);
+    const row = await persistence.getRun(runId);
     expect(row?.output).toBeNull();
     const meta = readMetadata(row?.metadata) as {
       workflow: { steps: Record<string, Record<string, unknown>> };
@@ -500,8 +497,7 @@ describe("Group A — Invocation and evidence", () => {
 
     const { persistence, runId, status } = await runPlan(plan, resolve);
     expect(status).toBe("complete");
-    const row =
-      await orchestratorStoreFromPersistence(persistence).getRun(runId);
+    const row = await persistence.getRun(runId);
     const meta = readMetadata(row?.metadata) as {
       stream: { _tag: string }[];
     };
@@ -777,11 +773,11 @@ async function waitFor(
 
 /** True once the persisted row marks `placement`'s Step complete. */
 async function placementComplete(
-  persistence: ExecutionPersistence,
+  persistence: OrchestratorStore,
   runId: string,
   placement: string
 ): Promise<boolean> {
-  const row = await orchestratorStoreFromPersistence(persistence).getRun(runId);
+  const row = await persistence.getRun(runId);
   const meta = readMetadata(row?.metadata) as
     | { workflow?: { steps?: Record<string, { status?: string }> } }
     | null
@@ -806,12 +802,12 @@ async function restartAfterProducer(args: {
   resolve2: (key: string) => TrustedStep;
   inputs?: Record<string, string>;
 }): Promise<{
-  persistence: ExecutionPersistence;
+  persistence: OrchestratorStore;
   runId: string;
   status: string;
   error?: Attribution;
 }> {
-  const persistence = createInMemoryExecutionPersistence();
+  const persistence = new ExecutionCoordinator();
   const queueName = "restart-shared";
   const { orch: orch1 } = await startOrchestrator(
     args.plan,
@@ -1055,7 +1051,7 @@ describe("Group C — recovery", () => {
         },
       });
 
-    const persistence = createInMemoryExecutionPersistence();
+    const persistence = new ExecutionCoordinator();
     const queueName = "restart-interrupt";
     const { orch: orch1 } = await startOrchestrator(
       plan,
@@ -1070,7 +1066,7 @@ describe("Group C — recovery", () => {
     const runId = dispatched.id;
     // Wait until the claim frame is durable.
     await waitFor(async () => {
-      const frames = await persistence.journal.listRunFrames(runId);
+      const frames = await persistence.listRunFrames(runId);
       return frames.some(
         (f) =>
           f.payload.kind === "log" &&
@@ -1128,10 +1124,10 @@ async function runOutputWorkflow(
   workflow: Workflow<null, string>,
   name: string
 ): Promise<unknown> {
-  const persistence = createInMemoryExecutionPersistence();
+  const persistence = new ExecutionCoordinator();
   const orch = new Orchestrator({
     config: makeOrchestratorConfig(),
-    persistence,
+    store: persistence,
   });
   orchestrators.push(orch);
   await orch.setup();
@@ -1139,9 +1135,7 @@ async function runOutputWorkflow(
   await orch.start();
   const dispatched = await orch.run(name, null);
   await dispatched.result();
-  const row = await orchestratorStoreFromPersistence(persistence).getRun(
-    dispatched.id
-  );
+  const row = await persistence.getRun(dispatched.id);
   return row?.output ?? null;
 }
 
