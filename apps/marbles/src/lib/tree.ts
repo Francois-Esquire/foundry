@@ -347,7 +347,7 @@ export function factoryFor(
     ) as Input;
     return await scopes.open(
       execution?.runId ?? crypto.randomUUID(),
-      bound.root,
+      bound.context?.cwd ?? bound.root,
       bound.host,
       async (scope) =>
         Step.create(
