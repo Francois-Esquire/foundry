@@ -176,7 +176,10 @@ describe("the Marbles database", () => {
     // The same migration, its SQL edited since it was applied.
     const edited = join(dir, "edited");
     cpSync(MIGRATIONS, edited, { recursive: true });
-    const [first] = readdirSync(edited).filter((name) => name.endsWith(".sql"));
+    // Sorted: a directory lists its files in no set order on Linux.
+    const [first] = readdirSync(edited)
+      .filter((name) => name.endsWith(".sql"))
+      .sort();
     if (first === undefined) {
       throw new Error("no migrations are committed");
     }
