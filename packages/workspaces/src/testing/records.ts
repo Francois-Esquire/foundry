@@ -1,11 +1,11 @@
-import type { WorkspaceStore } from "../../store";
+import type { WorkspaceStore } from "../store";
 import type {
   WorkspaceEntry,
   WorkspaceEntryId,
   WorkspaceFile,
   WorkspaceId,
   WorkspaceRegistration,
-} from "../../types";
+} from "../types";
 
 export function newRoot(label: string): string {
   return `/src/${crypto.randomUUID()}/${label}`;

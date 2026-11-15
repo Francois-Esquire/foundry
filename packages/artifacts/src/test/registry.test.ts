@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { ArtifactManager } from "../manager";
-import { InMemoryArtifactStore } from "../memory";
 import { resolveReference } from "../references";
 import type { ArtifactBase } from "../registry";
 import { createRegistry } from "../registry";
+import { InMemoryArtifactStore } from "../store/memory";
 import { required } from "./helpers/required";
 
 describe("Artifact registry", () => {
