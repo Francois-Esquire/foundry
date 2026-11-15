@@ -1,8 +1,11 @@
 import { ExecutionCoordinator } from "@foundry/workflows";
+import type { RunRecord } from "@foundry/workflows/schema";
 import type { WorkflowStore } from "@foundry/workflows/store";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RecordedScope } from "~/lib/run-scope";
 import type { RunStore } from "~/lib/run-store";
+import { ANY_STORED_RUN } from "~/lib/run-store";
+import { NotStorableError } from "~/lib/state/json";
 
 /**
  * Where a run store under test comes from: `store()` makes another over
@@ -100,12 +103,56 @@ export function describeRunStore(
       expect(await runs.recorded("rn-1")).toEqual({ ledger: {} });
     });
 
+    it("claims a Run only while the Run as stored satisfies the claim's condition", async () => {
+      const runs = await store();
+      const workflows = await runs.open(() => undefined);
+      await putRun(workflows, "rn-1", "suspended");
+      await runs.release();
+      const parked = (stored: RunRecord | null) =>
+        stored?.status === "suspended";
+
+      // Moved on before the claim: the claim decides on what is stored now.
+      await putRun(workflows, "rn-1", "running");
+      await runs.release();
+      expect(await runs.claim("rn-1", parked)).toBe(false);
+      expect(await runs.claim("rn-missing", parked)).toBe(false);
+      const seen: (string | null)[] = [];
+      expect(
+        await runs.claim("rn-1", (stored) => {
+          seen.push(stored?.status ?? null);
+          return true;
+        })
+      ).toBe(true);
+      expect(seen).toEqual(["running"]);
+    });
+
+    it("refuses, whole, a commit whose recording JSON would not give back as it is", async () => {
+      for (const [ledger, literals] of [
+        [{ cost: Number.NaN }, {}],
+        [{ at: new Date(0) }, {}],
+        [{}, { flow: { n: undefined } }],
+        [{}, { flow: { n: Number.POSITIVE_INFINITY } }],
+      ] as const) {
+        const runs = await store();
+        const workflows = await runs.open(() => ({
+          ledger: ledger as Record<string, unknown>,
+          literals: literals as Record<string, Record<string, unknown>>,
+          session: { id: "run-session" },
+        }));
+        await expect(putRun(workflows, "rn-1")).rejects.toThrow(
+          NotStorableError
+        );
+        expect(await workflows.getRun("rn-1")).toBeNull();
+        expect(await runs.recorded("rn-1")).toEqual({ ledger: {} });
+      }
+    });
+
     it("claims a Run for itself, and gives it up when told", async () => {
       const runs = await store();
-      expect(await runs.claim("rn-1")).toBe(true);
-      expect(await runs.claim("rn-1")).toBe(true);
+      expect(await runs.claim("rn-1", ANY_STORED_RUN)).toBe(true);
+      expect(await runs.claim("rn-1", ANY_STORED_RUN)).toBe(true);
       await runs.release("rn-1");
-      expect(await runs.claim("rn-1")).toBe(true);
+      expect(await runs.claim("rn-1", ANY_STORED_RUN)).toBe(true);
       await runs.release();
     });
 
@@ -128,7 +175,7 @@ export function describeRunStore(
       const runs = await store();
       const workflows = await runs.open(() => undefined);
       await runs.close();
-      await expect(runs.claim("rn-1")).rejects.toThrow();
+      await expect(runs.claim("rn-1", ANY_STORED_RUN)).rejects.toThrow();
       await expect(runs.recorded("rn-1")).rejects.toThrow();
       if (runs.durable) {
         await expect(workflows.getRun("rn-1")).rejects.toThrow();
@@ -163,9 +210,9 @@ export function describeRunStore(
         const workflows = await first.open(() => undefined);
         await putRun(workflows, "rn-1", "running");
 
-        expect(await second.claim("rn-1")).toBe(false);
+        expect(await second.claim("rn-1", ANY_STORED_RUN)).toBe(false);
         await putRun(workflows, "rn-1", "complete");
-        expect(await second.claim("rn-1")).toBe(true);
+        expect(await second.claim("rn-1", ANY_STORED_RUN)).toBe(true);
       }
     );
 
@@ -178,16 +225,16 @@ export function describeRunStore(
         await putRun(workflows, "rn-1", "suspended");
 
         // Putting it made the first its owner; the second is refused.
-        expect(await second.claim("rn-1")).toBe(false);
+        expect(await second.claim("rn-1", ANY_STORED_RUN)).toBe(false);
         await first.release();
-        expect(await second.claim("rn-1")).toBe(true);
-        expect(await first.claim("rn-1")).toBe(false);
+        expect(await second.claim("rn-1", ANY_STORED_RUN)).toBe(true);
+        expect(await first.claim("rn-1", ANY_STORED_RUN)).toBe(false);
 
         await second.release("rn-1");
         await putRun(workflows, "rn-1", "running");
         await putRun(workflows, "rn-1", "complete");
         // Settled: no store owns it.
-        expect(await second.claim("rn-1")).toBe(true);
+        expect(await second.claim("rn-1", ANY_STORED_RUN)).toBe(true);
       }
     );
   });

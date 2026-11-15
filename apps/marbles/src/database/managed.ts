@@ -18,7 +18,7 @@ import type {
 } from "~/lib/events/records";
 import { EmitListeners, RecordsGate } from "~/lib/events/records";
 import type { RecordedScope } from "~/lib/run-scope";
-import type { RunStore, StoredScope } from "~/lib/run-store";
+import type { ClaimCondition, RunStore, StoredScope } from "~/lib/run-store";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 import type {
@@ -430,8 +430,8 @@ class ManagedRunStore implements RunStore {
     );
   }
 
-  claim(runId: string): Promise<boolean> {
-    return this.#run((store) => store.claim(runId));
+  claim(runId: string, when: ClaimCondition): Promise<boolean> {
+    return this.#run((store) => store.claim(runId, when));
   }
 
   async close(): Promise<void> {

@@ -13,7 +13,11 @@ import type {
   TickClaim,
   TriggerStore,
 } from "~/lib/trigger-store";
-import { monitorStateSchema, scheduleHistorySchema } from "~/lib/trigger-store";
+import {
+  monitorStateSchema,
+  scheduleHistorySchema,
+  storedMonitorState,
+} from "~/lib/trigger-store";
 
 /**
  * A workspace's trigger state in the Marbles database, scoped by the
@@ -168,7 +172,7 @@ export class DatabaseTriggerStore implements TriggerStore {
 
   saveMonitorState(key: string, state: MonitorState): Promise<void> {
     return this.#call(async () => {
-      const { observed, pending } = monitorStateSchema.parse(state);
+      const { observed, pending } = storedMonitorState(key, state);
       const values = {
         observed,
         pending:

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { RunRecord } from "@foundry/workflows/schema";
 import type {
   WorkflowStore,
   WorkflowStoreWrite,
@@ -7,6 +8,7 @@ import { MemoryWorkflowStore } from "@foundry/workflows/store/memory";
 
 import { RecordsGate } from "~/lib/events/records";
 import type { RecordedScope } from "~/lib/run-scope";
+import { storableJson } from "~/lib/state/json";
 
 /**
  * Where an engine keeps its workflow Runs: the `@foundry/workflows` records
@@ -25,8 +27,14 @@ import type { RecordedScope } from "~/lib/run-scope";
  * keeps it on disk (`database/runs.ts`), where it outlives the process.
  */
 export interface RunStore {
-  /** Own a Run no live engine owns; whether this store owns it now. */
-  claim(runId: string): Promise<boolean>;
+  /**
+   * Own a Run no live engine owns, while the Run as stored satisfies
+   * `when`, read in the same atomic step as the claim, so no change to the
+   * Run lands between the decision and the claim; whether this store owns
+   * it now. Every claim says what it requires of the Run
+   * (`ANY_STORED_RUN` when ownership is all it decides on).
+   */
+  claim(runId: string, when: ClaimCondition): Promise<boolean>;
   /** Refuse every call from now on; a handle the store opened itself closes. */
   close(): Promise<void>;
   /**
@@ -49,6 +57,16 @@ export interface RunStore {
   /** A settled Run and everything kept of it, gone in one write. */
   remove(runId: string): Promise<void>;
 }
+
+/**
+ * Whether a Run, as the store holds it at the claim (`null` when it holds
+ * none), may be claimed. Asked inside the claim's atomic step, so it must
+ * only read: what it is told and what this process already holds.
+ */
+export type ClaimCondition = (stored: RunRecord | null) => boolean;
+
+/** A claim that requires nothing of the Run: ownership is all it decides. */
+export const ANY_STORED_RUN: ClaimCondition = () => true;
 
 /**
  * What a Run's scope recorded, as the store gives it back: the ledger and
@@ -101,9 +119,11 @@ export async function removalOf(
 
 /**
  * How a commit's Runs change what is kept beside them: for each Run put,
- * the scope recorded for it when there is one, and whether the commit
- * settles it. Shared by every store, so they cannot read a commit
- * differently.
+ * the scope recorded for it when there is one, as a plain copy, and
+ * whether the commit settles it. Shared by every store, so they cannot
+ * read a commit differently. A recording JSON would not give back as it
+ * is (`storableJson`) throws a `NotStorableError` naming it, and the
+ * commit is refused whole.
  */
 export function filedRuns(
   write: WorkflowStoreWrite,
@@ -117,10 +137,32 @@ export function filedRuns(
     const scope = recorded(run.id);
     return {
       runId: run.id,
-      ...(scope === undefined ? {} : { scope }),
+      ...(scope === undefined ? {} : { scope: storedScope(run.id, scope) }),
       settled: TERMINAL_RUN_STATUSES.has(run.status),
     };
   });
+}
+
+/** The plain copy of what a Run's scope recorded that every store keeps. */
+function storedScope(runId: string, scope: RecordedScope): RecordedScope {
+  const at = `run ${JSON.stringify(runId)}`;
+  return {
+    ledger: storableJson(
+      `${at} ledger`,
+      scope.ledger
+    ) as RecordedScope["ledger"],
+    ...(scope.literals === undefined
+      ? {}
+      : {
+          literals: storableJson(
+            `${at} literals`,
+            scope.literals
+          ) as RecordedScope["literals"],
+        }),
+    session: {
+      id: storableJson(`${at} session`, scope.session.id) as string,
+    },
+  };
 }
 
 /**
@@ -135,15 +177,21 @@ export class MemoryRunStore implements RunStore {
   readonly #scopes = new Map<string, RecordedScope>();
   readonly #workflows = new MemoryWorkflowStore();
 
-  claim(runId: string): Promise<boolean> {
-    return this.#gate.run(() => {
-      const owner = this.#owners.get(runId);
-      if (owner !== undefined && owner !== this.#owner) {
-        return Promise.resolve(false);
-      }
-      this.#owners.set(runId, this.#owner);
-      return Promise.resolve(true);
-    });
+  claim(runId: string, when: ClaimCondition): Promise<boolean> {
+    return this.#gate.run(() =>
+      // In the workflow records' own transaction: nothing commits between.
+      this.#workflows.transaction(async (view) => {
+        if (!when(await view.getRun(runId))) {
+          return false;
+        }
+        const owner = this.#owners.get(runId);
+        if (owner !== undefined && owner !== this.#owner) {
+          return false;
+        }
+        this.#owners.set(runId, this.#owner);
+        return true;
+      })
+    );
   }
 
   close(): Promise<void> {
@@ -236,10 +284,15 @@ export class MemoryRunStore implements RunStore {
     return {
       commit: (write) => {
         // Taken as the commit is called, as the store takes its write.
-        const taken: Filed = {
-          deleted: [...(write.deleteRuns ?? [])],
-          runs: structuredClone(filedRuns(write, recorded)),
-        };
+        let taken: Filed;
+        try {
+          taken = {
+            deleted: [...(write.deleteRuns ?? [])],
+            runs: filedRuns(write, recorded),
+          };
+        } catch (error) {
+          return Promise.reject(error);
+        }
         return through(async () => {
           await store.commit(write);
           filed(taken);

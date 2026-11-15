@@ -15,7 +15,7 @@ import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { RecordsGate } from "~/lib/events/records";
 import type { RecordedScope } from "~/lib/run-scope";
-import type { RunStore, StoredScope } from "~/lib/run-store";
+import type { ClaimCondition, RunStore, StoredScope } from "~/lib/run-store";
 import { filedRuns, removalOf } from "~/lib/run-store";
 
 /**
@@ -62,9 +62,18 @@ export class DatabaseRunStore implements RunStore {
     this.#scope = options.scope;
   }
 
-  claim(runId: string): Promise<boolean> {
+  claim(runId: string, when: ClaimCondition): Promise<boolean> {
     return this.#call(() =>
       this.#database.transaction(async (transaction) => {
+        // Read in the claim's own transaction: no write lands between it
+        // and the claim, from this process or another.
+        const stored = await new SqliteWorkflowStore({
+          database: transaction,
+          scope: this.#scope,
+        }).getRun(runId);
+        if (!when(stored)) {
+          return false;
+        }
         const [row] = await transaction
           .select({
             ownerId: marblesWorkflowRuns.ownerId,

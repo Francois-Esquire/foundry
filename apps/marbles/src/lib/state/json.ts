@@ -72,3 +72,91 @@ export function jsonData(value: unknown): JsonValue {
       return null;
   }
 }
+
+/** A value a store refuses because JSON would not give it back as it is. */
+export class NotStorableError extends TypeError {
+  override readonly name = "NotStorableError";
+}
+
+/**
+ * A plain copy of `value` that JSON gives back exactly, or a
+ * `NotStorableError` naming, from `at`, the first part it would not: NaN,
+ * an infinity or `-0`, `undefined` (a property holding it, or an array
+ * entry), a hole in an array, a bigint, a function or a symbol, a value
+ * that contains itself, and any object that is not plain or an array. The
+ * rule the workflows SQLite store keeps for its records, so what Marbles
+ * stores beside them reads back the same from memory and from disk.
+ */
+export function storableJson(at: string, value: unknown): JsonValue {
+  return storable(at, value, new Set());
+}
+
+function storable(at: string, value: unknown, seen: Set<object>): JsonValue {
+  switch (typeof value) {
+    case "boolean":
+    case "string":
+      return value;
+    case "number":
+      if (!Number.isFinite(value) || Object.is(value, -0)) {
+        throw new NotStorableError(
+          `${at} holds ${Object.is(value, -0) ? "-0" : String(value)}, which does not read back intact from JSON`
+        );
+      }
+      return value;
+    case "object":
+      if (value === null) {
+        return null;
+      }
+      if (seen.has(value)) {
+        throw new NotStorableError(`${at} contains itself`);
+      }
+      seen.add(value);
+      try {
+        return Array.isArray(value)
+          ? storableArray(at, value, seen)
+          : storableObject(at, value, seen);
+      } finally {
+        seen.delete(value);
+      }
+    default:
+      throw new NotStorableError(
+        `${at} holds ${value === undefined ? "undefined" : `a ${typeof value}`}, which has no JSON form`
+      );
+  }
+}
+
+function storableArray(
+  at: string,
+  value: readonly unknown[],
+  seen: Set<object>
+): JsonValue[] {
+  return Array.from({ length: value.length }, (_, index) => {
+    if (!Object.hasOwn(value, index)) {
+      throw new NotStorableError(`${at}[${index}] is a hole in an array`);
+    }
+    return storable(`${at}[${index}]`, value[index], seen);
+  });
+}
+
+function storableObject(
+  at: string,
+  value: object,
+  seen: Set<object>
+): { [key: string]: JsonValue } {
+  const prototype: unknown = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new NotStorableError(
+      `${at} holds an object that is not plain, which does not read back intact from JSON`
+    );
+  }
+  const copy: { [key: string]: JsonValue } = {};
+  for (const [key, item] of Object.entries(value)) {
+    Object.defineProperty(copy, key, {
+      configurable: true,
+      enumerable: true,
+      value: storable(`${at}.${key}`, item, seen),
+      writable: true,
+    });
+  }
+  return copy;
+}

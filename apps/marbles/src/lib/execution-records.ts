@@ -21,6 +21,7 @@ import {
 } from "./execution-record";
 import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
 import type { RunStore } from "./run-store";
+import { ANY_STORED_RUN } from "./run-store";
 import { isRecord } from "./state/json";
 import type { StateStore } from "./state/store";
 
@@ -473,7 +474,9 @@ export class ExecutionRecords {
       return false;
     }
     const runs = known.kind === "workflow" ? this.#runs : undefined;
-    if (runs && !(await runs.claim(id))) {
+    // Ownership is all the claim decides: the record is read again under
+    // the run's `execution-<id>` lock, which every recoverer takes too.
+    if (runs && !(await runs.claim(id, ANY_STORED_RUN))) {
       return false;
     }
     try {

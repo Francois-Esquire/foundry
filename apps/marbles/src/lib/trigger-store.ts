@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { RecordsGate } from "~/lib/events/records";
 import type { Launch } from "~/lib/launch";
+import { storableJson } from "~/lib/state/json";
 
 /**
  * What a workspace's triggers keep between ticks, each by its key, which a
@@ -48,7 +49,10 @@ export interface TriggerStore {
   lastTick(key: string): Promise<ScheduleHistory | undefined>;
   /** What the monitor `key` keeps; `undefined` before its first change. */
   monitorState(key: string): Promise<MonitorState | undefined>;
-  /** Keep `state` as the monitor `key`'s, whole. */
+  /**
+   * Keep `state` as the monitor `key`'s, whole. Rejects, keeping nothing,
+   * a state that would not read back as it is (`storedMonitorState`).
+   */
   saveMonitorState(key: string, state: MonitorState): Promise<void>;
 }
 
@@ -88,6 +92,30 @@ export const monitorStateSchema = z.object({
 export interface MonitorState {
   readonly observed: Readonly<Record<string, unknown>>;
   readonly pending?: Launch;
+}
+
+/**
+ * The copy of a monitor's `state` every store keeps: what it saw and its
+ * pending launch's input as plain JSON, refused with a `NotStorableError`
+ * naming the part JSON would not give back as it is (`storableJson`), so
+ * a state reads back the same from memory as from the database.
+ */
+export function storedMonitorState(
+  key: string,
+  { observed, pending }: MonitorState
+): MonitorState {
+  const at = `monitor ${JSON.stringify(key)}`;
+  return monitorStateSchema.parse({
+    observed: storableJson(`${at} observed`, observed),
+    ...(pending === undefined
+      ? {}
+      : {
+          pending: {
+            input: storableJson(`${at} pending input`, pending.input),
+            workflow: pending.workflow,
+          },
+        }),
+  }) as MonitorState;
 }
 
 /** When a tick last finished, in ms since the epoch; `undefined` before its first. */
@@ -156,10 +184,7 @@ export class MemoryTriggerStore implements TriggerStore {
 
   saveMonitorState(key: string, state: MonitorState): Promise<void> {
     return this.#gate.run(async () => {
-      this.#monitors.set(
-        key,
-        monitorStateSchema.parse(structuredClone(state)) as MonitorState
-      );
+      this.#monitors.set(key, storedMonitorState(key, state));
     });
   }
 }

@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { ScheduleHistory, TriggerStore } from "~/lib/trigger-store";
+import { NotStorableError } from "~/lib/state/json";
+import type {
+  MonitorState,
+  ScheduleHistory,
+  TriggerStore,
+} from "~/lib/trigger-store";
 
 /**
  * Where a trigger store under test comes from: `store()` makes another
@@ -122,6 +127,28 @@ export function describeTriggerStore(
       expect(await triggers.monitorState("m")).toEqual({
         observed: { files: {} },
       });
+    });
+
+    it("refuses, keeping what it had, a monitor state JSON would not give back as it is", async () => {
+      const triggers = await store();
+      const kept = { observed: { hash: "first" } };
+      await triggers.saveMonitorState("m", kept);
+      for (const state of [
+        {
+          observed: { hash: "x" },
+          pending: { input: { amount: Number.NaN }, workflow: "flow" },
+        },
+        { observed: { hash: undefined } },
+        { observed: { seen: new Date(0) } },
+        { observed: { zero: -0 } },
+        { observed: { list: [1, undefined] } },
+        { observed: {}, pending: { input: 1n, workflow: "flow" } },
+      ]) {
+        await expect(
+          triggers.saveMonitorState("m", state as unknown as MonitorState)
+        ).rejects.toThrow(NotStorableError);
+      }
+      expect(await triggers.monitorState("m")).toEqual(kept);
     });
 
     it("refuses every call once closed", async () => {

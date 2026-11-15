@@ -16,6 +16,8 @@ import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import { TASKS } from "~/lib/events/source";
 import type { ExecutionRun } from "~/lib/executions";
+import { Executions } from "~/lib/executions";
+import { ANY_STORED_RUN } from "~/lib/run-store";
 import { JsonStateStore } from "~/lib/state/store";
 import type { Context } from "~/lib/types";
 import { testEngine } from "../helpers/engine";
@@ -48,7 +50,7 @@ function engineWith(options: Parameters<typeof testEngine>[0] = {}): Engine {
 async function claimedElsewhere(runId: string): Promise<boolean> {
   const probe = defaultWorkspaceRuns(state, root, "test");
   try {
-    const claimed = await probe.claim(runId);
+    const claimed = await probe.claim(runId, ANY_STORED_RUN);
     await probe.release(runId);
     return !claimed;
   } finally {
@@ -244,7 +246,7 @@ it("leaves a parked run alone while another process is adopting it", async () =>
   // An adopter holds the claim on the Run from before it reads the record.
   const adopter = defaultWorkspaceRuns(state, root, "test");
   try {
-    expect(await adopter.claim("rn-adopting")).toBe(true);
+    expect(await adopter.claim("rn-adopting", ANY_STORED_RUN)).toBe(true);
     await expect(engine.cancel("rn-adopting")).rejects.toThrow();
     expect(engine.executions.get("rn-adopting")?.status).toBe("suspended");
     await adopter.release();
@@ -350,4 +352,36 @@ it("never readmits a queued run under a name now registered as the other kind", 
     true
   );
   expect(ran).toBe(false);
+});
+
+it("reads an orphan's record again once its Run is claimed, and leaves one an adopter took meanwhile", async () => {
+  leftBehind({
+    id: "rn-late",
+    kind: "workflow",
+    name: "gone",
+    queue: "marbles",
+    status: "suspended",
+  });
+  const store = new JsonStateStore(state);
+  const adopted = {
+    ...(store.read("executions", "rn-late") as ExecutionRun),
+    owner: { pid: process.ppid },
+    revision: 2,
+  };
+  const executions = new Executions({
+    runs: {
+      claim: () => {
+        // Between the look and the claim: a live process adopts it.
+        store.write("executions", "rn-late", adopted);
+        return Promise.resolve(true);
+      },
+      release: () => Promise.resolve(),
+    },
+    store,
+    warn: () => undefined,
+  });
+  executions.load();
+
+  expect(await executions.cancelOrphan("rn-late")).toBe(false);
+  expect(store.read("executions", "rn-late")).toEqual(adopted);
 });
