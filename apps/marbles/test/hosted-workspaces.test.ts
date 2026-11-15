@@ -14,7 +14,7 @@ import { afterEach, expect, it } from "vitest";
 import { recordedWorkspaces } from "~/database/workspaces";
 
 const SRC = resolve("src");
-const AMBIGUOUS = /hosts 2 workspaces/;
+const AMBIGUOUS = /names no workspace/;
 const roots: string[] = [];
 
 afterEach(async () => {
@@ -343,4 +343,175 @@ it("keeps where a workspace was registered to work when a later host names nowhe
   expect(records.find((record) => record.root === a.dir)?.cwd).toBe(
     join(a.dir, "sub")
   );
+}, 120_000);
+
+it("keeps what a workspace's module declares late, from a callback, in that workspace, while another loads", async () => {
+  const root = await scratch();
+  const a = await workspace(
+    root,
+    "alpha",
+    `globalThis.alphaLate = new Promise((fire) => { globalThis.fireAlphaLate = fire; }).then(() => {
+  step("late-from-alpha").do(() => "late");
+});
+`
+  );
+  const b = await workspace(
+    root,
+    "beta",
+    // While beta loads, alpha's callback runs, as a timer of alpha's would.
+    "globalThis.fireAlphaLate();\nawait globalThis.alphaLate;\n"
+  );
+  const report = await inProcess(
+    root,
+    `const { openWorkspace } = await import(${JSON.stringify(join(SRC, "workspace/open.ts"))});
+  const open = (dir, source) => openWorkspace(
+    { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: source, directory: dir, dry: true, state: ${JSON.stringify(join(root, "state"))} },
+    { print: () => undefined }
+  );
+  const alpha = await open(${JSON.stringify(a.dir)}, ${JSON.stringify(a.source)});
+  const beta = await open(${JSON.stringify(b.dir)}, ${JSON.stringify(b.source)});
+  report.alpha = [...alpha.catalog.definitions.keys()].sort();
+  report.beta = [...beta.catalog.definitions.keys()].sort();`
+  );
+  expect(report.alpha).toEqual(["build", "late-from-alpha"]);
+  expect(report.beta).toEqual(["build"]);
+}, 120_000);
+
+it("refuses what a closed workspace's work does later, rather than give it to the workspace left", async () => {
+  const root = await scratch();
+  const a = await workspace(
+    root,
+    "alpha",
+    `export const arm = step("arm").do(() => {
+  globalThis.alphaLate = new Promise((release) => { globalThis.releaseAlpha = release; })
+    .then(() => tasks.create({ title: "late alpha" }));
+  globalThis.alphaCallback = () => tasks.create({ title: "callback alpha" });
+  return "armed";
+});
+// Both in tail position: nothing of alpha's is left on the stack when they run.
+globalThis.alphaRun = () => build.run();
+`
+  );
+  const b = await workspace(root, "beta");
+  const report = await inProcess(
+    root,
+    `const alpha = await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  const beta = await hosted.register({ config: ${JSON.stringify(b.source)}, root: ${JSON.stringify(b.dir)} });
+  await hosted.run({ name: "arm", workspace: alpha.id });
+  // Called from outside any run: alpha's own code still names alpha.
+  await globalThis.alphaCallback();
+  report.alphaRun = await globalThis.alphaRun();
+  report.alphaTasks = await titles(alpha.id);
+  await alpha.close();
+  report.runAfterClose = await globalThis.alphaRun().then(() => "ran", (error) => error.message);
+  globalThis.releaseAlpha();
+  report.late = await globalThis.alphaLate.then(() => "written", (error) => error.message);
+  report.betaTasks = await titles(beta.id);`
+  );
+  expect(report.alphaRun).toBe(`${a.dir}\nalpha`);
+  expect(report.alphaTasks).toEqual(["built alpha", "callback alpha"]);
+  expect(report.runAfterClose).toContain("is no longer hosted in this process");
+  expect(report.late).toContain("is no longer hosted in this process");
+  expect(report.betaTasks).toEqual([]);
+}, 120_000);
+
+it("shares one registration of a workspace between callers who register it at once", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const report = await inProcess(
+    root,
+    `const registration = { config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} };
+  const hosts = await Promise.all([hosted.register(registration), hosted.register(registration)]);
+  report.same = hosts[0] === hosts[1];
+  report.listed = hosted.list().length;
+  await hosted.close();
+  report.disposed = hosts.map((host) => host.engine.disposed);`
+  );
+  expect(report).toMatchObject({
+    disposed: [true, true],
+    listed: 1,
+    same: true,
+  });
+}, 120_000);
+
+it("loads every registered workspace again, reports each that fails, and fires a schedule by workspace and key", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const b = await workspace(root, "beta");
+  const report = await inProcess(
+    root,
+    `const alpha = await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  await hosted.register({ config: ${JSON.stringify(b.source)}, root: ${JSON.stringify(b.dir)} });
+  report.rolled = (await hosted.roll({ name: "build", workspace: alpha.id })).value;
+  await hosted.close();
+  await Bun.write(${JSON.stringify(b.source)}, 'throw new Error("beta is broken");');
+  const again = await HostedWorkspaces.open({
+    artifacts: ${JSON.stringify(join(root, "artifacts"))},
+    state: ${JSON.stringify(join(root, "state"))},
+  });
+  try {
+    report.loads = (await again.loadRegistered()).map((load) =>
+      load.loaded ? { loaded: true, root: load.root } : { error: load.error.message, loaded: false, root: load.root }
+    );
+  } finally {
+    await again.close();
+  }`
+  );
+  // The schedule's key is the workflow's: rolling it ticks the schedule.
+  expect(report.rolled).toBe(`${a.dir}\nalpha`);
+  const loads = report.loads as Record<string, unknown>[];
+  expect(loads).toHaveLength(2);
+  expect(loads).toContainEqual({ loaded: true, root: a.dir });
+  const failed = loads.find((load) => load.root === b.dir);
+  expect(failed).toMatchObject({ loaded: false });
+  expect(failed?.error).toContain("beta is broken");
+  const records = await recordedWorkspaces(join(root, "state"));
+  expect(records.map((record) => record.hosted)).toEqual([true, true]);
+}, 120_000);
+
+it("loads a module two workspaces import from outside their roots once for each of them", async () => {
+  const root = await scratch();
+  const shared = join(root, "shared.ts");
+  await writeFile(
+    shared,
+    'import { step } from "@foundry.sh/marbles";\nexport const sharedStep = step("shared").do(() => "shared");\n'
+  );
+  const tail = `import ${JSON.stringify(shared)};\n`;
+  const a = await workspace(root, "alpha", tail);
+  const b = await workspace(root, "beta", tail);
+  const report = await inProcess(
+    root,
+    `const loads = await hosted.load([
+    { config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} },
+    { config: ${JSON.stringify(b.source)}, root: ${JSON.stringify(b.dir)} },
+  ]);
+  report.loads = loads.map((load) => load.loaded);
+  report.shared = await Promise.all(
+    hosted.list().map((host) => hosted.run({ name: "shared", workspace: host.id }))
+  );`
+  );
+  expect(report.loads).toEqual([true, true]);
+  expect(report.shared).toEqual(["shared", "shared"]);
+}, 120_000);
+
+it("refuses what a package declares while a workspace loads, since every workspace shares it", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha", 'import "declaring-package";\n');
+  const pkg = join(a.dir, "node_modules", "declaring-package");
+  await mkdir(pkg, { recursive: true });
+  await writeFile(
+    join(pkg, "package.json"),
+    '{ "name": "declaring-package", "type": "module", "main": "index.js" }\n'
+  );
+  // It imports the library by name, as a package does: the shared one.
+  await writeFile(
+    join(pkg, "index.js"),
+    'import { step } from "@foundry.sh/marbles";\nstep("from-package").do(() => 1);\n'
+  );
+  const report = await inProcess(
+    root,
+    `const [load] = await hosted.load([{ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} }]);
+  report.load = load.loaded ? "loaded" : load.error.message;`
+  );
+  expect(report.load).toContain("comes from a package");
 }, 120_000);

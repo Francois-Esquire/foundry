@@ -1,6 +1,8 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { TaskStore } from "@foundry/tasks";
 import type { Catalog } from "~/authoring/catalog";
 import { catalog } from "~/authoring/catalog";
+import { newLoad } from "~/authoring/load-tag";
 import { initializeUsage } from "~/authoring/usage";
 import type { Engine } from "~/lib/engine";
 import { activeContext } from "~/lib/execution-context";
@@ -11,6 +13,11 @@ import { activeContext } from "~/lib/execution-context";
  * words reach. Inside a body, or an observer's handler, the work's
  * execution context names its workspace, found through async context; a
  * call in a body runs on the body's run and never reaches the slot.
+ * Anywhere else a workspace's own code names it by its load: each load's
+ * modules import a library of their own whose words run in that load's
+ * scope (`inLoad`), and what those words make keeps the scope it was made
+ * in (`captureScope`), so a timer, a promise, a listener or a tail call
+ * cannot lose it.
  *
  * Both the host and an authoring module import this module, so these
  * slots are one instance per process; every workspace a host here loads
@@ -44,9 +51,30 @@ interface Hosting {
 }
 
 const hostings = new Map<string, Hosting>();
-/** The workspace whose source is being imported now; loads take turns. */
-let loading: Hosting | undefined;
-let loads: Promise<unknown> = Promise.resolve();
+/**
+ * Workspaces whose host here closed or gave them up: work that still names
+ * one is refused, never handed to whichever workspace is left.
+ */
+const released = new Set<string>();
+/** Each load's workspace, and the catalog its modules declare into, by load number. */
+const loads = new Map<
+  number,
+  { readonly catalog: Catalog; readonly workspaceId: string }
+>();
+/** The load whose library word is running; set only around such a call. */
+const loadScope = new AsyncLocalStorage<number>();
+/**
+ * Whether work that names no workspace is refused outright, rather than
+ * answered by the only workspace hosted here: set by a host of several
+ * workspaces, where one closing must never hand its work to another.
+ */
+let unnamedRefused = false;
+/**
+ * How many loads are importing now. A declaration that names no workspace
+ * meanwhile (a package's module, evaluated once for the whole process) is
+ * refused rather than given to one: this counts, it routes nothing.
+ */
+let importing = 0;
 /**
  * Whether this process has been a host: from then on, `tasks` with no
  * workspace to answer are refused rather than kept in memory. `loading`
@@ -70,46 +98,70 @@ let createFallback: () => Promise<InstanceRuntime> = async () => {
 };
 
 /**
- * Import a workspace's source with every declaration landing in `into`,
- * that workspace's catalog: one load at a time in this process, since
- * module evaluation carries no async context of its own. A load that
- * throws leaves nothing in `into`, and its workspace unloaded.
+ * Import a workspace's source as load number `n` of this process, every
+ * declaration its modules make landing in `into`, that workspace's
+ * catalog. `load` imports the modules as that load's copies
+ * (`load-tag.ts`), so whatever their code does later, from a timer, a
+ * promise or a listener, still names this load and this workspace. Loads
+ * may overlap. One that throws leaves nothing in `into`, and its workspace
+ * unloaded.
  */
-export function loadInto<T>(
+/** Run `work` as load `load`'s, as its library's words do. */
+export function inLoad<T>(load: number, work: () => T): T {
+  return loadScope.run(load, work);
+}
+
+/** Work run later in the scope captured: it names the same run, observer or load. */
+export type Scope = <T>(work: () => T) => T;
+
+/** The scope the calling work runs in, kept for work done later on its behalf. */
+export function captureScope(): Scope {
+  const snapshot = AsyncLocalStorage.snapshot();
+  return (work) => snapshot(work);
+}
+
+/**
+ * From now on, work in this process that names no workspace is refused
+ * rather than answered by the only one hosted: a host of several
+ * workspaces asks for it.
+ */
+export function refuseUnnamedWork(): void {
+  unnamedRefused = true;
+}
+
+export async function loadInto<T>(
   workspaceId: string,
   into: Catalog,
-  load: () => Promise<T>
+  load: (n: number) => Promise<T>
 ): Promise<T> {
-  const turn = loads.then(async () => {
-    const hosting: Hosting = {
+  const n = newLoad();
+  loads.set(n, { catalog: into, workspaceId });
+  if (liveHosting(workspaceId) === undefined) {
+    hostings.set(workspaceId, {
       catalog: into,
       id: workspaceId,
       runtime: undefined,
-    };
-    hostings.set(workspaceId, hosting);
-    loading = hosting;
-    try {
-      return await load();
-    } catch (error) {
-      into.reset();
-      if (hostings.get(workspaceId) === hosting) {
-        hostings.delete(workspaceId);
-      }
-      throw error;
-    } finally {
-      loading = undefined;
-    }
-  });
-  loads = turn.catch(() => undefined);
-  return turn;
+    });
+    released.delete(workspaceId);
+  }
+  importing += 1;
+  try {
+    return await load(n);
+  } catch (error) {
+    into.reset();
+    abandonHost(workspaceId);
+    throw error;
+  } finally {
+    importing -= 1;
+  }
 }
 
 /**
  * The host's engine answers for its workspace: instance calls made outside
  * a run, and the builtin `tasks`, reach it whenever the work names that
- * workspace, or is the only one hosted here. What the workspace's runs
- * declare goes to `declared`, its own catalog: the one its source loaded
- * into when omitted, else this process's.
+ * workspace, or names none and it is the only one hosted here. What the
+ * workspace's runs declare goes to `declared`, its own catalog: the one
+ * its source loaded into when omitted, else this process's.
  */
 export function setHost(runtime: InstanceRuntime, declared?: Catalog): void {
   const hosting = hostings.get(runtime.workspaceId);
@@ -118,6 +170,7 @@ export function setHost(runtime: InstanceRuntime, declared?: Catalog): void {
     id: runtime.workspaceId,
     runtime,
   });
+  released.delete(runtime.workspaceId);
   hostState = "hosted";
 }
 
@@ -132,22 +185,25 @@ export function expectHost(): void {
 
 /**
  * A host gave workspace `workspaceId` up before it bound an engine to it:
- * forget it, so it answers nothing and leaves no other workspace sharing
- * the process.
+ * forget it, so it answers nothing, and work that still names it is
+ * refused.
  */
 export function abandonHost(workspaceId: string): void {
   if (hostings.get(workspaceId)?.runtime === undefined) {
     hostings.delete(workspaceId);
+    released.add(workspaceId);
   }
 }
 
-/** Forget every workspace whose engine was disposed. */
-function dropDisposed(): void {
-  for (const [id, hosting] of hostings) {
-    if (hosting.runtime?.disposed) {
-      hostings.delete(id);
-    }
+/** `id`'s hosting, unless its engine was disposed, which releases it. */
+function liveHosting(id: string): Hosting | undefined {
+  const hosting = hostings.get(id);
+  if (hosting?.runtime?.disposed) {
+    hostings.delete(id);
+    released.add(id);
+    return;
   }
+  return hosting;
 }
 
 /** A host here holds several workspaces, and the work names none of them. */
@@ -155,39 +211,103 @@ class AmbiguousWorkspaceError extends Error {
   override readonly name = "AmbiguousWorkspaceError";
 }
 
+/** The work names a workspace whose host here has closed. */
+class WorkspaceReleasedError extends Error {
+  override readonly name = "WorkspaceReleasedError";
+}
+
+function releasedError(id: string): WorkspaceReleasedError {
+  return new WorkspaceReleasedError(
+    `workspace ${id} is no longer hosted in this process: its host closed, so nothing it started outlives it here; nothing was read, written or declared`
+  );
+}
+
 /**
- * The workspace the calling work belongs to: the one its execution
- * context names, else the one loading now, else the only one hosted here.
- * Undefined when none is. Throws when several are and the work names
- * none, rather than reach whichever was bound last.
+ * The workspace the calling work names: its execution context's (a run, an
+ * observer), else that of the load whose library word is calling.
  */
-function hostingNow(): Hosting | undefined {
-  dropDisposed();
-  const id = activeContext()?.workspaceId;
-  const named = id === undefined ? undefined : hostings.get(id);
+function namedWorkspace(): string | undefined {
+  const named = activeContext()?.workspaceId;
   if (named !== undefined) {
     return named;
   }
-  if (loading !== undefined) {
-    return loading;
+  const load = loadScope.getStore();
+  return load === undefined ? undefined : loads.get(load)?.workspaceId;
+}
+
+/** Work that names no workspace, where that is refused. */
+function unnamedError(): AmbiguousWorkspaceError {
+  return new AmbiguousWorkspaceError(
+    "this call names no workspace: it comes from outside every workspace's runs, observers and modules (a package, or Marbles itself), and this process hosts several, so none of them answers it"
+  );
+}
+
+/**
+ * The workspace the calling work belongs to. Work that names one is
+ * answered by it alone, and refused once its host has closed here; only
+ * work that names none falls to the one workspace hosted here. Undefined
+ * when none is. Throws when several are and the work names none, rather
+ * than reach whichever was bound last.
+ */
+function hostingNow(): Hosting | undefined {
+  const named = namedWorkspace();
+  if (named !== undefined) {
+    const hosting = liveHosting(named);
+    if (hosting !== undefined) {
+      return hosting;
+    }
+    if (released.has(named)) {
+      throw releasedError(named);
+    }
   }
-  const hosted = [...hostings.values()];
+  if (named === undefined && unnamedRefused) {
+    throw unnamedError();
+  }
+  const hosted = [...hostings.keys()].flatMap((id) => {
+    const live = liveHosting(id);
+    return live === undefined ? [] : [live];
+  });
   if (hosted.length > 1) {
     throw new AmbiguousWorkspaceError(
-      `this process hosts ${String(hosted.length)} workspaces (${hosted.map((each) => each.id).join(", ")}), and this call runs outside any of their runs or observers, so none of them answers it`
+      `this process hosts ${String(hosted.length)} workspaces (${hosted.map((each) => each.id).join(", ")}), and this call names none of them: it runs outside their runs, observers and modules, so none of them answers it`
     );
   }
   return hosted[0];
 }
 
-/** The catalog the authoring words declare into now; the process's own in a script no host loaded. */
+/**
+ * The catalog the authoring words declare into now: the workspace a run
+ * or observer runs for, else the load whose library word is declaring, else this
+ * process's own, as in a script no host loaded. Refused for a workspace
+ * whose host has closed here, and for a declaration that names no
+ * workspace while one's source is loading.
+ */
 export function declaringCatalog(): Catalog {
-  const id = activeContext()?.workspaceId;
-  return (
-    (id === undefined ? undefined : hostings.get(id)?.catalog) ??
-    loading?.catalog ??
-    catalog
-  );
+  const context = activeContext();
+  if (context !== undefined) {
+    const hosting = liveHosting(context.workspaceId);
+    if (hosting !== undefined) {
+      return hosting.catalog;
+    }
+    if (released.has(context.workspaceId)) {
+      throw releasedError(context.workspaceId);
+    }
+    return catalog;
+  }
+  const load = loadScope.getStore();
+  const owner = load === undefined ? undefined : loads.get(load);
+  if (owner !== undefined) {
+    return owner.catalog;
+  }
+  if (importing > 0) {
+    throw new AmbiguousWorkspaceError(
+      "this declaration comes from a package, which one process shares between every workspace it hosts, while a workspace's source loads, so it belongs to none of them; declare it in a module the workspace imports by path, or export a function from the package and call it there"
+    );
+  }
+  if (unnamedRefused) {
+    throw unnamedError();
+  }
+  return catalog;
 }
 
 /** The engine answering for the calling work's workspace, if one is bound and not disposed. */

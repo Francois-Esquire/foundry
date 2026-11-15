@@ -1,7 +1,8 @@
 import { fillArgv, parseArgv, placeholdersOf } from "@foundry/lib/argv";
 import type { Bail } from "@foundry/workflows/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { declaringCatalog } from "~/authoring/runtime";
+import type { Scope } from "~/authoring/runtime";
+import { captureScope, declaringCatalog } from "~/authoring/runtime";
 import type { CommandResult, ExecOptions } from "~/lib/command";
 import type {
   LockedNode,
@@ -81,8 +82,13 @@ interface StepFields {
   readonly input?: StandardSchemaV1;
   readonly name?: string;
   readonly output?: StandardSchemaV1;
+  /** The scope `step()` was called in: the body is declared in it, whenever `.do` is called. */
+  readonly scope?: Scope;
   readonly site?: CallSite;
 }
+
+/** Run now, for a builder made with no scope of its own. */
+const now: Scope = (work) => work();
 
 export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
   readonly #fields: StepFields;
@@ -158,21 +164,24 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
   do<X extends Ret | Bail<unknown>>(
     fn: StepFn<I, X>
   ): StepDefinition<I, Produces<O, Exclude<X, Bail<unknown>>>, R> {
-    const { config, description, input, name, output, site } = this.#fields;
-    const identity = identify("step", name, site);
-    const definition = lockable<
-      StepDefinition<I, Produces<O, Exclude<X, Bail<unknown>>>, R>
-    >({
-      ...(config === undefined ? {} : { config }),
-      ...(description === undefined ? {} : { description }),
-      fn,
-      ...identity.fields,
-      ...(input === undefined ? {} : { input }),
-      kind: "step",
-      ...(output === undefined ? {} : { output }),
+    const { config, description, input, name, output, scope, site } =
+      this.#fields;
+    return (scope ?? now)(() => {
+      const identity = identify("step", name, site);
+      const definition = lockable<
+        StepDefinition<I, Produces<O, Exclude<X, Bail<unknown>>>, R>
+      >({
+        ...(config === undefined ? {} : { config }),
+        ...(description === undefined ? {} : { description }),
+        fn,
+        ...identity.fields,
+        ...(input === undefined ? {} : { input }),
+        kind: "step",
+        ...(output === undefined ? {} : { output }),
+      });
+      declaringCatalog().define(definition, identity.inferred);
+      return definition;
     });
-    declaringCatalog().define(definition, identity.inferred);
-    return definition;
   }
 }
 
@@ -215,6 +224,7 @@ function templateCommand(
 export function step(name?: string): StepBuilder {
   return new StepBuilder({
     ...(name === undefined ? {} : { name }),
+    scope: captureScope(),
     site: callSite(),
   });
 }
@@ -224,21 +234,31 @@ export class WorkflowBuilder<I = Empty, R = Empty> {
   readonly #site: CallSite | undefined;
   readonly #description: string | undefined;
   readonly #input: StandardSchemaV1 | undefined;
+  /** The scope `workflow()` was called in: the setup is declared in it. */
+  readonly #scope: Scope;
 
   constructor(
     name?: string,
     site?: CallSite,
     description?: string,
-    input?: StandardSchemaV1
+    input?: StandardSchemaV1,
+    scope: Scope = now
   ) {
     this.#name = name;
     this.#site = site;
     this.#description = description;
     this.#input = input;
+    this.#scope = scope;
   }
 
   describe(text: string): WorkflowBuilder<I, R> {
-    return new WorkflowBuilder(this.#name, this.#site, text, this.#input);
+    return new WorkflowBuilder(
+      this.#name,
+      this.#site,
+      text,
+      this.#input,
+      this.#scope
+    );
   }
 
   input<S extends StandardSchemaV1>(
@@ -248,17 +268,20 @@ export class WorkflowBuilder<I = Empty, R = Empty> {
       this.#name,
       this.#site,
       this.#description,
-      schema
+      schema,
+      this.#scope
     );
   }
 
   /** Setup: prepares things and returns the tree. Not durable. */
   do<O>(setup: SetupFn<I, O>): WorkflowDefinition<I, O, R> {
-    return finishWorkflow<I, O, R>(
-      identify("workflow", this.#name, this.#site),
-      this.#description,
-      this.#input,
-      setup
+    return this.#scope(() =>
+      finishWorkflow<I, O, R>(
+        identify("workflow", this.#name, this.#site),
+        this.#description,
+        this.#input,
+        setup
+      )
     );
   }
 }
@@ -296,7 +319,13 @@ export function workflow(
   const site = callSite();
   const tree = typeof first === "string" ? second : first;
   if (tree === undefined) {
-    return new WorkflowBuilder(name, site);
+    return new WorkflowBuilder(
+      name,
+      site,
+      undefined,
+      undefined,
+      captureScope()
+    );
   }
   const identity = identify("workflow", name, site);
   if (typeof tree === "function") {

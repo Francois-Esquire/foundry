@@ -1,4 +1,5 @@
 import { runDefinition } from "~/authoring/instances";
+import { captureScope } from "~/authoring/runtime";
 import type {
   AnyDefinition,
   LockedNode,
@@ -174,9 +175,11 @@ export function lockable<D extends AnyDefinition>(
     });
   }
   // Not a record field: nothing that reads the definition's data sees it.
+  // Called outside a run, it reaches the workspace it was declared in.
+  const scope = captureScope();
   Object.defineProperty(call, "run", {
     configurable: true,
-    value: (input?: unknown) => runDefinition(definition, input ?? {}),
+    value: (input?: unknown) => runDefinition(definition, input ?? {}, scope),
   });
   return definition;
 }
