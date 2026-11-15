@@ -1,8 +1,9 @@
 /**
  * How a host Claude Code call starts the CLI: as the Claude Agent SDK's
  * own local spawn does (its stdin and stdout piped, the SDK's signal and
- * environment as given), but recorded (`@foundry/lib/spawn-record`), so a
- * start after its host died can stop a CLI it left running.
+ * environment as given), but leading a process group of its own, recorded
+ * as one (`@foundry/lib/spawn-record`), so a start after its host died
+ * stops a CLI it left running and whatever that CLI started.
  *
  * The SDK reads the CLI's stderr only on its own spawn, for the error a
  * failed call reports. Here each call keeps the tail of it instead
@@ -29,6 +30,9 @@ const calls = new AsyncLocalStorage<{ tail: string }>();
 export const spawnRecordedCli: SpawnHook = (options) => {
   const child = spawn(options.command, options.args, {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    // A group of its own, recorded as one, so stopping a CLI its host
+    // left stops what it started too (its tools' commands, its servers).
+    detached: true,
     env: options.env,
     signal: options.signal,
     stdio: ["pipe", "pipe", "pipe"],
@@ -42,7 +46,7 @@ export const spawnRecordedCli: SpawnHook = (options) => {
     }
   });
   // Once the child is the call's; it never throws.
-  recordChild(child);
+  recordChild(child, true);
   return child;
 };
 
