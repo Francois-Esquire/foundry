@@ -206,7 +206,7 @@ function dial(path: string): Promise<Socket> {
 
 function loadResult(load: WorkspaceLoad): WorkspaceLoadResult {
   return load.loaded
-    ? { files: [...load.files], id: load.id, root: load.root }
+    ? { id: load.id, root: load.root }
     : { error: load.error.message, root: load.root };
 }
 
@@ -301,6 +301,15 @@ async function main(): Promise<void> {
       print(root, line) {
         notify(GENERATION_NOTIFICATIONS.line, { line, root });
       },
+      // What this generation depends on, as it reads it: the daemon's
+      // fingerprint of it records each file as it was when read.
+      read(root, file) {
+        notify(GENERATION_NOTIFICATIONS.read, {
+          file,
+          readAt: Date.now(),
+          root,
+        });
+      },
       // The daemon names it, under its Foundry home.
       ...(process.env[SPAWN_RECOVERY_ENV]
         ? { spawned: process.env[SPAWN_RECOVERY_ENV] }
@@ -344,12 +353,7 @@ async function main(): Promise<void> {
     if (setup !== undefined) {
       postSetup(added, setup);
     }
-    return {
-      config: added.config,
-      files: [...added.files],
-      id: added.id,
-      root: added.root,
-    };
+    return { config: added.config, id: added.id, root: added.root };
   };
 
   const unhost = async (raw: unknown): Promise<void> => {

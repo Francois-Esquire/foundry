@@ -71,6 +71,8 @@ export interface HostWorkspaceOptions {
   readonly prepare?: (engine: Engine) => void;
   /** Receives each status line; the last one is the host's `status`. */
   readonly print?: (line: string) => void;
+  /** Told of each file the source's load reads, as it loads and as its runs import more. */
+  readonly read?: (file: string) => void;
   /** The authoring folder or module. */
   readonly source: string;
   /**
@@ -199,6 +201,7 @@ export async function stageWorkspace(
     env: options.env,
     onMissing: options.onMissing,
     print,
+    ...(options.read === undefined ? {} : { read: options.read }),
   });
   // A host is a writer, and keeps one handle for as long as it hosts: it
   // makes and migrates the database only under the state root's process

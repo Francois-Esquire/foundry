@@ -96,6 +96,8 @@ export interface HostedWorkspacesOptions {
   readonly prepare?: (engine: Engine) => void;
   /** Each workspace's status lines, with the root it was registered at. */
   readonly print?: (root: string, line: string) => void;
+  /** Each file a workspace's load reads, as it loads and as its runs import more, with its root. */
+  readonly read?: (root: string, file: string) => void;
   /**
    * Where this process's children are recorded for recovery
    * (`MARBLES_SPAWN_RECOVERY`), shared by every workspace hosted here:
@@ -242,6 +244,7 @@ export class HostedWorkspaces {
           ? {}
           : { prepare: this.#options.prepare }),
         print: (line) => this.#options.print?.(root, line),
+        read: (file) => this.#options.read?.(root, file),
         source: found.configPath,
         ...(this.#options.spawned === undefined
           ? {}

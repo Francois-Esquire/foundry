@@ -22,6 +22,7 @@ import {
   filesRead,
   importLoad,
   linkLibrary,
+  onRead,
 } from "~/workspace/copies";
 import type { WorkspaceEnvironment } from "~/workspace/env";
 import { loadEnvironment } from "~/workspace/env";
@@ -135,7 +136,15 @@ function linkSourceLibrary(): Promise<void> {
  */
 async function loadSource(
   configPath: string,
-  { catalog, workspaceId }: { catalog: Catalog; workspaceId: string },
+  {
+    catalog,
+    read,
+    workspaceId,
+  }: {
+    catalog: Catalog;
+    read?: (file: string) => void;
+    workspaceId: string;
+  },
   print: (line: string) => void
 ): Promise<readonly string[] | false> {
   // From here the builtin `tasks` wait for this workspace's engine, rather
@@ -148,8 +157,14 @@ async function loadSource(
   await linkSourceLibrary();
   let loaded: readonly string[] = [];
   await loadInto(workspaceId, catalog, async (load) => {
+    // Every file it reads, as it loads and as its runs import more later.
+    const reading = read === undefined ? undefined : onRead(load, read);
     try {
       await importLoad(sourceRoot(configPath), files, load);
+    } catch (error) {
+      // A load that failed reads nothing more.
+      reading?.forget();
+      throw error;
     } finally {
       loaded = filesRead(load);
     }
@@ -259,6 +274,8 @@ export interface OpenWorkspaceOptions {
    */
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   readonly print: (line: string) => void;
+  /** Told of each file the source's load reads, as it loads and as its runs import more. */
+  readonly read?: (file: string) => void;
 }
 
 /** A source that was just created and did not load. */
@@ -274,7 +291,7 @@ class StarterLoadError extends Error {
  */
 export async function openWorkspace(
   args: HostOptions,
-  { cwd, env = "warn", onMissing, print }: OpenWorkspaceOptions
+  { cwd, env = "warn", onMissing, print, read }: OpenWorkspaceOptions
 ): Promise<OpenedWorkspace> {
   const before = placed(args);
   const environment = loadEnvironment(before.root, env, print);
@@ -284,6 +301,7 @@ export async function openWorkspace(
       at.configPath,
       {
         catalog,
+        ...(read === undefined ? {} : { read }),
         workspaceId: workspaceState(resolve(args.state), at.root).id,
       },
       print
