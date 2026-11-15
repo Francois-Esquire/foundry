@@ -25,7 +25,8 @@ import { sameResource } from "~/lib/resources";
  * artifact is relinked on its own, so one that cannot be (a link in the
  * way, a root that is gone) is reported through `report` and the rest
  * still are; `marbles relink` repairs what was reported. Updates run one at
- * a time, in the order the writes landed.
+ * a time, in the order the writes landed, and `drainLinks` waits for them,
+ * for as long as it is given: a host drains before it closes the database.
  */
 
 export interface KeptLinksOptions {
@@ -45,6 +46,16 @@ export interface Touched {
   readonly blobs: readonly string[];
 }
 
+/** What `keepingLinks` adds to the store it keeps links for. */
+export interface LinksKept {
+  /**
+   * Resolve once every link update queued so far has finished, or once
+   * `withinMs` has passed. On giving up, report the updates still waiting
+   * as `marbles relink` repairs them, and start none of those not begun.
+   */
+  drainLinks(withinMs: number): Promise<void>;
+}
+
 /** A store whose commits land only with its host's transaction, which says nothing of when that commits. */
 export class HostBoundStoreError extends Error {
   override readonly name = "HostBoundStoreError";
@@ -60,13 +71,21 @@ export class HostBoundStoreError extends Error {
 export function keepingLinks<T extends ArtifactStore>(
   store: T,
   options: KeptLinksOptions
-): T {
+): T & LinksKept {
   if (store.durability === "host") {
     throw new HostBoundStoreError(
       "keepingLinks needs an artifact store over the database itself: this one's commits land only when its host's transaction commits, and nothing tells it when, so its links would follow writes that may roll back"
     );
   }
-  return followingCommits(store, artifactLinker(options));
+  const linker = artifactLinker(options);
+  const followed = followingCommits(store, linker.follow);
+  return new Proxy(followed, {
+    get(target, property) {
+      return property === "drainLinks"
+        ? linker.drain
+        : Reflect.get(target, property, target);
+    },
+  }) as T & LinksKept;
 }
 
 /**
@@ -157,24 +176,59 @@ function touchedBy(write: ArtifactStoreWrite): Touched {
   }
 }
 
-/** Queue the relinking of what each write touched, one update at a time. */
-function artifactLinker(options: KeptLinksOptions): (touched: Touched) => void {
+/** Queue the relinking of what each write touched, one update at a time, and wait for the queue. */
+function artifactLinker(options: KeptLinksOptions): {
+  readonly drain: (withinMs: number) => Promise<void>;
+  readonly follow: (touched: Touched) => void;
+} {
   const { owner, report } = options;
   let queue: Promise<void> = Promise.resolve();
+  // Set once a drain gave up: what has not begun is left to relink.
+  let abandoned = false;
   const failed = (what: string, error: unknown) =>
     report(
       `[links] could not update ${what}; marbles relink repairs it: ${error instanceof Error ? error.message : String(error)}`
     );
-  return (touched) => {
+  const follow = (touched: Touched) => {
     if (touched.artifacts.length === 0 && touched.blobs.length === 0) {
       return;
     }
     queue = queue
-      .then(() => relinkTouched(options, touched, failed))
+      .then(() =>
+        abandoned ? undefined : relinkTouched(options, touched, failed)
+      )
       .catch((error: unknown) =>
         failed(`the links of ${owner}'s artifacts`, error)
       );
   };
+  const drain = async (withinMs: number): Promise<void> => {
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<"timed out">((done) => {
+      timer = setTimeout(() => done("timed out"), withinMs);
+    });
+    try {
+      // An update may queue another while it runs: wait until none is left.
+      for (;;) {
+        const waited = queue;
+        if ((await Promise.race([waited, timedOut])) === "timed out") {
+          abandoned = true;
+          failed(
+            `the links of ${owner}'s artifacts`,
+            new Error(
+              `an update was still under way after ${String(withinMs)} ms, waiting on a workspace's .marbles/.lock, when the host closed`
+            )
+          );
+          return;
+        }
+        if (queue === waited) {
+          return;
+        }
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  return { drain, follow };
 }
 
 async function relinkTouched(

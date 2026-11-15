@@ -352,7 +352,8 @@ between a check and the change after it; nothing in the runtime closes
 that window. Once a workspace has links, they follow each artifact write
 after it lands, in the artifact's owner and every workspace it is shared
 with; a link that cannot be made is reported, never failing the write,
-and `relink` repairs it. Every rebuild and update, in any process, holds
+and `relink` repairs it. A closing engine waits up to five seconds for
+the updates its writes queued, and reports any it leaves for `relink`. Every rebuild and update, in any process, holds
 `.marbles/.lock` and reads what each link should be from the database
 under it, so concurrent ones converge on what the database holds. A file
 the database holds inline (or in chunks), or whose name is too long for

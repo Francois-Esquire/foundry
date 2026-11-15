@@ -165,7 +165,9 @@ Five buckets, each importing only what sits below it:
   gone process left. `artifact-links.ts` (`keepingLinks`, over
   `followingCommits`) follows the engine's artifact commits, after they
   land, nested transactions included, to keep each linked workspace's
-  links (`links.ts`) current; `links.ts` is the one routine a rebuild and
+  links (`links.ts`) current, and the engine `createEngine` builds over it
+  drains those updates (`drainLinks`, bounded) once disposed, before its
+  host closes the database; `links.ts` is the one routine a rebuild and
   an update share, which reconciles disk with the database under
   `.marbles/.lock`, reading the database there, and checks each directory
   (`lstat` and `realpath` inside `.marbles`) right before each change and

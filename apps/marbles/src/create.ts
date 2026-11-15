@@ -18,6 +18,7 @@ import type { GitRun } from "@foundry/workspaces/git";
 import { Catalog } from "~/authoring/catalog";
 import { DatabaseActivityStore } from "~/database/activities";
 import { DatabaseDeferredApprovalStore } from "~/database/approvals";
+import type { LinksKept } from "~/database/artifact-links";
 import { keepingLinks } from "~/database/artifact-links";
 import {
   DatabaseAutomationStore,
@@ -208,7 +209,10 @@ function artifactsInMemory(): Artifacts {
 function artifactsFor(
   stores: WorkspaceStores | undefined,
   options: CreateEngineOptions
-): Pick<EngineOptions, "artifactReads" | "artifacts"> {
+): Pick<EngineOptions, "artifactReads" | "artifacts"> & {
+  /** The link keeping the engine drains when it is disposed. */
+  readonly links?: LinksKept;
+} {
   const { artifacts: dir, dry, workspaceId } = options;
   if (dry) {
     return {
@@ -228,23 +232,25 @@ function artifactsFor(
     return { artifacts: artifactsInMemory() };
   }
   const { database, print } = options;
+  // Each workspace's links to these artifacts follow every commit.
+  const kept =
+    dir === undefined || database === undefined
+      ? undefined
+      : keepingLinks(stores.artifacts, {
+          artifacts: dir,
+          database,
+          owner: workspaceId,
+          report: print,
+          state: options.stateRoot ?? layout().state,
+        });
   return {
     artifacts: new ArtifactManager({
       ...(dir === undefined
         ? {}
         : { files: blobFiles(artifactBlobs(dir, workspaceId)) }),
-      // Each workspace's links to these artifacts follow every commit.
-      store:
-        dir === undefined || database === undefined
-          ? stores.artifacts
-          : keepingLinks(stores.artifacts, {
-              artifacts: dir,
-              database,
-              owner: workspaceId,
-              report: print,
-              state: options.stateRoot ?? layout().state,
-            }),
+      store: kept ?? stores.artifacts,
     }),
+    ...(kept === undefined ? {} : { links: kept }),
   };
 }
 
@@ -364,6 +370,55 @@ function recordsFor(
 }
 
 /**
+ * How long a disposed engine waits for its link updates before the host
+ * closes the database: an update holds a workspace's `.marbles/.lock`
+ * for moments, so this outlasts a rebuild in another process, and stays
+ * well inside a generation's stop deadline.
+ */
+const LINK_DRAIN_MS = 5000;
+
+/** The published `Engine`, over a handle of its own or keeping links in the host's. */
+function engineOver(
+  options: EngineOptions,
+  own: WorkspaceDatabase | undefined,
+  links: LinksKept | undefined
+): PublishedEngine {
+  if (own !== undefined) {
+    return new OwnDatabaseEngine(options, own);
+  }
+  return links === undefined
+    ? new PublishedEngine(options)
+    : new LinkKeepingEngine(options, links);
+}
+
+/**
+ * The published `Engine` whose artifact commits keep links: once disposed,
+ * and so writing none, it waits for the link updates they queued, so the
+ * host closes the database only after them, or after `LINK_DRAIN_MS`,
+ * reporting what is left to `marbles relink`.
+ */
+class LinkKeepingEngine extends PublishedEngine {
+  readonly #links: LinksKept;
+  #disposed: Promise<void> | undefined;
+
+  constructor(options: EngineOptions, links: LinksKept) {
+    super(options);
+    this.#links = links;
+  }
+
+  override dispose(): Promise<void> {
+    this.#disposed ??= (async () => {
+      try {
+        await super.dispose();
+      } finally {
+        await this.#links.drainLinks(LINK_DRAIN_MS);
+      }
+    })();
+    return this.#disposed;
+  }
+}
+
+/**
  * The published `Engine` over a database handle it opened itself, which it
  * closes after everything else it holds: its agents and interactions may
  * still write a session once its records are closed.
@@ -432,8 +487,9 @@ export function createEngine(options: CreateEngineOptions): Engine {
       : workspaceStores(database, workspaceId, changes);
   const git = dry ? { run: echoGit(print) } : {};
   // The class the package publishes, so a host's engine is that `Engine`.
+  const { links, ...artifacts } = artifactsFor(stores, options);
   const engineOptions: EngineOptions = {
-    ...artifactsFor(stores, options),
+    ...artifacts,
     askable: options.askable,
     ...(stores === undefined ? {} : { containerRows: stores.containers }),
     containers: containersFor(options, worktrees, stores?.containers),
@@ -459,10 +515,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
       : { workspaces: localCatalogue(git, stores.workspaces) }),
     worktrees,
   };
-  const engine =
-    own === undefined
-      ? new PublishedEngine(engineOptions)
-      : new OwnDatabaseEngine(engineOptions, own);
+  const engine = engineOver(engineOptions, own, links);
   declareCatalog(engine, catalog);
   unrecordedObservers(catalog, recordedSources(database, state), print);
   return engine;

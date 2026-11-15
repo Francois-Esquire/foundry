@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
+import { acquireFileLock } from "@foundry/lib/file-lock";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
@@ -72,6 +73,13 @@ async function arranged() {
     unlinked: await workspace("three", false),
   };
 }
+
+/** Hold a workspace's links lock, as another process's rebuild would. */
+function holdLinks(root: string): Promise<() => Promise<void>> {
+  return acquireFileLock(join(workspaceLinks(root), ".lock"));
+}
+
+const REPAIRS = /marbles relink repairs it/;
 
 const NOTES = {
   id: "artifact#notes",
@@ -223,6 +231,95 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     expect(await written.get(id)).not.toBeNull();
   });
 
+  it("wait, when drained, for a link update held up by the links lock", async () => {
+    const { artifacts, machine, one } = await arranged();
+    const lines: string[] = [];
+    const store = keeping(machine, artifacts, one, lines);
+    const kept = new ArtifactManager({
+      files: blobFiles(artifactBlobs(artifacts, one.id)),
+      store,
+    });
+    const id = artifactIdSchema.parse("artifact#held");
+    const ref = { id, kind: "artifact", owner: one.id } as const;
+    const link = join(
+      resourceLinks(one.root, "artifact"),
+      ...artifactPlace(ref, one.id),
+      "a.md"
+    );
+    await kept.create({
+      entries: { "a.md": { bytes: "# First\n", mime: "text/markdown" } },
+      id,
+      name: "held",
+      type: "text/markdown",
+    });
+    await settled(async () =>
+      expect(await readFile(link, "utf8")).toBe("# First\n")
+    );
+    const first = readlinkSync(link);
+    const release = await holdLinks(one.root);
+    await kept.write({
+      artifactId: id,
+      changes: {
+        put: { "a.md": { bytes: "# Second\n", mime: "text/markdown" } },
+      },
+    });
+    const drained = store.drainLinks(30_000);
+    // Nothing moves into place while the lock is held.
+    expect(readlinkSync(link)).toBe(first);
+    await release();
+    await drained;
+    expect(await readFile(link, "utf8")).toBe("# Second\n");
+    expect(lines).toEqual([]);
+  });
+
+  it("give up a drain on a links lock that does not free, reporting what relink repairs", async () => {
+    const { artifacts, machine, one } = await arranged();
+    const lines: string[] = [];
+    const store = keeping(machine, artifacts, one, lines);
+    const release = await holdLinks(one.root);
+    try {
+      await new ArtifactManager({
+        files: blobFiles(artifactBlobs(artifacts, one.id)),
+        store,
+      }).create({
+        entries: { "a.md": { bytes: "# A\n", mime: "text/markdown" } },
+        name: "stuck",
+        type: "text/markdown",
+      });
+      await store.drainLinks(50);
+      expect(lines).toEqual([expect.stringMatching(REPAIRS)]);
+    } finally {
+      await release();
+    }
+    // The update under way still finishes before the database closes.
+    await store.drainLinks(30_000);
+  });
+
+  it("drain an engine's link updates as it is disposed, giving up on a lock that does not free", async () => {
+    const { artifacts, machine, one } = await arranged();
+    const lines: string[] = [];
+    const engine = createEngine({
+      artifacts,
+      catalog: new Catalog(),
+      database: machine.database.database,
+      dry: false,
+      print: (line) => lines.push(line),
+      providers: [],
+      root: one.root,
+      stateRoot: machine.root,
+      workspaceId: one.id,
+    });
+    await engine.start();
+    const release = await holdLinks(one.root);
+    try {
+      await engine.artifacts.write(NOTES, { "a.md": "# First" });
+      await engine.dispose();
+      expect(lines.filter((line) => REPAIRS.test(line))).toHaveLength(1);
+    } finally {
+      await release();
+    }
+  });
+
   it("refuse an artifact directory that is a link, making nothing through it", async () => {
     const { artifacts, machine, one } = await arranged();
     const lines: string[] = [];
@@ -247,21 +344,30 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
   });
 });
 
+function keeping(
+  machine: TestMachine,
+  artifacts: string,
+  owner: { readonly id: string },
+  lines: string[]
+) {
+  const { database } = machine.database;
+  return keepingLinks(workspaceStores(database, owner.id).artifacts, {
+    artifacts,
+    database,
+    owner: owner.id,
+    report: (line) => lines.push(line),
+    state: machine.root,
+  });
+}
+
 function manager(
   machine: TestMachine,
   artifacts: string,
   owner: { readonly id: string },
   lines: string[]
 ): ArtifactManager {
-  const { database } = machine.database;
   return new ArtifactManager({
     files: blobFiles(artifactBlobs(artifacts, owner.id)),
-    store: keepingLinks(workspaceStores(database, owner.id).artifacts, {
-      artifacts,
-      database,
-      owner: owner.id,
-      report: (line) => lines.push(line),
-      state: machine.root,
-    }),
+    store: keeping(machine, artifacts, owner, lines),
   });
 }
