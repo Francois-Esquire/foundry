@@ -13,10 +13,14 @@ import type { RunStore } from "~/lib/run-store";
  * every other Run as it is stored.
  *
  * - A parked Run (`suspended`) is adopted when the engine can answer what
- *   it waits for (`askable`), its definition is registered, its Execution
- *   Run has not settled (one cancelled after its process exited stays
- *   cancelled), and the engine wins the claim on it, which no live engine
- *   holds. It is rebuilt from what its scope recorded.
+ *   it waits for (`askable`), its definition is registered, and the engine
+ *   wins the claim on it, which no live engine holds, while the Run is
+ *   still stored suspended and its Execution Run has not settled (one
+ *   cancelled after its process exited stays cancelled): both are read in
+ *   the claim's own atomic step, from a run store that keeps Execution
+ *   Runs beside its Runs; from one that keeps none, the Execution Run is
+ *   read once the claim is held. It is rebuilt from what its scope
+ *   recorded.
  * - A Run left `queued` or `running` is never taken on at start: its
  *   process exited mid-flight, and it is not re-executed here; its
  *   Execution Run is settled by the launcher (`Launcher.recover`), and
@@ -34,7 +38,11 @@ export interface ParkedRunsOptions {
   /** Whether a definition of this name is registered here. */
   readonly registered: (name: string) => boolean;
   readonly runs: RunStore;
-  /** Whether the Run's Execution Run is settled, read afresh. */
+  /**
+   * Whether the Run's Execution Run is settled, read afresh: asked once the
+   * claim is held, when the run store keeps no Execution Runs to read in
+   * the claim itself.
+   */
   readonly settled: (runId: string) => Promise<boolean>;
   /** The workflow records over `runs`. */
   readonly store: Pick<OrchestratorStore, "listRuns">;
@@ -66,16 +74,36 @@ async function adopt(
   { askable, print, registered, runs, settled }: ParkedRunsOptions
 ): Promise<RecordedScope | undefined> {
   const passed = (why: string): undefined => {
-    print(`[run] ${run.step} ${run.id} stays parked: ${why}`);
+    print(`[run] ${run.step} ${run.id} not adopted: ${why}`);
   };
   if (!(askable && registered(run.step))) {
     return passed("nothing here can resume it");
   }
-  if (!(await runs.claim(run.id))) {
-    return passed("another live engine owns it");
+  // The scan that found it is already old: whether it is still parked, and
+  // its Execution Run still open, is decided again in the claim's own
+  // atomic step. A canceller takes the same claim before it settles one.
+  let refused: string | undefined;
+  let sawExecution = false;
+  const claimed = await runs.claim(run.id, (stored, execution) => {
+    if (stored?.status !== "suspended") {
+      refused = `it is ${stored === null ? "gone" : stored.status} now, not parked`;
+      return false;
+    }
+    sawExecution = execution !== undefined;
+    if (execution && SETTLED_EXECUTION_STATUSES.has(execution.status)) {
+      refused = "its execution run has settled";
+      return false;
+    }
+    return true;
+  });
+  if (!claimed) {
+    return passed(refused ?? "another live engine owns it");
   }
-  // Asked once the claim is held: a canceller takes the same claim.
-  if (await settled(run.id)) {
+  // Asked again with the claim held, only when the claim could not see the
+  // Execution Run: one read in the claim's own step is current, since a
+  // canceller settles it only while it holds the claim, in a write that
+  // cannot land inside this one.
+  if (!sawExecution && (await settled(run.id))) {
     await runs.release(run.id);
     return passed("its execution run has settled");
   }

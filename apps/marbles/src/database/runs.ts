@@ -9,14 +9,19 @@ import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { aroundCalls, asBusy } from "~/database/busy";
-import { followExecution } from "~/database/executions";
+import { followExecution, readExecution } from "~/database/executions";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { RecordsGate } from "~/lib/events/records";
 import type { RecordedScope } from "~/lib/run-scope";
-import type { RunFollower, RunStore, StoredScope } from "~/lib/run-store";
+import type {
+  ClaimCondition,
+  RunFollower,
+  RunStore,
+  StoredScope,
+} from "~/lib/run-store";
 import { filedRuns, removalOf } from "~/lib/run-store";
 
 /**
@@ -63,9 +68,20 @@ export class DatabaseRunStore implements RunStore {
     this.#scope = options.scope;
   }
 
-  claim(runId: string): Promise<boolean> {
+  claim(runId: string, when: ClaimCondition): Promise<boolean> {
     return this.#call(() =>
       this.#database.transaction(async (transaction) => {
+        // Read in the claim's own transaction, the Run and its Execution
+        // Run beside it: no write lands between them and the claim, from
+        // this process or another.
+        const stored = await new SqliteWorkflowStore({
+          database: transaction,
+          scope: this.#scope,
+        }).getRun(runId);
+        const execution = await readExecution(transaction, this.#scope, runId);
+        if (!when(stored, execution)) {
+          return false;
+        }
         const [row] = await transaction
           .select({
             ownerId: marblesWorkflowRuns.ownerId,

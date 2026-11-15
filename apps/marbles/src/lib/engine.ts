@@ -821,7 +821,9 @@ export class Engine {
 
       orchestrator = new Orchestrator({
         config,
-        recovers: (run) => adopted.has(run.id),
+        // Only what was adopted, as the claim found it: parked.
+        recovers: (run) =>
+          adopted.has(run.id) && run.lastStatus === "suspended",
         store,
       });
       await orchestrator.setup();

@@ -12,6 +12,7 @@ import type {
   ExecutionRun,
   RetentionGap,
 } from "~/lib/execution-record";
+import { parseStored } from "~/lib/execution-record";
 import type {
   ExecutionStore,
   ExecutionView,
@@ -146,6 +147,20 @@ export async function followExecution(
     )
     .returning({ id: marblesExecutions.id });
   return replaced.length > 0;
+}
+
+/**
+ * The Execution Run `id` of `scope` as `database`, or a transaction on it,
+ * keeps it; `null` when it keeps none, or none that reads as a run. For a
+ * store whose transaction decides on a run's record with its own.
+ */
+export async function readExecution(
+  database: Queries,
+  scope: string,
+  id: string
+): Promise<ExecutionRun | null> {
+  const stored = await new DatabaseView(database, scope).get(id);
+  return (stored && parseStored(stored)) ?? null;
 }
 
 type ExecutionRow = typeof marblesExecutions.$inferSelect;

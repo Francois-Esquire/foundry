@@ -24,6 +24,7 @@ import type {
   StoredExecution,
 } from "./execution-store";
 import type { RunStore } from "./run-store";
+import { ANY_STORED_RUN } from "./run-store";
 
 /** Unsettled, and this process's to settle. */
 function ownedHere(run: ExecutionRun): boolean {
@@ -474,7 +475,9 @@ export class ExecutionRecords {
       return false;
     }
     const runs = known.kind === "workflow" ? this.#runs : undefined;
-    if (runs && !(await runs.claim(id))) {
+    // Ownership is all the claim decides: the record is read again in the
+    // execution store's transaction below, which every recoverer takes too.
+    if (runs && !(await runs.claim(id, ANY_STORED_RUN))) {
       return false;
     }
     try {

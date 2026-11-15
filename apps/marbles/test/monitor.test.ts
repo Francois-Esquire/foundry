@@ -24,7 +24,7 @@ import type {
 } from "~/lib/monitor";
 import { detector, handlerResponse } from "~/lib/monitor";
 import { tick } from "~/lib/schedule";
-import { isRecord } from "~/lib/state/json";
+import { isRecord, NotStorableError } from "~/lib/state/json";
 import type { TriggerStore } from "~/lib/trigger-store";
 import { MemoryTriggerStore } from "~/lib/trigger-store";
 
@@ -430,6 +430,10 @@ describe("http detector", () => {
     };
     return { calls, fetch: fetchImpl };
   }
+  const httpSpec = (): MonitorSpec => ({
+    kind: "http",
+    url: "https://example.test",
+  });
   const json =
     (value: unknown, status = 200) =>
     () =>
@@ -494,6 +498,62 @@ describe("http detector", () => {
     ]);
     await expect(detect(context)).resolves.toEqual({ changed: false });
     expect(changes).toHaveLength(1);
+  });
+
+  it.each([
+    ["-0", '{"n":-0}', { n: 0 }],
+    ["a number too large to be finite", '{"n":1e400}', { n: null }],
+  ])(
+    "hands a body holding %s on in the form it is kept, once, in memory and in the database",
+    async (_name, body, seen) => {
+      for (const state of [
+        undefined,
+        temporaryDirectory("marbles-mon-state-"),
+      ]) {
+        const { fetch } = stub([
+          () => new Response(body),
+          () => new Response(body),
+        ]);
+        const { context } = hostIn("/nowhere", state);
+        const { changes, handler } = recorder();
+        const detect = detectorIn("r", httpSpec(), handler, { fetch });
+
+        await expect(detect(context)).resolves.toEqual({ changed: true });
+        // Kept as it was handed on, the unchanged body is no change.
+        await expect(detect(context)).resolves.toEqual({ changed: false });
+        expect(changes).toEqual([
+          expect.objectContaining({ current: seen, kind: "http" }),
+        ]);
+        await hosted.triggers.close();
+      }
+    }
+  );
+
+  it("keeps what the handler saw when the launch it asks for cannot be kept, and never hands it the change again", async () => {
+    const { fetch } = stub([json({ n: 1 }), json({ n: 1 })]);
+    const { context } = hostIn(
+      "/nowhere",
+      temporaryDirectory("marbles-mon-state-")
+    );
+    let handled = 0;
+    const detect = detector(
+      "r",
+      httpSpec(),
+      () => {
+        handled += 1;
+        return Promise.resolve({ input: { at: 1n }, workflow: "ship" });
+      },
+      { fetch, host: () => hosted }
+    );
+
+    await expect(detect(context)).rejects.toThrow(NotStorableError);
+    await expect(detect(context)).resolves.toEqual({ changed: false });
+    expect(handled).toBe(1);
+    expect(await hosted.triggers.monitorState("r")).toMatchObject({
+      observed: { current: { n: 1 } },
+    });
+    expect((await hosted.triggers.monitorState("r"))?.pending).toBeUndefined();
+    await hosted.triggers.close();
   });
 
   it("sees a move to an error status as a change, with its real status", async () => {

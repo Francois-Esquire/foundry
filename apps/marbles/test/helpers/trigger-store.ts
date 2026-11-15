@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { ScheduleHistory, TriggerStore } from "~/lib/trigger-store";
+import { NotStorableError } from "~/lib/state/json";
+import type {
+  MonitorState,
+  ScheduleHistory,
+  TriggerStore,
+} from "~/lib/trigger-store";
 
 /**
  * Where a trigger store under test comes from: `store()` makes another
@@ -122,6 +127,42 @@ export function describeTriggerStore(
       expect(await triggers.monitorState("m")).toEqual({
         observed: { files: {} },
       });
+    });
+
+    it("refuses, keeping what it had, a monitor state JSON would not give back as it is", async () => {
+      const triggers = await store();
+      const kept = { observed: { hash: "first" } };
+      await triggers.saveMonitorState("m", kept);
+      for (const state of [
+        {
+          observed: { hash: "x" },
+          pending: { input: { amount: Number.NaN }, workflow: "flow" },
+        },
+        { observed: { big: Number.POSITIVE_INFINITY } },
+        { observed: { seen: new Date(0) } },
+        { observed: { list: [1, undefined] } },
+        { observed: {}, pending: { input: 1n, workflow: "flow" } },
+      ]) {
+        await expect(
+          triggers.saveMonitorState("m", state as unknown as MonitorState)
+        ).rejects.toThrow(NotStorableError);
+      }
+      expect(await triggers.monitorState("m")).toEqual(kept);
+    });
+
+    it("keeps a monitor state in the form JSON gives back: -0 as 0, a property holding undefined left out", async () => {
+      const triggers = await store();
+      await triggers.saveMonitorState("m", {
+        observed: { gone: undefined, zero: -0 },
+        pending: { input: { n: -0, optional: undefined }, workflow: "ship" },
+      });
+      const kept = await triggers.monitorState("m");
+      expect(kept).toEqual({
+        observed: { zero: 0 },
+        pending: { input: { n: 0 }, workflow: "ship" },
+      });
+      expect(Object.is(kept?.observed.zero, 0)).toBe(true);
+      expect(Object.hasOwn(kept?.observed ?? {}, "gone")).toBe(false);
     });
 
     it("refuses every call once closed", async () => {

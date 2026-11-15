@@ -11,8 +11,9 @@ import type { Launch } from "~/lib/launch";
 import { launchTarget } from "~/lib/launch";
 import type { Catalogue } from "~/lib/managers/workspaces";
 import { current } from "~/lib/run-scope";
-import { isRecord, jsonData } from "~/lib/state/json";
-import type { TriggerStore } from "~/lib/trigger-store";
+import { isRecord, jsonData, storableJson } from "~/lib/state/json";
+import type { MonitorState, TriggerStore } from "~/lib/trigger-store";
+import { storedMonitorState } from "~/lib/trigger-store";
 import type { Context } from "~/lib/types";
 
 /**
@@ -228,6 +229,12 @@ export function detector(
     if (observed.change === undefined) {
       return { changed: false };
     }
+    // In the form it is kept, and refused here if it cannot be, before the
+    // handler runs: after it, a refusal would hand it the same change at
+    // every poll.
+    const { observed: seen } = storedMonitorState(key, {
+      observed: observed.state,
+    });
     const launch = await respond({
       ...context,
       change: observed.change,
@@ -237,11 +244,23 @@ export function detector(
         : { response: observed.response }),
     });
     signal.throwIfAborted();
-    await triggers.saveMonitorState(key, {
-      observed: observed.state,
-      ...(launch === undefined ? {} : { pending: launch }),
-    });
-    return launch === undefined ? { changed: true } : { changed: true, launch };
+    let state: MonitorState;
+    try {
+      state = storedMonitorState(key, {
+        observed: seen,
+        ...(launch === undefined ? {} : { pending: launch }),
+      });
+    } catch (error) {
+      // The handler has run on this change: what it saw is kept, so no
+      // later poll hands it the change again, and the launch it asked for,
+      // which cannot be kept, fails the tick.
+      await triggers.saveMonitorState(key, { observed: seen });
+      throw error;
+    }
+    await triggers.saveMonitorState(key, state);
+    return state.pending === undefined
+      ? { changed: true }
+      : { changed: true, launch: state.pending };
   };
 }
 
@@ -342,7 +361,13 @@ async function observeHttp(
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
   const contentType = response.headers.get("content-type");
-  const body = bodyOf(bytes, contentType);
+  // In the form it is kept and compared in at the next poll, which is the
+  // form the handler sees: what JSON can carry, a number too large to be
+  // finite as `null`, and `-0` as `0`.
+  const body = storableJson(
+    "the response body",
+    jsonData(bodyOf(bytes, contentType))
+  );
   // A JSON or text body hashes as it always has, so a key order change is
   // no change; other bytes hash as bytes. `jsonData`: JSON text can hold a
   // number too large to be finite. A non-2xx status is part of the reading.
