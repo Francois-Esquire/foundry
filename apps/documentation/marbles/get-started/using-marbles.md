@@ -34,7 +34,7 @@ Follow either run in one CLI call:
 marbles watch <runId>
 ```
 
-Dispatched runs belong to the workspace's worker, so they keep running if
+Dispatched runs belong to the Marbles process's engine generation, so they keep running if
 the MCP server disconnects. The watcher replays output already produced,
 follows new output, and exits when the run finishes.
 [CLI reference](/marbles/reference/cli#watch-a-background-run) covers exit

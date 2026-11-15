@@ -281,8 +281,28 @@ Five buckets, each importing only what sits below it:
   tick, delivery or queued run starts there again, its queued runs are
   handed to the candidate and its parked runs let go) and finishes its
   running runs before it exits, and the candidate starts, taking over the
-  parked and queued work. Commands about a run go to the generation whose
-  process owns it. The rest is the wire protocol (`protocol.ts`,
+  parked and queued work; the candidate is current from the moment it has
+  loaded, before the previous one is told to go, and only a current
+  generation that is not retiring is replaced when it exits. A run of a
+  retired generation that parks later is let go as it parks and taken
+  over by the current one (`Engine.adopt`, over `Orchestrator.adopt`,
+  which claims the run's suspensions at a new revision); the daemon also
+  sweeps the database for parked runs no live engine holds and offers
+  them to the current generation. An answer is applied only by the engine
+  that holds the run when it is written: the router resolves at the
+  revision it read, and the run store refuses a commit to a Run another
+  engine owns (`RunMovedError`); either refusal is a `QuestionMovingError`
+  the daemon retries elsewhere. A generation that was current and died is
+  replaced after a bounded backoff, and only a candidate that does not
+  load has its fingerprint refused. The fingerprint
+  (`process/fingerprint.ts`) is taken before a generation loads: every
+  file under each workspace's root, by relative path and content, and
+  every file the generation reports reading outside it (`onRead` in
+  `workspace/copies.ts`), recorded as it was when read.
+  Commands about a run go to the generation whose process owns it, answers
+  and activity stops to the one holding them, the rest to the current
+  one (the table beside `RUN_METHODS` in `daemon.ts`); every signal to a
+  generation first proves its pid and start. The rest is the wire protocol (`protocol.ts`,
   `channel.ts`); the client (`client.ts`), which joins the running daemon
   or starts one; and the claim (`instance.ts`). Apart from the generation
   it imports only `lib/`, `database/`, `layout.ts`, `model/` and the pure

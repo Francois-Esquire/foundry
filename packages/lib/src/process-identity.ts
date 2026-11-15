@@ -290,7 +290,10 @@ export function isGone(owner: ProcessIdentity): boolean {
   const now = startedAt(owner.pid);
   remember(owner.pid, now);
   if (now === null) {
-    return true;
+    // The read found no process with the pid. One that still answers a
+    // signal says otherwise: the read is not trusted over it, since a
+    // live owner must never be taken for gone.
+    return !processAlive(owner.pid);
   }
   return now !== undefined && compareStarts(now, owner.started) === "different";
 }

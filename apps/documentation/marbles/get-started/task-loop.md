@@ -48,8 +48,8 @@ marbles tasks list --json
 
 The observer runs asynchronously. Once it has processed the change, the task
 has `"intakeRecorded": true` in its metadata. List again if the first read
-arrives before the observer. If a task command says the workspace worker is
-starting, retry once it is ready. Stop the process with `marbles stop` when done.
+arrives before the observer. If a task command says the workspace is
+starting in the Marbles process, retry once it is ready. Stop the process with `marbles stop` when done.
 Tasks and their events live in workspace state; the source file stays in the
 project. See the [state reference](/marbles/reference/state).
 

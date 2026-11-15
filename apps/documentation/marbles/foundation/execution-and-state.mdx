@@ -29,7 +29,7 @@ including for inspection commands. Step bodies execute when launched.
 
 | Mode | Lifetime |
 | --- | --- |
-| `marbles roll <name-or-key>` | Dispatch one definition, schedule, or monitor in the workspace's worker and exit. A question parks the run until a dashboard answers it. |
+| `marbles roll <name-or-key>` | Dispatch one definition, schedule, or monitor in the Marbles process's current engine generation and exit. A question parks the run until a dashboard answers it. |
 | `marbles` | Attach the workspace and open the dashboard on it: launches, answers, and every hosted workspace. |
 | `marbles run` with piped input or output | Attach the workspace and follow its status lines with plain output. Cannot answer a question. |
 | `marbles daemon`, `marbles stop` | Run the Marbles process in the foreground, or stop it with every workspace it hosts. |
@@ -38,7 +38,7 @@ Each of the first three attaches the workspace to the Marbles process, one
 per machine, which starts when none runs and keeps the workspace's
 schedules and monitors ticking after the command exits; `roll` executes one
 target immediately on top of that. All modes use the same workspace state.
-Editing a module reloads the workspace's worker; nothing needs restarting.
+Editing a module starts the Marbles process's next engine generation, which takes over once it has loaded; nothing needs restarting.
 `--dry-run` hosts the workspace in the command's own process instead and
 persists nothing. See the [CLI reference](/marbles/reference/cli) for
 commands and controls.
@@ -68,7 +68,7 @@ the files and their ownership rules.
 
 ## What a restart keeps
 
-A fresh worker reads the saved state. It adopts a parked run when its
+A new engine generation reads the saved state. It adopts a parked run when its
 definition remains available and its previous ownership has ended, and the
 question waits on the Feed for a dashboard. A run interrupted while
 actively executing is not adopted.

@@ -54,6 +54,17 @@ import { filedRuns, removalOf } from "~/lib/run-store";
 
 const RUNS_KEY = sourceKey(RUNS) ?? "runs";
 
+/** A change to a Run this engine no longer holds: another took it over, or it was let go. */
+class RunMovedError extends Error {
+  override readonly name = "RunMovedError";
+
+  constructor(runId: string) {
+    super(
+      `run ${runId} is not held by this engine any more; the engine that holds it changes it`
+    );
+  }
+}
+
 export interface DatabaseRunStoreOptions {
   /**
    * What the workspace's stores in this process record their change facts
@@ -248,7 +259,12 @@ export class DatabaseRunStore implements RunStore {
    * What `write` files beside its Runs, in its own `transaction`: each Run
    * it puts unsettled has this store as its owner, and the recording of
    * its scope when there is one here; each Run it settles is owned by no
-   * one; each Run it deletes loses its row.
+   * one; each Run it deletes loses its row. A Run whose row another engine
+   * owns, one that claimed it after this one let it go, is not this
+   * engine's to change: the whole commit is refused with a `RunMovedError`,
+   * read and decided in this same transaction, so an answer, a resume or
+   * any other change this engine makes after the run moved never lands. A
+   * Run no one owns is this store's again once it puts it, as before.
    */
   async #file(
     transaction: WorkflowTransaction,
@@ -256,6 +272,14 @@ export class DatabaseRunStore implements RunStore {
     recorded: (runId: string) => RecordedScope | undefined
   ): Promise<void> {
     for (const { runId, scope, settled } of filedRuns(write, recorded)) {
+      const held = await this.#ownerOf(transaction, runId);
+      if (
+        held !== undefined &&
+        held.ownerId !== null &&
+        held.ownerId !== this.#owner
+      ) {
+        throw new RunMovedError(runId);
+      }
       const owner = settled ? NO_OWNER : this.#owned();
       // Without a recording, the row keeps what it had and changes owner.
       const recording =
@@ -339,6 +363,54 @@ export class DatabaseRunStore implements RunStore {
 }
 
 /** A workspace's Run as `status` lists it. */
+/**
+ * The parked Runs of the workspace `scope` that no live engine holds, by
+ * id, read through `database`: what an engine let go and none has taken
+ * over yet, for the Marbles process to offer its current generation. An
+ * owner is judged gone outside any transaction.
+ */
+export async function unheldParkedRuns(
+  database: StoreDatabase,
+  scope: string
+): Promise<readonly string[]> {
+  const store = new SqliteWorkflowStore({ database, scope });
+  const parked: string[] = [];
+  let after: number | undefined;
+  do {
+    const page = await asBusy(() =>
+      store.listRuns({
+        limit: 200,
+        status: ["suspended"],
+        ...(after === undefined ? {} : { after }),
+      })
+    );
+    parked.push(...page.items.map((run) => run.id));
+    after = page.next;
+  } while (after !== undefined);
+  if (parked.length === 0) {
+    return [];
+  }
+  const rows = await asBusy(() =>
+    database
+      .select({
+        ownerPid: marblesWorkflowRuns.ownerPid,
+        ownerStarted: marblesWorkflowRuns.ownerStarted,
+        runId: marblesWorkflowRuns.runId,
+      })
+      .from(marblesWorkflowRuns)
+      .where(
+        and(
+          eq(marblesWorkflowRuns.scope, scope),
+          inArray(marblesWorkflowRuns.runId, parked)
+        )
+      )
+  );
+  const held = new Set(
+    rows.filter((row) => heldBy(row) !== null).map((row) => row.runId)
+  );
+  return parked.filter((runId) => !held.has(runId));
+}
+
 export interface StoredRun {
   /** In ms since the epoch. */
   readonly createdAt: number;

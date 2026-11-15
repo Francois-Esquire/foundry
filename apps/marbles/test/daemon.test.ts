@@ -10,7 +10,11 @@ import {
 import { createRequire } from "node:module";
 import { connect as connectSocket, createServer } from "node:net";
 import { join } from "node:path";
-import { processAlive } from "@foundry/lib/process-identity";
+import {
+  type lookProcesses,
+  processAlive,
+  startedAt,
+} from "@foundry/lib/process-identity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fileIdentity, queuedFiles } from "~/database/client";
 import { readDatabase } from "~/database/open";
@@ -36,12 +40,26 @@ import { testHome } from "./helpers/home";
 import { readWorkspace, touchWorkspace } from "./helpers/registry";
 
 /**
- * The daemon runs here, under the test runner; the workers it spawns run
+ * The daemon runs here, under the test runner; the generations it spawns run
  * under Bun, as they always do. The state root sits in a short temp path:
  * a Unix socket path has about a hundred bytes to work with.
  */
 
 const zodPath = createRequire(import.meta.url).resolve("zod");
+
+/** What `lookProcesses` answers in the daemon while a test sets `fake`. */
+const looking = vi.hoisted(() => ({
+  fake: undefined as typeof lookProcesses | undefined,
+}));
+vi.mock("@foundry/lib/process-identity", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@foundry/lib/process-identity")>();
+  return {
+    ...actual,
+    lookProcesses: (pids: readonly number[]) =>
+      (looking.fake ?? actual.lookProcesses)(pids),
+  };
+});
 
 interface Fixture {
   readonly home: string;
@@ -220,14 +238,14 @@ describe("the Marbles process", () => {
     client.close();
   }, 60_000);
 
-  it("makes an attach during a reload wait for the fresh worker", async () => {
+  it("makes an attach during a reload wait for the next generation", async () => {
     const { machine, source } = fixture();
     writeFileSync(source, greeter("greet"));
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
     const first = await client.attach(source);
     const reloading = client.reload(first.id);
-    // Asked while the first worker drains: answered by the one after it.
+    // Asked while the reload runs: answered once the next generation is current.
     const attached = await client.attach(source);
     expect(attached.state).toBe("ready");
     expect(attached.pid).not.toBe(first.pid);
@@ -253,7 +271,7 @@ describe("the Marbles process", () => {
       },
       { interval: 50, timeout: 10_000 }
     );
-    // Long enough for the worker to register, well short of its import.
+    // Long enough for the generation to register, well short of its import.
     await sleep(1000);
     const reloaded = await client.reload(starting?.id ?? "");
     expect(reloaded.state).toBe("ready");
@@ -266,7 +284,7 @@ describe("the Marbles process", () => {
     client.close();
   }, 60_000);
 
-  it("stops at once a worker it spawned at boot that has not registered", async () => {
+  it("stops at once a generation it spawned at boot that has not registered", async () => {
     const { machine, source } = fixture();
     writeFileSync(source, greeter("greet"));
     const first = await daemonFor(machine);
@@ -275,7 +293,7 @@ describe("the Marbles process", () => {
     client.close();
     await first.close();
 
-    // Booting re-hosts the workspace; closing right away finds its worker unregistered.
+    // Booting re-hosts the workspace; closing right away finds its generation unregistered.
     const again = await daemonFor(machine);
     const began = Date.now();
     await again.close();
@@ -384,7 +402,7 @@ describe("the Marbles process", () => {
     if (!(kept && linked && dangling)) {
       throw new Error("the workspaces were not recorded");
     }
-    // A worker would write its runs and claim through these links.
+    // A generation would write its runs and claim through these links.
     const outside = join(home, "outside");
     mkdirSync(outside);
     symlinkSync(outside, linked.dir);
@@ -837,6 +855,58 @@ export const hold = step("hold").do(async () => {
       }
     }
   }, 60_000);
+
+  it("sends no signal to a generation whose pid it cannot prove is the one it spawned", async () => {
+    const { machine, source } = fixture();
+    writeFileSync(source, greeter("greet"));
+    const lines: string[] = [];
+    const daemon = await startDaemon({
+      layout: machine,
+      print: (line) => {
+        lines.push(line);
+      },
+    });
+    const client = await connect({ layout: machine, start: false });
+    const { pid } = await client.attach(source);
+    client.close();
+    if (pid === undefined) {
+      throw new Error("the generation has no pid");
+    }
+    const real = startedAt(pid);
+    if (typeof real !== "string") {
+      throw new Error("the generation's start cannot be read");
+    }
+    // The generation does not answer the stop, and its pid now reads as
+    // another process: one started at another time.
+    const { request } = Channel.prototype;
+    vi.spyOn(Channel.prototype, "request").mockImplementation(function (
+      this: Channel,
+      method,
+      ...rest
+    ) {
+      return method === GENERATION_METHODS.stop
+        ? Promise.reject(new Error("the generation would not stop"))
+        : request.call(this, method, ...rest);
+    });
+    looking.fake = (pids) =>
+      new Map(pids.map((each) => [each, { pgid: each, started: `${real}0` }]));
+    const kill = vi.spyOn(process, "kill");
+    try {
+      await daemon.close();
+      expect(kill).not.toHaveBeenCalledWith(-pid, expect.anything());
+      expect(kill).not.toHaveBeenCalledWith(pid, expect.anything());
+      expect(
+        lines.some((line) => line.includes("is another process now"))
+      ).toBe(true);
+    } finally {
+      looking.fake = undefined;
+      vi.restoreAllMocks();
+    }
+    // Its daemon is gone: it drains and leaves on its own.
+    await vi.waitFor(() => expect(processAlive(pid)).toBe(false), {
+      timeout: 30_000,
+    });
+  }, 90_000);
 
   it("refuses a second daemon on the same state root, and a client with none to start", async () => {
     const { machine } = fixture();

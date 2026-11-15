@@ -45,6 +45,11 @@ export interface FeedRouter {
     readonly onEvent: (event: ChannelEvent) => void;
     readonly settled: () => Promise<void>;
   };
+  /**
+   * Refuse every answer from now on with a `QuestionMovingError`: what this
+   * router holds is moving to another process, which answers it there.
+   */
+  retire(): void;
 }
 
 /**
@@ -53,6 +58,32 @@ export interface FeedRouter {
  * `marbles.feed.input`. Without `askable` nobody can answer, so a question
  * cancels its run instead of pausing it forever.
  */
+/** The question is moving to another process with its run; answer it there. */
+export class QuestionMovingError extends Error {
+  override readonly name = "QuestionMovingError";
+
+  constructor(entryId: string) {
+    super(
+      `the question ${entryId} is moving to another engine with its run; answer it there`
+    );
+  }
+}
+
+/**
+ * What a resolution refused because its run moved meanwhile is: the
+ * suspension taken over at another revision (`StaleSuspensionRevisionError`),
+ * or the run's claim held by another engine when the resolution was
+ * written (`RunMovedError`). Then nothing was applied here, and the answer
+ * belongs to the engine that has the run now. Anything else is itself.
+ */
+export function movedAway(error: unknown, id: string): unknown {
+  return error instanceof Error &&
+    (error.name === "StaleSuspensionRevisionError" ||
+      error.name === "RunMovedError")
+    ? new QuestionMovingError(id)
+    : error;
+}
+
 export function feedRouter(options: {
   readonly askable: boolean;
   readonly feed: FeedPublisher;
@@ -61,6 +92,8 @@ export function feedRouter(options: {
 }): FeedRouter {
   const { askable, feed, orchestrator, print } = options;
   const open = new Map<string, OpenQuestion>();
+  /** Set by `retire`: every answer is refused from then on. */
+  let retired = false;
   const cancelled = new Map<string, string>();
 
   function warn(title: string) {
@@ -136,6 +169,9 @@ export function feedRouter(options: {
     adopt,
 
     async answer(entryId, answer) {
+      if (retired) {
+        throw new QuestionMovingError(entryId);
+      }
       const question = open.get(entryId);
       if (!question) {
         throw new Error("This question is no longer waiting for an answer.");
@@ -148,16 +184,31 @@ export function feedRouter(options: {
       const suspension = await orchestrator.getSuspension(
         question.suspensionId
       );
+      // Retired, or the run let go, while the suspension was read: the
+      // engine that takes the run over answers it, not this one.
+      if (retired || open.get(entryId) !== question) {
+        throw new QuestionMovingError(entryId);
+      }
       if (suspension?.status !== "pending") {
         open.delete(entryId);
         throw new Error("This question is no longer waiting for an answer.");
       }
       // The step reads a plain choice or `{ choice, note }`; keep the plain
       // form when there is no note so older resolutions stay comparable.
-      await orchestrator.resolve(
-        suspension.id,
-        note === undefined ? choice : { choice, note }
-      );
+      // Applied only at the revision read, and, in a store that keeps whom
+      // a run answers to, only while this engine holds the run: a run that
+      // moved meanwhile is answered by its new holder instead.
+      await orchestrator
+        .resolve(
+          suspension.id,
+          note === undefined ? choice : { choice, note },
+          {
+            expectedRevision: suspension.revision,
+          }
+        )
+        .catch((error: unknown) => {
+          throw movedAway(error, entryId);
+        });
       open.delete(entryId);
       await feed
         .publishInput(question.question, question.source, {
@@ -232,6 +283,10 @@ export function feedRouter(options: {
           await Promise.all(writes);
         },
       };
+    },
+
+    retire() {
+      retired = true;
     },
   };
 }

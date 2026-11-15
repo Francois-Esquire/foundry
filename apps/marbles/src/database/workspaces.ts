@@ -169,9 +169,9 @@ const HOST_WAIT_MS = 5000;
 const HOST_RETRY_MS = 50;
 
 /**
- * The database for a program that writes a workspace's state: a worker of
- * the Marbles process, a program hosting a workspace itself, or a command
- * changing a workspace's tasks with no worker hosting it. Such a writer may
+ * The database for a program that writes a workspace's state: an engine
+ * generation of the Marbles process, a program hosting a workspace itself,
+ * or a command changing a workspace's tasks with no generation hosting it. Such a writer may
  * make and migrate the database, but only while it holds the state root's
  * process lock, the one the Marbles process claims for its lifetime
  * (`PROCESS_LOCK`). It takes it atomically, makes or migrates the database

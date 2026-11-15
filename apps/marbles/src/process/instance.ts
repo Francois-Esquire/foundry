@@ -28,7 +28,7 @@ export type ProcessHost = "daemon" | "worker";
 export interface ProcessInfo {
   /** Where the daemon keeps the artifact store. */
   readonly artifacts?: string;
-  /** The authoring source a worker loaded; null without one. */
+  /** The authoring source a program hosting one workspace loaded; null without one. */
   readonly config?: string | null;
   readonly host: ProcessHost;
   readonly pid: number;
@@ -76,7 +76,7 @@ export class ProcessHeldError extends Error {
 
 /**
  * Claim `dir` for this process, or throw `ProcessHeldError` naming who has
- * it. A worker calls it before its engine starts: starting is what adopts
+ * it. A program hosting a workspace calls it before its engine starts: starting is what adopts
  * parked runs. The daemon calls it before it listens.
  */
 export function claimProcess(

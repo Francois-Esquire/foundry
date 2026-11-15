@@ -947,7 +947,15 @@ describe("delivery lifecycle", () => {
       (payload) => {
         calls.push(`${generation}:${titles([payload]).join()}`);
       };
-    const older = engineWith(state, { notify: notify("old") });
+    // The older engine's own records, to try its writes after it retires.
+    const olderRecords = machine.records(state);
+    const older = testEngine({
+      print: () => undefined,
+      records: olderRecords,
+      state,
+    });
+    older.observe(TASKS, notify("old"), { name: "notify" });
+    engines.push(older);
     await older.start();
     const newer = engineWith(state, { notify: notify("new") });
     await newer.start();
@@ -956,7 +964,28 @@ describe("delivery lifecycle", () => {
     await vi.waitFor(() => expect(calls).toEqual(["old:Before"]));
 
     // Retired, not disposed: its process goes on for the runs it holds.
-    await older.retire(thisProcess());
+    const letGo: string[] = [];
+    await older.retire(thisProcess(), {
+      onLetGo: (runId) => letGo.push(runId),
+    });
+    // It gave the claim up: a late write about the observer is refused.
+    const key = { name: "notify", source: "tasks" };
+    expect(
+      await olderRecords.log.fail(key, {
+        error: "late",
+        now: Date.now(),
+        retryAt: Date.now(),
+        stuckSince: Date.now(),
+      })
+    ).toBe(false);
+    expect(
+      await olderRecords.log.move(key, {
+        from: 0,
+        handed: false,
+        now: Date.now(),
+        to: 9,
+      })
+    ).toEqual({ kind: "unclaimed" });
     await tasks.create({ title: "After" });
     await vi.waitFor(() => expect(calls).toEqual(["old:Before", "new:After"]), {
       timeout: DELIVERY_POLL_MS * 5,
@@ -964,6 +993,11 @@ describe("delivery lifecycle", () => {
     // `retire` resolved once the older delivery had stopped, its tick
     // cancelled and its claim given up: nothing there can call again.
     expect(calls).toEqual(["old:Before", "new:After"]);
+    expect(letGo).toEqual([]);
+    expect((await places(state))[0]).toMatchObject({
+      failures: 0,
+      name: "notify",
+    });
   });
 
   it("never moves an observer back: a move from a place another deliverer moved it past is refused", async () => {

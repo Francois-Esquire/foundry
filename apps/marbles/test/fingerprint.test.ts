@@ -1,7 +1,15 @@
 import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { fingerprintOf, installationDigest } from "~/process/fingerprint";
+import {
+  FileDigests,
+  fingerprintOf,
+  installationDigest,
+  printNow,
+  sourceDigests,
+  treeDigest,
+  withRead,
+} from "~/process/fingerprint";
 import { temporaryDirectory } from "./helpers/temporary";
 
 /** A built installation: its generation entry, a chunk, a migration and a dot file. */
@@ -51,20 +59,159 @@ describe("installationDigest", () => {
   });
 });
 
+describe("sourceDigests", () => {
+  it("covers every file under the root, read or not, and each file a load read outside it", () => {
+    const dir = temporaryDirectory("marbles-fingerprint-");
+    const root = join(dir, "project");
+    const shared = join(dir, "shared");
+    mkdirSync(root);
+    mkdirSync(shared);
+    const config = join(root, "marbles.config.ts");
+    const helper = join(root, "helper.ts");
+    const outside = join(shared, "values.json");
+    writeFileSync(config, 'import "./helper.ts";\n');
+    writeFileSync(helper, "export const value = 1;\n");
+    writeFileSync(outside, '{ "value": 1 }\n');
+    const records = [{ config, id: "w", root }];
+    const read = new Map([["w", [config, helper, outside]]]);
+    const digest = () => sourceDigests(records, read).get("w");
+
+    const before = digest();
+    writeFileSync(helper, "export const value = 200;\n");
+    const helped = digest();
+    expect(helped).not.toBe(before);
+    writeFileSync(outside, '{ "value": 200 }\n');
+    const data = digest();
+    expect(data).not.toBe(helped);
+    // Under the root, whether a load read it or not: a run may import it.
+    writeFileSync(join(root, "later.ts"), "export {};\n");
+    const later = digest();
+    expect(later).not.toBe(data);
+    // Outside the root, and read by no load: not part of it.
+    writeFileSync(join(shared, "unread.ts"), "export {};\n");
+    expect(digest()).toBe(later);
+  });
+
+  it("leaves out what a run writes under the root that no load could read", () => {
+    const root = join(temporaryDirectory("marbles-fingerprint-"), "project");
+    mkdirSync(root);
+    const config = join(root, "marbles.config.ts");
+    writeFileSync(config, "export {};\n");
+    const records = [{ config, id: "w", root }];
+    const before = sourceDigests(records, new Map()).get("w");
+    writeFileSync(join(root, "seen.jsonl"), "{}\n");
+    writeFileSync(join(root, "report.md"), "# done\n");
+    expect(sourceDigests(records, new Map()).get("w")).toBe(before);
+    writeFileSync(join(root, "values.json"), "{}\n");
+    expect(sourceDigests(records, new Map()).get("w")).not.toBe(before);
+  });
+
+  it("leaves out dependencies, history, Marbles' own and builds", () => {
+    const root = join(temporaryDirectory("marbles-fingerprint-"), "project");
+    for (const name of ["node_modules", ".git", ".marbles", "dist"]) {
+      mkdirSync(join(root, name), { recursive: true });
+    }
+    const config = join(root, "marbles.config.ts");
+    writeFileSync(config, "export {};\n");
+    const records = [{ config, id: "w", root }];
+    const before = sourceDigests(records, new Map()).get("w");
+    for (const name of ["node_modules", ".git", ".marbles", "dist"]) {
+      writeFileSync(join(root, name, "file.js"), "changed\n");
+    }
+    expect(sourceDigests(records, new Map()).get("w")).toBe(before);
+  });
+});
+
+describe("treeDigest", () => {
+  it("names files by their path under the root, so another spelling of the root changes nothing", () => {
+    const dir = temporaryDirectory("marbles-fingerprint-");
+    const one = join(dir, "one");
+    const two = join(dir, "two");
+    for (const root of [one, two]) {
+      mkdirSync(join(root, "lib"), { recursive: true });
+      writeFileSync(join(root, "marbles.config.ts"), "export {};\n");
+      writeFileSync(join(root, "lib", "helper.ts"), "export const a = 1;\n");
+    }
+    const digests = new FileDigests();
+    const of = (root: string) =>
+      treeDigest(
+        { config: join(root, "marbles.config.ts"), id: "w", root },
+        digests
+      );
+    expect(of(one)).toBe(of(two));
+  });
+
+  it("follows content, not modification time: a file touched but unchanged changes nothing", () => {
+    const root = join(temporaryDirectory("marbles-fingerprint-"), "project");
+    mkdirSync(root);
+    const config = join(root, "marbles.config.ts");
+    writeFileSync(config, "export const a = 1;\n");
+    const digests = new FileDigests();
+    const registration = { config, id: "w", root };
+    const before = treeDigest(registration, digests);
+    const later = new Date(Date.now() + 60_000);
+    utimesSync(config, later, later);
+    expect(treeDigest(registration, digests)).toBe(before);
+    // Same size, new content: read again because its time moved.
+    writeFileSync(config, "export const a = 2;\n");
+    utimesSync(config, later, new Date(Date.now() + 120_000));
+    expect(treeDigest(registration, digests)).not.toBe(before);
+  });
+});
+
+describe("withRead", () => {
+  it("records a file read outside the root as read, or as changed when it moved after the read", () => {
+    const dir = temporaryDirectory("marbles-fingerprint-");
+    const root = join(dir, "project");
+    mkdirSync(root);
+    const config = join(root, "marbles.config.ts");
+    writeFileSync(config, "export {};\n");
+    const outside = join(dir, "helper.ts");
+    writeFileSync(outside, "export const a = 1;\n");
+    const digests = new FileDigests();
+    const registration = { config, id: "w", root };
+    const empty = printNow(registration, [], digests);
+    const now = printNow(registration, [outside], digests);
+
+    // Read after its last change: recorded as it is, the same as now.
+    const read = withRead(
+      registration,
+      empty,
+      outside,
+      Date.now() + 60_000,
+      digests
+    );
+    expect(fingerprintOf("", new Map([["w", read]])).digest).toBe(
+      fingerprintOf("", new Map([["w", now]])).digest
+    );
+    // Changed since it was read: matches nothing, so a switch follows.
+    const stale = withRead(registration, empty, outside, 0, digests);
+    expect(fingerprintOf("", new Map([["w", stale]])).digest).not.toBe(
+      fingerprintOf("", new Map([["w", now]])).digest
+    );
+    // A file under the root is the tree's.
+    expect(withRead(registration, empty, config, 0, digests)).toBe(empty);
+  });
+});
+
 describe("fingerprintOf", () => {
   it("is the same for the same sources in any order, and differs when one changes", () => {
+    const part = (tree: string) => ({
+      outside: new Map<string, string>(),
+      tree,
+    });
     const one = fingerprintOf(
       "install",
       new Map([
-        ["a", "1"],
-        ["b", "2"],
+        ["a", part("1")],
+        ["b", part("2")],
       ])
     );
     const swapped = fingerprintOf(
       "install",
       new Map([
-        ["b", "2"],
-        ["a", "1"],
+        ["b", part("2")],
+        ["a", part("1")],
       ])
     );
     expect(swapped.digest).toBe(one.digest);
@@ -72,8 +219,8 @@ describe("fingerprintOf", () => {
       fingerprintOf(
         "install",
         new Map([
-          ["a", "1"],
-          ["b", "3"],
+          ["a", part("1")],
+          ["b", part("3")],
         ])
       ).digest
     ).not.toBe(one.digest);

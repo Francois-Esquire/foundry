@@ -4,7 +4,7 @@
  * `bun` process), the engine built by `hostEngine` over the Marbles
  * database a host opens, and the tasks shared by every OS process on it.
  * The last scenario hosts the workspace the way the Marbles process does,
- * in a worker it spawns and reloads.
+ * in the engine generation it spawns, and switches to the next on an edit.
  */
 
 import type { ChildProcess } from "node:child_process";
@@ -257,7 +257,7 @@ it("loses no update when two OS processes change one workspace's tasks at once",
 report.id = (await changeTasks(${JSON.stringify(state)}, "shared", (tasks) => tasks.create({ metadata: { count: 0 }, title: "counter" }))).id;`
   );
   // Each process adds one to the count, \`rounds\` times, the way a command
-  // with no worker does: its own opening per change, read then written
+  // with no generation does: its own opening per change, read then written
   // against the token it read. A refused token is read again.
   const counter = join(root, "counter.ts");
   await writeFile(
@@ -320,12 +320,12 @@ process.stdout.write(JSON.stringify({ refused }) + "\\n");
 }, 120_000);
 
 /**
- * A source for a worker: `observe` appends each payload's titles to
+ * A source for an engine generation: `observe` appends each payload's titles to
  * `seen.log`, `add` creates a task, and `titles` lists them. `revision`
- * edits the handler's body and changes the bytes, so an edit reloads the
- * worker and keeps the observer.
+ * edits the handler's body and changes the bytes, so an edit starts the
+ * next generation and keeps the observer.
  */
-function workerSource(dir: string, revision: number): string {
+function generationSource(dir: string, revision: number): string {
   const zod = createRequire(import.meta.url).resolve("zod");
   return `import { appendFileSync } from "node:fs";
 import { observe, step, tasks } from "@foundry.sh/marbles";
@@ -353,7 +353,7 @@ it("binds tasks to the workspace a generation hosts, and hands its records to th
   const root = join(home.path, "project");
   await mkdir(root);
   const source = join(root, "marbles.config.ts");
-  await writeFile(source, workerSource(root, 1));
+  await writeFile(source, generationSource(root, 1));
   const machine = home.layout;
   daemons.push(await startDaemon({ layout: machine, print: () => undefined }));
   const client = await connect({ layout: machine, start: false });
@@ -385,7 +385,7 @@ it("binds tasks to the workspace a generation hosts, and hands its records to th
 
     // The generation that delivered gives delivery up as it retires: the
     // next one reads the same tasks and redelivers nothing.
-    await writeFile(source, workerSource(root, 2));
+    await writeFile(source, generationSource(root, 2));
     await vi.waitFor(
       async () => {
         const [now] = await client.workspaces();

@@ -489,8 +489,8 @@ const region = await ask.question({
 
 `approval` is a hard block: the run shows as blocked until someone
 decides. `question` is input: the step waits, siblings keep going. Both
-need a process that can show them: a worker of the Marbles process parks
-the run for a dashboard to answer, while `--dry-run` cancels it at the ask. `choices` gives a pick list
+need a process that can show them: an engine generation of the Marbles
+process parks the run for a dashboard to answer, while `--dry-run` cancels it at the ask. `choices` gives a pick list
 of at most nine; without it the answer is free text. Both are identified
 by position in the body; `key` is optional, for updating one entry across
 steps.
@@ -711,8 +711,8 @@ notation. They are not in `0.0.3` and ship in the next release. See
 The main entry also exports `tasks`, the workspace's backlog, with the
 `Tasks` class, `MemoryTaskStore`, and `TaskError` beside it. A module imports
 `tasks` to track what there is to do, what is ready, and what is done, or
-ignores it. Under a host (the worker the Marbles process runs for the
-workspace, or a program that hosts it with `hostWorkspace`) it is that
+ignores it. Under a host (the engine generation the Marbles process runs
+for every workspace, or a program that hosts it with `hostWorkspace`) it is that
 workspace's tasks, kept in the Marbles database (in memory under
 `--dry-run`); every process on the machine reads and writes the same tasks,
 and a change never lands between another's read and its write (see
@@ -781,8 +781,10 @@ handler keeps its place; renaming it makes a new observer. A new observer
 starts from now: it is handed the facts committed after its first start,
 never the ones before.
 
-The host delivers from its start until it stops, one host per workspace at
-a time. Every fact is stored with its change in the same write, whether or
+The host delivers from its start until it stops or retires, one host per
+workspace at a time: across a switch the retiring generation gives
+delivery up, and the next takes each observer up from the place the
+retiring one left it. Every fact is stored with its change in the same write, whether or
 not anything observes it, with the run that made it when a run did. An
 observer is handed its source's facts in the order they were committed,
 each once it completed the one before. Observers are delivered to

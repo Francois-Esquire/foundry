@@ -17,6 +17,7 @@ import {
   GENERATION_NOTIFICATIONS,
   hostParamsSchema,
   isWorkspaceMethod,
+  releasedParamsSchema,
   retireParamsSchema,
   startParamsSchema,
   workspaceIdSchema,
@@ -51,7 +52,9 @@ import type { SetupDraft } from "~/workspace/templates";
  * - `host` and `unhost` add one workspace, or drop one, while it runs.
  * - `retire` hands what is not running to the generation that takes over
  *   (`Engine.retire`) and stops the triggers; the runs still running here
- *   then run to their end, and the generation exits.
+ *   then run to their end, a run that parks meanwhile is let go and the
+ *   daemon told (`released`), and the generation exits.
+ * - `adopt` takes over a parked run a retired generation let go.
  * - `stop` drains running work and exits.
  *
  * Workspace methods arrive as `workspace.<name>` with the workspace's id,
@@ -298,6 +301,15 @@ async function main(): Promise<void> {
       print(root, line) {
         notify(GENERATION_NOTIFICATIONS.line, { line, root });
       },
+      // What this generation depends on, as it reads it: the daemon's
+      // fingerprint of it records each file as it was when read.
+      read(root, file) {
+        notify(GENERATION_NOTIFICATIONS.read, {
+          file,
+          readAt: Date.now(),
+          root,
+        });
+      },
       // The daemon names it, under its Foundry home.
       ...(process.env[SPAWN_RECOVERY_ENV]
         ? { spawned: process.env[SPAWN_RECOVERY_ENV] }
@@ -322,6 +334,10 @@ async function main(): Promise<void> {
       throw new Error("this generation has nothing loaded to start");
     }
     const loads = await staged.start();
+    // Told to stop or retire while the engines started: none ticks.
+    if (stopping !== undefined || retiring !== undefined) {
+      throw new Error("this generation stopped while it started");
+    }
     for (const host of workspaces().list()) {
       tick(host);
       const draft = setups[host.id];
@@ -334,7 +350,17 @@ async function main(): Promise<void> {
 
   const addWorkspace = async (raw: unknown) => {
     const { config, root, setup } = hostParamsSchema.parse(raw);
-    const added = await (await open()).register({ config, root });
+    const away = () => stopping !== undefined || retiring !== undefined;
+    if (away()) {
+      throw new Error("this generation is retiring or stopping");
+    }
+    const all = await open();
+    const added = await all.register({ config, root });
+    // Retiring or stopping meanwhile: it is not ticked here, and closes
+    // with the rest as this generation leaves.
+    if (away()) {
+      throw new Error("this generation began to retire or stop as it loaded");
+    }
     if (!ticking.has(added.id)) {
       tick(added);
     }
@@ -377,13 +403,28 @@ async function main(): Promise<void> {
       loop?.stop.abort();
     }
     const retired = await Promise.all(
-      hosts.map((each) => each.engine.retire(successor))
+      hosts.map((each) =>
+        each.engine.retire(successor, {
+          // A run that parks from now on is the current generation's.
+          onLetGo(runId) {
+            notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });
+          },
+        })
+      )
     );
     retiring = (async () => {
       await Promise.all(retired.map(({ ended }) => ended));
       await leave(false);
     })();
     retiring.then(finished.resolve, finished.reject);
+  };
+
+  const adopt = async (raw: unknown): Promise<boolean> => {
+    const { id, runId } = releasedParamsSchema.parse(raw);
+    if (retiring !== undefined || stopping !== undefined) {
+      return false;
+    }
+    return await workspaces().get(id).engine.adopt(runId);
   };
 
   const stop = (): Promise<void> => {
@@ -408,6 +449,8 @@ async function main(): Promise<void> {
           return unhost(raw);
         case GENERATION_METHODS.retire:
           return retire(raw);
+        case GENERATION_METHODS.adopt:
+          return adopt(raw);
         default:
           break;
       }

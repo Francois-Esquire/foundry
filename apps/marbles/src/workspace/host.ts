@@ -37,7 +37,7 @@ import { runTaskCommand } from "~/workspace/tasks";
  * One workspace, hosted in this process: its source loaded, its engine
  * built and started, and everything a host does with it behind the
  * `WorkspaceConnection` the dashboard, the CLI, and MCP are written
- * against. The Marbles process runs one of these per workspace in a worker;
+ * against. An engine generation of the Marbles process runs one of these per workspace;
  * a program that embeds Marbles for a single workspace runs it directly.
  */
 
@@ -71,6 +71,8 @@ export interface HostWorkspaceOptions {
   readonly prepare?: (engine: Engine) => void;
   /** Receives each status line; the last one is the host's `status`. */
   readonly print?: (line: string) => void;
+  /** Told of each file the source's load reads, as it loads and as its runs import more. */
+  readonly read?: (file: string) => void;
   /** The authoring folder or module. */
   readonly source: string;
   /**
@@ -89,6 +91,8 @@ export interface WorkspaceHost extends WorkspaceConnection {
   /** Where the source is, or would be created. */
   readonly configPath: string;
   readonly engine: Engine;
+  /** Every file its source's load read (`OpenedWorkspace.files`). */
+  readonly files: readonly string[];
   /**
    * Tick the live triggers until `signal` aborts. A tick under way then is
    * cancelled with it, unless `cancel` is given: then it runs to its end,
@@ -159,6 +163,8 @@ export interface StagedWorkspace {
   abandon(): Promise<void>;
   readonly config: string | null;
   readonly configPath: string;
+  /** Every file its source's load read (`OpenedWorkspace.files`). */
+  readonly files: readonly string[];
   readonly id: string;
   readonly root: string;
   /** Start the engine and host the workspace; a start that fails abandons it. */
@@ -195,6 +201,7 @@ export async function stageWorkspace(
     env: options.env,
     onMissing: options.onMissing,
     print,
+    ...(options.read === undefined ? {} : { read: options.read }),
   });
   // A host is a writer, and keeps one handle for as long as it hosts: it
   // makes and migrates the database only under the state root's process
@@ -263,6 +270,7 @@ export async function stageWorkspace(
     },
     config: opened.config,
     configPath: opened.configPath,
+    files: opened.files,
     id: opened.workspace.id,
     root: opened.workspace.root,
     async start() {
@@ -498,6 +506,7 @@ function hosted(
     dispatchWorkflow: (name, input): Promise<DispatchInfo> =>
       dispatches.startWorkflow(name, input),
     engine,
+    files: opened.files,
     getRun: (runId): Promise<RunInfo> => dispatches.get(runId),
     id: workspace.id,
     async roll(name, input): Promise<RollResult> {

@@ -456,3 +456,32 @@ describe("a write the recorder hands a store", () => {
     }
   }, 60_000);
 });
+
+describe("a Run commit the owner check refuses", () => {
+  it("records no fact: a RunMovedError rolls the facts back with the change", async () => {
+    const state = machine.workspace();
+    const scope = basename(state);
+    const { database } = machine.database;
+    const owner = new DatabaseRunStore({ database, scope });
+    const other = new DatabaseRunStore({ database, scope });
+    const owned = new ExecutionCoordinator({
+      store: await owner.open(() => undefined),
+    });
+    // Filed, unsettled, by the owner: its Run is the owner's to change.
+    const run = await owned.createRun({ input: null, queueId: "q", step: "s" });
+    const before = await machine.changes(state);
+    expect(before.map((change) => change.type)).toEqual(["run.queued"]);
+
+    const elsewhere = new ExecutionCoordinator({
+      store: await other.open(() => undefined),
+    });
+    await expect(
+      elsewhere.updateRun(run.id, { status: "running" })
+    ).rejects.toThrow("is not held by this engine any more");
+
+    expect(await machine.changes(state)).toEqual(before);
+    expect((await owned.getRun(run.id))?.status).toBe("queued");
+    await owner.close();
+    await other.close();
+  });
+});

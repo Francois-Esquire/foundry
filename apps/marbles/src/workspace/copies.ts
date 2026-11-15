@@ -360,6 +360,41 @@ function dataExports(
   return { ...named, default: value };
 }
 
+/** Every source file each load has read, its modules and data files alike, by load. */
+const read = new Map<number, Set<string>>();
+/** Who hears of each file a load reads for the first time, by load: while it loads and after. */
+const readers = new Map<number, (file: string) => void>();
+
+/**
+ * Tell `listener` of each file load `load` reads from now on for the first
+ * time, a module or a data file, while it loads and after, as its run-time
+ * imports read more; until `forget` is called.
+ */
+export function onRead(
+  load: number,
+  listener: (file: string) => void
+): { forget(): void } {
+  readers.set(load, listener);
+  return {
+    forget() {
+      if (readers.get(load) === listener) {
+        readers.delete(load);
+      }
+    },
+  };
+}
+
+/**
+ * Every file load `load` read through its copies, its modules and data
+ * files alike, sorted, and forget them: what the load depends on, as a
+ * fingerprint of it digests them.
+ */
+export function filesRead(load: number): readonly string[] {
+  const files = [...(read.get(load) ?? [])].sort();
+  read.delete(load);
+  return files;
+}
+
 /** Load every copy as a copy of its load; registered once. */
 export function copyModules(builder: PluginBuilder): void {
   modules = builder;
@@ -370,6 +405,12 @@ export function copyModules(builder: PluginBuilder): void {
     if (copy === undefined || !roots.has(copy.load)) {
       throw new Error(`${args.path} is a copy of no load`);
     }
+    const files = read.get(copy.load) ?? new Set();
+    if (!files.has(file)) {
+      files.add(file);
+      readers.get(copy.load)?.(file);
+    }
+    read.set(copy.load, files);
     if (copy.format !== undefined) {
       return {
         exports: dataExports(file, copy.format as DataFormat),

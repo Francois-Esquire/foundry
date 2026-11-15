@@ -16,7 +16,7 @@ import type {
 
 /**
  * One workspace as a host sees it, wherever its engine runs: in this
- * process (`hostWorkspace`) or in a worker behind the Marbles process
+ * process (`hostWorkspace`) or in an engine generation behind the Marbles process
  * (`connect().workspace(id)`). The dashboard, the CLI, and the MCP server
  * are written against this once; every method is asynchronous and every
  * value crosses a process boundary as JSON.

@@ -237,6 +237,25 @@ export function describeRunStore(
     );
 
     it.runIf(shared)(
+      "refuses, whole, a commit to a Run another store took over after this one let it go",
+      async () => {
+        const first = await store();
+        const second = await store();
+        const workflows = await first.open(() => SCOPE);
+        await putRun(workflows, "rn-1", "suspended");
+        await first.release("rn-1");
+        expect(await second.claim("rn-1", ANY_STORED_RUN)).toBe(true);
+
+        // The first store's late change, an answer that resumes it, say.
+        await expect(putRun(workflows, "rn-1", "running")).rejects.toThrow(
+          "is not held by this engine"
+        );
+        expect((await workflows.getRun("rn-1"))?.status).toBe("suspended");
+        expect(await first.claim("rn-1", ANY_STORED_RUN)).toBe(false);
+      }
+    );
+
+    it.runIf(shared)(
       "lets one store own a Run at a time, until its owner gives it up or settles it",
       async () => {
         const first = await store();

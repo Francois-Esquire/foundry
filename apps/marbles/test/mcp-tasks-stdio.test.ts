@@ -173,7 +173,7 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
   ]);
   try {
     // The CLI hosts the workspace in the Marbles process; the server only
-    // joins the worker that now owns the tasks.
+    // joins the engine generation that now owns the tasks.
     const attached = spawnSync("bun", cliArgs("attach", "--source", source), {
       cwd: root,
       encoding: "utf8",
@@ -221,7 +221,7 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       expect(status).toContain('["From CLI","From MCP"]');
     });
 
-    // The observers started at the CLI's change, so the worker delivers
+    // The observers started at the CLI's change, so the generation delivers
     // the server's alone: one observer completes it, the other keeps failing.
     await vi.waitFor(
       async () => {
@@ -271,7 +271,7 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     expect(before.tasks).toHaveLength(2);
     expect(await stored(state)).toEqual(before);
 
-    // The worker hosting the workspace answers for its tasks: a separate
+    // The generation hosting the workspace answers for its tasks: a separate
     // CLI process asks it, reads the same store, and changes nothing; a
     // refusal keeps its code across the process boundary.
     const routed = cli("list", "--tag", "review", "--json");

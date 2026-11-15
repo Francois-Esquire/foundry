@@ -65,7 +65,7 @@ import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
 import type { FeedRouter } from "~/lib/feed/route";
-import { feedRouter } from "~/lib/feed/route";
+import { feedRouter, movedAway, QuestionMovingError } from "~/lib/feed/route";
 import type { Dispatched } from "~/lib/held-runs";
 import { HeldRuns } from "~/lib/held-runs";
 import type { DispatchedRun, Launched, LaunchOptions } from "~/lib/launcher";
@@ -81,7 +81,11 @@ import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
 import { RunListing } from "~/lib/run-listing";
-import { adoptParkedRuns, workflowStatuses } from "~/lib/run-recovery";
+import {
+  adoptParkedRun,
+  adoptParkedRuns,
+  workflowStatuses,
+} from "~/lib/run-recovery";
 import type { ReadonlyRunScopes, RecordedScope } from "~/lib/run-scope";
 import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
 import type { RunStore } from "~/lib/run-store";
@@ -291,7 +295,7 @@ export interface EngineOptions {
    * Where the processes this one belongs to record the children they
    * start (`MARBLES_SPAWN_RECOVERY`), so a start stops what one that is
    * gone left running (`lib/crash-recovery.ts`). The Marbles process hands
-   * its workers one; without it no child is stopped.
+   * its engine generations one; without it no child is stopped.
    */
   readonly spawned?: string;
   /**
@@ -493,6 +497,14 @@ export class Engine {
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
   #starting: Promise<this> | undefined;
   #stopping: Promise<void> | undefined;
+  /** Set once `retire` began: nothing let go comes back here. */
+  #retiring = false;
+  /**
+   * The runs this engine let go for another to take over: handed on as it
+   * retired, parked after it retired, or given back by an adoption that
+   * found it retiring. Nothing here answers or resumes them again.
+   */
+  readonly #letGo = new Set<string>();
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
   readonly #unwatchRecords: () => void;
@@ -1199,12 +1211,19 @@ export class Engine {
    */
   async resume(runId: string, stepId: string, prompt?: string): Promise<void> {
     const { orchestrator } = this.#live();
+    if (this.#letGo.has(runId)) {
+      throw new QuestionMovingError(runId);
+    }
     const scope = this.#scopeOf(runId);
     const pending = await orchestrator.listSuspensions({
       kind: PAUSE_KIND,
       runId,
       status: "pending",
     });
+    // Let go while the pauses were read: the engine taking it resumes it.
+    if (this.#letGo.has(runId)) {
+      throw new QuestionMovingError(runId);
+    }
     // A pause parks a subtree, so a resume releases every pause at or
     // under the step. The root segment of a step path is the registered
     // name here, but compare below it too, as the feed does, in case a
@@ -1226,7 +1245,16 @@ export class Engine {
       if (frame && trimmed !== undefined) {
         frame.resumePrompt = trimmed;
       }
-      await orchestrator.resolve(suspension.id, { prompt: trimmed ?? null });
+      // At the revision read: one taken over meanwhile is refused as stale.
+      await orchestrator
+        .resolve(
+          suspension.id,
+          { prompt: trimmed ?? null },
+          { expectedRevision: suspension.revision }
+        )
+        .catch((error: unknown) => {
+          throw movedAway(error, runId);
+        });
     }
   }
 
@@ -1364,23 +1392,46 @@ export class Engine {
    * delivered here again (the claim is given up, for it to take), every
    * queued run is handed to it (`Launcher.handOver`), and every parked run
    * is let go, its claim and its open questions, for it to adopt when it
-   * starts. Resolves once that is written, with `ended`, which resolves
-   * once every run left here has ended; then `stop` finds nothing to wait
+   * starts. A run still running here that parks later is let go the moment
+   * it parks, and `onLetGo` is told, so the engine already running there
+   * can take it over (`adopt`): nothing parked is ever held here again, and
+   * every answer is refused (`QuestionMovingError`). Resolves once the
+   * first of that is written, with `ended`, which resolves once every run
+   * left here has ended or been let go; then `stop` finds nothing to wait
    * for. On an engine that has not started, `ended` has resolved already.
    */
   async retire(
-    successor: ProcessIdentity
+    successor: ProcessIdentity,
+    options: { readonly onLetGo?: (runId: string) => void } = {}
   ): Promise<{ readonly ended: Promise<void> }> {
     const running = this.#running;
     if (running === undefined) {
       return { ended: Promise.resolve() };
     }
+    this.#retiring = true;
+    running.router.retire();
     await this.#delivery.stop();
-    const given = new Set(await this.#launcher.handOver(successor));
+    for (const runId of await this.#launcher.handOver(successor)) {
+      this.#letGo.add(runId);
+    }
+    // Every run that parks from now on goes too, as soon as it has parked.
+    running.orchestrator.on("suspended", ({ runId }) => {
+      if (
+        this.#letGo.has(runId) ||
+        running.held.workflow(runId) === undefined
+      ) {
+        return;
+      }
+      this.#giveBack(running, runId)
+        .then(() => options.onLetGo?.(runId))
+        .catch((error: unknown) =>
+          this.#print(`[run] ${runId} not let go: ${String(error)}`)
+        );
+    });
     for (const runId of running.held.withStatus(["suspended"])) {
-      running.router.letGo(runId);
-      await this.#runs.release(runId);
-      given.add(runId);
+      if (!this.#letGo.has(runId)) {
+        await this.#giveBack(running, runId);
+      }
     }
     const left = () =>
       this.#executions
@@ -1388,7 +1439,8 @@ export class Engine {
         .some(
           (run) =>
             !(
-              given.has(run.id) || SETTLED_EXECUTION_STATUSES.has(run.status)
+              this.#letGo.has(run.id) ||
+              SETTLED_EXECUTION_STATUSES.has(run.status)
             ) && sameProcess(run.owner, thisProcess())
         );
     const ended = new Promise<void>((resolve) => {
@@ -1402,6 +1454,98 @@ export class Engine {
       look();
     });
     return { ended };
+  }
+
+  /**
+   * Take over the parked Run `runId`, which an engine of this workspace in
+   * another process let go as it retired (`retire`), while this one runs:
+   * claimed as a start claims the parked Runs it adopts, its Execution Run
+   * made this process's, rebuilt in the Orchestrator and followed to its
+   * end here, its open question answerable here. Resolves whether this
+   * engine holds it now: `false`, holding nothing, when it is not parked,
+   * another live engine holds it, nothing here can answer it, or this
+   * engine is not running or is itself retiring.
+   */
+  async adopt(runId: string): Promise<boolean> {
+    const running = this.#running;
+    // Retirement may begin at any wait below: looked at again after each.
+    const away = () =>
+      this.#running !== running || this.#phase !== "started" || this.#retiring;
+    if (running === undefined || away()) {
+      return false;
+    }
+    const record = await running.store.getRun(runId);
+    if (record?.status !== "suspended" || away()) {
+      return false;
+    }
+    // Said by whoever offered it, through what this answers: not here.
+    const scope = await adoptParkedRun(record, {
+      askable: this.#askable,
+      print: () => undefined,
+      registered: (name) => this.#registered(name),
+      runs: this.#runs,
+      settled: (id) => this.#executions.storedSettled(id),
+      store: running.store,
+    });
+    if (scope === undefined) {
+      return false;
+    }
+    this.#scopes.recover(runId, scope);
+    this.#letGo.delete(runId);
+    let dispatched: Awaited<ReturnType<Orchestrator["adopt"]>>;
+    try {
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
+      if (!(await this.#executions.takeReleased(runId))) {
+        throw new Error("its execution run is not parked");
+      }
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
+      dispatched = await running.orchestrator.adopt(runId);
+      if (dispatched === null) {
+        throw new Error("it is no longer parked in the store");
+      }
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
+      await running.router.adopt(record.step, runId);
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
+    } catch (error) {
+      // Given back, unanswered here: for the engine taking over, whose
+      // start, or whose next adoption, finds it parked and unowned.
+      this.#scopes.forget(runId);
+      await this.#giveBack(running, runId).catch(() => undefined);
+      if (away()) {
+        this.#print(
+          `[run] ${record.step} ${runId} given back: this engine began to retire as it took it over`
+        );
+        return false;
+      }
+      throw new Error(`run ${runId} was not taken over: ${String(error)}`, {
+        cause: error,
+      });
+    }
+    // In the same turn as the last look: a retirement that begins after
+    // this finds the run held here, and lets it go with the rest.
+    this.#print(`[run] ${record.step} taken over ${runId}`);
+    running.listing.add(runId);
+    this.#launcher.follow(runId, running.held.follow(record.step, dispatched));
+    return true;
+  }
+
+  /**
+   * Let a parked run go for another engine to take over: its open
+   * questions forgotten here, its claim given up, and nothing here
+   * answers or resumes it again.
+   */
+  async #giveBack(running: Running, runId: string): Promise<void> {
+    this.#letGo.add(runId);
+    running.router.letGo(runId);
+    await this.#runs.release(runId);
   }
 
   /**

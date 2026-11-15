@@ -53,10 +53,11 @@ workspace this machine has run, and says which of them the process hosts.
 ```text
 ~/.foundry/marbles/<workspace-id>/
   output/<runId>.jsonl    append-only output for marbles watch
-  locks/process           pid of the worker the Marbles process hosts this
-                          workspace in, or of a program hosting it itself
+  locks/process           pid of a program hosting this workspace itself, when one
+                          claims it; the Marbles process's engine generations
+                          claim none, since two are alive at once during a switch
   locks/process.break     transient: the process taking over a dead holder's lock
-  process.json            what that process is: pid, host "worker", source, start time
+  process.json            what that program is: pid, host "worker", source, start time
   worktrees/              temporary worktrees cut by `withWorktree`
 ```
 
@@ -100,8 +101,8 @@ current: a program hosting a workspace itself, as it starts, and a task
 change from the CLI or the MCP server with no Marbles process running. A
 Marbles process can still start beside either once that moment has passed.
 When another process holds the lock, such a writer waits up to five
-seconds for the database to be current and otherwise fails. The workers,
-and the CLI and the MCP server while a Marbles process runs, write only to
+seconds for the database to be current and otherwise fails. The engine
+generations, and the CLI and the MCP server while a Marbles process runs, write only to
 a database that is there and current. `status`, every task read, and every
 other reader open it read-only: they never create, migrate, or change it,
 and never switch its journal mode. A reader that meets the last writer
@@ -109,7 +110,7 @@ closing at the moment it opens can leave an empty `marbles.db-wal`; it
 holds nothing, and readers and the Marbles process pass over it. A database whose
 migrations are behind or ahead of the reading Marbles, or differ from the
 ones it ships, is refused with an error that says which. The daemon, its
-workers, and the CLI hold it at once: a writer waits up to five seconds for
+engine generations, and the CLI hold it at once: a writer waits up to five seconds for
 another process's write to finish. A handle that waited past that, and
 so failed with SQLite's busy error, opens a fresh connection before it
 runs anything else, because the driver (`@libsql/client` 0.18) leaves the
@@ -127,11 +128,11 @@ ignored, not imported, and left as it is, like the other JSON state the
 database replaced.
 
 Any number of processes read and write a workspace's tasks at once: the
-worker hosting it, a program hosting it itself, and the CLI and the MCP
+engine generations hosting it, a program hosting it itself, and the CLI and the MCP
 server. A change takes the database's write lock for its whole
 read-check-write, so two processes changing one workspace never lose
 either's update; one whose token went stale meanwhile is refused with
-`conflict`. A task command with no worker hosting the workspace opens the
+`conflict`. A task command with no Marbles process hosting the workspace opens the
 database itself for that one command. A read (`tasks list`, `ready`,
 `get`, `deps`, and the MCP tools that read) opens it read-only, and without
 a database finds no tasks and creates nothing. A change is a writer, and
@@ -348,8 +349,8 @@ working.
 When the engine starts it lists the settled Runs as history. Adopting a
 parked Run requires all of these conditions:
 
-- The process can answer questions. A worker of the Marbles process always
-  can: the question waits on the Feed for a dashboard. A `--dry-run` host
+- The process can answer questions. An engine generation of the Marbles
+  process always can: the question waits on the Feed for a dashboard. A `--dry-run` host
   persists nothing and adopts nothing.
 - The definition is still registered.
 - The engine wins the claim on the Run. The claim is one database
@@ -360,14 +361,27 @@ parked Run requires all of these conditions:
   same claim before it settles a run, so a settle lands before an
   adoption's claim or not at all.
 
-An adopted Run stays this engine's until it settles or the engine stops,
-so two workers never both resume one run. A stop gives up the claim and
-leaves the Run parked for the next engine. The run parks again, its
-question stays open on the feed, and the answer replays the body against
-the recorded sessions and artifacts. A worker starts when its workspace is
-attached, when the Marbles process starts and finds the workspace
-`hosted`, and after a source edit, which drains the worker first: running
-runs finish there, and parked runs stay for the fresh worker to adopt.
+An adopted Run stays this engine's until it settles, the engine stops, or
+it retires, so two engines never both resume one run. A stop gives up the
+claim and leaves the Run parked for the next engine. The run parks again,
+its question stays open on the feed, and the answer replays the body
+against the recorded sessions and artifacts.
+
+The Marbles process hosts every registered workspace in one engine
+generation at a time, and starts the next on a source or installation
+change, a reload, or the death of the current one. The next generation
+loads every registered workspace up to engines not yet started; one that
+does not load means no switch. Then the current generation retires: it
+starts no tick or delivery again, hands each of its queued Execution Runs
+to the next one in the same transaction that checks it is still queued and
+still its own, and gives up the claims of its parked Runs. Then the next
+generation starts, which adopts those parked Runs and lets the queued
+ones in. The retired one goes on with its running runs, whole; one of them
+that parks meanwhile gives up its claim the moment it parks, and the
+current generation adopts it then, so a retired generation never holds a
+parked Run. It exits once nothing of it is left running. An answer that
+reaches a retired generation is refused while its question moves, and the
+Marbles process asks the current one once it has taken the run over.
 
 A Run left queued or running by a process that died is never run again at
 start: nothing picks a run up mid-body. Its Execution Run is reconciled
@@ -404,7 +418,8 @@ have different claims even when they target the same workflow.
 ### Lock ownership and repair
 
 The one lock left on disk, `locks/process`, the claim of the Marbles
-process on the state root and of a worker on its workspace's directory,
+process on the state root and of a program hosting a workspace itself on
+that workspace's directory,
 is a file created exclusively with mode `0o600` that holds the owner's
 pid; every other claim is a row of the Marbles database:
 

@@ -1,19 +1,29 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { holdsLock } from "@foundry/lib/file-lock";
 import {
+  compareStarts,
   isGone,
+  lookProcesses,
   type ProcessIdentity,
   sameProcess,
+  startedAt as startOf,
 } from "@foundry/lib/process-identity";
 import { readExecution } from "~/database/executions";
 import { GenerationRecords } from "~/database/generations";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
+import { unheldParkedRuns } from "~/database/runs";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type { Layout } from "~/layout";
 import {
@@ -24,10 +34,13 @@ import {
 import type { WorkspaceSummary } from "~/model/connection";
 import { Channel, socketTransport } from "~/process/channel";
 import {
+  FileDigests,
   type Fingerprint,
   fingerprintOf,
   installationDigest,
-  sourceDigests,
+  printNow,
+  type WorkspacePrint,
+  withRead,
 } from "~/process/fingerprint";
 import type { ProcessInstance } from "~/process/instance";
 import { claimProcess } from "~/process/instance";
@@ -45,7 +58,9 @@ import {
   lineParamsSchema,
   loadResultSchema,
   PROTOCOL,
+  readParamsSchema,
   registerParamsSchema,
+  releasedParamsSchema,
   type SetupDraftParams,
   startResultSchema,
   WORKSPACE_METHODS,
@@ -97,7 +112,15 @@ import { version } from "../../package.json";
  * next engine start's crash recovery: the daemon starts one.
  */
 
+/** The timers a daemon schedules its switches with; the system's when omitted. */
+export interface DaemonClock {
+  clearTimeout(handle: unknown): void;
+  setTimeout(work: () => void, ms: number): unknown;
+}
+
 export interface DaemonOptions {
+  /** The timers switches are scheduled with: their debounce and the replacement backoff. */
+  readonly clock?: DaemonClock;
   /** The generation entry to spawn; the one beside this module when omitted. */
   readonly generationEntry?: string;
   readonly layout: Layout;
@@ -107,6 +130,11 @@ export interface DaemonOptions {
 export interface Daemon {
   close(): Promise<void>;
   readonly closed: Promise<void>;
+  /**
+   * Resolves once no switch is running, with whether one is scheduled on
+   * the clock: for a caller that waits for the daemon to be still.
+   */
+  idle(): Promise<{ readonly scheduled: boolean }>;
   readonly pid: number;
   readonly socket: string;
 }
@@ -121,8 +149,24 @@ const SWITCH_DEBOUNCE_MS = 500;
 const SOURCE_POLL_MS = 1000;
 /** How often the installation, many more files, is digested again. */
 const INSTALLATION_POLL_MS = 5000;
-/** A current generation that dies sooner than this after taking over is not replaced on its own. */
-const SETTLE_MS = 5000;
+/**
+ * How long the daemon waits before it replaces a generation that died, or
+ * one that did not start after the previous one retired: from the least,
+ * doubled after each replacement, up to the most, and back to the least
+ * once a generation has stayed current for `STABLE_MS`.
+ */
+const REPLACE_MIN_MS = 1000;
+const REPLACE_MAX_MS = 30_000;
+const STABLE_MS = 30_000;
+/** How many times a released run is offered to the current generation, and how long between. */
+const HANDOVER_ATTEMPTS = 5;
+const HANDOVER_RETRY_MS = 200;
+/** How often the parked runs no live engine holds are offered to the current generation. */
+const SWEEP_MS = 2000;
+/** How long a run the current generation declined waits before it is offered again. */
+const REOFFER_MS = 30_000;
+/** How long an answer to a question on its way to another generation waits for it to arrive. */
+const HELD_WAIT_MS = 30_000;
 /** Lines of a generation's stderr kept to explain a failure. */
 const STDERR_TAIL = 20;
 /** How often the daemon checks that the claim at the state root is still its own. */
@@ -146,7 +190,7 @@ interface Generation {
   /** Resolves when the child exits, or never started. */
   readonly exited: Promise<void>;
   /** What it loaded: compared with what is there now to decide a switch. */
-  readonly fingerprint: Fingerprint;
+  fingerprint: Fingerprint;
   /** The workspaces it hosts, by id. */
   readonly hosts: Set<string>;
   /** Its process, as it reported it once it loaded. */
@@ -156,6 +200,14 @@ interface Generation {
   role: "candidate" | "current" | "retiring";
   /** When it became current. */
   since?: number;
+  /**
+   * Its process as read right after the spawn, the proof every signal the
+   * daemon sends it checks first; its start is null when it could not be
+   * read then.
+   */
+  readonly spawnedAs: ProcessIdentity | undefined;
+  /** Settles once its engines have started, or failed to. */
+  readonly started: PromiseWithResolvers<void>;
   /** Last lines of stderr, for a failure's explanation. */
   readonly tail: string[];
   readonly token: string;
@@ -175,6 +227,22 @@ interface Client {
   readonly subscriptions: Set<string>;
 }
 
+/**
+ * Where each workspace method goes, by what it names:
+ *
+ * - A run (`RUN_METHODS`: cancel, cancelRun, getRun, pause, resume,
+ *   steer): the generation whose process owns its Execution Run, else the
+ *   current one when its owner is gone; one owned by a live process that
+ *   is no generation of this daemon is refused, but for a read.
+ * - A question or an activity (`HELD_METHODS`: answer, stopActivity): the
+ *   generation that holds its live run or session, found by asking each
+ *   in turn, the current one first; one that does not hold it refuses,
+ *   changing nothing.
+ * - Anything else starts new work or reads what the database keeps
+ *   (describe, snapshot, launch, roll, dispatchAgent, dispatchWorkflow,
+ *   deleteTrigger, setTriggerEnabled, tasks): the current generation.
+ */
+
 /** Workspace methods about one run: answered by the generation that runs it. */
 const RUN_METHODS = new Set<string>([
   WORKSPACE_METHODS.cancel,
@@ -183,6 +251,12 @@ const RUN_METHODS = new Set<string>([
   WORKSPACE_METHODS.pause,
   WORKSPACE_METHODS.resume,
   WORKSPACE_METHODS.steer,
+]);
+
+/** Workspace methods about what one live run or session holds. */
+const HELD_METHODS = new Set<string>([
+  WORKSPACE_METHODS.answer,
+  WORKSPACE_METHODS.stopActivity,
 ]);
 
 /** Workspace methods that begin work; the rest read, steer, or end it. */
@@ -215,6 +289,24 @@ function lines(onLine: (line: string) => void): (chunk: Buffer) => void {
   };
 }
 
+/** What `askOwner` answers when no generation of this daemon owns the run. */
+const NO_OWNER_HERE: unique symbol = Symbol("no generation here owns the run");
+
+/** Whether `error` says a question is on its way to another generation with its run. */
+function isMoving(error: unknown): boolean {
+  return error instanceof Error && error.name === "QuestionMovingError";
+}
+
+/** Resolves once `generation` has started, or failed to; at once without one. */
+function settledStart(generation: Generation | undefined): Promise<void> {
+  return (
+    generation?.started.promise.then(
+      () => undefined,
+      () => undefined
+    ) ?? Promise.resolve()
+  );
+}
+
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -237,19 +329,6 @@ async function everyOf<T>(
   );
   if (failed !== undefined) {
     throw failed.reason;
-  }
-}
-
-/** Signal the process group `child` leads; a group already gone is fine. */
-function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (child.pid === undefined) {
-    return;
-  }
-  try {
-    process.kill(-child.pid, signal);
-  } catch {
-    // Gone already, or never a group leader: signal the child itself.
-    child.kill(signal);
   }
 }
 
@@ -293,11 +372,41 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   let closing: Promise<void> | undefined;
   /** Set once a shutdown is asked for: nothing new starts from then on. */
   let stopping = false;
-  /** The fingerprint the last candidate that did not load was given: not tried again on its own. */
-  let refused: string | undefined;
+  /**
+   * The fingerprint of the last candidate that did not load, as it read
+   * what it read: not tried again on its own while nothing it covers
+   * changes.
+   */
+  let refused: Fingerprint | undefined;
+  /** Content digests of the files fingerprints cover, each read again only once it changed. */
+  const digests = new FileDigests();
+  /**
+   * What no workspace tree covers: the Foundry home, which may sit inside
+   * a workspace's root, and whose database changes as Marbles runs. Both
+   * its spellings, as given and resolved through links.
+   */
+  const ignored = new Set(
+    [layout.home, layout.state, layout.artifacts].flatMap((path) => {
+      const resolved = resolvePath(path);
+      try {
+        return [resolved, realpathSync(resolved)];
+      } catch {
+        return [resolved];
+      }
+    })
+  );
   let installation = installationDigest(script, version);
   let installationAt = Date.now();
-  let switchTimer: ReturnType<typeof setTimeout> | undefined;
+  const clock: DaemonClock = options.clock ?? {
+    clearTimeout: (handle) =>
+      clearTimeout(handle as ReturnType<typeof setTimeout>),
+    setTimeout: (work, ms) => setTimeout(work, ms),
+  };
+  let switchTimer: unknown;
+  /** Whether the switch `switchTimer` starts must run whatever the sources say. */
+  let switchForced = false;
+  /** How long the next replacement of a dead generation waits. */
+  let replaceDelay = REPLACE_MIN_MS;
 
   const hello: HelloResult = {
     artifacts: layout.artifacts,
@@ -429,10 +538,16 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       number,
       registered: Promise.withResolvers<Channel>(),
       role: "candidate",
+      spawnedAs:
+        child.pid === undefined
+          ? undefined
+          : { pid: child.pid, started: startOf(child.pid) ?? null },
+      started: Promise.withResolvers<void>(),
       tail: [],
       token,
     };
     generation.registered.promise.catch(() => undefined);
+    generation.started.promise.catch(() => undefined);
     const exited = new Promise<void>((resolve) => {
       child.once("exit", (code, signal) => {
         const clean = code === 0;
@@ -492,6 +607,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     generation.exit = exit;
     generation.channel = undefined;
     generation.registered.reject(new Error(exit.why));
+    generation.started.reject(new Error(exit.why));
     generations.delete(generation);
     records
       .mark(
@@ -507,7 +623,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (closing !== undefined || stopping) {
       return;
     }
-    if (generation === current) {
+    // Only the current generation's exit is reason to replace it: a
+    // retired one leaves, cleanly or not, after the next took over.
+    if (generation === current && generation.role !== "retiring") {
       onCurrentExit(generation, exit.why);
     } else if (generation.role === "retiring" && !exit.clean) {
       // Its runs and claims are a gone process's now: the next engine
@@ -531,13 +649,25 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         setState(workspace, "failed", { error: why });
       }
     }
-    // A generation that dies soon after it took over is not started again
-    // as it was: a change to what it loaded, or a reload, brings one back.
-    if (Date.now() - (generation.since ?? 0) >= SETTLE_MS) {
-      scheduleSwitch("the engine generation exited", { force: true });
-    } else {
-      refused = generation.fingerprint.digest;
+    replaceCurrent("the engine generation exited", generation);
+  }
+
+  /**
+   * With none current, start the next generation, whatever the sources
+   * say, after the replacement backoff: the next engine start recovers
+   * what the last one left. `died` is the generation that was current,
+   * when one died; one that stayed up long enough resets the backoff.
+   */
+  function replaceCurrent(reason: string, died?: Generation): void {
+    if (died?.since !== undefined && Date.now() - died.since >= STABLE_MS) {
+      replaceDelay = REPLACE_MIN_MS;
     }
+    const delay = replaceDelay;
+    replaceDelay = Math.min(replaceDelay * 2, REPLACE_MAX_MS);
+    print(
+      `[marbles] ${reason}; the next engine generation starts in ${String(delay)}ms`
+    );
+    scheduleSwitch(reason, { delayMs: delay, force: true });
   }
 
   /** The generation spawned for `token` dialed in: bind its channel. */
@@ -558,6 +688,25 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     method: string,
     params: unknown
   ): void {
+    if (method === GENERATION_NOTIFICATIONS.read) {
+      const parsed = readParamsSchema.safeParse(params);
+      if (parsed.success) {
+        readBy(
+          generation,
+          parsed.data.root,
+          parsed.data.file,
+          parsed.data.readAt
+        );
+      }
+      return;
+    }
+    if (method === GENERATION_NOTIFICATIONS.released) {
+      const parsed = releasedParamsSchema.safeParse(params);
+      if (parsed.success) {
+        handOver(parsed.data.id, parsed.data.runId).catch(() => undefined);
+      }
+      return;
+    }
     if (method !== GENERATION_NOTIFICATIONS.line) {
       return;
     }
@@ -573,12 +722,135 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     forwardLine(loadedId({ root }), line);
   }
 
+  /** Each workspace's handovers of released runs, one after another. */
+  const handovers = new Map<string, Promise<void>>();
+  /** The handover of each run under way, by workspace id and run id: one offer at a time. */
+  const offering = new Map<string, Promise<void>>();
+  /** When the current generation last declined each run offered, by workspace id and run id. */
+  const declined = new Map<string, number>();
+  /** Who waits for a workspace's next handover or switch, by workspace id. */
+  const waiting = new Map<string, Set<() => void>>();
+
+  /** Wake whoever waits on workspace `id`, or on every one. */
+  function changed(id?: string): void {
+    for (const [key, wakers] of waiting) {
+      if (id === undefined || key === id) {
+        waiting.delete(key);
+        for (const wake of wakers) {
+          wake();
+        }
+      }
+    }
+  }
+
+  /** Resolves at the next handover or switch for workspace `id`, or after `ms`. */
+  function nextChange(id: string, ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      const wakers = waiting.get(id) ?? new Set();
+      wakers.add(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+      waiting.set(id, wakers);
+    });
+  }
+
+  /**
+   * Offer parked run `runId` of workspace `id`, which no live engine holds,
+   * to the current generation, after the workspace's handovers before it:
+   * one a retired generation let go (`released`), or one the sweep found.
+   * A Run whose park is still being written is offered again a few times;
+   * one the current generation does not take is offered by the sweep
+   * again later. Resolves once it is settled either way.
+   */
+  function handOver(id: string, runId: string): Promise<void> {
+    const key = `${id}\0${runId}`;
+    const pending = offering.get(key);
+    if (pending !== undefined) {
+      return pending;
+    }
+    const previous = handovers.get(id) ?? Promise.resolve();
+    const next = previous.then(async () => {
+      for (let attempt = 0; attempt < HANDOVER_ATTEMPTS; attempt += 1) {
+        // Read in each turn: a switch may have made another current.
+        const target = current;
+        await settledStart(target);
+        if (
+          target === undefined ||
+          target !== current ||
+          !target.hosts.has(id)
+        ) {
+          return;
+        }
+        try {
+          if (
+            (await ask(target, GENERATION_METHODS.adopt, { id, runId })) ===
+            true
+          ) {
+            declined.delete(key);
+            return;
+          }
+        } catch (error) {
+          print(`[${id}] run ${runId} not taken over: ${message(error)}`);
+          break;
+        }
+        await nextChange(id, HANDOVER_RETRY_MS);
+      }
+      declined.set(key, Date.now());
+    });
+    const done = next.finally(() => {
+      offering.delete(key);
+      if (handovers.get(id) === done) {
+        handovers.delete(id);
+      }
+      changed(id);
+    });
+    offering.set(key, done);
+    handovers.set(id, done);
+    return done;
+  }
+
+  /**
+   * Offer the current generation every parked run of `ids` (every
+   * workspace it hosts when omitted) that no live engine holds, as the
+   * Marbles database has it: what a retired generation let go whose
+   * notice was lost, or that an adoption gave back. One the current
+   * generation declined is offered again only after `REOFFER_MS`, unless
+   * `now`. Resolves once each offer has settled.
+   */
+  async function sweep(
+    ids: Iterable<string> | undefined,
+    { now = false }: { readonly now?: boolean } = {}
+  ): Promise<void> {
+    const target = current;
+    if (target === undefined || stopping) {
+      return;
+    }
+    const offers: Promise<void>[] = [];
+    for (const id of ids ?? target.hosts) {
+      let parked: readonly string[];
+      try {
+        parked = await unheldParkedRuns(database.database, id);
+      } catch {
+        continue;
+      }
+      for (const runId of parked) {
+        const at = declined.get(`${id}\0${runId}`);
+        if (now || at === undefined || Date.now() - at >= REOFFER_MS) {
+          offers.push(handOver(id, runId));
+        }
+      }
+    }
+    await Promise.all(offers);
+  }
+
   /**
    * End `generation`: ask it to drain and exit, and kill it and its
    * process group when it does not answer, or does not exit, in time.
    */
   async function stopGeneration(generation: Generation): Promise<void> {
-    const { child, exited } = generation;
+    const { exited } = generation;
     if (generation.exit !== undefined) {
       return;
     }
@@ -593,10 +865,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
           STOP_TIMEOUT_MS,
           `stopping engine generation ${String(generation.number)}`
         );
-      } else {
+      } else if (signalProven(generation, "SIGTERM")) {
         // Not registered yet, so it holds nothing: end it now rather
         // than wait for it to come up.
-        signalGroup(child, "SIGTERM");
+      } else {
+        return;
       }
       await timeout(
         exited,
@@ -608,11 +881,65 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         print(`[marbles] ${message(error)}; killing it`);
       } finally {
         // Killed even when saying so fails, with everything in its group.
-        // SIGTERM would only ask it to drain again.
-        signalGroup(child, "SIGKILL");
-        await exited;
+        // SIGTERM would only ask it to drain again. One that cannot be
+        // proved to be it is left, and not waited on.
+        if (signalProven(generation, "SIGKILL")) {
+          await exited;
+        }
       }
     }
+  }
+
+  /**
+   * Send `signal` to `generation`, and to its process group when it leads
+   * one, only once its pid is proved to be the process the daemon spawned:
+   * running, and started when it was read to have started right after the
+   * spawn (or, when that could not be read, when the generation said it
+   * did). Whether it was sent; a process that is gone already, or cannot
+   * be proved to be the generation, is not signalled, and the second is
+   * said.
+   */
+  function signalProven(
+    generation: Generation,
+    signal: NodeJS.Signals
+  ): boolean {
+    const known =
+      generation.spawnedAs?.started === null
+        ? generation.identity
+        : generation.spawnedAs;
+    const label = `engine generation ${String(generation.number)}`;
+    if (generation.exit !== undefined) {
+      return false;
+    }
+    if (known === undefined || known.started === null) {
+      print(
+        `[marbles] ${label} is not sent ${signal}: its start was never read, so its pid cannot be proved to be it`
+      );
+      return false;
+    }
+    const seen = lookProcesses([known.pid]);
+    if (seen === undefined) {
+      print(
+        `[marbles] ${label} is not sent ${signal}: the system cannot say what runs as pid ${String(known.pid)}`
+      );
+      return false;
+    }
+    const running = seen.get(known.pid);
+    if (running === undefined) {
+      return false;
+    }
+    if (compareStarts(running.started, known.started) !== "same") {
+      print(
+        `[marbles] ${label} is not sent ${signal}: pid ${String(known.pid)} is another process now`
+      );
+      return false;
+    }
+    try {
+      process.kill(running.pgid === known.pid ? -known.pid : known.pid, signal);
+    } catch {
+      return false;
+    }
+    return true;
   }
 
   function summaryOf(record: WorkspaceRecord): Hosted {
@@ -627,14 +954,72 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     };
   }
 
-  /** What would be loaded now, with the installation read again only every so often. */
-  async function fingerprintNow(): Promise<Fingerprint> {
+  /**
+   * What every registered workspace is now, over the files outside its
+   * root that `against` covers: the fingerprint `against` would be if it
+   * were taken now. The installation is read again only every so often.
+   */
+  async function fingerprintNow(against?: Fingerprint): Promise<Fingerprint> {
     if (Date.now() - installationAt >= INSTALLATION_POLL_MS) {
       installation = installationDigest(script, version);
       installationAt = Date.now();
     }
     const registered = (await registry.list()).filter((each) => each.hosted);
-    return fingerprintOf(installation, sourceDigests(registered));
+    const sources = new Map<string, WorkspacePrint>();
+    for (const record of registered) {
+      const outside = against?.sources.get(record.id)?.outside.keys() ?? [];
+      sources.set(record.id, printNow(record, outside, digests, ignored));
+    }
+    return fingerprintOf(installation, sources);
+  }
+
+  /** Whether nothing `fingerprint` covers changed since it was taken. */
+  async function unchanged(fingerprint: Fingerprint): Promise<boolean> {
+    return (await fingerprintNow(fingerprint)).digest === fingerprint.digest;
+  }
+
+  /** `fingerprint` with workspace `id`'s part `print`, or without it. */
+  function withSource(
+    fingerprint: Fingerprint,
+    id: string,
+    part: WorkspacePrint | undefined
+  ): Fingerprint {
+    const sources = new Map(fingerprint.sources);
+    if (part === undefined) {
+      sources.delete(id);
+    } else {
+      sources.set(id, part);
+    }
+    return fingerprintOf(fingerprint.installation, sources);
+  }
+
+  /**
+   * `generation` read `file` at `readAt` for the workspace at `root`: its
+   * fingerprint records it, as it was when read when it has not changed
+   * since, else as changed, so the next poll starts the next generation.
+   */
+  function readBy(
+    generation: Generation,
+    root: string,
+    file: string,
+    readAt: number
+  ): void {
+    const id = loadedId({ root });
+    const workspace = id === undefined ? undefined : hosted.get(id);
+    const part =
+      id === undefined ? undefined : generation.fingerprint.sources.get(id);
+    if (id === undefined || workspace === undefined || part === undefined) {
+      return;
+    }
+    const registration = {
+      config: workspace.summary.config,
+      id,
+      root: workspace.summary.root,
+    };
+    const next = withRead(registration, part, file, readAt, digests);
+    if (next !== part) {
+      generation.fingerprint = withSource(generation.fingerprint, id, next);
+    }
   }
 
   /**
@@ -691,10 +1076,16 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     try {
       loaded = await loadCandidate(candidate, previous);
     } catch (error) {
-      refused = fingerprint.digest;
+      // As it read what it read: a fix to any of it is a reason to try again.
+      refused = candidate.fingerprint;
       await refuse(candidate, previous, error);
       throw error;
     }
+    // The candidate is current from here, before the previous one is told
+    // to go: that one's exit, however soon, is then no reason to replace
+    // anything. Calls for its workspaces wait for its start.
+    current = candidate;
+    candidate.role = "current";
     if (previous !== undefined) {
       await retire(previous, loaded.identity);
     }
@@ -708,18 +1099,34 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         )
       ).loads;
     } catch (error) {
+      candidate.started.reject(error);
+      // Its exit may have said so first: only one of them replaces it.
+      const replacing = current === candidate;
+      if (replacing) {
+        current = undefined;
+      }
       await refuse(candidate, undefined, error);
+      if (replacing) {
+        // The previous one retired already: nothing is current now, so
+        // the next generation starts as after a crash, and recovers what
+        // this one may have taken over before it failed.
+        replaceCurrent("the engine generation did not start");
+      }
       throw error;
     }
-    candidate.role = "current";
     candidate.since = Date.now();
-    current = candidate;
     await records.mark(number, "current");
+    // It died while that was written: its exit has replaced it already.
+    if (candidate.exit !== undefined || current !== candidate) {
+      return;
+    }
     showLoads(candidate, [
       ...started,
       ...loaded.loads.filter((each) => each.error !== undefined),
     ]);
+    candidate.started.resolve();
     print(`[marbles] engine generation ${String(number)} is current`);
+    changed();
   }
 
   /**
@@ -729,17 +1136,27 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   async function announceSwitch(
     previous: Generation | undefined
   ): Promise<Fingerprint> {
-    const registered = (await registry.list()).filter((each) => each.hosted);
     installation = installationDigest(script, version);
     installationAt = Date.now();
-    const fingerprint = fingerprintOf(installation, sourceDigests(registered));
+    // Taken before the candidate loads anything: what it reads outside a
+    // workspace's root is added as it says it read it.
+    const fingerprint = await fingerprintNow();
+    const before =
+      previous === undefined
+        ? undefined
+        : await fingerprintNow(previous.fingerprint);
+    const registered = (await registry.list()).filter((each) => each.hosted);
     for (const record of registered) {
       const workspace = hosted.get(record.id) ?? summaryOf(record);
       hosted.set(record.id, workspace);
-      const changed =
-        previous?.fingerprint.sources.get(record.id) !==
-        fingerprint.sources.get(record.id);
-      if (previous === undefined || changed) {
+      const was = previous?.fingerprint.sources.get(record.id);
+      const now = before?.sources.get(record.id);
+      const edited =
+        was === undefined ||
+        now === undefined ||
+        fingerprintOf("", new Map([[record.id, was]])).digest !==
+          fingerprintOf("", new Map([[record.id, now]])).digest;
+      if (previous === undefined || edited) {
         setState(
           workspace,
           previous?.hosts.has(record.id) ? "reloading" : "starting"
@@ -778,7 +1195,13 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     candidate.identity = loaded.identity;
     await records.identify(candidate.number, loaded.identity.started);
     const failed = loaded.loads.filter((load) => load.error !== undefined);
-    if (previous !== undefined && failed.length > 0) {
+    // Judged on the generation current now, not when the load began: one
+    // that died meanwhile leaves nothing a partial load would replace.
+    const running =
+      previous !== undefined &&
+      previous === current &&
+      previous.exit === undefined;
+    if (running && failed.length > 0) {
       throw new CandidateError(failed);
     }
     return loaded;
@@ -879,17 +1302,28 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
   }
 
-  /** A switch soon, once the edits that asked for it have settled. */
+  /**
+   * A switch soon, once the edits that asked for it have settled. A forced
+   * one stays forced when a later ask replaces its timer, so a replacement
+   * the daemon owes is never dropped for a source change that turns out
+   * to be nothing new.
+   */
   function scheduleSwitch(
     reason: string,
-    { force = false }: { readonly force?: boolean } = {}
+    {
+      delayMs = SWITCH_DEBOUNCE_MS,
+      force: asked = false,
+    }: { readonly delayMs?: number; readonly force?: boolean } = {}
   ): void {
     if (stopping) {
       return;
     }
-    clearTimeout(switchTimer);
-    switchTimer = setTimeout(() => {
+    clock.clearTimeout(switchTimer);
+    switchForced ||= asked;
+    switchTimer = clock.setTimeout(() => {
       switchTimer = undefined;
+      const force = switchForced;
+      switchForced = false;
       // Nothing new since the current generation loaded, or since a
       // candidate refused it: no switch, unless one is needed whatever
       // the sources say.
@@ -897,15 +1331,56 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         if (force) {
           return true;
         }
-        const now = await fingerprintNow();
-        return (
-          now.digest !== current?.fingerprint.digest && now.digest !== refused
-        );
+        const target = current;
+        if (target !== undefined && (await unchanged(target.fingerprint))) {
+          return false;
+        }
+        return !(refused !== undefined && (await unchanged(refused)));
       };
       switchGenerations(reason, {}, wanted).catch((error: unknown) => {
         print(`[marbles] no switch: ${message(error)}`);
       });
-    }, SWITCH_DEBOUNCE_MS);
+    }, delayMs);
+  }
+
+  /**
+   * Whether what the current generation loaded changed, saying which
+   * workspace did; with none current, whether anything is registered. A
+   * change that is what a candidate refused last is no change.
+   */
+  async function pollOnce(): Promise<void> {
+    const target = current;
+    if (target === undefined && hosted.size === 0) {
+      return;
+    }
+    const now =
+      target === undefined
+        ? undefined
+        : await fingerprintNow(target.fingerprint);
+    if (target !== undefined && now?.digest === target.fingerprint.digest) {
+      return;
+    }
+    if (refused !== undefined && (await unchanged(refused))) {
+      return;
+    }
+    if (target !== undefined && now !== undefined) {
+      sayChanged(target.fingerprint, now);
+    }
+    scheduleSwitch("a source or the installation changed");
+  }
+
+  /** A line for each workspace whose part of `now` differs from `was`. */
+  function sayChanged(was: Fingerprint, now: Fingerprint): void {
+    for (const [id, part] of now.sources) {
+      const before = was.sources.get(id);
+      if (
+        before !== undefined &&
+        fingerprintOf("", new Map([[id, before]])).digest !==
+          fingerprintOf("", new Map([[id, part]])).digest
+      ) {
+        print(`[${id}] source changed · reloading`);
+      }
+    }
   }
 
   /** Poll what the current generation loaded; a change asks for a switch. */
@@ -915,33 +1390,28 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       return;
     }
     polling = true;
-    (async () => {
-      const now = await fingerprintNow();
-      // With none current, any change to what is registered is worth a
-      // try, unless it is what was refused last.
-      const loaded = current?.fingerprint.digest;
-      if (
-        (loaded !== undefined || hosted.size > 0) &&
-        now.digest !== loaded &&
-        now.digest !== refused
-      ) {
-        for (const [id, digest] of now.sources) {
-          if (
-            current !== undefined &&
-            current.fingerprint.sources.get(id) !== digest
-          ) {
-            print(`[${id}] source changed · reloading`);
-          }
-        }
-        scheduleSwitch("a source or the installation changed");
-      }
-    })()
+    pollOnce()
       .catch(() => undefined)
       .finally(() => {
         polling = false;
       });
   }, SOURCE_POLL_MS);
   poll.unref();
+
+  // What was let go and not taken over, notice or none, from the database.
+  let sweeping = false;
+  const sweeper = setInterval(() => {
+    if (sweeping || stopping) {
+      return;
+    }
+    sweeping = true;
+    sweep(undefined)
+      .catch(() => undefined)
+      .finally(() => {
+        sweeping = false;
+      });
+  }, SWEEP_MS);
+  sweeper.unref();
 
   /**
    * The workspace the source names, hosted: in the current generation at
@@ -1066,6 +1536,18 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
       return entry.summary;
     }
+    // Its part of the fingerprint is taken before it loads, and grows as
+    // the load says what it read.
+    target.fingerprint = withSource(
+      target.fingerprint,
+      workspace.id,
+      printNow(
+        { config, id: workspace.id, root: workspace.root },
+        [],
+        digests,
+        ignored
+      )
+    );
     try {
       hostResultSchema.parse(
         await timeout(
@@ -1079,6 +1561,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         )
       );
     } catch (error) {
+      target.fingerprint = withSource(
+        target.fingerprint,
+        workspace.id,
+        undefined
+      );
       await unregister();
       setState(entry, "failed", { error: message(error) });
       throw error;
@@ -1117,6 +1604,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       // detach can be retried, rather than hosted again at the next boot.
       await registry.unhost(id);
       hosted.delete(id);
+      if (current !== undefined) {
+        // It no longer loads this one: no switch for it.
+        current.fingerprint = withSource(current.fingerprint, id, undefined);
+      }
       setState(workspace, "stopped");
     });
   }
@@ -1201,24 +1692,93 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   }
 
   /**
-   * Ask each generation in turn until one answers: a question is held by
-   * whichever generation runs, or adopted, the run that asked, and the
-   * others refuse it, changing nothing. Rejects as the first did.
+   * Ask each generation hosting workspace `id` in turn until one answers:
+   * a question or an activity is held by whichever generation runs, or
+   * took over, the run it belongs to, and the others refuse it, changing
+   * nothing. A retired generation refuses a question it is letting go
+   * (`QuestionMovingError`): then this waits for the workspace's next
+   * handover or switch and asks again, until `HELD_WAIT_MS` has passed. One
+   * no generation holds may be a run let go whose notice was lost: it is
+   * offered to the current generation at once, and asked once more.
+   * Rejects as the first refusal that is not a move did.
    */
   async function askEach(
-    hosts: readonly Generation[],
+    id: string,
     method: string,
     params: unknown
   ): Promise<unknown> {
+    const deadline = Date.now() + HELD_WAIT_MS;
+    let swept = false;
+    for (;;) {
+      const asked = await askAll(id, method, params);
+      if ("value" in asked) {
+        return asked.value;
+      }
+      const moving = asked.errors.some(isMoving);
+      const left = deadline - Date.now();
+      if (left <= 0 || !(moving || !swept)) {
+        throw asked.errors.find((error) => !isMoving(error)) ?? asked.errors[0];
+      }
+      if (moving) {
+        await nextChange(id, Math.min(left, HANDOVER_RETRY_MS * 10));
+      } else {
+        swept = true;
+        await sweep([id], { now: true });
+      }
+    }
+  }
+
+  /** One pass of `askEach`: the first answer, or every refusal. */
+  async function askAll(
+    id: string,
+    method: string,
+    params: unknown
+  ): Promise<{ readonly value: unknown } | { readonly errors: unknown[] }> {
+    const hosts = hostsOf(id);
+    if (hosts.length === 0) {
+      throw new Error(`no engine generation hosts workspace ${id} now`);
+    }
     const errors: unknown[] = [];
     for (const generation of hosts) {
       try {
-        return await ask(generation, method, params);
+        return { value: await ask(generation, method, params) };
       } catch (error) {
         errors.push(error);
       }
     }
-    throw errors[0];
+    return { errors };
+  }
+
+  /**
+   * Ask the generation owning run `runId` of workspace `id`, read again
+   * for each try: a run on its way to another generation is refused by the
+   * one letting it go (`QuestionMovingError`), and asked of its next owner
+   * once the workspace's next handover or switch lands. `NO_OWNER_HERE`
+   * when no generation of this daemon owns it.
+   */
+  async function askOwner(
+    id: string,
+    name: string,
+    method: string,
+    runId: unknown,
+    params: unknown
+  ): Promise<{ readonly value: unknown } | typeof NO_OWNER_HERE> {
+    const deadline = Date.now() + HELD_WAIT_MS;
+    for (;;) {
+      const owner = await ownerOf(id, runId, name !== WORKSPACE_METHODS.getRun);
+      if (owner === undefined) {
+        return NO_OWNER_HERE;
+      }
+      try {
+        return { value: await ask(owner, method, params) };
+      } catch (error) {
+        const left = deadline - Date.now();
+        if (!isMoving(error) || left <= 0) {
+          throw error;
+        }
+        await nextChange(id, Math.min(left, HANDOVER_RETRY_MS * 10));
+      }
+    }
   }
 
   async function workspaceCall(
@@ -1232,23 +1792,23 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     const method = `${WORKSPACE_PREFIX}${name}`;
     const params = { ...rest, id };
-    const hosts = hostsOf(id);
     if (RUN_METHODS.has(name)) {
-      const owner = await ownerOf(
-        id,
-        rest.runId,
-        name !== WORKSPACE_METHODS.getRun
-      );
-      if (owner !== undefined) {
-        return await ask(owner, method, params);
+      const answered = await askOwner(id, name, method, rest.runId, params);
+      if (answered !== NO_OWNER_HERE) {
+        return answered.value;
       }
     }
-    if (name === WORKSPACE_METHODS.answer && hosts.length > 1) {
-      return await askEach(hosts, method, params);
+    if (HELD_METHODS.has(name)) {
+      // A run on its way here is taken over before anyone asks for it.
+      await handovers.get(id);
+      return await askEach(id, method, params);
     }
     const target = current;
+    // A generation current but still starting answers once it has started.
+    await settledStart(target);
     if (
       target === undefined ||
+      target !== current ||
       !target.hosts.has(id) ||
       workspace.summary.state === "failed" ||
       workspace.summary.state === "starting" ||
@@ -1447,7 +2007,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       stopping = true;
       clearInterval(claimCheck);
       clearInterval(poll);
-      clearTimeout(switchTimer);
+      clearInterval(sweeper);
+      clock.clearTimeout(switchTimer);
       // Every step runs whatever an earlier one threw; the first error wins.
       let failure: { readonly error: unknown } | undefined;
       const attempt = async (step: () => unknown): Promise<void> => {
@@ -1497,6 +2058,16 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   return {
     close: () => close(),
     closed,
+    async idle() {
+      // A turn may queue another while it runs: wait until none is left.
+      for (;;) {
+        const waited = turn;
+        await waited;
+        if (turn === waited) {
+          return { scheduled: switchTimer !== undefined };
+        }
+      }
+    },
     pid: process.pid,
     socket: layout.socket,
   };

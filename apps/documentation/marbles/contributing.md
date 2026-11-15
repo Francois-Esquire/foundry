@@ -23,7 +23,7 @@ bun run --cwd=apps/marbles test:package
 | `src/lib/` | The engine, registry, resource managers, and execution. Imports no code from the authoring or CLI layers. Published as `@foundry.sh/marbles/lib`. |
 | `src/authoring/` | Builders and prebuilt steps. Collects declarations in the catalog used by the CLI. |
 | `src/workspace/` | Hosts one workspace: discovers automation modules (`source.ts`), creates starters, and ties them together in `host.ts`. |
-| `src/process/` | The Marbles process: the daemon, its client, and the worker that hosts each attached workspace. |
+| `src/process/` | The Marbles process: the daemon, its client, and the engine generation that hosts every attached workspace, with the switch from one generation to the next. |
 | `src/cli.ts`, `src/create.ts` | Starts the CLI or dashboard, builds the engine, and copies the catalog into it. |
 
 These paths are under `apps/marbles/`. One tsup build emits the entry points

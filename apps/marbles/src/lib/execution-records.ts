@@ -522,6 +522,33 @@ export class ExecutionRecords {
   }
 
   /**
+   * Take over a parked run another live process let go once this one held
+   * its Run's claim (`Engine.adopt`): owned here from now on, still parked.
+   * Decided on the stored record in the transaction that writes it: `false`,
+   * changing nothing, when it is no longer parked. Rejects when the store
+   * cannot be read or written, taking nothing.
+   */
+  async takeReleased(id: string): Promise<boolean> {
+    const written = await this.#persist(() =>
+      this.#store.transaction(async (view): Promise<Written> => {
+        const stored = this.#parse(await view.get(id));
+        if (stored?.status !== "suspended") {
+          return { applied: false, record: stored };
+        }
+        return await view.transition(id, {
+          from: ["suspended"],
+          newOwner: thisProcess(),
+          owner: stored.owner,
+          status: "suspended",
+          updatedAt: now(),
+        });
+      })
+    );
+    this.#took(id, written);
+    return written.applied;
+  }
+
+  /**
    * Make a queued run of this process's `successor`'s, still queued, for it
    * to let in when it starts (`recover`). Decided on the stored record in
    * the transaction that writes it: `false`, changing nothing, when it is
