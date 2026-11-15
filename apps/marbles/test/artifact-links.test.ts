@@ -213,10 +213,12 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
       expect(await readFile(healthyLink, "utf8")).toBe("# A, again\n")
     );
     // Link work the create started may still be under way when the
-    // workspace breaks, so it may be reported more than once; only it is.
+    // workspace breaks, so it may be reported more than once, as a failed
+    // update or a refused link; only the broken workspace is.
     await settled(() => expect(lines.length).toBeGreaterThan(0));
     for (const line of lines) {
-      expect(line).toContain(`in ${broken.root}; marbles relink repairs it`);
+      expect(line).toContain(broken.root);
+      expect(line).not.toContain(healthy.root);
     }
     expect(await written.get(id)).not.toBeNull();
   });
