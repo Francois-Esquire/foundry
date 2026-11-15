@@ -223,6 +223,36 @@ export function describeModuleStore(
       });
     });
 
+    test("reads each value nested in a manifest once, and keeps what that read gave", async () => {
+      const target = await store();
+      const owner = module("a");
+      let reads = 0;
+      const document = {
+        get field() {
+          reads += 1;
+          // Plain at the first read; what a second read would see is not.
+          return reads === 1
+            ? { kept: "checked" }
+            : Object.create({ inherited: "lost" });
+        },
+        list: [1, "two"],
+      };
+      await target.commit({
+        putManifests: [
+          {
+            ...manifest("a", owner),
+            manifest: document as unknown as ModuleManifest,
+          },
+        ],
+      });
+
+      expect(reads).toBe(1);
+      expect((await target.getManifest(contentId("a")))?.manifest).toEqual({
+        field: { kept: "checked" },
+        list: [1, "two"],
+      });
+    });
+
     test("refuses, naming the property, a write neither store could keep as it shows, and applies none of it", async () => {
       const target = await store();
       const kept = module("kept");

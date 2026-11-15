@@ -30,7 +30,7 @@ import type {
   ModuleStorePageQuery,
   ModuleStoreWrite,
 } from "./store";
-import { plainData } from "./store/captured";
+import { plainCopy } from "./store/captured";
 import { MemoryModuleStore } from "./store/memory";
 
 export type { InstallationGrant, RetainedManifest } from "./schema";
@@ -708,7 +708,8 @@ export class ModuleRegistry {
 
 /**
  * Which fields a command reads from its input: `"value"` copies the field as
- * it is, `"data"` copies a JSON document that must be plain data, a nested
+ * it is, `"data"` copies a JSON document that must be plain data, in one
+ * pass that reads each of its properties once (`plainCopy`), a nested
  * shape reads an object field by field, and `[shape]` reads each entry of a
  * list by that shape.
  */
@@ -767,8 +768,7 @@ function readInput(
     if (kind === "value") {
       read[field] = value;
     } else if (kind === "data") {
-      plainData(value, fieldAt);
-      read[field] = value;
+      read[field] = plainCopy(value, fieldAt);
     } else if (isListShape(kind)) {
       if (!Array.isArray(value)) {
         throw new TypeError(`${fieldAt} must be an array`);

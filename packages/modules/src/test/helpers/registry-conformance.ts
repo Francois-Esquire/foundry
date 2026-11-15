@@ -167,6 +167,35 @@ export function describeModuleRegistry(
       }
     });
 
+    it("reads each value nested in a retained manifest once, and keeps what that read gave", async () => {
+      const harness = await createHarness();
+      try {
+        const { version } = harness.installation;
+        let reads = 0;
+        const manifest = {
+          ...structuredClone(version.manifest),
+          get views() {
+            reads += 1;
+            return reads === 1
+              ? structuredClone(version.manifest.views)
+              : Object.create({ inherited: "lost" });
+          },
+        };
+        await harness.store.retainManifest({
+          contentId: version.contentId,
+          manifest,
+          module: { artifactId: version.artifactId, id: version.moduleId },
+        });
+
+        expect(reads).toBe(1);
+        expect(
+          await harness.store.loadRetainedManifest(version.contentId)
+        ).toEqual(version.manifest);
+      } finally {
+        await harness.dispose?.();
+      }
+    });
+
     it("reads each input field by name, wherever it lives, in every command", async () => {
       const harness = await createHarness();
       try {

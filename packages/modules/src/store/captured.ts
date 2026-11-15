@@ -121,11 +121,9 @@ function module(value: unknown, at: string) {
 
 function manifest(value: unknown, at: string) {
   const record = plain(value, at);
-  const document: unknown = record.manifest;
-  plainData(document, `${at}.manifest`);
   return {
     contentId: text(record, "contentId", at),
-    manifest: document,
+    manifest: plainCopy(record.manifest, `${at}.manifest`),
     moduleId: text(record, "moduleId", at),
   };
 }
@@ -219,22 +217,26 @@ function plain(value: unknown, at: string): Readonly<Record<string, unknown>> {
 }
 
 /**
- * Refuses a JSON document that is not plain data all the way down: every
- * object plain, every array a plain array, every other value a string, a
- * number, a boolean or `null`, and no value inside itself.
+ * A detached copy of a JSON document, made in one pass that reads each
+ * property exactly once and validates what that read gave: every object
+ * plain (see {@link plain}), every array a plain array without holes, every
+ * other value a string, a number, a boolean or `null`, and no value inside
+ * itself. A getter is therefore called once, and the copy holds what it
+ * returned; nothing is read again later to copy it. Refuses anything else
+ * with a `TypeError` naming the path.
  */
-export function plainData(
+export function plainCopy(
   value: unknown,
   at: string,
   ancestors = new Set<object>()
-): void {
+): unknown {
   if (
     value === null ||
     typeof value === "string" ||
     typeof value === "number" ||
     typeof value === "boolean"
   ) {
-    return;
+    return value;
   }
   if (typeof value !== "object") {
     throw new TypeError(`${at} must be JSON data, not ${typeof value}`);
@@ -251,14 +253,25 @@ export function plainData(
       ) {
         throw new TypeError(`${at} must be a plain array without holes`);
       }
+      const items: unknown[] = [];
       for (let index = 0; index < value.length; index += 1) {
-        plainData(value[index], `${at}[${index}]`, ancestors);
+        items.push(plainCopy(value[index], `${at}[${index}]`, ancestors));
       }
-      return;
+      return items;
     }
-    for (const [field, item] of Object.entries(plain(value, at))) {
-      plainData(item, `${at}.${field}`, ancestors);
+    const record = plain(value, at);
+    const copy: Record<string, unknown> = {};
+    for (const field of Object.keys(record)) {
+      // One read per property: the copy keeps exactly what was checked.
+      const item: unknown = Reflect.get(record, field);
+      Object.defineProperty(copy, field, {
+        configurable: true,
+        enumerable: true,
+        value: plainCopy(item, `${at}.${field}`, ancestors),
+        writable: true,
+      });
     }
+    return copy;
   } finally {
     ancestors.delete(value);
   }
