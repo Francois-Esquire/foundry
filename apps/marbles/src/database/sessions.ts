@@ -2,7 +2,7 @@ import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import type { SessionTransaction } from "@foundry/agents/store/sqlite";
 import { SqliteSessionStore } from "@foundry/agents/store/sqlite";
-import { asc, count, eq, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
 import { busyError } from "~/database/client";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
@@ -92,35 +92,58 @@ export class DatabaseSessionStore implements ListedSessionStore {
 /**
  * Raise the revision of every session `write` touches, in the commit's own
  * `transaction`: never through a store, which would wait on the commit
- * that is running this. A message put under another session than the one
- * it was in raises only the one it goes to: the hook is not told the other.
+ * that is running this. A session record put gets its row, at revision 1
+ * the first time; a message raises only a session that has a row, so the
+ * listing holds exactly the sessions `getSession` finds. A session put
+ * after messages were written under its id starts at its put.
  */
 async function raiseRevisions(
   transaction: SessionTransaction,
   scope: string,
   write: SessionStoreWrite
 ): Promise<void> {
-  const ids = new Set([
-    ...(write.putSessions ?? []).map((session) => session.id),
-    ...(write.putMessages ?? []).map((message) => message.sessionId),
-  ]);
-  const rows = [...ids].map((sessionId) => ({
-    revision: 1,
-    scope,
-    sessionId,
-  }));
-  for (let start = 0; start < rows.length; start += REVISION_BATCH) {
+  const put = new Set((write.putSessions ?? []).map((session) => session.id));
+  const rows = [...put].map((sessionId) => ({ revision: 1, scope, sessionId }));
+  for (const batch of batches(rows)) {
     await transaction
       .insert(marblesSessionRevisions)
-      .values(rows.slice(start, start + REVISION_BATCH))
+      .values(batch)
       .onConflictDoUpdate({
-        set: { revision: sql`${marblesSessionRevisions.revision} + 1` },
+        set: { revision: raised },
         target: [
           marblesSessionRevisions.scope,
           marblesSessionRevisions.sessionId,
         ],
       });
   }
+  const touched = new Set(
+    (write.putMessages ?? [])
+      .map((message) => message.sessionId)
+      .filter((sessionId) => !put.has(sessionId))
+  );
+  for (const batch of batches([...touched])) {
+    await transaction
+      .update(marblesSessionRevisions)
+      .set({ revision: raised })
+      .where(
+        and(
+          eq(marblesSessionRevisions.scope, scope),
+          inArray(marblesSessionRevisions.sessionId, batch)
+        )
+      );
+  }
+}
+
+/** A revision one above the one stored. */
+const raised = sql`${marblesSessionRevisions.revision} + 1`;
+
+/** `items` in runs short enough for one statement's parameters. */
+function batches<T>(items: readonly T[]): T[][] {
+  const runs: T[][] = [];
+  for (let start = 0; start < items.length; start += REVISION_BATCH) {
+    runs.push(items.slice(start, start + REVISION_BATCH));
+  }
+  return runs;
 }
 
 /** Run `call`, with a lock SQLite waited too long for as a `DatabaseBusyError`. */
