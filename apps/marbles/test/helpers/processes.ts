@@ -1,14 +1,17 @@
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   type Dirent,
   existsSync,
+  linkSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmdirSync,
   rmSync,
   statSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   notPrivate,
@@ -146,7 +149,7 @@ export async function stopRecorded(
     }
     if (report.length === 0) {
       for (const record of fresh) {
-        forget(record);
+        forgetRecord(record);
       }
     }
   }
@@ -160,16 +163,69 @@ function handledKey(record: ReadRecord): string {
   return `${record.path}\n${record.started}`;
 }
 
-/** Remove `record`'s file, unless a later process's record has replaced it. */
-function forget(record: ReadRecord): void {
+/** The file operations `forgetRecord` makes; a test replaces them to land a write between two. */
+export interface RecordFiles {
+  /** Make `path` name `existing`'s file; throws `EEXIST` when `path` is taken. */
+  link(existing: string, path: string): void;
+  read(path: string): string;
+  remove(path: string): void;
+  rename(from: string, to: string): void;
+}
+
+const FILES: RecordFiles = {
+  link: (existing, path) => linkSync(existing, path),
+  read: (path) => readFileSync(path, "utf8"),
+  remove: (path) => rmSync(path, { force: true }),
+  rename: (from, to) => renameSync(from, to),
+};
+
+/**
+ * Remove the record file at `record.path`, only if what is removed names
+ * `record`'s process, which has been proved gone. A process that records
+ * another may replace the file at any moment, so nothing read before
+ * decides: the file is moved aside first, under a fresh name in the same
+ * directory (a rename, atomic), read there, and deleted only if it names
+ * that process. One that does not is linked back, never over a file that
+ * took its place meanwhile: that one is newer, and this one then stays
+ * aside, under a name that is still a record's (`.json`), for the next
+ * pass or sweep to read. So no interleaving removes the record of a
+ * process that runs, and a stop cut short leaves every record readable.
+ */
+export function forgetRecord(
+  record: Pick<ReadRecord, "path" | "pid" | "started">,
+  files: RecordFiles = FILES
+): void {
+  const aside = join(
+    dirname(record.path),
+    `.${basename(record.path)}.${randomUUID()}.forget.json`
+  );
   try {
-    const now = JSON.parse(readFileSync(record.path, "utf8")) as SpawnRecord;
-    if (now.pid === record.pid && now.started === record.started) {
-      rmSync(record.path, { force: true });
+    files.rename(record.path, aside);
+  } catch (error) {
+    if (gone(error)) {
+      return;
     }
-  } catch {
-    // Gone already, or not a record now: either way, not this one's.
+    throw error;
   }
+  let moved: Partial<SpawnRecord> | undefined;
+  try {
+    moved = JSON.parse(files.read(aside)) as Partial<SpawnRecord>;
+  } catch {
+    moved = undefined;
+  }
+  if (moved?.pid === record.pid && moved.started === record.started) {
+    files.remove(aside);
+    return;
+  }
+  try {
+    files.link(aside, record.path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      return;
+    }
+    throw error;
+  }
+  files.remove(aside);
 }
 
 /**
