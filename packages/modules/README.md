@@ -2,9 +2,9 @@
 
 `@foundry/modules` defines the Artifact-backed Module domain and the contracts used to
 package, install, and connect Module programs to host capabilities. The package includes
-a deterministic in-memory Store, project management, source capture, container
-orchestration, and Program supervision. Hosts pass configured Artifacts, Store,
-container registry, transport, and capability providers. Compilation and agent
+the registry of Module records over an in-memory or SQLite store, project management,
+source capture, container orchestration, and Program supervision. Hosts pass configured
+Artifacts, registry, container registry, transport, and capability providers. Compilation and agent
 execution are separate.
 
 - [Glossary](GLOSSARY.md) defines Module language and its boundaries.
@@ -18,12 +18,12 @@ SemVer-tagged Content of that Artifact; nothing else persists it.
 ```ts
 import type { Artifacts, ContentId } from "@foundry/artifacts";
 import type { ModuleId } from "@foundry/modules/domain";
-import type { ModuleStore } from "@foundry/modules/store/contract";
+import type { ModuleRegistry } from "@foundry/modules/registry";
 import { createModuleVersions } from "@foundry/modules/version";
 
 export async function loadVersion(
   artifacts: Artifacts,
-  store: ModuleStore,
+  store: ModuleRegistry,
   moduleId: ModuleId,
   contentId: ContentId,
 ) {
@@ -39,7 +39,7 @@ the Content Tree, and runnable `outputs/` entries that are not files or director
 `list` returns the valid versions in Content id order.
 
 The Manifest comes from `source/foundry.module.json` inside the Content. A Content that
-cannot supply it keeps a retained manifest in the Store: an output-only import, or a
+cannot supply it keeps a retained manifest in the registry: an output-only import, or a
 legacy version whose stored manifest differs from its embedded source. A retained
 manifest outranks the embedded one, and frozen bytes are never rewritten.
 `pruneRetainedManifests` drops only rows the Content reproduces.
@@ -62,8 +62,8 @@ are Grants, never settings.
 
 ## Work with installations
 
-An Installation selects one version by `contentId`. The Store refuses a Content that does
-not belong to the Module's Artifact. It starts disabled with
+An Installation selects one version by `contentId`. The registry refuses a version whose
+Artifact is not its Module's. It starts disabled with
 generation `0`. Lifecycle beginnings and version selection increment the generation;
 settlement keeps it. Every change to an existing Installation presents the generation
 it observed, so stale callers receive `ModuleStoreConflictError` instead of overwriting
@@ -82,8 +82,8 @@ capabilities it does not provide or whose constraints its provider denies; a req
 one blocks the start, an optional one does not. A required, available capability
 without a matching Grant also blocks (`ungranted-capability`). It separately returns
 capabilities that still need Grants, matched by the digest each provider resolves from
-the raw requested constraints, the same digest invocation admission compares. The Store
-keeps the exact approved Grant set for each Installation.
+the raw requested constraints, the same digest invocation admission compares. The
+registry keeps the exact approved Grant set for each Installation.
 
 `@foundry/modules/grants` lists what a version asks for and matches Grants:
 `moduleAccessRequests` (each capability request with its availability and
@@ -114,24 +114,121 @@ defines it, as `@foundry/modules/<path>` for `src/<path>.ts`:
 
 | Role     | Modules under `@foundry/modules/`                                                                                         | Use                                                                                                                       |
 | -------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Domain   | `domain`, `manifest`, `manifest-schema`, `settings`, `grants`, `access`, `version`, `store/contract`, `store/memory`, `store/artifact`, `store/installation-rules`, `preflight`, `package`, `projects`, `build`, `proposals`, `management`, `source` | Domain, Manifest and its JSON Schema, settings, Grant matching and changes, Store adapters and shared Installation rules, versions, packages, projects and fenced publication, build audit, source proposals, source capture and admission, Installation management, and declared Views |
+| Domain   | `domain`, `manifest`, `manifest-schema`, `settings`, `grants`, `access`, `version`, `registry`, `errors`, `schema`, `preflight`, `package`, `projects`, `build`, `proposals`, `management`, `source` | Domain, Manifest and its JSON Schema, settings, Grant matching and changes, versions, the registry of Module records with its errors and record schemas, packages, projects and fenced publication, build audit, source proposals, source capture and admission, Installation management, and declared Views |
+| Storage  | `store`, `store/memory`, `store/sqlite`, `store/tables`                                                                   | The store seam, the default in-memory store, the SQLite store, and its Drizzle table definitions                         |
 | Gateway  | `gateway/module-gateway`, `gateway/types`, `gateway/catalog`, `gateway/runtime-dispatcher`, `gateway/runtime-context`, `gateway/generator` | Host Gateway, protocol types, capability catalog, runtime dispatcher, runtime admission, and generated Program client |
 | Platform | `platform/system`, `platform/program-supervisor`, `platform/runtime-recovery`, `platform/installations`, `platform/container-runtime`, `platform/files` | System composition, container acquisition, Program supervision, cleanup, recovery, on-demand activation, and portable filesystem contracts |
 | Node     | `node/system`, `node/source`, `node/checkouts`, `node/selected-checkouts`, `node/installation-files`, `node/application-recovery` | System composition with disk adapters, source capture, digest-named and selected checkouts, Installation files and backup, and recovery observation |
 | Template | `template/compose`, `template/upgrade`                                                                                    | Compose a Module workspace from a `ModuleBase` and upgrade composed workspaces                                            |
-| Testing  | `testing/module-store-conformance`                                                                                        | Run the shared `ModuleStore` conformance suite against an adapter                                                         |
+| Testing  | `testing/store`                                                                                                           | Run the shared `ModuleStore` conformance suite against a store                                                            |
 
-The package has no sandbox backend or network provider. `InMemoryModuleStore` is the
-reference Store. `createArtifactModuleStore(artifacts)` from `store/artifact` is the
-durable adapter. It keeps each Module's identity, retained manifests, Installation and
-Grants as metadata on its Module Artifact, and makes every change one transaction on
-the given `ArtifactManager`, so the change can join a caller's Artifact transaction.
-It decodes only the Module an operation names. Cross-Module scans skip a Module whose
-records are corrupt and report it through the `skipped` option. Fields written by a
-newer host survive. Both stores apply the same transition rules from
-`store/installation-rules`. A durable adapter implements `ModuleStore` and proves
-itself with `describeModuleStoreConformance`. The host supplies the runtime and
-provider implementations.
+The package has no sandbox backend or network provider; the host supplies the runtime
+and provider implementations. See [Storage](#storage) for where Module records live.
+
+## Storage
+
+`ModuleRegistry` from `@foundry/modules/registry` holds every rule of the Module
+records: one Module per Artifact and one Artifact per Module, retained manifests owned
+by the Module that retained them, unique Installation ids, an Installation selecting a
+version of a registered Module, the generation compare-and-set, status and start-budget
+transitions, one Grant per capability, and the refusal to delete a Module an
+Installation still selects. Each command copies its input when called, then runs one
+read-modify-write ending in one `commit` to its `ModuleStore`, inside the store's
+`transaction` when it has one. Lists come back in id order (UTF-16 code units), paged by
+id; the registry reads every matching record and sorts it, which suits a local library.
+
+`ModuleStore` from `@foundry/modules/store` is the seam: reads plus one atomic
+`commit(write)` and an optional `transaction(work)`. It enforces nothing. A write puts
+and deletes Modules, retained manifests (`StoredManifest`) and Installations with their
+whole Grant set (`StoredInstallation`), deletes before puts; the record schemas are in
+`@foundry/modules/schema`. Reads return detached copies, list in the order records were
+first put (a record put again keeps its place), filter by exact values and page by an
+opaque cursor. `MemoryModuleStore` from `store/memory` is the default:
+
+```ts
+import { ModuleRegistry } from "@foundry/modules/registry";
+import { SqliteModuleStore } from "@foundry/modules/store/sqlite";
+
+const registry = new ModuleRegistry({
+  store: new SqliteModuleStore({
+    database, // a drizzle-orm/libsql database, or a transaction on one
+    scope: workspaceId,
+    // Optional: runs in the commit's transaction, after the store's statements.
+    onCommit: async (transaction, write) => {
+      await transaction.insert(changes).values({ write });
+    },
+  }),
+});
+```
+
+`@foundry/modules/store/tables` exports the Drizzle tables for the host's migrations:
+`modules`, `module_manifests` and `module_installations`. Each holds its record field
+for field, plus `scope` (an opaque partition key, first in every key and index) and
+`position` (put order). An Installation's Grants are one JSON array on its row, in
+Grant order; they change only with their Installation. Timestamps, which the records
+hold as `Date`s, are ISO 8601 text, exact to the millisecond across the whole range a
+`Date` holds. The package ships no migrations.
+
+Each `commit` is one database transaction, and a throwing `onCommit` rolls it back.
+`onCommit` receives the store's own copy of the write, taken when `commit` was called:
+every record put, whole, and every key deleted. It cannot see which put filed a new
+record and which replaced one, what a replaced or deleted record held (the store has
+already written when the hook runs), or which registry command made the write: a write
+carries no event.
+
+A store offers `transaction(work)`, and both stores here do: the registry then runs each
+command, and each read of several store reads, as `work(view)`, and the store lets no
+other write land in between, from any registry over it. A throw from `work` leaves
+nothing it committed through `view`. `registry.transaction(work)` hands `work` a
+registry bound to one such transaction, so several commands land together or not at
+all. On SQLite the transaction begins `BEGIN IMMEDIATE` (Drizzle's libSQL driver begins
+every transaction so), so it holds the write lock from its first statement and a write
+from another connection waits for that connection's busy timeout or fails with
+`SQLITE_BUSY`; it never lands in between.
+
+Each store and each registry takes one call at a time, so a call to it from inside its
+own transaction's `work` (or from `onCommit`) could only wait for itself. It is refused
+at once with a `ReentrantCallError` from `@foundry/lib/turns` that says to use the view,
+the registry passed to `work`, or the transaction passed to `onCommit`. A caller that is
+merely concurrent still waits its turn. The two are told apart by asynchronous context
+(`AsyncLocalStorage`), which detects re-entry by ancestry, not wait cycles: a
+transaction that awaits a continuation registered outside it, which then calls the
+outer store, still deadlocks, as do two stores each taken inside the other's work.
+
+Host requirement: the store's queue covers only its own instance. Within one process,
+the host must serialize writes per database file across every client and store on it.
+A second libSQL client in the same process does not wait usefully: libSQL waits out its
+busy timeout synchronously, holding up the thread the first client needs to commit, so
+it blocks for the whole timeout and then fails with `SQLITE_BUSY`. Do not open the same
+file with a second SQLite library in the process either. Connection settings such as
+WAL and the busy timeout are the host's.
+
+A defect of `@libsql/client` 0.18.0, which the store cannot work around: a client whose
+`BEGIN` fails with `SQLITE_BUSY` keeps the failed statement open, and its next
+transaction fails at `COMMIT` with "SQL statements in progress". In rollback-journal
+mode the file can stay blocked even for a fresh client. The store cannot reset a client
+it was handed, so a host should use WAL mode and replace its client after a
+`SQLITE_BUSY`.
+
+A storage limit of the SQLite store, not a rule of the package: SQLite does not give
+back every value as it was bound. So `commit` refuses, before writing anything and
+through a transaction's view as well, a write that puts any of these, with a
+`RangeError` naming the field (such as `putInstallations[0].installation.containerId`):
+
+- U+0000 or text that is not well-formed UTF-16 in a plain text column (an id, a
+  Content or Artifact id, a container id, a status). libSQL cuts text at a NUL, and a
+  lone surrogate is bound changed. A read, filter or delete by such a key finds
+  nothing, and the constructor refuses such a `scope`. Manifests and Grants are JSON,
+  which escapes both, so they keep them.
+- An invalid `Date`, or a value that is not a `Date`, in a timestamp.
+- NaN, an infinity, `-0` or a number beyond `Number.MAX_SAFE_INTEGER` in an integer
+  column (`generation`, `startAttempts`; the schema accepts `-0`).
+- In a JSON value (a manifest, a Grant): NaN, an infinity or `-0`, `undefined` as a
+  property or array item, a hole, anything but a plain object or array (a `Date`, a
+  `Map`), or a value that contains itself.
+
+The package therefore needs a runtime with `node:async_hooks`: Node, Bun, Deno, or a
+worker runtime with Node compatibility.
 
 ## Compose a Module system
 
@@ -188,9 +285,9 @@ call, so the host can run selection as its own unit of work. At boot such a host
 keeps one checkout per Module at a host-chosen path and implements both
 `ModuleCheckouts` and the swap.
 
-`createModuleProjects` accepts Artifacts and Store directly when only authoring is
-needed. Cross-store creation requires a shared transaction coordinator for
-atomicity, just like import.
+`createModuleProjects` accepts Artifacts and a registry directly when only authoring
+is needed. Creation runs a registry transaction inside the Artifact transaction; the
+two commit separately, as an import's do.
 
 `captureModuleWorkspaceSource(filesystem, root)` from `@foundry/modules/source` uses
 its `ModuleSourceFileSystem` interface. `@foundry/modules/node/source` exposes the same
@@ -234,7 +331,7 @@ its Artifact identity, frozen Content Tree and blobs, SemVer tag, Manifest, and 
 digests. `importModulePackage` validates the complete envelope before writing. A package
 whose tree embeds `source/foundry.module.json` must agree with its envelope Manifest or
 the import is refused; a package with no embedded source has its envelope Manifest
-retained in the Store.
+retained in the registry.
 
 Export refuses a retained legacy Manifest that disagrees with embedded source.
 That version remains runnable with its approved capabilities, but cannot be moved
@@ -242,9 +339,10 @@ in this package format without resolving the disagreement.
 
 Import creates the Module Artifact when absent, reuses an identical tagged Content
 version, or explicitly revises frozen Content and freezes the successor. Ready Content
-keeps its identity on replacement. Artifact and Module writes nest through
-their Store transactions. They are atomic only when both adapters share one transaction
-coordinator.
+keeps its identity on replacement. The Module writes run in a registry transaction
+inside the Artifact transaction, so a refused registration rolls the Artifact back. The
+two are not one atomic write: the registry's store and the Artifact store commit
+separately, the registry first.
 
 ## Gateway boundary
 
@@ -268,7 +366,7 @@ Saves compare the Content ID and `updatedAt` captured when the workspace opened.
 consume that saved Content and refuse concurrent source changes. Editing and
 building use saved Artifact source exclusively.
 
-A host composes the Module system with its own Store, container registry, filesystem
+A host composes the Module system with its own registry, container registry, filesystem
 adapters, transport, and providers. Workspace upgrades, compilation, activation
 approvals, and URL projections stay in the host. The Module system can install an
 imported version without a compiler, development workspace, or agent runtime.
@@ -289,7 +387,7 @@ builds, and serves a composed workspace with real processes; run it on purpose w
 `bun run --cwd=packages/modules emit-sdk` rewrites checked-in generated SDK output in
 `src/sdk/emitted.ts` and `src/sdk/generator-source.ts`, then formats both with Biome.
 Run it only when the authored SDK source or generator changes. Tests verify emitted
-parity, Store conformance, package integrity, Gateway admission, and the package
+parity, store conformance, registry rules over every store, package integrity, Gateway admission, and the package
 import boundary.
 
 ### Lifecycle policy boundary
@@ -311,8 +409,5 @@ providers. Works is the only shipped host in this tree. It keeps Module records 
 containers in memory for one process, so it has nothing to recover at boot, and uses
 validated activation when a View opens.
 
-`ModuleStore.transaction` supplies an `afterCommit` effects handle. A nested unit
-registers effects with its outermost transaction: rollback discards them;
-committing runs all effects even when filesystem application fails. Access uses
-this for revocation cancellation, so returning from a nested unit never cancels
-an Invocation before the outer commit.
+Access cancels a revoked Grant's Invocations only once the registry transaction
+that revoked it has committed; a rolled-back revoke or carry-over cancels nothing.
