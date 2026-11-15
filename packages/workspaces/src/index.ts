@@ -9,7 +9,8 @@
  * (`WithDirectory` with a supplied filesystem) answers that, and further layers
  * (`WithGit` on the git subpath) add capability. `WorkspaceSystem` composes
  * them at open, owns the instance lifecycle, and drives the catalog over a
- * `WorkspaceStore` — `MemoryWorkspaceStore` unless another is supplied.
+ * `WorkspaceStore` — the memory store on `@foundry/workspaces/store/memory`
+ * unless another is supplied.
  */
 
 export type {
@@ -37,7 +38,6 @@ export {
   WorkspaceSystemError,
 } from "./errors";
 export { Workspace } from "./instance";
-export { MemoryWorkspaceStore } from "./memory-store";
 // `Git` itself is opt-in on `@foundry/workspaces/git`; only its result types
 // travel with the root.
 export type { GitPathStatus, GitSnapshot } from "./node/git";
