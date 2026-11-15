@@ -137,7 +137,17 @@ opens the tasks itself; tasks never starts the process or hosts the workspace.`;
  * already hosts it or through an engine this process never starts, so no
  * source runs and nothing is delivered here.
  */
-type Handler<A extends Flags> =
+/**
+ * What `--dry-run` means for a command, said beside how it runs. `dry
+ * mode`: it has one, keeping in memory what it would persist (a workspace
+ * it hosts or loads here, its tasks); `reads only`: it writes nothing
+ * either way, so it runs as it is; otherwise the command refuses the
+ * flag, saying why. `main` refuses it before anything is loaded, opened or
+ * written, and refuses it too for a command that says nothing.
+ */
+export type DryRun = "dry mode" | "reads only" | { readonly refused: string };
+
+type Handler<A extends Flags> = { readonly dry: DryRun } & (
   | { readonly needs: "nothing"; run(args: A): Promise<void> | void }
   | {
       readonly needs: "workspace";
@@ -159,7 +169,8 @@ type Handler<A extends Flags> =
       readonly needs: "connection";
       run(args: A, hosted: Hosted): Promise<void>;
     }
-  | { readonly needs: "tasks"; run(args: A, tasks: TaskRunner): Promise<void> };
+  | { readonly needs: "tasks"; run(args: A, tasks: TaskRunner): Promise<void> }
+);
 
 async function createStarterModule(args: ArgsOf<"init">): Promise<void> {
   const starter = STARTERS.find((item) => item.id === args.starter);
@@ -206,6 +217,7 @@ function listing<
   C extends "artifacts" | "modules" | "runs" | "sandboxes" | "sessions",
 >(kind: ResourceKind): Handler<ArgsOf<C>> {
   return {
+    dry: "reads only",
     needs: "workspace",
     run: (args, opened) =>
       listResources(kind, args.all, resourceContext(args, opened)),
@@ -216,6 +228,7 @@ function association<C extends "share" | "unshare">(
   change: C
 ): Handler<ArgsOf<C>> {
   return {
+    dry: { refused: `${change} changes what the Marbles database keeps` },
     needs: "workspace",
     run: (args, opened) =>
       changeAssociation(change, args, resourceContext(args, opened)),
@@ -500,32 +513,83 @@ async function serveMcp(args: ArgsOf<"mcp">): Promise<void> {
   await serveStdio(args);
 }
 
-const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
+/** Every command: what it needs, how it runs, and what `--dry-run` means for it. */
+export const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   artifacts: listing("artifact"),
-  attach: { needs: "nothing", run: attachWorkspace },
-  daemon: { needs: "nothing", run: runDaemon },
-  detach: { needs: "workspace", run: detachWorkspace },
-  help: { needs: "nothing", run: () => print(USAGE) },
-  init: { needs: "nothing", run: createStarterModule },
-  list: { needs: "triggers", run: listTriggers },
-  mcp: { needs: "nothing", run: serveMcp },
+  attach: {
+    dry: { refused: "attach hosts the workspace in the Marbles process" },
+    needs: "nothing",
+    run: attachWorkspace,
+  },
+  daemon: {
+    dry: { refused: "daemon runs the Marbles process" },
+    needs: "nothing",
+    run: runDaemon,
+  },
+  detach: {
+    dry: {
+      refused:
+        "detach changes the workspace's registration in the Marbles database",
+    },
+    needs: "workspace",
+    run: detachWorkspace,
+  },
+  help: { dry: "reads only", needs: "nothing", run: () => print(USAGE) },
+  init: {
+    dry: { refused: "init writes a starter module" },
+    needs: "nothing",
+    run: createStarterModule,
+  },
+  list: { dry: "dry mode", needs: "triggers", run: listTriggers },
+  // The server keeps the tasks in memory and joins no process.
+  mcp: { dry: "dry mode", needs: "nothing", run: serveMcp },
   modules: listing("module"),
   relink: {
+    dry: { refused: "relink rebuilds links from the Marbles database" },
     needs: "workspace",
     run: (args, opened) => relink(args.all, resourceContext(args, opened)),
   },
-  roll: { needs: "connection", run: roll },
-  run: { needs: "connection", run: runUntilStopped },
+  roll: { dry: "dry mode", needs: "connection", run: roll },
+  run: { dry: "dry mode", needs: "connection", run: runUntilStopped },
   runs: listing("run"),
   sandboxes: listing("sandbox"),
   sessions: listing("session"),
   share: association("share"),
-  status: { needs: "workspace", run: showStatus },
-  stop: { needs: "nothing", run: stopDaemon },
-  tasks: { needs: "tasks", run: runTasks },
+  status: { dry: "reads only", needs: "workspace", run: showStatus },
+  stop: {
+    dry: { refused: "stop stops the Marbles process" },
+    needs: "nothing",
+    run: stopDaemon,
+  },
+  tasks: { dry: "dry mode", needs: "tasks", run: runTasks },
   unshare: association("unshare"),
-  watch: { needs: "nothing", run: watch },
+  watch: { dry: "reads only", needs: "nothing", run: watch },
 };
+
+/**
+ * Why `command` refuses `--dry-run`, or `undefined` when it takes it: only
+ * a command whose handler says it has a dry mode or only reads does.
+ */
+export function dryRunRefusal(command: string): string | undefined {
+  const handler: { readonly dry?: unknown } | undefined = Object.hasOwn(
+    COMMANDS,
+    command
+  )
+    ? COMMANDS[command as Command]
+    : undefined;
+  const dry = handler?.dry;
+  if (dry === "dry mode" || dry === "reads only") {
+    return;
+  }
+  const refused =
+    typeof dry === "object" &&
+    dry !== null &&
+    "refused" in dry &&
+    typeof dry.refused === "string"
+      ? dry.refused
+      : `${command} says nothing of a dry run`;
+  return `${refused}; it takes no --dry-run`;
+}
 
 async function printNewRuns(engine: Engine, restored: ReadonlySet<string>) {
   for (const record of await engine.runs()) {
@@ -606,6 +670,10 @@ async function main(): Promise<void> {
   let args: Args;
   try {
     args = parseArgs(process.argv.slice(2));
+    const refusal = args.dry ? dryRunRefusal(args.command) : undefined;
+    if (refusal !== undefined) {
+      throw new UsageError(refusal);
+    }
   } catch (error) {
     if (!(error instanceof UsageError)) {
       throw error;
@@ -689,10 +757,13 @@ async function askYes(question: string): Promise<boolean> {
   }
 }
 
-const refusal = envFilesLoaded();
-if (refusal === undefined) {
-  await main();
-} else {
-  process.stderr.write(`marbles: ${refusal}\n`);
-  process.exitCode = 1;
+// Run as the entry only: a test reads `COMMANDS` without running a command.
+if (import.meta.main) {
+  const refusal = envFilesLoaded();
+  if (refusal === undefined) {
+    await main();
+  } else {
+    process.stderr.write(`marbles: ${refusal}\n`);
+    process.exitCode = 1;
+  }
 }

@@ -1,8 +1,10 @@
 import { spawn, spawnSync } from "node:child_process";
 import {
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
@@ -19,6 +21,7 @@ import { acquireLock, PROCESS_LOCK } from "~/lib/state/locks";
 import { workspaceState } from "~/lib/state/workspace";
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { recordSpawned } from "~/process/spawned";
+import { hostWorkspace } from "~/workspace/host";
 import { testHome } from "./helpers/home";
 import { readWorkspace, recordWorkspace } from "./helpers/registry";
 
@@ -277,5 +280,31 @@ await recordWorkspace(state, workspaceState(state, ${JSON.stringify(workspace)})
       workspace.id
     );
     expect(lockHolder(processLock(machine.state))).toBe(process.pid);
+  });
+
+  it("offers nothing to create at a missing source under --dry-run, and writes nothing", async () => {
+    const root = scratch();
+    const { artifacts, state } = testHome({ providers: false }).layout;
+    const offered: string[] = [];
+    const host = await hostWorkspace({
+      artifacts,
+      directory: root,
+      dry: true,
+      onMissing: (configPath) => {
+        offered.push(configPath);
+        return Promise.resolve(false);
+      },
+      source: join(root, "marbles.ts"),
+      state,
+    });
+    try {
+      expect(host.config).toBeNull();
+    } finally {
+      await host.close();
+    }
+    expect(offered).toEqual([]);
+    expect(readdirSync(root)).toEqual([]);
+    expect(existsSync(state)).toBe(false);
+    expect(existsSync(artifacts)).toBe(false);
   });
 });

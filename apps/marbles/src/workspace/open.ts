@@ -270,7 +270,8 @@ export interface OpenWorkspaceOptions {
   readonly env?: "require" | "warn";
   /**
    * Nothing is at the source: offer to create it. Resolves true once
-   * something was created there, which is then loaded.
+   * something was created there, which is then loaded. Never offered
+   * under `--dry-run`, which creates nothing.
    */
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   readonly print: (line: string) => void;
@@ -310,7 +311,11 @@ export async function openWorkspace(
   if (files !== false) {
     return opened(args, before, environment, { catalog, cwd, files });
   }
-  if (onMissing === undefined || !(await onMissing(before.configPath))) {
+  if (
+    args.dry ||
+    onMissing === undefined ||
+    !(await onMissing(before.configPath))
+  ) {
     return opened(args, before, environment, { catalog, cwd });
   }
   const created = placed(args);

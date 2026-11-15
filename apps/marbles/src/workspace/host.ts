@@ -69,7 +69,10 @@ export interface HostWorkspaceOptions {
   readonly dry?: boolean;
   /** What a `.env.schema` that does not resolve does; `warn` when omitted. */
   readonly env?: "require" | "warn";
-  /** Nothing is at the source: offer to create it. Resolves true once something loads there. */
+  /**
+   * Nothing is at the source: offer to create it. Resolves true once
+   * something loads there. Never offered under `dry`, which creates nothing.
+   */
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   /** Runs on the built engine before it starts: host steps registered beside the source. */
   readonly prepare?: (engine: Engine) => void;

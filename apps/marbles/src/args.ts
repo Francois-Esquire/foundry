@@ -544,49 +544,6 @@ function isTaskAction(name: string): name is TaskActionName {
   return Object.hasOwn(TASK_ACTIONS, name);
 }
 
-/**
- * What `--dry-run` means for each command, decided once here and checked
- * before anything is loaded, opened or written. `dry mode`: the command
- * has one, keeping in memory what it would persist (a workspace it hosts
- * or loads here, its tasks); `reads only`: it writes nothing either way,
- * so it runs as it is. Any other command says why it refuses the flag,
- * and `parseArgs` refuses it.
- */
-export const DRY_RUN: {
-  readonly [C in Command]:
-    | "dry mode"
-    | "reads only"
-    | { readonly refused: string };
-} = {
-  artifacts: "reads only",
-  attach: {
-    refused: "attach hosts the workspace in the Marbles process",
-  },
-  daemon: { refused: "daemon runs the Marbles process" },
-  detach: {
-    refused:
-      "detach changes the workspace's registration in the Marbles database",
-  },
-  help: "reads only",
-  init: { refused: "init writes a starter module" },
-  list: "dry mode",
-  // The server keeps the tasks in memory and joins no process.
-  mcp: "dry mode",
-  modules: "reads only",
-  relink: { refused: "relink rebuilds links from the Marbles database" },
-  roll: "dry mode",
-  run: "dry mode",
-  runs: "reads only",
-  sandboxes: "reads only",
-  sessions: "reads only",
-  share: { refused: "share changes what the Marbles database keeps" },
-  status: "reads only",
-  stop: { refused: "stop stops the Marbles process" },
-  tasks: "dry mode",
-  unshare: { refused: "unshare changes what the Marbles database keeps" },
-  watch: "reads only",
-};
-
 function isCommand(name: string): name is Command {
   return Object.hasOwn(GRAMMAR, name);
 }
@@ -689,9 +646,5 @@ export function parseArgs(argv: readonly string[]): Args {
     throw new UsageError(`unknown command "${command}"`);
   }
   const parsed = GRAMMAR[command](positionals, flags);
-  const dry = DRY_RUN[command];
-  if (flags.dry && typeof dry === "object") {
-    throw new UsageError(`${dry.refused}; it takes no --dry-run`);
-  }
   return { ...flags, ...parsed };
 }

@@ -320,7 +320,9 @@ ordinary TypeScript and monitor I/O still execute. Each command decides
 what the flag means for it: `run`, `roll`, `list`, `tasks` and `mcp` have
 a dry mode, the listings, `status`, `watch` and `help` only read, and
 `attach`, `daemon`, `detach`, `init`, `relink`, `share`, `stop` and
-`unshare` refuse it before anything is opened or written.
+`unshare` refuse it before anything is opened or written. Where there is
+no source, a dry run offers no starter: `marbles init`, without the flag,
+creates one.
 
 ### Resources and workspaces
 
