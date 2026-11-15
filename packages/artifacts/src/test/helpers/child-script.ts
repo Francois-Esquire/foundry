@@ -81,25 +81,28 @@ export async function startScript(
           }
         })
       ),
-    line: (ms = STARTUP) =>
-      within(
-        ms,
-        "line",
-        Promise.race([
-          new Promise<string>((resolve) => {
-            const take = () => {
-              const next = lines.shift();
-              if (next === undefined) {
-                waiting.push(take);
-              } else {
-                resolve(next);
-              }
-            };
-            take();
-          }),
-          failure,
-        ])
-      ),
+    line: (ms = STARTUP) => {
+      let take = (): void => undefined;
+      const next = new Promise<string>((resolve) => {
+        take = () => {
+          const line = lines.shift();
+          if (line === undefined) {
+            waiting.push(take);
+          } else {
+            resolve(line);
+          }
+        };
+        take();
+      });
+      // A wait that ends without a line (a timeout, an exit) stops waiting,
+      // so it cannot take the line a later wait is owed.
+      return within(ms, "line", Promise.race([next, failure])).finally(() => {
+        const at = waiting.indexOf(take);
+        if (at !== -1) {
+          waiting.splice(at, 1);
+        }
+      });
+    },
     stop: async (graceMs = GRACE) => {
       const running = () =>
         child.exitCode === null && child.signalCode === null;
