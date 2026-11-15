@@ -113,6 +113,14 @@ export class ExecutionRecords {
   #sequence = 0;
   /** The last write made, after which the next one starts. */
   #writes: Promise<unknown> = Promise.resolve();
+  /** Settlements whose write failed, by run id, to try again. */
+  readonly #unsettled = new Map<
+    string,
+    {
+      readonly error?: { readonly code: string; readonly message?: string };
+      readonly status: Ending;
+    }
+  >();
 
   constructor(options: ExecutionRecordsOptions) {
     this.#store = options.store;
@@ -146,12 +154,21 @@ export class ExecutionRecords {
       const run = this.#records.get(id);
       return run && SETTLED_EXECUTION_STATUSES.has(run.status) ? [run] : [];
     });
-    // Failed cleanup leaves its record for a retry and is not a removal; a
-    // run another process pruned already is not cleaned up again.
+    // Decided on the stored record, never on what this process last saw:
+    // only one stored settled is cleaned up, and a settled record never
+    // changes again, so it is still settled when it is removed (checked
+    // once more in the removal's own transaction). Failed cleanup leaves
+    // its record for a retry and is not a removal; a run another process
+    // pruned already is not cleaned up again.
     const cleaned: ExecutionRun[] = [];
-    for (const run of candidates) {
-      if ((await this.#store.get(run.id)) === undefined) {
-        this.#records.delete(run.id);
+    for (const candidate of candidates) {
+      const run = this.#parse(await this.#store.get(candidate.id));
+      if (run === undefined) {
+        this.#records.delete(candidate.id);
+        continue;
+      }
+      if (!SETTLED_EXECUTION_STATUSES.has(run.status)) {
+        this.#learn(run);
         continue;
       }
       try {
@@ -165,7 +182,9 @@ export class ExecutionRecords {
       return [];
     }
     const { gaps, removed } = await this.#persist(() =>
-      this.#store.transaction((view) => removing(view, cleaned, scopeOf))
+      this.#store.transaction((view) =>
+        removing(view, cleaned, scopeOf, (stored) => this.#parse(stored))
+      )
     );
     this.#gaps = gaps;
     for (const run of removed) {
@@ -231,8 +250,8 @@ export class ExecutionRecords {
   /**
    * Take in what other processes sharing the store wrote since this one
    * read it: a record they changed (a higher revision) and one they
-   * pruned. What this process owns and has not settled is its own to say,
-   * and stays even when its write failed.
+   * pruned. A run this process owns and has not settled stays while the
+   * store lacks it.
    */
   async #refresh(): Promise<void> {
     let stored: ExecutionRun[];
@@ -250,7 +269,7 @@ export class ExecutionRecords {
       seen.add(run.id);
       this.#sequence = Math.max(this.#sequence, run.sequence);
       const local = this.#records.get(run.id);
-      if (local && (ownedHere(local) || local.revision >= run.revision)) {
+      if (local && local.revision >= run.revision) {
         continue;
       }
       this.#records.set(run.id, run);
@@ -283,10 +302,6 @@ export class ExecutionRecords {
       this.#publish(run);
       return { existing: false, run };
     }
-    const local = this.#withSource(request.name, source);
-    if (local) {
-      return { existing: true, run: local };
-    }
     const launched = await this.#persist(() =>
       this.#store.transaction(async (view) => {
         const stored = this.#parse(await view.withSource(request.name, source));
@@ -301,19 +316,12 @@ export class ExecutionRecords {
       })
     );
     if (launched.existing) {
-      this.#records.set(launched.run.id, launched.run);
+      this.#learn(launched.run);
       this.#sequence = Math.max(this.#sequence, launched.run.sequence);
     } else {
       this.#publish(launched.run);
     }
     return launched;
-  }
-
-  /** The retained run this process knows of for a name and source. */
-  #withSource(name: string, source: string): ExecutionRun | undefined {
-    return [...this.#records.values()].find(
-      (candidate) => candidate.source === source && candidate.name === name
-    );
   }
 
   /** A new run, queued and owned by this process, not yet recorded. */
@@ -388,11 +396,11 @@ export class ExecutionRecords {
    * progress, and can be pruned once it settles. Nothing for a run
    * already recorded. `createdAt` (ms) orders it among the others.
    */
-  adoptParked(run: {
+  async adoptParked(run: {
     readonly createdAt: number;
     readonly id: string;
     readonly name: string;
-  }): void {
+  }): Promise<void> {
     if (this.#records.has(run.id)) {
       return;
     }
@@ -403,7 +411,7 @@ export class ExecutionRecords {
       ? run.createdAt
       : this.#sequence + 1;
     this.#sequence = Math.max(this.#sequence, sequence);
-    this.#commit({
+    await this.#land({
       correlation: {},
       id: run.id,
       kind: "workflow",
@@ -416,6 +424,39 @@ export class ExecutionRecords {
       status: "suspended",
       timestamps: { queuedAt: at, startedAt: at, updatedAt: now() },
     });
+  }
+
+  /**
+   * Record cancelled a queued run that has not started, decided on the
+   * stored record in the transaction that settles it: one stored queued,
+   * whose owner is this process or one that has exited. `false`, changing
+   * nothing, otherwise: it started, settled, or a live process owns it,
+   * and this process then holds what is stored. Rejects when the store
+   * cannot be read or written, cancelling nothing.
+   */
+  protected async cancelQueued(id: string): Promise<boolean> {
+    const { cancelled, run } = await this.#persist(() =>
+      this.#store.transaction(async (view) => {
+        const stored = this.#parse(await view.get(id));
+        if (
+          stored?.status !== "queued" ||
+          !(stored.owner.pid === process.pid || exited(stored.owner.pid))
+        ) {
+          return { cancelled: false, run: stored };
+        }
+        const settled = settledAs(
+          stored.owner.pid === process.pid
+            ? stored
+            : nextRevision(stored, { owner: { pid: process.pid } }),
+          "cancelled"
+        );
+        return { cancelled: await view.put(settled), run: settled };
+      })
+    );
+    if (run) {
+      this.#learn(run);
+    }
+    return cancelled;
   }
 
   /**
@@ -499,8 +540,8 @@ export class ExecutionRecords {
         })
       );
       if (run) {
-        // What this process saw: an adopter may own it now.
-        this.#publish(run);
+        // What is stored: an adopter may own it now.
+        this.#learn(run);
       }
       return cancelled;
     } finally {
@@ -598,7 +639,10 @@ export class ExecutionRecords {
 
   /**
    * Publish now, and write in its turn: resolves whether it was written;
-   * a failed write warns.
+   * a failed write warns. Only for an advisory change (progress, a park or
+   * resume), which nothing acknowledges and on which nothing is cancelled,
+   * launched or removed; one the store refuses as stale leaves this
+   * process holding what is stored (`#put`).
    */
   #commit(run: ExecutionRun): Promise<boolean> {
     this.#publish(run);
@@ -612,21 +656,27 @@ export class ExecutionRecords {
   }
 
   /**
-   * Publish now, and resolve once it is written in its turn: rejects when
-   * the store refuses the write, which the caller handles.
+   * Write in its turn, and publish once it is written: rejects, publishing
+   * nothing, when the store refuses the write, which the caller handles.
    */
   protected async writeRecord(run: ExecutionRun): Promise<void> {
-    this.#publish(run);
+    await this.#land(run);
+  }
+
+  /** Write `run` in its turn, then publish it; rejects, publishing nothing, when it is not kept. */
+  async #land(run: ExecutionRun): Promise<void> {
     await this.#put(run);
+    this.#publish(run);
   }
 
   /**
    * Write `run` in its turn. One the store refuses for a revision as high
    * is landed already when this process has changed the run since (a
    * later write carries it) or what is stored says the same (a Run's
-   * commit wrote it, `follows`); a run this process owns is written again
-   * above what is stored, since only its owner changes it. Rejects
-   * otherwise.
+   * commit wrote it, `follows`). Otherwise another write took the run:
+   * this process holds what is stored from now on, and this rejects with
+   * a `StaleWriteError` carrying it. Nothing is ever written over a
+   * revision this process did not make.
    */
   async #put(run: ExecutionRun): Promise<void> {
     await this.#persist(async () => {
@@ -640,17 +690,23 @@ export class ExecutionRecords {
       if (stored && sameRecord(stored, run)) {
         return;
       }
-      if (!(stored && ownedHere(run))) {
-        throw new Error(
-          `a later revision of execution ${run.id} is stored already`
-        );
+      if (stored) {
+        this.#learn(stored);
       }
-      const above = { ...run, revision: stored.revision + 1 };
-      if (!(await this.#store.put(above))) {
-        throw new Error(`execution ${run.id} changed while it was written`);
-      }
-      this.#publish(above);
+      throw new StaleWriteError(run.id, stored);
     });
+  }
+
+  /**
+   * Hold `stored`, what the store holds of a run, unless this process
+   * holds a later revision: at the same revision the store's is the one
+   * that landed.
+   */
+  #learn(stored: ExecutionRun): void {
+    const local = this.#records.get(stored.id);
+    if (!local || stored.revision >= local.revision) {
+      this.#publish(stored);
+    }
   }
 
   /** `write`, once every write made before it has landed or failed. */
@@ -672,19 +728,96 @@ export class ExecutionRecords {
   }
 
   /**
-   * Record how a run ended: at once here, and on disk in its turn, which
-   * the returned promise waits for.
+   * Record how a run ended, on disk in its turn, and only then here:
+   * resolves once it is stored. One the store holds settled already, by
+   * whatever settled it, resolves too, and this process holds what is
+   * stored. When the write fails this rejects, the run is not settled
+   * here, and the settlement is kept to try again: at the next settle
+   * this process makes, and at `retrySettlements`.
    */
-  settle(
+  async settle(
+    id: string,
+    status: Ending,
+    error?: { readonly code: string; readonly message?: string }
+  ): Promise<void> {
+    this.#unsettled.delete(id);
+    this.#retryUnsettled();
+    await this.#settleNow(id, status, error);
+  }
+
+  /** `settle`, without trying the others again. */
+  async #settleNow(
     id: string,
     status: Ending,
     error?: { readonly code: string; readonly message?: string }
   ): Promise<void> {
     const run = this.#records.get(id);
     if (!run || SETTLED_EXECUTION_STATUSES.has(run.status)) {
-      return Promise.resolve();
+      return;
     }
-    return this.#commit(settledAs(run, status, error)).then(() => undefined);
+    try {
+      await this.#land(settledAs(run, status, error));
+    } catch (failure) {
+      if (
+        failure instanceof StaleWriteError &&
+        failure.stored &&
+        SETTLED_EXECUTION_STATUSES.has(failure.stored.status)
+      ) {
+        return;
+      }
+      if (!(failure instanceof StaleWriteError)) {
+        this.#unsettled.set(id, { error, status });
+      }
+      throw failure;
+    }
+  }
+
+  /**
+   * Try again every settlement whose write failed: rejects with every
+   * failure when any still cannot be written, keeping those to try again.
+   */
+  async retrySettlements(): Promise<void> {
+    const failures: unknown[] = [];
+    for (const [id, { error, status }] of [...this.#unsettled]) {
+      this.#unsettled.delete(id);
+      try {
+        await this.#settleNow(id, status, error);
+      } catch (failure) {
+        failures.push(failure);
+      }
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        `${String(failures.length)} settlement(s) could not be recorded`
+      );
+    }
+  }
+
+  /** `retrySettlements`, at a settle's opportunity: what still fails stays kept, quietly. */
+  #retryUnsettled(): void {
+    for (const [id, { error, status }] of [...this.#unsettled]) {
+      this.#unsettled.delete(id);
+      this.#settleNow(id, status, error).catch(() => undefined);
+    }
+  }
+}
+
+/**
+ * A write the store refused because another write took the run first:
+ * `stored` is what it holds now, which this process holds from then on.
+ */
+export class StaleWriteError extends Error {
+  override readonly name = "StaleWriteError";
+  readonly stored: ExecutionRun | undefined;
+
+  constructor(id: string, stored: ExecutionRun | undefined) {
+    super(
+      stored === undefined
+        ? `execution ${id} is no longer stored`
+        : `execution ${id} was changed by another write (revision ${String(stored.revision)}, ${stored.status})`
+    );
+    this.stored = stored;
   }
 }
 
@@ -705,14 +838,15 @@ function gapsOf(gaps: readonly RetentionGap[]): Map<string, RetentionGap> {
 }
 
 /**
- * In one transaction: each cleaned run that is still kept counted in its
- * scope's gap, then removed, the gap written first. Another process that
- * pruned a run meanwhile already counted it.
+ * In one transaction: each cleaned run still stored settled counted in
+ * its scope's gap, as it is stored, then removed, the gap written first.
+ * Another process that pruned a run meanwhile already counted it.
  */
 async function removing(
   view: ExecutionView,
   runs: readonly ExecutionRun[],
-  scopeOf: (run: ExecutionRun) => string
+  scopeOf: (run: ExecutionRun) => string,
+  parse: (stored: StoredExecution | undefined) => ExecutionRun | undefined
 ): Promise<{
   readonly gaps: Map<string, RetentionGap>;
   readonly removed: readonly ExecutionRun[];
@@ -721,8 +855,9 @@ async function removing(
   const at = now();
   const removed: ExecutionRun[] = [];
   const changed = new Set<string>();
-  for (const run of runs) {
-    if ((await view.get(run.id)) === undefined) {
+  for (const cleaned of runs) {
+    const run = parse(await view.get(cleaned.id));
+    if (!(run && SETTLED_EXECUTION_STATUSES.has(run.status))) {
       continue;
     }
     const scope = scopeOf(run);

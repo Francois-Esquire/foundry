@@ -1,4 +1,3 @@
-import { processAlive } from "@foundry/lib/file-lock";
 import {
   type ExecutionRun,
   type ExecutionRuns,
@@ -63,6 +62,10 @@ function validConcurrency(queue: string, concurrency: number): number {
 export class Executions extends ExecutionRecords implements ExecutionRuns {
   readonly #lanes = new Map<string, Lane>();
   readonly #idle = new Set<() => void>();
+  /** Runs whose cancellation is being written, which no queue admits meanwhile. */
+  readonly #withdrawing = new Set<string>();
+  /** Runs handed to their queue while they were being withdrawn, by id. */
+  readonly #heldBack = new Map<string, Waiting>();
   constructor(
     options: ExecutionRecordsOptions & {
       readonly queues?: Readonly<Record<string, QueueSettings>>;
@@ -105,6 +108,12 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     const run = this.requireRecord(id);
     const lane = this.#lane(run.queue);
     const waiting: Waiting = { fail, id, start };
+    if (this.#withdrawing.has(id)) {
+      // Its cancellation is being written: it joins its queue only if that
+      // is refused or fails.
+      this.#heldBack.set(id, waiting);
+      return;
+    }
     lane.waiting.push(waiting);
     this.#pump(lane);
     return waiting.started;
@@ -149,27 +158,47 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
   }
 
   /**
-   * Take a queued run off its queue and record it cancelled; `false` when it
-   * is not waiting here or in a process that has exited. A run this process
-   * recorded queued but has not yet handed to its queue, which a subscriber
-   * told of it can cancel from that very update, is withdrawn too: nothing
-   * of it has run.
+   * Take a queued run off its queue and record it cancelled; resolves
+   * `false` when it is not queued here or in a process that has exited. The
+   * decision is made on the stored record, in the transaction that cancels
+   * it, never on what this process last saw: a run another process has
+   * since taken over or started is left to it. A run this process recorded
+   * queued but has not yet handed to its queue, which a subscriber told of
+   * it can cancel from that very update, is withdrawn too: nothing of it
+   * has run. It comes off its queue at once, so nothing admits it while
+   * the cancellation is written, and goes back to its place when that is
+   * refused or fails. Resolves once the cancellation is stored; rejects
+   * when it cannot be, cancelling nothing.
    */
-  withdraw(id: string): boolean {
+  async withdraw(id: string): Promise<boolean> {
     const run = this.get(id);
     if (run?.status !== "queued") {
       return false;
     }
     const lane = this.#lanes.get(run.queue);
     const index = lane?.waiting.findIndex((item) => item.id === id) ?? -1;
-    if (lane && index >= 0) {
-      lane.waiting.splice(index, 1);
-    } else if (run.owner.pid !== process.pid && processAlive(run.owner.pid)) {
-      // Queued in another live process: that process cancels it.
-      return false;
+    const [waiting] = lane && index >= 0 ? lane.waiting.splice(index, 1) : [];
+    this.#withdrawing.add(id);
+    let cancelled = false;
+    try {
+      cancelled = await this.cancelQueued(id);
+    } finally {
+      this.#withdrawing.delete(id);
+      const admitted = this.#heldBack.get(id);
+      this.#heldBack.delete(id);
+      if (!cancelled) {
+        const back = this.#lane(run.queue);
+        if (waiting) {
+          back.waiting.splice(Math.min(index, back.waiting.length), 0, waiting);
+        }
+        if (admitted) {
+          back.waiting.push(admitted);
+        }
+        this.#pump(back);
+      }
+      this.#checkIdle();
     }
-    this.settle(id, "cancelled");
-    return true;
+    return cancelled;
   }
 
   /** Runs waiting in this process's queues, in admission order. */
@@ -227,7 +256,11 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
         timestamps: { ...run.timestamps, startedAt: at, updatedAt: at },
       });
     } catch (error) {
-      await this.settle(id, "failed", { code: "not_recorded" });
+      // Settled failed if it can be; a settle that cannot be written is
+      // kept to try again, and the run does not start either way.
+      await this.settle(id, "failed", { code: "not_recorded" }).catch(
+        () => undefined
+      );
       fail(error);
       throw error;
     }
@@ -256,8 +289,9 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
   }
   /**
    * Record how a run ended and free its slot; a run already settled frees
-   * its slot too, whatever settled it. Resolves once the record is on disk
-   * in its turn.
+   * its slot too, whatever settled it. Resolves once the record is on disk;
+   * rejects when it cannot be written, the slot freed all the same, since
+   * the run's work has ended (`ExecutionRecords.settle`).
    */
   override settle(
     id: string,

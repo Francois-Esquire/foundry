@@ -131,6 +131,22 @@ type Live =
 type Ending = "cancelled" | "failed" | undefined;
 
 /**
+ * A run whose work ended but whose settlement could not be recorded: its
+ * caller is paid this, `cause` the write's failure, rather than an outcome
+ * the store does not hold.
+ */
+export class RunNotRecordedError extends Error {
+  override readonly name = "RunNotRecordedError";
+
+  constructor(id: string, cause: unknown) {
+    super(
+      `run ${id} ended, but how it ended could not be recorded: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause }
+    );
+  }
+}
+
+/**
  * A run its queue has let in or is about to, until it settles: its abort
  * controller exists before any lifecycle update is published, so a cancel
  * a subscriber sends from that update reaches it before its body starts.
@@ -151,6 +167,8 @@ export class Launcher {
   readonly #owed = new Map<string, Owed>();
   readonly #live = new Map<string, Live>();
   readonly #admitted = new Map<string, Admission>();
+  /** Cancellations of waiting runs a stop began, which it waits for. */
+  readonly #withdrawing: Promise<void>[] = [];
   /**
    * Set when a stop begins and kept: the engine never starts again. A task
    * that gives up its slot from then on is stopped at once, and one that
@@ -270,7 +288,8 @@ export class Launcher {
    * already settled is left as it is.
    */
   async cancel(id: string): Promise<void> {
-    if (this.executions.withdraw(id)) {
+    // Paid once the cancellation is stored, never before.
+    if (await this.executions.withdraw(id)) {
       this.#pay(id, new Error(`run ${id} was cancelled before it started`));
       return;
     }
@@ -310,14 +329,28 @@ export class Launcher {
 
   /**
    * Withdraw queued work and abort live dispatches and tasks before
-   * shutdown awaits anything; from now on, a task that starts here is
-   * aborted before its body runs.
+   * shutdown awaits anything: each waiting run comes off its queue at once,
+   * and its caller is paid its cancellation once that is stored (a stop
+   * waits for it, in `halt`); one whose cancellation cannot be stored is
+   * paid that failure. From now on, a task that starts here is aborted
+   * before its body runs.
    */
   cancelPending(): void {
     this.#halting = "cancel";
     for (const id of this.executions.waiting()) {
-      this.executions.withdraw(id);
-      this.#pay(id, new Error(`run ${id} was cancelled before it started`));
+      this.#withdrawing.push(
+        this.executions.withdraw(id).then(
+          (cancelled) => {
+            if (cancelled) {
+              this.#pay(
+                id,
+                new Error(`run ${id} was cancelled before it started`)
+              );
+            }
+          },
+          (error: unknown) => this.#pay(id, error)
+        )
+      );
     }
     for (const [id, live] of this.#live) {
       live.controller?.abort(new Error(`run ${id} stopped with the engine`));
@@ -341,6 +374,7 @@ export class Launcher {
       this.#halting ??= "stop";
     }
     this.#abortHalted();
+    await Promise.all(this.#withdrawing.splice(0));
     await Promise.all(
       [...this.#live.values()].map((live) =>
         live.kind === "workflow" ? live.dispatched : undefined
@@ -457,12 +491,9 @@ export class Launcher {
       const error = new Error(
         `run ${id}: no task is registered as ${run.name}`
       );
-      return this.executions
-        .settle(id, "failed", this.#failure(id, error))
-        .then(() => {
-          this.#pay(id, error);
-          throw error;
-        });
+      return this.#end(id, "failed", { error }).then(() => {
+        throw error;
+      });
     }
     this.#run(task, run, input, controller);
     return Promise.resolve();
@@ -496,16 +527,12 @@ export class Launcher {
     } catch (error) {
       this.#live.delete(run.id);
       if (controller.signal.aborted) {
-        await this.executions.settle(run.id, "cancelled");
-        this.#pay(run.id, new Error(`run ${run.id} was cancelled`));
+        await this.#end(run.id, "cancelled", {
+          error: new Error(`run ${run.id} was cancelled`),
+        });
         return;
       }
-      await this.executions.settle(
-        run.id,
-        "failed",
-        this.#failure(run.id, error)
-      );
-      this.#pay(run.id, error);
+      await this.#end(run.id, "failed", { error });
       throw error;
     } finally {
       outcome.resolve(dispatched);
@@ -606,24 +633,44 @@ export class Launcher {
     result: Promise<unknown>,
     endedAs: (error: unknown) => Ending
   ): Promise<void> {
-    // The caller is paid once the record is on disk.
     return result.then(
       async (value) => {
         this.#live.delete(id);
-        await this.executions.settle(id, "complete");
-        this.#pay(id, undefined, value);
+        await this.#end(id, "complete", { value });
       },
       async (error: unknown) => {
         this.#live.delete(id);
-        const ending = endedAs(error);
-        if (ending === "cancelled") {
-          await this.executions.settle(id, "cancelled");
-        } else if (ending === "failed") {
-          await this.executions.settle(id, "failed", this.#failure(id, error));
-        }
-        this.#pay(id, error);
+        await this.#end(id, endedAs(error), { error });
       }
     );
+  }
+
+  /**
+   * Record how a run ended, then pay its caller what it ended with, once
+   * the settlement is stored: a run is never acknowledged as ended before
+   * its record says so. One whose settlement cannot be stored pays its
+   * caller a `RunNotRecordedError` instead, and the settlement is kept to
+   * try again (`ExecutionRecords.settle`). With no `ending` (a run left
+   * parked) nothing is recorded, and the caller is paid at once.
+   */
+  async #end(
+    id: string,
+    ending: "complete" | Ending,
+    outcome: { readonly error?: unknown; readonly value?: unknown }
+  ): Promise<void> {
+    if (ending !== undefined) {
+      try {
+        await this.executions.settle(
+          id,
+          ending,
+          ending === "failed" ? this.#failure(id, outcome.error) : undefined
+        );
+      } catch (failure) {
+        this.#pay(id, new RunNotRecordedError(id, failure));
+        return;
+      }
+    }
+    this.#pay(id, outcome.error, outcome.value);
   }
 
   /** What a failed run records: its safe code, and its message unless its launch said not to. */

@@ -775,28 +775,6 @@ it("parks a workflow's Execution Run with its Run, in one write, and warns of no
   opened.close();
 });
 
-it("writes a run this process owns again above a revision another write took", async () => {
-  const store = new MemoryExecutionStore();
-  const lines: string[] = [];
-  const executions = new Executions({
-    store,
-    warn: (line) => lines.push(line),
-  });
-  const { run } = await executions.enqueue({
-    kind: "task",
-    name: "save",
-    queue: "q",
-  });
-  // Another write took the next revision, saying something else.
-  await store.put({ ...run, progress: { elsewhere: true }, revision: 2 });
-  executions.progress(run.id, { here: true });
-  await executions.flush();
-  const stored = await storedOf(store, run.id);
-  expect(stored).toMatchObject({ progress: { here: true }, revision: 3 });
-  expect(executions.get(run.id)?.revision).toBe(3);
-  expect(lines).toEqual([]);
-});
-
 async function storedOf(
   store: ExecutionStore,
   id: string
