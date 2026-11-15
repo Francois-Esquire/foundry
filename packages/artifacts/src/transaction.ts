@@ -83,11 +83,12 @@ export interface LocatedFile {
 }
 
 /**
- * Every operation that writes. Each is all or nothing within its change:
- * one refused after it wrote part of the change marks the change failed
- * (`ArtifactChange.fail`), so it cannot commit, whatever the caller of the
- * operation catches. One refused before it wrote anything leaves the change
- * as it was, and the caller may go on.
+ * Every operation that writes. Each runs as one `ArtifactChange.operation`,
+ * all or nothing within its change: one refused after it wrote part of the
+ * change marks the change failed, so it cannot commit, whatever the caller
+ * of the operation catches. One refused before it wrote anything leaves the
+ * change as it was, and the caller may go on, whatever other operations on
+ * the change wrote meanwhile: each counts only its own writes.
  */
 const WRITING_OPERATIONS = [
   "archive",
@@ -121,17 +122,10 @@ export class ArtifactTransaction implements ArtifactOperations {
       }
       Object.defineProperty(ArtifactTransaction.prototype, name, {
         configurable: true,
-        async value(this: ArtifactTransaction, ...args: unknown[]) {
-          const change = this.#change;
-          const before = change.writes;
-          try {
-            return await Reflect.apply(operation, this, args);
-          } catch (error) {
-            if (change.writes !== before) {
-              change.fail(error);
-            }
-            throw error;
-          }
+        value(this: ArtifactTransaction, ...args: unknown[]) {
+          return this.#change.operation(() =>
+            Reflect.apply(operation, this, args)
+          );
         },
         writable: true,
       });
@@ -374,7 +368,7 @@ export class ArtifactTransaction implements ArtifactOperations {
   async write(input: WriteInput): Promise<ContentResolved> {
     const artifact = await this.checkWrite(input);
     const active = artifact.content;
-    const { writes } = this.#change;
+    const writes = this.#change.operationWrites();
     const tree = await this.#applyChanges(
       active?.tree ?? {},
       input.changes,
@@ -383,7 +377,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     const metadata = mergeMetadata(active?.metadata ?? {}, input.metadata);
     if (
       active &&
-      this.#change.writes === writes &&
+      this.#change.operationWrites() === writes &&
       sameJson(active.tree, tree) &&
       sameJson(active.metadata, metadata)
     ) {

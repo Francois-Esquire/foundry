@@ -1089,9 +1089,10 @@ export class Queue {
               run.step,
               {
                 ...startSnap,
-                // A Run started before (resumed from a Suspension, or
-                // recovered) keeps the time it first started, as its
-                // workflow's own state does.
+                // A Run resumed from a Suspension keeps the time it first
+                // started, as its workflow's own state does. A Run
+                // recovered after a crash is rebuilt without that state,
+                // so it is stamped again here.
                 startedAt: startSnap.startedAt ?? new Date().toISOString(),
                 status: "running",
               },

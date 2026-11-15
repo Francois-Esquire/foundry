@@ -1036,6 +1036,22 @@ function removedEvent(runId: string): RunEvent {
   };
 }
 
+/**
+ * Arrays a copy of their entries would read less of: one with a hidden
+ * function, one with a symbol-keyed bigint, one of a subclass of Array.
+ */
+function unplainArrays(): unknown[][] {
+  const hidden: unknown[] = ["tags"];
+  Object.defineProperty(hidden, "hidden", { value: () => undefined });
+  const symbolic: unknown[] = ["tags"];
+  Object.defineProperty(symbolic, Symbol("extra"), {
+    enumerable: true,
+    value: 1n,
+  });
+  class Entries extends Array<unknown> {}
+  return [hidden, symbolic, Entries.from(["tags"])];
+}
+
 /** An array with a hole at index 0, which JSON reads back as `null`. */
 function holed(): number[] {
   const values: number[] = [];
@@ -1065,6 +1081,10 @@ function unplainEvents(): [string, unknown][] {
     ["events[0].extra[0] is a hole in an array", { ...base, extra: holed() }],
     ["events[0].extra must be a plain object", { ...base, extra: new Map() }],
     ["events[0] must be a plain object", { ...base, [Symbol("extra")]: 1 }],
+    ...unplainArrays().map((array): [string, unknown] => [
+      "events[0].extra must be a plain array holding only its entries",
+      { ...base, extra: array },
+    ]),
   ];
 }
 

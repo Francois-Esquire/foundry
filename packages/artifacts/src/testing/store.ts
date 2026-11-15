@@ -37,6 +37,22 @@ function artifact(fields: Partial<Artifact> = {}): Artifact {
 }
 
 /** `input` as an event, at a fixed time. */
+/**
+ * Arrays a copy of their entries would read less of: one with a hidden
+ * function, one with a symbol-keyed bigint, one of a subclass of Array.
+ */
+function unplainArrays(): unknown[][] {
+  const hidden: unknown[] = ["a"];
+  Object.defineProperty(hidden, "hidden", { value: () => undefined });
+  const symbolic: unknown[] = ["a"];
+  Object.defineProperty(symbolic, Symbol("extra"), {
+    enumerable: true,
+    value: 1n,
+  });
+  class Entries extends Array<unknown> {}
+  return [hidden, symbolic, Entries.from(["a"])];
+}
+
 /** An array with a hole at index 0, which JSON reads back as `null`. */
 function holed(): number[] {
   const values: number[] = [];
@@ -64,6 +80,7 @@ function unplainEvents(): readonly unknown[] {
     { ...base, extra: holed() },
     { ...base, extra: new Map() },
     { ...base, [Symbol("extra")]: 1 },
+    ...unplainArrays().map((array) => ({ ...base, extra: array })),
     Object.defineProperty({ ...base }, "hidden", {
       enumerable: false,
       value: 1,

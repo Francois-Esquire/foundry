@@ -729,8 +729,10 @@ Events follow the statuses written. The `Queue` stores a Run it starts as
 reads `queued` until its status mirror catches up, and that lag is not
 written back as the Run returning to its queue. A Run recovered while
 running goes on running, with no `run.resumed`. A Run started again after a
-Suspension keeps the `startedAt` of its first start. A handler should not assume
-one event precedes another beyond the order they arrive in.
+Suspension keeps the `startedAt` of its first start; one recovered after a
+crash is stamped with a new `startedAt` (`run.updated` naming `timestamps`).
+A handler should not assume one event precedes another beyond the order they
+arrive in.
 
 ### Exclusion and host requirements
 

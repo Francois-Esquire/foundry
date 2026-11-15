@@ -3,7 +3,12 @@ import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, test } from "vitest";
 
 import { ArtifactExistsError, TransactionRolledBackError } from "../errors";
-import type { ArtifactEvent } from "../index";
+import type {
+  ArtifactEvent,
+  ArtifactId,
+  ArtifactOperations,
+  ContentId,
+} from "../index";
 import { ArtifactManager } from "../manager";
 import { artifactEventSchema } from "../schema";
 import type { ArtifactDatabaseTransaction } from "../store/sqlite";
@@ -452,6 +457,80 @@ describe("ArtifactManager change events", () => {
     expect((await rows()).map((item) => item.type)).toStrictEqual([
       "artifact.created",
     ]);
+  });
+
+  test.each<
+    [
+      string,
+      (artifacts: ArtifactOperations, id: ArtifactId) => Promise<unknown>,
+    ]
+  >([
+    [
+      "a write to frozen Content",
+      (artifacts, id) => artifacts.write({ artifactId: id, changes: {} }),
+    ],
+    [
+      "a rename of a missing Artifact",
+      (artifacts) => artifacts.rename("missing" as ArtifactId, "C"),
+    ],
+    [
+      "a tag of missing Content",
+      (artifacts) => artifacts.tag("missing" as ContentId, "v1"),
+    ],
+  ])(
+    "%s, refused before it wrote anything, rolls back nothing that ran beside it",
+    async (_label, refused) => {
+      const { manager, rows } = await hosted();
+      const created = await manager.create({
+        ...TEXT,
+        entries: { "a.txt": { bytes: "a" } },
+        freeze: {},
+      });
+      let settled: PromiseSettledResult<unknown>[] = [];
+
+      await manager.transaction(async (artifacts) => {
+        settled = await Promise.allSettled([
+          artifacts.rename(created.id, "B"),
+          refused(artifacts, created.id),
+        ]);
+      });
+
+      expect(settled.map((outcome) => outcome.status)).toStrictEqual([
+        "fulfilled",
+        "rejected",
+      ]);
+      expect((await manager.get(created.id))?.name).toBe("B");
+      expect((await rows()).at(-1)).toMatchObject({
+        name: "B",
+        type: "artifact.renamed",
+      });
+    }
+  );
+
+  test("an operation refused after it wrote part of the change rolls back the transaction, though others beside it succeed", async () => {
+    const { manager, rows } = await hosted();
+    const { id } = await manager.create(TEXT);
+    const before = (await rows()).length;
+
+    await expect(
+      manager.transaction(async (artifacts) => {
+        await Promise.allSettled([
+          artifacts.rename(id, "B"),
+          artifacts.create({
+            ...TEXT,
+            entries: { "a.txt": { bytes: "a" } },
+            id: "partial" as ArtifactEvent["artifactId"],
+            metadata: { entry: "missing.txt" },
+          }),
+        ]);
+      })
+    ).rejects.toThrow(TransactionRolledBackError);
+
+    expect((await manager.get(id))?.name).toBe("A");
+    expect(await manager.get("partial" as ArtifactEvent["artifactId"])).toBe(
+      null
+    );
+    expect(await rows()).toHaveLength(before);
   });
 
   test("an operation refused before it wrote anything leaves the transaction to commit", async () => {

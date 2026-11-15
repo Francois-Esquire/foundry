@@ -71,15 +71,17 @@ export function capturedWrite(write: WorkflowStoreWrite): WorkflowStoreWrite {
     if (!Array.isArray(value)) {
       throw new TypeError(`${property} must be an array`);
     }
+    if (property === "events") {
+      // An event reaches a host as JSON, so the list is taken as JSON now.
+      captured[property] = plainJson("events", value, new Set());
+      continue;
+    }
     const items: unknown[] = [];
     for (let index = 0; index < value.length; index += 1) {
       // Each entry is read once; the capture holds what that read gave.
       const item: unknown = value[index];
       items.push(item);
-      if (property === "events") {
-        // An event reaches a host as JSON, so it is taken as JSON now.
-        items[index] = plainJson(`events[${index}]`, item, new Set());
-      } else if (DELETES.has(property)) {
+      if (DELETES.has(property)) {
         if (typeof item !== "string") {
           throw new TypeError(`${property}[${index}] must be text`);
         }
@@ -167,12 +169,7 @@ function plainJson(
   ancestors.add(value);
   try {
     if (Array.isArray(value)) {
-      return Array.from({ length: value.length }, (_, index) => {
-        if (!Object.hasOwn(value, index)) {
-          throw new TypeError(`${at}[${index}] is a hole in an array`);
-        }
-        return plainJson(`${at}[${index}]`, value[index], ancestors);
-      });
+      return plainArray(at, value, ancestors);
     }
     if (!isPlainData(value)) {
       throw new TypeError(
@@ -204,4 +201,34 @@ function isPlainData(value: unknown): boolean {
     Object.getOwnPropertyNames(value).length === Object.keys(value).length &&
     Object.getOwnPropertySymbols(value).length === 0
   );
+}
+
+/**
+ * An owned copy of a plain array: made by `[]` or `Array` (no subclass), its
+ * own properties its entries and `length` alone, every entry present. Any
+ * other property, symbol-keyed or not, has no JSON form and refuses it.
+ */
+function plainArray(
+  at: string,
+  value: readonly unknown[],
+  ancestors: Set<object>
+): unknown[] {
+  if (
+    Object.getPrototypeOf(value) !== Array.prototype ||
+    Object.getOwnPropertySymbols(value).length > 0
+  ) {
+    throw new TypeError(`${at} must be a plain array holding only its entries`);
+  }
+  const copy = Array.from({ length: value.length }, (_, index) => {
+    if (!Object.hasOwn(value, index)) {
+      throw new TypeError(`${at}[${index}] is a hole in an array`);
+    }
+    return plainJson(`${at}[${index}]`, value[index], ancestors);
+  });
+  // Every entry is present, so any own property past them and `length` is
+  // one a copy of the entries would drop.
+  if (Object.getOwnPropertyNames(value).length !== copy.length + 1) {
+    throw new TypeError(`${at} must be a plain array holding only its entries`);
+  }
+  return copy;
 }
