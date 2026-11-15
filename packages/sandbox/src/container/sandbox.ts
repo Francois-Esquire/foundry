@@ -84,7 +84,11 @@ export async function startContainerSandbox<TNative>(
     try {
       await instance.remove();
     } catch (cleanup: unknown) {
-      options.onLeftBehind?.(cleanup);
+      try {
+        options.onLeftBehind?.(cleanup);
+      } catch {
+        // A callback that throws does not replace the setup's error.
+      }
     }
     throw error;
   }
@@ -94,7 +98,8 @@ export interface StartContainerSandboxOptions {
   /**
    * Called when the VM was created, its setup failed, and removing it failed
    * too, with the removal's error. The VM may still be there under the spec's
-   * name; the start still rejects with the setup's error.
+   * name; the start still rejects with the setup's error, even if this
+   * callback throws.
    */
   readonly onLeftBehind?: (error: unknown) => void;
 }
