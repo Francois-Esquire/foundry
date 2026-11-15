@@ -1,6 +1,6 @@
 import type { Page } from "@foundry/core/pagination";
 import type { Config } from "@foundry/lib/config";
-import { Effect, Exit, Option, Schema, Scope } from "effect";
+import { Effect, Exit, Scope } from "effect";
 import { contributeQueueConfig } from "./config";
 import type { DispatchedWorkflow } from "./dispatched-workflow";
 import {
@@ -15,6 +15,7 @@ import { ExecutionParticipants } from "./execution-participants";
 import { runEffectPromise } from "./helpers";
 import type { CreateJobOptions } from "./job-lifecycle";
 import { JobLifecycle } from "./job-lifecycle";
+import { isJsonValue } from "./json-value";
 import type { OrchestratorLogger } from "./logger";
 import { BaseOrchestratorLogger } from "./logger";
 import type { ExecutionPersistence } from "./persistence";
@@ -25,10 +26,11 @@ import type {
   QueueEvent,
   QueueEventPayload,
 } from "./queue-types";
+import { recordOf } from "./record-fields";
 import type { ObserveRunOptions, RunObservation } from "./run-observation";
 import { RunObservationJournal } from "./run-observation";
+import { StepSnapshotSchema } from "./schema";
 import type { StepSnapshot } from "./snapshot";
-import { StepSnapshotSchema } from "./snapshot";
 import type { Step } from "./step";
 import type {
   DefinitionReference,
@@ -47,11 +49,7 @@ import type {
   SuspensionQuery,
   SuspensionRecord,
 } from "./store";
-import {
-  createExtensions,
-  InMemoryOrchestratorStore,
-  JsonValueSchema,
-} from "./store";
+import { createExtensions, InMemoryOrchestratorStore } from "./store";
 import type { ResolveSuspensionOptions } from "./suspension-lifecycle";
 import { SuspensionLifecycle } from "./suspension-lifecycle";
 import type { TelemetryLogEntry } from "./telemetry";
@@ -150,9 +148,7 @@ function factoryToEffect<I, O, X extends BaseContext = BaseContext>(
  * any structural mismatch (or absent blob) so the caller falls back to
  * running the workflow from the top.
  */
-const decodeSeedSteps = Schema.decodeUnknownOption(
-  Schema.Record({ key: Schema.String, value: StepSnapshotSchema })
-);
+const SeedStepsSchema = recordOf(StepSnapshotSchema);
 
 // ── Registry: name → factory ──
 // Name is the persistence anchor. `runs.step` stores it; cold restart
@@ -1188,7 +1184,8 @@ export class Orchestrator {
       return null;
     }
     const { steps } = wf as { steps?: unknown };
-    return Option.getOrNull(decodeSeedSteps(steps));
+    const decoded = SeedStepsSchema.safeParse(steps);
+    return decoded.success ? decoded.data : null;
   }
 }
 
@@ -1198,7 +1195,7 @@ export type { ObserveRunOptions, RunObservation } from "./run-observation";
 export type { ResolveSuspensionOptions } from "./suspension-lifecycle";
 
 function logEntryToJsonValue(entry: TelemetryLogEntry): JsonValue {
-  if (Schema.is(JsonValueSchema)(entry)) {
+  if (isJsonValue(entry)) {
     return entry;
   }
   return {
