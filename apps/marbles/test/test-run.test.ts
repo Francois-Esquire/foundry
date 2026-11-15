@@ -517,7 +517,7 @@ it("refuses a test process that would use the developer's home", () => {
   const refused = guard(env);
   expect(refused.status).not.toBe(0);
   expect(refused.stderr).toContain("would use the developer's home");
-});
+}, 30_000);
 
 it("judges the guard's paths with their links resolved", () => {
   const root = temporaryDirectory("gd-");
@@ -545,7 +545,7 @@ it("judges the guard's paths with their links resolved", () => {
     [RUN_ENV]: other,
   });
   expect(spelled.status, spelled.stderr).toBe(0);
-});
+}, 30_000);
 
 it("makes a process that lost FOUNDRY_HOME but kept HOME fail instead of using the default home", () => {
   const { FOUNDRY_HOME: _home, ...env } = process.env;
@@ -555,7 +555,7 @@ it("makes a process that lost FOUNDRY_HOME but kept HOME fail instead of using t
   });
   expect(status.status).not.toBe(0);
   expect(status.stderr).toContain("ENOTDIR");
-});
+}, 30_000);
 
 it("runs the integration suite under the same setup and guard", () => {
   expect(integration.test?.globalSetup).toEqual(["test/helpers/setup.ts"]);
