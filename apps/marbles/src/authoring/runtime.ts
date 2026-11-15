@@ -61,8 +61,15 @@ const loads = new Map<
   number,
   { readonly catalog: Catalog; readonly workspaceId: string }
 >();
-/** The load whose library word is running; set only around such a call. */
-const loadScope = new AsyncLocalStorage<number>();
+/**
+ * Whom work done later on another's behalf answers to: a load, while its
+ * library's words run, or the workspace of the run or observer that made
+ * a builder or an instance. Only this identity is kept, never the stores
+ * of the run it came from.
+ */
+type Route = { readonly load: number } | { readonly workspaceId: string };
+
+const routeScope = new AsyncLocalStorage<Route>();
 /**
  * Whether work that names no workspace is refused outright, rather than
  * answered by the only workspace hosted here: set by a host of several
@@ -108,7 +115,7 @@ let createFallback: () => Promise<InstanceRuntime> = async () => {
  */
 /** Run `work` as load `load`'s, as its library's words do. */
 export function inLoad<T>(load: number, work: () => T): T {
-  return loadScope.run(load, work);
+  return routeScope.run({ load }, work);
 }
 
 /** Work run later in the scope captured: it names the same run, observer or load. */
@@ -116,8 +123,14 @@ export type Scope = <T>(work: () => T) => T;
 
 /** The scope the calling work runs in, kept for work done later on its behalf. */
 export function captureScope(): Scope {
-  const snapshot = AsyncLocalStorage.snapshot();
-  return (work) => snapshot(work);
+  const context = activeContext();
+  const route: Route | undefined =
+    context === undefined
+      ? routeScope.getStore()
+      : { workspaceId: context.workspaceId };
+  return route === undefined
+    ? (work) => work()
+    : (work) => routeScope.run(route, work);
 }
 
 /**
@@ -231,8 +244,13 @@ function namedWorkspace(): string | undefined {
   if (named !== undefined) {
     return named;
   }
-  const load = loadScope.getStore();
-  return load === undefined ? undefined : loads.get(load)?.workspaceId;
+  const route = routeScope.getStore();
+  if (route === undefined) {
+    return;
+  }
+  return "workspaceId" in route
+    ? route.workspaceId
+    : loads.get(route.load)?.workspaceId;
 }
 
 /** Work that names no workspace, where that is refused. */
@@ -283,25 +301,30 @@ function hostingNow(): Hosting | undefined {
  * workspace while one's source is loading.
  */
 export function declaringCatalog(): Catalog {
-  const context = activeContext();
-  if (context !== undefined) {
-    const hosting = liveHosting(context.workspaceId);
+  const route = routeScope.getStore();
+  const workspaceId =
+    activeContext()?.workspaceId ??
+    (route !== undefined && "workspaceId" in route
+      ? route.workspaceId
+      : undefined);
+  if (workspaceId !== undefined) {
+    const hosting = liveHosting(workspaceId);
     if (hosting !== undefined) {
       return hosting.catalog;
     }
-    if (released.has(context.workspaceId)) {
-      throw releasedError(context.workspaceId);
+    if (released.has(workspaceId)) {
+      throw releasedError(workspaceId);
     }
     return catalog;
   }
-  const load = loadScope.getStore();
-  const owner = load === undefined ? undefined : loads.get(load);
+  const owner =
+    route !== undefined && "load" in route ? loads.get(route.load) : undefined;
   if (owner !== undefined) {
     return owner.catalog;
   }
   if (importing > 0) {
     throw new AmbiguousWorkspaceError(
-      "this declaration comes from a package, which one process shares between every workspace it hosts, while a workspace's source loads, so it belongs to none of them; declare it in a module the workspace imports by path, or export a function from the package and call it there"
+      "this declaration comes from a package, which one process shares between every workspace it hosts, while a workspace's source loads, so it belongs to none of them. A package's module has no workspace of its own: export a function that takes the words it uses and call it from the workspace's source with that source's own, as in `export const make = ({ step }) => step(\"helper\").do(…)` and `make({ step })`"
     );
   }
   if (unnamedRefused) {

@@ -2,14 +2,9 @@ import { readFileSync, realpathSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { JavaScriptLoader, PluginBuilder } from "bun";
-import { resolveSync } from "bun";
-import { parseSync } from "oxc-parser";
-import {
-  copyPath,
-  loadOfPath,
-  newLoad,
-  sourcePath,
-} from "~/authoring/load-tag";
+import { JSONC, resolveSync, TOML, YAML } from "bun";
+import type { parseSync } from "oxc-parser";
+import { copyOf, copyPath, newLoad, sourcePath } from "~/authoring/load-tag";
 
 /**
  * Each load of a workspace's source imports its own copy of every module
@@ -36,14 +31,24 @@ import {
  *   `prebuilt`) is the load's own binding of it, whose words name the load
  *   whenever they are called.
  *
- * So a module two entries import is one module, an import computed at run
- * time gets the load's own copy, and packages, Marbles included, stay one
- * instance per process. Bun calls no resolve hook for an extensionless
- * import, which is why imports are rewritten rather than resolved.
- * `require` is left as written.
+ * A data file named by path (JSON, JSONC, TOML, YAML, text, by its
+ * extension or the import's `type` attribute) is a copy too, read afresh
+ * for each load. So a module two entries import is one module, an import
+ * computed at run time gets the load's own copy, and packages, Marbles
+ * included, stay one instance per process. Bun calls no resolve hook for
+ * an extensionless import, which is why imports are rewritten rather than
+ * resolved. `require` is left as written. A file that does not parse is
+ * the load's error, never loaded unrewritten.
+ *
+ * Each load evaluates again every module and data file its source reaches
+ * by path, and Bun keeps a load's copies for as long as the process runs.
  */
 
-const COPY = /\?marbles-load=\d+$/;
+const COPY = /\?marbles-load=\d+(?:&format=\w+)?$/;
+/** An import's `with { type: … }` (or `assert`), right after its specifier. */
+const ATTRIBUTE = /^\s*(?:with|assert)\s*\{\s*type\s*:\s*["']([\w-]+)["']/;
+/** A dynamic import given options after its specifier. */
+const OPTIONS = /^\s*,/;
 /** A specifier that names a file by its path, not a package by its name. */
 const BY_PATH = /^(?:\.{1,2}\/|\/|file:)/;
 /**
@@ -66,6 +71,52 @@ const LOADERS: Readonly<Record<string, JavaScriptLoader>> = {
   ".ts": "ts",
   ".tsx": "tsx",
 };
+type DataFormat = "json" | "jsonc" | "text" | "toml" | "yaml";
+/** How each kind of data file a load copies is read, by extension. */
+const DATA: Readonly<Record<string, DataFormat>> = {
+  ".json": "json",
+  ".jsonc": "jsonc",
+  ".toml": "toml",
+  ".txt": "text",
+  ".yaml": "yaml",
+  ".yml": "yaml",
+};
+/** The same, by an import's `type` attribute. */
+const TYPES: Readonly<Record<string, DataFormat>> = {
+  json: "json",
+  jsonc: "jsonc",
+  text: "text",
+  toml: "toml",
+  yaml: "yaml",
+};
+const PARSERS: Readonly<Record<DataFormat, (text: string) => unknown>> = {
+  json: (text) => JSON.parse(text),
+  jsonc: (text) => JSONC.parse(text),
+  text: (text) => text,
+  toml: (text) => TOML.parse(text),
+  yaml: (text) => YAML.parse(text),
+};
+let parse: typeof parseSync | undefined;
+
+/**
+ * `oxc-parser`, loaded at the first load: a missing native binding is that
+ * load's error, saying what to install, not an import that fails before
+ * anything runs.
+ */
+async function parser(): Promise<typeof parseSync> {
+  if (parse === undefined) {
+    try {
+      ({ parseSync: parse } = await import("oxc-parser"));
+    } catch (error) {
+      throw new Error(
+        `Marbles reads a workspace's source with oxc-parser, and its native binding for ${process.platform}-${process.arch} could not be loaded: ${error instanceof Error ? error.message : String(error)}. Reinstall @foundry.sh/marbles with optional dependencies included, or install @oxc-parser/binding-wasm32-wasi and set NAPI_RS_FORCE_WASI=1`,
+        { cause: error }
+      );
+    }
+  }
+  return parse;
+}
+
 /** Where a copy's computed `import()` calls in; set once the hook is registered. */
 const IMPORT_FROM = Symbol.for("marbles.importFrom");
 
@@ -126,14 +177,36 @@ function resolved(specifier: string, directory: string): string | undefined {
  * but none under `node_modules` and none of Marbles' own code, which stay
  * one instance per process.
  */
-function copyFor(target: string, load: number): string | undefined {
-  return roots.has(load) &&
-    isAbsolute(target) &&
-    !target.includes(`${sep}node_modules${sep}`) &&
-    !MARBLES_CODE.some((directory) => inside(directory, target)) &&
-    LOADERS[extname(target)] !== undefined
-    ? copyPath(target, load)
-    : undefined;
+function copyFor(
+  target: string,
+  load: number,
+  type?: string
+): string | undefined {
+  if (
+    !(roots.has(load) && isAbsolute(target)) ||
+    target.includes(`${sep}node_modules${sep}`) ||
+    MARBLES_CODE.some((directory) => inside(directory, target))
+  ) {
+    return;
+  }
+  const extension = extname(target);
+  if (type === undefined && LOADERS[extension] !== undefined) {
+    return copyPath(target, load);
+  }
+  const format = type === undefined ? DATA[extension] : TYPES[type];
+  return format === undefined ? undefined : copyPath(target, load, format);
+}
+
+/** The `type` an import's options ask for, if any. */
+function typeOf(options: ImportCallOptions | undefined): string | undefined {
+  const given = options as
+    | {
+        readonly assert?: { readonly type?: unknown };
+        readonly with?: { readonly type?: unknown };
+      }
+    | undefined;
+  const type = given?.with?.type ?? given?.assert?.type;
+  return typeof type === "string" ? type : undefined;
 }
 
 /**
@@ -155,7 +228,9 @@ function importFrom(
   if (target === undefined) {
     return import(named, options);
   }
-  const copy = BY_PATH.test(named) ? copyFor(target, load) : undefined;
+  const copy = BY_PATH.test(named)
+    ? copyFor(target, load, typeOf(options))
+    : undefined;
   return import(copy ?? target, options);
 }
 
@@ -182,7 +257,8 @@ function specifierEdit(
   file: string,
   load: number,
   span: { readonly end: number; readonly start: number },
-  value: string
+  value: string,
+  type?: string
 ): Edit | undefined {
   if (libraries.has(value)) {
     return {
@@ -195,7 +271,7 @@ function specifierEdit(
     return;
   }
   const target = resolved(value, dirname(file));
-  const copy = target === undefined ? undefined : copyFor(target, load);
+  const copy = target === undefined ? undefined : copyFor(target, load, type);
   return copy === undefined
     ? undefined
     : { end: span.end, start: span.start, text: JSON.stringify(copy) };
@@ -203,10 +279,14 @@ function specifierEdit(
 
 /** Every edit that points `file`'s imports at load `load`'s copies. */
 function importEdits(file: string, text: string, load: number): Edit[] {
-  const { errors, module } = parseSync(file, text);
-  if (errors.length > 0) {
-    // Bun reports the syntax error as the copy loads; nothing to rewrite.
-    return [];
+  if (parse === undefined) {
+    throw new Error(`${file} is a copy of a load that has not started`);
+  }
+  const { errors, module } = parse(file, text);
+  const [error] = errors;
+  if (error !== undefined) {
+    // Loaded unrewritten, it would reach stale modules: the load fails.
+    throw new SyntaxError(`${file} does not parse: ${error.message}`);
   }
   const requests = [
     ...module.staticImports.map((entry) => entry.moduleRequest),
@@ -223,7 +303,8 @@ function importEdits(file: string, text: string, load: number): Edit[] {
       continue;
     }
     seen.add(request.start);
-    const edit = specifierEdit(file, load, request, request.value);
+    const type = ATTRIBUTE.exec(text.slice(request.end))?.[1];
+    const edit = specifierEdit(file, load, request, request.value, type);
     if (edit !== undefined) {
       edits.push(edit);
     }
@@ -231,7 +312,8 @@ function importEdits(file: string, text: string, load: number): Edit[] {
   for (const call of module.dynamicImports) {
     const argument = call.moduleRequest;
     const value = literal(text.slice(argument.start, argument.end));
-    if (value !== undefined) {
+    // Given options (a `type`, say), it goes through `importFrom`, which reads them.
+    if (value !== undefined && !OPTIONS.test(text.slice(argument.end))) {
       const edit = specifierEdit(file, load, argument, value);
       if (edit !== undefined) {
         edits.push(edit);
@@ -262,18 +344,43 @@ function copied(file: string, load: number): string {
   return result;
 }
 
+/**
+ * A data file's exports, as Bun gives them: the value as the default, and
+ * each top-level key of an object as a name of its own.
+ */
+function dataExports(
+  file: string,
+  format: DataFormat
+): Record<string, unknown> {
+  const value = PARSERS[format](readFileSync(file, "utf8"));
+  const named =
+    typeof value === "object" && value !== null && !Array.isArray(value)
+      ? value
+      : {};
+  return { ...named, default: value };
+}
+
 /** Load every copy as a copy of its load; registered once. */
 export function copyModules(builder: PluginBuilder): void {
   modules = builder;
   (globalThis as Record<symbol, unknown>)[IMPORT_FROM] = importFrom;
   builder.onLoad({ filter: COPY }, (args) => {
-    const load = loadOfPath(args.path);
+    const copy = copyOf(args.path);
     const file = sourcePath(args.path);
-    const loader = LOADERS[extname(file)];
-    if (load === undefined || !roots.has(load) || loader === undefined) {
+    if (copy === undefined || !roots.has(copy.load)) {
       throw new Error(`${args.path} is a copy of no load`);
     }
-    return { contents: copied(file, load), loader };
+    if (copy.format !== undefined) {
+      return {
+        exports: dataExports(file, copy.format as DataFormat),
+        loader: "object",
+      };
+    }
+    const loader = LOADERS[extname(file)];
+    if (loader === undefined) {
+      throw new Error(`${args.path} is a copy of no module`);
+    }
+    return { contents: copied(file, copy.load), loader };
   });
 }
 
@@ -290,6 +397,7 @@ export async function importLoad(
   if (modules === undefined) {
     throw new Error("the source library is not linked yet");
   }
+  await parser();
   roots.set(load, realpathSync(root));
   for (const [library, ofLoad] of libraries) {
     const exports = ofLoad(load);

@@ -135,3 +135,68 @@ report.builtin = typeof (await globalThis.bare()).existsSync;`
     reloaded: 999,
   });
 });
+
+it("reads every data file a load reaches by path afresh for that load, by extension or `type`", async () => {
+  const root = await scratch();
+  const write = async (n: number) => {
+    await writeFile(join(root, "data.json"), `{ "value": ${String(n)} }\n`);
+    await writeFile(join(root, "notes.md"), `note ${String(n)}\n`);
+    await writeFile(join(root, "conf.toml"), `value = ${String(n)}\n`);
+    await writeFile(join(root, "conf.yaml"), `value: ${String(n)}\n`);
+    await writeFile(join(root, "late.json"), `{ "value": ${String(n)} }\n`);
+  };
+  await write(1);
+  await writeFile(
+    join(root, "entry.ts"),
+    `import data, { value } from "./data.json";
+import notes from "./notes.md" with { type: "text" };
+import conf from "./conf.toml";
+import yaml from "./conf.yaml";
+const path = "./late.json";
+globalThis.seen = {
+  conf: conf.value,
+  data: data.value,
+  late: (await import(path, { with: { type: "json" } })).default.value,
+  named: value,
+  notes: notes.trim(),
+  yaml: yaml.value,
+};
+`
+  );
+  const report = await withLoader(
+    root,
+    `const entry = ${JSON.stringify(join(root, "entry.ts"))};
+await importLoad(${JSON.stringify(root)}, [entry]);
+report.first = globalThis.seen;
+await Bun.write(${JSON.stringify(join(root, "data.json"))}, '{ "value": 2 }');
+await Bun.write(${JSON.stringify(join(root, "notes.md"))}, "note 2");
+await Bun.write(${JSON.stringify(join(root, "conf.toml"))}, "value = 2");
+await Bun.write(${JSON.stringify(join(root, "conf.yaml"))}, "value: 2");
+await Bun.write(${JSON.stringify(join(root, "late.json"))}, '{ "value": 2 }');
+await importLoad(${JSON.stringify(root)}, [entry]);
+report.second = globalThis.seen;`
+  );
+  const at = (n: number) => ({
+    conf: n,
+    data: n,
+    late: n,
+    named: n,
+    notes: `note ${String(n)}`,
+    yaml: n,
+  });
+  expect(report).toEqual({ first: at(1), second: at(2) });
+});
+
+it("fails the load of a file it cannot parse, naming the file, rather than load it unrewritten", async () => {
+  const root = await scratch();
+  const broken = join(root, "broken.ts");
+  await writeFile(broken, "export foo from './foo';\n");
+  const report = await withLoader(
+    root,
+    `report.error = await importLoad(${JSON.stringify(root)}, [${JSON.stringify(broken)}]).then(
+  () => "loaded",
+  (error) => error.message
+);`
+  );
+  expect(report.error).toContain(`${broken} does not parse`);
+});

@@ -135,6 +135,13 @@ export class HostedWorkspaces {
       // Placed before anything is awaited: a second load of a workspace
       // hosted here would take its catalog and its tasks from the first.
       found = findWorkspace(args);
+      // Only a registration made without a source is its root alone: one
+      // whose source is gone does not load.
+      if (registration.config !== null && found.config === null) {
+        throw new Error(
+          `its registered source ${found.configPath} is gone; restore it, or unregister the workspace`
+        );
+      }
     } catch (error) {
       return Promise.reject(new WorkspaceLoadError(root, { cause: error }));
     }
@@ -235,6 +242,28 @@ export class HostedWorkspaces {
       state: this.#options.state,
     }).list();
     return await this.load(records.filter((record) => record.hosted));
+  }
+
+  /**
+   * Drop workspace `id`'s registration with the Marbles process, so no
+   * later `loadRegistered` loads it, and stop it here if it is hosted. Its
+   * stored state stays. Whether it was registered.
+   */
+  async unregister(id: string): Promise<boolean> {
+    const pending = this.#pending.get(id);
+    if (pending !== undefined) {
+      await pending.catch(() => undefined);
+    }
+    const host = this.#hosts.get(id);
+    this.#hosts.delete(id);
+    await host?.close();
+    if (this.#database === undefined) {
+      return host !== undefined;
+    }
+    return await new WorkspaceRegistry({
+      database: this.#database.database,
+      state: this.#options.state,
+    }).unhost(id);
   }
 
   /** The host of workspace `id`; throws when none here holds it. */
