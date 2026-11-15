@@ -39,24 +39,36 @@ export interface RecordingWorkspaceStores {
 }
 
 /**
+ * Whether the storage a suite run opens hands its commits to a host hook.
+ * A store with one (a SQLite store's `onCommit`) says `hooked: true` and
+ * supplies `recording`, so the suite proves the hook is handed each commit's
+ * events; a store with none says `hooked: false`.
+ */
+export type WorkspaceStoreMode =
+  | { readonly hooked: false }
+  | {
+      readonly hooked: true;
+      readonly recording: () => Promise<RecordingWorkspaceStores>;
+    };
+
+/**
  * What every `WorkspaceStore` must do. A store enforces no catalog rule, so
  * these cases pin only persistence: every read, both writes, ordering,
  * scoping by Workspace and by scope, atomic writes, detached values, large
  * writes, transactions, and the events a write carries. Each case calls
  * `open` for fresh, empty storage, then opens a store over one scope of it.
- * A store with a host hook passes `recording` too, which opens it with one,
- * and the suite also proves the hook is handed each commit's events. The
- * host's test file closes whatever `open` opened.
+ * `mode` says whether it has a host hook (see {@link WorkspaceStoreMode}).
+ * The host's test file closes whatever `open` opened.
  */
 export function describeWorkspaceStore(
   name: string,
   open: () => ScopedWorkspaceStores | Promise<ScopedWorkspaceStores>,
-  recording?: () => Promise<RecordingWorkspaceStores>
+  mode: WorkspaceStoreMode
 ): void {
   describe(`${name} WorkspaceStore conformance`, () => {
     describeEvents(open);
-    if (recording !== undefined) {
-      describeRecordedEvents(recording);
+    if (mode.hooked) {
+      describeRecordedEvents(mode.recording);
     }
     describeReads(open);
     describeOrdering(open);
@@ -112,6 +124,77 @@ function entriesEvent(
   };
 }
 
+/**
+ * Events no store takes, each made fresh: none has a plain-JSON form that
+ * reads back as it was written.
+ */
+const UNPLAIN_EVENTS: [
+  string,
+  (workspaceId: WorkspaceId) => WorkspaceEvent[],
+][] = [
+  [
+    "a class instance",
+    (workspaceId) => {
+      class Created {
+        readonly at = AT;
+        readonly id = "e";
+        readonly type = "workspace.created";
+        readonly workspaceId = workspaceId;
+      }
+      return [new Created() as unknown as WorkspaceEvent];
+    },
+  ],
+  [
+    "an object with an own property a copy would not see",
+    (workspaceId) => {
+      const event = { ...createdEvent(workspaceId) };
+      Object.defineProperty(event, "id", { enumerable: false, value: "e" });
+      return [event];
+    },
+  ],
+  [
+    "an object with a symbol key",
+    (workspaceId) => [
+      { ...createdEvent(workspaceId), [Symbol("extra")]: 1 } as WorkspaceEvent,
+    ],
+  ],
+  [
+    "an object holding a Date",
+    (workspaceId) => [
+      {
+        ...createdEvent(workspaceId),
+        at: new Date(0),
+      } as unknown as WorkspaceEvent,
+    ],
+  ],
+  [
+    "an object holding undefined",
+    (workspaceId) => [
+      {
+        ...createdEvent(workspaceId),
+        extra: undefined,
+      } as unknown as WorkspaceEvent,
+    ],
+  ],
+  [
+    "an object holding NaN",
+    (workspaceId) => [
+      {
+        ...createdEvent(workspaceId),
+        extra: Number.NaN,
+      } as unknown as WorkspaceEvent,
+    ],
+  ],
+  [
+    "not an array",
+    (workspaceId) =>
+      ({
+        0: createdEvent(workspaceId),
+        length: 1,
+      }) as unknown as WorkspaceEvent[],
+  ],
+];
+
 /** An entry whose `name` throws when read, so no store can copy it. */
 function uncopyable(workspaceId: WorkspaceId): WorkspaceEntry {
   const entry = directoryRecord(workspaceId, "docs");
@@ -142,6 +225,47 @@ function describeEvents(open: Open): void {
       expect(await store.getWorkspace(workspace.id)).toEqual(workspace);
       expect(await store.listEntries(workspace.id)).toEqual([docs]);
     });
+
+    test.each(UNPLAIN_EVENTS)(
+      "a write whose events are %s is refused whole, with a TypeError",
+      async (_kind, events) => {
+        const store = (await open())(SCOPE);
+        const workspace = hostWorkspace({ path: newRoot("events") });
+
+        await expect(
+          store.commit({ events: events(workspace.id), workspace })
+        ).rejects.toThrow(TypeError);
+        await expect(
+          store.commit({
+            events: events(workspace.id),
+            removeWorkspace: workspace.id,
+          })
+        ).rejects.toThrow(TypeError);
+        expect(await store.getWorkspace(workspace.id)).toBeNull();
+      }
+    );
+
+    test.each(UNPLAIN_EVENTS)(
+      "a transaction's view refuses a write whose events are %s",
+      async (_kind, events) => {
+        const store = (await open())(SCOPE);
+        const { transaction } = store;
+        if (transaction === undefined) {
+          return;
+        }
+        const refused = hostWorkspace({ path: newRoot("refused") });
+        const kept = hostWorkspace({ path: newRoot("kept") });
+
+        await transaction.call(store, async (view) => {
+          await expect(
+            view.commit({ events: events(refused.id), workspace: refused })
+          ).rejects.toThrow(TypeError);
+          await view.commit({ workspace: kept });
+        });
+        expect(await store.getWorkspace(refused.id)).toBeNull();
+        expect(await store.getWorkspace(kept.id)).toEqual(kept);
+      }
+    );
   });
 }
 
@@ -184,18 +308,14 @@ function describeRecordedEvents(
       expect(await recorded()).toEqual([createdEvent(workspace.id)]);
     });
 
-    test("a write whose events cannot be copied is refused whole", async () => {
+    test("a write whose events the store refuses records nothing", async () => {
       const { recorded, store } = await recorder();
       const workspace = hostWorkspace({ path: newRoot("events") });
-      const unplain = {
-        ...createdEvent(workspace.id),
-        at: () => AT,
-      } as unknown as WorkspaceEvent;
-
-      await expect(
-        store.commit({ events: [unplain], workspace })
-      ).rejects.toThrow();
-      expect(await store.getWorkspace(workspace.id)).toBeNull();
+      for (const [, events] of UNPLAIN_EVENTS) {
+        await expect(
+          store.commit({ events: events(workspace.id), workspace })
+        ).rejects.toThrow(TypeError);
+      }
       expect(await recorded()).toEqual([]);
     });
 

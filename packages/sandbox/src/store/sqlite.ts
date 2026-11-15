@@ -8,6 +8,7 @@ import type {
 } from "drizzle-orm/sqlite-core";
 
 import type { ContainerRow } from "../schema";
+import { ownedWrite } from "./events";
 import type { ContainerStore, ContainerStoreWrite } from "./index";
 import { sandboxContainers } from "./tables";
 
@@ -145,9 +146,8 @@ export function createSqliteContainerStore(
 
   return {
     /**
-     * Takes the write as it stands when `commit` is called: one
-     * `structuredClone` of the whole write, as the memory store takes it,
-     * made before the commit waits its turn. That copy alone is checked,
+     * Takes the write as it stands when `commit` is called, as the memory
+     * store takes it (see `./events`), before the commit waits its turn. That copy alone is checked,
      * made into every row, and handed to `onCommit`, so a caller changing
      * its write later changes nothing. A write the clone refuses rejects
      * with the clone's error, as in the memory store. A delete of an id no
@@ -156,7 +156,7 @@ export function createSqliteContainerStore(
     commit: (write) => {
       let owned: ContainerStoreWrite;
       try {
-        owned = structuredClone(write);
+        owned = ownedWrite(write);
       } catch (error: unknown) {
         return Promise.reject(error);
       }

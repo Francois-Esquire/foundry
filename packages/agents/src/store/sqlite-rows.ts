@@ -1,11 +1,7 @@
+import type { SessionChangeEvent } from "../schema";
+import { ownedEvents } from "./events";
 import type { SessionStoreWrite } from "./index";
-import {
-  below,
-  keptEvent,
-  keptMessage,
-  keptSession,
-  RecordFault,
-} from "./sqlite-records";
+import { below, keptMessage, keptSession, RecordFault } from "./sqlite-records";
 import type { agentMessages, agentSessions } from "./tables";
 
 /**
@@ -86,9 +82,7 @@ export function captured(write: SessionStoreWrite): SessionStoreWrite {
   const messages = write.putMessages?.map((message, index) =>
     stored(`putMessages[${index}]`, () => keptMessage(message))
   );
-  const events = write.events?.map((event, index) =>
-    stored(`events[${index}]`, () => keptEvent(event))
-  );
+  const events = ownedEvents<SessionChangeEvent>(write.events);
   return {
     ...(events === undefined ? {} : { events }),
     ...(messages === undefined ? {} : { putMessages: messages }),

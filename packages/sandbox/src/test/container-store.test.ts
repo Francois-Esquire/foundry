@@ -9,14 +9,18 @@ import type { RecordingContainerStores } from "../testing/store";
 import { describeContainerStore } from "../testing/store";
 import { libsqlDatabases } from "./helpers/sqlite";
 
-describeContainerStore("memory", () => {
-  const stores = new Map<string, ContainerStore>();
-  return (scope) => {
-    const store = stores.get(scope) ?? createMemoryContainerStore();
-    stores.set(scope, store);
-    return store;
-  };
-});
+describeContainerStore(
+  "memory",
+  () => {
+    const stores = new Map<string, ContainerStore>();
+    return (scope) => {
+      const store = stores.get(scope) ?? createMemoryContainerStore();
+      stores.set(scope, store);
+      return store;
+    };
+  },
+  { hooked: false }
+);
 
 /** A host's record of the events its stores' commits carry. */
 const recordedEvents = sqliteTable("recorded_events", {
@@ -77,6 +81,9 @@ for (const location of ["memory", "file"] as const) {
       const database = await databases.open();
       return (scope) => createSqliteContainerStore({ database, scope });
     },
-    async () => recordingStores(await databases.open())
+    {
+      hooked: true,
+      recording: async () => recordingStores(await databases.open()),
+    }
   );
 }

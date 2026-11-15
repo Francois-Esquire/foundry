@@ -266,14 +266,13 @@ export function createContainers(options: CreateContainersOptions): Containers {
         ...(typeof patch === "function" ? patch(current) : patch),
         updatedAt: Date.now(),
       });
-      // A row's VM failing is the one change an update records as an event;
-      // a row already failed records it once.
-      const failed =
-        next.status === "failed" && current.status !== "failed"
-          ? [sandboxEvent("sandbox.failed", eventId, next.id, next.updatedAt)]
-          : [];
+      const entered = enteredEvent(current, next);
       await view.commit({
-        ...(failed.length === 0 ? {} : { events: failed }),
+        ...(entered === undefined
+          ? {}
+          : {
+              events: [sandboxEvent(entered, eventId, next.id, next.updatedAt)],
+            }),
         putContainers: [next],
       });
       return next;
@@ -646,6 +645,30 @@ export function createContainers(options: CreateContainersOptions): Containers {
   };
   return Object.freeze(containers);
 }
+
+/**
+ * The event an update from the row as stored (`current`) to `next` records:
+ * entering `running`, `stopped` or `failed` from any other status, whatever
+ * came before (a boot after a failure, a restart). Moves to `starting` or
+ * `restarting`, a row already in its status, and changes to the native name
+ * or the spec alone record nothing.
+ */
+function enteredEvent(
+  current: ContainerRow,
+  next: ContainerRow
+): SandboxEvent["type"] | undefined {
+  if (next.status === current.status) {
+    return;
+  }
+  return ENTERED[next.status];
+}
+
+/** The event each status records when a row enters it; others record none. */
+const ENTERED: Partial<Record<ContainerRow["status"], SandboxEvent["type"]>> = {
+  failed: "sandbox.failed",
+  running: "sandbox.started",
+  stopped: "sandbox.stopped",
+};
 
 /** The event of `type` on container `containerId`, at epoch milliseconds `at`. */
 function sandboxEvent(

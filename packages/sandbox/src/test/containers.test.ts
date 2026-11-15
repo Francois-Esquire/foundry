@@ -824,7 +824,7 @@ describe.each(STORES)("containers registry events over %s", (_name, open) => {
     newStore = open;
   });
 
-  it("carries sandbox.created in the write that inserts the row, and none for status or name changes", async () => {
+  it("carries sandbox.created in the insert, then started and stopped as the row enters running and stopped", async () => {
     const { store, writes } = gatedStore({ transactional: true });
     const containers = createContainers({
       instanceLabel: "instance-a",
@@ -836,8 +836,31 @@ describe.each(STORES)("containers registry events over %s", (_name, open) => {
     await c.close();
     const reopened = await containers.open(c.id);
     await reopened.close();
+    const again = await containers.open(c.id);
+    await containers.shutdown();
 
-    expect(events(writes)).toEqual([["sandbox.created", c.id]]);
+    expect(events(writes)).toEqual([
+      ["sandbox.created", c.id],
+      ["sandbox.started", c.id],
+      // The restart passes through `restarting` and a new native name.
+      ["sandbox.started", c.id],
+      ["sandbox.stopped", c.id],
+      ["sandbox.started", c.id],
+      ["sandbox.stopped", c.id],
+      ["sandbox.started", c.id],
+      ["sandbox.stopped", c.id],
+    ]);
+    // Each event rides in the write that puts the status it names.
+    const statuses: Record<string, string> = {
+      "sandbox.created": "starting",
+      "sandbox.started": "running",
+      "sandbox.stopped": "stopped",
+    };
+    for (const write of writes.filter((w) => w.events !== undefined)) {
+      expect(write.putContainers?.[0]?.status).toBe(
+        statuses[write.events?.[0]?.type ?? ""]
+      );
+    }
     const [created] = writes.flatMap((write) => write.events ?? []);
     expect(created).toEqual({
       at: new Date(c.row.createdAt).toISOString(),
@@ -845,7 +868,38 @@ describe.each(STORES)("containers registry events over %s", (_name, open) => {
       id: expect.any(String),
       type: "sandbox.created",
     });
-    expect(writes[0]?.putContainers?.[0]?.id).toBe(c.id);
+    expect(again.id).toBe(c.id);
+  });
+
+  it("carries sandbox.started when a row recorded failed is reopened and comes up", async () => {
+    const runtime = createFakeContainerRuntime();
+    const create = runtime.create.bind(runtime);
+    const boot: { refuses: boolean } = { refuses: true };
+    runtime.create = (...args) =>
+      boot.refuses
+        ? Promise.reject(new Error("no hypervisor"))
+        : create(...args);
+    const { store, writes } = gatedStore({ transactional: true });
+    const containers = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    await expect(containers.start(SPEC)).rejects.toThrow(
+      MISSING_HYPERVISOR_ERROR
+    );
+    const [row] = await containers.list();
+    const id = row?.id ?? "";
+    boot.refuses = false;
+    const handle = await containers.open(id);
+    await handle.close();
+
+    expect(events(writes)).toEqual([
+      ["sandbox.created", id],
+      ["sandbox.failed", id],
+      ["sandbox.started", id],
+      ["sandbox.stopped", id],
+    ]);
   });
 
   it("carries sandbox.failed once, in the write that records the row failed", async () => {

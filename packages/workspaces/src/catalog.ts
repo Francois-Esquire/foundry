@@ -13,10 +13,11 @@ import type {
 } from "./types";
 
 /**
- * `workspace-exists` names the Workspace already registered for this source —
- * matched on the canonical root first, then on a non-null source reference.
- * One source cannot have two competing catalogs, so both spellings of
- * "already taken" resolve to the incumbent rather than failing.
+ * `workspace-exists` names the Workspace already registered under this id,
+ * or for this source — matched on the canonical root first, then on a
+ * non-null source reference. One source cannot have two competing catalogs,
+ * so every spelling of "already taken" resolves to the incumbent rather
+ * than failing.
  */
 export type CommitCreateResult =
   | { readonly kind: "committed" }
@@ -109,7 +110,11 @@ export class WorkspaceCatalog {
     const eventId = crypto.randomUUID();
     return this.mutation<CommitCreateResult>(async (store) => {
       const { workspace, entries } = input;
-      const incumbent = await claimant(store, workspace);
+      // An id already registered names the incumbent too: a create under it
+      // would replace that registration, not make a new one.
+      const incumbent =
+        (await store.getWorkspace(workspace.id)) ??
+        (await claimant(store, workspace));
       if (incumbent) {
         return {
           result: { existingId: incumbent.id, kind: "workspace-exists" },
@@ -166,10 +171,15 @@ export class WorkspaceCatalog {
         return { result: { kind: "conflict", reason: String(error) } };
       }
 
-      const { change } = input;
+      // What the change does to what is stored: an entry put as it already
+      // stands, or removed and put back as it was, changes nothing.
+      const effect = effectOf(current, next, input.change);
+      const touched =
+        effect.deleted.length + effect.updated.length + effect.inserted.length >
+        0;
       const saved: WorkspaceRegistration = {
         ...workspace,
-        ...(input.updatedAt === undefined
+        ...(input.updatedAt === undefined || !touched
           ? {}
           : { updatedAt: input.updatedAt }),
         ...(input.lastReconciledAt === undefined
@@ -183,30 +193,31 @@ export class WorkspaceCatalog {
       };
       // A change that touches the catalog sets `updatedAt`; one that does
       // not say when is stamped now.
-      const changed = entriesChanged(
-        eventId,
-        workspace.id,
-        input.updatedAt ?? new Date(),
-        change
-      );
+      const changed = touched
+        ? entriesChanged(
+            eventId,
+            workspace.id,
+            input.updatedAt ?? new Date(),
+            effect
+          )
+        : undefined;
       await store.commit({
-        deleteEntries: change.deleted.map((entry) => entry.id),
+        deleteEntries: effect.deleted.map((entry) => entry.id),
         ...(changed === undefined ? {} : { events: [changed] }),
-        putEntries: [...change.updated, ...change.inserted],
+        putEntries: [...effect.updated, ...effect.inserted],
         workspace: saved,
       });
-      const byId = new Map(current.map((entry) => [entry.id, entry]));
       return {
         changes: [
-          ...change.deleted.map((entry) => ({
+          ...effect.deleted.map((entry) => ({
             action: "delete" as const,
-            entry: byId.get(entry.id) ?? entry,
+            entry,
           })),
-          ...change.updated.map((entry) => ({
+          ...effect.updated.map((entry) => ({
             action: "change" as const,
             entry,
           })),
-          ...change.inserted.map((entry) => ({
+          ...effect.inserted.map((entry) => ({
             action: "add" as const,
             entry,
           })),
@@ -305,6 +316,63 @@ export class WorkspaceCatalog {
     );
     return run;
   }
+}
+
+/**
+ * What `change` does to the entries stored (`current`), given the catalog it
+ * leaves (`next`): the entries it removes, as stored; those it leaves
+ * different, as they now stand; and those it adds. Each entry once, in the
+ * order the change names it. An entry put as it is stored, or removed and
+ * put back as it was, is in none of them.
+ */
+function effectOf(
+  current: readonly WorkspaceEntry[],
+  next: ReadonlyMap<WorkspaceEntryId, WorkspaceEntry>,
+  change: WorkspaceCatalogChange
+): WorkspaceCatalogChange {
+  const stored = new Map(current.map((entry) => [entry.id, entry]));
+  const deleted = new Map<WorkspaceEntryId, WorkspaceEntry>();
+  for (const { id } of change.deleted) {
+    const entry = stored.get(id);
+    if (entry !== undefined && !next.has(id)) {
+      deleted.set(id, entry);
+    }
+  }
+  const updated = new Map<WorkspaceEntryId, WorkspaceEntry>();
+  const inserted = new Map<WorkspaceEntryId, WorkspaceEntry>();
+  for (const { id } of [...change.updated, ...change.inserted]) {
+    const entry = next.get(id);
+    const before = stored.get(id);
+    if (entry === undefined || updated.has(id) || inserted.has(id)) {
+      continue;
+    }
+    if (before === undefined) {
+      inserted.set(id, entry);
+    } else if (!sameEntry(before, entry)) {
+      updated.set(id, entry);
+    }
+  }
+  return {
+    deleted: [...deleted.values()],
+    inserted: [...inserted.values()],
+    updated: [...updated.values()],
+  };
+}
+
+/** Whether two entries hold the same fields, each the same value or instant. */
+function sameEntry(a: WorkspaceEntry, b: WorkspaceEntry): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) {
+    return false;
+  }
+  return keys.every((key) => {
+    const left: unknown = Reflect.get(a, key);
+    const right: unknown = Reflect.get(b, key);
+    if (left instanceof Date && right instanceof Date) {
+      return left.getTime() === right.getTime();
+    }
+    return Object.hasOwn(b, key) && Object.is(left, right);
+  });
 }
 
 /**

@@ -28,16 +28,28 @@ export interface RecordingSessionStorage {
 }
 
 /**
+ * Whether the storage a suite run opens hands its commits to a host hook.
+ * A store with one (a SQLite store's `onCommit`) says `hooked: true` and
+ * supplies `recording`, so the suite proves the hook is handed each commit's
+ * events; a store with none says `hooked: false`.
+ */
+export type SessionStoreMode =
+  | { readonly hooked: false }
+  | {
+      readonly hooked: true;
+      readonly recording: () => Promise<RecordingSessionStorage>;
+    };
+
+/**
  * The behaviour every {@link SessionStore} shares. `open` returns fresh,
- * empty storage for each test. A store with a host hook passes `recording`
- * too, which opens it with one, and the suite also proves the hook is handed
- * each commit's events. Registers Vitest tests; call it at module level in a
- * test file.
+ * empty storage for each test; `mode` says whether it has a host hook (see
+ * {@link SessionStoreMode}). Registers Vitest tests; call it at module level
+ * in a test file.
  */
 export function describeSessionStore(
   name: string,
   open: () => SessionStorage | Promise<SessionStorage>,
-  recording?: () => Promise<RecordingSessionStorage>
+  mode: SessionStoreMode
 ): void {
   const fresh = async (): Promise<SessionStore> => (await open())("scope");
 
@@ -56,10 +68,43 @@ export function describeSessionStore(
         message("m1", "s", 1),
       ]);
     });
+
+    it.each(UNPLAIN_EVENTS)(
+      "refuses whole, with a TypeError, a write whose events are %s",
+      async (_kind, events) => {
+        const store = await fresh();
+
+        await expect(
+          store.commit({ events: events(), putSessions: [session("s")] })
+        ).rejects.toThrow(TypeError);
+        await expect(store.getSession("s")).resolves.toBeNull();
+      }
+    );
+
+    it.each(UNPLAIN_EVENTS)(
+      "refuses through a transaction's view a write whose events are %s",
+      async (_kind, events) => {
+        const store = await fresh();
+        if (store.transaction === undefined) {
+          return;
+        }
+
+        await store.transaction(async (view) => {
+          await expect(
+            view.commit({ events: events(), putSessions: [session("s")] })
+          ).rejects.toThrow(TypeError);
+          await view.commit({ putSessions: [session("kept")] });
+        });
+        await expect(store.getSession("s")).resolves.toBeNull();
+        await expect(store.getSession("kept")).resolves.toStrictEqual(
+          session("kept")
+        );
+      }
+    );
   });
 
-  if (recording !== undefined) {
-    describeRecordedEvents(name, recording);
+  if (mode.hooked) {
+    describeRecordedEvents(name, mode.recording);
   }
 
   describe(`${name} (SessionStore)`, () => {
@@ -920,17 +965,13 @@ function describeRecordedEvents(
       await expect(recorded()).resolves.toStrictEqual([appended("s", ["m1"])]);
     });
 
-    it("refuses whole a write whose event it could not hand on intact", async () => {
+    it("records nothing for a write whose events it refuses", async () => {
       const { recorded, store } = await recorder();
-      const unplain = {
-        ...created("s"),
-        at: () => "now",
-      } as unknown as SessionChangeEvent;
-
-      await expect(
-        store.commit({ events: [unplain], putSessions: [session("s")] })
-      ).rejects.toThrow();
-      await expect(store.getSession("s")).resolves.toBeNull();
+      for (const [, events] of UNPLAIN_EVENTS) {
+        await expect(
+          store.commit({ events: events(), putSessions: [session("s")] })
+        ).rejects.toThrow(TypeError);
+      }
       await expect(recorded()).resolves.toStrictEqual([]);
     });
 
@@ -1007,6 +1048,59 @@ function describeRecordedEvents(
 }
 
 const AT = "2026-01-01T00:00:00.000Z";
+
+/**
+ * Events no store takes, each made fresh: none has a plain-JSON form that
+ * reads back as it was written.
+ */
+const UNPLAIN_EVENTS: [string, () => SessionChangeEvent[]][] = [
+  [
+    "a class instance",
+    () => {
+      class Created {
+        readonly at = AT;
+        readonly id = "e";
+        readonly sessionId = "s";
+        readonly type = "session.created";
+      }
+      return [new Created() as unknown as SessionChangeEvent];
+    },
+  ],
+  [
+    "an object with an own property a copy would not see",
+    () => {
+      const event = { ...created("s") };
+      Object.defineProperty(event, "id", { enumerable: false, value: "e" });
+      return [event];
+    },
+  ],
+  [
+    "an object with a symbol key",
+    () => [{ ...created("s"), [Symbol("extra")]: 1 } as SessionChangeEvent],
+  ],
+  [
+    "an object holding a Date",
+    () => [
+      { ...created("s"), at: new Date(0) } as unknown as SessionChangeEvent,
+    ],
+  ],
+  [
+    "an object holding undefined",
+    () => [
+      { ...created("s"), extra: undefined } as unknown as SessionChangeEvent,
+    ],
+  ],
+  [
+    "an object holding NaN",
+    () => [
+      { ...created("s"), extra: Number.NaN } as unknown as SessionChangeEvent,
+    ],
+  ],
+  [
+    "not an array",
+    () => ({ 0: created("s"), length: 1 }) as unknown as SessionChangeEvent[],
+  ],
+];
 
 function created(sessionId: string): SessionChangeEvent {
   return {

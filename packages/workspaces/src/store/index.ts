@@ -65,10 +65,13 @@ export interface WorkspaceSave {
   readonly deleteEntries?: readonly WorkspaceEntryId[];
   /**
    * What the write changes, as the catalog records it, in order. A store
-   * keeps none of them. One with a host hook (`SqliteWorkspaceStore`'s
-   * `onCommit`) takes them with the rest of the write, refuses one it
-   * cannot copy, and passes them to the hook unchanged; both stores here
-   * take them in their one clone of the write.
+   * keeps none of them. Every store takes them when `commit` is called, by
+   * one rule (`./events`): each is copied as plain JSON, and a write holding
+   * one that is not (a class instance, a property a copy would not see, a
+   * Date, `undefined`, NaN) is refused whole with a `TypeError`. A store
+   * with a host hook passes its copy to the hook unchanged. An event's `at`
+   * is when the change was built, not when it committed: it does not order
+   * commits.
    */
   readonly events?: readonly WorkspaceEvent[];
   readonly putEntries?: readonly WorkspaceEntry[];

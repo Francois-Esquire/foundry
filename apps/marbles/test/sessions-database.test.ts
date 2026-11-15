@@ -100,7 +100,11 @@ const KINDS: readonly {
 ];
 
 for (const kind of KINDS) {
-  describeSessionStore(kind.name, async () => (await kind.storage()).stores);
+  // Marbles' hook raises session revisions and records no session event
+  // yet, so the suite has no record of events to read back.
+  describeSessionStore(kind.name, async () => (await kind.storage()).stores, {
+    hooked: false,
+  });
 }
 
 function session(id: string, title: string | null = null): SessionRecord {

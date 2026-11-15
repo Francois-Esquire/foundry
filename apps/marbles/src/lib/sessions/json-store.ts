@@ -13,6 +13,7 @@ import {
   SESSION_STATUSES,
 } from "@foundry/agents/session";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
+import { ownedEvents } from "@foundry/agents/store";
 import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 import { FileLockTimeoutError, withFileLock } from "@foundry/lib/file-lock";
 import { Turns } from "@foundry/lib/turns";
@@ -647,9 +648,12 @@ function withoutMessage(file: SessionFile, id: string): SessionFile {
 /**
  * `write` in the JSON form the store writes, copied now so a caller changing
  * `write` afterwards changes nothing the store keeps. A value with no JSON
- * form refuses the whole write here, before anything is staged.
+ * form refuses the whole write here, before anything is staged. The store
+ * keeps no event, but takes them by the rule every session store does
+ * (`ownedEvents`), so a write whose events break it is refused too.
  */
 function ownedWrite(write: SessionStoreWrite): SessionStoreWrite {
+  ownedEvents(write.events);
   return JSON.parse(JSON.stringify(write)) as SessionStoreWrite;
 }
 

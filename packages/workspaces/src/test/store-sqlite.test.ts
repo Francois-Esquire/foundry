@@ -93,7 +93,10 @@ for (const [location, databases] of [
       const database = await databases.open();
       return (scope) => new SqliteWorkspaceStore({ database, scope });
     },
-    async () => recordingStores(await databases.open())
+    {
+      hooked: true,
+      recording: async () => recordingStores(await databases.open()),
+    }
   );
 }
 

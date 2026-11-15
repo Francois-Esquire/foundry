@@ -1,8 +1,4 @@
-import type {
-  SessionChangeEvent,
-  SessionMessage,
-  SessionRecord,
-} from "../schema";
+import type { SessionMessage, SessionRecord } from "../schema";
 import { MESSAGE_STATUSES, SESSION_ROLES, SESSION_STATUSES } from "../schema";
 import { metadataFault, partsFault } from "./message-shape";
 
@@ -28,15 +24,6 @@ export class RecordFault extends Error {
     this.path = path;
     this.reason = reason;
   }
-}
-
-/**
- * An owned, plain copy of a change event, which the store never keeps but
- * hands to its host: refused, as a record's JSON field is, unless it reads
- * back intact from JSON.
- */
-export function keptEvent(value: unknown): SessionChangeEvent {
-  return jsonOf("", value, new Set()) as SessionChangeEvent;
 }
 
 /** `path` below `at`, as one path. */

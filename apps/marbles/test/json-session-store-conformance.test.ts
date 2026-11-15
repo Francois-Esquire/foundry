@@ -15,8 +15,12 @@ afterAll(() => {
 
 // A scope is its own directory; each store asked for is a new instance over
 // it, as two processes sharing one directory would be.
-describeSessionStore("JsonSessionStore", () => {
-  const root = mkdtempSync(join(tmpdir(), "marbles-session-store-"));
-  directories.push(root);
-  return (scope) => new JsonSessionStore(join(root, scope));
-});
+describeSessionStore(
+  "JsonSessionStore",
+  () => {
+    const root = mkdtempSync(join(tmpdir(), "marbles-session-store-"));
+    directories.push(root);
+    return (scope) => new JsonSessionStore(join(root, scope));
+  },
+  { hooked: false }
+);

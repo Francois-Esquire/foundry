@@ -87,14 +87,27 @@ for (const location of ["memory", "file"] as const) {
   describeSessionStore(
     `SqliteSessionStore on libSQL (${location})`,
     async () => scopedStores(await databases.open()),
-    async () => recordingStores(await databases.open())
+    {
+      hooked: true,
+      recording: async () => recordingStores(await databases.open()),
+    }
   );
   // A window forwards the store it wraps, refusals from inside a
   // transaction included.
   describeSessionStore(
     `SessionWindow over SqliteSessionStore on libSQL (${location})`,
     async () =>
-      scopedStores(await databases.open(), (store) => new SessionWindow(store))
+      scopedStores(await databases.open(), (store) => new SessionWindow(store)),
+    {
+      hooked: true,
+      recording: async () => {
+        const recording = await recordingStores(await databases.open());
+        return {
+          ...recording,
+          storage: (scope) => new SessionWindow(recording.storage(scope)),
+        };
+      },
+    }
   );
 }
 
