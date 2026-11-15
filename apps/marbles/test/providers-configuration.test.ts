@@ -395,8 +395,23 @@ describe("edits", () => {
     await vi.waitFor(() => expect(problems.length).toBeGreaterThan(0), {
       timeout: 5000,
     });
-    stop();
+    // The last good set stays, and the problem is reported once for the
+    // change, not on every poll after it.
+    await new Promise((settle) => setTimeout(settle, 1500));
+    expect(problems).toHaveLength(1);
     expect(ids(models)).toEqual(["codex"]);
+    // A repair is noticed, though the broken one was never loaded.
+    store.put(MACHINE_SCOPE, {
+      providers: [
+        { enabled: true, id: "codex", plugin: "codex" },
+        { enabled: true, id: "vercel", plugin: "vercel" },
+      ],
+    });
+    await vi.waitFor(() => expect(ids(models)).toEqual(["codex", "vercel"]), {
+      timeout: 5000,
+    });
+    stop();
+    store.texts.set(MACHINE_SCOPE, "{ broken");
     await expect(loaded(configuration().config)).rejects.toThrow(
       expect.objectContaining({ code: "CONFIGURATION_UNREADABLE" })
     );

@@ -805,7 +805,6 @@ export class Engine {
     const print = this.#print;
     // Before anything runs, so a listed model can be named from the first turn.
     await this.#listModels();
-    await this.activities.load();
     const config = new Config();
     contributeQueueConfig(config, {
       concurrency: ORCHESTRATOR_CONCURRENCY,
@@ -814,6 +813,9 @@ export class Engine {
     let orchestrator: Orchestrator | undefined;
     let adopted: ReadonlyMap<string, RecordedScope> = new Map();
     try {
+      // What the dashboard shows of agents' activities, before any runs;
+      // a store that cannot be read fails the start.
+      await this.activities.load();
       // The run records are read before anything is adopted into them, and
       // ones that cannot be read fail the start.
       await this.#executions.load();

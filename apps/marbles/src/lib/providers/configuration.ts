@@ -232,9 +232,10 @@ export class ProviderConfiguration {
     if (this.#options.fixed !== undefined) {
       return;
     }
-    const revision = await this.#store.revision();
+    // Recorded first: a configuration that cannot be read is reported once
+    // per change, not on every poll, and a later repair is still noticed.
+    this.#revision = await this.#store.revision();
     this.#kept = await this.#store.read();
-    this.#revision = revision;
     if (this.#key === undefined && this.configured) {
       this.#key = await this.#store.identityKey(true);
     }

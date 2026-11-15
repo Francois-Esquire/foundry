@@ -52,10 +52,16 @@ export {
   vercelPlugin,
 } from "~/lib/providers/plugins";
 export type {
+  ProviderConfigurations,
   ProviderEntryRecord,
+  ProviderStore,
   ProvidersFile,
+  ProviderWrites,
 } from "~/lib/providers/store";
-export { ConfigurationError } from "~/lib/providers/store";
+export {
+  ConfigurationError,
+  MemoryProviderStore,
+} from "~/lib/providers/store";
 export type {
   AutomationRecord,
   AutomationService,
