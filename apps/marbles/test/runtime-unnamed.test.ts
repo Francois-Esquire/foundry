@@ -9,8 +9,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { Catalog } from "~/authoring/catalog";
-import { dispose, instanceRuntime, setHost } from "~/authoring/runtime";
+import { Catalog, catalog } from "~/authoring/catalog";
+import {
+  declaringCatalog,
+  dispose,
+  instanceRuntime,
+  setHost,
+} from "~/authoring/runtime";
 import { startEngine } from "./helpers/engine";
 
 afterEach(async () => {
@@ -25,10 +30,16 @@ it("reaches the one engine alive for the one workspace hosted, and is refused wh
   try {
     setHost(old, new Catalog());
     expect(await instanceRuntime()).toBe(old);
-    setHost(next, new Catalog());
+    const nextCatalog = new Catalog();
+    setHost(next, nextCatalog);
     await expect(instanceRuntime()).rejects.toThrow(
       expect.objectContaining({ name: "AmbiguousWorkspaceError" })
     );
+    // A declaration naming nothing goes to this process's own catalog, as
+    // in a script no host loaded: never to an engine's, the last one bound
+    // or any other.
+    expect(declaringCatalog()).toBe(catalog);
+    expect(declaringCatalog()).not.toBe(nextCatalog);
     await old.dispose();
     expect(await instanceRuntime()).toBe(next);
   } finally {

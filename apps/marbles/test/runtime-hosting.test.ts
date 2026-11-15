@@ -9,8 +9,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { Output } from "ai";
 import { gc } from "bun";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { step } from "~/authoring/builder";
 import { Catalog, catalog } from "~/authoring/catalog";
 import { observe } from "~/authoring/observe";
@@ -23,6 +25,7 @@ import {
   inLoad,
   instanceRuntime,
   loadInto,
+  releaseEngine,
   setHost,
 } from "~/authoring/runtime";
 import { tasks } from "~/authoring/tasks";
@@ -543,6 +546,88 @@ describe("every place an engine calls an author's code", () => {
     });
   });
 
+  it("runs an agent's own callbacks in a turn a task started as that task's engine's work", async () => {
+    await using engines = await replacedEngines("turn-callbacks");
+    const { old } = engines;
+    const seen: unknown[] = [];
+    old.task({
+      name: "turn",
+      run: async (_input, context) => {
+        const session = await context.agents.session({
+          id: "prober",
+          kind: "agent",
+          // The mock models answer with the prompts: only the JSON below.
+          prompt: "",
+          settings: {
+            // The author's schema for the turn's answer, which the turn
+            // parses it with.
+            output: Output.object({
+              schema: z.object({ answer: z.number() }).refine(async () => {
+                seen.push(await reachedEngine());
+                return true;
+              }),
+            }),
+          },
+        });
+        // The mock models answer with the prompt: plain JSON here.
+        await session.generate('{"answer":1}');
+        return "turned";
+      },
+    });
+    expect(await old.run("turn", undefined)).toBe("turned");
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((each) => each === old)).toBe(true);
+  });
+
+  it("runs work one engine's step starts on another as that other engine's, not the step's", async () => {
+    await using engines = await replacedEngines("cross-engine");
+    const { next, old } = engines;
+    const seen: unknown[] = [];
+    next.task({
+      name: "probe",
+      run: async () => {
+        seen.push(activeContext() === next.context ? next : "not next's work");
+        seen.push(await reachedEngine());
+        return "task";
+      },
+    });
+    const leaf: StepRecord = { fn: () => "leaf", kind: "step", name: "leaf" };
+    next.define({
+      input: probingSchema(seen),
+      kind: "workflow",
+      name: "flow-on-next",
+      setup: async () => {
+        seen.push(await reachedEngine());
+        return {
+          children: [],
+          definition: leaf,
+          kind: "node",
+          literal: {},
+          mode: "series",
+          parsed: true,
+        };
+      },
+    });
+    old.define({
+      fn: async () => {
+        await next.run("probe", undefined);
+        await next.run("flow-on-next", undefined);
+        return "crossed";
+      },
+      kind: "step",
+      name: "cross",
+    });
+    expect(await old.run("cross", undefined)).toBe("crossed");
+    const which = (each: unknown) => {
+      if (each === next) {
+        return "next";
+      }
+      return each === old ? "old" : each;
+    };
+    // The task's context and engine, the workflow's input schema and setup.
+    expect(seen.map(which)).toEqual(["next", "next", "next", "next"]);
+  });
+
   it("refuses a load no engine took yet while two engines of its workspace are alive, rather than hand it to the one bound last", async () => {
     await using engines = await replacedEngines("two-alive");
     const loading = await load("two-alive", new Catalog());
@@ -568,6 +653,26 @@ describe("every place an engine calls an author's code", () => {
 });
 
 describe("what a disposed engine leaves behind", () => {
+  it("lets an engine go as its host releases it, though nothing is bound after it", async () => {
+    const workspace = "released-alone";
+    const engines: WeakRef<object>[] = [];
+    await (async () => {
+      const loaded = new Catalog();
+      await load(workspace, loaded);
+      const bound = engine(workspace);
+      setHost(bound, loaded);
+      bound.disposed = true;
+      // What a host does once its engine is disposed.
+      releaseEngine(bound);
+      engines.push(new WeakRef(bound));
+    })();
+    for (let each = 0; each < 4; each += 1) {
+      await new Promise((settle) => setTimeout(settle, 0));
+      gc(true);
+    }
+    expect(engines.filter((ref) => ref.deref() !== undefined)).toHaveLength(0);
+  });
+
   it("lets every disposed engine and its catalog go, however many loads came before, and refuses their loads' late calls", async () => {
     const workspace = "leak-probe";
     const engines: WeakRef<object>[] = [];

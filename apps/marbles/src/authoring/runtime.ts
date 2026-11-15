@@ -320,6 +320,18 @@ export function setHost(runtime: InstanceRuntime, declared?: Catalog): void {
 }
 
 /**
+ * A host disposed `runtime`: let go of it, its catalog and the loads it
+ * took now, rather than when the next engine is bound or load begins. An
+ * engine disposed by anything else is let go then.
+ */
+export function releaseEngine(runtime: InstanceRuntime): void {
+  if (!runtime.disposed) {
+    return;
+  }
+  sweep();
+}
+
+/**
  * This process is a host about to load a workspace's source: until it binds
  * that workspace's engine, the builtin `tasks` refuse every call that no
  * other hosted workspace answers.

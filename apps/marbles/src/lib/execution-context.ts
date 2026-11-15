@@ -34,13 +34,23 @@ export function inContext<T>(context: ExecutionContext, work: () => T): T {
 /**
  * Run `work` as `context` when there is one, else as it is: what an
  * engine does at each place it calls code an author wrote, so that code,
- * and everything it starts, runs as that engine's work.
+ * and everything it starts, runs as that engine's work. A run scope it
+ * inherits from another engine's run (one engine's step launching on
+ * another) is left, since the run scope's context comes first; one of the
+ * same engine (a dynamic child) is kept.
  */
 export function withinContext<T>(
   context: ExecutionContext | undefined,
   work: () => T
 ): T {
-  return context === undefined ? work() : inContext(context, work);
+  if (context === undefined) {
+    return work();
+  }
+  const inherited = current.getStore();
+  if (inherited !== undefined && inherited.bindings.context !== context) {
+    return current.exit(() => inContext(context, work));
+  }
+  return inContext(context, work);
 }
 
 /**

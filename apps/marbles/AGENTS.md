@@ -81,7 +81,8 @@ Five buckets, each importing only what sits below it:
   Each engine has an execution context (`lib/execution-context.ts`): its
   workspace id, where its work starts (`cwd`, the root by default) and the
   environment its commands inherit. Every place the engine calls code an
-  author wrote runs it as that context (`withinContext`): a step's whole
+  author wrote runs it as that context (`withinContext`, which leaves a
+  run scope inherited from another engine's run): a step's whole
   execution, schemas and body (`tree.ts`, `materialize`), its retry
   decision, a launch's input schema and a workflow's setup (`factoryFor`),
   a host task's body (`launcher.ts`), and each observer (`Delivery`);
@@ -235,7 +236,10 @@ Five buckets, each importing only what sits below it:
   engine is bound to the workspace after it, and is refused
   (`WorkspaceReleasedError`) once it is. A released binding keeps
   neither engine nor catalog, and the loads it took are dropped, only
-  their numbers kept so late calls from them are refused. Work without a
+  their numbers kept so late calls from them are refused; a host lets
+  its engine go as soon as it disposed it (`releaseEngine`), and any
+  other disposed engine is let go when the next engine is bound or load
+  begins. Work without a
   binding reaches an engine only while one engine alone is alive for the
   workspace: a load no engine has taken yet, or work naming nothing in a
   process hosting one workspace; with two alive it is refused

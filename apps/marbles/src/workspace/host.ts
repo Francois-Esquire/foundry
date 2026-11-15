@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { abandonHost } from "~/authoring/runtime";
+import { abandonHost, releaseEngine } from "~/authoring/runtime";
 import type { MarblesDatabase } from "~/database/open";
 import { openHostDatabase } from "~/database/workspaces";
 import type { Engine } from "~/lib/engine";
@@ -219,7 +219,11 @@ export async function hostWorkspace(
         status: () => status,
       });
     } catch (error) {
-      await engine.dispose();
+      try {
+        await engine.dispose();
+      } finally {
+        releaseEngine(engine);
+      }
       throw error;
     }
   } catch (error) {
@@ -396,6 +400,8 @@ function hosted(
       try {
         await engine.dispose();
       } finally {
+        // Nothing of it stays held here once it is disposed.
+        releaseEngine(engine);
         database?.close();
       }
     }
