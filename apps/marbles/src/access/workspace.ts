@@ -90,7 +90,7 @@ export async function joinProcess(): Promise<MarblesClient | undefined> {
  * is starting is about to host the tasks, so the command is refused rather
  * than going around it.
  */
-async function hostingWorker(
+async function hostingGeneration(
   id: string
 ): Promise<
   | { readonly client: MarblesClient; readonly workspace: WorkspaceConnection }
@@ -139,7 +139,7 @@ export async function withTasks<T>(
       `the state of workspace ${id} at ${dir} is not a directory inside ${state}`
     );
   }
-  const hosted = args.dry ? undefined : await hostingWorker(id);
+  const hosted = args.dry ? undefined : await hostingGeneration(id);
   if (hosted === undefined) {
     return withStoredTasks(args, opened, work);
   }

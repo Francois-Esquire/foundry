@@ -40,7 +40,7 @@ import { testHome } from "./helpers/home";
 import { readWorkspace, touchWorkspace } from "./helpers/registry";
 
 /**
- * The daemon runs here, under the test runner; the workers it spawns run
+ * The daemon runs here, under the test runner; the generations it spawns run
  * under Bun, as they always do. The state root sits in a short temp path:
  * a Unix socket path has about a hundred bytes to work with.
  */
@@ -238,14 +238,14 @@ describe("the Marbles process", () => {
     client.close();
   }, 60_000);
 
-  it("makes an attach during a reload wait for the fresh worker", async () => {
+  it("makes an attach during a reload wait for the next generation", async () => {
     const { machine, source } = fixture();
     writeFileSync(source, greeter("greet"));
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
     const first = await client.attach(source);
     const reloading = client.reload(first.id);
-    // Asked while the first worker drains: answered by the one after it.
+    // Asked while the reload runs: answered once the next generation is current.
     const attached = await client.attach(source);
     expect(attached.state).toBe("ready");
     expect(attached.pid).not.toBe(first.pid);
@@ -271,7 +271,7 @@ describe("the Marbles process", () => {
       },
       { interval: 50, timeout: 10_000 }
     );
-    // Long enough for the worker to register, well short of its import.
+    // Long enough for the generation to register, well short of its import.
     await sleep(1000);
     const reloaded = await client.reload(starting?.id ?? "");
     expect(reloaded.state).toBe("ready");
@@ -284,7 +284,7 @@ describe("the Marbles process", () => {
     client.close();
   }, 60_000);
 
-  it("stops at once a worker it spawned at boot that has not registered", async () => {
+  it("stops at once a generation it spawned at boot that has not registered", async () => {
     const { machine, source } = fixture();
     writeFileSync(source, greeter("greet"));
     const first = await daemonFor(machine);
@@ -293,7 +293,7 @@ describe("the Marbles process", () => {
     client.close();
     await first.close();
 
-    // Booting re-hosts the workspace; closing right away finds its worker unregistered.
+    // Booting re-hosts the workspace; closing right away finds its generation unregistered.
     const again = await daemonFor(machine);
     const began = Date.now();
     await again.close();
@@ -402,7 +402,7 @@ describe("the Marbles process", () => {
     if (!(kept && linked && dangling)) {
       throw new Error("the workspaces were not recorded");
     }
-    // A worker would write its runs and claim through these links.
+    // A generation would write its runs and claim through these links.
     const outside = join(home, "outside");
     mkdirSync(outside);
     symlinkSync(outside, linked.dir);

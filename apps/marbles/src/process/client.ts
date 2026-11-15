@@ -42,7 +42,7 @@ import { version } from "../../package.json";
  * state root says whether one is alive, the socket is how to reach it. A
  * workspace the client attaches is hosted from then on, dashboard open or
  * not. `workspace(id)` is the `WorkspaceConnection` a host is written
- * against, each call a request to the worker behind the daemon.
+ * against, each call a request the daemon routes to an engine generation.
  */
 
 export interface ConnectOptions {
@@ -68,7 +68,7 @@ export interface SubscriptionHandlers {
 
 export interface MarblesClient {
   /**
-   * Host `source`'s workspace; resolves once its worker is ready. With
+   * Host `source`'s workspace; resolves once its engine generation has it ready. With
    * `setup`, the starter the client just wrote gets its milestone posted.
    */
   attach(source: string, options?: AttachOptions): Promise<WorkspaceSummary>;
@@ -79,7 +79,7 @@ export interface MarblesClient {
   detach(id: string): Promise<void>;
   /** What the daemon said when the client connected. */
   readonly hello: HelloResult;
-  /** Drain the workspace's worker and start a fresh one. */
+  /** Start the next engine generation, which takes over once it has loaded every workspace. */
   reload(id: string): Promise<WorkspaceSummary>;
   /** Ask the daemon to stop; resolves once it has answered. */
   shutdown(): Promise<void>;
@@ -189,7 +189,7 @@ const START_TIMEOUT_MS = 15_000;
 /** How long a daemon gets to answer one of the requests `connect` makes itself. */
 const ANSWER_TIMEOUT_MS = 5000;
 /**
- * How long `stopProcess` waits by default: each worker gets the stop
+ * How long `stopProcess` waits by default: each engine generation gets the stop
  * timeout to answer and as long again to exit before the daemon kills it,
  * then the daemon itself winds down.
  */
@@ -430,7 +430,7 @@ async function stopOpened(
       "asking the Marbles process to stop"
     );
     onAgreed?.();
-    // It hangs up on its clients once its workers have drained.
+    // It hangs up on its clients once its engine generations have drained.
     await within(channel.closed, left(), "stopping the Marbles process");
   } finally {
     channel.close();
@@ -619,7 +619,7 @@ function remoteWorkspace(
       }
       const { code, message } = outcome.refusal;
       const refusal = new TaskError(code, "");
-      // The worker's message already carries the package's prefix.
+      // The generation's message already carries the package's prefix.
       refusal.message = message;
       throw refusal;
     },

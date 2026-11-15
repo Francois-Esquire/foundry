@@ -37,7 +37,7 @@ import { runTaskCommand } from "~/workspace/tasks";
  * One workspace, hosted in this process: its source loaded, its engine
  * built and started, and everything a host does with it behind the
  * `WorkspaceConnection` the dashboard, the CLI, and MCP are written
- * against. The Marbles process runs one of these per workspace in a worker;
+ * against. An engine generation of the Marbles process runs one of these per workspace;
  * a program that embeds Marbles for a single workspace runs it directly.
  */
 

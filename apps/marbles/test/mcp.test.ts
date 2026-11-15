@@ -877,7 +877,7 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
       name: "list_config",
     });
     expect(unknown.isError).toBe(true);
-    // Under --dry-run the server drives nothing, though a worker hosts the
+    // Under --dry-run the server drives nothing, though a generation hosts the
     // workspace: a dry dispatch never starts a real run.
     const dry = new Client({ name: "marbles-dry", version: "1.0.0" });
     const dryTransport = new RecordedStdioTransport({
@@ -916,7 +916,7 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
           await dry.callTool({ arguments: { runId }, name: "get_run" })
         ).isError
       ).toBe(true);
-      // Its tasks are its own, in memory, never the worker's.
+      // Its tasks are its own, in memory, never the generation's.
       const created = await dry.callTool({
         arguments: {
           operations: [

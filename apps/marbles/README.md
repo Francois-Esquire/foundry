@@ -264,9 +264,11 @@ loaded, it takes over at once: schedules and monitors carry on from where
 they were, by their key, and the runs waiting in a queue or parked on a
 question move to it. The previous generation starts nothing new; it
 finishes the runs it has running, whole, then exits, and with none it
-exits at once. Each schedule tick and each task change is handled by one
-generation only. A generation that dies has its runs put right by the next
-one's start, which the Marbles process starts for it. `marbles status`
+exits at once; a run of it that parks on a question meanwhile moves to the
+current generation as it parks, which answers it. Each schedule tick and
+each task change is handled by one generation only. A generation that dies
+is replaced after a pause that doubles from 1 second up to 30 while
+replacements keep failing, and the next one's start puts its runs right. `marbles status`
 lists the live generations.
 
 Everything Marbles keeps is under one Foundry home, `$FOUNDRY_HOME`, else

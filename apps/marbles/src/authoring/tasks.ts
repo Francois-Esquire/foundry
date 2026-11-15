@@ -9,7 +9,7 @@ import { observable, TASKS } from "~/lib/events/source";
  * The backlog Marbles creates for the process: what there is to do, what is
  * ready, what is done. A module imports it or not, and may `observe` it.
  *
- * Under a host (the worker the Marbles process runs for a workspace, or a
+ * Under a host (the engine generation the Marbles process runs for its workspaces, or a
  * program calling `hostWorkspace`) it is that workspace's tasks, kept with
  * the host's state, and every change it commits is delivered to the
  * workspace's observers. A host refuses them

@@ -67,7 +67,7 @@ function sessionTasks(flags: Flags, opened: OpenedWorkspace) {
  * Answer from stored state and the running Marbles process, joined per
  * call and never started. No source is loaded: tasks work for any recorded
  * workspace either way, and everything that runs or reads a run needs a
- * worker that hosts the workspace. Under `--dry-run` only this server's
+ * Marbles process that hosts the workspace. Under `--dry-run` only this server's
  * own workspace is addressable, its tasks are in memory, and no Marbles
  * process is joined, so nothing that runs or reads a run is served.
  */

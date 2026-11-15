@@ -270,8 +270,17 @@ Five buckets, each importing only what sits below it:
   tick, delivery or queued run starts there again, its queued runs are
   handed to the candidate and its parked runs let go) and finishes its
   running runs before it exits, and the candidate starts, taking over the
-  parked and queued work. Commands about a run go to the generation whose
-  process owns it. The rest is the wire protocol (`protocol.ts`,
+  parked and queued work. A run of a retired generation that parks later
+  is let go as it parks and taken over by the current one
+  (`Engine.adopt`, over `Orchestrator.adopt`); the retired one refuses
+  answers meanwhile. A generation that was current and died is replaced
+  after a bounded backoff, and only a candidate that does not load has its
+  fingerprint refused. The fingerprint digests each workspace's entries
+  and every file its last load read (`filesRead` in `workspace/copies.ts`).
+  Commands about a run go to the generation whose process owns it, answers
+  and activity stops to the one holding them, the rest to the current
+  one (the table beside `RUN_METHODS` in `daemon.ts`); every signal to a
+  generation first proves its pid and start. The rest is the wire protocol (`protocol.ts`,
   `channel.ts`); the client (`client.ts`), which joins the running daemon
   or starts one; and the claim (`instance.ts`). Apart from the generation
   it imports only `lib/`, `database/`, `layout.ts`, `model/` and the pure

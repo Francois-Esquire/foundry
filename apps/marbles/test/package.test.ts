@@ -428,8 +428,8 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       expect(readdirSync(state)).toContain("marbles.db");
       expect(status).toContain(consumer);
       // A task made through the generation that hosts the workspace.
-      expect(marbles(["tasks", "create", "Through the worker"])).toContain(
-        "Through the worker"
+      expect(marbles(["tasks", "create", "Through the generation"])).toContain(
+        "Through the generation"
       );
     } finally {
       expect(marbles(["stop"])).toContain("stopped Marbles process");
@@ -442,7 +442,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
           title: string;
         }[]
       ).map((task) => task.title);
-    expect(listedTasks(home.env)).toEqual(["Through the worker"]);
+    expect(listedTasks(home.env)).toEqual(["Through the generation"]);
     // With no Marbles process and no database yet, a task change makes and
     // migrates it from the installed migrations; a listing reads it back.
     const tasksHome = testHome();

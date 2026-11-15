@@ -283,7 +283,7 @@ export interface EngineOptions {
    * Where the processes this one belongs to record the children they
    * start (`MARBLES_SPAWN_RECOVERY`), so a start stops what one that is
    * gone left running (`lib/crash-recovery.ts`). The Marbles process hands
-   * its workers one; without it no child is stopped.
+   * its engine generations one; without it no child is stopped.
    */
   readonly spawned?: string;
   /**

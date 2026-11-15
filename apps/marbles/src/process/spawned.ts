@@ -1,6 +1,6 @@
 /**
  * The background-process records Marbles writes where `MARBLES_SPAWN_RECORD`
- * points: the daemon a client starts, each worker the daemon starts, the
+ * points: the daemon a client starts, each engine generation the daemon starts, the
  * server `marbles mcp` relays, and what its steps and agents start. The
  * recorder and its contract are `@foundry/lib/spawn-record`, which the
  * packages Marbles uses share.
