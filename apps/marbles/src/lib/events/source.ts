@@ -4,6 +4,7 @@ import type { SandboxEvent } from "@foundry/sandbox/store";
 import type { TaskEvent } from "@foundry/tasks";
 import type { RunEvent } from "@foundry/workflows/schema";
 import type { WorkspaceEvent } from "@foundry/workspaces/schema";
+import type { ArtifactShareEvent } from "~/lib/resources";
 
 /**
  * Sources: what emits the change facts a workspace's observers receive.
@@ -65,8 +66,9 @@ export function sourceKey(source: symbol): string | undefined {
 export const TASKS: Source<TaskEvent> = defineSource("tasks");
 /** Every change to a workflow Run: `run.queued`, `run.started`, ... */
 export const RUNS: Source<RunEvent> = defineSource("runs");
-/** Every change to an artifact: `artifact.created`, ... */
-export const ARTIFACTS: Source<ArtifactEvent> = defineSource("artifacts");
+/** Every change to an artifact: `artifact.created`, ... and, from Marbles, `artifact.shared` and `artifact.unshared`. */
+export const ARTIFACTS: Source<ArtifactEvent | ArtifactShareEvent> =
+  defineSource("artifacts");
 /** Every change to a sandbox's container: `sandbox.created`, ... */
 export const SANDBOXES: Source<SandboxEvent> = defineSource("sandboxes");
 /** Every change to an agent session: `session.created`, ... */

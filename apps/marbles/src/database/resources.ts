@@ -14,6 +14,7 @@ import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { and, eq, inArray } from "drizzle-orm";
 import { DatabaseAssociationStore } from "~/database/associations";
 import { asBusy } from "~/database/busy";
+import { ChangeRecorder } from "~/database/changes";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { rowOwner } from "~/database/owner";
@@ -21,6 +22,7 @@ import { DatabaseSessionStore } from "~/database/sessions";
 import { marblesWorkflowRuns } from "~/database/tables";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
+import { ARTIFACTS, sourceKey } from "~/lib/events/source";
 import type {
   AssociationTransaction,
   ResourceAssociation,
@@ -583,9 +585,21 @@ function associationUnit(
       has: (ref) => view.has(ref),
       registered: async (id) => (await registry.read(id)) !== undefined,
     },
-    store: new DatabaseAssociationStore({ database }),
+    store: new DatabaseAssociationStore({
+      database,
+      // A share's fact goes in its owner's log, in the share's transaction.
+      onCommit: async (transaction, write) => {
+        for (const { fact, owner } of write.events ?? []) {
+          await new ChangeRecorder(owner).record(transaction, ARTIFACTS_KEY, [
+            fact,
+          ]);
+        }
+      },
+    }),
   };
 }
+
+const ARTIFACTS_KEY = sourceKey(ARTIFACTS) ?? "artifacts";
 
 /**
  * Run `work` on the view `scope` of the Marbles database at the state root

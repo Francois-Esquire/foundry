@@ -2,6 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import { marblesResourceWorkspaces } from "~/database/tables";
+import type { StoreTransaction } from "~/database/transaction";
 import type {
   AssociationStore,
   AssociationStoreWrite,
@@ -13,6 +14,11 @@ import type {
 export interface DatabaseAssociationStoreOptions {
   /** The database or one of its transactions; the host opens and closes it. */
   readonly database: StoreDatabase;
+  /** Runs in the commit's transaction, after its statements: where the write's facts are recorded. */
+  readonly onCommit?: (
+    transaction: StoreTransaction,
+    write: AssociationStoreWrite
+  ) => Promise<void>;
 }
 
 /**
@@ -24,14 +30,21 @@ export interface DatabaseAssociationStoreOptions {
  */
 export class DatabaseAssociationStore implements AssociationStore {
   readonly #database: StoreDatabase;
+  readonly #onCommit: DatabaseAssociationStoreOptions["onCommit"];
 
   constructor(options: DatabaseAssociationStoreOptions) {
     this.#database = options.database;
+    this.#onCommit = options.onCommit;
   }
 
   commit(write: AssociationStoreWrite): Promise<void> {
     const removals = [...(write.remove ?? [])];
     const additions = [...(write.put ?? [])];
+    const taken: AssociationStoreWrite = {
+      events: [...(write.events ?? [])],
+      put: additions,
+      remove: removals,
+    };
     return asBusy(() =>
       this.#database.transaction(async (tx) => {
         for (const { ref, workspace } of removals) {
@@ -58,6 +71,7 @@ export class DatabaseAssociationStore implements AssociationStore {
             })
             .onConflictDoNothing();
         }
+        await this.#onCommit?.(tx, taken);
       })
     );
   }

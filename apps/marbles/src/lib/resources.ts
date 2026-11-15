@@ -57,8 +57,27 @@ export interface ResourceAssociation {
   readonly workspace: string;
 }
 
-/** One atomic write: the removals, then the additions. */
+/**
+ * That an artifact is now shown in another workspace as well
+ * (`artifact.shared`), or no longer (`artifact.unshared`): a fact of the
+ * owner's artifacts, which only the owner's observers see, naming the
+ * other workspace.
+ */
+export interface ArtifactShareEvent {
+  readonly artifactId: string;
+  readonly at: string;
+  readonly id: string;
+  readonly type: "artifact.shared" | "artifact.unshared";
+  /** The other workspace. */
+  readonly workspace: string;
+}
+
+/** One atomic write: the removals, then the additions, and the facts they make, by the owner whose log they go in. */
 export interface AssociationStoreWrite {
+  readonly events?: readonly {
+    readonly fact: ArtifactShareEvent;
+    readonly owner: string;
+  }[];
   readonly put?: readonly ResourceAssociation[];
   readonly remove?: readonly Pick<ResourceAssociation, "ref" | "workspace">[];
 }
@@ -148,8 +167,10 @@ export class ResourceAssociations {
       if ((await sharedWithIn(store, ref)).includes(workspace)) {
         return false;
       }
+      const at = this.#now().toISOString();
       await store.commit({
-        put: [{ associatedAt: this.#now().toISOString(), ref, workspace }],
+        ...this.#facts(ref, workspace, "artifact.shared", at),
+        put: [{ associatedAt: at, ref, workspace }],
       });
       return true;
     });
@@ -167,7 +188,15 @@ export class ResourceAssociations {
       if (!(await sharedWithIn(store, ref)).includes(workspace)) {
         return false;
       }
-      await store.commit({ remove: [{ ref, workspace }] });
+      await store.commit({
+        ...this.#facts(
+          ref,
+          workspace,
+          "artifact.unshared",
+          this.#now().toISOString()
+        ),
+        remove: [{ ref, workspace }],
+      });
       return true;
     });
   }
@@ -176,6 +205,31 @@ export class ResourceAssociations {
   sharedWith(ref: ResourceRef): Promise<readonly string[]> {
     // One statement: a read sees one state, and takes no write lock.
     return this.#read(({ store }) => sharedWithIn(store, ref));
+  }
+
+  /** The fact a share or unshare of an artifact makes, for its owner's log; none for another kind. */
+  #facts(
+    ref: ResourceRef,
+    workspace: string,
+    type: ArtifactShareEvent["type"],
+    at: string
+  ): Pick<AssociationStoreWrite, "events"> {
+    return ref.kind === "artifact"
+      ? {
+          events: [
+            {
+              fact: {
+                artifactId: ref.id,
+                at,
+                id: crypto.randomUUID(),
+                type,
+                workspace,
+              },
+              owner: ref.owner,
+            },
+          ],
+        }
+      : {};
   }
 
   #refuseOwner(ref: ResourceRef, workspace: string, verb: string): void {

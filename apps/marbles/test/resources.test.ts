@@ -7,6 +7,7 @@ import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import { ExecutionCoordinator } from "@foundry/workflows";
 import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
+import { inArray } from "drizzle-orm";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import type { StoreDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
@@ -20,7 +21,7 @@ import {
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { workspaceStores } from "~/database/stores";
-import { marblesWorkflowRuns } from "~/database/tables";
+import { marblesChanges, marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { ResourceRef } from "~/lib/resources";
 import {
@@ -430,6 +431,58 @@ describe("the resource views", () => {
       expect(transactions).toBe(0);
       await associations.share(artifact, "ws2");
       expect(transactions).toBe(1);
+    } finally {
+      opened.close();
+    }
+  });
+
+  it("record an artifact's share and unshare in its owner's change log alone, naming the other workspace", async () => {
+    const { artifact, state } = await machine();
+    const opened = await initializeDatabase(stateDatabase(state));
+    try {
+      const { database } = opened;
+      const associations = resourceAssociations(database, state);
+      await associations.share(artifact, "ws2");
+      await associations.unshare(artifact, "ws2");
+      // A run's share is no artifact fact.
+      await associations.share(
+        { id: "rn-1", kind: "run", owner: "ws1" },
+        "ws2"
+      );
+      const facts = await database
+        .select({
+          payload: marblesChanges.payload,
+          scope: marblesChanges.scope,
+          source: marblesChanges.source,
+          type: marblesChanges.type,
+        })
+        .from(marblesChanges)
+        .where(
+          inArray(marblesChanges.type, ["artifact.shared", "artifact.unshared"])
+        )
+        .orderBy(marblesChanges.position);
+      expect(facts).toEqual([
+        {
+          payload: expect.objectContaining({
+            artifactId: artifact.id,
+            type: "artifact.shared",
+            workspace: "ws2",
+          }),
+          scope: "ws1",
+          source: "artifacts",
+          type: "artifact.shared",
+        },
+        {
+          payload: expect.objectContaining({
+            artifactId: artifact.id,
+            type: "artifact.unshared",
+            workspace: "ws2",
+          }),
+          scope: "ws1",
+          source: "artifacts",
+          type: "artifact.unshared",
+        },
+      ]);
     } finally {
       opened.close();
     }
