@@ -121,6 +121,36 @@ it("takes back the rows a gone process held, with their VMs, and keeps those a l
   await next.shutdown();
 });
 
+it("leaves a VM a live container records though it carries a gone one's id, and names it in the report", async () => {
+  const { ours, recovery, runtime, stores, theirs } = await fixture();
+  const left = await theirs.start(SPEC);
+  const mine = ours();
+  const held = await mine.start(SPEC);
+  const vm = `${left.id}-1`;
+  const heldRow = await stores.containers.get(held.id);
+  if (heldRow === undefined) {
+    throw new Error("no row");
+  }
+  // The live container's row records the VM labelled with the gone one's id.
+  await stores.containers.commit({
+    putContainers: [{ ...heldRow, nativeId: vm }],
+  });
+
+  const { report } = await recovery(ours(), []).recover(RUNS);
+
+  expect(report.steps.find((step) => step.step === "containers")).toEqual({
+    detail: `0 container(s) removed, 0 VM(s) swept; 1 container(s) whose VM would not go kept, removing, for the next start to retry; the VM(s) ${vm} carry the id of one but another container records them, so they were left alone`,
+    outcome: "failed",
+    step: "containers",
+  });
+  expect(runtime.instances.find((i) => i.id === vm)?.removed).toBe(false);
+  expect(await stores.containers.get(held.id)).toMatchObject({
+    nativeId: vm,
+  });
+  await held.close().catch(() => undefined);
+  await mine.shutdown().catch(() => undefined);
+});
+
 it("reports a row whose VM would not go as failed, keeps it, and the next start removes it", async () => {
   const { ours, recovery, runtime, stores, theirs } = await fixture();
   const left = await theirs.start(SPEC);

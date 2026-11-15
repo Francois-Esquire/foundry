@@ -67,7 +67,9 @@ export interface Containers {
    * registry, its VMs removed (every one labelled with its id), and the
    * row deleted only once the runtime lists none of them, so a deleted
    * row leaves no VM behind; one whose VM would not go stays `removing`,
-   * listed in `kept`, for a later recovery to take over and retry. Then
+   * listed in `kept`, for a later recovery to take over and retry; so does
+   * one with a VM labelled with its id that another row records, which is
+   * left alone and named in `conflicts`. Then
    * every VM with this instance's labels and no row is swept. A row live
    * here, or being opened or removed here, is never offered.
    */
@@ -108,7 +110,8 @@ export interface Containers {
     signal?: AbortSignal
   ): Promise<Container>;
   /**
-   * Stop and remove every VM carrying this instance's labels but no row, and
+   * Stop and remove every VM carrying this instance's labels but no row
+   * (neither one its id label names nor one recording its native name), and
    * every VM this registry booted or set out to remove but could not remove.
    * Returns the native names swept.
    */
@@ -118,9 +121,11 @@ export interface Containers {
 /**
  * What `recover` took back: the rows it removed, the rows it claimed but
  * whose VM would not go (kept, `removing`, to retry), and the native names
- * it swept.
+ * it swept. `conflicts` names the VMs labelled with a claimed row's id that
+ * another row records as its own: left alone, their claimed rows kept.
  */
 export interface ContainerRecovery {
+  readonly conflicts: readonly string[];
   readonly kept: readonly string[];
   readonly removed: readonly string[];
   readonly swept: readonly string[];
@@ -547,35 +552,66 @@ export function createContainers(options: CreateContainersOptions): Containers {
     });
 
   /**
-   * A claimed row's VMs removed and the row deleted; whether both went.
-   * Every VM the runtime lists labelled with the row's id goes first, not
-   * only the one its native name names: an `open` commits the next native
-   * name before it removes the VM under the last, so a process that died
-   * between the two left that VM under the row. Once the row is deleted,
-   * no VM of it is left for a start to find, so none needs a sweep after
-   * it. Each is stopped first only if it runs, as `sweep` does; one a stop
-   * or remove failed on goes once the inventory no longer lists it. An
+   * A claimed row's VMs removed and the row deleted: whether both went,
+   * and the VMs it would not touch. Every VM the runtime lists labelled
+   * with the row's id goes first, not only the one its native name names:
+   * an `open` commits the next native name before it removes the VM under
+   * the last, so a process that died between the two left that VM under
+   * the row. Once the row is deleted, no VM of it is left for a start to
+   * find, so none needs a sweep after it. A label is only a hint, though:
+   * a VM whose native name another row records is that row's, so it is
+   * left alone, named in `conflicts`, and the row kept to retry. Each VM
+   * is stopped first only if it runs, as `sweep` does; one a stop or
+   * remove failed on goes once the inventory no longer lists it. An
    * inventory that cannot be read keeps the row, to retry.
    */
-  const removeClaimed = async (row: ContainerRow): Promise<boolean> => {
+  const removeClaimed = async (
+    row: ContainerRow
+  ): Promise<{
+    readonly conflicts: readonly string[];
+    readonly removed: boolean;
+  }> => {
     let resources: readonly ContainerResourceSummary[];
+    let recorded: ReadonlyMap<string, string>;
     try {
       resources = await enumerate(runtime, selection, undefined);
+      recorded = await recordedNames(row.id);
     } catch {
-      return false;
+      return { conflicts: [], removed: false };
     }
+    const conflicts: string[] = [];
+    let removed = true;
     for (const resource of resources) {
       if (
-        (resource.labels[CONTAINER_ID_LABEL] === row.id ||
-          resource.name === row.nativeId) &&
-        !(await disposeListed(resource))
+        resource.labels[CONTAINER_ID_LABEL] !== row.id &&
+        resource.name !== row.nativeId
       ) {
-        return false;
+        continue;
+      }
+      if (recorded.has(resource.name)) {
+        conflicts.push(resource.name);
+      } else if (!(await disposeListed(resource))) {
+        removed = false;
       }
     }
+    if (conflicts.length > 0 || !removed) {
+      return { conflicts, removed: false };
+    }
     await deleteHeld(row.id);
-    return true;
+    return { conflicts, removed: true };
   };
+
+  /** Every native name a row other than `except` records, with the row that does. */
+  const recordedNames = async (
+    except?: string
+  ): Promise<ReadonlyMap<string, string>> =>
+    new Map(
+      (await store.list()).flatMap((stored) =>
+        stored.id === except || stored.nativeId === undefined
+          ? []
+          : [[stored.nativeId, stored.id] as const]
+      )
+    );
 
   /** Remove a VM the inventory listed: whether the runtime no longer lists it. */
   const disposeListed = async (
@@ -645,6 +681,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
       assertOpen();
       const removed: string[] = [];
       const kept: string[] = [];
+      const conflicts: string[] = [];
       for (const row of await store.list()) {
         assertNotAborted(signal, "container recovery was cancelled");
         const { id } = row;
@@ -661,7 +698,9 @@ export function createContainers(options: CreateContainersOptions): Containers {
         try {
           const claimed = await claimForRemoval(id, row);
           if (claimed !== undefined) {
-            ((await removeClaimed(claimed)) ? removed : kept).push(id);
+            const taken = await removeClaimed(claimed);
+            (taken.removed ? removed : kept).push(id);
+            conflicts.push(...taken.conflicts);
           }
         } finally {
           removing.delete(id);
@@ -669,6 +708,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
       }
       const swept = await containers.sweep(signal);
       return Object.freeze({
+        conflicts: Object.freeze(conflicts),
         kept: Object.freeze(kept),
         removed: Object.freeze(removed),
         swept,
@@ -696,7 +736,14 @@ export function createContainers(options: CreateContainersOptions): Containers {
             `container ${id} does not exist`
           );
         }
-        if (!(await removeClaimed(claimed))) {
+        const taken = await removeClaimed(claimed);
+        if (taken.conflicts.length > 0) {
+          throw new SandboxError(
+            "invalid-contract",
+            `container ${id}: the VM(s) ${taken.conflicts.join(", ")} carry its id but another row records them; left alone, the row is kept, removing`
+          );
+        }
+        if (!taken.removed) {
           throw new SandboxError(
             "provider-failed",
             `container ${id}: its VM ${String(claimed.nativeId)} could not be removed; the row is kept to retry`
@@ -789,9 +836,11 @@ export function createContainers(options: CreateContainersOptions): Containers {
     async sweep(signal) {
       assertOpen();
       const { removed: swept, resources } = await reclaim(signal);
+      // A VM a row records is that row's, whatever its label says.
+      const recorded = await recordedNames();
       for (const resource of resources) {
         assertNotAborted(signal, "container sweep was cancelled");
-        if (swept.includes(resource.name)) {
+        if (swept.includes(resource.name) || recorded.has(resource.name)) {
           continue;
         }
         const id = resource.labels[CONTAINER_ID_LABEL];

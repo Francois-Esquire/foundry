@@ -221,19 +221,25 @@ export class CrashRecovery {
       return done(0, "container(s) removed");
     }
     const containers = await this.#options.containers();
-    const { kept, removed, swept } = await containers.recover(leftBehind);
+    const { conflicts, kept, removed, swept } =
+      await containers.recover(leftBehind);
     const did = `${String(removed.length)} container(s) removed, ${String(swept.length)} VM(s) swept`;
-    return kept.length === 0
-      ? {
-          acted: removed.length + swept.length > 0,
-          detail: did,
-          outcome: "done",
-        }
-      : {
-          acted: true,
-          detail: `${did}; ${String(kept.length)} container(s) whose VM would not go kept, removing, for the next start to retry`,
-          outcome: "failed",
-        };
+    if (kept.length === 0) {
+      return {
+        acted: removed.length + swept.length > 0,
+        detail: did,
+        outcome: "done",
+      };
+    }
+    const conflicting =
+      conflicts.length === 0
+        ? ""
+        : `; the VM(s) ${conflicts.join(", ")} carry the id of one but another container records them, so they were left alone`;
+    return {
+      acted: true,
+      detail: `${did}; ${String(kept.length)} container(s) whose VM would not go kept, removing, for the next start to retry${conflicting}`,
+      outcome: "failed",
+    };
   }
 
   /** Whether a run has ended: its Execution Run settled, or none is kept. */

@@ -496,6 +496,7 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
 
     expect(asked).toEqual([running.id, vanished.id]);
     expect(recovered).toEqual({
+      conflicts: [],
       kept: [],
       removed: [running.id, vanished.id],
       swept: [`${unrowed.id}-1`],
@@ -508,6 +509,7 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
 
     // Again: nothing a gone process left is there any more.
     expect(await next.recover(() => true)).toEqual({
+      conflicts: [],
       kept: [],
       removed: [],
       swept: [],
@@ -597,6 +599,61 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     await next.shutdown();
   });
 
+  it("never removes a VM another row records, whatever its label says: the row is kept, removing, and the conflict named", async () => {
+    const runtime = createFakeContainerRuntime();
+    const store = newStore();
+    const gone = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const left = await gone.start(SPEC);
+    const other = await gone.start(SPEC);
+    const vm = `${left.id}-1`;
+    const leftRow = await store.get(left.id);
+    const otherRow = await store.get(other.id);
+    if (leftRow === undefined || otherRow === undefined) {
+      throw new Error("no rows");
+    }
+    // The labels and the rows disagree: the VM labelled `left`'s is the
+    // one another row, held by a live registry, records as its own.
+    await store.commit({
+      putContainers: [
+        { ...leftRow, nativeId: `${left.id}-2` },
+        { ...otherRow, holder: "alive", nativeId: vm, status: "running" },
+      ],
+    });
+
+    const next = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const recovered = await next.recover((row) => row.id === left.id);
+
+    expect(recovered).toEqual({
+      conflicts: [vm],
+      kept: [left.id],
+      removed: [],
+      swept: [],
+    });
+    const instance = runtime.instances.find((i) => i.id === vm);
+    expect(instance?.removed).toBe(false);
+    expect(instance?.stopped).toBe(false);
+    expect(await store.get(left.id)).toMatchObject({ status: "removing" });
+    expect(await store.get(other.id)).toMatchObject({
+      nativeId: vm,
+      status: "running",
+    });
+    await expect(next.remove(left.id)).rejects.toThrow(vm);
+
+    // With `left`'s row gone, the sweep leaves it too: a row records it.
+    await store.commit({ deleteContainers: [left.id] });
+    expect(await next.sweep()).not.toContain(vm);
+    expect(instance?.removed).toBe(false);
+    await next.shutdown();
+  });
+
   it("keeps the row of a VM a recovery could not remove, removing, and the next recovery takes it over and removes it", async () => {
     const runtime = createFakeContainerRuntime();
     const store = newStore();
@@ -621,6 +678,7 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
       store,
     });
     expect(await first.recover(() => true)).toEqual({
+      conflicts: [],
       kept: [left.id],
       removed: [],
       swept: [],
@@ -636,6 +694,7 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
       store,
     });
     expect(await second.recover(() => true)).toEqual({
+      conflicts: [],
       kept: [],
       removed: [left.id],
       swept: [],
@@ -681,7 +740,12 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     const opened = await winner.open(row.id);
     go();
 
-    expect(await recovery).toEqual({ kept: [], removed: [], swept: [] });
+    expect(await recovery).toEqual({
+      conflicts: [],
+      kept: [],
+      removed: [],
+      swept: [],
+    });
     const live = runtime.instances.at(-1);
     expect(live?.removed).toBe(false);
     expect(await store.get(row.id)).toMatchObject({ status: "running" });
