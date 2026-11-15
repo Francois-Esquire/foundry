@@ -103,7 +103,7 @@ export interface Fingerprint {
 type Registration = Pick<WorkspaceRecord, "config" | "id" | "root">;
 
 /** Whether `file` is under `root`. */
-export function isUnder(root: string, file: string): boolean {
+function isUnder(root: string, file: string): boolean {
   const path = relative(root, file);
   return path !== "" && !path.startsWith("..") && !path.startsWith(sep);
 }

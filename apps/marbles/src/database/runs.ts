@@ -51,7 +51,7 @@ import { filedRuns, removalOf } from "~/lib/run-store";
  */
 
 /** A change to a Run this engine no longer holds: another took it over, or it was let go. */
-export class RunMovedError extends Error {
+class RunMovedError extends Error {
   override readonly name = "RunMovedError";
 
   constructor(runId: string) {
