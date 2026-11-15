@@ -36,7 +36,7 @@ export interface LinksReport {
   readonly kept: readonly string[];
   /** Links made. */
   readonly linked: number;
-  /** Files with no one blob file to link to. */
+  /** Files left unlinked: no one blob file holds their bytes, or their path would leave the links directory. */
   readonly unlinkable: number;
 }
 
@@ -71,7 +71,13 @@ export async function rebuildLinks(
   for (const { ref } of await view.artifacts()) {
     const blobs = artifactBlobs(artifacts, ref.owner);
     const base = join(dir, encodeURIComponent(ref.id));
-    for (const file of await view.artifactFiles(ref)) {
+    const files = await view.artifactFiles(ref);
+    // An id of `.` or `..` would name no directory of its own.
+    if (dirname(base) !== dir) {
+      unlinkable += files.length;
+      continue;
+    }
+    for (const file of files) {
       if (file.blob === null) {
         unlinkable += 1;
         continue;

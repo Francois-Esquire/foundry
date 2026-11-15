@@ -131,7 +131,7 @@ function reportLines(root: string, report: LinksReport | undefined): string[] {
     return [`${dir}: no Marbles database yet, nothing to link`];
   }
   return [
-    `${dir}: ${String(report.linked)} linked${report.unlinkable === 0 ? "" : `, ${String(report.unlinkable)} kept in the database with no file to link`}`,
+    `${dir}: ${String(report.linked)} linked${report.unlinkable === 0 ? "" : `, ${String(report.unlinkable)} left unlinked (no one blob file holds it)`}`,
     ...report.kept.map((path) => `  ${path}: not a link, left as it is`),
   ];
 }

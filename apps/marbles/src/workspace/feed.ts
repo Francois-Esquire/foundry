@@ -20,8 +20,9 @@ import type { ResourceAssociation } from "~/lib/resources";
  * with it, and "all workspaces" shows everything once.
  *
  * Another workspace's entries are read only: an answer goes to this
- * workspace's engine, which holds only its own. When they cannot be read,
- * the workspace's own entries are shown alone.
+ * workspace's engine, which holds only its own. They are read again at
+ * most every two seconds, and, when they cannot be read, the workspace's
+ * own entries are shown alone.
  */
 
 export interface WorkspaceFeedOptions {
@@ -35,6 +36,12 @@ export interface WorkspaceFeedOptions {
   /** This workspace's id. */
   readonly workspace: string;
 }
+
+/**
+ * How long what was read of the other workspaces is shown before it is
+ * read again: the dashboard polls far more often than they change.
+ */
+const ELSEWHERE_MS = 2000;
 
 export function workspaceFeed(options: WorkspaceFeedOptions): FeedReader {
   const { artifacts, database, own, state, workspace } = options;
@@ -65,17 +72,32 @@ export function workspaceFeed(options: WorkspaceFeedOptions): FeedReader {
     }
     return entries;
   };
+  /** What was last read of the other workspaces, and when. */
+  let last:
+    | {
+        readonly at: number;
+        readonly others: readonly FeedEntrySnapshot[];
+        readonly shared: readonly ResourceAssociation[];
+      }
+    | undefined;
+  const elsewhereAndShared = async (now: Date) => {
+    if (last === undefined || now.getTime() - last.at >= ELSEWHERE_MS) {
+      try {
+        last = {
+          at: now.getTime(),
+          others: await asBusy(() => elsewhere(now)),
+          shared: await asBusy(() => associations.list("artifact")),
+        };
+      } catch {
+        // Another workspace's entries are extra: this one's still show.
+        last = { at: now.getTime(), others: [], shared: [] };
+      }
+    }
+    return last;
+  };
   return async (now = new Date()) => {
     const mine = await own(now);
-    let others: FeedEntrySnapshot[] = [];
-    let shared: readonly ResourceAssociation[] = [];
-    try {
-      others = await asBusy(() => elsewhere(now));
-      shared = await associations.list("artifact");
-    } catch {
-      // Another workspace's entries are extra: this one's still show.
-      others = [];
-    }
+    const { others, shared } = await elsewhereAndShared(now);
     return [...mine, ...others]
       .map((entry) => withWorkspaces(entry, shared))
       .sort((a, b) => b.postedAt.localeCompare(a.postedAt));

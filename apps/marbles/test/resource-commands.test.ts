@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ArtifactManager } from "@foundry/artifacts";
+import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { describe, expect, it } from "vitest";
@@ -160,6 +160,30 @@ describe("the resource commands", () => {
       `${dir}: 2 linked`,
       "  .marbles/artifacts/mine.txt: not a link, left as it is",
     ]);
+  });
+
+  it("link nothing outside the artifacts directory, whatever an artifact's id", async () => {
+    const { artifacts, context, one, state } = await machine();
+    const opened = await initializeDatabase(stateDatabase(state));
+    await new ArtifactManager({
+      files: blobFiles(artifactBlobs(artifacts, one.id)),
+      store: new SqliteArtifactStore({
+        database: opened.database,
+        scope: one.id,
+      }),
+    }).create({
+      entries: { "escape.md": { bytes: "# Out\n", mime: "text/markdown" } },
+      id: artifactIdSchema.parse(".."),
+      name: "dots",
+      type: "text/markdown",
+    });
+    opened.close();
+    const { context: here, lines } = context(one);
+    await relink(false, here);
+    expect(existsSync(join(workspaceLinks(one.root), "escape.md"))).toBe(false);
+    expect(lines[0]).toBe(
+      `${resourceLinks(one.root, "artifact")}: 2 linked, 1 left unlinked (no one blob file holds it)`
+    );
   });
 
   it("refuse a links directory that is a link, and a resource this workspace does not show", async () => {
