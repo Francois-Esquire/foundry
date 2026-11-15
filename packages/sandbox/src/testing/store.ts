@@ -167,19 +167,6 @@ export function describeContainerStore(
 
       expect(await target.list()).toEqual([row("c1")]);
     });
-
-    it("refuses whole a write whose events cannot be copied", async () => {
-      const target = await store();
-      const unplain = {
-        ...event("sandbox.created", "c1"),
-        at: () => AT,
-      } as unknown as SandboxEvent;
-
-      await expect(
-        target.commit({ events: [unplain], putContainers: [row("c1")] })
-      ).rejects.toThrow();
-      expect(await target.list()).toEqual([]);
-    });
   });
 
   if (recording !== undefined) {
@@ -597,6 +584,20 @@ function describeRecordedEvents(
       await pending;
 
       expect(await recorded()).toEqual([event("sandbox.created", "c1")]);
+    });
+
+    it("refuses whole a write whose events cannot be copied", async () => {
+      const { recorded, store } = await recorder();
+      const unplain = {
+        ...event("sandbox.created", "c1"),
+        at: () => AT,
+      } as unknown as SandboxEvent;
+
+      await expect(
+        store.commit({ events: [unplain], putContainers: [row("c1")] })
+      ).rejects.toThrow();
+      expect(await store.list()).toEqual([]);
+      expect(await recorded()).toEqual([]);
     });
 
     it("records nothing for a write it refuses", async () => {

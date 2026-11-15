@@ -142,20 +142,6 @@ function describeEvents(open: Open): void {
       expect(await store.getWorkspace(workspace.id)).toEqual(workspace);
       expect(await store.listEntries(workspace.id)).toEqual([docs]);
     });
-
-    test("a write whose events cannot be copied is refused whole", async () => {
-      const store = (await open())(SCOPE);
-      const workspace = hostWorkspace({ path: newRoot("events") });
-      const unplain = {
-        ...createdEvent(workspace.id),
-        at: () => AT,
-      } as unknown as WorkspaceEvent;
-
-      await expect(
-        store.commit({ events: [unplain], workspace })
-      ).rejects.toThrow();
-      expect(await store.getWorkspace(workspace.id)).toBeNull();
-    });
   });
 }
 
@@ -196,6 +182,21 @@ function describeRecordedEvents(
       await pending;
 
       expect(await recorded()).toEqual([createdEvent(workspace.id)]);
+    });
+
+    test("a write whose events cannot be copied is refused whole", async () => {
+      const { recorded, store } = await recorder();
+      const workspace = hostWorkspace({ path: newRoot("events") });
+      const unplain = {
+        ...createdEvent(workspace.id),
+        at: () => AT,
+      } as unknown as WorkspaceEvent;
+
+      await expect(
+        store.commit({ events: [unplain], workspace })
+      ).rejects.toThrow();
+      expect(await store.getWorkspace(workspace.id)).toBeNull();
+      expect(await recorded()).toEqual([]);
     });
 
     test("a write the store refuses records nothing", async () => {

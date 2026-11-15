@@ -56,19 +56,6 @@ export function describeSessionStore(
         message("m1", "s", 1),
       ]);
     });
-
-    it("refuses whole a write whose event it could not hand on intact", async () => {
-      const store = await fresh();
-      const unplain = {
-        ...created("s"),
-        at: () => "now",
-      } as unknown as SessionChangeEvent;
-
-      await expect(
-        store.commit({ events: [unplain], putSessions: [session("s")] })
-      ).rejects.toThrow();
-      await expect(store.getSession("s")).resolves.toBeNull();
-    });
   });
 
   if (recording !== undefined) {
@@ -931,6 +918,20 @@ function describeRecordedEvents(
       await pending;
 
       await expect(recorded()).resolves.toStrictEqual([appended("s", ["m1"])]);
+    });
+
+    it("refuses whole a write whose event it could not hand on intact", async () => {
+      const { recorded, store } = await recorder();
+      const unplain = {
+        ...created("s"),
+        at: () => "now",
+      } as unknown as SessionChangeEvent;
+
+      await expect(
+        store.commit({ events: [unplain], putSessions: [session("s")] })
+      ).rejects.toThrow();
+      await expect(store.getSession("s")).resolves.toBeNull();
+      await expect(recorded()).resolves.toStrictEqual([]);
     });
 
     it("records nothing for a write it refuses", async () => {
