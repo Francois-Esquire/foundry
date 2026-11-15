@@ -295,7 +295,9 @@ export class ProviderConfiguration {
         throw this.#invalidContent(read, error, revision);
       }
       this.#move(read, { kind: "unreachable", message: messageOf(error) });
-      this.#accounted.add(error as object);
+      if (error instanceof Object) {
+        this.#accounted.add(error);
+      }
       throw error;
     }
     this.#move(read, { kind: "succeeded" });

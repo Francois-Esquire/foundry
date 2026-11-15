@@ -8,6 +8,7 @@
 import { withWorkspaceDatabase } from "~/database/managed";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine as LibEngine } from "~/lib/engine";
+import { inTurn } from "~/lib/in-turn";
 
 /**
  * The engine, keeping the workspace's tasks, workflow and Execution Runs,
@@ -41,12 +42,12 @@ export class Engine extends LibEngine {
     return this.#disposing;
   }
 
-  async #dispose(): Promise<void> {
-    try {
-      await super.dispose();
-    } finally {
-      await this.#release();
-    }
+  #dispose(): Promise<void> {
+    return inTurn(
+      () => super.dispose(),
+      () => this.#release(),
+      "Failed to dispose the engine and give up its database"
+    );
   }
 }
 
