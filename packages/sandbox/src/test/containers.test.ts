@@ -14,6 +14,7 @@ import {
 import type { ContainerSandboxConstraints } from "../container/constraints";
 import { createContainers } from "../container/containers";
 import type { ContainerRow } from "../schema";
+import { sandboxEventSchema } from "../schema";
 import type { ContainerStore, ContainerStoreWrite } from "../store/index";
 import { createMemoryContainerStore } from "../store/memory";
 import { createSqliteContainerStore } from "../store/sqlite";
@@ -875,8 +876,12 @@ describe.each(STORES)("containers registry events over %s", (_name, open) => {
       "failed",
       "failed",
     ]);
-    const ids = writes.flatMap((write) => write.events ?? []).map((e) => e.id);
+    const emitted = writes.flatMap((write) => write.events ?? []);
+    const ids = emitted.map((e) => e.id);
     expect(new Set(ids).size).toBe(ids.length);
+    for (const event of emitted) {
+      expect(sandboxEventSchema.parse(event)).toStrictEqual(event);
+    }
   });
 
   it("carries sandbox.destroyed in the delete, and none when another registry deleted the row first", async () => {

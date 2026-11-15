@@ -12,9 +12,10 @@ import type {
 export interface SessionStoreWrite {
   /**
    * What the write changes, as `Sessions` records it, in order. A store
-   * keeps none of them: it takes them with the rest of the write, refuses
-   * them as it refuses any value it could not hand back intact, and passes
-   * them on to a host hook (`SqliteSessionStore`'s `onCommit`) unchanged.
+   * keeps none of them. One with a host hook (`SqliteSessionStore`'s
+   * `onCommit`) takes them with the rest of the write, refuses one it could
+   * not hand on intact, and passes them to the hook unchanged; the stores
+   * here both refuse an event they cannot copy.
    */
   readonly events?: readonly SessionChangeEvent[];
   readonly putMessages?: readonly SessionMessage[];

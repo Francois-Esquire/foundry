@@ -300,12 +300,13 @@ interface SessionStoreWrite {
 Each write `Sessions` makes that changes what a reader of a session sees
 carries the events that say so, in `events`, so a host can record them in
 the same transaction as the change (`SqliteSessionStore`'s `onCommit`).
-`Sessions` builds them; a store keeps none, refuses one it could not hand on
-intact as it refuses any other value, and hands them to `onCommit` unchanged
-and in order. The schema is `sessionChangeEventSchema` in
+`Sessions` builds them. A store keeps none; one with a host hook takes them
+with the write, refuses one it could not hand on intact, and hands them to
+the hook unchanged and in order. Both stores here refuse an event they
+cannot copy. The schema is `sessionChangeEventSchema` in
 `@foundry/agents/schema`; the type is `SessionChangeEvent`, also exported from
 `@foundry/agents/session`. Every event has `type`, `id` (unique to it, made
-once per call, so work a store runs again keeps it), `at` (an ISO time, the
+once per call, before its transaction, so work a store runs again keeps it), `at` (an ISO time, the
 stamp of the record it changed) and `sessionId`:
 
 | `type`                      | Emitted by                                                | Also carries |

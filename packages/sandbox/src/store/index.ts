@@ -14,9 +14,10 @@ export interface ContainerStoreWrite {
   readonly deleteContainers?: readonly string[];
   /**
    * What the write changes, as the registry records it, in order. A store
-   * keeps none of them: it takes them with the rest of the write, refuses
-   * them as it refuses any value it cannot copy, and passes them on to a
-   * host hook (`createSqliteContainerStore`'s `onCommit`) unchanged.
+   * keeps none of them. One with a host hook (`createSqliteContainerStore`'s
+   * `onCommit`) takes them with the rest of the write, refuses one it
+   * cannot copy, and passes them to the hook unchanged; both stores here
+   * take them in their one clone of the write.
    */
   readonly events?: readonly SandboxEvent[];
   /** Whole rows to keep, each replacing any row with the same id. */

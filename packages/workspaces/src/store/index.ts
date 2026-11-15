@@ -65,9 +65,10 @@ export interface WorkspaceSave {
   readonly deleteEntries?: readonly WorkspaceEntryId[];
   /**
    * What the write changes, as the catalog records it, in order. A store
-   * keeps none of them: it takes them with the rest of the write, refuses
-   * them as it refuses any value it cannot copy, and passes them on to a
-   * host hook (`SqliteWorkspaceStore`'s `onCommit`) unchanged.
+   * keeps none of them. One with a host hook (`SqliteWorkspaceStore`'s
+   * `onCommit`) takes them with the rest of the write, refuses one it
+   * cannot copy, and passes them to the hook unchanged; both stores here
+   * take them in their one clone of the write.
    */
   readonly events?: readonly WorkspaceEvent[];
   readonly putEntries?: readonly WorkspaceEntry[];

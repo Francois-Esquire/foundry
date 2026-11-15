@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { sessionChangeEventSchema } from "../../schema";
 import type {
   CreateMessageInput,
   SummarizeInput,
@@ -1036,6 +1037,7 @@ describe("Sessions change events", () => {
     expect(new Set(ids).size).toBe(ids.length);
     for (const event of writes.flatMap((write) => write.events ?? [])) {
       expect(event.at).toMatch(ISO);
+      expect(sessionChangeEventSchema.parse(event)).toStrictEqual(event);
     }
   });
 

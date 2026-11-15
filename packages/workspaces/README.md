@@ -130,12 +130,13 @@ clone refuses, such as one holding a function, rejects and writes nothing.
 Each write the catalog makes that changes a Workspace carries the events that
 say so, in `events` on the write, so a host can record them in the same
 transaction as the change (`SqliteWorkspaceStore`'s `onCommit`). The catalog
-builds them; a store keeps none, refuses one its clone refuses, and hands
-them to `onCommit` unchanged and in order. The schema is
+builds them. A store keeps none; one with a host hook takes them with the
+write, refuses one it cannot copy, and hands them to the hook unchanged and
+in order. Both stores here take them in their one clone of the write. The schema is
 `workspaceEventSchema` on `@foundry/workspaces/schema`; the type,
 `WorkspaceEvent`, is exported from the package root too. Every event has
-`type`, `id` (unique to it, made once per catalog call, so work a store runs
-again keeps it), `at` (an ISO time) and `workspaceId`:
+`type`, `id` (unique to it, made once per catalog call, before its transaction),
+`at` (an ISO time) and `workspaceId`:
 
 | `type`                      | Emitted by                                                     | Also carries                  |
 | --------------------------- | -------------------------------------------------------------- | ----------------------------- |

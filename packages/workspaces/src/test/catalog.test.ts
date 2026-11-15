@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { WorkspaceCatalog } from "../catalog";
+import { workspaceEventSchema } from "../schema";
 import type { WorkspaceStore } from "../store";
 import { MemoryWorkspaceStore } from "../store/memory";
 import {
@@ -611,6 +612,9 @@ describe("WorkspaceCatalog change events", () => {
       .flat()
       .map((event) => event.id);
     expect(new Set(ids).size).toBe(4);
+    for (const event of events().flat()) {
+      expect(workspaceEventSchema.parse(event)).toEqual(event);
+    }
   });
 
   test("a write that changes neither the name nor any entry carries none", async () => {
