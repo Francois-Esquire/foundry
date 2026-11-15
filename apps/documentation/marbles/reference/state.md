@@ -73,11 +73,14 @@ session's own.
 
 ### Record writes
 
-JSON snapshot records are written to a temporary name and renamed, so a
-concurrent reader never sees a half-written snapshot. Output journals are
-append-only. Lock files are created in place
-(below). Run files are `version: 2`; the other
-Marbles-owned records are `version: 1`. Version 1 run files still load. The persisted `config` field keeps
+Records in the Marbles database are written in transactions, so a
+concurrent reader never sees half of one. What a record holds as JSON is
+kept as JSON gives it back: `-0` reads back as `0`, a property holding
+`undefined` is left out, and a value JSON would not give back as it is
+(NaN, an infinity, `undefined` in an array, a function) is refused.
+Output journals are append-only. Lock files are created in place
+(below). Run files and JSON records an earlier Marbles wrote are not
+read. The persisted `config` field keeps
 its existing spelling and records the authoring folder or single-module path.
 A workspace is recorded in the database when it is attached to the Marbles
 process (`run`, `roll`, the dashboard, or the MCP server), which sets
@@ -229,7 +232,7 @@ execution can still finish even when its output cannot be saved.
 
 ### Run records
 
-The `marbles` field in a run file contains:
+What Marbles keeps beside each Run (`marbles_workflow_runs`) contains:
 
 - **ledger**: what each step opened, by step path and call position. The
   session a step's first `agents.session` returned, the sandbox its first
@@ -304,42 +307,53 @@ provenance from their data. CLI harnesses report explicit refusal outcomes.
 
 ## What survives a restart
 
-Run files are written when a run settles, when a step parks on a question or
-a pause, and again when it is answered, so the file always says whether the
-run is waiting or working.
+Every change to a workflow Run is committed to the Marbles database as it
+is made, with what the run's scope recorded (its ledger, each node's
+literal input, its session) and the engine that owns it. Its Execution Run
+is written as it changes, and a park or a resume lands in the same commit
+as the Run's own, so the database always says whether a run is waiting or
+working.
 
-When the engine starts it reads every run file. A settled run always loads,
-as history. Adopting a parked run requires all of these conditions:
+When the engine starts it lists the settled Runs as history. Adopting a
+parked Run requires all of these conditions:
 
 - The process can answer questions. A worker of the Marbles process always
   can: the question waits on the Feed for a dashboard. A `--dry-run` host
   persists nothing and adopts nothing.
 - The definition is still registered.
-- The previous process is gone.
-- `locks/run-<runId>` is free.
+- The engine wins the claim on the Run. The claim is one database
+  transaction that reads the Run and its Execution Run and takes the Run's
+  owner: it is won only while the Run is still stored parked, its
+  Execution Run has not settled (a run cancelled after its process exited
+  stays cancelled), and no live engine owns it. A canceller takes the
+  same claim before it settles a run, so a settle lands before an
+  adoption's claim or not at all.
 
-Adoption rewrites the file with the new pid and holds the lock until the
-run settles or the process stops, so two workers never both resume one run.
-The run parks again, its question stays open on the feed, and the answer
-replays the body against the recorded sessions and artifacts. A worker
-starts when its workspace is attached, when the Marbles process starts and
-finds the workspace `hosted`, and after a source edit, which drains the
-worker first: running runs finish there, and parked runs stay for the fresh
-worker to adopt.
+An adopted Run stays this engine's until it settles or the engine stops,
+so two workers never both resume one run. A stop gives up the claim and
+leaves the Run parked for the next engine. The run parks again, its
+question stays open on the feed, and the answer replays the body against
+the recorded sessions and artifacts. A worker starts when its workspace is
+attached, when the Marbles process starts and finds the workspace
+`hosted`, and after a source edit, which drains the worker first: running
+runs finish there, and parked runs stay for the fresh worker to adopt.
 
-A run that was queued or running when its process died is skipped with a
-warning. Nothing picks a run up mid-body. Its Execution Run is reconciled
-with its run file: a file that settled settles the record the same way, a
-file left parked keeps the record `suspended` for a process that can adopt
-it, and a file written mid-flight marks the record `interrupted`. A parked
-run adopted without an Execution Run, one saved before they existed, gets
-one when it is adopted. Results already in a saved
-snapshot remain on disk, but newer progress may not have been persisted;
-finishing a child alone does not checkpoint the whole run. `status` marks
-such a saved run as orphaned. A new launch does not reuse its step results.
+A Run left queued or running by a process that died is never run again at
+start: nothing picks a run up mid-body. Its Execution Run is reconciled
+with the Run as it is stored, in a transaction of its own, so two starting
+engines never take one over twice: a Run that settled settles the record
+the same way, one left parked keeps the record `suspended` for a process
+that can adopt it, and one left running marks the record `interrupted`.
+A queued Execution Run that never became a Run stays queued, unless the
+host asks to let such runs in again (`recoverQueued`), in their original
+order. A parked Run adopted without an Execution Run, one parked before
+they existed, gets one when it is adopted. Results already committed stay
+in the database, but a step that had not finished is not resumed; `status`
+marks a Run whose owner exited while it ran as orphaned. A new launch does
+not reuse its step results.
 
-An invalid run file is skipped with a warning and costs only that run. If the
-files disagree with each other, the engine warns and starts empty.
+A stored record that cannot be read is skipped with a warning and costs
+only that run.
 
 ## Scheduling and overlap
 
@@ -353,8 +367,8 @@ evaluated in machine-local time.
 
 A tick claims its trigger in the database before it runs. If another process holds it,
 `roll <key>` prints `skipped: held by <holder>` and exits successfully.
-`roll <definition-name>` takes no lock. Two schedules with different keys
-have different locks even when they target the same workflow.
+`roll <definition-name>` takes no claim. Two schedules with different keys
+have different claims even when they target the same workflow.
 
 ### Lock ownership and repair
 
