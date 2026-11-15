@@ -96,7 +96,11 @@ Five buckets, each importing only what sits below it:
   each change they commit (`marbles_task_changes`), written by the store's
   `onCommit` hook on the transaction it is handed, so a change and its row
   commit together. That hook is the seam for anything else that records
-  task changes. Every writer handle goes through `guard.ts`, which
+  task changes. `sessions.ts` is a workspace's agent sessions the same
+  way: the package's `SqliteSessionStore` scoped by the workspace id, whose
+  `onCommit` hook raises each session's row in `marbles_session_revisions`,
+  the listing usage recovery, `marbles sessions` and `status` read;
+  nothing reads the package's tables directly. Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no worker opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
@@ -114,6 +118,11 @@ Five buckets, each importing only what sits below it:
   become dynamic children in that run. `createEngine` in `src/create.ts`
   is the one place the Marbles defaults and `--dry-run` are decided; it
   builds the instances, constructs the engine, and copies the catalog in.
+  Given the host's `database`, it keeps the tasks and sessions there;
+  given only a state dir, the engine opens one handle of its own for both
+  (`openWorkspaceDatabase` in `database/managed.ts`) and closes it after
+  everything else it holds, since its agents may write a session after its
+  records close.
 - `src/workspace/` hosts one workspace in the process it runs in: source
   discovery (`source.ts`), the Varlock environment (`env.ts`), module
   loading and the engine builder (`open.ts`), the schedule loop

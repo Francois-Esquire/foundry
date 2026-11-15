@@ -73,8 +73,6 @@ workspace this machine has run, and says which of them the process hosts.
   locks/process           pid of the worker the Marbles process hosts this
                           workspace in, or of a program hosting it itself
   process.json            what that process is: pid, host "worker", source, start time
-  sessions/<id>.json      agent conversations
-  sessions/.lock          pid of the process changing sessions
   agent-grants.json       tool grants approved for future runs, by agent id
   agent-grants.json.lock  pid of the process changing grants; never taken over,
                           so remove it by hand if its process is gone
@@ -100,8 +98,7 @@ JSON snapshot records are written to a temporary name and renamed, so a
 concurrent reader never sees a half-written snapshot. Output journals are
 append-only. Lock files are created in place
 (below). Run files are `version: 2`; the other
-Marbles-owned records are `version: 1`. Session files use the session store's
-own format. Version 1 run files still load. The persisted `config` field keeps
+Marbles-owned records are `version: 1`. Version 1 run files still load. The persisted `config` field keeps
 its existing spelling and records the authoring folder or single-module path.
 A workspace is recorded in the database when it is attached to the Marbles
 process (`run`, `roll`, the dashboard, or the MCP server), which sets
@@ -182,6 +179,38 @@ written: a title, description, id, or time holding U+0000, or a lone
 surrogate (not well-formed UTF-16). The error names the field. Metadata and
 tags are JSON and keep such characters.
 
+### Sessions
+
+A workspace's agent sessions live in the Marbles database, scoped by the
+workspace id: the `@foundry/agents` session tables, and Marbles' own
+`marbles_session_revisions`, one row per session with a revision that every
+change to the session raises, written in the same transaction. Usage
+recovery, `marbles sessions` and `status` list a workspace's sessions
+through it. Detaching a workspace keeps them. A `sessions/` directory left
+in a workspace's directory by an earlier Marbles is ignored, not imported,
+and left as it is, like `tasks.json`: its sessions are not listed, a
+session a parked run or a host recorded before is not found, as if its
+file had been removed, and usage recovery counts one that a run or a usage
+record still names as an unreadable usage record.
+
+Any number of processes write a workspace's sessions at once. A change is
+one transaction that takes the database's write lock for its whole
+read-check-write, so two processes appending to one session keep both
+messages, and a change that fails writes nothing, however many sessions it
+touches. Creating a session under an id that already exists returns the
+existing one. `marbles sessions` and `status` read the database read-only,
+and without one find no sessions and create nothing. Under `--dry-run`
+sessions are in memory and nothing is written.
+
+Text the database cannot give back intact is refused before anything is
+written: an id, role, status or title holding U+0000, or a lone surrogate.
+The error names the field. A message's parts and metadata are JSON and
+keep such characters.
+
+Known limits: nothing prunes sessions or their revisions, so a workspace's
+sessions stay in the database after its directory or checkout is deleted,
+and after it is detached. Each turn reads its session's whole history.
+
 ### Run output
 
 `output/<runId>.jsonl` is the stream read by
@@ -209,19 +238,6 @@ file and output journal together. The CLI has no automatic retention policy.
 `--dry-run` and other in-memory engines write no journal. Runs saved before this feature have no
 output history to reconstruct. A failed journal write warns the owner;
 execution can still finish even when its output cannot be saved.
-
-### Session writes
-
-Session files are read again for every operation, and each change is a
-read-change-write under `sessions/.lock`, so two processes appending to one
-session keep both messages. A change staged by a transaction is written only
-once the transaction succeeds; one that fails writes nothing. A change to one
-session file is one atomic replacement. A change to several is written file
-by file, each atomically, so a crash part way through can leave some files
-written. That limit ends when sessions move to the Marbles database. A session file that cannot be read is skipped
-with a warning and never overwritten; changing that session fails until the
-file is repaired or removed. Creating a session under an id that already
-exists returns the existing one.
 
 ### Run records
 
@@ -350,7 +366,7 @@ have different locks even when they target the same workflow.
 
 ### Lock ownership and repair
 
-Every lock under `locks/`, and each session's `<id>.json.lock`, is a file
+Every lock under `locks/` is a file
 created exclusively with mode `0o600` that holds the owner's pid:
 
 - A lock whose pid has exited is broken by one process at a time. That
@@ -369,11 +385,7 @@ A tick or edit that finds `locks/<name>` held does not wait. It reports the
 holder: `pid N`; `a process that is taking it now; retry` for a fresh empty
 lock; `pid N, which has exited (if no process is taking the lock over,
 remove <path>.break)` when a `.break` is in the way; or `an unknown process
-(if none is running, remove <path>)` for a file that is neither. A session
-write waits up to 10 seconds for `<id>.json.lock`, then fails with
-`[json-session-store] session <id> is locked by process N. If no Marbles
-process is using it, remove <path> (and <path>.break, if present) and
-retry.`
+(if none is running, remove <path>)` for a file that is neither.
 
 ### Monitor observations and delivery
 
