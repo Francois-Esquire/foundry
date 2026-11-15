@@ -3,7 +3,14 @@ import { dirname, extname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { JavaScriptLoader, PluginBuilder } from "bun";
 import { JSONC, resolveSync, TOML, YAML } from "bun";
-import type { parseSync } from "oxc-parser";
+import type {
+  ExportAllDeclaration,
+  ExportNamedDeclaration,
+  ImportDeclaration,
+  Program,
+  parseSync,
+  Visitor,
+} from "oxc-parser";
 import { copyOf, copyPath, newLoad, sourcePath } from "~/authoring/load-tag";
 
 /**
@@ -45,10 +52,6 @@ import { copyOf, copyPath, newLoad, sourcePath } from "~/authoring/load-tag";
  */
 
 const COPY = /\?marbles-load=\d+(?:&format=\w+)?$/;
-/** An import's `with { type: … }` (or `assert`), right after its specifier. */
-const ATTRIBUTE = /^\s*(?:with|assert)\s*\{\s*type\s*:\s*["']([\w-]+)["']/;
-/** A dynamic import given options after its specifier. */
-const OPTIONS = /^\s*,/;
 /** A specifier that names a file by its path, not a package by its name. */
 const BY_PATH = /^(?:\.{1,2}\/|\/|file:)/;
 /**
@@ -97,6 +100,7 @@ const PARSERS: Readonly<Record<DataFormat, (text: string) => unknown>> = {
   yaml: (text) => YAML.parse(text),
 };
 let parse: typeof parseSync | undefined;
+let visitor: typeof Visitor | undefined;
 
 /**
  * `oxc-parser`, loaded at the first load: a missing native binding is that
@@ -106,7 +110,7 @@ let parse: typeof parseSync | undefined;
 async function parser(): Promise<typeof parseSync> {
   if (parse === undefined) {
     try {
-      ({ parseSync: parse } = await import("oxc-parser"));
+      ({ parseSync: parse, Visitor: visitor } = await import("oxc-parser"));
     } catch (error) {
       throw new Error(
         `Marbles reads a workspace's source with oxc-parser, and its native binding for ${process.platform}-${process.arch} could not be loaded: ${error instanceof Error ? error.message : String(error)}. Reinstall @foundry.sh/marbles with optional dependencies included, or install @oxc-parser/binding-wasm32-wasi and set NAPI_RS_FORCE_WASI=1`,
@@ -277,17 +281,53 @@ function specifierEdit(
     : { end: span.end, start: span.start, text: JSON.stringify(copy) };
 }
 
+/** What an import says beyond its specifier, by where its specifier starts. */
+interface ImportSyntax {
+  /** The `type` each static import or re-export's attributes ask for. */
+  readonly types: ReadonlyMap<number, string>;
+  /** Each dynamic import given options after its specifier. */
+  readonly withOptions: ReadonlySet<number>;
+}
+
+/** Read from the parsed syntax, so comments and line breaks anywhere change nothing. */
+function importSyntax(walker: typeof Visitor, program: Program): ImportSyntax {
+  const types = new Map<number, string>();
+  const withOptions = new Set<number>();
+  const attributed = (
+    node: ImportDeclaration | ExportNamedDeclaration | ExportAllDeclaration
+  ) => {
+    const type = node.attributes.find(
+      ({ key }) => (key.type === "Identifier" ? key.name : key.value) === "type"
+    );
+    if (node.source !== null && type !== undefined) {
+      types.set(node.source.start, type.value.value);
+    }
+  };
+  new walker({
+    ExportAllDeclaration: attributed,
+    ExportNamedDeclaration: attributed,
+    ImportDeclaration: attributed,
+    ImportExpression: (node) => {
+      if (node.options !== null) {
+        withOptions.add(node.source.start);
+      }
+    },
+  }).visit(program);
+  return { types, withOptions };
+}
+
 /** Every edit that points `file`'s imports at load `load`'s copies. */
 function importEdits(file: string, text: string, load: number): Edit[] {
-  if (parse === undefined) {
+  if (parse === undefined || visitor === undefined) {
     throw new Error(`${file} is a copy of a load that has not started`);
   }
-  const { errors, module } = parse(file, text);
+  const { errors, module, program } = parse(file, text);
   const [error] = errors;
   if (error !== undefined) {
     // Loaded unrewritten, it would reach stale modules: the load fails.
     throw new SyntaxError(`${file} does not parse: ${error.message}`);
   }
+  const syntax = importSyntax(visitor, program);
   const requests = [
     ...module.staticImports.map((entry) => entry.moduleRequest),
     ...module.staticExports.flatMap((entry) =>
@@ -303,7 +343,7 @@ function importEdits(file: string, text: string, load: number): Edit[] {
       continue;
     }
     seen.add(request.start);
-    const type = ATTRIBUTE.exec(text.slice(request.end))?.[1];
+    const type = syntax.types.get(request.start);
     const edit = specifierEdit(file, load, request, request.value, type);
     if (edit !== undefined) {
       edits.push(edit);
@@ -313,7 +353,7 @@ function importEdits(file: string, text: string, load: number): Edit[] {
     const argument = call.moduleRequest;
     const value = literal(text.slice(argument.start, argument.end));
     // Given options (a `type`, say), it goes through `importFrom`, which reads them.
-    if (value !== undefined && !OPTIONS.test(text.slice(argument.end))) {
+    if (value !== undefined && !syntax.withOptions.has(argument.start)) {
       const edit = specifierEdit(file, load, argument, value);
       if (edit !== undefined) {
         edits.push(edit);
