@@ -79,10 +79,10 @@ const CHANGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const COMPACTION_EVERY_MS = 10 * 60 * 1000;
 
 /** How long, in ms, a handler call may run before it counts as failed: five minutes. */
-export const HANDLER_TIMEOUT_MS = 5 * 60 * 1000;
+const HANDLER_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** How long, in ms, `stop` waits for the handler calls in flight: ten seconds. */
-export const STOP_GRACE_MS = 10 * 1000;
+const STOP_GRACE_MS = 10 * 1000;
 
 /** The longest a failing observer waits to be tried again, in ms. */
 const LONGEST_RETRY_MS = 5 * 60 * 1000;
