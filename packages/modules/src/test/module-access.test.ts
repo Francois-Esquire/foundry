@@ -220,6 +220,40 @@ describe("Module access", () => {
       expect(invocations.revoke).not.toHaveBeenCalled();
     });
 
+    it("cancels every Grant a carry-over dropped, though one cancellation fails", async () => {
+      const { accessOver, installation, invocations, store } = await approved();
+      const second = {
+        capability: "host.news.read",
+        constraintsDigest: "news",
+        version: 1,
+      };
+      const held = await store.loadGatewayContext(installationId);
+      await store.replaceInstallationGrants({
+        expectedGeneration: installation.generation,
+        grants: [...(held?.grants ?? []), second],
+        installationId,
+        now: new Date(0),
+      });
+      invocations.revoke.mockImplementationOnce(() => {
+        throw new Error("cancellation failed");
+      });
+
+      await expect(
+        accessOver(store).carryOver({
+          expectedGeneration: installation.generation,
+          installationId,
+          requests: [],
+        })
+      ).rejects.toThrow("cancellation failed");
+
+      expect((await store.loadGatewayContext(installationId))?.grants).toEqual(
+        []
+      );
+      expect(
+        invocations.revoke.mock.calls.map(([call]) => call.capability)
+      ).toEqual([second.capability, WEATHER].sort());
+    });
+
     it.each(["revoke", "carryOver"] as const)(
       "%s cancels once its own transaction has committed",
       async (operation) => {

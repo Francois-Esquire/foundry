@@ -7,7 +7,7 @@ import {
   ModuleStoreConflictError,
   ModuleStoreNotFoundError,
 } from "../../errors";
-import type { ModuleRegistry } from "../../registry";
+import type { InstallationGrant, ModuleRegistry } from "../../registry";
 
 /**
  * The rules every `ModuleRegistry` keeps, whatever store it runs over. The
@@ -104,6 +104,54 @@ export function describeModuleRegistry(
           id: harness.installation.id,
           moduleId: harness.installation.version.moduleId,
         });
+      } finally {
+        await harness.dispose?.();
+      }
+    });
+
+    it("takes nested input when a command is called: a manifest, a Grant set and its time", async () => {
+      const harness = await createHarness();
+      try {
+        const { version } = harness.installation;
+        await harness.store.createInstallation(harness.installation);
+        const entered = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        const holding = harness.store.transaction(async () => {
+          entered.resolve();
+          await release.promise;
+        });
+        await entered.promise;
+
+        const manifest = structuredClone(version.manifest) as {
+          views: Record<string, unknown>;
+        };
+        const retaining = harness.store.retainManifest({
+          contentId: version.contentId,
+          manifest: manifest as unknown as typeof version.manifest,
+          module: { artifactId: version.artifactId, id: version.moduleId },
+        });
+        const grants: Omit<InstallationGrant, "createdAt">[] = [{ ...FETCH }];
+        const now = new Date(T(5));
+        const replacing = harness.store.replaceInstallationGrants({
+          expectedGeneration: 0,
+          grants,
+          installationId: harness.installation.id,
+          now,
+        });
+        manifest.views = { changed: { path: "/changed" } };
+        Object.assign(grants[0] as object, { capability: "changed" });
+        grants.push({ ...FILES });
+        now.setTime(0);
+        release.resolve();
+        await Promise.all([holding, retaining, replacing]);
+
+        expect(
+          await harness.store.loadRetainedManifest(version.contentId)
+        ).toEqual(version.manifest);
+        expect(
+          (await harness.store.loadGatewayContext(harness.installation.id))
+            ?.grants
+        ).toEqual([{ ...FETCH, createdAt: T(5) }]);
       } finally {
         await harness.dispose?.();
       }

@@ -14,7 +14,7 @@ import {
   parseModuleManifestSourceText,
 } from "./manifest";
 import { page } from "./page";
-import type { ModuleRegistry } from "./registry";
+import type { ModuleCommands } from "./registry";
 
 /** Where a built Content carries its manifest. */
 export const MODULE_CONTENT_MANIFEST_PATH = `source/${MODULE_MANIFEST_SOURCE_PATH}`;
@@ -44,7 +44,7 @@ export interface ModuleVersions {
 
 export function createModuleVersions(options: {
   readonly artifacts: ModuleVersionArtifacts;
-  readonly store: Pick<ModuleRegistry, "loadModule" | "loadRetainedManifest">;
+  readonly store: Pick<ModuleCommands, "loadModule" | "loadRetainedManifest">;
 }): ModuleVersions {
   const load: ModuleVersions["load"] = async ({ moduleId, contentId }) => {
     const module = await options.store.loadModule(moduleId);
@@ -121,7 +121,7 @@ export async function embeddedManifest(
 export async function pruneRetainedManifests(options: {
   readonly artifacts: Pick<Artifacts, "readFile">;
   readonly store: Pick<
-    ModuleRegistry,
+    ModuleCommands,
     "listRetainedManifests" | "dropRetainedManifest"
   >;
 }): Promise<void> {

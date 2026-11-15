@@ -6,7 +6,7 @@ import type {
   ModuleRuntimeIdentity,
 } from "../gateway/types";
 import type { ActivationPreflight } from "../preflight";
-import type { ModuleRegistry } from "../registry";
+import type { ModuleCommands } from "../registry";
 import type {
   ModuleSettingsHostPolicy,
   ModuleSettingValues,
@@ -78,7 +78,7 @@ export interface CreateModuleInstallationsOptions {
     "selectVersion" | "activate" | "stop"
   >;
   readonly providers: readonly ModuleCapabilityProvider[];
-  readonly store: ModuleRegistry;
+  readonly store: ModuleCommands;
 }
 
 export function createModuleInstallations(

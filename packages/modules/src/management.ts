@@ -15,8 +15,8 @@ import type { ModuleProgramSupervisor } from "./platform/contracts";
 import type { ModuleProjects } from "./projects";
 import { createModuleProjects } from "./projects";
 import type {
+  ModuleCommands,
   ModuleGatewayContext,
-  ModuleRegistry,
   ModuleRegistryUnit,
 } from "./registry";
 import { createModuleVersions } from "./version";
@@ -85,7 +85,7 @@ export function ensureInstallation(input: {
 
 export function createModuleManagement(options: {
   readonly artifacts: Artifacts;
-  readonly store: ModuleRegistry;
+  readonly store: ModuleCommands;
   readonly programs: Pick<ModuleProgramSupervisor, "selectVersion" | "delete">;
   readonly now?: () => Date;
   readonly createInstallationId?: () => InstallationId;

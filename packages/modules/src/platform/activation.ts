@@ -8,7 +8,7 @@ import {
   type ActivationPreflight,
   preflightModuleActivation,
 } from "../preflight";
-import type { ModuleRegistry } from "../registry";
+import type { ModuleCommands } from "../registry";
 import {
   type ModuleSettingsHostPolicy,
   type ModuleSettingValues,
@@ -43,7 +43,7 @@ export class ModuleActivationRefusedError extends Error {
 export async function validateModuleActivation(
   input: ModuleActivationInput,
   options: {
-    readonly store: Pick<ModuleRegistry, "loadGatewayContext">;
+    readonly store: Pick<ModuleCommands, "loadGatewayContext">;
     readonly providers: readonly ModuleCapabilityProvider[];
   }
 ): Promise<ActivationPreflight> {

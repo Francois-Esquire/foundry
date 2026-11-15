@@ -221,3 +221,84 @@ for (const run of RUNS) {
     });
   });
 }
+
+/** `store` without `transaction`: a registry over it serializes its own commands. */
+function withoutTransaction(store: ModuleStore): ModuleStore {
+  return {
+    commit: (write) => store.commit(write),
+    getInstallation: (id) => store.getInstallation(id),
+    getManifest: (contentId) => store.getManifest(contentId),
+    getModule: (id) => store.getModule(id),
+    listInstallations: (query) => store.listInstallations(query),
+    listManifests: (query) => store.listManifests(query),
+    listModules: (query) => store.listModules(query),
+  };
+}
+
+describe("ModuleRegistry over a store without transaction", () => {
+  async function registered() {
+    const { artifact, content } = await moduleFixture();
+    const module = defineModule({
+      artifact,
+      id: moduleIdSchema.parse("module-1"),
+    });
+    const version = defineModuleVersion({
+      artifact,
+      content,
+      manifest: VALID_MANIFEST,
+      module,
+    });
+    const registry = new ModuleRegistry({
+      store: withoutTransaction(new MemoryModuleStore()),
+    });
+    await registry.registerModule({ module });
+    return { registry, version };
+  }
+
+  it("runs one command at a time, so two cannot both pass a check", async () => {
+    const { registry, version } = await registered();
+    const input = {
+      id: installationIdSchema.parse("shared"),
+      now: new Date("2026-08-08T00:00:00.000Z"),
+      version,
+    };
+
+    const results = await Promise.allSettled([
+      registry.createInstallation(input),
+      registry.createInstallation(input),
+    ]);
+
+    expect(results.map((result) => result.status)).toEqual([
+      "fulfilled",
+      "rejected",
+    ]);
+    expect((await registry.listInstallations()).items).toHaveLength(1);
+  });
+
+  it("refuses a command to itself from inside its own transaction, at once", async () => {
+    const { registry, version } = await registered();
+    const outcome = await registry.transaction(async (inner) => {
+      const refused = await registry
+        .createInstallation({
+          id: installationIdSchema.parse("outer"),
+          now: new Date("2026-08-08T00:00:00.000Z"),
+          version,
+        })
+        .then(
+          () => "resolved",
+          (error: unknown) => String(error)
+        );
+      await inner.createInstallation({
+        id: installationIdSchema.parse("inner"),
+        now: new Date("2026-08-08T00:00:00.000Z"),
+        version,
+      });
+      return refused;
+    });
+
+    expect(outcome).toContain(
+      "ModuleRegistry was called from inside its own transaction; use the registry passed to the transaction's work instead"
+    );
+    expect((await registry.listInstallations()).items).toHaveLength(1);
+  });
+});

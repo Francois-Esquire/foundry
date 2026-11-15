@@ -7,7 +7,7 @@ import type {
 import type { InstallationId } from "../domain";
 import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "../errors";
 import { approvedNetworkDestinations } from "../grants";
-import type { ModuleRegistry } from "../registry";
+import type { ModuleCommands } from "../registry";
 import type {
   ModuleProgramResources,
   ModuleProgramRuntimeAdapter,
@@ -32,7 +32,7 @@ export interface CreateContainerModuleProgramRuntimeOptions {
   readonly fetch?: CreateModuleProgramRuntimeOptions["fetch"];
   readonly healthCheckTimeoutMs?: number;
   readonly store: Pick<
-    ModuleRegistry,
+    ModuleCommands,
     "loadGatewayContext" | "setInstallationContainerId"
   >;
   readonly transport: CreateModuleProgramRuntimeOptions["transport"];

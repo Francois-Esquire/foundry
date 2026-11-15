@@ -6,7 +6,7 @@ import type {
   ModuleGatewaySession,
   ModuleRuntimeIdentity,
 } from "../gateway/types";
-import type { ModuleRegistry } from "../registry";
+import type { ModuleCommands } from "../registry";
 import type { ModuleVersions } from "../version";
 import { validateModuleActivation } from "./activation";
 import type {
@@ -45,7 +45,7 @@ export interface CreateModuleProgramSupervisorOptions {
   readonly removeContainer: (containerId: string) => Promise<void>;
   readonly runtime: ModuleProgramRuntimeAdapter;
   readonly stopRetainedContainer: (containerId: string) => Promise<void>;
-  readonly store: ModuleRegistry;
+  readonly store: ModuleCommands;
   /** Bounds caller/shutdown observation, never the underlying cleanup task. */
   readonly teardownObservationMs?: number;
   readonly versions: Pick<ModuleVersions, "load">;
@@ -754,7 +754,7 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
   async #startingAt(
     installationId: InstallationId,
     generation: number,
-    registry: Pick<ModuleRegistry, "loadGatewayContext"> = this.options.store
+    registry: Pick<ModuleCommands, "loadGatewayContext"> = this.options.store
   ): Promise<boolean> {
     const context = await registry.loadGatewayContext(installationId);
     return (

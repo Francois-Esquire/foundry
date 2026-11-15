@@ -154,6 +154,13 @@ export type ModuleRegistryUnit<Command extends ModuleRegistryCommand> = Pick<
   ): Promise<T>;
 };
 
+/**
+ * Every registry command, as a structural type: what the package's
+ * services take, so a host may hand them a `ModuleRegistry` or an object
+ * of its own with the same commands.
+ */
+export type ModuleCommands = ModuleRegistryUnit<ModuleRegistryCommand>;
+
 /** Why a call to a registry from inside its own transaction is refused. */
 const REENTRY =
   "ModuleRegistry was called from inside its own transaction; use the registry passed to the transaction's work instead";
@@ -279,7 +286,7 @@ export class ModuleRegistry {
   }
 
   async listModules(input: PageInput = {}): Promise<Page<Module>> {
-    const owned = structuredClone(input);
+    const owned = ownedFields(input, PAGE);
     return await this.#consistent(async (store) =>
       page(
         (await everything((query) => store.listModules(query))).sort(
@@ -293,7 +300,7 @@ export class ModuleRegistry {
   }
 
   async deleteModule(input: DeleteModuleInput): Promise<void> {
-    const { moduleId } = structuredClone(input);
+    const { moduleId } = ownedFields(input, ["moduleId"]);
     return await this.#exclusive(async (store) => {
       if ((await store.getModule(moduleId)) === null) {
         throw new ModuleStoreConflictError(
@@ -319,7 +326,10 @@ export class ModuleRegistry {
   async listInstallations(
     input: ListInstallationsInput = {}
   ): Promise<Page<Installation>> {
-    const { moduleId, ...pageInput } = structuredClone(input);
+    const { moduleId, ...pageInput } = ownedFields(input, [
+      ...PAGE,
+      "moduleId",
+    ]);
     return await this.#consistent(async (store) =>
       page(
         (
@@ -342,7 +352,10 @@ export class ModuleRegistry {
   async createInstallation(
     input: CreateInstallationInput
   ): Promise<Installation> {
-    const owned = structuredClone(input);
+    const owned = structuredClone({
+      ...picked(input, ["id", "now"]),
+      version: picked(input.version, VERSION),
+    });
     const created: StoredInstallation = {
       grants: [],
       installation: createDisabledInstallation(owned),
@@ -362,7 +375,7 @@ export class ModuleRegistry {
   async setInstallationContainerId(
     input: SetInstallationContainerIdInput
   ): Promise<Installation> {
-    const owned = structuredClone(input);
+    const owned = ownedFields(input, [...TRANSITION, "containerId"]);
     return await this.#change(owned, (stored) =>
       patched(stored, { containerId: owned.containerId, updatedAt: owned.now })
     );
@@ -372,7 +385,11 @@ export class ModuleRegistry {
   async beginInstallationTransition(
     input: BeginInstallationTransitionInput
   ): Promise<Installation> {
-    const owned = structuredClone(input);
+    const owned = ownedFields(input, [
+      ...TRANSITION,
+      "resetStartAttempts",
+      "status",
+    ]);
     return await this.#change(owned, (stored) =>
       patched(stored, {
         generation: stored.installation.generation + 1,
@@ -387,7 +404,7 @@ export class ModuleRegistry {
   async settleInstallationStatus(
     input: SettleInstallationStatusInput
   ): Promise<Installation> {
-    const owned = structuredClone(input);
+    const owned = ownedFields(input, [...TRANSITION, "status"]);
     return await this.#change(owned, (stored) =>
       patched(stored, {
         startAttempts: settledStartAttempts(
@@ -407,7 +424,10 @@ export class ModuleRegistry {
   async selectInstallationVersion(
     input: SelectInstallationVersionInput
   ): Promise<Installation> {
-    const owned = structuredClone(input);
+    const owned = structuredClone({
+      ...picked(input, TRANSITION),
+      version: picked(input.version, VERSION),
+    });
     return await this.#change(owned, async (stored, store) => {
       await assertModuleVersion(store, owned.version);
       if (stored.installation.moduleId !== owned.version.moduleId) {
@@ -426,7 +446,7 @@ export class ModuleRegistry {
 
   /** Removes the Installation and its Grants. The caller has stopped it and detached its data. */
   async deleteInstallation(input: DeleteInstallationInput): Promise<void> {
-    const owned = structuredClone(input);
+    const owned = ownedFields(input, TARGET);
     return await this.#exclusive(async (store) => {
       atGeneration(
         await store.getInstallation(owned.installationId),
@@ -441,7 +461,12 @@ export class ModuleRegistry {
   async replaceInstallationGrants(
     input: ReplaceInstallationGrantsInput
   ): Promise<readonly InstallationGrant[]> {
-    const owned = structuredClone(input);
+    const owned = structuredClone({
+      ...picked(input, TRANSITION),
+      grants: input.grants.map((grant) =>
+        picked(grant, ["capability", "constraintsDigest", "version"])
+      ),
+    });
     return await this.#change(owned, (stored) => {
       const problem = grantCapabilitiesProblem(owned.grants);
       if (problem !== null) {
@@ -461,7 +486,7 @@ export class ModuleRegistry {
   async revokeInstallationGrant(
     input: RevokeInstallationGrantInput
   ): Promise<InstallationGrant> {
-    const owned = structuredClone(input);
+    const owned = ownedFields(input, [...TARGET, "capability"]);
     return await this.#change(owned, (stored) => {
       const revoked = stored.grants.find(
         (grant) => grant.capability === owned.capability
@@ -536,6 +561,40 @@ export class ModuleRegistry {
       ? work(store)
       : store.transaction(work);
   }
+}
+
+/** The fields that name an Installation at the generation a caller saw. */
+const TARGET = ["expectedGeneration", "installationId"] as const;
+/** A target, and when the change happens. */
+const TRANSITION = [...TARGET, "now"] as const;
+/** The fields of a selected version the registry reads. */
+const VERSION = ["artifactId", "contentId", "moduleId"] as const;
+const PAGE = ["cursor", "limit"] as const;
+
+/**
+ * The named fields `value` holds, and only those: a caller's object may
+ * carry more (a signal, a reason) that the registry never reads, and need
+ * not be cloneable. An absent field stays absent.
+ */
+function picked<T extends object, K extends keyof T>(
+  value: T,
+  keys: readonly K[]
+): Pick<T, K> {
+  const result: Partial<Pick<T, K>> = {};
+  for (const key of keys) {
+    if (Object.hasOwn(value, key)) {
+      result[key] = value[key];
+    }
+  }
+  return result as Pick<T, K>;
+}
+
+/** A detached copy of the named fields of a command's input, taken when it is called. */
+function ownedFields<T extends object, K extends keyof T>(
+  value: T,
+  keys: readonly K[]
+): Pick<T, K> {
+  return structuredClone(picked(value, keys));
 }
 
 /** What a transition produced: the record to keep, and the command's result. */

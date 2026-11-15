@@ -1,3 +1,5 @@
+import { runAfterCommit } from "@foundry/core/storage";
+
 import type { Installation, InstallationId, ModuleVersion } from "./domain";
 import { ModuleStoreConflictError } from "./errors";
 import type {
@@ -189,10 +191,13 @@ export function createModuleAccess(
         return { carried, dropped };
       });
       // Only once the revokes have committed: a rolled-back carry-over
-      // cancels nothing.
-      for (const grant of outcome.dropped) {
-        cancel(installationId, grant.capability);
-      }
+      // cancels nothing. Every dropped Grant is cancelled, though one fails.
+      await runAfterCommit(
+        outcome.dropped.map((grant) => () => {
+          cancel(installationId, grant.capability);
+          return Promise.resolve();
+        })
+      );
       return outcome.carried;
     },
     requests,
