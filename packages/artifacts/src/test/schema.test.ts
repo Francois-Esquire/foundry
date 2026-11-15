@@ -6,7 +6,6 @@ import { describe, expect, expectTypeOf, onTestFinished, test } from "vitest";
 
 import { CHUNK_BYTES } from "../constants";
 import { ArtifactManager } from "../manager";
-import { InMemoryArtifactStore } from "../memory";
 import { blobFiles } from "../node";
 import type { BlobId } from "../ref";
 import type { ContentTree, StoredFile } from "../schema";
@@ -17,6 +16,7 @@ import {
   contentMetadataSchema,
   contentTreeSchema,
 } from "../schema";
+import { InMemoryArtifactStore } from "../store/memory";
 
 /** `fields` plus an own, enumerable `__proto__` property holding `value`. */
 function withOwnProto<T extends object>(fields: T, value: unknown): T {

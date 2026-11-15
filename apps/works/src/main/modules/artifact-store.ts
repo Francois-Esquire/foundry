@@ -2,8 +2,8 @@ import {
   type ArtifactCursor,
   ArtifactManager,
   type ArtifactResolved,
-  type ArtifactStore,
 } from "@foundry/artifacts";
+import type { ArtifactStore } from "@foundry/artifacts/store";
 import { MODULE_MIME } from "@foundry/modules/constants";
 import { type Module, moduleIdSchema } from "@foundry/modules/domain";
 import { parseModuleManifest } from "@foundry/modules/manifest";

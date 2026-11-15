@@ -4,7 +4,7 @@ import type {
   WorkspaceEntryId,
   WorkspaceId,
   WorkspaceRegistration,
-} from "./types";
+} from "../types";
 
 /**
  * The persistence seam under the Workspace catalog.
@@ -16,7 +16,7 @@ import type {
  * seam are detached — a store never hands out or retains a caller's objects.
  */
 export interface WorkspaceStore {
-  /** Writes the registration and the entry changes beside it, all or nothing. */
+  /** Applies one save or removal, all or nothing. */
   commit: (write: WorkspaceStoreWrite) => Promise<void>;
   /** The oldest registration over this canonical root. */
   findWorkspaceByPath: (path: string) => Promise<WorkspaceRegistration | null>;
@@ -37,13 +37,38 @@ export interface WorkspaceStore {
   listWorkspaces: (
     input?: PageInput<number>
   ) => Promise<Page<WorkspaceRegistration, number>>;
-  /** Deletes one registration and every entry it owns, all or nothing. */
-  removeWorkspace: (workspaceId: WorkspaceId) => Promise<void>;
+  /**
+   * Runs one read-modify-write so that no other write to the store lands
+   * between its reads and its commit, from any catalog over the store. `work`
+   * reads and commits through `view` only, and its reads see its own commits.
+   * A commit from outside waits for the transaction to end, then lands. If
+   * `work` throws, none of its commits stay. Without it, mutations are
+   * serialized per catalog and no further.
+   */
+  transaction?: <T>(work: (view: WorkspaceStore) => Promise<T>) => Promise<T>;
 }
 
-/** One atomic write: a registration and its entry changes. */
-export interface WorkspaceStoreWrite {
+/**
+ * One atomic write to one Workspace: a save or a removal. Entry deletes apply
+ * before entry puts.
+ */
+export type WorkspaceStoreWrite = WorkspaceRemoval | WorkspaceSave;
+
+/** A registration as it now stands, and the entry changes beside it. */
+export interface WorkspaceSave {
   readonly deleteEntries?: readonly WorkspaceEntryId[];
   readonly putEntries?: readonly WorkspaceEntry[];
+  readonly removeWorkspace?: never;
   readonly workspace: WorkspaceRegistration;
+}
+
+/**
+ * Deletes a registration and the entries it names. The store deletes only
+ * what the write names; the catalog names every entry the Workspace owns.
+ */
+export interface WorkspaceRemoval {
+  readonly deleteEntries: readonly WorkspaceEntryId[];
+  readonly putEntries?: never;
+  readonly removeWorkspace: WorkspaceId;
+  readonly workspace?: never;
 }
