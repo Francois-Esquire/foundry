@@ -1,6 +1,7 @@
 import type { Artifacts } from "@foundry/artifacts";
 import { stopOrphans } from "@foundry/lib/orphans";
 import type { Containers } from "@foundry/sandbox/container/containers";
+import type { ContainerStore } from "@foundry/sandbox/store";
 import type { ExecutionCoordinator } from "@foundry/workflows";
 import { z } from "zod";
 
@@ -9,17 +10,7 @@ import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
 import { closeAbandonedRuns } from "./run-recovery";
 import type { RunStore } from "./run-store";
 import type { HarnessActivities } from "./sandbox/activities";
-
-/**
- * Which of a workspace's container rows a process that is gone left, by
- * who holds each (`database/containers.ts`).
- */
-export interface ContainerOwners {
-  /** Whether any row was left so: only then is the container runtime started. */
-  anyLeft(): Promise<boolean>;
-  /** Whether the row `id` was left so. */
-  left(id: string): Promise<boolean>;
-}
+import { leftBehind } from "./sandbox/holders";
 
 /** The steps of a recovery, in the order they run. */
 const RECOVERY_STEPS = [
@@ -73,8 +64,12 @@ export interface RecoveryLog {
 export interface CrashRecoveryOptions {
   readonly activities: HarnessActivities;
   readonly artifacts: Pick<Artifacts, "recover">;
-  /** Who holds the container rows; without it no container is taken back. */
-  readonly containerOwners?: ContainerOwners;
+  /**
+   * The container rows kept, read without the runtime, each naming its
+   * holder (`lib/sandbox/holders.ts`); without them no container is
+   * taken back.
+   */
+  readonly containerRows?: Pick<ContainerStore, "list">;
   /** The engine's containers, started once, as its sandboxes use them. */
   readonly containers: () => Promise<Pick<Containers, "recover">>;
   /** The Execution Runs this engine holds, as the launcher left them. */
@@ -202,26 +197,33 @@ export class CrashRecovery {
   }
 
   async #containers(): Promise<Outcome> {
-    const owners = this.#options.containerOwners;
-    if (owners === undefined) {
+    const rows = this.#options.containerRows;
+    if (rows === undefined) {
       return {
         acted: false,
         detail: "no container holders kept here",
         outcome: "skipped",
       };
     }
-    if (!(await owners.anyLeft())) {
+    // Judged here, outside any transaction; the registry's claim checks
+    // the holder it was judged by still holds each row.
+    if (!(await rows.list()).some(leftBehind)) {
       return done(0, "container(s) removed");
     }
     const containers = await this.#options.containers();
-    const { removed, swept } = await containers.recover((row) =>
-      owners.left(row.id)
-    );
-    return {
-      acted: removed.length + swept.length > 0,
-      detail: `${String(removed.length)} container(s) removed, ${String(swept.length)} VM(s) swept`,
-      outcome: "done",
-    };
+    const { kept, removed, swept } = await containers.recover(leftBehind);
+    const did = `${String(removed.length)} container(s) removed, ${String(swept.length)} VM(s) swept`;
+    return kept.length === 0
+      ? {
+          acted: removed.length + swept.length > 0,
+          detail: did,
+          outcome: "done",
+        }
+      : {
+          acted: true,
+          detail: `${did}; ${String(kept.length)} container(s) whose VM would not go kept, removing, for the next start to retry`,
+          outcome: "failed",
+        };
   }
 
   /** Whether a run has ended: its Execution Run settled, or none is kept. */

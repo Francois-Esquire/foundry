@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "724dd4f8-3db6-4102-9df8-9bd2bd3e0a09",
+  "id": "00225ac5-d891-4c43-b3c8-0ceefd78db6a",
   "prevId": "63972cbe-690d-4b5a-ae1e-cd1e2edc7547",
   "tables": {
     "agent_messages": {
@@ -951,6 +951,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "holder": {
+          "name": "holder",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },
@@ -2063,52 +2070,6 @@
             "id"
           ],
           "name": "marbles_automations_scope_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "marbles_container_owners": {
-      "name": "marbles_container_owners",
-      "columns": {
-        "container_id": {
-          "name": "container_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "owner_pid": {
-          "name": "owner_pid",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "owner_started": {
-          "name": "owner_started",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "marbles_container_owners_scope_container_id_pk": {
-          "columns": [
-            "scope",
-            "container_id"
-          ],
-          "name": "marbles_container_owners_scope_container_id_pk"
         }
       },
       "uniqueConstraints": {},

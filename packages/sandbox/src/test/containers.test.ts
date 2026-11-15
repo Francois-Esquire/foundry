@@ -496,6 +496,7 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
 
     expect(asked).toEqual([running.id, vanished.id]);
     expect(recovered).toEqual({
+      kept: [],
       removed: [running.id, vanished.id],
       swept: [`${unrowed.id}-1`],
     });
@@ -506,10 +507,114 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     expect(byName.get(`${mine.id}-1`)).toBe(false);
 
     // Again: nothing a gone process left is there any more.
-    expect(await next.recover(() => true)).toEqual({ removed: [], swept: [] });
+    expect(await next.recover(() => true)).toEqual({
+      kept: [],
+      removed: [],
+      swept: [],
+    });
     expect((await store.list()).map((row) => row.id)).toEqual([mine.id]);
     await mine.close();
     await next.shutdown();
+  });
+
+  it("keeps the row of a VM a recovery could not remove, removing, and the next recovery takes it over and removes it", async () => {
+    const runtime = createFakeContainerRuntime();
+    const store = newStore();
+    const gone = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const left = await gone.start(SPEC);
+    const stop = runtime.stopResource.bind(runtime);
+    const runtimeDown: { now: boolean } = { now: true };
+    runtime.stopResource = async (name) => {
+      if (runtimeDown.now) {
+        throw new Error("runtime offline");
+      }
+      await stop(name);
+    };
+
+    const first = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    expect(await first.recover(() => true)).toEqual({
+      kept: [left.id],
+      removed: [],
+      swept: [],
+    });
+    // Kept, saying what is left to do, for whichever start comes next.
+    expect(await store.get(left.id)).toMatchObject({ status: "removing" });
+    expect(runtime.instances[0]?.removed).toBe(false);
+
+    runtimeDown.now = false;
+    const second = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    expect(await second.recover(() => true)).toEqual({
+      kept: [],
+      removed: [left.id],
+      swept: [],
+    });
+    expect(await store.list()).toEqual([]);
+    expect(runtime.instances[0]?.removed).toBe(true);
+    await second.shutdown();
+  });
+
+  it("leaves a row to the registry that opened it while a recovery was judging it", async () => {
+    const runtime = createFakeContainerRuntime();
+    const store = newStore();
+    const gone = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const row = await gone.start(SPEC);
+    const recovering = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const winner = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    let judged = (): void => undefined;
+    let go = (): void => undefined;
+    const asked = new Promise<void>((resolve) => {
+      judged = resolve;
+    });
+    const proceed = new Promise<void>((resolve) => {
+      go = resolve;
+    });
+    const recovery = recovering.recover(async () => {
+      judged();
+      await proceed;
+      return true;
+    });
+    await asked;
+    const opened = await winner.open(row.id);
+    go();
+
+    expect(await recovery).toEqual({ kept: [], removed: [], swept: [] });
+    const live = runtime.instances.at(-1);
+    expect(live?.removed).toBe(false);
+    expect(await store.get(row.id)).toMatchObject({ status: "running" });
+    // A recovery that judges it now sees the winner holding it.
+    const holders: (string | undefined)[] = [];
+    await recovering.recover((seen) => {
+      holders.push(seen.holder);
+      return false;
+    });
+    expect(holders).toEqual([opened.row.holder]);
+    await opened.close();
+    await winner.shutdown();
+    await recovering.shutdown();
   });
 
   it.each(["created", "starting", "paused"] as const)(

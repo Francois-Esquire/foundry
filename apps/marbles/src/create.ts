@@ -56,6 +56,7 @@ import { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { RegisteredPlugin } from "~/lib/providers/plugins";
 import { FIRST_PARTY_PLUGINS } from "~/lib/providers/plugins";
 import { Registry } from "~/lib/registry";
+import { containerHolder } from "~/lib/sandbox/holders";
 
 /**
  * The engine as Marbles runs it. The machine is inspected and the flags are
@@ -381,6 +382,8 @@ function containersFor(
     const declared = [...catalog.workspaces].map((path) => resolve(root, path));
     return createContainers({
       allowedMountRoots: allowedMountRoots([root, worktreeHome, ...declared]),
+      // This process, so a later start can tell the rows it held are left.
+      holder: containerHolder(),
       instanceLabel: `marbles-${workspaceId}`,
       runtime: await runtime(),
       store: store ?? createMemoryContainerStore(),
@@ -404,9 +407,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const engineOptions: EngineOptions = {
     ...artifactsFor(stores, options),
     askable: options.askable,
-    ...(stores === undefined
-      ? {}
-      : { containerOwners: stores.containerOwners }),
+    ...(stores === undefined ? {} : { containerRows: stores.containers }),
     containers: containersFor(options, worktrees, stores?.containers),
     dry,
     git,

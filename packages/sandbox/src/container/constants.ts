@@ -58,6 +58,8 @@ export const CONTAINER_ROW_STATUSES = Object.freeze([
   "missing",
   "stopped",
   "failed",
+  /** Its VM is being removed, and the row goes once the runtime confirms it. */
+  "removing",
 ] as const);
 
 /** Native statuses a resource must leave, via stop, before it can be removed. */

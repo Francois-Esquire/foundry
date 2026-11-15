@@ -8,7 +8,6 @@ import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
 import { SqliteWorkspaceStore } from "@foundry/workspaces/store/sqlite";
 import { surfacingBusy } from "~/database/busy";
-import { DatabaseContainerOwners, ownersOnCommit } from "~/database/containers";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
@@ -21,10 +20,8 @@ import { stateDatabase } from "~/layout";
  * owned from the call, a value they cannot store refused, one call at a
  * time) is the package's, not Marbles' again; only a lock waited on too
  * long surfaces as Marbles says it, a `DatabaseBusyError`
- * (`surfacingBusy`). None records its changes; the container store's
- * `onCommit` hook files only who holds each row it puts
- * (`database/containers.ts`), so a start takes back the rows a process
- * that is gone left.
+ * (`surfacingBusy`). None records its changes; who holds each container
+ * row is on the row itself (`lib/sandbox/holders.ts`).
  *
  * An artifact's records are rows; its bytes past the inline limit are blob
  * files on disk, which the package stages and names. Each workspace keeps
@@ -35,8 +32,6 @@ import { stateDatabase } from "~/layout";
 export interface WorkspaceStores {
   /** The records of the workspace's artifacts and feed. */
   readonly artifacts: SqliteArtifactStore;
-  /** Who holds each container row: the process that last wrote it. */
-  readonly containerOwners: DatabaseContainerOwners;
   /** The rows of the containers the workspace's sandboxes run in. */
   readonly containers: ContainerStore;
   /** The workspace catalogue's registrations and entries. */
@@ -48,21 +43,9 @@ export function workspaceStores(
   database: StoreDatabase,
   scope: string
 ): WorkspaceStores {
-  const containers = surfacingBusy(
-    createSqliteContainerStore({
-      database,
-      onCommit: ownersOnCommit(scope),
-      scope,
-    })
-  );
   return {
     artifacts: surfacingBusy(new SqliteArtifactStore({ database, scope })),
-    containerOwners: new DatabaseContainerOwners({
-      containers,
-      database,
-      scope,
-    }),
-    containers,
+    containers: surfacingBusy(createSqliteContainerStore({ database, scope })),
     workspaces: surfacingBusy(new SqliteWorkspaceStore({ database, scope })),
   };
 }

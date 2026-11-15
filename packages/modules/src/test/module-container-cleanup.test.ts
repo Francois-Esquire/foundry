@@ -42,7 +42,7 @@ describe("Module container cleanup", () => {
     expect(await containers.list()).toEqual([]);
   });
 
-  it("retains cleanup identity after registry deletion swallowed a native failure", async () => {
+  it("keeps the row of a container whose VM would not go, and removes both on a retry", async () => {
     const { runtime, containers } = fixture();
     const handle = await containers.start(spec);
     const [instance] = runtime.instances;
@@ -56,12 +56,16 @@ describe("Module container cleanup", () => {
     const stop = vi
       .spyOn(runtime, "stopResource")
       .mockRejectedValue(new Error("still running"));
-    await expect(containers.remove(handle.id)).rejects.toThrow("still running");
-    expect(await containers.list()).toEqual([]);
+    await expect(containers.remove(handle.id)).rejects.toThrow("kept to retry");
+    // The row stays, saying what is left to do, until its VM is gone.
+    expect(await containers.list()).toEqual([
+      expect.objectContaining({ id: handle.id, status: "removing" }),
+    ]);
     expect(instance.removed).toBe(false);
     stop.mockRestore();
     await containers.remove(handle.id);
     expect(instance.removed).toBe(true);
+    expect(await containers.list()).toEqual([]);
   });
 
   it("does not bypass live handle ownership", async () => {

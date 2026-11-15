@@ -15,6 +15,7 @@ import { airplaneMode } from "@foundry/models/airplane";
 import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
 import { holdModelsDev } from "@foundry/models/catalog/models-dev-source";
 import type { Containers } from "@foundry/sandbox/container/containers";
+import type { ContainerStore } from "@foundry/sandbox/store";
 import type { TaskStore } from "@foundry/tasks";
 import { ExecutionCoordinator } from "@foundry/workflows";
 import type { ChannelMessage } from "@foundry/workflows/channels";
@@ -31,7 +32,6 @@ import type { Bindings } from "~/lib/bindings";
 import { harnessOf } from "~/lib/cli-harnesses";
 import { commandRunner } from "~/lib/command";
 import {
-  type ContainerOwners,
   CrashRecovery,
   type RecoveryLog,
   type RecoveryReport,
@@ -162,12 +162,12 @@ export interface EngineOptions {
    */
   readonly automationStore?: AutomationStore;
   /**
-   * Who holds each container row, so a start takes back the rows, and
-   * their VMs, that a process that is gone left (`lib/crash-recovery.ts`).
-   * The `Engine` the package publishes keeps them in a Marbles database
-   * beside the rows; without it no container is taken back.
+   * The container rows kept, read without starting the runtime, so a
+   * start takes back the rows, and their VMs, whose holder is gone
+   * (`lib/crash-recovery.ts`). The host that keeps the rows durably gives
+   * them; without them no container is taken back.
    */
-  readonly containerOwners?: ContainerOwners;
+  readonly containerRows?: Pick<ContainerStore, "list">;
   /**
    * Where sandboxes run. A function is called at the first sandbox and its
    * result kept, for a runtime that is optional or slow to start.
@@ -563,9 +563,9 @@ export class Engine {
     this.#crashRecovery = new CrashRecovery({
       activities: this.activities,
       artifacts: options.artifacts,
-      ...(options.containerOwners === undefined
+      ...(options.containerRows === undefined
         ? {}
-        : { containerOwners: options.containerOwners }),
+        : { containerRows: options.containerRows }),
       containers: () => this.sandboxes.containers(),
       executions: () => this.#executions.list(),
       print,

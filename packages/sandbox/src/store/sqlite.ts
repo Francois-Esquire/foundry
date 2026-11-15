@@ -116,6 +116,7 @@ export function createSqliteContainerStore(
     const stored = rows.map(
       (row, index): StoredRow => ({
         ...row,
+        holder: row.holder ?? null,
         nativeId: row.nativeId ?? null,
         position: first + index,
         scope,
@@ -228,15 +229,20 @@ export function createSqliteContainerStore(
   };
 }
 
-/** A stored row as the record: NULL `native_id` is `nativeId: undefined`. */
+/** A stored row as the record: a NULL `native_id` or `holder` is `undefined`, and left out. */
 function containerRow(
   row: Omit<typeof sandboxContainers.$inferSelect, "position" | "scope">
 ): ContainerRow {
-  return Object.freeze({ ...row, nativeId: row.nativeId ?? undefined });
+  const { holder, ...rest } = row;
+  return Object.freeze({
+    ...rest,
+    ...(holder === null ? {} : { holder }),
+    nativeId: row.nativeId ?? undefined,
+  });
 }
 
 /** The row fields kept as plain text; each is checked by {@link storableText}. */
-const TEXT_FIELDS = ["id", "nativeId", "spec", "status"] as const;
+const TEXT_FIELDS = ["holder", "id", "nativeId", "spec", "status"] as const;
 
 /** The row fields kept as integers; each is checked by {@link storableNumber}. */
 const NUMBER_FIELDS = ["createdAt", "updatedAt"] as const;

@@ -25,6 +25,13 @@ const timestampSchema = z.custom<number>((value) => typeof value === "number");
 const containerRowObjectSchema = z.object({
   /** Epoch milliseconds when the row was inserted. */
   createdAt: timestampSchema,
+  /**
+   * Who holds the row: the registry that last claimed it, by the opaque
+   * token it was given (`CreateContainersOptions.holder`). A registry
+   * takes a row over only while its holder is still the one it judged,
+   * in one store transaction. Undefined on a row written before holders.
+   */
+  holder: z.string().optional(),
   id: z.string(),
   /** The runtime's name for the VM realizing this row. Undefined until the first start. */
   nativeId: z.string().or(z.undefined()),
