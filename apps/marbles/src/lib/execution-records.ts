@@ -807,7 +807,7 @@ export class ExecutionRecords {
  * A write the store refused because another write took the run first:
  * `stored` is what it holds now, which this process holds from then on.
  */
-export class StaleWriteError extends Error {
+class StaleWriteError extends Error {
   override readonly name = "StaleWriteError";
   readonly stored: ExecutionRun | undefined;
 
