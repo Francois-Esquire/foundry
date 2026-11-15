@@ -1,7 +1,6 @@
+import { ownedEvents } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
-
 import type { SessionMessage, SessionRecord } from "../schema";
-import { ownedEvents } from "./events";
 import type { SessionStore, SessionStoreWrite } from "./index";
 
 /** Why a call from inside the store's own transaction is refused. */

@@ -25,7 +25,10 @@ import type { RunStore } from "~/lib/run-store";
  *   read once the claim is held. It is rebuilt from what its scope
  *   recorded.
  * - A Run left `queued` or `running` is never taken on at start: its
- *   process exited mid-flight, and it is not re-executed here; its
+ *   process exited mid-flight, and it is not re-executed here. `queued`
+ *   is a Run filed or resumed and not started yet (the workflows Queue
+ *   stores one it starts as `running` throughout), `running` one cut off
+ *   while it ran; either way nothing else will run it. Its
  *   Execution Run is settled by the launcher (`Launcher.recover`), and
  *   then the Run itself is closed out (`closeAbandonedRuns`): failed, with
  *   why, once its Execution Run has settled and no live engine owns it.

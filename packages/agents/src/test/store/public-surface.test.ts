@@ -144,10 +144,8 @@ describe("@foundry/agents public paths", () => {
       "agentMessages",
       "agentSessions",
     ]);
-    // The rule every SessionStore takes a write's events by.
-    expect(Object.keys(await import("../../store/index"))).toEqual([
-      "ownedEvents",
-    ]);
+    // Types alone: the store contract has no runtime value.
+    expect(Object.keys(await import("../../store/index"))).toEqual([]);
     expect(Object.keys(await import("../../store/memory"))).toEqual([
       "InMemorySessionStore",
     ]);

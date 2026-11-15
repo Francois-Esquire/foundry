@@ -4,9 +4,6 @@ import type {
   SessionRecord,
 } from "../schema";
 
-// biome-ignore lint/performance/noBarrelFile: the rule every SessionStore takes a write's events by, for stores outside this package.
-export { ownedEvents } from "./events";
-
 /**
  * One atomic write. A put replaces the record filed under its id, or files
  * it when the id is new. A new message goes after every message of its
@@ -16,8 +13,7 @@ export interface SessionStoreWrite {
   /**
    * What the write changes, as `Sessions` records it, in order. A store
    * keeps none of them. Every store takes them when `commit` is called, by
-   * one rule (`ownedEvents`, exported here for stores outside this
-   * package): each is copied as plain JSON, and a write holding one that is
+   * one rule (`ownedEvents`, in `@foundry/lib/plain-json`): each is copied as plain JSON, and a write holding one that is
    * not (a class instance, a property a copy would not see, a
    * Date, `undefined`, NaN) is refused whole with a `TypeError`. A store
    * with a host hook passes its copy to the hook unchanged. An event's `at`

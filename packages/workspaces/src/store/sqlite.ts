@@ -1,6 +1,7 @@
 import type { Page, PageInput } from "@foundry/core/pagination";
 import { FILE_KINDS, type FileKind } from "@foundry/lib/file-classification";
 import { buildPage, pageLimit } from "@foundry/lib/pagination";
+import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
 import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
 import {
@@ -23,7 +24,6 @@ import type {
   WorkspaceId,
   WorkspaceRegistration,
 } from "../schema";
-import { ownedWrite } from "./events";
 import type {
   WorkspaceSave,
   WorkspaceStore,
