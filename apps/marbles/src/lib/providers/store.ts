@@ -144,7 +144,7 @@ export function keptConfigurations(
 }
 
 /** One scope's configuration as the JSON text a store keeps, checked against the schema first. */
-export function configurationText(file: ProvidersFile): string {
+function configurationText(file: ProvidersFile): string {
   const checked = SCOPE_CONFIGURATION.safeParse(file);
   if (!checked.success) {
     throw new ConfigurationError(
