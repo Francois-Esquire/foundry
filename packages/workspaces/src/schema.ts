@@ -142,3 +142,49 @@ export const workspaceEntrySchema = z
   .refine(isStorageEntry, "Expected a valid storage entry")
   .readonly();
 export type WorkspaceEntry = z.infer<typeof workspaceEntrySchema>;
+
+/** What every change event carries: its own id, when, and the Workspace. */
+const changeEventFields = {
+  /** When the change happened, as the record it changed stamps it, in ISO form. */
+  at: z.iso.datetime(),
+  /** Unique to this event. */
+  id: z.string().min(1),
+  workspaceId: workspaceIdSchema,
+};
+
+const entryIds = z.array(workspaceEntryIdSchema).readonly();
+
+/**
+ * One past change to a Workspace's catalog, built by `WorkspaceCatalog` and
+ * carried in the store write that makes it (`WorkspaceStoreWrite.events`),
+ * so a host's `onCommit` can record it with the change. Ids only, never
+ * entry records:
+ *
+ * - `workspace.created`: a Workspace was registered, with its first entries.
+ * - `workspace.updated`: its name changed.
+ * - `workspace.entries.changed`: one reconciliation or save added, changed
+ *   and removed these entries; at least one list is nonempty.
+ * - `workspace.removed`: it was forgotten, with every entry it held.
+ */
+export const workspaceEventSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    ...changeEventFields,
+    type: z.literal("workspace.created"),
+  }),
+  z.strictObject({
+    ...changeEventFields,
+    type: z.literal("workspace.updated"),
+  }),
+  z.strictObject({
+    ...changeEventFields,
+    added: entryIds,
+    changed: entryIds,
+    removed: entryIds,
+    type: z.literal("workspace.entries.changed"),
+  }),
+  z.strictObject({
+    ...changeEventFields,
+    type: z.literal("workspace.removed"),
+  }),
+]);
+export type WorkspaceEvent = z.infer<typeof workspaceEventSchema>;

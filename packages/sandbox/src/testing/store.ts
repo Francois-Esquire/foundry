@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { ContainerRow } from "../schema";
+import type { ContainerRow, SandboxEvent } from "../schema";
 import type { ContainerStore } from "../store/index";
 
 /**
@@ -13,6 +13,147 @@ import type { ContainerStore } from "../store/index";
  * that has no scopes keeps one store per scope name.
  */
 export type ScopedContainerStores = (scope: string) => ContainerStore;
+
+/**
+ * Fresh, empty storage whose stores hand each commit's write to a host hook
+ * (a SQLite store's `onCommit`), and a record the hook keeps: it writes the
+ * write's events, in order, in the commit's own transaction.
+ */
+export interface RecordingContainerStores {
+  /** Makes the hook throw on its next call, after it has recorded. */
+  readonly failNextCommit: () => void;
+  /** The events recorded by every commit that was kept, in the order kept. */
+  readonly recorded: () => Promise<readonly SandboxEvent[]>;
+  readonly stores: ScopedContainerStores;
+}
+
+const AT = "2026-01-01T00:00:00.000Z";
+
+function event(type: SandboxEvent["type"], containerId: string): SandboxEvent {
+  return { at: AT, containerId, id: `${type}-${containerId}`, type };
+}
+
+/**
+ * Events no store takes, each made fresh: none has a plain-JSON form that
+ * reads back as it was written.
+ */
+const UNPLAIN_EVENTS: [string, () => SandboxEvent[]][] = [
+  [
+    "a class instance",
+    () => {
+      class Created {
+        readonly at = AT;
+        readonly containerId = "c1";
+        readonly id = "e";
+        readonly type = "sandbox.created";
+      }
+      return [new Created() as unknown as SandboxEvent];
+    },
+  ],
+  [
+    "an object with an own property a copy would not see",
+    () => {
+      const hidden = { ...event("sandbox.created", "c1") };
+      Object.defineProperty(hidden, "id", { enumerable: false, value: "e" });
+      return [hidden];
+    },
+  ],
+  [
+    "an object with a symbol key",
+    () => [
+      {
+        ...event("sandbox.created", "c1"),
+        [Symbol("extra")]: 1,
+      } as SandboxEvent,
+    ],
+  ],
+  [
+    "an object holding a Date",
+    () => [
+      {
+        ...event("sandbox.created", "c1"),
+        at: new Date(0),
+      } as unknown as SandboxEvent,
+    ],
+  ],
+  [
+    "an object holding undefined",
+    () => [
+      {
+        ...event("sandbox.created", "c1"),
+        extra: undefined,
+      } as unknown as SandboxEvent,
+    ],
+  ],
+  [
+    "an object holding NaN",
+    () => [
+      {
+        ...event("sandbox.created", "c1"),
+        extra: Number.NaN,
+      } as unknown as SandboxEvent,
+    ],
+  ],
+  [
+    "not an array",
+    () =>
+      ({
+        0: event("sandbox.created", "c1"),
+        length: 1,
+      }) as unknown as SandboxEvent[],
+  ],
+  [
+    "an Array subclass",
+    () => {
+      class Events extends Array<SandboxEvent> {}
+      return Events.from([event("sandbox.created", "c1")]);
+    },
+  ],
+  [
+    "an array holding an Array subclass",
+    () => {
+      class Ids extends Array<string> {}
+      return [
+        {
+          ...event("sandbox.created", "c1"),
+          extra: Ids.from(["a"]),
+        } as unknown as SandboxEvent,
+      ];
+    },
+  ],
+  [
+    "an array holding an array with a hidden function",
+    () => {
+      const items = ["a"];
+      Object.defineProperty(items, "hidden", { value: () => undefined });
+      return [
+        {
+          ...event("sandbox.created", "c1"),
+          extra: items,
+        } as unknown as SandboxEvent,
+      ];
+    },
+  ],
+  [
+    "an array holding an array with a symbol key",
+    () => {
+      const items = Object.assign(["a"], { [Symbol("extra")]: 1 });
+      return [
+        {
+          ...event("sandbox.created", "c1"),
+          extra: items,
+        } as unknown as SandboxEvent,
+      ];
+    },
+  ],
+  [
+    "an array with an own property beyond its items",
+    () =>
+      Object.assign([event("sandbox.created", "c1")], {
+        "-1": event("sandbox.created", "c1"),
+      }),
+  ],
+];
 
 function row(id: string, fields: Partial<ContainerRow> = {}): ContainerRow {
   return {
@@ -123,15 +264,79 @@ async function settlesWithin(
 }
 
 /**
+ * Whether the storage a suite run opens hands its commits to a host hook.
+ * A store with one (a SQLite store's `onCommit`) says `hooked: true` and
+ * supplies `recording`, so the suite proves the hook is handed each commit's
+ * events; a store with none says `hooked: false`.
+ */
+export type ContainerStoreMode =
+  | { readonly hooked: false }
+  | {
+      readonly hooked: true;
+      readonly recording: () => Promise<RecordingContainerStores>;
+    };
+
+/**
  * Registers the suite. `open` returns new, empty storage each time it is
- * called. The host's test file closes whatever `open` opened.
+ * called; `mode` says whether it has a host hook (see
+ * {@link ContainerStoreMode}). The host's test file closes whatever `open`
+ * opened.
  */
 export function describeContainerStore(
   name: string,
-  open: () => ScopedContainerStores | Promise<ScopedContainerStores>
+  open: () => ScopedContainerStores | Promise<ScopedContainerStores>,
+  mode: ContainerStoreMode
 ): void {
   async function store(scope = "scope-a"): Promise<ContainerStore> {
     return (await open())(scope);
+  }
+
+  describe(`${name} container store events`, () => {
+    it("keeps no event: a write's events change no row", async () => {
+      const target = await store();
+      await target.commit({
+        events: [event("sandbox.created", "c1")],
+        putContainers: [row("c1")],
+      });
+      await target.commit({ events: [event("sandbox.failed", "c1")] });
+
+      expect(await target.list()).toEqual([row("c1")]);
+    });
+
+    it.each(UNPLAIN_EVENTS)(
+      "refuses whole, with a TypeError, a write whose events are %s",
+      async (_kind, events) => {
+        const target = await store();
+
+        await expect(
+          target.commit({ events: events(), putContainers: [row("c1")] })
+        ).rejects.toThrow(TypeError);
+        expect(await target.list()).toEqual([]);
+      }
+    );
+
+    it.each(UNPLAIN_EVENTS)(
+      "refuses through a transaction's view a write whose events are %s",
+      async (_kind, events) => {
+        const target = await store();
+        const { transaction } = target;
+        if (transaction === undefined) {
+          return;
+        }
+
+        await transaction.call(target, async (view) => {
+          await expect(
+            view.commit({ events: events(), putContainers: [row("c1")] })
+          ).rejects.toThrow(TypeError);
+          await view.commit({ putContainers: [row("kept")] });
+        });
+        expect(await target.list()).toEqual([row("kept")]);
+      }
+    );
+  });
+
+  if (mode.hooked) {
+    describeRecordedEvents(name, mode.recording);
   }
 
   describe(`${name} container store conformance`, () => {
@@ -496,6 +701,137 @@ export function describeContainerStore(
       }
       await later;
       expect(ids(await target.list())).toEqual(["b", "a"]);
+    });
+  });
+}
+
+/** The suite's proof that a store hands its host hook every commit's events. */
+function describeRecordedEvents(
+  name: string,
+  recording: () => Promise<RecordingContainerStores>
+): void {
+  const recorder = async () => {
+    const opened = await recording();
+    return { ...opened, store: opened.stores("scope-a") };
+  };
+
+  describe(`${name} container store events handed to the host`, () => {
+    it("hands on each commit's events once, in order, and none for a write without", async () => {
+      const { recorded, store } = await recorder();
+      const first = [
+        event("sandbox.created", "c1"),
+        event("sandbox.created", "c2"),
+      ];
+      await store.commit({
+        events: first,
+        putContainers: [row("c1"), row("c2")],
+      });
+      await store.commit({ putContainers: [row("c1", { status: "running" })] });
+      await store.commit({
+        deleteContainers: ["c2"],
+        events: [event("sandbox.destroyed", "c2")],
+      });
+
+      expect(await recorded()).toEqual([
+        ...first,
+        event("sandbox.destroyed", "c2"),
+      ]);
+    });
+
+    it("hands on the events as they were when commit was called", async () => {
+      const { recorded, store } = await recorder();
+      const given = { ...event("sandbox.created", "c1") };
+
+      const pending = store.commit({
+        events: [given],
+        putContainers: [row("c1")],
+      });
+      (given as { containerId: string }).containerId = "changed later";
+      await pending;
+
+      expect(await recorded()).toEqual([event("sandbox.created", "c1")]);
+    });
+
+    it("records nothing for a write whose events it refuses", async () => {
+      const { recorded, store } = await recorder();
+      for (const [, events] of UNPLAIN_EVENTS) {
+        await expect(
+          store.commit({ events: events(), putContainers: [row("c1")] })
+        ).rejects.toThrow(TypeError);
+      }
+      expect(await recorded()).toEqual([]);
+    });
+
+    it("records nothing for a write it refuses", async () => {
+      const { recorded, store } = await recorder();
+      const uncopyable = row("c1");
+      Object.defineProperty(uncopyable, "spec", {
+        enumerable: true,
+        get: () => {
+          throw new Error("uncopyable");
+        },
+      });
+
+      await expect(
+        store.commit({
+          events: [event("sandbox.created", "c1")],
+          putContainers: [uncopyable],
+        })
+      ).rejects.toThrow("uncopyable");
+      expect(await recorded()).toEqual([]);
+    });
+
+    it("runs the hook inside the commit: a throw from it keeps neither the write nor its events", async () => {
+      const { failNextCommit, recorded, store } = await recorder();
+      failNextCommit();
+
+      await expect(
+        store.commit({
+          events: [event("sandbox.created", "c1")],
+          putContainers: [row("c1")],
+        })
+      ).rejects.toThrow();
+      expect(await store.list()).toEqual([]);
+      expect(await recorded()).toEqual([]);
+
+      await store.commit({
+        events: [event("sandbox.created", "c1")],
+        putContainers: [row("c1")],
+      });
+      expect(await recorded()).toEqual([event("sandbox.created", "c1")]);
+    });
+
+    it("records a transaction's events only when it is kept", async () => {
+      const { recorded, store } = await recorder();
+      const { transaction } = store;
+      if (transaction === undefined) {
+        return;
+      }
+
+      await expect(
+        transaction.call(store, async (view) => {
+          await view.commit({
+            events: [event("sandbox.created", "dropped")],
+            putContainers: [row("dropped")],
+          });
+          throw new Error("work failed");
+        })
+      ).rejects.toThrow("work failed");
+      await transaction.call(store, async (view) => {
+        await view.commit({
+          events: [event("sandbox.created", "c1")],
+          putContainers: [row("c1")],
+        });
+        await view.commit({
+          events: [event("sandbox.failed", "c1")],
+          putContainers: [row("c1", { status: "failed" })],
+        });
+      });
+
+      expect(await recorded()).toEqual([
+        event("sandbox.created", "c1"),
+        event("sandbox.failed", "c1"),
+      ]);
     });
   });
 }

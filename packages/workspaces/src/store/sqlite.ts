@@ -23,6 +23,7 @@ import type {
   WorkspaceId,
   WorkspaceRegistration,
 } from "../schema";
+import { ownedWrite } from "./events";
 import type {
   WorkspaceSave,
   WorkspaceStore,
@@ -124,9 +125,9 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
    * holding a value SQLite would not return intact (see
    * {@link unstorableField}). A delete of a key no row can hold does nothing.
    *
-   * The store takes the write as it stands when `commit` is called: one
-   * `structuredClone` of the whole write, as the memory store takes it, made
-   * before the commit waits its turn. That copy alone is checked, made into
+   * The store takes the write as it stands when `commit` is called, as the
+   * memory store takes it (see `./events`), before the commit waits its
+   * turn. That copy alone is checked, made into
    * every row, and handed to `onCommit`, so a caller changing its write
    * later changes nothing. A write the clone refuses rejects with the
    * clone's error, as in the memory store.
@@ -135,7 +136,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     let owned: WorkspaceStoreWrite;
     let unstorable: RangeError | undefined;
     try {
-      owned = structuredClone(write);
+      owned = ownedWrite(write);
       unstorable = refuseUnstorable(owned);
     } catch (error) {
       return Promise.reject(error);

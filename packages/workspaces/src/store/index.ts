@@ -2,6 +2,7 @@ import type { Page, PageInput } from "@foundry/core/pagination";
 import type {
   WorkspaceEntry,
   WorkspaceEntryId,
+  WorkspaceEvent,
   WorkspaceId,
   WorkspaceRegistration,
 } from "../types";
@@ -62,6 +63,17 @@ export type WorkspaceStoreWrite = WorkspaceRemoval | WorkspaceSave;
  */
 export interface WorkspaceSave {
   readonly deleteEntries?: readonly WorkspaceEntryId[];
+  /**
+   * What the write changes, as the catalog records it, in order. A store
+   * keeps none of them. Every store takes them when `commit` is called, by
+   * one rule (`./events`): each is copied as plain JSON, and a write holding
+   * one that is not (a class instance, a property a copy would not see, a
+   * Date, `undefined`, NaN) is refused whole with a `TypeError`. A store
+   * with a host hook passes its copy to the hook unchanged. An event's `at`
+   * is when the change was built, not when it committed: it does not order
+   * commits.
+   */
+  readonly events?: readonly WorkspaceEvent[];
   readonly putEntries?: readonly WorkspaceEntry[];
   readonly removeWorkspace?: never;
   readonly workspace: WorkspaceRegistration;
@@ -73,6 +85,8 @@ export interface WorkspaceSave {
  */
 export interface WorkspaceRemoval {
   readonly deleteEntries?: never;
+  /** As on a save. */
+  readonly events?: readonly WorkspaceEvent[];
   readonly putEntries?: never;
   readonly removeWorkspace: WorkspaceId;
   readonly workspace?: never;

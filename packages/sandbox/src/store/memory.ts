@@ -1,6 +1,7 @@
 import { Turns } from "@foundry/lib/turns";
 
 import type { ContainerRow } from "../schema";
+import { ownedWrite } from "./events";
 import type { ContainerStore, ContainerStoreWrite } from "./index";
 
 type Rows = Map<string, ContainerRow>;
@@ -15,10 +16,11 @@ const REENTRY =
  * its place. Each commit builds new rows and swaps them in only when it
  * succeeds.
  *
- * A commit takes the write as it stands when it is called: one
- * `structuredClone` of it, made before the commit waits its turn, so a
- * caller changing the write later changes nothing; a transaction's view
- * takes its writes the same way. A write the clone refuses rejects whole.
+ * A commit takes the write as it stands when it is called: its events as
+ * plain JSON and the rest by one `structuredClone` (see `./events`), made
+ * before the commit waits its turn, so a caller changing the write later
+ * changes nothing; a transaction's view takes its writes the same way. A
+ * write either refuses rejects whole.
  *
  * Every call takes a turn, so a commit made while a transaction runs lands
  * after it, and a call made from inside a transaction's work is refused: it
@@ -77,7 +79,7 @@ function withOwnCopy(
 ): Promise<void> {
   let copy: ContainerStoreWrite;
   try {
-    copy = structuredClone(write);
+    copy = ownedWrite(write);
   } catch (error: unknown) {
     return Promise.reject(error);
   }

@@ -7,6 +7,7 @@ import type {
   WorkspaceId,
   WorkspaceRegistration,
 } from "../types";
+import { ownedWrite } from "./events";
 import type {
   WorkspaceSave,
   WorkspaceStore,
@@ -29,8 +30,9 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
   private readonly turns = new Turns(REENTRY);
 
   /**
-   * Takes the write as it stands now: one `structuredClone` of it, made
-   * before the commit waits its turn, so a caller changing the write later
+   * Takes the write as it stands now: its events as plain JSON and the rest
+   * by one `structuredClone` (see `./events`), made before the commit waits
+   * its turn, so a caller changing the write later
    * changes nothing. A write the clone refuses rejects whole and changes
    * nothing. A transaction's view takes its writes the same way.
    */
@@ -251,7 +253,7 @@ class Storage {
 
 /**
  * `take` with the store's own copy of `write`, or a rejection when the
- * write cannot be cloned.
+ * write cannot be copied.
  */
 function withOwnCopy(
   write: WorkspaceStoreWrite,
@@ -259,7 +261,7 @@ function withOwnCopy(
 ): Promise<void> {
   let copy: WorkspaceStoreWrite;
   try {
-    copy = structuredClone(write);
+    copy = ownedWrite(write);
   } catch (error) {
     return Promise.reject(error);
   }

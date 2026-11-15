@@ -62,6 +62,7 @@ export type {
   WorkspaceCtor,
   WorkspaceEntry,
   WorkspaceEntryId,
+  WorkspaceEvent,
   WorkspaceExtension,
   WorkspaceFile,
   WorkspaceFileSystem,

@@ -1,12 +1,13 @@
 import { symlink } from "node:fs/promises";
 import { join } from "node:path";
-import { eq, getTableColumns, sql } from "drizzle-orm";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { asc, eq, getTableColumns, sql } from "drizzle-orm";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, test } from "vitest";
 import type { z } from "zod";
 import { WorkspaceCatalog } from "../catalog";
 import { workspaceEntrySchema, workspaceRegistrationSchema } from "../schema";
 import type { WorkspaceStoreWrite } from "../store";
+import type { WorkspaceDatabase } from "../store/sqlite";
 import { SqliteWorkspaceStore } from "../store/sqlite";
 import { workspaceEntries, workspaces } from "../store/tables";
 import {
@@ -16,10 +17,15 @@ import {
   newRoot,
   seed,
 } from "../testing/records";
+import type {
+  RecordingWorkspaceStores,
+  ScopedWorkspaceStores,
+} from "../testing/store";
 import { describeWorkspaceStore } from "../testing/store";
 import type {
   WorkspaceEntry,
   WorkspaceEntryId,
+  WorkspaceEvent,
   WorkspaceFile,
   WorkspaceId,
   WorkspaceRegistration,
@@ -31,6 +37,52 @@ import { makeRoot } from "./helpers/temp-roots";
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
 
+/** A host's record of the events its stores' commits carry. */
+const recordedEvents = sqliteTable("recorded_events", {
+  payload: text("payload", { mode: "json" }).$type<WorkspaceEvent>().notNull(),
+  seq: integer("seq").primaryKey({ autoIncrement: true }),
+});
+
+/**
+ * Stores over `database` whose `onCommit` writes each event of the write,
+ * in order, in the commit's own transaction, as a host's outbox would.
+ */
+async function recordingStores(
+  database: WorkspaceDatabase
+): Promise<RecordingWorkspaceStores> {
+  await database.run(
+    sql`CREATE TABLE "recorded_events" ("seq" integer PRIMARY KEY AUTOINCREMENT, "payload" text NOT NULL)`
+  );
+  let failNext = false;
+  const stores: ScopedWorkspaceStores = (scope) =>
+    new SqliteWorkspaceStore({
+      database,
+      onCommit: async (transaction, write) => {
+        for (const payload of write.events ?? []) {
+          await transaction.insert(recordedEvents).values({ payload });
+        }
+        if (failNext) {
+          failNext = false;
+          throw new Error("host refused the commit");
+        }
+      },
+      scope,
+    });
+  return {
+    failNextCommit: () => {
+      failNext = true;
+    },
+    recorded: async () =>
+      (
+        await database
+          .select()
+          .from(recordedEvents)
+          .orderBy(asc(recordedEvents.seq))
+      ).map((row) => row.payload),
+    stores,
+  };
+}
+
 for (const [location, databases] of [
   ["memory", memory],
   ["file", files],
@@ -40,6 +92,10 @@ for (const [location, databases] of [
     async () => {
       const database = await databases.open();
       return (scope) => new SqliteWorkspaceStore({ database, scope });
+    },
+    {
+      hooked: true,
+      recording: async () => recordingStores(await databases.open()),
     }
   );
 }
@@ -493,6 +549,59 @@ describe("SqliteWorkspaceStore", () => {
 });
 
 describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
+  test("an update to every kind of entry as stored, as given or as read back, emits and publishes nothing", async () => {
+    const events: unknown[] = [];
+    const published: unknown[] = [];
+    const store = new SqliteWorkspaceStore({
+      database: await memory.open(),
+      onCommit: (_transaction, write) => {
+        events.push(...(write.events ?? []));
+        return Promise.resolve();
+      },
+      scope: "s",
+    });
+    const catalog = new WorkspaceCatalog(store, (delivered) => {
+      published.push(...delivered);
+    });
+    const workspace = hostWorkspace({ path: newRoot("same") });
+    const given: WorkspaceEntry[] = [
+      directoryRecord(workspace.id, "docs"),
+      fileRecord(workspace.id, { path: "docs/a.md" }),
+      fileRecord(workspace.id, {
+        extension: null,
+        mime: null,
+        path: "docs/plain",
+      }),
+      {
+        ...directoryRecord(workspace.id, "link"),
+        target: "docs/a.md",
+        type: "symlink",
+      },
+      { ...directoryRecord(workspace.id, "socket"), type: "socket" },
+      { ...directoryRecord(workspace.id, "device"), type: "device" },
+      { ...directoryRecord(workspace.id, "pipe"), type: "pipe" },
+    ];
+    await catalog.create({ entries: given, workspace });
+    events.length = 0;
+    published.length = 0;
+    const stored = await store.listEntries(workspace.id);
+
+    for (const updated of [given, stored]) {
+      expect(
+        await catalog.applyChange({
+          change: { deleted: [], inserted: [], updated },
+          updatedAt: new Date(9000),
+          workspaceId: workspace.id,
+        })
+      ).toEqual({ kind: "committed" });
+    }
+
+    expect(events).toEqual([]);
+    expect(published).toEqual([]);
+    expect(await store.getWorkspace(workspace.id)).toEqual(workspace);
+    expect(await store.listEntries(workspace.id)).toEqual(stored);
+  });
+
   test("removing a Workspace removes every row it has in one commit", async () => {
     const database = await memory.open();
     let failNext = true;
@@ -530,11 +639,21 @@ describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
     expect(await catalog.remove(workspace.id)).toEqual({ kind: "removed" });
     expect(await rowCounts(database)).toEqual({ entries: 1, registrations: 1 });
     expect(await catalog.getWorkspace(kept.id)).toEqual(kept);
-    // The hook sees the removal as written: the Workspace, and no entry ids.
-    expect(removals).toEqual([
-      { removeWorkspace: workspace.id },
-      { removeWorkspace: workspace.id },
-    ]);
+    // The hook sees the removal as written: the Workspace and its event, and
+    // no entry ids. Each call is its own removal, with its own event.
+    const removal = {
+      events: [
+        {
+          at: expect.any(String),
+          id: expect.any(String),
+          type: "workspace.removed",
+          workspaceId: workspace.id,
+        },
+      ],
+      removeWorkspace: workspace.id,
+    };
+    expect(removals).toEqual([removal, removal]);
+    expect(removals[0]?.events?.[0]?.id).not.toBe(removals[1]?.events?.[0]?.id);
   }, 60_000);
 
   test("a WorkspaceSystem loads a real directory into SQLite and reads it back", async () => {

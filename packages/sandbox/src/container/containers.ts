@@ -1,6 +1,6 @@
 import { SandboxError } from "../errors";
 import { assertNotAborted } from "../sandbox";
-import type { ContainerRow } from "../schema";
+import type { ContainerRow, SandboxEvent } from "../schema";
 import type { ContainerStore } from "../store/index";
 import { createMemoryContainerStore } from "../store/memory";
 import {
@@ -297,6 +297,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
     entry: { row: ContainerRow },
     patch: RowPatch | ((current: ContainerRow) => RowPatch)
   ): Promise<void> => {
+    const eventId = globalThis.crypto.randomUUID();
     entry.row = await serialized(async (view) => {
       const current = await rowOrThrow(entry.row.id, view);
       const next: ContainerRow = Object.freeze({
@@ -305,14 +306,23 @@ export function createContainers(options: CreateContainersOptions): Containers {
         holder,
         updatedAt: Date.now(),
       });
-      await view.commit({ putContainers: [next] });
+      const entered = enteredEvent(current, next);
+      await view.commit({
+        ...(entered === undefined
+          ? {}
+          : {
+              events: [sandboxEvent(entered, eventId, next.id, next.updatedAt)],
+            }),
+        putContainers: [next],
+      });
       return next;
     });
   };
 
   /** A new row in `starting` under its first native name, refused if the id is taken. */
-  const insert = (constraints: ContainerSandboxConstraints) =>
-    serialized(async (view): Promise<ContainerRow> => {
+  const insert = (constraints: ContainerSandboxConstraints) => {
+    const eventId = globalThis.crypto.randomUUID();
+    return serialized(async (view): Promise<ContainerRow> => {
       const id = globalThis.crypto.randomUUID();
       if ((await view.get(id)) !== undefined) {
         throw new SandboxError(
@@ -330,9 +340,13 @@ export function createContainers(options: CreateContainersOptions): Containers {
         status: "starting",
         updatedAt: now,
       });
-      await view.commit({ putContainers: [row] });
+      await view.commit({
+        events: [sandboxEvent("sandbox.created", eventId, id, now)],
+        putContainers: [row],
+      });
       return row;
     });
+  };
 
   /**
    * Boot a VM under the native name the row already records, then record
@@ -559,13 +573,22 @@ export function createContainers(options: CreateContainersOptions): Containers {
       return claimed;
     });
 
-  /** Delete the row `id` while this registry still holds it. */
-  const deleteHeld = (id: string): Promise<void> =>
-    serialized(async (view) => {
+  /**
+   * Delete the row `id` while this registry still holds it, recording it
+   * destroyed. Another registry that took the row meanwhile, or deleted it,
+   * keeps it: then nothing is deleted, and nothing destroyed here.
+   */
+  const deleteHeld = (id: string): Promise<void> => {
+    const eventId = globalThis.crypto.randomUUID();
+    return serialized(async (view) => {
       if ((await view.get(id))?.holder === holder) {
-        await view.commit({ deleteContainers: [id] });
+        await view.commit({
+          deleteContainers: [id],
+          events: [sandboxEvent("sandbox.destroyed", eventId, id, Date.now())],
+        });
       }
     });
+  };
 
   /** A claimed row's VM removed and the row deleted; whether both went. */
   const removeClaimed = async (row: ContainerRow): Promise<boolean> => {
@@ -786,6 +809,40 @@ export function createContainers(options: CreateContainersOptions): Containers {
     },
   };
   return Object.freeze(containers);
+}
+
+/**
+ * The event an update from the row as stored (`current`) to `next` records:
+ * entering `running`, `stopped` or `failed` from any other status, whatever
+ * came before (a boot after a failure, a restart). Moves to `starting` or
+ * `restarting`, a row already in its status, and changes to the native name
+ * or the spec alone record nothing.
+ */
+function enteredEvent(
+  current: ContainerRow,
+  next: ContainerRow
+): SandboxEvent["type"] | undefined {
+  if (next.status === current.status) {
+    return;
+  }
+  return ENTERED[next.status];
+}
+
+/** The event each status records when a row enters it; others record none. */
+const ENTERED: Partial<Record<ContainerRow["status"], SandboxEvent["type"]>> = {
+  failed: "sandbox.failed",
+  running: "sandbox.started",
+  stopped: "sandbox.stopped",
+};
+
+/** The event of `type` on container `containerId`, at epoch milliseconds `at`. */
+function sandboxEvent(
+  type: SandboxEvent["type"],
+  id: string,
+  containerId: string,
+  at: number
+): SandboxEvent {
+  return { at: new Date(at).toISOString(), containerId, id, type };
 }
 
 function parseSpec(input: unknown): ContainerSandboxConstraints {

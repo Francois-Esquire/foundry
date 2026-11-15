@@ -1,5 +1,6 @@
 import { generateId } from "ai";
 
+import type { SessionChangeEvent } from "../schema";
 import type { SessionStore } from "../store";
 import { InMemorySessionStore } from "../store/memory";
 import { metadataFault, partsFault } from "../store/message-shape";
@@ -79,7 +80,9 @@ export interface SessionsOptions {
  * Holds every rule — a message needs its session, a session is filed once,
  * appending or folding a message touches its session, a summary folds the
  * history before it — and builds each change as one
- * {@link SessionStore.commit}. Every record it writes is in its kept form
+ * {@link SessionStore.commit}, carrying the change events that say what it
+ * changed (see {@link SessionChangeEvent}). A message updated in place, and
+ * a session update that changes neither title nor status, carry none. Every record it writes is in its kept form
  * (see {@link keptMessage}), so every store is handed the same values. Reads project the store. Mutations serialize
  * per instance; when the store offers a `transaction`, each runs in one, so
  * no write from another `Sessions` over the store lands between its reads
@@ -110,12 +113,13 @@ export class Sessions {
   /** Creates a session; one already filed under `input.id` is returned unchanged, history kept. */
   createSession(input: CreateSessionInput = {}): Promise<SessionRecord> {
     const record = keptSession(newSessionRecord(input));
+    const created = changeEvent("session.created", record.id, record.createdAt);
     return this.#mutation(async (store) => {
       const existing = await store.getSession(record.id);
       if (existing) {
         return existing;
       }
-      await store.commit({ putSessions: [record] });
+      await store.commit({ events: [created], putSessions: [record] });
       return record;
     });
   }
@@ -129,13 +133,25 @@ export class Sessions {
       ...(patch.status === undefined ? {} : { status: patch.status }),
       ...(patch.title === undefined ? {} : { title: patch.title }),
     };
+    const eventId = generateId();
     return this.#mutation(async (store) => {
       const current = await store.getSession(id);
       if (!current) {
         return null;
       }
       const next = keptSession(patchSessionRecord(current, taken));
-      await store.commit({ putSessions: [next] });
+      const changed =
+        next.title !== current.title || next.status !== current.status;
+      await store.commit({
+        ...(changed
+          ? {
+              events: [
+                changeEvent("session.updated", id, next.updatedAt, eventId),
+              ],
+            }
+          : {}),
+        putSessions: [next],
+      });
       return next;
     });
   }
@@ -153,12 +169,14 @@ export class Sessions {
     } catch (error) {
       return Promise.reject(error);
     }
+    const appended = messagesAppended(message);
     return this.#mutation(async (store) => {
       const session = await store.getSession(message.sessionId);
       if (!session) {
         throw new Error(`[sessions] unknown session: ${message.sessionId}`);
       }
       await store.commit({
+        events: [appended],
         putMessages: [message],
         putSessions: [touched(session, message)],
       });
@@ -183,6 +201,7 @@ export class Sessions {
     } catch (error) {
       return Promise.reject(error);
     }
+    const appended = messagesAppended(message);
     return this.#mutation(async (store) => {
       const session = await store.getSession(message.sessionId);
       if (!session) {
@@ -192,6 +211,7 @@ export class Sessions {
         return;
       }
       await store.commit({
+        events: [appended],
         putMessages: [message],
         putSessions: [touched(session, message)],
       });
@@ -250,6 +270,7 @@ export class Sessions {
     } catch (error) {
       return Promise.reject(error);
     }
+    const appended = messagesAppended(summary);
     return this.#mutation(async (store) => {
       const session = await store.getSession(sessionId);
       const messages = await store.listMessages(sessionId);
@@ -264,6 +285,7 @@ export class Sessions {
         })
       );
       await store.commit({
+        events: [appended],
         putMessages: [...folded, summary],
         putSessions: [touched(session, summary)],
       });
@@ -290,6 +312,31 @@ export class Sessions {
     );
     return run;
   }
+}
+
+/**
+ * A change event of `type` on `sessionId`, at the epoch milliseconds the
+ * record it changed was stamped with. Built once per call, before the
+ * mutation runs, so work run again keeps its id.
+ */
+function changeEvent(
+  type: "session.created" | "session.updated",
+  sessionId: string,
+  at: number,
+  id: string = generateId()
+): SessionChangeEvent {
+  return { at: new Date(at).toISOString(), id, sessionId, type };
+}
+
+/** The event saying `message` was filed in its session. */
+function messagesAppended(message: SessionMessage): SessionChangeEvent {
+  return {
+    at: new Date(message.createdAt).toISOString(),
+    id: generateId(),
+    messageIds: [message.id],
+    sessionId: message.sessionId,
+    type: "session.messages.appended",
+  };
 }
 
 /** `session` as of `message` landing in it; a clock that stepped back never moves it backwards. */
