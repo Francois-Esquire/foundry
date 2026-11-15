@@ -298,7 +298,7 @@ export async function hostEngine(
   const engine = workspaceEngine(args, workspace, options);
   // Definitions called outside a run use the host's models, stores, and
   // dry-run echo; disposing the engine clears it.
-  setHost(engine);
+  setHost(engine, workspace.catalog);
   return engine;
 }
 
@@ -345,20 +345,42 @@ export function hostTriggers(
 
 /**
  * Record that this workspace ran, for `status`, and register it as it
- * opened: its root, its source and where its work starts, in the database
- * the host opened. Without one (`--dry-run`) nothing is written.
+ * opened: its root and its source, and where its work starts when
+ * `registers` names it (kept as it was otherwise), in the database the
+ * host opened. Without one (`--dry-run`) nothing is written.
  */
 export async function touchWorkspace(
   database: MarblesDatabase | undefined,
   args: Pick<HostOptions, "state">,
-  { config, cwd, workspace }: OpenedWorkspace
+  { config, workspace }: OpenedWorkspace,
+  registers: { readonly cwd?: string } = {}
 ): Promise<void> {
   if (database !== undefined) {
     await new WorkspaceRegistry({
       database: database.database,
       state: args.state,
-    }).touch(workspace, config, { cwd });
+    }).touch(workspace, config, registers);
   }
+}
+
+/**
+ * `workspace` working where its registration says: where it was registered to
+ * start, unless the host named somewhere itself, else its root.
+ */
+export async function asRegistered(
+  database: MarblesDatabase | undefined,
+  args: Pick<HostOptions, "state">,
+  workspace: OpenedWorkspace,
+  cwd: string | undefined
+): Promise<OpenedWorkspace> {
+  if (cwd !== undefined || database === undefined) {
+    return workspace;
+  }
+  const record = await new WorkspaceRegistry({
+    database: database.database,
+    state: args.state,
+  }).read(workspace.workspace.id);
+  return record === undefined ? workspace : { ...workspace, cwd: record.cwd };
 }
 
 /**

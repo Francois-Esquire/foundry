@@ -40,7 +40,7 @@ export type InstanceRuntime = Pick<
 interface Hosting {
   readonly catalog: Catalog;
   readonly id: string;
-  runtime: InstanceRuntime | undefined;
+  readonly runtime: InstanceRuntime | undefined;
 }
 
 const hostings = new Map<string, Hosting>();
@@ -107,12 +107,14 @@ export function loadInto<T>(
 /**
  * The host's engine answers for its workspace: instance calls made outside
  * a run, and the builtin `tasks`, reach it whenever the work names that
- * workspace, or is the only one hosted here.
+ * workspace, or is the only one hosted here. What the workspace's runs
+ * declare goes to `declared`, its own catalog: the one its source loaded
+ * into when omitted, else this process's.
  */
-export function setHost(runtime: InstanceRuntime): void {
+export function setHost(runtime: InstanceRuntime, declared?: Catalog): void {
   const hosting = hostings.get(runtime.workspaceId);
   hostings.set(runtime.workspaceId, {
-    catalog: hosting?.catalog ?? catalog,
+    catalog: declared ?? hosting?.catalog ?? catalog,
     id: runtime.workspaceId,
     runtime,
   });
@@ -126,6 +128,17 @@ export function setHost(runtime: InstanceRuntime): void {
  */
 export function expectHost(): void {
   hostState = "loading";
+}
+
+/**
+ * A host gave workspace `workspaceId` up before it bound an engine to it:
+ * forget it, so it answers nothing and leaves no other workspace sharing
+ * the process.
+ */
+export function abandonHost(workspaceId: string): void {
+  if (hostings.get(workspaceId)?.runtime === undefined) {
+    hostings.delete(workspaceId);
+  }
 }
 
 /** Forget every workspace whose engine was disposed. */

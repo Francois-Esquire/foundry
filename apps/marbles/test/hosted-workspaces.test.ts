@@ -7,13 +7,14 @@
 
 import { execFileSync } from "node:child_process";
 import { chmodSync, realpathSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { recordedWorkspaces } from "~/database/workspaces";
 
 const SRC = resolve("src");
+const AMBIGUOUS = /hosts 2 workspaces/;
 const roots: string[] = [];
 
 afterEach(async () => {
@@ -87,6 +88,7 @@ async function inProcess(
     script,
     `import { HostedWorkspaces } from ${JSON.stringify(join(SRC, "workspace/hosted.ts"))};
 import { hostTasks } from ${JSON.stringify(join(SRC, "workspace/open.ts"))};
+import { tasks } from ${JSON.stringify(join(SRC, "authoring/tasks.ts"))};
 const report = {};
 const environment = { ...process.env };
 const hosted = await HostedWorkspaces.open({
@@ -260,4 +262,85 @@ export const helped = step("helped").do(() => "helped");
   expect(report.first).toBe("helped");
   expect(report.second).toBe("helped");
   expect(report.evaluations).toBe(2);
+}, 120_000);
+
+it("names what a load declares from its consts, as written, the same on every load", async () => {
+  const root = await scratch();
+  const a = await workspace(
+    root,
+    "alpha",
+    `export const nightly = step().do(() => "nightly");
+export const reviewer = agent({ prompt: "Review alpha." });
+`
+  );
+  await writeFile(
+    join(a.dir, "twice.ts"),
+    'import { step } from "@foundry.sh/marbles";\nexport const twice = step("build").do(() => "again");\n'
+  );
+  // Names are inferred with the author's own TypeScript, found from the module.
+  await symlink(
+    resolve("../../node_modules/typescript"),
+    join(a.dir, "node_modules", "typescript")
+  );
+  const report = await inProcess(
+    root,
+    `const registration = { config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} };
+  const [load] = await hosted.load([{ config: ${JSON.stringify(a.dir)}, root: ${JSON.stringify(a.dir)} }]);
+  report.twice = load.loaded ? "loaded" : load.error.message;
+  const first = await hosted.register(registration);
+  const names = async (host) => ({
+    agents: (await host.describe()).agents.map((agent) => agent.id).sort(),
+    definitions: host.engine.definitions().map(({ name }) => name).sort(),
+  });
+  report.first = await names(first);
+  await first.close();
+  const again = await HostedWorkspaces.open({
+    artifacts: ${JSON.stringify(join(root, "artifacts"))},
+    state: ${JSON.stringify(join(root, "state"))},
+  });
+  try {
+    report.second = await names(await again.register(registration));
+  } finally {
+    await again.close();
+  }`
+  );
+  // Two files under one folder both name "build": the error names each file as written.
+  expect(report.twice).toContain(`${a.dir}/marbles.ts:`);
+  expect(report.twice).toContain(`${a.dir}/twice.ts:`);
+  expect(report.twice).not.toContain("marbles-load");
+  expect(report.first).toEqual({
+    agents: ["helper", "reviewer"],
+    definitions: expect.arrayContaining(["build", "nightly"]),
+  });
+  expect(report.second).toEqual(report.first);
+}, 120_000);
+
+it("keeps where a workspace was registered to work when a later host names nowhere, and refuses tasks no workspace's work asks for", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const b = await workspace(root, "beta");
+  const report = await inProcess(
+    root,
+    `const sub = ${JSON.stringify(join(a.dir, "sub"))};
+  const first = await hosted.register({ config: ${JSON.stringify(a.source)}, cwd: sub, root: ${JSON.stringify(a.dir)} });
+  await first.close();
+  const again = await HostedWorkspaces.open({
+    artifacts: ${JSON.stringify(join(root, "artifacts"))},
+    state: ${JSON.stringify(join(root, "state"))},
+  });
+  try {
+    const alpha = await again.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+    report.alpha = await again.run({ name: "build", workspace: alpha.id });
+    await again.register({ config: ${JSON.stringify(b.source)}, root: ${JSON.stringify(b.dir)} });
+    report.outside = await tasks.list().then(() => "answered", (error) => error.message);
+  } finally {
+    await again.close();
+  }`
+  );
+  expect(report.alpha).toBe(`${join(a.dir, "sub")}\nalpha`);
+  expect(report.outside).toMatch(AMBIGUOUS);
+  const records = await recordedWorkspaces(join(root, "state"));
+  expect(records.find((record) => record.root === a.dir)?.cwd).toBe(
+    join(a.dir, "sub")
+  );
 }, 120_000);

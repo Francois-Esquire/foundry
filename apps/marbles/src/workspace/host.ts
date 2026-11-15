@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
+import { abandonHost } from "~/authoring/runtime";
 import type { MarblesDatabase } from "~/database/open";
 import { openHostDatabase } from "~/database/workspaces";
 import type { Engine } from "~/lib/engine";
@@ -23,6 +24,7 @@ import { Diagnostics, hostOutput } from "~/workspace/diagnostics";
 import { runSchedulesUntilStopped } from "~/workspace/loop";
 import type { OpenedWorkspace } from "~/workspace/open";
 import {
+  asRegistered,
   hostEngine,
   hostTasks,
   openWorkspace,
@@ -152,7 +154,7 @@ export async function hostWorkspace(
     dry: options.dry ?? false,
     state: options.state,
   };
-  const opened = await openWorkspace(hostOptions, {
+  const loaded = await openWorkspace(hostOptions, {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     env: options.env,
     onMissing: options.onMissing,
@@ -162,12 +164,19 @@ export async function hostWorkspace(
   // makes and migrates the database only under the state root's process
   // lock (`openHostDatabase`). Under `--dry-run` nothing is persisted.
   const shared = hostOptions.dry ? undefined : options.database;
-  const own =
-    hostOptions.dry || shared !== undefined
-      ? undefined
-      : await openHostDatabase(hostOptions.state);
-  const database = shared ?? own;
+  let own: MarblesDatabase | undefined;
   try {
+    own =
+      hostOptions.dry || shared !== undefined
+        ? undefined
+        : await openHostDatabase(hostOptions.state);
+    const database = shared ?? own;
+    const opened = await asRegistered(
+      database,
+      hostOptions,
+      loaded,
+      options.cwd
+    );
     const engine = await hostEngine(hostOptions, opened, {
       askable: options.askable,
       ...(database === undefined ? {} : { database }),
@@ -179,7 +188,12 @@ export async function hostWorkspace(
       // Defined before the engine starts: background agent dispatch is a step.
       const dispatches = new BackgroundRuns(engine, opened.catalog);
       await engine.start();
-      await touchWorkspace(database, hostOptions, opened);
+      await touchWorkspace(
+        database,
+        hostOptions,
+        opened,
+        options.cwd === undefined ? {} : { cwd: options.cwd }
+      );
       return hosted(engine, opened, dispatches, {
         captured,
         database: own,
@@ -200,6 +214,8 @@ export async function hostWorkspace(
       throw error;
     }
   } catch (error) {
+    // Nothing of it stays bound in this process for the next host to meet.
+    abandonHost(loaded.workspace.id);
     own?.close();
     throw error;
   }

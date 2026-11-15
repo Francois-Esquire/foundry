@@ -594,6 +594,7 @@ export class Engine {
               options.providers?.identityOf(provider),
           }
         : {}),
+      cwd: this.context.cwd,
       implementationOf: (provider) =>
         options.providers
           ?.list()
@@ -605,7 +606,6 @@ export class Engine {
       observe: (runId, observation) =>
         this.#executions.observe(runId, observation),
       requireProviders: () => options.providers?.require(),
-      root,
       sessions,
       skills: skillResolver({ home, workspace: root }),
       usage: { ledger: this.usage, workspaceId },

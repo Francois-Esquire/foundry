@@ -66,7 +66,8 @@ export interface SandboxSessionSettings {
   execution?: Execution;
   /** A CLI harness runs its CLI in the guest; any other runs the built-in coding harness. */
   harness: string;
-  hostCwd?: string;
+  /** Where the session's work starts on the host: its step's working directory. */
+  hostCwd: string;
   /** Host tools for one session; a delegated child gets its own. */
   hostToolsForSession?: (sessionId: string) => ToolSet;
   instructions: string;

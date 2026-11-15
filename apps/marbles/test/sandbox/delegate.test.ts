@@ -39,6 +39,7 @@ function settings(): SandboxSessionSettings {
     agentId: "worker",
     container: {} as Container,
     harness: "codex",
+    hostCwd: process.cwd(),
     instructions: "Parent instructions",
     modelId: "model",
     options: {

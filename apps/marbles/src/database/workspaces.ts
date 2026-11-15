@@ -20,7 +20,7 @@ import type { Workspace, WorkspaceRecord } from "~/lib/state/workspace";
 import { insideState } from "~/lib/state/workspace";
 
 export interface TouchOptions {
-  /** Where the workspace's work starts; its root when omitted. */
+  /** Where the workspace's work starts; kept as it was when omitted, its root at first. */
   readonly cwd?: string;
   /** Whether the Marbles process hosts this workspace; kept as it was when omitted. */
   readonly hosted?: boolean;
@@ -67,6 +67,7 @@ export class WorkspaceRegistry {
       options.cwd === undefined || options.cwd === workspace.root
         ? null
         : options.cwd;
+    const registersCwd = options.cwd === undefined ? {} : { cwd };
     await this.#database
       .insert(marblesWorkspaces)
       .values({
@@ -81,8 +82,8 @@ export class WorkspaceRegistry {
       .onConflictDoUpdate({
         set: {
           config,
-          cwd,
           lastSeen: now,
+          ...registersCwd,
           root: workspace.root,
           ...(hosted === undefined ? {} : { hosted }),
         },

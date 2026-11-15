@@ -53,6 +53,7 @@ function open(execution?: Execution) {
     container,
     ...(execution ? { execution } : {}),
     harness: "codex",
+    hostCwd: process.cwd(),
     instructions: "inspect",
     modelId: "gpt-5.5",
     options: {
