@@ -5,12 +5,12 @@ import { directory, WorkspaceSystem } from "@foundry/workspaces";
 import { MemoryWorkspaceStore } from "@foundry/workspaces/store/memory";
 import { onTestFinished } from "vitest";
 import { ArtifactManager } from "../../manager";
-import { InMemoryArtifactStore } from "../../memory";
 import {
   type ArtifactFileSystemOptions,
   artifactFileSystem,
   blobFiles,
 } from "../../node";
+import { InMemoryArtifactStore } from "../../store/memory";
 import type { EntryInputs } from "../../substrate";
 
 export async function fixture(
