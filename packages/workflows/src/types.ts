@@ -1,15 +1,4 @@
-/** Lifecycle status owned by the workflows execution boundary. */
-export type RunStatus =
-  | "queued"
-  | "running"
-  | "suspended"
-  | "complete"
-  | "failed"
-  | "cancelled";
-
-/** Operating state of a queue, distinct from an individual run outcome. */
-export type QueueStatus = "active" | "paused" | "draining" | "stopped";
-export type { ErrorShape } from "./workflow";
+export type { ErrorShape, QueueStatus, RunStatus } from "./schema";
 
 /**
  * A duration. Either ms (number) or a human-friendly string (e.g.

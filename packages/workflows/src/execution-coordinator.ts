@@ -67,6 +67,7 @@ import type {
 } from "./execution-repository";
 import { createExtensions, mergeExtensions } from "./extensions";
 import { rowToRecoverable } from "./metadata-codec";
+import { defineOwnEntry } from "./own-entry";
 import type {
   AppendRunFrameInput,
   ClaimRunEffectInput,
@@ -1849,7 +1850,7 @@ function normalizeJsonValue(
     const normalized: Record<string, JsonValue> = {};
     for (const [key, entry] of Object.entries(value)) {
       if (entry !== undefined) {
-        normalized[key] = normalizeJsonValue(entry, ancestors);
+        defineOwnEntry(normalized, key, normalizeJsonValue(entry, ancestors));
       }
     }
     return normalized;
