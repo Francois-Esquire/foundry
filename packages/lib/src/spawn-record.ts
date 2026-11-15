@@ -187,6 +187,116 @@ export function recordChild(
   }
 }
 
+/** How a group stop reaches the system; a test replaces it. */
+export interface GroupSystem {
+  /** Signal `target` (a negative pid: the group); throws as `process.kill` does. */
+  kill(target: number, signal: NodeJS.Signals | 0): void;
+  sleep(ms: number): Promise<void>;
+}
+
+export interface RecordGroupOptions {
+  /** Read for the record directories; this process's environment when omitted. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  /** How long the group gets after SIGTERM, then after SIGKILL. */
+  readonly graceMs?: number;
+  readonly killMs?: number;
+  /** When it aborts, the whole group is stopped. */
+  readonly signal?: AbortSignal;
+  readonly system?: GroupSystem;
+}
+
+const GROUP_GRACE_MS = 2000;
+const GROUP_KILL_MS = 1000;
+const GROUP_POLL_MS = 50;
+
+const GROUP_SYSTEM: GroupSystem = {
+  kill: (target, signal) => process.kill(target, signal),
+  sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+};
+
+/**
+ * Record `child`, which leads a process group of its own (spawned
+ * detached), as a group, and stop the whole group, the leader and
+ * whatever it started, when `signal` aborts and once the leader exits:
+ * SIGTERM, a grace period, SIGKILL, a last wait. Its recovery record goes
+ * only once the group is empty; one that would not empty keeps it, so the
+ * next start's orphan stop finds the group (`@foundry/lib/orphans`).
+ * Returns the stop, which resolves with whether the group emptied.
+ */
+export function recordGroup(
+  child: Pick<ChildProcess, "once" | "pid">,
+  options: RecordGroupOptions = {}
+): () => Promise<boolean> {
+  const env = options.env ?? process.env;
+  const { pid } = child;
+  recordSpawned(pid, true, env);
+  if (pid === undefined) {
+    return () => Promise.resolve(true);
+  }
+  const recovery = named(env[SPAWN_RECOVERY_ENV]);
+  const system = options.system ?? GROUP_SYSTEM;
+  let stopping: Promise<boolean> | undefined;
+  const stop = (): Promise<boolean> => {
+    stopping ??= stopGroup(pid, system, {
+      graceMs: options.graceMs ?? GROUP_GRACE_MS,
+      killMs: options.killMs ?? GROUP_KILL_MS,
+    }).then((emptied) => {
+      if (emptied && recovery !== undefined) {
+        rmSync(recordPath(recovery, pid), { force: true });
+      }
+      return emptied;
+    });
+    return stopping;
+  };
+  options.signal?.addEventListener("abort", () => stop().catch(() => false), {
+    once: true,
+  });
+  // Its exit is its reaping; what it started may still run in its group.
+  child.once("exit", () => {
+    stop().catch(() => false);
+  });
+  return stop;
+}
+
+/** SIGTERM the group `pgid`, wait, SIGKILL it, wait; whether it emptied. */
+async function stopGroup(
+  pgid: number,
+  system: GroupSystem,
+  limits: { readonly graceMs: number; readonly killMs: number }
+): Promise<boolean> {
+  for (const [signal, ms] of [
+    ["SIGTERM", limits.graceMs],
+    ["SIGKILL", limits.killMs],
+  ] as const) {
+    if (!groupSignal(system, pgid, signal)) {
+      return true;
+    }
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline) {
+      await system.sleep(GROUP_POLL_MS);
+      if (!groupSignal(system, pgid, 0)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** Signal the group `pgid`; `false` once it has no process left. */
+function groupSignal(
+  system: GroupSystem,
+  pgid: number,
+  signal: NodeJS.Signals | 0
+): boolean {
+  try {
+    system.kill(-pgid, signal);
+    return true;
+  } catch (error) {
+    // A group of exited members not yet reaped answers EPERM on macOS.
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
 /** Where the record of `pid` is kept in `dir`. */
 export function recordPath(dir: string, pid: number): string {
   return join(dir, `${String(pid)}.json`);

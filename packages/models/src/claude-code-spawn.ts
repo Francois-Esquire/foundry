@@ -2,8 +2,9 @@
  * How a host Claude Code call starts the CLI: as the Claude Agent SDK's
  * own local spawn does (its stdin and stdout piped, the SDK's signal and
  * environment as given), but leading a process group of its own, recorded
- * as one (`@foundry/lib/spawn-record`), so a start after its host died
- * stops a CLI it left running and whatever that CLI started.
+ * as one (`@foundry/lib/spawn-record`, `recordGroup`): the SDK's abort,
+ * and the CLI's own exit, stop the whole group, and a start after its
+ * host died stops a group it left running.
  *
  * The SDK reads the CLI's stderr only on its own spawn, for the error a
  * failed call reports. Here each call keeps the tail of it instead
@@ -14,7 +15,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
-import { recordChild } from "@foundry/lib/spawn-record";
+import { recordGroup } from "@foundry/lib/spawn-record";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
 
 type SpawnHook = NonNullable<ClaudeCodeSettings["spawnClaudeCodeProcess"]>;
@@ -34,7 +35,6 @@ export const spawnRecordedCli: SpawnHook = (options) => {
     // left stops what it started too (its tools' commands, its servers).
     detached: true,
     env: options.env,
-    signal: options.signal,
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -45,8 +45,9 @@ export const spawnRecordedCli: SpawnHook = (options) => {
       call.tail = (call.tail + chunk).slice(-STDERR_TAIL_BYTES);
     }
   });
-  // Once the child is the call's; it never throws.
-  recordChild(child, true);
+  // Once the child is the call's; it never throws. The SDK's abort, and
+  // the CLI's own exit, stop the whole group, not the CLI alone.
+  recordGroup(child, { signal: options.signal });
   return child;
 };
 
