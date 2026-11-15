@@ -200,6 +200,23 @@ describe("compact", () => {
     expect(active.map(labelOf)).toEqual(["SUMMARY", "m5", "m6"]);
   });
 
+  test("skips the fold when a folded message changes while it is summarized", async () => {
+    const store = new InMemorySessionStore();
+    const sessions = new Sessions({ store });
+    const { sessionId, ids } = await seed(store, ["m1", "m2", "m3"]);
+    const editing: Summarizer = {
+      async summarize() {
+        await sessions.updateMessage(req(ids[0]), { parts: text("edited") });
+        return "SUMMARY";
+      },
+    };
+
+    expect(await compact(store, editing, sessionId, req(ids[2]))).toBeNull();
+
+    const active = await sessions.activeMessages(sessionId);
+    expect(active.map(labelOf)).toEqual(["edited", "m2", "m3"]);
+  });
+
   test("real summarizer over a simulated model", async () => {
     const store = new InMemorySessionStore();
     const sessions = new Sessions({ store });

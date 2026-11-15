@@ -356,16 +356,27 @@ export function transformStream<OUTPUT extends Output.Output = never>(
             });
             break;
           }
-          append(
-            keptToolResult(part, (error) => {
+          {
+            const kept = keptToolResult(part, (error) => {
               unkept ??= error;
-            })
-          );
-          emit({
-            output: part.output,
-            toolCallId: part.toolCallId,
-            type: "tool-result",
-          });
+            });
+            append(kept);
+            // A result the session could not keep is reported as the error it was kept as.
+            emit(
+              kept.isError === true
+                ? {
+                    isError: true,
+                    output: kept.output,
+                    toolCallId: part.toolCallId,
+                    type: "tool-result",
+                  }
+                : {
+                    output: part.output,
+                    toolCallId: part.toolCallId,
+                    type: "tool-result",
+                  }
+            );
+          }
           break;
         case "tool-error": {
           const output = toError(part.error).message;

@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 import type { LanguageModel, ModelMessage } from "ai";
 
 import { generateText, pruneMessages } from "ai";
@@ -95,7 +97,11 @@ function renderPart(part: ModelMessagePart): string {
 
 /**
  * Summarize the messages before `messageId` and fold them under the summary
- * in one write. No-op (`null`) when there's nothing to fold.
+ * in one write. No-op (`null`) when there's nothing to fold, or when the
+ * messages to fold changed while the summary was written (an edit, or
+ * another compaction): the summary would describe content no longer there.
+ * The check and the fold run in one store transaction when the store
+ * offers one.
  */
 export async function compact(
   store: SessionStore,
@@ -110,11 +116,22 @@ export async function compact(
   }
 
   const text = await summarizer.summarize(fold);
-  return new Sessions({ store }).summarize({
-    messageId,
-    sessionId,
-    summary: { parts: [{ text, type: "text" }] },
-  });
+  const commit = async (
+    view: SessionStore
+  ): Promise<SummarizeResult | null> => {
+    const current = foldSet(await view.listMessages(sessionId), messageId);
+    if (!isDeepStrictEqual(current, fold)) {
+      return null;
+    }
+    return await new Sessions({ store: view }).summarize({
+      messageId,
+      sessionId,
+      summary: { parts: [{ text, type: "text" }] },
+    });
+  };
+  return store.transaction === undefined
+    ? commit(store)
+    : store.transaction(commit);
 }
 
 /** When to compact and how much to keep. */
