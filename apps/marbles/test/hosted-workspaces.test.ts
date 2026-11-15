@@ -581,3 +581,38 @@ it("declares what a package's function makes with the words a workspace's source
   );
   expect(report.helper).toBe("made");
 }, 120_000);
+
+it("lets every workspace finish closing before it closes the database, and reports each that failed", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const b = await workspace(root, "beta");
+  const report = await inProcess(
+    root,
+    `const alpha = await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  const beta = await hosted.register({ config: ${JSON.stringify(b.source)}, root: ${JSON.stringify(b.dir)} });
+  const closeAlpha = alpha.close.bind(alpha);
+  alpha.close = async () => {
+    await closeAlpha();
+    throw new Error("alpha failed to close");
+  };
+  const closeBeta = beta.close.bind(beta);
+  beta.close = async () => {
+    // Still saving through the shared handle after alpha has failed.
+    await new Promise((settle) => setTimeout(settle, 200));
+    try {
+      await hostTasks(beta.engine).create({ title: "last write" });
+      report.lastWrite = "kept";
+    } catch (error) {
+      report.lastWrite = String(error);
+    }
+    await closeBeta();
+  };
+  try {
+    await hosted.close();
+  } catch (error) {
+    report.errors = (error.errors ?? [error]).map((each) => each.message);
+  }`
+  );
+  expect(report.lastWrite).toBe("kept");
+  expect(report.errors).toEqual(["alpha failed to close"]);
+}, 120_000);

@@ -322,17 +322,23 @@ export class HostedWorkspaces {
 
   /**
    * Stop every workspace, cancelling live runs, then close the database: a
-   * registration still under way is closed as soon as it loads.
+   * registration still under way is closed as soon as it loads. Every
+   * workspace finishes closing, its last writes through the shared handle
+   * included, before the database closes, whichever of them failed; then
+   * each failure is reported together.
    */
   async close(): Promise<void> {
     this.#phase = "closed";
     await Promise.allSettled([...this.#pending.values()]);
     const hosts = this.list();
     this.#hosts.clear();
-    try {
-      await Promise.all(hosts.map((host) => host.close()));
-    } finally {
-      this.#database?.close();
+    const closed = await Promise.allSettled(hosts.map((host) => host.close()));
+    this.#database?.close();
+    const errors = closed.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : []
+    );
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "Failed to close every workspace");
     }
   }
 }
