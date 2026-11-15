@@ -63,7 +63,8 @@ are Grants, never settings.
 ## Work with installations
 
 An Installation selects one version by `contentId`. The registry refuses a version whose
-Artifact is not its Module's. It starts disabled with
+Artifact is not its Module's, and, given `artifactOfContent` (see [Storage](#storage)),
+one whose Content does not exist or belongs to another Artifact. It starts disabled with
 generation `0`. Lifecycle beginnings and version selection increment the generation;
 settlement keeps it. Every change to an existing Installation presents the generation
 it observed, so stale callers receive `ModuleStoreConflictError` instead of overwriting
@@ -132,18 +133,49 @@ records: one Module per Artifact and one Artifact per Module, retained manifests
 by the Module that retained them, unique Installation ids, an Installation selecting a
 version of a registered Module, the generation compare-and-set, status and start-budget
 transitions, one Grant per capability, and the refusal to delete a Module an
-Installation still selects. Each command copies its input when called, then runs one
+Installation still selects. Each command reads the fields it takes from its input once,
+by name, wherever they live (an own property or a getter on a prototype, so a class
+instance is honoured), copies them before its first await, and then runs one
 read-modify-write ending in one `commit` to its `ModuleStore`, inside the store's
-`transaction` when it has one. Lists come back in id order (UTF-16 code units), paged by
-id; the registry reads every matching record and sorts it, which suits a local library.
+`transaction` when it has one. A retained manifest must be plain JSON data. Lists come
+back in id order (UTF-16 code units), paged by id; the registry reads every matching
+record and sorts it, which suits a local library.
+
+`new ModuleRegistry({ store, artifactOfContent })`: `artifactOfContent(contentId)`
+answers which Artifact a Content belongs to, or `null` when there is none, as
+`async (id) => (await artifacts.getContent(id))?.artifactId ?? null` does. With it, an
+Installation can be created at, or moved to, only a version whose Content exists and
+belongs to the version's Artifact. Without it, the registry checks only that the
+version's Module is registered on the version's Artifact: a made-up Content id on that
+Artifact is accepted, and that the Content exists is the caller's to have checked
+(`createModuleVersions` resolves every version it returns so). A host that has its
+Artifacts at hand passes it.
+
+`registry.durability` is its store's (`"commit"` unless the store says otherwise). A
+store's `durability` says when a commit that resolved is there for good: `"commit"` at
+once, `"host"` only once a transaction the store does not own commits. A transaction's
+view is `"host"`, and so is the registry a transaction hands its work, and a
+`SqliteModuleStore` over a Drizzle transaction the host began (which refuses
+`durability: "commit"`). `createModuleAccess` refuses a `"host"` registry, because it
+cancels Invocations once a revoke commits and a rollback could then restore the Grant.
 
 `ModuleStore` from `@foundry/modules/store` is the seam: reads plus one atomic
 `commit(write)` and an optional `transaction(work)`. It enforces nothing. A write puts
 and deletes Modules, retained manifests (`StoredManifest`) and Installations with their
 whole Grant set (`StoredInstallation`), deletes before puts; the record schemas are in
-`@foundry/modules/schema`. Reads return detached copies, list in the order records were
-first put (a record put again keeps its place), filter by exact values and page by an
-opaque cursor. `MemoryModuleStore` from `store/memory` is the default:
+`@foundry/modules/schema`. A store takes a write by reading each property the write
+names once, by name, when `commit` is called, captures each record field by field into
+plain objects, and copies the capture; both stores share that capture
+(`store/captured`). It refuses, with a `TypeError` naming the property and before
+anything is written, a list that is not an array, a delete key that is not text, a
+record that is not plain data (made by `{}` or `Object.create(null)`, every own
+property enumerable), a field of the wrong type, and a manifest that is not plain JSON
+data. A commit lands whole or not at all: the memory store applies each write to a copy
+of its tables and swaps the copy in only once the whole write applied. Reads return
+detached copies, list in the order records were first put (a record put again keeps its
+place), filter by exact values and page by an opaque cursor. A position is never handed
+out twice in a scope, so a cursor stays valid however many records are deleted around
+it. `MemoryModuleStore` from `store/memory` is the default:
 
 ```ts
 import { ModuleRegistry } from "@foundry/modules/registry";
@@ -162,9 +194,13 @@ const registry = new ModuleRegistry({
 ```
 
 `@foundry/modules/store/tables` exports the Drizzle tables for the host's migrations:
-`modules`, `module_manifests` and `module_installations`. Each holds its record field
-for field, plus `scope` (an opaque partition key, first in every key and index) and
-`position` (put order). An Installation's Grants are one JSON array on its row, in
+`modules`, `module_manifests`, `module_installations` and `module_positions`. Each of the
+first three holds its record field for field, plus `scope` (an opaque partition key,
+first in every key and index) and `position` (put order). `module_positions` holds one
+counter per scope, the position the scope's next new row of any table takes; it only
+grows, across connections and reopening. A scope that has rows but no counter row yet
+(rows written before there was one) starts past its highest position on its first
+commit that puts or deletes anything, a delete-only commit included. An Installation's Grants are one JSON array on its row, in
 Grant order; they change only with their Installation. Timestamps, which the records
 hold as `Date`s, are ISO 8601 text, exact to the millisecond across the whole range a
 `Date` holds. The package ships no migrations.
@@ -181,7 +217,13 @@ command, and each read of several store reads, as `work(view)`, and the store le
 other write land in between, from any registry over it. A throw from `work` leaves
 nothing it committed through `view`. `registry.transaction(work)` hands `work` a
 registry bound to one such transaction, so several commands land together or not at
-all. On SQLite the transaction begins `BEGIN IMMEDIATE` (Drizzle's libSQL driver begins
+all, and `effects`: `effects.afterCommit(effect)` runs `effect` once the transaction has
+committed, never if it rolls back, and every effect runs though one throws (the call then
+rejects with that error, or an aggregate of them). Transactions do not nest:
+`transaction` on the registry `work` was handed rejects at once with a
+`ReentrantCallError`. Over a store without `transaction`, `work` runs alone among the
+registry's commands, each command lands as it commits and stays if `work` throws, and so
+its effects run either way. On SQLite the transaction begins `BEGIN IMMEDIATE` (Drizzle's libSQL driver begins
 every transaction so), so it holds the write lock from its first statement and a write
 from another connection waits for that connection's busy timeout or fails with
 `SQLITE_BUSY`; it never lands in between.
@@ -286,8 +328,28 @@ keeps one checkout per Module at a host-chosen path and implements both
 `ModuleCheckouts` and the swap.
 
 `createModuleProjects` accepts Artifacts and a registry directly when only authoring
-is needed. Creation runs a registry transaction inside the Artifact transaction; the
-two commit separately, as an import's do.
+is needed.
+
+The Artifacts and the registry cannot share a transaction, so every operation that
+writes both orders its two commits so that the registry never names an Artifact or a
+Content that does not exist, and so that repeating the same call after a failure at any
+step completes it:
+
+- Project create: the Artifact first, then the registration that names it. If the
+  Artifact write fails, nothing is written and a retry creates the Module. If the
+  registration fails, the new Artifact, which nothing names, is archived (best effort)
+  and a retry makes another. A Module registered already is returned as idempotent only
+  once its Artifact is found; a registration naming a missing Artifact is refused, not
+  returned. A concurrent create of the same id wins, and this create's Artifact is
+  archived.
+- Package import: the registry is asked first whether the Module id belongs to another
+  Artifact, and the import is refused before anything lands. Then the Content lands in
+  its Artifact, then the Module is registered (and its manifest retained). Landing is
+  idempotent, so a retry after either step fails completes the import.
+- Module delete: the Installations are deleted, then the Artifact is archived, then the
+  Module is retired from the registry. An archived Artifact still exists, so whichever
+  step fails the registry names nothing missing; a retry archives again (a no-op: an
+  archived Artifact keeps its `archivedAt`) and then retires the Module.
 
 `captureModuleWorkspaceSource(filesystem, root)` from `@foundry/modules/source` uses
 its `ModuleSourceFileSystem` interface. `@foundry/modules/node/source` exposes the same
@@ -339,10 +401,9 @@ in this package format without resolving the disagreement.
 
 Import creates the Module Artifact when absent, reuses an identical tagged Content
 version, or explicitly revises frozen Content and freezes the successor. Ready Content
-keeps its identity on replacement. The Module writes run in a registry transaction
-inside the Artifact transaction, so a refused registration rolls the Artifact back. The
-two are not one atomic write: the registry's store and the Artifact store commit
-separately, the registry first.
+keeps its identity on replacement. The Artifact commits first and the registry second
+(see "Compose a Module system" for the order and its recovery), so a registration that
+fails after the Content landed leaves the Content, and a retry registers it.
 
 ## Gateway boundary
 
@@ -409,5 +470,8 @@ providers. Works is the only shipped host in this tree. It keeps Module records 
 containers in memory for one process, so it has nothing to recover at boot, and uses
 validated activation when a View opens.
 
-Access cancels a revoked Grant's Invocations only once the registry transaction
-that revoked it has committed; a rolled-back revoke or carry-over cancels nothing.
+Access runs each revoke and carry-over in a registry transaction of its own and
+registers each cancellation with `effects.afterCommit`, so Invocations are cancelled
+only once the revoke has committed, never for a revoke that rolls back, and every
+dropped Grant's are cancelled though one cancellation throws. It refuses a `"host"`
+registry at construction, the registry a transaction hands its work included.
