@@ -1,5 +1,7 @@
-import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { expect, it } from "vitest";
 import {
   compareStarts,
@@ -66,6 +68,7 @@ it("compares identities as far as each says, and reads them back from columns an
   expect(isProcessIdentity({ pid: 0, started: "x" })).toBe(false);
 });
 
+const SRC = resolve(import.meta.dirname, "..");
 const LINUX_START = /^linux:[0-9a-f-]{36}:\d+$/;
 const PS_START = /^ps:\w{3} \w{3} +\d+ \d\d:\d\d:\d\d \d{4}$/;
 const BOOT = "6f1c2a7e-2b9d-4c2e-9a51-0d3b7c8e9f10";
@@ -134,5 +137,49 @@ it.runIf(process.platform !== "linux")(
   "reads a start from ps elsewhere",
   () => {
     expect(thisProcess().started ?? "").toMatch(PS_START);
+  }
+);
+
+it.skipIf(process.platform === "linux")(
+  "never takes a start it read a moment ago as proof that a pid's new process is gone",
+  () => {
+    const dir = mkdtempSync(join(tmpdir(), "identity-cache-"));
+    // A process of this test's, whose pid `ps` is then made to report as
+    // started at another time: as if it were handed to a new process.
+    const child = spawn("sleep", ["30"], { stdio: "ignore" });
+    try {
+      const pid = child.pid ?? 0;
+      const seen = join(dir, "seen");
+      writeFileSync(seen, "Sun Nov 15 12:00:00 2026");
+      writeFileSync(
+        join(dir, "ps"),
+        `#!/bin/sh\nif [ "$4" = "${String(pid)}" ]; then printf '${String(pid)} ${String(pid)} '; cat '${seen}'; else exec /bin/ps "$@"; fi\n`,
+        { mode: 0o700 }
+      );
+      const script = join(dir, "check.ts");
+      writeFileSync(
+        script,
+        `const { isGone } = await import(${JSON.stringify(join(SRC, "process-identity.ts"))});
+const { writeFileSync } = await import("node:fs");
+const before = isGone({ pid: ${String(pid)}, started: "ps:Sun Nov 15 12:00:00 2026" });
+writeFileSync(${JSON.stringify(seen)}, "Sun Nov 15 12:01:00 2026");
+// Within the second the first read is kept: the new holder is still there.
+const after = isGone({ pid: ${String(pid)}, started: "ps:Sun Nov 15 12:01:00 2026" });
+const former = isGone({ pid: ${String(pid)}, started: "ps:Sun Nov 15 12:00:00 2026" });
+console.log(JSON.stringify({ after, before, former }));`
+      );
+      const output = execFileSync("bun", [script], {
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}` },
+      });
+      expect(JSON.parse(output.trim())).toEqual({
+        after: false,
+        before: false,
+        former: true,
+      });
+    } finally {
+      child.kill("SIGKILL");
+      rmSync(dir, { force: true, recursive: true });
+    }
   }
 );

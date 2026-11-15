@@ -59,6 +59,12 @@ import {
 export interface SpawnRecord {
   /** It leads a process group of its own, whose id is its pid. */
   readonly group: boolean;
+  /**
+   * On a group's record: its members as a stop found them while it could
+   * still prove the group by its leader, so a later stop can prove each
+   * one after the leader is gone.
+   */
+  readonly members?: readonly ProcessIdentity[];
   /** The process that started it, on a recovery record. */
   readonly owner?: ProcessIdentity;
   readonly pid: number;

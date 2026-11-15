@@ -223,6 +223,7 @@ it("kills one that ignores SIGTERM, and keeps the record of one that will not go
               { pgid: each, started: unkillable.identity.started },
             ])
         ),
+      members: () => new Map(),
       sleep: () => Promise.resolve(),
     },
   });
@@ -245,6 +246,7 @@ it("signals nothing when the process table cannot be read", async () => {
         throw new Error("never signalled");
       },
       look: () => undefined,
+      members: () => undefined,
       sleep: () => Promise.resolve(),
     },
   });
@@ -285,4 +287,136 @@ it("records the owner of a child on its recovery record, and removes it once the
   });
   await kill(child);
   expect(existsSync(path)).toBe(false);
+});
+
+/**
+ * A group this test starts, leading its own: a shell that starts a Node
+ * process ignoring SIGTERM, which writes its pid once its handler is in
+ * place. The helper's identity, for proving and, at the end, stopping it.
+ */
+async function stubbornGroup(dir: string): Promise<{
+  readonly helper: ProcessIdentity & { readonly started: string };
+  readonly leader: ChildProcess;
+  readonly identity: ProcessIdentity & { readonly started: string };
+}> {
+  const script = join(dir, "helper.js");
+  const ready = join(dir, "ready");
+  writeFileSync(
+    script,
+    `process.on("SIGTERM", () => {}); require("node:fs").writeFileSync(${JSON.stringify(ready)}, String(process.pid)); setInterval(() => {}, 1000);`
+  );
+  const leader = spawn(
+    "/bin/sh",
+    ["-c", `'${process.execPath}' '${script}' & wait`],
+    {
+      detached: true,
+      stdio: "ignore",
+    }
+  );
+  started.push(leader);
+  for (let i = 0; i < 500 && !existsSync(ready); i += 1) {
+    await new Promise((done) => setTimeout(done, 10));
+  }
+  const pid = Number(readFileSync(ready, "utf8"));
+  const helperStart = startedAt(pid);
+  const leaderStart = startedAt(leader.pid ?? 0);
+  if (typeof helperStart !== "string" || typeof leaderStart !== "string") {
+    throw new Error("the group did not start");
+  }
+  leftovers.push({ pid, started: helperStart });
+  return {
+    helper: { pid, started: helperStart },
+    identity: { pid: leader.pid ?? 0, started: leaderStart },
+    leader,
+  };
+}
+
+const leftovers: { pid: number; started: string }[] = [];
+afterEach(() => {
+  for (const { pid, started: start } of leftovers.splice(0)) {
+    if (startedAt(pid) === start) {
+      process.kill(pid, "SIGKILL");
+    }
+  }
+});
+
+it("stops a whole group whose member ignores SIGTERM, and forgets it only once no member is left", async () => {
+  const dir = scratch();
+  const owner = sleeper();
+  const group = await stubbornGroup(dir);
+  record(dir, { ...group.identity, group: true, owner: owner.identity });
+  await kill(owner.child);
+
+  const stop = await stopOrphans(dir, { graceMs: 300, killMs: 2000 });
+
+  expect(stop).toEqual({ problems: [], stopped: [group.identity.pid] });
+  expect(startedAt(group.helper.pid)).toBeNull();
+  expect(existsSync(recordPath(dir, group.identity.pid))).toBe(false);
+});
+
+it("finishes a group a stop cut short after its leader exited, by the members its record proves", async () => {
+  const dir = scratch();
+  const owner = sleeper();
+  const group = await stubbornGroup(dir);
+  // What a stop cut short leaves: the members it wrote down, the leader gone.
+  record(dir, {
+    ...group.identity,
+    group: true,
+    members: [group.identity, group.helper],
+    owner: owner.identity,
+  });
+  await kill(owner.child);
+  await kill(group.leader);
+
+  const stop = await stopOrphans(dir, { graceMs: 300, killMs: 2000 });
+
+  expect(stop).toEqual({ problems: [], stopped: [group.identity.pid] });
+  expect(startedAt(group.helper.pid)).toBeNull();
+  expect(existsSync(recordPath(dir, group.identity.pid))).toBe(false);
+});
+
+it("keeps the record of a group whose leader is gone and whose members it cannot prove, as pending", async () => {
+  const dir = scratch();
+  const owner = sleeper();
+  const group = await stubbornGroup(dir);
+  record(dir, { ...group.identity, group: true, owner: owner.identity });
+  await kill(owner.child);
+  await kill(group.leader);
+
+  const stop = await stopOrphans(dir, FAST);
+
+  expect(stop.stopped).toEqual([]);
+  expect(stop.problems).toEqual([
+    `group ${String(group.identity.pid)}'s leader is gone and its 1 remaining member(s) cannot be proved its; not signalled, pending, its record kept`,
+  ]);
+  expect(startedAt(group.helper.pid)).toBe(group.helper.started);
+  expect(existsSync(recordPath(dir, group.identity.pid))).toBe(true);
+});
+
+it("keeps, and reports, a record whose start is of another kind than the system reads", async () => {
+  const dir = scratch();
+  record(dir, {
+    group: false,
+    owner: { pid: 456, started: null },
+    pid: 123,
+    started: "Sun Nov 15 12:00:00 2026",
+  });
+  const stop = await stopOrphans(dir, {
+    system: {
+      kill: () => {
+        throw new Error("never signalled");
+      },
+      look: () =>
+        new Map([[123, { pgid: 123, started: "ps:Sun Nov 15 12:00:00 2026" }]]),
+      members: () => new Map(),
+      sleep: () => Promise.resolve(),
+    },
+  });
+  expect(stop).toEqual({
+    problems: [
+      "process 123 runs, and its record names a start of another kind than this system reads; not signalled, its record kept",
+    ],
+    stopped: [],
+  });
+  expect(existsSync(recordPath(dir, 123))).toBe(true);
 });

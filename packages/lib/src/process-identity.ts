@@ -24,7 +24,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 /**
  * One process: its pid, and its start (see above). `started` is `null`
@@ -166,6 +166,55 @@ function lookPs(
 }
 
 /**
+ * Every running process in the group `pgid`, with how each runs now;
+ * `undefined` when the system cannot say.
+ */
+export function groupMembers(
+  pgid: number
+): ReadonlyMap<number, SeenProcess> | undefined {
+  const all = process.platform === "linux" ? allProc() : allPs();
+  if (all === undefined) {
+    return;
+  }
+  return new Map([...all].filter(([, seen]) => seen.pgid === pgid));
+}
+
+function allProc(): ReadonlyMap<number, SeenProcess> | undefined {
+  let pids: number[];
+  try {
+    pids = readdirSync("/proc")
+      .filter((name) => DIGITS.test(name))
+      .map(Number);
+  } catch {
+    return;
+  }
+  return lookProc(pids, new Map());
+}
+
+function allPs(): ReadonlyMap<number, SeenProcess> | undefined {
+  const listed = spawnSync("ps", ["-A", "-o", "pid=,pgid=,lstart="], {
+    encoding: "utf8",
+    env: PS_ENV,
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: PS_TIMEOUT_MS,
+  });
+  if (listed.error !== undefined || listed.status !== 0) {
+    return;
+  }
+  const seen = new Map<number, SeenProcess>();
+  for (const line of listed.stdout.split("\n")) {
+    const parsed = PS_LINE.exec(line);
+    if (parsed) {
+      seen.set(Number(parsed[1]), {
+        pgid: Number(parsed[2]),
+        started: psStart(parsed[3] ?? ""),
+      });
+    }
+  }
+  return seen;
+}
+
+/**
  * The start of the process `pid` (see above); `null` when no process has
  * the pid, `undefined` when the system cannot say.
  */
@@ -233,7 +282,13 @@ export function isGone(owner: ProcessIdentity): boolean {
   if (owner.started === null) {
     return false;
   }
-  const now = recentStart(owner.pid);
+  // A start read a moment ago may only confirm the owner: anything else
+  // is decided on a fresh read, since the pid may be another's by now.
+  if (confirmedRecently(owner.pid, owner.started)) {
+    return false;
+  }
+  const now = startedAt(owner.pid);
+  remember(owner.pid, now);
   if (now === null) {
     return true;
   }
@@ -283,19 +338,26 @@ function normal(started: string): string {
   return started.trim().replace(SPACES, " ");
 }
 
-const recent = new Map<number, { at: number; started: string | null }>();
+const recent = new Map<number, { at: number; started: string }>();
 
-/** `startedAt`, trusted for a moment: a live pid's start cannot change. */
-function recentStart(pid: number): string | null | undefined {
+/**
+ * Whether `pid` was read a moment ago as started at `started`: only ever
+ * evidence that it is still that process, never that it is not.
+ */
+function confirmedRecently(pid: number, started: string): boolean {
   const known = recent.get(pid);
-  if (known !== undefined && Date.now() - known.at < SEEN_MS) {
-    return known.started;
-  }
-  const started = startedAt(pid);
-  if (started === undefined) {
+  return (
+    known !== undefined &&
+    Date.now() - known.at < SEEN_MS &&
+    known.started !== null &&
+    compareStarts(known.started, started) === "same"
+  );
+}
+
+function remember(pid: number, started: string | null | undefined): void {
+  if (started === undefined || started === null) {
     recent.delete(pid);
   } else {
     recent.set(pid, { at: Date.now(), started });
   }
-  return started;
 }

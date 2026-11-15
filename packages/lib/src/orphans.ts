@@ -11,13 +11,27 @@
  *
  * - this process, whatever its record says;
  * - a record without an owner, or that cannot be read;
- * - a process whose start time differs from its record (the pid is
- *   someone else's now): its record is removed, and it is left alone;
+ * - a process whose start differs from its record (the pid is someone
+ *   else's now): its record is removed, and it is left alone;
+ * - one whose start is of another kind than its record's, which says
+ *   nothing either way: its record is kept, and reported;
  * - one recorded leading a group of its own that no longer does.
  *
- * An orphan gets SIGTERM (its group, when it leads one), a grace period,
- * SIGKILL, and a last wait. The record of a process confirmed gone is
- * removed; one that would not stop keeps its record and is reported.
+ * An orphan gets SIGTERM, a grace period, SIGKILL, and a last wait. The
+ * record of a process confirmed gone is removed; one that would not stop
+ * keeps its record and is reported.
+ *
+ * A group (a record of a leader that leads one) is stopped whole, and its
+ * record goes only once no process of the group is left. While a stop
+ * proves the leader, it writes the group's members, each with its start,
+ * into the record, and signals the group by its id; it keeps doing so
+ * until the group is empty, watching it all along, since a group id
+ * cannot be given to another group while any member of this one lives,
+ * and a stop that has seen it empty is done with it. A later stop that
+ * finds the leader gone, as after a stop cut short, signals each member
+ * the record names that it can still prove, and no other process; one
+ * whose remaining members it cannot prove keeps the record, reported as
+ * pending.
  * Stopping an orphan can leave orphans of its own, its recorded
  * children, so the directory is read again until a pass stops nothing.
  *
@@ -33,12 +47,18 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   compareStarts,
+  groupMembers,
   isProcessIdentity,
   lookProcesses,
   type ProcessIdentity,
   type SeenProcess,
 } from "./process-identity";
-import { notPrivate, recordPath, type SpawnRecord } from "./spawn-record";
+import {
+  notPrivate,
+  recordPath,
+  type SpawnRecord,
+  writePrivate,
+} from "./spawn-record";
 
 /** What a stop did: the pids it stopped, and what it could not do. */
 export interface OrphanStop {
@@ -63,6 +83,8 @@ export interface ProcessTable {
    * when it cannot say.
    */
   look(pids: readonly number[]): ReadonlyMap<number, SeenProcess> | undefined;
+  /** Every process in the group `pgid`; `undefined` when it cannot say. */
+  members(pgid: number): ReadonlyMap<number, SeenProcess> | undefined;
   sleep(ms: number): Promise<void>;
 }
 
@@ -89,15 +111,24 @@ export async function stopOrphans(
     for (const problem of found.problems) {
       problems.add(problem);
     }
-    if (found.orphans.length === 0) {
+    if (found.orphans.length === 0 && found.groups.length === 0) {
       break;
     }
     const result = await stopAll(dir, found.orphans, system, limits);
-    stopped.push(...result.stopped);
+    const passStopped = [...result.stopped];
     for (const problem of result.problems) {
       problems.add(problem);
     }
-    if (result.stopped.length === 0) {
+    for (const group of found.groups) {
+      const kept = await stopGroup(dir, group, system, limits);
+      if (kept === undefined) {
+        passStopped.push(group.record.pid);
+      } else {
+        problems.add(kept);
+      }
+    }
+    stopped.push(...passStopped);
+    if (passStopped.length === 0) {
       break;
     }
   }
@@ -105,8 +136,15 @@ export async function stopOrphans(
 }
 
 interface Found {
+  readonly groups: readonly OrphanGroup[];
   readonly orphans: readonly SpawnRecord[];
   readonly problems: readonly string[];
+}
+
+/** A group's record, and whether its leader was proved in this look. */
+interface OrphanGroup {
+  readonly leader: boolean;
+  readonly record: SpawnRecord;
 }
 
 /** The orphans `dir` records now; the records of processes that are gone go. */
@@ -118,45 +156,94 @@ function orphansIn(dir: string, system: ProcessTable): Found {
   const seen = system.look([...new Set(pids)]);
   if (seen === undefined) {
     return {
+      groups: [],
       orphans: [],
       problems: [...problems, "ps could not list the recorded processes"],
     };
   }
   const orphans: SpawnRecord[] = [];
+  const groups: OrphanGroup[] = [];
   for (const record of records) {
-    const verdict = judge(record, seen);
+    const verdict = judge(record, seen, system);
     if (verdict === "gone") {
       forget(dir, record.pid);
     } else if (verdict === "orphan") {
       orphans.push(record);
+    } else if (verdict === "group" || verdict === "members") {
+      groups.push({ leader: verdict === "group", record });
     } else if (typeof verdict === "object") {
       problems.push(verdict.problem);
     }
   }
-  return { orphans, problems };
+  return { groups, orphans, problems };
 }
 
-type Verdict = "gone" | "kept" | "orphan" | { readonly problem: string };
+type Verdict =
+  | "gone"
+  | "group"
+  | "kept"
+  | "members"
+  | "orphan"
+  | { readonly problem: string };
 
 function judge(
   record: SpawnRecord,
-  seen: ReadonlyMap<number, SeenProcess>
+  seen: ReadonlyMap<number, SeenProcess>,
+  system: ProcessTable
 ): Verdict {
   if (record.pid === process.pid) {
     return "kept";
   }
-  if (!proved(record, seen)) {
-    return "gone";
-  }
-  if (record.owner === undefined || stillThere(record.owner, seen)) {
-    return "kept";
-  }
-  if (record.group && seen.get(record.pid)?.pgid !== record.pid) {
+  const found = seen.get(record.pid);
+  const start =
+    found === undefined
+      ? "absent"
+      : compareStarts(found.started, record.started);
+  if (start === "unknown") {
     return {
-      problem: `process ${String(record.pid)} was recorded leading its own group and no longer does; not signalled`,
+      problem: `process ${String(record.pid)} runs, and its record names a start of another kind than this system reads; not signalled, its record kept`,
     };
   }
-  return "orphan";
+  if (record.owner !== undefined && stillThere(record.owner, seen)) {
+    return start === "same" || record.group ? "kept" : "gone";
+  }
+  if (record.owner === undefined) {
+    // Never an orphan's: nothing says whose it was.
+    return start === "same" ? "kept" : "gone";
+  }
+  if (!record.group) {
+    return start === "same" ? "orphan" : "gone";
+  }
+  if (start === "same") {
+    return found?.pgid === record.pid
+      ? "group"
+      : {
+          problem: `process ${String(record.pid)} was recorded leading its own group and no longer does; not signalled`,
+        };
+  }
+  return leftMembers(record, system);
+}
+
+/**
+ * What is left of a group whose leader is gone: nothing (`gone`), members
+ * its record names that can be proved (`members`), or members it cannot
+ * prove, which keep the record, reported.
+ */
+function leftMembers(record: SpawnRecord, system: ProcessTable): Verdict {
+  const members = system.members(record.pid);
+  if (members === undefined) {
+    return {
+      problem: `the members of group ${String(record.pid)} could not be listed; its record is kept`,
+    };
+  }
+  if (members.size === 0) {
+    return "gone";
+  }
+  return (record.members ?? []).some((member) => proved(member, members))
+    ? "members"
+    : {
+        problem: `group ${String(record.pid)}'s leader is gone and its ${String(members.size)} remaining member(s) cannot be proved its; not signalled, pending, its record kept`,
+      };
 }
 
 /**
@@ -219,7 +306,7 @@ async function stopAll(
   };
 }
 
-/** Signal each of `records` still running as recorded, its group when it leads one. */
+/** Signal each of `records` still running as recorded. */
 function signal(
   records: readonly SpawnRecord[],
   name: NodeJS.Signals,
@@ -231,16 +318,7 @@ function signal(
     if (seen === undefined || !proved(record, seen)) {
       continue;
     }
-    try {
-      system.kill(record.group ? -record.pid : record.pid, name);
-    } catch (error) {
-      // Gone between the proof and the signal; a group of exited members
-      // not yet reaped answers EPERM on macOS.
-      const { code } = error as NodeJS.ErrnoException;
-      if (code !== "ESRCH" && code !== "EPERM") {
-        throw error;
-      }
-    }
+    signalTarget(system, record.pid, name);
   }
 }
 
@@ -262,6 +340,98 @@ async function waitGone(
       return left;
     }
     await system.sleep(POLL_MS);
+  }
+}
+
+/**
+ * Stop the group `group` names: whole, by its id, when its leader was
+ * proved (its members written into its record first), else each member
+ * its record names that is proved right before its signal. SIGTERM, a
+ * grace period, SIGKILL, a last wait; the record goes only once no
+ * process of the group is left. `undefined` once it is empty; why its
+ * record is kept otherwise.
+ */
+async function stopGroup(
+  dir: string,
+  group: OrphanGroup,
+  system: ProcessTable,
+  limits: { readonly graceMs: number; readonly killMs: number }
+): Promise<string | undefined> {
+  const pgid = group.record.pid;
+  let { record } = group;
+  if (group.leader) {
+    const members = system.members(pgid);
+    if (members === undefined) {
+      return `the members of group ${String(pgid)} could not be listed; its record is kept`;
+    }
+    record = {
+      ...record,
+      members: [...members].map(([pid, seen]) => ({
+        pid,
+        started: seen.started,
+      })),
+    };
+    // Before any signal, so a stop cut short leaves its proof behind.
+    writePrivate(recordPath(dir, pgid), JSON.stringify(record));
+  }
+  const send = (name: NodeJS.Signals): void => {
+    if (group.leader) {
+      // Proved by its leader in this stop, and watched since: still this group.
+      signalTarget(system, -pgid, name);
+      return;
+    }
+    const members = system.members(pgid);
+    for (const member of record.members ?? []) {
+      if (members !== undefined && proved(member, members)) {
+        signalTarget(system, member.pid, name);
+      }
+    }
+  };
+  for (const [name, ms] of [
+    ["SIGTERM", limits.graceMs],
+    ["SIGKILL", limits.killMs],
+  ] as const) {
+    send(name);
+    if (await emptied(pgid, ms, system)) {
+      forget(dir, pgid);
+      return;
+    }
+  }
+  return `group ${String(pgid)} still has members after SIGKILL; pending, its record kept`;
+}
+
+/** Poll until no process of the group `pgid` is left, or `ms` pass. */
+async function emptied(
+  pgid: number,
+  ms: number,
+  system: ProcessTable
+): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    if (system.members(pgid)?.size === 0) {
+      return true;
+    }
+    if (Date.now() >= deadline) {
+      return false;
+    }
+    await system.sleep(POLL_MS);
+  }
+}
+
+function signalTarget(
+  system: ProcessTable,
+  target: number,
+  name: NodeJS.Signals
+): void {
+  try {
+    system.kill(target, name);
+  } catch (error) {
+    // Gone between the proof and the signal; a group of exited members
+    // not yet reaped answers EPERM on macOS.
+    const { code } = error as NodeJS.ErrnoException;
+    if (code !== "ESRCH" && code !== "EPERM") {
+      throw error;
+    }
   }
 }
 
@@ -325,11 +495,13 @@ function isRecord(value: unknown): value is SpawnRecord {
   if (typeof value !== "object" || value === null) {
     return false;
   }
-  const { group, owner } = value as Partial<SpawnRecord>;
+  const { group, members, owner } = value as Partial<SpawnRecord>;
   // The record's own start time was read when it was written: always there.
   return (
     typeof group === "boolean" &&
     (owner === undefined || isProcessIdentity(owner)) &&
+    (members === undefined ||
+      (Array.isArray(members) && members.every(isProcessIdentity))) &&
     isProcessIdentity(value) &&
     value.started !== null
   );
@@ -346,5 +518,6 @@ function gone(error: unknown): boolean {
 const SYSTEM: ProcessTable = {
   kill: (target, name) => process.kill(target, name),
   look: lookProcesses,
+  members: groupMembers,
   sleep: (ms) => sleep(ms),
 };
