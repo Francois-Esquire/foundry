@@ -580,6 +580,14 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
       store,
     });
 
+    // The VM a dead process left is stopped already: it is removed, not stopped again.
+    await runtime.stopResource(`${left.id}-1`);
+    const stop = runtime.stopResource.bind(runtime);
+    runtime.stopResource = (name) =>
+      name === `${left.id}-1`
+        ? Promise.reject(new Error("already stopped"))
+        : stop(name);
+
     await next.remove(left.id);
 
     expect(await store.list()).toEqual([]);

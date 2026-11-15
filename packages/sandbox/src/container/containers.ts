@@ -509,29 +509,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
   };
 
   /**
-   * Remove the VM `name`: whether the runtime no longer lists it. A stop
-   * or remove that fails may mean it is gone already; the inventory says.
-   * One still listed is retried through its row, which stays `removing`.
-   */
-  const removeVm = async (name: string): Promise<boolean> => {
-    try {
-      await runtime.stopResource(name);
-      await runtime.removeResource(name);
-      return true;
-    } catch {
-      try {
-        const resources = await enumerate(runtime, selection, undefined);
-        if (!resources.some((resource) => resource.name === name)) {
-          return true;
-        }
-      } catch {
-        // An inventory that cannot be read proves nothing gone.
-      }
-      return false;
-    }
-  };
-
-  /**
    * Mark the row `removing` under this registry, in one store transaction;
    * when `judged` is given, only while the row's holder and last write are
    * still those, so a row another registry took meanwhile is left to it.
@@ -571,34 +548,51 @@ export function createContainers(options: CreateContainersOptions): Containers {
 
   /**
    * A claimed row's VMs removed and the row deleted; whether both went.
-   * Every VM labelled with the row's id goes first, not only the one its
-   * native name names: an `open` commits the next native name before it
-   * removes the VM under the last, so a process that died between the two
-   * left that VM under the row. Once the row is deleted, no VM of it is
-   * left for a start to find, so none needs a sweep after it. An
+   * Every VM the runtime lists labelled with the row's id goes first, not
+   * only the one its native name names: an `open` commits the next native
+   * name before it removes the VM under the last, so a process that died
+   * between the two left that VM under the row. Once the row is deleted,
+   * no VM of it is left for a start to find, so none needs a sweep after
+   * it. Each is stopped first only if it runs, as `sweep` does; one a stop
+   * or remove failed on goes once the inventory no longer lists it. An
    * inventory that cannot be read keeps the row, to retry.
    */
   const removeClaimed = async (row: ContainerRow): Promise<boolean> => {
-    const names = new Set<string>();
-    if (row.nativeId !== undefined) {
-      names.add(row.nativeId);
-    }
+    let resources: readonly ContainerResourceSummary[];
     try {
-      for (const resource of await enumerate(runtime, selection, undefined)) {
-        if (resource.labels[CONTAINER_ID_LABEL] === row.id) {
-          names.add(resource.name);
-        }
-      }
+      resources = await enumerate(runtime, selection, undefined);
     } catch {
       return false;
     }
-    for (const name of names) {
-      if (!(await removeVm(name))) {
+    for (const resource of resources) {
+      if (
+        (resource.labels[CONTAINER_ID_LABEL] === row.id ||
+          resource.name === row.nativeId) &&
+        !(await disposeListed(resource))
+      ) {
         return false;
       }
     }
     await deleteHeld(row.id);
     return true;
+  };
+
+  /** Remove a VM the inventory listed: whether the runtime no longer lists it. */
+  const disposeListed = async (
+    resource: ContainerResourceSummary
+  ): Promise<boolean> => {
+    try {
+      await dispose(runtime, resource);
+      return true;
+    } catch {
+      try {
+        const listed = await enumerate(runtime, selection, undefined);
+        return !listed.some((each) => each.name === resource.name);
+      } catch {
+        // An inventory that cannot be read proves nothing gone.
+        return false;
+      }
+    }
   };
 
   const containers: Containers = {
