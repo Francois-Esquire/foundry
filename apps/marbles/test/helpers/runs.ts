@@ -1,14 +1,18 @@
 import {
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { startedAt } from "~/process/spawned";
+import {
+  notPrivate,
+  SPAWN_OWNER_ENV,
+  startedAt,
+  writePrivate,
+} from "~/process/spawned";
 import {
   type Marker,
   type StopLimits,
@@ -19,12 +23,19 @@ import {
 /**
  * One test run: a root directory that holds everything the run makes, the
  * records of every process it starts (under `spawned/`), and a marker,
- * `MARBLES_TEST_RUN=<root>`, in the environment of each of them. The root
- * names its owner, the run's main process, by pid and start time; the run
- * is over once no process with that pid started then. Anything short of
- * that, a root with no owner or one that cannot be read, or a process
- * list that cannot be had, counts as live: its owner may be starting, or
- * be a suite that knows nothing of this.
+ * `MARBLES_SPAWN_OWNER=<root>`, in the environment of each of them. The
+ * root names its owner, the run's main process, by pid and start time;
+ * the run is over once no process with that pid started then. Anything
+ * short of that, a root with no owner or one that cannot be read, or a
+ * process list that cannot be had, counts as live: its owner may be
+ * starting, or be a suite that knows nothing of this.
+ *
+ * Roots live in one base directory, and nothing there is believed unless
+ * it is private (`notPrivate`: a real directory or file, this user's, with
+ * no permission for group or others): the base, each root, its owner, and
+ * every directory and record below it, each checked as it is read. What is
+ * not is skipped with a warning and never acted on, so a file someone else
+ * could have written never decides what is signalled or removed.
  *
  * Ending a run, or sweeping one that is over, stops what its records
  * name (see `stopRecorded`), and removes its root only when every one is
@@ -39,7 +50,7 @@ export interface Run {
   readonly root: string;
 }
 
-export const RUN_ENV = "MARBLES_TEST_RUN";
+export const RUN_ENV = SPAWN_OWNER_ENV;
 const RUN_PREFIX = "marbles-run-";
 const OWNER_FILE = "owner.json";
 const RECORDS = "spawned";
@@ -57,18 +68,38 @@ export function runRecords(root: string): string {
   return join(root, RECORDS);
 }
 
-/** Start a run under `parent`, owned by this process. */
+/**
+ * The base directory runs keep their roots in, made private if it is
+ * missing; throws if it is there and not private.
+ */
+export function privateBase(base: string): string {
+  try {
+    mkdirSync(base, { mode: 0o700 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+      throw error;
+    }
+  }
+  const problem = notPrivate(base, "directory");
+  if (problem !== undefined) {
+    throw new Error(`marbles tests: will not keep runs in ${base}: ${problem}`);
+  }
+  return base;
+}
+
+/** Start a run in the private base `parent`, owned by this process. */
 export function startRun(parent: string, limits?: StopLimits): Run {
+  privateBase(parent);
   const root = mkdtempSync(join(parent, RUN_PREFIX));
   const started = startedAt(process.pid);
   if (typeof started !== "string") {
     rmSync(root, { force: true, recursive: true });
     throw new Error("marbles tests: could not read this process's start time");
   }
-  // Written whole or not at all, so a reader never finds half an owner.
-  const partial = join(root, `${OWNER_FILE}.new`);
-  writeFileSync(partial, JSON.stringify({ pid: process.pid, started }));
-  renameSync(partial, join(root, OWNER_FILE));
+  writePrivate(
+    join(root, OWNER_FILE),
+    JSON.stringify({ pid: process.pid, started })
+  );
   return {
     async finish() {
       // A root that cannot be cleared is kept; once this process exits,
@@ -83,18 +114,33 @@ export function startRun(parent: string, limits?: StopLimits): Run {
 }
 
 /**
- * Clean up after every run under `parent` that is over: stop what its
- * records name, then remove its root. A run that is live, or cannot be
- * shown over, is left alone.
+ * Clean up after every run in the base `parent` that is over: stop what
+ * its records name, then remove its root. A run that is live, cannot be
+ * shown over, or is not private is left alone.
  */
 export async function sweepFinishedRuns(
   parent: string,
   limits?: StopLimits
 ): Promise<void> {
+  const base = notPrivate(parent, "directory");
+  if (base !== undefined) {
+    console.warn(`marbles tests: not sweeping ${parent}: ${base}`);
+    return;
+  }
   const roots = readdirSync(parent)
     .filter((name) => name.startsWith(RUN_PREFIX))
     .map((name) => join(parent, name));
   for (const root of roots) {
+    const problem =
+      notPrivate(root, "directory") ??
+      notPrivate(join(root, OWNER_FILE), "file");
+    if (problem !== undefined) {
+      // A root that is being made, or one that is not this user's alone.
+      if (!problem.includes("ENOENT")) {
+        console.warn(`marbles tests: not sweeping ${root}: ${problem}`);
+      }
+      continue;
+    }
     if (isOver(root) && (await clear(root, limits))) {
       removeRoot(root);
     }

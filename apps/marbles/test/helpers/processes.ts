@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
+  notPrivate,
   recordSpawned,
   SPAWN_RECORD_ENV,
   type SpawnRecord,
@@ -11,8 +12,10 @@ import {
 /**
  * The processes a test run may stop are the ones it recorded as it
  * started them (`recordSpawned`, here and in Marbles itself): pid, start
- * time, and whether each leads a process group of its own. Before every
- * signal each one is proved again, from what the system says right then:
+ * time, and whether each leads a process group of its own. A record is
+ * read only from a private file in private directories (`notPrivate`);
+ * any other is skipped and reported. Before each process's own signal,
+ * it is proved again, from what the system says about it right then:
  *
  * - no process has the pid, or one that started at another time does:
  *   it is gone, and the pid is someone else's now;
@@ -65,6 +68,8 @@ export interface ProcessSystem {
 
 const LIMITS: StopLimits = { graceMs: 5000, killMs: 2000 };
 const POLL_MS = 100;
+/** How long `ps` gets to answer, so a stop takes a bounded time. */
+const PS_TIMEOUT_MS = 5000;
 const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
 const LOOK_LINE = /^\s*(\d+)\s+(\d+)\s+(.+)$/;
 const PID_PAIR = /^\s*(\d+)\s+(\d+)\s*$/;
@@ -132,15 +137,17 @@ class RecordedStop {
 
   /** Prove every record now, signal the proved ones; the pids still there. */
   round(signal: NodeJS.Signals | undefined): number[] {
-    const seen = this.#system.look(this.#records.map(({ pid }) => pid));
     const left: number[] = [];
     this.#unproven = new Set();
     for (const record of this.#records) {
       if (this.#problems.has(record.pid)) {
         continue;
       }
-      const found = seen.get(record.pid);
-      const proof = prove(record, found, this.#marker, this.#system);
+      const environment = this.#system.environment(record.pid);
+      // Read last, right before this one's own signal: what an earlier
+      // record's stop took long enough to change shows here.
+      const found = this.#system.look([record.pid]).get(record.pid);
+      const proof = prove(record, found, environment, this.#marker);
       if (typeof proof === "object") {
         this.#problems.set(record.pid, proof.problem);
       } else if (proof === "recorded") {
@@ -236,8 +243,8 @@ type Proof = "gone" | "recorded" | "unproven" | { readonly problem: string };
 function prove(
   record: SpawnRecord,
   seen: Seen | undefined,
-  marker: Marker,
-  system: ProcessSystem
+  environment: readonly string[] | undefined,
+  marker: Marker
 ): Proof {
   if (seen === undefined || seen.started !== normal(record.started)) {
     return "gone";
@@ -248,7 +255,6 @@ function prove(
       problem: `process ${pid} was recorded leading its own group and is now in group ${String(seen.pgid)}; not signalled`,
     };
   }
-  const environment = system.environment(record.pid);
   if (environment === undefined) {
     return "unproven";
   }
@@ -291,9 +297,9 @@ interface Records {
 function readRecords(dir: string): Records {
   const records: SpawnRecord[] = [];
   const problems: string[] = [];
-  let entries: ReturnType<typeof listRecords>;
+  let entries: string[];
   try {
-    entries = listRecords(dir);
+    entries = listRecords(dir, problems);
   } catch (error) {
     return gone(error)
       ? { problems, records }
@@ -325,13 +331,36 @@ function readRecords(dir: string): Records {
   return { problems, records };
 }
 
-function listRecords(dir: string): string[] {
+/**
+ * The record files under `dir`, each directory on the way and each file
+ * checked private (`notPrivate`) before it is listed; what is not is
+ * skipped, with the reason in `problems`. Files in flight (`.tmp`) are
+ * not records yet.
+ */
+function listRecords(dir: string, problems: string[]): string[] {
   if (!existsSync(dir)) {
     return [];
   }
-  return readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-    .map((entry) => join(entry.parentPath, entry.name));
+  const problem = notPrivate(dir, "directory");
+  if (problem !== undefined) {
+    problems.push(`skipped ${problem}`);
+    return [];
+  }
+  const files: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listRecords(path, problems));
+    } else if (entry.name.endsWith(".json")) {
+      const unsafe = notPrivate(path, "file");
+      if (unsafe === undefined) {
+        files.push(path);
+      } else {
+        problems.push(`skipped ${unsafe}`);
+      }
+    }
+  }
+  return files;
 }
 
 function gone(error: unknown): boolean {
@@ -382,6 +411,7 @@ function ps(args: readonly string[]): string {
     encoding: "utf8",
     env: PS_ENV,
     maxBuffer: 256 * 1024 * 1024,
+    timeout: PS_TIMEOUT_MS,
   });
   if (listed.error !== undefined || (listed.status ?? 2) > 1) {
     throw new Error(

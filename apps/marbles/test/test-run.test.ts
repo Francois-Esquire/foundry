@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -10,6 +11,8 @@ import {
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { expect, it, vi } from "vitest";
+import { layout } from "~/layout";
+import { daemonAlive } from "~/process/client";
 import { recordSpawned, SPAWN_RECORD_ENV, startedAt } from "~/process/spawned";
 import integration from "../vitest.integration.config";
 import { cliArgs } from "./helpers/cli";
@@ -36,6 +39,16 @@ function uniqueMarker(): Marker {
 }
 
 const entry = (marker: Marker) => `${marker.name}=${marker.value}`;
+
+/** A file only this user can read or write, as the records must be. */
+function writePrivateFile(path: string, text: string): void {
+  writeFileSync(path, text, { mode: 0o600 });
+}
+
+/** A directory only this user can use, as the run's must be. */
+function mkdirPrivate(path: string): void {
+  mkdirSync(path, { mode: 0o700, recursive: true });
+}
 
 /**
  * A Bun process that runs until it is stopped, carrying `env` and nothing
@@ -137,7 +150,7 @@ it("reads a marker from the environment only, never from the command line", asyn
 it("proves a recorded process again before every signal, so a reused pid gets none", async () => {
   const marker = uniqueMarker();
   const records = temporaryDirectory("rec-");
-  writeFileSync(
+  writePrivateFile(
     join(records, "4242.json"),
     JSON.stringify({
       group: true,
@@ -168,7 +181,7 @@ it("does not signal a recorded process whose pid now names one that started late
   const marker = uniqueMarker();
   const records = temporaryDirectory("rec-");
   const later = await sleeper({ [marker.name]: marker.value });
-  writeFileSync(
+  writePrivateFile(
     join(records, `${String(later)}.json`),
     JSON.stringify({
       group: true,
@@ -290,7 +303,7 @@ it("does not signal a recorded process whose environment cannot be read, and rep
   const marker = uniqueMarker();
   const records = temporaryDirectory("rec-");
   const started = "Sun Nov 15 08:00:00 2026";
-  writeFileSync(
+  writePrivateFile(
     join(records, "4343.json"),
     JSON.stringify({ group: false, pid: 4343, started })
   );
@@ -410,15 +423,167 @@ function exitedPid(): number {
   return Number(exited.stdout.trim());
 }
 
+/** A run root in `parent` that looks over, naming `pid` in a record. */
+function forgedRun(
+  parent: string,
+  name: string,
+  pid: number,
+  { recordMode = 0o600, rootMode = 0o700 } = {}
+): string {
+  const root = join(parent, name);
+  mkdirPrivate(join(runRecords(root), "run"));
+  chmodSync(root, rootMode);
+  writePrivateFile(
+    join(root, "owner.json"),
+    JSON.stringify({ pid: exitedPid(), started: "Thu Jan 1 00:00:00 1970" })
+  );
+  const record = join(runRecords(root), "run", `${String(pid)}.json`);
+  writeFileSync(
+    record,
+    JSON.stringify({ group: false, pid, started: startedAt(pid) }),
+    { mode: recordMode }
+  );
+  chmodSync(record, recordMode);
+  return root;
+}
+
+it("acts on nothing in a run root, a record or a link that is not private", async () => {
+  const parent = temporaryDirectory("sw-");
+  const unrelated = spawn("/bin/sleep", ["60"], { stdio: "ignore" });
+  const pid = unrelated.pid ?? 0;
+  const open = forgedRun(parent, "marbles-run-open", pid, { rootMode: 0o755 });
+  const loose = forgedRun(parent, "marbles-run-loose", pid, {
+    recordMode: 0o644,
+  });
+  const elsewhere = forgedRun(temporaryDirectory("sw-"), "marbles-run-x", pid);
+  symlinkSync(elsewhere, join(parent, "marbles-run-linked"));
+  const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  try {
+    await sweepFinishedRuns(parent, FAST);
+    expect(alive(pid)).toBe(true);
+    expect([open, loose, elsewhere].map(existsSync)).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    const said = warned.mock.calls.flat().join("\n");
+    expect(said).toContain(`${open} is open to group or others`);
+    expect(said).toContain("is open to group or others (mode 644)");
+    expect(said).toContain(
+      `${join(parent, "marbles-run-linked")} is a symbolic link`
+    );
+  } finally {
+    warned.mockRestore();
+    kill(pid);
+  }
+});
+
+it("will not keep runs in, or sweep, a base directory open to others", async () => {
+  const base = temporaryDirectory("base-");
+  chmodSync(base, 0o755);
+  expect(() => startRun(base)).toThrow("is open to group or others");
+  const unrelated = spawn("/bin/sleep", ["60"], { stdio: "ignore" });
+  const pid = unrelated.pid ?? 0;
+  const root = forgedRun(base, "marbles-run-forged", pid);
+  const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  try {
+    await sweepFinishedRuns(base, FAST);
+    expect(alive(pid)).toBe(true);
+    expect(existsSync(root)).toBe(true);
+    expect(warned.mock.calls.flat().join("\n")).toContain(
+      `not sweeping ${base}`
+    );
+  } finally {
+    warned.mockRestore();
+    kill(pid);
+  }
+});
+
+it("reads each process's identity again right before its own signal", async () => {
+  const marker = uniqueMarker();
+  const records = temporaryDirectory("rec-");
+  const old = "Sun Nov 15 08:00:00 2026";
+  for (const pid of [111, 222]) {
+    writePrivateFile(
+      join(records, `${String(pid)}.json`),
+      JSON.stringify({ group: false, pid, started: old })
+    );
+  }
+  const started = new Map([
+    [111, old],
+    [222, old],
+  ]);
+  const sent: [number, NodeJS.Signals][] = [];
+  const system: ProcessSystem = {
+    environment: () => [entry(marker)],
+    kill(target, signal) {
+      sent.push([target, signal]);
+      started.delete(target);
+      // While the first is stopped, the other exits and its pid is reused.
+      const other = target === 111 ? 222 : 111;
+      if (started.has(other)) {
+        started.set(other, "Sun Nov 15 09:00:00 2026");
+      }
+    },
+    look: (pids) =>
+      new Map(
+        pids.flatMap((pid) => {
+          const at = started.get(pid);
+          return at === undefined ? [] : [[pid, { pgid: 1, started: at }]];
+        })
+      ),
+    members: () => [],
+    sleep: () => Promise.resolve(),
+  };
+  expect(
+    await stopRecorded(records, marker, { graceMs: 0, killMs: 0 }, system)
+  ).toEqual([]);
+  // One signal, to whichever came first; none to the one replaced.
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.[1]).toBe("SIGTERM");
+});
+
+it("starts the Marbles process all the same when it cannot be recorded", async () => {
+  const home = temporaryDirectory("h-");
+  const shared = temporaryDirectory("rec-");
+  chmodSync(shared, 0o755);
+  const source = join(home, "marbles.ts");
+  writeFileSync(
+    source,
+    'import { step } from "@foundry.sh/marbles";\nstep("noop").do(() => "ok");\n'
+  );
+  const env = {
+    ...process.env,
+    FOUNDRY_HOME: home,
+    [SPAWN_RECORD_ENV]: shared,
+  };
+  const attached = spawnSync("bun", cliArgs("attach", "--source", source), {
+    encoding: "utf8",
+    env,
+    timeout: 60_000,
+  });
+  try {
+    expect(attached.status, attached.stderr).toBe(0);
+    expect(attached.stderr).toContain("could not record process");
+    expect(daemonAlive(layout({ home }))).toBe(true);
+    expect(readdirSync(shared)).toEqual([]);
+  } finally {
+    spawnSync("bun", cliArgs("stop"), { env, timeout: 60_000 });
+    await vi.waitFor(() => expect(daemonAlive(layout({ home }))).toBe(false), {
+      timeout: 30_000,
+    });
+  }
+}, 120_000);
+
 it("keeps a run whose records cannot be read, and still clears the others", async () => {
   const parent = temporaryDirectory("sw-");
   const broken = join(parent, "marbles-run-broken");
-  mkdirSync(join(runRecords(broken), "run"), { recursive: true });
-  writeFileSync(
+  mkdirPrivate(join(runRecords(broken), "run"));
+  writePrivateFile(
     join(broken, "owner.json"),
     JSON.stringify({ pid: exitedPid(), started: "Thu Jan 1 00:00:00 1970" })
   );
-  writeFileSync(join(runRecords(broken), "run", "1.json"), "{ not json");
+  writePrivateFile(join(runRecords(broken), "run", "1.json"), "{ not json");
   const killed = await killedRun(parent);
   await sweepFinishedRuns(parent, FAST);
   expect(existsSync(broken)).toBe(true);
@@ -501,8 +666,8 @@ it("sweeps a run whose owner's pid now names a process started later", async () 
   const parent = temporaryDirectory("sw-");
   const reused = await sleeper({});
   const root = join(parent, "marbles-run-reused");
-  mkdirSync(root);
-  writeFileSync(
+  mkdirPrivate(root);
+  writePrivateFile(
     join(root, "owner.json"),
     JSON.stringify({ pid: reused, started: "Thu Jan 1 00:00:00 1970" })
   );
@@ -524,12 +689,12 @@ it("leaves a live run, roots that never named a readable owner, and their proces
   const liveChild = await sleeper({ [RUN_ENV]: live.root });
   recordProcess(join(live.records, "run"), liveChild, true);
   const silent = join(parent, "marbles-run-silent");
-  mkdirSync(silent);
+  mkdirPrivate(silent);
   const silentChild = await sleeper({ [RUN_ENV]: silent });
   recordProcess(join(runRecords(silent), "run"), silentChild, true);
   const garbled = join(parent, "marbles-run-garbled");
-  mkdirSync(garbled);
-  writeFileSync(join(garbled, "owner.json"), '{"pid": 1');
+  mkdirPrivate(garbled);
+  writePrivateFile(join(garbled, "owner.json"), '{"pid": 1');
   const killed = await killedRun(parent);
   try {
     await sweepFinishedRuns(parent, FAST);

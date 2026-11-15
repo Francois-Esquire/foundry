@@ -2,14 +2,15 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SPAWN_RECORD_ENV } from "~/process/spawned";
 import { configureProviders } from "./providers";
-import { RUN_ENV, startRun, sweepFinishedRuns } from "./runs";
+import { privateBase, RUN_ENV, startRun, sweepFinishedRuns } from "./runs";
 
 /**
- * Directly under `/tmp`: a Unix socket path has 104 bytes, and fixtures add
- * their own directories below the run's root. The per-user macOS temp
- * directory takes about fifty of them by itself.
+ * One private base per user, directly under `/tmp`: a Unix socket path
+ * has 104 bytes, and fixtures add their own directories below the run's
+ * root. The per-user macOS temp directory takes about fifty of them by
+ * itself. Private, so no one else can plant a run or a record in it.
  */
-const RUN_PARENT = "/tmp";
+const RUN_PARENT = `/tmp/marbles-runs-${String(process.getuid?.() ?? "user")}`;
 
 /**
  * Where `HOME` points for the run. Its `.foundry` is a file, so a process
@@ -31,6 +32,7 @@ const USER_HOME = "user";
  * started with, not later changes to `process.env`.
  */
 export default async function setup(): Promise<() => Promise<void>> {
+  privateBase(RUN_PARENT);
   await sweepFinishedRuns(RUN_PARENT);
   const run = startRun(RUN_PARENT);
   const home = join(run.root, "home");
