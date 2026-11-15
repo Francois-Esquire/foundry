@@ -13,8 +13,8 @@ import type {
   SessionInput,
   SessionStream,
 } from "../session/events";
-import type { SessionStore } from "../session/store";
 import type { SessionMessage } from "../session/types";
+import type { SessionStore } from "../store";
 import type { TurnOptions } from "./session-harness";
 import type { StreamPart } from "./stream-transform";
 

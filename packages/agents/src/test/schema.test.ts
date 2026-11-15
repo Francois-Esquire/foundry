@@ -6,8 +6,9 @@ import {
   sessionRecordSchema,
   summarySchema,
 } from "../schema";
-import { InMemorySessionStore } from "../session/store";
+import { Sessions } from "../session/sessions";
 import type { SessionPart } from "../session/types";
+import { InMemorySessionStore } from "../store/memory";
 
 const everyPart: SessionPart[] = [
   {
@@ -82,13 +83,14 @@ const everyPart: SessionPart[] = [
 describe("session record schemas", () => {
   it("accept the records the in-memory store writes", async () => {
     const store = new InMemorySessionStore();
-    const parent = await store.createSession({ title: "parent" });
-    const child = await store.createSession({
+    const sessions = new Sessions({ store });
+    const parent = await sessions.createSession({ title: "parent" });
+    const child = await sessions.createSession({
       parentMessageId: "message-1",
       parentSessionId: parent.id,
       recursionDepth: 1,
     });
-    const message = await store.appendMessage({
+    const message = await sessions.appendMessage({
       metadata: {
         model: { id: "model", provider: "provider" },
         timing: { completedAt: 2, durationMs: 1, startedAt: 1 },

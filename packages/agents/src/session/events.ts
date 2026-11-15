@@ -55,13 +55,18 @@ export interface AgentApprovalResponse {
 }
 
 /**
- * Whether a turn's assembled message is done, or stopped at an unresolved
- * approval checkpoint. A `"awaiting-approval"` message is still a complete
- * Session message (see {@link SessionMessage.status}) — the outcome tells a
- * caller (e.g. a workflow execution adapter) whether it can treat the turn as
- * finished or must resolve a pending checkpoint before continuing.
+ * Whether a turn's assembled message is done, stopped at an unresolved
+ * approval checkpoint, or was not kept. A `"awaiting-approval"` message is
+ * still a complete Session message (see {@link SessionMessage.status}) — the
+ * outcome tells a caller (e.g. a workflow execution adapter) whether it can
+ * treat the turn as finished or must resolve a pending checkpoint before
+ * continuing. `"failed"`: the session could not keep the turn's reply, so it
+ * is not in the history, and any approval checkpoint it held is not there to
+ * resolve. A turn whose reply was kept with status `error` (a stream error,
+ * a tool output with no JSON form) is `"complete"`: the reply is in the
+ * history, and its status says it failed.
  */
-export type SessionTurnOutcome = "complete" | "awaiting-approval";
+export type SessionTurnOutcome = "complete" | "awaiting-approval" | "failed";
 
 /**
  * The streamed event union. Deliberately not named after a "turn" — these are

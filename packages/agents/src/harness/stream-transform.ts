@@ -19,7 +19,7 @@ import type {
   StreamHandlers,
 } from "../session/events";
 import { normalizeUsage } from "../session/metadata";
-import { stringifyValue } from "../session/serialize";
+import { keptValue, stringifyValue } from "../session/serialize";
 import type {
   MessageMetadata,
   MessageStatus,
@@ -69,7 +69,9 @@ export type StreamSource =
 
 export interface TransformOptions<OUTPUT extends Output.Output = never> {
   /** Adapter seam: called with the assembled message before the finish event.
-   *  Return a replacement (e.g. a persisted record) to emit in its place. */
+   *  Return a replacement (e.g. a persisted record) to emit in its place. A
+   *  rejection fails the turn: the message is reported with status `error`
+   *  and an error part saying it was not kept, and `onError` hears why. */
   commit?: (message: SessionMessage) => Promise<SessionMessage>;
   handlers?: StreamHandlers;
   /** The route that ran the turn — recorded on `metadata.model`. */
@@ -81,6 +83,8 @@ export interface TransformOptions<OUTPUT extends Output.Output = never> {
   result?: Promise<
     StreamTextResult<ToolSet, Record<string, unknown>, OUTPUT> | undefined
   >;
+  /** The session the assembled message belongs to; empty when absent. */
+  sessionId?: string;
 }
 
 type AccumulatingPart = Extract<SessionPart, { type: "text" | "reasoning" }>;
@@ -190,6 +194,8 @@ export function transformStream<OUTPUT extends Output.Output = never>(
     let usageAcc: SessionUsage = emptyUsage();
     let finish: Extract<SdkStreamPart, { type: "finish" }> | undefined;
     let hasApprovalRequest = false;
+    /** The first tool output the session could not keep; it fails the turn. */
+    let unkept: Error | undefined;
 
     const append = (part: SessionPart) => {
       parts.push(part);
@@ -216,18 +222,26 @@ export function transformStream<OUTPUT extends Output.Output = never>(
       error?: Error
     ): Promise<SessionMessage> => {
       const metadata = buildMetadata(options.model, usageAcc, startedAt);
-      const assembled = assembleMessage(parts, status, metadata);
-      const parsed = await parser.complete(
+      const assembled = assembleMessage(
+        parts,
+        status,
+        metadata,
+        options.sessionId ?? ""
+      );
+      const completed = await parser.complete(
         status === "complete" &&
           outputContext(assembled.id, options.model, finish),
         error
       );
-      if (options.output && "value" in parsed) {
-        metadata.output = parsed.value;
-      }
-      const committed = options.commit
-        ? await options.commit(assembled).catch(() => assembled)
-        : assembled;
+      // Puts the output's JSON form on the metadata, before it is kept.
+      const output = options.output
+        ? keptParse(completed, metadata)
+        : completed;
+      const kept = await keep(assembled, options.commit);
+      const committed = kept.message;
+      // A reply the session could not keep fails the turn, its output too.
+      const parsed: Parsed =
+        options.output && kept.error ? { error: kept.error } : output;
       resolveText(textBuf);
       resolveUsage(usageAcc);
       resolveMessage(committed);
@@ -235,18 +249,12 @@ export function transformStream<OUTPUT extends Output.Output = never>(
       // A segment with an unresolved approval request is still a complete
       // Session message — it just reports "awaiting-approval" so a caller
       // (e.g. a workflow execution adapter) knows not to treat the turn as done.
-      resolveOutcome(
-        status === "complete" && hasApprovalRequest
-          ? "awaiting-approval"
-          : "complete"
-      );
+      resolveOutcome(outcomeOf(kept, hasApprovalRequest));
       // Emit the terminal event in the same tick as the resolves, so a consumer
       // awaiting `text`/`message` without iterating still observes the
       // finish/error handler having fired (no intervening microtask boundary).
-      if (status === "error") {
-        emit({ error: error ?? new Error("stream error"), type: "error" });
-      } else if (committed.status === "complete") {
-        emit({ message: committed, type: "finish", usage: usageAcc });
+      for (const event of terminalEvents(kept, status, error, usageAcc)) {
+        emit(event);
       }
       return committed;
     };
@@ -354,16 +362,27 @@ export function transformStream<OUTPUT extends Output.Output = never>(
             });
             break;
           }
-          append({
-            output: part.output,
-            toolCallId: part.toolCallId,
-            type: "tool_result",
-          });
-          emit({
-            output: part.output,
-            toolCallId: part.toolCallId,
-            type: "tool-result",
-          });
+          {
+            const kept = keptToolResult(part, (error) => {
+              unkept ??= error;
+            });
+            append(kept);
+            // A result the session could not keep is reported as the error it was kept as.
+            emit(
+              kept.isError === true
+                ? {
+                    isError: true,
+                    output: kept.output,
+                    toolCallId: part.toolCallId,
+                    type: "tool-result",
+                  }
+                : {
+                    output: part.output,
+                    toolCallId: part.toolCallId,
+                    type: "tool-result",
+                  }
+            );
+          }
           break;
         case "tool-error": {
           const output = toError(part.error).message;
@@ -408,6 +427,11 @@ export function transformStream<OUTPUT extends Output.Output = never>(
       const stream = await source;
       for await (const part of stream) {
         consume(part);
+      }
+      // Read to the end first: the model already has the output, and a
+      // stream left half read rejects where no one listens.
+      if (unkept) {
+        throw unkept;
       }
 
       await finalize("complete");
@@ -515,10 +539,60 @@ function outputContext(
   };
 }
 
+/**
+ * A parsed output as the session keeps it: the value goes to the caller and
+ * its JSON form onto the message's metadata. One with no JSON form rejects
+ * the output and is not kept.
+ */
+function keptParse(parsed: Parsed, metadata: MessageMetadata): Parsed {
+  if (!("value" in parsed)) {
+    return parsed;
+  }
+  try {
+    metadata.output = keptValue(parsed.value);
+    return parsed;
+  } catch (cause) {
+    return {
+      error: new Error(
+        `The turn's structured output has no JSON form, so the session cannot keep it: ${toError(cause).message}`,
+        { cause }
+      ),
+    };
+  }
+}
+
+/**
+ * A tool's result as the session keeps it: its output in JSON form. An
+ * output with no JSON form is kept as an error result naming the tool, so
+ * the call still has its result, and `unkept` hears why; the turn fails.
+ */
+function keptToolResult(
+  part: { output: unknown; toolCallId: string; toolName: string },
+  unkept: (error: Error) => void
+): Extract<SessionPart, { type: "tool_result" }> {
+  const { output, toolCallId, toolName } = part;
+  try {
+    return { output: keptValue(output), toolCallId, type: "tool_result" };
+  } catch (cause) {
+    const error = new Error(
+      `Tool "${toolName}" (call ${toolCallId}) returned a value with no JSON form, so the session cannot keep it: ${toError(cause).message}`,
+      { cause }
+    );
+    unkept(error);
+    return {
+      isError: true,
+      output: error.message,
+      toolCallId,
+      type: "tool_result",
+    };
+  }
+}
+
 function assembleMessage(
   parts: SessionPart[],
   status: MessageStatus,
-  metadata: MessageMetadata
+  metadata: MessageMetadata,
+  sessionId: string
 ): SessionMessage {
   const now = Date.now();
   return {
@@ -527,10 +601,74 @@ function assembleMessage(
     metadata,
     parts,
     role: "assistant",
-    sessionId: "",
+    sessionId,
     status,
     updatedAt: now,
   };
+}
+
+/** A reply not kept failed; a kept one awaits its approval checkpoint, if it holds one. */
+function outcomeOf(
+  kept: { readonly error?: Error; readonly message: SessionMessage },
+  hasApprovalRequest: boolean
+): SessionTurnOutcome {
+  if (kept.error) {
+    return "failed";
+  }
+  return kept.message.status === "complete" && hasApprovalRequest
+    ? "awaiting-approval"
+    : "complete";
+}
+
+/**
+ * The events that end a turn: a reply not kept is reported first, then the
+ * turn's own error, if it failed, or its finish, if its reply completed.
+ */
+function terminalEvents(
+  kept: { readonly error?: Error; readonly message: SessionMessage },
+  status: MessageStatus,
+  error: Error | undefined,
+  usage: SessionUsage
+): SessionEvent[] {
+  const events: SessionEvent[] = kept.error
+    ? [{ error: kept.error, type: "error" }]
+    : [];
+  if (status === "error") {
+    events.push({ error: error ?? new Error("stream error"), type: "error" });
+  } else if (kept.message.status === "complete") {
+    events.push({ message: kept.message, type: "finish", usage });
+  }
+  return events;
+}
+
+/**
+ * `assembled` through `commit`, or, when `commit` rejects, as a reply that
+ * failed: status `error`, with an error part saying why, and the error.
+ * Never rejects, so the turn always settles.
+ */
+async function keep(
+  assembled: SessionMessage,
+  commit: TransformOptions["commit"]
+): Promise<{ readonly error?: Error; readonly message: SessionMessage }> {
+  if (!commit) {
+    return { message: assembled };
+  }
+  try {
+    return { message: await commit(assembled) };
+  } catch (cause) {
+    const error = new Error(
+      `The session could not keep the turn's reply: ${toError(cause).message}`,
+      { cause }
+    );
+    return {
+      error,
+      message: {
+        ...assembled,
+        parts: [...assembled.parts, { message: error.message, type: "error" }],
+        status: "error",
+      },
+    };
+  }
 }
 
 function emptyUsage(): SessionUsage {

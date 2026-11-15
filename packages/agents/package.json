@@ -22,6 +22,22 @@
       "types": "./src/session/index.ts",
       "import": "./src/session/index.ts"
     },
+    "./store": {
+      "types": "./src/store/index.ts",
+      "import": "./src/store/index.ts"
+    },
+    "./store/memory": {
+      "types": "./src/store/memory.ts",
+      "import": "./src/store/memory.ts"
+    },
+    "./store/sqlite": {
+      "types": "./src/store/sqlite.ts",
+      "import": "./src/store/sqlite.ts"
+    },
+    "./store/tables": {
+      "types": "./src/store/tables.ts",
+      "import": "./src/store/tables.ts"
+    },
     "./authorization": {
       "types": "./src/authorization/index.ts",
       "import": "./src/authorization/index.ts"
@@ -41,6 +57,10 @@
     "./schema": {
       "types": "./src/schema.ts",
       "import": "./src/schema.ts"
+    },
+    "./testing/store": {
+      "types": "./src/testing/store.ts",
+      "import": "./src/testing/store.ts"
     }
   },
   "scripts": {
@@ -62,9 +82,19 @@
   "devDependencies": {
     "@foundry/prompts": "workspace:*",
     "@foundry/tsconfig": "workspace:*",
+    "@libsql/client": "^0.18.0",
     "@types/bun": "1.3.14",
     "@vitest/coverage-v8": "^4.1.9",
+    "drizzle-orm": "^0.45.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
+  },
+  "peerDependencies": {
+    "drizzle-orm": "^0.45.4"
+  },
+  "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    }
   }
 }
