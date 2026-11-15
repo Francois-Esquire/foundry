@@ -434,6 +434,42 @@ export function describeWorkflowStore(
       });
     });
 
+    test("shares no byte memory behind an Error's cause", async () => {
+      const target = await store();
+      const bytes = new Uint8Array(new SharedArrayBuffer(1));
+      bytes[0] = 1;
+      const holding = {
+        ...run("rn-error"),
+        failure: new Error("outer", { cause: { bytes } }),
+      } as unknown as RunRecord;
+      let refusal: unknown;
+      try {
+        await target.commit({ putRuns: [holding] });
+      } catch (error) {
+        refusal = error;
+      }
+      if (refusal !== undefined) {
+        // A store that cannot keep an Error refuses it, naming the field.
+        expect(String(refusal)).toContain("putRuns[0].failure");
+        expect(await target.getRun("rn-error")).toBeNull();
+        return;
+      }
+      bytes[0] = 9;
+      const causeOf = (record: RunRecord | null) =>
+        (
+          (record as unknown as { failure: Error } | null)?.failure.cause as
+            | { bytes: Uint8Array }
+            | undefined
+        )?.bytes;
+      const read = causeOf(await target.getRun("rn-error"));
+      expect(read?.[0]).toBe(1);
+      expect(read?.buffer).not.toBeInstanceOf(SharedArrayBuffer);
+      if (read !== undefined) {
+        read[0] = 7;
+      }
+      expect(causeOf(await target.getRun("rn-error"))?.[0]).toBe(1);
+    });
+
     test("shares no byte memory with a caller, through a commit, a read or a view", async () => {
       const target = await store();
       const bytes = new Uint8Array(new SharedArrayBuffer(2));
