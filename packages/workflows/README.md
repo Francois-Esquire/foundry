@@ -625,8 +625,8 @@ receives the store's own copy of the write, taken when `commit` was called:
 - every id each delete named (`deleteJobs`, `deleteRuns`,
   `deleteSuspensions`), and for `deleteRunFrames`, the Run ids whose frames
   all went. Each delete list is present, empty when the write named none;
-- `events`, when the write changes a Run's lifecycle: the change events the
-  coordinator built for it, in order (see [Change events](#change-events)).
+- `events`, when the write changes a Run: the change events the coordinator
+  built for it, in order (see [Change events](#change-events)).
 
 It cannot learn whether a put filed a new record or replaced one, what a
 replaced or deleted record held, or whether a delete found anything: the
@@ -670,41 +670,60 @@ the shape above.
 ### Change events
 
 `ExecutionCoordinator` builds a change event (`RunEvent`, schema
-`RunEventSchema` in `./schema`, type exported from `.`) for each change it
-makes to a Run's lifecycle, and carries it in the write that makes the
-change, as `events`. A host records them in `onCommit`, on the transaction it
-is handed, so an event lands exactly when its change does: once per commit
-that succeeds, never for one refused or rolled back. The stores keep no
-record of events and otherwise ignore them; an event that is not a plain object
-refuses its write, as a record would.
+`RunEventSchema` in `./schema`, types exported from `.`) for each change it
+makes to a Run, and carries it in the write that makes the change, as
+`events`. A host records them in `onCommit`, on the transaction it is handed,
+so an event lands exactly when its change does: once per commit that
+succeeds, never for one refused or rolled back.
 
-An event is plain JSON: `{ type, id, at, runId, queueId }`. `id` is unique
-(`rf-` and a UUID), built with the write before `commit`; `at` is an ISO
-time. A handler reads the Run by `runId` for anything more.
+The stores keep no record of events. Both take them as they stand when
+`commit` is called, as plain JSON: a part that has no JSON form reading back
+the same (a Date, a class instance, `NaN`, `-0`, a bigint, `undefined`, a
+function, a hole in an array) refuses the whole write with a `TypeError`
+naming it. `describeWorkflowStore(name, open, recording)` proves a store with
+a host hook hands every kept commit's events to it, in order, and none of a
+refused or rolled-back one; pass `recording` for such a store.
 
-| Event            | Emitted when                                                                                 |
-| --------------- | -------------------------------------------------------------------------------------------- |
-| `run.queued`    | a Run is filed: `createRun`, `claimJobRun`                                                   |
-| `run.started`   | a Run's status becomes `running` (`updateRun`), each time it does                            |
-| `run.parked`    | a Run becomes `suspended`: `parkSuspension`, or `updateRun`                                  |
-| `run.resumed`   | a filed Run becomes `queued` again: `settleSuspension` resolving its Suspension, or recovery re-queueing a Run that was `running` (`updateRun`) |
-| `run.completed` | a Run becomes `complete` (`updateRun`)                                                       |
-| `run.failed`    | a Run becomes `failed` (`updateRun`)                                                         |
-| `run.cancelled` | a Run becomes `cancelled`: `cancelRun`, `cancelRunSuspensions`, `cancelJob`, `settleSuspension` cancelling, `updateRun` |
-| `run.removed`   | a filed Run is deleted (`deleteRun`)                                                         |
+An event is plain JSON: `{ type, id, at, runId, queueId, ... }`. `id` is a
+UUID, unique, built with the write before `commit`. `at` is when the
+coordinator built the event, an ISO time: it cannot establish commit order,
+as two coordinators' clocks and commits interleave. A host orders events by
+its own sequence, such as the position of the row its `onCommit` writes. A
+handler reads the Run by `runId` for anything more, except after
+`run.removed`, which carries what identified the Run.
 
-Events follow the statuses written, not an ideal lifecycle: a recovered Run
-can go `run.resumed` then `run.completed` with no `run.started` between, as
-recovery writes no `running` status before the Run ends. A handler should
-not assume one event precedes another beyond the order they arrive in.
+| Event           | Emitted when                                                                                 | Also carries |
+| --------------- | -------------------------------------------------------------------------------------------- | ------------ |
+| `run.queued`    | a Run is filed: `createRun`, `claimJobRun`                                                   |              |
+| `run.started`   | a Run's status becomes `running` (`updateRun`), each time it does                            |              |
+| `run.parked`    | a Run becomes `suspended`: `parkSuspension`, or `updateRun`                                  |              |
+| `run.resumed`   | a filed Run becomes `queued` again: `settleSuspension` resolving its Suspension, or `updateRun` |              |
+| `run.completed` | a Run becomes `complete` (`updateRun`)                                                       |              |
+| `run.failed`    | a Run becomes `failed` (`updateRun`)                                                         |              |
+| `run.cancelled` | a Run becomes `cancelled`: `cancelRun`, `cancelRunSuspensions`, `cancelJob`, `settleSuspension` cancelling, `updateRun` |              |
+| `run.updated`   | a change to the Run's own fields (`RUN_FIELDS`: `error`, `extensions`, `metadata`, `output`, `tags`, `timestamps`) | `changed`: the field names, in that order; never their values |
+| `run.removed`   | a filed Run is deleted (`deleteRun`)                                                         | `step`, `tags`, and `definition` and `links` where the Run had them |
 
-A change that leaves a Run's status as it was makes no event: a patch of its
-snapshot, output, tags or timestamps is step progress, not a lifecycle change,
-and so is a second Suspension parked on a Run already suspended. Jobs, Queues,
-Suspensions and frames make no events of their own, and neither does
-`restore`, which files records rather than changing them, nor a `deleteRun`
-of a Run that is not filed. A write carries no `events` field when it has
-none.
+`run.updated` follows the lifecycle event when one write changes both, as
+completing a Run with its output does (`run.completed`, then `run.updated`
+naming `output`). The timestamps a lifecycle change stamps are part of it and
+not an update. `metadata` there means a host's namespaces: the runtime's own
+(`workflow` and `stream`, the persisted step state, and the coordinator's
+`workflows.execution`) are step progress, as is the step tree (`snapshot`).
+A metadata patch replaces the host's namespaces, so a persist that drops one
+is an update. A patch that changes no Run-level field and no status makes no
+event: a true no-op, a step tree persisted, a second Suspension parked on a
+Run already suspended. Jobs, Queues, Suspensions and frames make no events of
+their own, and neither does `restore`, which files records rather than
+changing them, nor a `deleteRun` of a Run that is not filed. A write carries
+no `events` field when it has none.
+
+Events follow the statuses written. The `Queue` stores a Run it starts as
+`running` and keeps it so until it suspends or ends: the workflow's own state
+reads `queued` until its status mirror catches up, and that lag is not
+written back as the Run returning to its queue. A Run recovered while
+running goes on running, with no `run.resumed`. A handler should not assume
+one event precedes another beyond the order they arrive in.
 
 ### Exclusion and host requirements
 

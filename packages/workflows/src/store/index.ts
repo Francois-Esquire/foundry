@@ -27,10 +27,11 @@ export interface WorkflowStoreWrite {
   readonly deleteSuspensions?: readonly string[];
   /**
    * What the write does to Runs, in the order the coordinator built them;
-   * present whenever it changes a Run's lifecycle, left out otherwise. A
-   * store keeps no record of them: it hands them, with the rest of its copy
-   * of the write, to a host's hook that runs inside the commit (the SQLite
-   * store's `onCommit`), and ignores them otherwise.
+   * present whenever it changes a Run, left out otherwise. A store keeps no
+   * record of them: it takes them as plain JSON when `commit` is called
+   * (refusing the write otherwise, see `capturedWrite`), hands them with the
+   * rest of its copy of the write to a host's hook that runs inside the
+   * commit (the SQLite store's `onCommit`), and ignores them otherwise.
    */
   readonly events?: readonly RunEvent[];
   readonly putFrames?: readonly RunFrame[];

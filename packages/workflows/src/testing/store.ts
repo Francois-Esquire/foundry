@@ -24,16 +24,36 @@ import type {
 export type ScopedWorkflowStores = (scope: string) => WorkflowStore;
 
 /**
+ * Fresh, empty storage whose stores hand each commit's write to a host hook
+ * (a SQLite store's `onCommit`), and a record the hook keeps: it writes the
+ * write's events, in order, in the commit's own transaction.
+ */
+export interface RecordingWorkflowStorage {
+  /** Makes the hook throw on its next call, after it has recorded. */
+  readonly failNextCommit: () => void;
+  /** The events recorded by every commit that was kept, in the order kept. */
+  readonly recorded: () => Promise<readonly RunEvent[]>;
+  readonly storage: ScopedWorkflowStores;
+}
+
+/**
  * The behaviour every `WorkflowStore` shares, as Vitest tests. `open` returns
- * new, empty storage each time it is called. The host's test file closes
- * whatever `open` opened.
+ * new, empty storage each time it is called. A store with a host hook passes
+ * `recording` too, which opens it with one, and the suite also proves the
+ * hook is handed each commit's events. The host's test file closes whatever
+ * `open` and `recording` opened.
  */
 export function describeWorkflowStore(
   name: string,
-  open: () => ScopedWorkflowStores | Promise<ScopedWorkflowStores>
+  open: () => ScopedWorkflowStores | Promise<ScopedWorkflowStores>,
+  recording?: () => Promise<RecordingWorkflowStorage>
 ): void {
   async function store(scope = "scope-a"): Promise<WorkflowStore> {
     return (await open())(scope);
+  }
+
+  if (recording !== undefined) {
+    describeRecordedEvents(name, recording);
   }
 
   describe(`${name} workflow store conformance`, () => {
@@ -185,7 +205,7 @@ export function describeWorkflowStore(
         ...putAll(records),
         events: [event("run.queued", "rn-a"), event("run.started", "rn-a")],
       });
-      await target.commit({ events: [event("run.removed", "rn-gone")] });
+      await target.commit({ events: [removedEvent("rn-gone")] });
 
       expect(await contents(target)).toStrictEqual(records);
     });
@@ -210,6 +230,12 @@ export function describeWorkflowStore(
           },
           "events[1] must be a plain object",
         ],
+        ...unplainEvents().map(
+          ([label, value]): [WorkflowStoreWrite, string] => [
+            { events: [value as RunEvent], putRuns: [run("rn-a")] },
+            label,
+          ]
+        ),
       ];
       for (const [write, message] of refusals) {
         await expect(target.commit(write)).rejects.toThrow(message);
@@ -955,14 +981,60 @@ function job(id: string, overrides: Partial<JobRecord> = {}): JobRecord {
   };
 }
 
-function event(type: RunEventType, runId: string): RunEvent {
+function event(
+  type: Exclude<RunEventType, "run.removed" | "run.updated">,
+  runId: string
+): RunEvent {
   return {
     at: "2026-11-15T00:00:00.000Z",
-    id: `rf-${type}-${runId}`,
+    id: `${type}-${runId}`,
     queueId: "default",
     runId,
     type,
   };
+}
+
+function removedEvent(runId: string): RunEvent {
+  return {
+    at: "2026-11-15T00:00:00.000Z",
+    id: `run.removed-${runId}`,
+    queueId: "default",
+    runId,
+    step: "s",
+    tags: {},
+    type: "run.removed",
+  };
+}
+
+/** An array with a hole at index 0, which JSON reads back as `null`. */
+function holed(): number[] {
+  const values: number[] = [];
+  values[1] = 2;
+  return values;
+}
+
+/**
+ * Events with a part that has no JSON form reading back the same, each with
+ * the text its refusal names.
+ */
+function unplainEvents(): [string, unknown][] {
+  const base = event("run.queued", "rn-a");
+  return [
+    ["events[0].at must be a plain object", { ...base, at: new Date(0) }],
+    ["events[0].extra must be a finite number", { ...base, extra: Number.NaN }],
+    ["events[0].extra must be a finite number", { ...base, extra: -0 }],
+    ["events[0].extra has no JSON form (bigint)", { ...base, extra: 1n }],
+    [
+      "events[0].extra has no JSON form (undefined)",
+      { ...base, extra: undefined },
+    ],
+    [
+      "events[0].extra has no JSON form (function)",
+      { ...base, extra: () => undefined },
+    ],
+    ["events[0].extra[0] is a hole in an array", { ...base, extra: holed() }],
+    ["events[0].extra must be a plain object", { ...base, extra: new Map() }],
+  ];
 }
 
 function run(id: string, overrides: Partial<RunRecord> = {}): RunRecord {
@@ -1184,4 +1256,113 @@ function mutable<T>(value: T | null | undefined): {
     throw new Error("expected a value");
   }
   return value;
+}
+
+/** The suite's proof that a store hands its host hook every commit's events. */
+function describeRecordedEvents(
+  name: string,
+  recording: () => Promise<RecordingWorkflowStorage>
+): void {
+  const recorder = async () => {
+    const opened = await recording();
+    return { ...opened, store: opened.storage("scope-a") };
+  };
+
+  describe(`${name} workflow store events handed to the host`, () => {
+    test("hands on each commit's events once, in order, and none for a write without", async () => {
+      const { recorded, store } = await recorder();
+      const first = [event("run.queued", "rn-a"), event("run.started", "rn-a")];
+      await store.commit({ events: first, putRuns: [run("rn-a")] });
+      await store.commit({ putRuns: [run("rn-a", { step: "next" })] });
+      await store.commit({ events: [removedEvent("rn-gone")] });
+
+      expect(await recorded()).toStrictEqual([
+        ...first,
+        removedEvent("rn-gone"),
+      ]);
+    });
+
+    test("hands on the events as they were when commit was called", async () => {
+      const { recorded, store } = await recorder();
+      const events = [event("run.queued", "rn-a")];
+      const expected = structuredClone(events);
+
+      const pending = store.commit({ events, putRuns: [run("rn-a")] });
+      Object.assign(events[0] ?? {}, { type: "run.failed" });
+      events.push(event("run.started", "rn-a"));
+      await pending;
+
+      expect(await recorded()).toStrictEqual(expected);
+    });
+
+    test("records nothing of a write whose event is not plain JSON", async () => {
+      const { recorded, store } = await recorder();
+      for (const [label, value] of unplainEvents()) {
+        await expect(
+          store.commit({ events: [value as RunEvent], putRuns: [run("rn-a")] })
+        ).rejects.toThrow(label);
+      }
+      expect(await store.getRun("rn-a")).toBeNull();
+      expect(await recorded()).toStrictEqual([]);
+    });
+
+    test("records nothing for a write it refuses", async () => {
+      const { recorded, store } = await recorder();
+
+      await expect(
+        store.commit({
+          events: [event("run.queued", "rn-a")],
+          putRuns: [run("rn-a", { metadata: unreadable() })],
+        })
+      ).rejects.toThrow("unreadable");
+      expect(await recorded()).toStrictEqual([]);
+    });
+
+    test("runs the hook inside the commit: a throw from it keeps neither the write nor its events", async () => {
+      const { failNextCommit, recorded, store } = await recorder();
+      failNextCommit();
+
+      await expect(
+        store.commit({
+          events: [event("run.queued", "rn-a")],
+          putRuns: [run("rn-a")],
+        })
+      ).rejects.toThrow();
+      expect(await store.getRun("rn-a")).toBeNull();
+      expect(await recorded()).toStrictEqual([]);
+
+      await store.commit({
+        events: [event("run.queued", "rn-a")],
+        putRuns: [run("rn-a")],
+      });
+      expect(await recorded()).toStrictEqual([event("run.queued", "rn-a")]);
+    });
+
+    test("records a transaction's events only when it is kept", async () => {
+      const { recorded, store } = await recorder();
+      const transaction = transactionOf(store);
+
+      await expect(
+        transaction(async (view) => {
+          await view.commit({
+            events: [event("run.queued", "rn-dropped")],
+            putRuns: [run("rn-dropped")],
+          });
+          throw new Error("work failed");
+        })
+      ).rejects.toThrow("work failed");
+      await transaction(async (view) => {
+        await view.commit({
+          events: [event("run.queued", "rn-a")],
+          putRuns: [run("rn-a")],
+        });
+        await view.commit({ events: [event("run.started", "rn-a")] });
+      });
+
+      expect(await recorded()).toStrictEqual([
+        event("run.queued", "rn-a"),
+        event("run.started", "rn-a"),
+      ]);
+    });
+  });
 }

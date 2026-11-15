@@ -539,11 +539,11 @@ export type RunFrame = z.infer<typeof RunFrameSchema>;
 // ── Run events ──
 
 /**
- * What happened to a Run, one past-tense name per change of its lifecycle:
+ * What happened to a Run: one past-tense name per change of its lifecycle,
  * filed (`queued`), set running (`started`), suspended on a Suspension
- * (`parked`), queued again once its Suspension resolved or recovery took it
- * back (`resumed`), ended
- * (`completed`, `failed`, `cancelled`), and deleted (`removed`).
+ * (`parked`), queued again once its Suspension resolved (`resumed`), ended (`completed`, `failed`, `cancelled`) and deleted
+ * (`removed`); and `updated`, a change to its own data that leaves its
+ * status as it was, or that a lifecycle change carries beside it.
  */
 export const RUN_EVENT_TYPES = [
   "run.queued",
@@ -553,24 +553,74 @@ export const RUN_EVENT_TYPES = [
   "run.completed",
   "run.failed",
   "run.cancelled",
+  "run.updated",
   "run.removed",
 ] as const;
 export const RunEventTypeSchema = z.enum(RUN_EVENT_TYPES);
 export type RunEventType = z.infer<typeof RunEventTypeSchema>;
 
 /**
- * A change event: one change `ExecutionCoordinator` made to a Run, carried in
- * the store write that makes it (`WorkflowStoreWrite.events`). `id` names the
- * event itself and `at` is when the coordinator built it, an ISO time. A
- * handler reads the Run by `runId` for anything more.
+ * The Run-level fields a `run.updated` names: what a Run holds of its own,
+ * not its step tree (`snapshot`) nor the workflows namespaces of its
+ * `metadata` (`workflow`, `stream`), which record step progress. `metadata`
+ * here means the other namespaces, a host's own.
  */
-export const RunEventSchema = z.strictObject({
+export const RUN_FIELDS = [
+  "error",
+  "extensions",
+  "metadata",
+  "output",
+  "tags",
+  "timestamps",
+] as const;
+export const RunFieldSchema = z.enum(RUN_FIELDS);
+export type RunField = z.infer<typeof RunFieldSchema>;
+
+const runEventFields = {
+  /** When the coordinator built the event, an ISO time; not commit order. */
   at: z.iso.datetime(),
+  /** The event's own id, unique. */
   id: z.string().min(1),
   queueId: z.string(),
   runId: RunIdSchema,
-  type: RunEventTypeSchema,
-});
+};
+
+const LIFECYCLE_EVENT_TYPES = [
+  "run.queued",
+  "run.started",
+  "run.parked",
+  "run.resumed",
+  "run.completed",
+  "run.failed",
+  "run.cancelled",
+] as const satisfies readonly RunEventType[];
+
+/**
+ * A change event: one change `ExecutionCoordinator` made to a Run, carried in
+ * the store write that makes it (`WorkflowStoreWrite.events`). A handler
+ * reads the Run by `runId` for anything more, except after `run.removed`,
+ * which carries what identified the Run, as the Run is gone.
+ */
+export const RunEventSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    ...runEventFields,
+    type: z.enum(LIFECYCLE_EVENT_TYPES),
+  }),
+  z.strictObject({
+    ...runEventFields,
+    /** Which fields changed, in `RUN_FIELDS` order; never their values. */
+    changed: z.array(RunFieldSchema).min(1).readonly(),
+    type: z.literal("run.updated"),
+  }),
+  z.strictObject({
+    ...runEventFields,
+    definition: DefinitionReferenceSchema.exactOptional(),
+    links: RunLinksSchema.exactOptional(),
+    step: z.string(),
+    tags: recordOf(z.string()),
+    type: z.literal("run.removed"),
+  }),
+]);
 export type RunEvent = z.infer<typeof RunEventSchema>;
 
 export const ORCHESTRATOR_STORE_SNAPSHOT_VERSION = 1 as const;

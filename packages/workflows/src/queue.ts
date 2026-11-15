@@ -1438,6 +1438,12 @@ export class Queue {
    * Writes are not throttled.
    */
   #persistenceLoop(run: DispatchedWorkflow): Effect.Effect<void> {
+    // The boundary write at #runOne stored the Run as running. The workflow's
+    // own state reads queued until its status mirror catches up (its input
+    // lands first), and only a suspension sends a running Run back to
+    // queued: a queued snapshot straight after a running one is that lag,
+    // and is stored as running, not as the Run going back to its queue.
+    let stored: WorkflowState["status"] = "running";
     return workflowEffectAccess(run.workflow).stateChanges.pipe(
       // SubscriptionRef.changes replays the current value as the first
       // emit. That value is the pre-run state already covered by the
@@ -1452,9 +1458,20 @@ export class Queue {
             (snap.status === "cancelled" && this.#opts.onRunCancelled)
           )
       ),
-      Stream.tap((snap) =>
-        this.#persistSnapshot(run.id, run.step, snap, run.workflow.persistence)
+      Stream.map((snap) =>
+        snap.status === "queued" && stored === "running"
+          ? { ...snap, status: "running" as const }
+          : snap
       ),
+      Stream.tap((snap) => {
+        stored = snap.status;
+        return this.#persistSnapshot(
+          run.id,
+          run.step,
+          snap,
+          run.workflow.persistence
+        );
+      }),
       Stream.runDrain,
       Effect.catchAll(() => Effect.void)
     );

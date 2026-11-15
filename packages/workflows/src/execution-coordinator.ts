@@ -44,9 +44,10 @@ import {
 } from "./execution-records";
 import { createExtensions, mergeExtensions } from "./extensions";
 import type { JsonValue } from "./json-value";
+import { jsonValuesEqual } from "./json-value";
 import { rowToRecoverable } from "./metadata-codec";
 import { defineOwnEntry } from "./own-entry";
-import { runEvent, withEvents } from "./run-events";
+import { runEvents, withEvents } from "./run-events";
 import type {
   AppendRunFrameInput,
   ClaimRunEffectInput,
@@ -141,11 +142,11 @@ let claimOn: (
  * settled Suspension), first-writer Queues, unique ids, and the frame
  * sequence of each Run's journal. The store enforces none of these.
  *
- * Each change to a Run's lifecycle also builds a change event (`RunEvent`:
- * `run.queued`, `run.started`, ...) and carries it in the same write
- * (`WorkflowStoreWrite.events`), so a host's hook inside the commit records
- * it with the change or not at all. A change that leaves every Run's status
- * as it was carries none.
+ * Each change to a Run also builds change events (`RunEvent`: `run.queued`,
+ * `run.started`, `run.updated`, ...; see `runEvents`) and carries them in
+ * the same write (`WorkflowStoreWrite.events`), so a host's hook inside the
+ * commit records them with the change or not at all. A change that leaves
+ * every Run's status and own fields as they were carries none.
  *
  * Each change is one read-modify-write ending in one `commit`. When the
  * store offers `transaction`, each runs inside one, so coordinators sharing
@@ -346,7 +347,7 @@ export class ExecutionCoordinator implements OrchestratorStore {
             ...(nextRun ? { putRuns: [nextRun] } : {}),
             putSuspensions: suspensions,
           },
-          active && nextRun ? runEvent(active, nextRun) : undefined
+          active && nextRun ? runEvents(active, nextRun) : []
         )
       );
       return { job: nextJob, run: nextRun, suspensions };
@@ -367,7 +368,7 @@ export class ExecutionCoordinator implements OrchestratorStore {
       }
       const record = buildRunRecord(id, input);
       await store.commit(
-        withEvents({ putRuns: [record] }, runEvent(null, record))
+        withEvents({ putRuns: [record] }, runEvents(null, record))
       );
       return record;
     });
@@ -434,7 +435,7 @@ export class ExecutionCoordinator implements OrchestratorStore {
         links: { ...(input.links ?? {}), jobId },
       });
       await store.commit(
-        withEvents({ putJobs: [nextJob], putRuns: [run] }, runEvent(null, run))
+        withEvents({ putJobs: [nextJob], putRuns: [run] }, runEvents(null, run))
       );
       return { claim: { job: nextJob, run }, status: "claimed" };
     });
@@ -461,7 +462,7 @@ export class ExecutionCoordinator implements OrchestratorStore {
       }
       const updated = normalizeRunRecord(applyRunPatch(existing, patch));
       await store.commit(
-        withEvents({ putRuns: [updated] }, runEvent(existing, updated))
+        withEvents({ putRuns: [updated] }, runEvents(existing, updated))
       );
       return updated;
     });
@@ -501,7 +502,7 @@ export class ExecutionCoordinator implements OrchestratorStore {
       await store.commit(
         withEvents(
           { deleteRuns: [id] },
-          runEvent(run && hydrateRunRecord(run), null)
+          runEvents(run && hydrateRunRecord(run), null)
         )
       );
     });
@@ -580,7 +581,7 @@ export class ExecutionCoordinator implements OrchestratorStore {
       await store.commit(
         withEvents(
           { putRuns: [nextRun], putSuspensions: [suspension] },
-          runEvent(run, nextRun)
+          runEvents(run, nextRun)
         )
       );
       return { created: true, suspension };
@@ -667,7 +668,7 @@ export class ExecutionCoordinator implements OrchestratorStore {
       await store.commit(
         withEvents(
           { putRuns: [nextRun], putSuspensions: [nextSuspension] },
-          runEvent(run, nextRun)
+          runEvents(run, nextRun)
         )
       );
       return { run: nextRun, suspension: nextSuspension };
@@ -911,7 +912,7 @@ export class ExecutionCoordinator implements OrchestratorStore {
       await store.commit(
         withEvents(
           { putRuns: [nextRun], putSuspensions: suspensions },
-          runEvent(run, nextRun)
+          runEvents(run, nextRun)
         )
       );
       return { run: nextRun, suspensions };
@@ -1554,50 +1555,6 @@ function sameStringArray(
   return (
     left.length === right.length &&
     left.every((value, index) => value === right[index])
-  );
-}
-
-function jsonValuesEqual(left: JsonValue, right: JsonValue): boolean {
-  if (left === right) {
-    return true;
-  }
-  if (Array.isArray(left) || Array.isArray(right)) {
-    if (!(Array.isArray(left) && Array.isArray(right))) {
-      return false;
-    }
-    const leftArray = left as readonly JsonValue[];
-    const rightArray = right as readonly JsonValue[];
-    return (
-      leftArray.length === rightArray.length &&
-      leftArray.every((value, index) => {
-        const rightValue = rightArray[index];
-        return rightValue !== undefined && jsonValuesEqual(value, rightValue);
-      })
-    );
-  }
-  if (
-    typeof left !== "object" ||
-    left === null ||
-    typeof right !== "object" ||
-    right === null
-  ) {
-    return false;
-  }
-  const leftRecord = left as Readonly<Record<string, JsonValue>>;
-  const rightRecord = right as Readonly<Record<string, JsonValue>>;
-  const leftKeys = Object.keys(leftRecord).sort();
-  const rightKeys = Object.keys(rightRecord).sort();
-  return (
-    sameStringArray(leftKeys, rightKeys) &&
-    leftKeys.every((key) => {
-      const leftValue = leftRecord[key];
-      const rightValue = rightRecord[key];
-      return (
-        leftValue !== undefined &&
-        rightValue !== undefined &&
-        jsonValuesEqual(leftValue, rightValue)
-      );
-    })
   );
 }
 

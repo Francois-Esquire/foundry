@@ -1,8 +1,11 @@
 import { describe, expect, test } from "vitest";
 import type { RunEvent, RunEventType } from "../index";
 import { ExecutionCoordinator } from "../index";
+import { Orchestrator } from "../orchestrator";
 import { RunEventSchema } from "../schema";
 import { MemoryWorkflowStore } from "../store/memory";
+import { Workflow } from "../workflow";
+import { makeOrchestratorConfig } from "./helpers/config";
 import { FaultyWorkflowStore } from "./helpers/workflow-stores";
 
 /** A coordinator over a store that records every write it commits. */
@@ -77,7 +80,7 @@ describe("ExecutionCoordinator change events", () => {
     expect(new Set(events.map((event) => event.id)).size).toBe(events.length);
   });
 
-  test("a running Run queued again, as recovery does, says run.resumed", async () => {
+  test("a running Run patched back to queued says run.resumed", async () => {
     const { coordinator, store } = recorded();
     const run = await coordinator.createRun(RUN);
     await coordinator.updateRun(run.id, { status: "running" });
@@ -88,23 +91,112 @@ describe("ExecutionCoordinator change events", () => {
     expect(types(eventsSince(store, from))).toStrictEqual(["run.resumed"]);
   });
 
-  test("a patch that leaves the status as it was carries no events", async () => {
+  test("a change to a Run's own data says run.updated, naming the fields, not their values", async () => {
     const { coordinator, store } = recorded();
     const run = await coordinator.createRun(RUN);
     await coordinator.updateRun(run.id, { status: "running" });
     const from = store.commits.length;
 
+    await coordinator.updateRun(run.id, { tags: { customer: "new" } });
     await coordinator.updateRun(run.id, {
-      output: { partial: true },
-      status: "running",
-      tags: { step: "two" },
+      error: { message: "slow", name: "Warning" },
+      extensions: { "host.flag": { on: true } },
+      output: { large: "x".repeat(1000) },
     });
-    await coordinator.updateRun(run.id, { output: { partial: false } });
+    await coordinator.updateRun(run.id, { metadata: { owner: "ops" } });
+    await coordinator.updateRun(run.id, { timestamps: { startedAt: 5 } });
 
-    expect(store.commits.length).toBe(from + 2);
+    const events = eventsSince(store, from);
+    expect(
+      events.map((event) => event.type === "run.updated" && event.changed)
+    ).toStrictEqual([
+      ["tags"],
+      ["error", "extensions", "output"],
+      ["metadata"],
+      ["timestamps"],
+    ]);
+    expect(events[0]).toStrictEqual({
+      at: expect.any(String),
+      changed: ["tags"],
+      id: expect.any(String),
+      queueId: "q",
+      runId: run.id,
+      type: "run.updated",
+    });
+    expect(JSON.stringify(events)).not.toContain("xxxx");
+    for (const event of events) {
+      expect(RunEventSchema.parse(event)).toStrictEqual(event);
+    }
+  });
+
+  test("a status change with Run data beside it says both, the lifecycle first; its own timestamps are part of it", async () => {
+    const { coordinator, store } = recorded();
+    const run = await coordinator.createRun(RUN);
+    const from = store.commits.length;
+
+    await coordinator.updateRun(run.id, {
+      status: "running",
+      timestamps: { startedAt: 1 },
+    });
+    await coordinator.updateRun(run.id, {
+      output: "done",
+      status: "complete",
+      tags: { result: "ok" },
+      timestamps: { completedAt: 2 },
+    });
+
+    expect(
+      store.commits
+        .slice(from)
+        .map((write) =>
+          (write.events ?? []).map((event) =>
+            event.type === "run.updated" ? event.changed : event.type
+          )
+        )
+    ).toStrictEqual([["run.started"], ["run.completed", ["output", "tags"]]]);
+  });
+
+  test("a patch that changes no Run-level data says nothing: a true no-op, step progress, the runtime's metadata", async () => {
+    const { coordinator, store } = recorded();
+    const run = await coordinator.createRun({
+      ...RUN,
+      metadata: { workflow: { status: "queued" } },
+      tags: { customer: "a" },
+    });
+    await coordinator.updateRun(run.id, { status: "running" });
+    const from = store.commits.length;
+
+    await coordinator.updateRun(run.id, { status: "running" });
+    await coordinator.updateRun(run.id, { tags: { customer: "a" } });
+    await coordinator.updateRun(run.id, {
+      snapshot: { cursor: null, input: null, name: "s", steps: [] },
+    });
+    await coordinator.updateRun(run.id, {
+      metadata: { stream: [], workflow: { status: "running" } },
+    });
+
+    expect(store.commits.length).toBe(from + 4);
     for (const write of store.commits.slice(from)) {
       expect(write).not.toHaveProperty("events");
     }
+  });
+
+  test("a persist that drops a host's metadata says so", async () => {
+    const { coordinator, store } = recorded();
+    const run = await coordinator.createRun({
+      ...RUN,
+      metadata: { owner: "ops" },
+    });
+    const from = store.commits.length;
+
+    // A metadata patch replaces the host's namespaces with what it holds.
+    await coordinator.updateRun(run.id, { metadata: { workflow: {} } });
+
+    expect(
+      eventsSince(store, from).map(
+        (event) => event.type === "run.updated" && event.changed
+      )
+    ).toStrictEqual([["metadata"]]);
   });
 
   test("a Run that fails or is cancelled says so", async () => {
@@ -184,9 +276,19 @@ describe("ExecutionCoordinator change events", () => {
     );
   });
 
-  test("a Run deleted says run.removed; a delete of no Run says nothing", async () => {
+  test("a Run deleted says run.removed with what identified it; a delete of no Run says nothing", async () => {
     const { coordinator, store } = recorded();
-    const run = await coordinator.createRun(RUN);
+    const job = await coordinator.createJob({
+      definition: { name: "d" },
+      input: null,
+    });
+    const { run } = await coordinator.claimJobRun(job.id, {
+      ...RUN,
+      definition: { name: "documents.generate", version: "2" },
+      links: { sessionId: "ss-1" },
+      tags: { customer: "a" },
+    });
+    await coordinator.updateRun(run.id, { status: "complete" });
     const from = store.commits.length;
 
     await coordinator.deleteRun(run.id);
@@ -198,14 +300,20 @@ describe("ExecutionCoordinator change events", () => {
       [
         {
           at: expect.any(String),
+          definition: { name: "documents.generate", version: "2" },
           id: expect.any(String),
+          links: { jobId: job.id, sessionId: "ss-1" },
           queueId: "q",
           runId: run.id,
+          step: "s",
+          tags: { customer: "a" },
           type: "run.removed",
         },
       ],
       undefined,
     ]);
+    const [removed] = eventsSince(store, from);
+    expect(RunEventSchema.parse(removed)).toStrictEqual(removed);
   });
 
   test("a snapshot restored carries no events", async () => {
@@ -238,5 +346,89 @@ describe("ExecutionCoordinator change events", () => {
     );
     expect(started).toHaveLength(1);
     expect((await coordinator.getRun(run.id))?.status).toBe("running");
+  });
+});
+
+describe("Run events of a Run the Orchestrator drives", () => {
+  /** An Orchestrator over a recording store, with one workflow of one step. */
+  async function driven() {
+    const { coordinator, store } = recorded();
+    const orchestrator = new Orchestrator({
+      config: makeOrchestratorConfig(),
+      store: coordinator,
+    });
+    orchestrator.register("w", async () =>
+      Workflow.create({
+        children: [
+          { execute: async () => "leaf", input: undefined, name: "leaf" },
+        ],
+        execute: async (_input, context) => {
+          await context.children[0]?.run();
+          return "ok";
+        },
+        input: undefined,
+        name: "w",
+      })
+    );
+    await orchestrator.setup();
+    return { coordinator, orchestrator, store };
+  }
+
+  /** Each write naming `runId`: the status it stores, and the events it carries. */
+  function writesOf(store: FaultyWorkflowStore, runId: string) {
+    return store.commits
+      .filter((write) => write.putRuns?.some((run) => run.id === runId))
+      .map((write) => ({
+        events: (write.events ?? []).map((event) =>
+          event.type === "run.updated" ? event.changed : event.type
+        ),
+        status: write.putRuns?.find((run) => run.id === runId)?.status,
+      }));
+  }
+
+  test("a Run started stays running until it ends: no step's state sends it back to queued", async () => {
+    const { orchestrator, store } = await driven();
+    await orchestrator.start();
+    const job = await orchestrator.createJob("w", null);
+    const run = await orchestrator.execute(job.id);
+    await run.result();
+    await orchestrator.stop({ graceMs: 1 });
+
+    const writes = writesOf(store, run.id);
+    expect(writes.map((write) => write.status)).not.toContain(undefined);
+    const statuses = writes.map((write) => write.status);
+    expect(statuses.slice(statuses.indexOf("running"))).not.toContain("queued");
+    expect(writes.flatMap((write) => write.events)).toStrictEqual([
+      "run.queued",
+      "run.started",
+      "run.completed",
+      ["output"],
+    ]);
+  });
+
+  test("a Run recovered while running is not resumed: it goes on running", async () => {
+    const { coordinator, orchestrator, store } = await driven();
+    const [queue] = await coordinator.listQueues();
+    const run = await coordinator.createRun({
+      definition: { name: "w" },
+      input: null,
+      queueId: queue?.id ?? "",
+      step: "w",
+    });
+    await coordinator.updateRun(run.id, {
+      status: "running",
+      timestamps: { startedAt: 1 },
+    });
+    const from = store.commits.length;
+
+    await orchestrator.start();
+    await (await orchestrator.get(run.id))?.result();
+    await orchestrator.stop({ graceMs: 1 });
+
+    const events = eventsSince(store, from)
+      .filter((event) => event.runId === run.id)
+      .map((event) => event.type);
+    expect(events).not.toContain("run.resumed");
+    expect(events).toContain("run.completed");
   });
 });

@@ -53,37 +53,22 @@ describe("SqliteWorkflowStore change events", () => {
     const { calls, coordinator, rows } = await hosted();
     const run = await coordinator.createRun(RUN);
     await coordinator.updateRun(run.id, { status: "running" });
-    await coordinator.updateRun(run.id, { output: { partial: true } });
+    await coordinator.updateRun(run.id, {
+      snapshot: { cursor: null, input: null, name: "s", steps: [] },
+    });
+    await coordinator.updateRun(run.id, { tags: { customer: "a" } });
     await coordinator.updateRun(run.id, { status: "complete" });
 
     const events = await rows();
     expect(events.map((event) => event.type)).toStrictEqual([
       "run.queued",
       "run.started",
+      "run.updated",
       "run.completed",
     ]);
-    // One call per commit; the patch that kept the status brought none.
-    expect(calls.map((made) => made.length)).toStrictEqual([1, 1, 0, 1]);
+    // One call per commit; the step tree's persist brought none.
+    expect(calls.map((made) => made.length)).toStrictEqual([1, 1, 0, 1, 1]);
     expect(calls.flat()).toStrictEqual(events);
-  });
-
-  test("hands a write's events on in order, as they stood when commit was called", async () => {
-    const { calls, rows, store } = await hosted();
-    const run = await new ExecutionCoordinator().createRun(RUN);
-    const events: RunEvent[] = [
-      runEvent("rf-1", "run.queued", run.id),
-      runEvent("rf-2", "run.started", run.id),
-    ];
-    const expected = structuredClone(events);
-
-    const committing = store.commit({ events, putRuns: [run] });
-    events.reverse();
-    Object.assign(events[0] ?? {}, { type: "run.failed" });
-    await committing;
-
-    expect(calls).toStrictEqual([expected]);
-    expect(await rows()).toStrictEqual(expected);
-    expect(await store.getRun(run.id)).toStrictEqual(run);
   });
 
   test("events of a commit that fails never land, whether refused or rolled back", async () => {
@@ -116,7 +101,3 @@ describe("SqliteWorkflowStore change events", () => {
     expect((await coordinator.getRun(run.id))?.status).toBe("queued");
   });
 });
-
-function runEvent(id: string, type: RunEvent["type"], runId: string): RunEvent {
-  return { at: "2026-11-15T00:00:00.000Z", id, queueId: "q", runId, type };
-}
