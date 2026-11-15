@@ -7,6 +7,7 @@ import { ArtifactManager } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { describe, expect, it } from "vitest";
+import { type Command, DRY_RUN } from "~/args";
 import { initializeDatabase } from "~/database/open";
 import { resourceAssociations } from "~/database/resources";
 import { artifactBlobs } from "~/database/stores";
@@ -18,11 +19,17 @@ import { touchWorkspace } from "./helpers/registry";
 import { temporaryDirectory } from "./helpers/temporary";
 
 /**
- * `--dry-run` persists nothing, so the commands that change resources
- * refuse it, and the listings read without writing.
+ * `--dry-run` persists nothing. Every command decides what the flag means
+ * for it (`DRY_RUN`), and one without a dry mode refuses it before it
+ * opens or writes anything, wherever the flag sits on the line.
  */
 
 const REFUSED = /takes no --dry-run/;
+
+const SOURCE = `import { step, workflow } from "@foundry.sh/marbles";
+const greet = step("greet").do(() => "hello");
+workflow("hello").do(() => greet({}));
+`;
 
 async function machine() {
   const home = testHome();
@@ -31,12 +38,13 @@ async function machine() {
   const root = (name: string) => {
     const path = join(top, name);
     mkdirSync(path, { recursive: true });
-    writeFileSync(join(path, "marbles.ts"), "export {};\n");
+    writeFileSync(join(path, "marbles.ts"), SOURCE);
     return path;
   };
   const one = workspaceState(state, root("one"));
   const two = workspaceState(state, root("two"));
-  await touchWorkspace(state, one, null);
+  // Hosted, so a detach would have something to change.
+  await touchWorkspace(state, one, null, { hosted: true });
   await touchWorkspace(state, two, null);
   const opened = await initializeDatabase(stateDatabase(state));
   const notes = await new ArtifactManager({
@@ -55,13 +63,7 @@ async function machine() {
     two.id
   );
   opened.close();
-  const marbles = (...args: string[]) =>
-    spawnSync(
-      "bun",
-      cliArgs("--dry-run", ...args, "--source", join(one.root, "marbles.ts")),
-      { cwd: one.root, encoding: "utf8", env: home.env, timeout: 60_000 }
-    );
-  return { home, marbles, notes, one, top, two };
+  return { home, notes, one, top };
 }
 
 /** Every file under `dirs`, by path, with a digest of its bytes. */
@@ -88,35 +90,84 @@ function contents(...dirs: string[]): Record<string, string> {
   return found;
 }
 
-describe("resource commands under --dry-run", { timeout: 120_000 }, () => {
-  it("refuse to share, unshare or relink, and change nothing", async () => {
-    const { home, marbles, notes, top } = await machine();
-    const before = contents(home.path, top);
-    for (const args of [
-      ["share", "artifact", notes.id, "../two"],
-      ["unshare", "artifact", notes.id, "../two"],
-      ["relink", "--all"],
-    ]) {
-      const done = marbles(...args);
-      expect(done.status, `${args.join(" ")}: ${done.stdout}`).toBe(1);
-      expect(done.stderr).toMatch(REFUSED);
-    }
-    expect(contents(home.path, top)).toEqual(before);
-  });
+interface Case {
+  readonly args: readonly string[];
+  /** The exit status a command with a dry mode ends with; any when absent. */
+  readonly exits?: number;
+  /** Stopped with SIGINT after this long: it runs until it is stopped. */
+  readonly stopAfterMs?: number;
+}
 
-  it("list every kind and write nothing", async () => {
-    const { home, marbles, top } = await machine();
+/**
+ * How the test runs each command, one of everything it can change: a
+ * command added without a decision and a case here fails.
+ */
+function cases(
+  notes: { readonly id: string },
+  root: string
+): {
+  readonly [C in Command]: Case;
+} {
+  return {
+    artifacts: { args: ["artifacts", "--all"], exits: 0 },
+    attach: { args: ["attach"] },
+    daemon: { args: ["daemon"] },
+    detach: { args: ["detach"] },
+    help: { args: ["help"], exits: 0 },
+    init: { args: ["init", "developer", "--config", join(root, "starter")] },
+    list: { args: ["list"], exits: 0 },
+    mcp: { args: ["mcp"] },
+    modules: { args: ["modules", "--all"], exits: 0 },
+    relink: { args: ["relink", "--all"] },
+    roll: { args: ["roll", "hello"], exits: 0 },
+    run: { args: ["run"], stopAfterMs: 10_000 },
+    runs: { args: ["runs", "--all"], exits: 0 },
+    sandboxes: { args: ["sandboxes", "--all"], exits: 0 },
+    sessions: { args: ["sessions", "--all"], exits: 0 },
+    share: { args: ["share", "artifact", notes.id, "../two"] },
+    status: { args: ["status"], exits: 0 },
+    stop: { args: ["stop"] },
+    tasks: { args: ["tasks", "create", "Dry"], exits: 0 },
+    unshare: { args: ["unshare", "artifact", notes.id, "../two"] },
+    watch: { args: ["watch", "rn-missing"] },
+  };
+}
+
+describe("every command under --dry-run", { timeout: 600_000 }, () => {
+  it("has a dry mode, only reads, or refuses the flag, and changes nothing under the home or the workspaces", async () => {
+    const { home, notes, one, top } = await machine();
+    const table = cases(notes, one.root);
+    expect(Object.keys(table).sort()).toEqual(Object.keys(DRY_RUN).sort());
     const before = contents(home.path, top);
-    for (const kind of [
-      "artifacts",
-      "modules",
-      "runs",
-      "sandboxes",
-      "sessions",
-    ]) {
-      const done = marbles(kind, "--all");
-      expect(done.status, `${kind}: ${done.stderr}`).toBe(0);
+    for (const [command, dry] of Object.entries(DRY_RUN)) {
+      const { args, exits, stopAfterMs } = table[command as Command];
+      const line = [...args, "--source", join(one.root, "marbles.ts")];
+      for (const flagged of [
+        ["--dry-run", ...line],
+        [...line, "--dry-run"],
+      ]) {
+        const done = spawnSync("bun", cliArgs(...flagged), {
+          cwd: one.root,
+          encoding: "utf8",
+          env: home.env,
+          input: "",
+          killSignal: "SIGINT",
+          timeout: stopAfterMs ?? 60_000,
+        });
+        const what = `marbles ${flagged.join(" ")}`;
+        if (typeof dry === "object") {
+          expect(done.status, what).toBe(1);
+          expect(done.stderr, what).toContain(
+            `${dry.refused}; it takes no --dry-run`
+          );
+        } else {
+          expect(done.stderr, what).not.toMatch(REFUSED);
+          if (exits !== undefined) {
+            expect(done.status, `${what}: ${done.stderr}`).toBe(exits);
+          }
+        }
+        expect(contents(home.path, top), what).toEqual(before);
+      }
     }
-    expect(contents(home.path, top)).toEqual(before);
   });
 });

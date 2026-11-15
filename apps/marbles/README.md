@@ -316,7 +316,11 @@ the holder's pid. `marbles daemon` runs the process in the
 foreground for a service manager, and `marbles status` shows it and which
 workspaces it hosts. `--dry-run` hosts the workspace in the calling process
 instead, substitutes Marbles-owned operations, and avoids state writes;
-ordinary TypeScript and monitor I/O still execute.
+ordinary TypeScript and monitor I/O still execute. Each command decides
+what the flag means for it: `run`, `roll`, `list`, `tasks` and `mcp` have
+a dry mode, the listings, `status`, `watch` and `help` only read, and
+`attach`, `daemon`, `detach`, `init`, `relink`, `share`, `stop` and
+`unshare` refuse it before anything is opened or written.
 
 ### Resources and workspaces
 
@@ -325,7 +329,7 @@ Marbles database, each belonging to the workspace it was created in.
 `marbles share <kind> <id> <dir>` shows one of this workspace's resources in
 the workspace at `<dir>` as well (a sandbox container stays with the
 workspace that started it), and `marbles unshare` stops it; neither changes
-the resource, and neither takes `--dry-run`, nor does `relink`. `marbles runs`, `sessions`, `artifacts`, `sandboxes` and
+the resource. `marbles runs`, `sessions`, `artifacts`, `sandboxes` and
 `modules` list what this workspace shows, its own and what is shared with
 it, and `--all` lists every workspace's; a run's steps are listed under it.
 `marbles status` reads the same way. The dashboard's run and trigger lists
