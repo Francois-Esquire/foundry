@@ -249,7 +249,7 @@ require("node:fs").writeFileSync(${JSON.stringify(reported)}, String(child.pid))
     const problems = await stopRecorded(records, marker, FAST);
     expect(problems).toEqual([
       expect.stringContaining(
-        `process ${String(child)} outlived the recorded leader`
+        `process ${String(child)} is in the group of the recorded process ${String(leader)}`
       ),
     ]);
     expect(alive(child)).toBe(true);
@@ -257,6 +257,57 @@ require("node:fs").writeFileSync(${JSON.stringify(reported)}, String(child.pid))
   } finally {
     kill(child);
   }
+});
+
+it("reports, and does not signal, what is left in the group of a recorded leader that has already exited", async () => {
+  const marker = uniqueMarker();
+  const records = temporaryDirectory("rec-");
+  const reported = `${marker.value}/child`;
+  // The leader starts a platform binary in its group, then exits by itself.
+  const leader = await sleeper(
+    { [marker.name]: marker.value },
+    {
+      script: `const child = require("node:child_process").spawn("/bin/sleep", ["60"], { stdio: "ignore" }); require("node:fs").writeFileSync(${JSON.stringify(reported)}, String(child.pid)); setTimeout(() => process.exit(0), 200);`,
+    }
+  );
+  recordProcess(records, leader, true);
+  const child = Number(readFileSync(reported, "utf8"));
+  try {
+    await gone(leader);
+    expect(await stopRecorded(records, marker, FAST)).toEqual([
+      expect.stringContaining(
+        `process ${String(child)} is in the group of the recorded process ${String(leader)}`
+      ),
+    ]);
+    expect(alive(child)).toBe(true);
+    expect(existsSync(records)).toBe(true);
+  } finally {
+    kill(child);
+  }
+});
+
+it("does not signal a recorded process whose environment cannot be read, and reports it", async () => {
+  const marker = uniqueMarker();
+  const records = temporaryDirectory("rec-");
+  const started = "Sun Nov 15 08:00:00 2026";
+  writeFileSync(
+    join(records, "4343.json"),
+    JSON.stringify({ group: false, pid: 4343, started })
+  );
+  const sent: [number, NodeJS.Signals][] = [];
+  const system: ProcessSystem = {
+    environment: () => undefined,
+    kill: (target, signal) => {
+      sent.push([target, signal]);
+    },
+    look: (pids) => new Map(pids.map((pid) => [pid, { pgid: 1, started }])),
+    members: () => [],
+    sleep: () => Promise.resolve(),
+  };
+  expect(
+    await stopRecorded(records, marker, { graceMs: 0, killMs: 0 }, system)
+  ).toEqual([expect.stringContaining("could not be proved; not signalled")]);
+  expect(sent).toEqual([]);
 });
 
 it("reports a recorded process that no longer leads its recorded group, and does not signal it", async () => {
@@ -346,6 +397,61 @@ it("sweeps a killed run: stops what its records name and removes its root", asyn
   await gone(leftover);
   expect(existsSync(root)).toBe(false);
 });
+
+/** A pid no process holds any more. */
+function exitedPid(): number {
+  const exited = spawnSync(
+    process.execPath,
+    ["-e", "console.log(process.pid)"],
+    {
+      encoding: "utf8",
+    }
+  );
+  return Number(exited.stdout.trim());
+}
+
+it("keeps a run whose records cannot be read, and still clears the others", async () => {
+  const parent = temporaryDirectory("sw-");
+  const broken = join(parent, "marbles-run-broken");
+  mkdirSync(join(runRecords(broken), "run"), { recursive: true });
+  writeFileSync(
+    join(broken, "owner.json"),
+    JSON.stringify({ pid: exitedPid(), started: "Thu Jan 1 00:00:00 1970" })
+  );
+  writeFileSync(join(runRecords(broken), "run", "1.json"), "{ not json");
+  const killed = await killedRun(parent);
+  await sweepFinishedRuns(parent, FAST);
+  expect(existsSync(broken)).toBe(true);
+  await gone(killed.leftover);
+  expect(existsSync(killed.root)).toBe(false);
+});
+
+it("lets several runs sweep the same killed run at once", async () => {
+  const parent = temporaryDirectory("sw-");
+  const killed = await killedRun(parent);
+  const script = join(parent, "sweep.ts");
+  writeFileSync(
+    script,
+    `import { sweepFinishedRuns } from ${JSON.stringify(resolve("test/helpers/runs.ts"))};
+await sweepFinishedRuns(${JSON.stringify(parent)}, { graceMs: 300, killMs: 2000 });
+`
+  );
+  const sweeps = await Promise.all(
+    Array.from(
+      { length: 6 },
+      () =>
+        new Promise<number | null>((settle) => {
+          const sweeper = spawn(process.execPath, [script], {
+            stdio: "ignore",
+          });
+          sweeper.once("exit", settle);
+        })
+    )
+  );
+  expect(sweeps).toEqual([0, 0, 0, 0, 0, 0]);
+  await gone(killed.leftover);
+  expect(existsSync(killed.root)).toBe(false);
+}, 30_000);
 
 it("keeps a run's root while a process carries its marker without a record, and leaves that process alone", async () => {
   const parent = temporaryDirectory("sw-");

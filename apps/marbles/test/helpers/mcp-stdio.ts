@@ -69,8 +69,10 @@ export async function rawMcpSession(
   options: { readonly cwd: string; readonly env?: NodeJS.ProcessEnv }
 ): Promise<RawMcpSession> {
   const { VITEST: _vitest, ...inherited } = options.env ?? process.env;
+  // A process group of its own, so a teardown reaches all it starts.
   const child = spawn(command, args, {
     cwd: options.cwd,
+    detached: true,
     env: inherited,
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -79,7 +81,7 @@ export async function rawMcpSession(
     throw new Error(`could not start ${command}`);
   }
   // Where its environment says Marbles records what it starts.
-  recordSpawned(pid, false, inherited);
+  recordSpawned(pid, true, inherited);
   let stdout = "";
   let stderr = "";
   let buffered = "";

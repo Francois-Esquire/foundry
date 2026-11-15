@@ -107,16 +107,25 @@ class RecordedStop {
   readonly #marker: Marker;
   readonly #system: ProcessSystem;
   readonly #problems = new Map<number, string>();
-  /** Groups whose leader was proved in this stop, which may outlive it. */
+  readonly #unreadable: readonly string[];
+  /** The pids last found matching their records in part, not signalled. */
+  #unproven = new Set<number>();
+  /**
+   * Groups that may hold processes without records: one whose recorded
+   * leader was proved in this stop, or whose leader's pid no process
+   * holds any more. Its id cannot name another group while any of its
+   * processes remain, and a new one would need a leader with that pid.
+   */
   readonly #groups = new Set<number>();
 
   constructor(
-    records: readonly SpawnRecord[],
+    { problems, records }: Records,
     marker: Marker,
     system: ProcessSystem
   ) {
     this.#records = records;
     this.#recorded = new Set(records.map(({ pid }) => pid));
+    this.#unreadable = problems;
     this.#marker = marker;
     this.#system = system;
   }
@@ -125,21 +134,23 @@ class RecordedStop {
   round(signal: NodeJS.Signals | undefined): number[] {
     const seen = this.#system.look(this.#records.map(({ pid }) => pid));
     const left: number[] = [];
+    this.#unproven = new Set();
     for (const record of this.#records) {
       if (this.#problems.has(record.pid)) {
         continue;
       }
-      const proof = prove(
-        record,
-        seen.get(record.pid),
-        this.#marker,
-        this.#system
-      );
+      const found = seen.get(record.pid);
+      const proof = prove(record, found, this.#marker, this.#system);
       if (typeof proof === "object") {
         this.#problems.set(record.pid, proof.problem);
       } else if (proof === "recorded") {
         this.#signal(record, signal);
         left.push(record.pid);
+      } else if (proof === "unproven") {
+        this.#unproven.add(record.pid);
+        left.push(record.pid);
+      } else if (record.group && found === undefined) {
+        this.#groups.add(record.pid);
       }
     }
     return left;
@@ -161,11 +172,16 @@ class RecordedStop {
 
   report(survivors: readonly number[]): string[] {
     return [
+      ...this.#unreadable,
       ...this.#problems.values(),
-      ...survivors.map((pid) => `process ${String(pid)} would not stop`),
+      ...survivors.map((pid) =>
+        this.#unproven.has(pid)
+          ? `process ${String(pid)} matches its record, but could not be proved; not signalled`
+          : `process ${String(pid)} would not stop`
+      ),
       ...this.#remnants().map(
-        (pid) =>
-          `process ${String(pid)} outlived the recorded leader of its group and has no record of its own; not signalled`
+        ([pid, pgid]) =>
+          `process ${String(pid)} is in the group of the recorded process ${String(pgid)} and has no record of its own; not signalled`
       ),
     ];
   }
@@ -183,10 +199,13 @@ class RecordedStop {
     }
   }
 
-  /** What is still in a proved group without a record of its own. */
-  #remnants(): number[] {
+  /** What is in one of those groups without a record of its own: pid and group. */
+  #remnants(): [number, number][] {
     return [...this.#groups].flatMap((pgid) =>
-      this.#system.members(pgid).filter((pid) => !this.#recorded.has(pid))
+      this.#system
+        .members(pgid)
+        .filter((pid) => !this.#recorded.has(pid))
+        .map((pid): [number, number] => [pid, pgid])
     );
   }
 }
@@ -198,7 +217,7 @@ class RecordedStop {
  * the run's; a caller reports them.
  */
 export function unrecordedMarked(dir: string, marker: Marker): number[] {
-  const recorded = new Set(readRecords(dir).map(({ pid }) => pid));
+  const recorded = new Set(readRecords(dir).records.map(({ pid }) => pid));
   const entry = `${marker.name}=${marker.value}`;
   return [...environments()]
     .filter(
@@ -208,7 +227,11 @@ export function unrecordedMarked(dir: string, marker: Marker): number[] {
     .map(([pid]) => pid);
 }
 
-type Proof = "gone" | "recorded" | { readonly problem: string };
+/**
+ * `unproven`: it matches its record as far as could be read, but the
+ * rest could not be read this time; not signalled, and looked at again.
+ */
+type Proof = "gone" | "recorded" | "unproven" | { readonly problem: string };
 
 function prove(
   record: SpawnRecord,
@@ -227,7 +250,7 @@ function prove(
   }
   const environment = system.environment(record.pid);
   if (environment === undefined) {
-    return "gone";
+    return "unproven";
   }
   const entry = `${marker.name}=${marker.value}`;
   if (environment.length > 0 && !environment.includes(entry)) {
@@ -255,32 +278,64 @@ function signalIfThere(
   }
 }
 
-function readRecords(dir: string): SpawnRecord[] {
-  if (!existsSync(dir)) {
-    return [];
-  }
+interface Records {
+  /** The records that could not be read: what they name cannot be stopped. */
+  readonly problems: readonly string[];
+  readonly records: readonly SpawnRecord[];
+}
+
+/**
+ * Every record under `dir`. One removed meanwhile, by another run's sweep
+ * of the same root, is skipped; one that cannot be read is a problem.
+ */
+function readRecords(dir: string): Records {
   const records: SpawnRecord[] = [];
-  for (const entry of readdirSync(dir, {
-    recursive: true,
-    withFileTypes: true,
-  })) {
-    if (!(entry.isFile() && entry.name.endsWith(".json"))) {
-      continue;
-    }
-    const path = join(entry.parentPath, entry.name);
-    const record = JSON.parse(readFileSync(path, "utf8")) as SpawnRecord;
-    if (
-      !(
+  const problems: string[] = [];
+  let entries: ReturnType<typeof listRecords>;
+  try {
+    entries = listRecords(dir);
+  } catch (error) {
+    return gone(error)
+      ? { problems, records }
+      : {
+          problems: [`cannot list the records in ${dir}: ${String(error)}`],
+          records,
+        };
+  }
+  for (const path of entries) {
+    try {
+      const record = JSON.parse(readFileSync(path, "utf8")) as SpawnRecord;
+      if (
         Number.isInteger(record.pid) &&
         typeof record.group === "boolean" &&
         typeof record.started === "string"
-      )
-    ) {
-      throw new Error(`not a process record: ${path}`);
+      ) {
+        records.push(record);
+      } else {
+        problems.push(`${path} is not a process record`);
+      }
+    } catch (error) {
+      if (!gone(error)) {
+        problems.push(
+          `cannot read the process record ${path}: ${String(error)}`
+        );
+      }
     }
-    records.push(record);
   }
-  return records;
+  return { problems, records };
+}
+
+function listRecords(dir: string): string[] {
+  if (!existsSync(dir)) {
+    return [];
+  }
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => join(entry.parentPath, entry.name));
+}
+
+function gone(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
 function normal(started: string): string {

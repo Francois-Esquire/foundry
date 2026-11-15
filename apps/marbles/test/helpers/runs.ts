@@ -126,14 +126,20 @@ function readOwner(root: string): Owner | undefined {
 /** Whether the run's recorded processes are confirmed gone and nothing else carries its marker. */
 async function clear(root: string, limits?: StopLimits): Promise<boolean> {
   const marker: Marker = { name: RUN_ENV, value: root };
-  const problems = await stopRecorded(runRecords(root), marker, limits);
-  const unrecorded = await outlast(() =>
-    unrecordedMarked(runRecords(root), marker)
-  );
-  for (const pid of unrecorded) {
-    problems.push(
-      `process ${String(pid)} carries ${RUN_ENV}=${root} but was never recorded; not signalled`
+  const problems: string[] = [];
+  try {
+    problems.push(...(await stopRecorded(runRecords(root), marker, limits)));
+    const unrecorded = await outlast(() =>
+      unrecordedMarked(runRecords(root), marker)
     );
+    for (const pid of unrecorded) {
+      problems.push(
+        `process ${String(pid)} carries ${RUN_ENV}=${root} but was never recorded; not signalled`
+      );
+    }
+  } catch (error) {
+    // A process list that cannot be had: nothing more is signalled here.
+    problems.push(String(error));
   }
   if (problems.length > 0) {
     console.warn(`marbles tests: kept ${root}:\n  ${problems.join("\n  ")}`);
@@ -159,7 +165,8 @@ export async function outlast(find: () => number[]): Promise<number[]> {
  */
 function removeRoot(root: string): void {
   try {
-    rmSync(root, { maxRetries: 3, recursive: true });
+    // Forced: another run's sweep of the same root may be removing it too.
+    rmSync(root, { force: true, maxRetries: 3, recursive: true });
   } catch (error) {
     console.warn(
       `marbles tests: could not remove the run's root ${root}: ${String(error)}`
