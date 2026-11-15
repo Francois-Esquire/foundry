@@ -199,6 +199,16 @@ for (const [name, open] of STORES) {
   });
 
   describe(`ExecutionCoordinator rules over the ${name}`, () => {
+    test("states its store's durability, and a transaction's is host", async () => {
+      const coordinator = new ExecutionCoordinator({ store: await open() });
+      expect(coordinator.durability).toBe("commit");
+      expect(
+        await coordinator.transaction?.((bound) =>
+          Promise.resolve(bound.durability)
+        )
+      ).toBe("host");
+    });
+
     test("refuses a call to itself from inside its own transaction, at once", async () => {
       const coordinator = new ExecutionCoordinator({ store: await open() });
       const run = await coordinator.createRun({

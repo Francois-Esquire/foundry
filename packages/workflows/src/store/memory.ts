@@ -42,6 +42,8 @@ const ENDED =
  * which {@link snapshot} reads at once.
  */
 export class MemoryWorkflowStore implements WorkflowStore {
+  /** A commit lands in this process's maps at once, for good. */
+  readonly durability = "commit";
   #tables = new Tables();
   readonly #turns = new Turns(REENTRY);
 
@@ -154,6 +156,8 @@ export class MemoryWorkflowStore implements WorkflowStore {
  * commit, which copies them; later commits change only the copy.
  */
 class MemoryView implements WorkflowStore {
+  /** Its commits stand only if the transaction's work succeeds. */
+  readonly durability = "host";
   tables: Tables;
   readonly #base: Tables;
   #ended: boolean;

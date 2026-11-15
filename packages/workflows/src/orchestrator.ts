@@ -18,7 +18,10 @@ import type {
   SuspensionQuery,
 } from "./execution-commands";
 import type { OrchestratorStore } from "./execution-coordinator";
-import { ExecutionCoordinator } from "./execution-coordinator";
+import {
+  ExecutionCoordinator,
+  requireDurableStore,
+} from "./execution-coordinator";
 import { ExecutionParticipants } from "./execution-participants";
 import type { Extensions } from "./extensions";
 import { createExtensions } from "./extensions";
@@ -301,6 +304,7 @@ export class Orchestrator {
     this.registry = opts.registry ?? new Registry();
     this.config = opts.config;
     this.store = opts.store ?? new ExecutionCoordinator();
+    requireDurableStore(this.store, "Orchestrator");
     this.#participants = new ExecutionParticipants(
       this.store,
       opts.admissionParticipant,

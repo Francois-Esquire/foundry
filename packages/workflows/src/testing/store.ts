@@ -381,6 +381,14 @@ export function describeWorkflowStore(
       expect(await allRuns(target)).toStrictEqual([run("rn-c")]);
     });
 
+    test("states its durability: a commit is durable, a transaction's view is not", async () => {
+      const target = await store();
+      expect(target.durability ?? "commit").toBe("commit");
+      expect(
+        await transactionOf(target)((view) => Promise.resolve(view.durability))
+      ).toBe("host");
+    });
+
     test("reads each property of a write once, and keeps what that read gave", async () => {
       const target = await store();
       const reads = new Map<string, number>();

@@ -32,6 +32,16 @@ export interface WorkflowStoreWrite {
 }
 
 /**
+ * When a commit that resolved is there for good.
+ *
+ * - `"commit"`: at once. The store's own transaction is the whole of it.
+ * - `"host"`: only once a transaction the store sits inside, which someone
+ *   else owns, commits; until then that owner may still roll it back, and
+ *   the records the commit replaced come back.
+ */
+export type WorkflowStoreDurability = "commit" | "host";
+
+/**
  * Where a list read stops and the next page starts. Opaque: pass back the
  * `next` a page returned, and nothing else.
  */
@@ -94,6 +104,13 @@ export interface FrameListQuery extends WorkflowStorePageQuery {
  */
 export interface WorkflowStore {
   commit(write: WorkflowStoreWrite): Promise<void>;
+  /**
+   * When a commit that resolved is there for good; `"commit"` when absent.
+   * A transaction's view is `"host"`: its commits stand only if the work
+   * succeeds. The `Orchestrator` and `Queue` refuse a `"host"` store, as
+   * they start workflow code once a commit resolves.
+   */
+  readonly durability?: WorkflowStoreDurability;
   getJob(id: string): Promise<JobRecord | null>;
   getQueue(id: string): Promise<QueueRecord | null>;
   getRun(id: string): Promise<RunRecord | null>;

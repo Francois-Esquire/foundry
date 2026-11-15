@@ -576,6 +576,31 @@ describe("SqliteWorkflowStore writes and positions", () => {
     expect(await store.getRun(run.id)).toStrictEqual(run);
   });
 
+  test("states durability: commit over a database, host over a transaction it was handed", async () => {
+    const database = await memory.open();
+    expect(new SqliteWorkflowStore({ database, scope: "s" }).durability).toBe(
+      "commit"
+    );
+    expect(
+      new SqliteWorkflowStore({ database, durability: "host", scope: "s" })
+        .durability
+    ).toBe("host");
+    await database.transaction(async (transaction) => {
+      expect(
+        new SqliteWorkflowStore({ database: transaction, scope: "s" })
+          .durability
+      ).toBe("host");
+      expect(
+        () =>
+          new SqliteWorkflowStore({
+            database: transaction,
+            durability: "commit",
+            scope: "s",
+          })
+      ).toThrow('durability cannot be "commit"');
+    });
+  });
+
   test("never hands a position out twice, across deletes and reopening", async () => {
     const first = await files.open();
     const store = new SqliteWorkflowStore({ database: first, scope: "s" });

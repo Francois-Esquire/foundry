@@ -7,6 +7,7 @@ import {
   getTableColumns,
   gt,
   inArray,
+  is,
   max,
   sql,
 } from "drizzle-orm";
@@ -14,8 +15,8 @@ import type {
   BaseSQLiteDatabase,
   SQLiteColumn,
   SQLiteTable,
-  SQLiteTransaction,
 } from "drizzle-orm/sqlite-core";
+import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 
 import { defineOwnEntry } from "../own-entry";
 import type {
@@ -31,6 +32,7 @@ import type {
   RunListQuery,
   SuspensionListQuery,
   WorkflowStore,
+  WorkflowStoreDurability,
   WorkflowStorePage,
   WorkflowStorePageQuery,
   WorkflowStoreWrite,
@@ -80,6 +82,16 @@ export type WorkflowTransaction = SQLiteTransaction<
 export interface SqliteWorkflowStoreOptions {
   /** Opened, migrated, and owned by the host; the store never closes it. */
   readonly database: WorkflowDatabase;
+  /**
+   * When a commit that resolved is there for good (see
+   * `WorkflowStoreDurability`). A Drizzle transaction handed in as
+   * `database` is one the host owns and may roll back, so the store is
+   * `"host"` over it whatever this says, and refuses `"commit"`. Over a
+   * plain database the default is `"commit"`; pass `"host"` when the host
+   * has begun a transaction of its own on the connection (a raw `BEGIN`),
+   * which the store cannot see.
+   */
+  readonly durability?: WorkflowStoreDurability;
   /**
    * Runs inside the commit's transaction after the store's own statements,
    * so the host can record the change atomically with it. A throw rolls the
@@ -167,6 +179,7 @@ const FRAMES: Shelf<RunFrame> = {
  * write lock (see there).
  */
 export class SqliteWorkflowStore implements WorkflowStore {
+  readonly durability: WorkflowStoreDurability;
   readonly #database: WorkflowDatabase;
   readonly #scope: string;
   readonly #onCommit: SqliteWorkflowStoreOptions["onCommit"];
@@ -178,6 +191,13 @@ export class SqliteWorkflowStore implements WorkflowStore {
         "scope must be a nonempty string with no U+0000 and no lone surrogate"
       );
     }
+    const joined = is(options.database, SQLiteTransaction);
+    if (joined && options.durability === "commit") {
+      throw new RangeError(
+        'database is a transaction the host owns, which it may roll back: a commit is durable only when the host\'s is, so durability cannot be "commit"'
+      );
+    }
+    this.durability = joined ? "host" : (options.durability ?? "commit");
     this.#database = options.database;
     this.#scope = options.scope;
     this.#onCommit = options.onCommit;

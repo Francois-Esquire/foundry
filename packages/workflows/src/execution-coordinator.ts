@@ -76,6 +76,7 @@ import type {
 import { ORCHESTRATOR_STORE_SNAPSHOT_VERSION } from "./schema";
 import type {
   WorkflowStore,
+  WorkflowStoreDurability,
   WorkflowStorePage,
   WorkflowStorePageQuery,
 } from "./store/index";
@@ -88,6 +89,12 @@ import { validateOrchestratorStoreSnapshot } from "./store-snapshot";
  * supply its own.
  */
 export interface OrchestratorStore extends ExecutionCommands, RunJournal {
+  /**
+   * When a change that resolved is there for good; `"commit"` when absent
+   * (see `WorkflowStoreDurability`). The `Orchestrator` and `Queue` refuse
+   * a `"host"` store.
+   */
+  readonly durability?: WorkflowStoreDurability;
   /**
    * Runs `work` over a store bound to one store transaction, so everything
    * it does lands together or not at all, and no other write lands between
@@ -136,6 +143,7 @@ const LIVE_RUN_STATUSES: readonly RunStatus[] = [
  * every record the store's filter returns.
  */
 export class ExecutionCoordinator implements OrchestratorStore {
+  readonly durability: WorkflowStoreDurability;
   readonly transaction?: <T>(
     work: (store: OrchestratorStore) => Promise<T>
   ) => Promise<T>;
@@ -145,6 +153,7 @@ export class ExecutionCoordinator implements OrchestratorStore {
   constructor(options: ExecutionCoordinatorOptions = {}) {
     const store = options.store ?? new MemoryWorkflowStore();
     this.#store = store;
+    this.durability = store.durability ?? "commit";
     if (store.transaction !== undefined) {
       this.transaction = (work) =>
         this.#transaction((view) => work(ExecutionCoordinator.#over(view)));
@@ -894,6 +903,23 @@ export class ExecutionCoordinator implements OrchestratorStore {
   }
 }
 
+/**
+ * Refuses a store whose commits a host transaction may still roll back, for
+ * a runtime (`Orchestrator`, `Queue`) that starts workflow code, dispatches,
+ * and signals cancellations once a commit resolves: it would act on records
+ * a rollback then removes.
+ */
+export function requireDurableStore(
+  store: OrchestratorStore,
+  runtime: string
+): void {
+  if (store.durability === "host") {
+    throw new Error(
+      `${runtime} cannot run over a store whose commits a host transaction may roll back (durability "host"): it would run workflow code for Runs a rollback removes. Run it over a store on the database itself, outside the host's transaction.`
+    );
+  }
+}
+
 type JobRunClaimOutcome =
   | { readonly status: "claimed"; readonly claim: JobRunClaim }
   | { readonly status: "settled" };
@@ -902,6 +928,7 @@ type JobRunClaimOutcome =
 function withoutTransaction(view: WorkflowStore): WorkflowStore {
   return {
     commit: (write) => view.commit(write),
+    durability: view.durability ?? "host",
     getJob: (id) => view.getJob(id),
     getQueue: (id) => view.getQueue(id),
     getRun: (id) => view.getRun(id),
