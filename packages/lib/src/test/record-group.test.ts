@@ -240,3 +240,26 @@ it("takes a group left only with exited, unreaped members (zombies) for empty", 
   expect(await stop()).toBe(true);
   expect(sent).toEqual([[-pgid, 0]]);
 });
+
+it("sends nothing to a group id another process leads once the leader is reaped: it was emptied before", async () => {
+  const pgid = 4_200_060;
+  const { child, exit } = madeUpChild(pgid);
+  const sent: [number, NodeJS.Signals | 0][] = [];
+  const system: GroupSystem = {
+    kill(target, signal) {
+      sent.push([target, signal]);
+    },
+    // A process with the leader's pid leads the group: not the leader,
+    // which was reaped.
+    members: () =>
+      new Map([
+        [pgid, { pgid, started: LATER }],
+        [4_200_061, { pgid, started: LATER }],
+      ]),
+    sleep: () => Promise.resolve(),
+  };
+  const stop = recordGroup(child, { env: {}, system });
+  exit();
+  expect(await stop()).toBe(true);
+  expect(sent).toEqual([[-pgid, 0]]);
+});

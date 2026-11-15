@@ -310,7 +310,7 @@ async function stopGroup(
     return true;
   }
   let known = running(system.members(pgid));
-  if (known?.size === 0) {
+  if (known?.size === 0 || reused(known, pgid, stop)) {
     return true;
   }
   if (known !== undefined) {
@@ -323,7 +323,7 @@ async function stopGroup(
   ] as const) {
     if (signal === "SIGKILL") {
       const now = running(system.members(pgid));
-      if (now?.size === 0) {
+      if (now?.size === 0 || reused(now, pgid, stop)) {
         return true;
       }
       if (now === undefined || !(stop.held() || provedIn(known, now))) {
@@ -358,6 +358,21 @@ async function emptiedWithin(
   }
   // It answers a signal; whether only exited, unreaped members (zombies) do.
   return running(system.members(pgid))?.size === 0;
+}
+
+/**
+ * Whether the group's id is another group's now: the leader is reaped,
+ * and a process with its pid runs, so that one is not the leader, and
+ * leads a group of its own with that id. This group was empty before it
+ * could start, as an id is not given to a new group while any process of
+ * the old one lives.
+ */
+function reused(
+  members: ReadonlyMap<number, SeenProcess> | undefined,
+  pgid: number,
+  stop: GroupStop
+): boolean {
+  return !stop.held() && members?.has(pgid) === true;
 }
 
 /** `members`, without those that have exited and wait to be reaped (zombies). */
