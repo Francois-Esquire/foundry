@@ -28,6 +28,7 @@ import {
 } from "./helpers/processes";
 import {
   RUN_ENV,
+  runIsOver,
   runRecords,
   startRun,
   sweepFinishedRuns,
@@ -633,6 +634,36 @@ it("keeps a run's root while a process carries its marker without a record, and 
   } finally {
     kill(unrecorded);
   }
+});
+
+it("takes a run for over only as the one rule for owners does: never for one a signal reaches that the listing leaves out", () => {
+  const parent = temporaryDirectory("sw-");
+  const root = join(parent, "marbles-run-made-up");
+  mkdirPrivate(root);
+  writePrivateFile(
+    join(root, "owner.json"),
+    JSON.stringify({ pid: 4_200_130, started: "ps:Sun Nov 15 08:00:00 2026" })
+  );
+  const unlisted = { alive: () => true, look: () => new Map() };
+  expect(runIsOver(root, unlisted)).toBe(false);
+  const exited = {
+    alive: () => true,
+    look: () =>
+      new Map([
+        [
+          4_200_130,
+          {
+            exited: true as const,
+            pgid: 1,
+            started: "ps:Sun Nov 15 08:00:00 2026",
+          },
+        ],
+      ]),
+  };
+  expect(runIsOver(root, exited)).toBe(true);
+  expect(runIsOver(root, { alive: () => false, look: () => new Map() })).toBe(
+    true
+  );
 });
 
 it("leaves a live run whose owner started under another time zone and language", async () => {

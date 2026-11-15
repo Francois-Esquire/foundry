@@ -52,9 +52,12 @@ import { setTimeout as sleep } from "node:timers/promises";
 import {
   compareStarts,
   groupMembers,
+  isGone,
   isProcessIdentity,
   lookProcesses,
   type ProcessIdentity,
+  type ProcessLookup,
+  processAlive,
   type SeenProcess,
 } from "./process-identity";
 import {
@@ -82,6 +85,8 @@ export interface OrphanStopOptions {
 
 /** The system calls a stop makes. */
 export interface ProcessTable {
+  /** Whether a signal reaches the pid (`processAlive`). */
+  alive(pid: number): boolean;
   kill(target: number, signal: NodeJS.Signals): void;
   /**
    * What the system says about each of `pids` that is running; `undefined`
@@ -104,7 +109,15 @@ export async function stopOrphans(
   dir: string,
   options: OrphanStopOptions = {}
 ): Promise<OrphanStop> {
-  const system = running(options.system ?? SYSTEM);
+  const table = options.system ?? SYSTEM;
+  const system = running(table);
+  // Whether an owner is gone is the one rule's (`isGone`), asked of the
+  // table as it is: an exited, unreaped owner is listed so, and one the
+  // listing leaves out is not gone while a signal still reaches it.
+  const owners: ProcessLookup = {
+    alive: (pid) => table.alive(pid),
+    look: (pids) => table.look(pids),
+  };
   const limits = {
     graceMs: options.graceMs ?? GRACE_MS,
     killMs: options.killMs ?? KILL_MS,
@@ -112,7 +125,7 @@ export async function stopOrphans(
   const stopped: number[] = [];
   const problems = new Set<string>();
   for (let pass = 0; pass < MAX_PASSES; pass += 1) {
-    const found = orphansIn(dir, system);
+    const found = orphansIn(dir, system, owners);
     for (const problem of found.problems) {
       problems.add(problem);
     }
@@ -153,7 +166,11 @@ interface OrphanGroup {
 }
 
 /** The orphans `dir` records now; the records of processes that are gone go. */
-function orphansIn(dir: string, system: ProcessTable): Found {
+function orphansIn(
+  dir: string,
+  system: ProcessTable,
+  owners: ProcessLookup
+): Found {
   const { problems, records } = readRecords(dir);
   const pids = records.flatMap((record) =>
     record.owner === undefined ? [record.pid] : [record.pid, record.owner.pid]
@@ -169,7 +186,7 @@ function orphansIn(dir: string, system: ProcessTable): Found {
   const orphans: SpawnRecord[] = [];
   const groups: OrphanGroup[] = [];
   for (const record of records) {
-    const verdict = judge(record, seen, system);
+    const verdict = judge(record, seen, system, owners);
     if (verdict === "gone") {
       forget(dir, record);
     } else if (verdict === "orphan") {
@@ -194,7 +211,8 @@ type Verdict =
 function judge(
   record: SpawnRecord,
   seen: ReadonlyMap<number, SeenProcess>,
-  system: ProcessTable
+  system: ProcessTable,
+  owners: ProcessLookup
 ): Verdict {
   if (record.pid === process.pid) {
     return "kept";
@@ -209,7 +227,7 @@ function judge(
       problem: `process ${String(record.pid)} runs, and its record names a start of another kind than this system reads; not signalled, its record kept`,
     };
   }
-  if (record.owner !== undefined && stillThere(record.owner, seen)) {
+  if (record.owner !== undefined && !isGone(record.owner, owners)) {
     return start === "same" || record.group ? "kept" : "gone";
   }
   if (record.owner === undefined) {
@@ -264,22 +282,6 @@ function proved(
   return (
     found !== undefined &&
     compareStarts(found.started, record.started) === "same"
-  );
-}
-
-/**
- * The owner `owner` names may still run: its pid runs, and nothing says
- * the process with it now started at another time. An owner that cannot
- * be told from another is taken as still there, so its children are left.
- */
-function stillThere(
-  owner: ProcessIdentity,
-  seen: ReadonlyMap<number, SeenProcess>
-): boolean {
-  const found = seen.get(owner.pid);
-  return (
-    found !== undefined &&
-    compareStarts(found.started, owner.started) !== "different"
   );
 }
 
@@ -488,6 +490,7 @@ function running(table: ProcessTable): ProcessTable {
       ? undefined
       : new Map([...seen].filter(([, entry]) => entry.exited !== true));
   return {
+    alive: (pid) => table.alive(pid),
     kill: (target, name) => table.kill(target, name),
     look: (pids) => live(table.look(pids)),
     members: (pgid) => live(table.members(pgid)),
@@ -594,6 +597,7 @@ function gone(error: unknown): boolean {
 }
 
 const SYSTEM: ProcessTable = {
+  alive: processAlive,
   kill: (target, name) => process.kill(target, name),
   look: lookProcesses,
   members: groupMembers,

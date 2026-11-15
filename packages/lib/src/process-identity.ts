@@ -402,9 +402,17 @@ export function isGone(
   }
   // A start read a moment ago may only confirm the owner: anything else
   // is decided on a fresh read, since the pid may be another's by now.
-  if (owner.started !== null && confirmedRecently(owner.pid, owner.started)) {
+  // Only this system's own reads are kept, and only they confirm: what a
+  // lookup a caller hands in says is never taken for what the system said.
+  const cached = lookup === LOOKUP;
+  if (
+    cached &&
+    owner.started !== null &&
+    confirmedRecently(owner.pid, owner.started)
+  ) {
     return false;
   }
+  const remember = cached ? rememberSeen : () => undefined;
   const seen = lookup.look([owner.pid]);
   if (seen === undefined) {
     remember(owner.pid, undefined);
@@ -487,7 +495,7 @@ function confirmedRecently(pid: number, started: string): boolean {
   );
 }
 
-function remember(pid: number, started: string | null | undefined): void {
+function rememberSeen(pid: number, started: string | null | undefined): void {
   if (started === undefined || started === null) {
     recent.delete(pid);
   } else {

@@ -217,6 +217,7 @@ it("kills one that ignores SIGTERM, and keeps the record of one that will not go
     graceMs: 10,
     killMs: 10,
     system: {
+      alive: (each) => each === unkillable.identity.pid,
       kill: () => undefined,
       look: (pids) =>
         new Map(
@@ -246,6 +247,7 @@ it("signals nothing when the process table cannot be read", async () => {
   await kill(owner.child);
   const stop = await stopOrphans(dir, {
     system: {
+      alive: () => true,
       kill: () => {
         throw new Error("never signalled");
       },
@@ -407,6 +409,7 @@ it("keeps, and reports, a record whose start is of another kind than the system 
   });
   const stop = await stopOrphans(dir, {
     system: {
+      alive: (pid) => pid === 123,
       kill: () => {
         throw new Error("never signalled");
       },
@@ -433,7 +436,9 @@ it("keeps, and reports, a record whose start is of another kind than the system 
  */
 function madeUpTable(
   processes: Map<number, SeenProcess>,
-  afterKill: (target: number, name: NodeJS.Signals) => void = () => undefined
+  afterKill: (target: number, name: NodeJS.Signals) => void = () => undefined,
+  /** Processes a signal reaches that the listing leaves out. */
+  unlisted: ReadonlySet<number> = new Set()
 ): {
   readonly sent: [number, NodeJS.Signals][];
   readonly table: ProcessTable;
@@ -444,6 +449,7 @@ function madeUpTable(
   return {
     sent,
     table: {
+      alive: (pid) => processes.has(pid) || unlisted.has(pid),
       kill(target, name) {
         sent.push([target, name]);
         for (const [pid, seen] of processes) {
@@ -581,4 +587,21 @@ it("signals a group by its id only while a recorded member is proved in it: not 
     { pid: leader, started: MADE_UP },
     { pid: stubborn, started: MADE_UP },
   ]);
+});
+
+it("never takes an owner a signal still reaches for gone because the listing left it out", async () => {
+  const dir = scratch();
+  const child = 4_200_120;
+  const owner = { pid: 4_200_121, started: MADE_UP };
+  record(dir, { group: false, owner, pid: child, started: MADE_UP });
+  const { sent, table } = madeUpTable(
+    new Map([[child, { pgid: child, started: MADE_UP }]]),
+    () => undefined,
+    new Set([owner.pid])
+  );
+  expect(
+    await stopOrphans(dir, { graceMs: 0, killMs: 0, system: table })
+  ).toEqual({ problems: [], stopped: [] });
+  expect(sent).toEqual([]);
+  expect(existsSync(recordPath(dir, child))).toBe(true);
 });

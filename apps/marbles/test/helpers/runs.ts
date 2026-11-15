@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { compareStarts } from "@foundry/lib/process-identity";
+import { isGone, type ProcessLookup } from "@foundry/lib/process-identity";
 import {
   notPrivate,
   SPAWN_OWNER_ENV,
@@ -142,23 +142,20 @@ export async function sweepFinishedRuns(
       }
       continue;
     }
-    if (isOver(root) && (await clear(root, limits))) {
+    if (runIsOver(root) && (await clear(root, limits))) {
       removeRoot(root);
     }
   }
 }
 
-function isOver(root: string): boolean {
+/**
+ * Whether the run rooted at `root` is over: its owner is gone, as the
+ * one rule for owners has it (`isGone`), asked of `lookup` (this
+ * system's, unless a test hands in its own).
+ */
+export function runIsOver(root: string, lookup?: ProcessLookup): boolean {
   const owner = readOwner(root);
-  if (owner === undefined) {
-    return false;
-  }
-  const started = startedAt(owner.pid);
-  return (
-    started === null ||
-    (started !== undefined &&
-      compareStarts(started, owner.started) === "different")
-  );
+  return owner !== undefined && isGone(owner, lookup);
 }
 
 function readOwner(root: string): Owner | undefined {
