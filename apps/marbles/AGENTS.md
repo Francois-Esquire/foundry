@@ -93,6 +93,11 @@ Five buckets, each importing only what sits below it:
   transaction, only checks it is still that owner (`claimJudged` in
   `database/owner.ts`, which maps a claim row's owner columns to and from
   a `ProcessIdentity`).
+  Each engine has an execution context (`lib/execution-context.ts`): its
+  workspace id, where its work starts (`cwd`, the root by default) and the
+  environment its commands inherit. Runs reach it through their bindings,
+  observers through `inContext`, and nothing in `lib/` reads
+  `process.cwd()` or `process.env` for it.
   `lib/cli-harnesses.ts` describes each CLI harness once (ids in
   preference order, executor, guest artifact and environment). Provider
   plugins (`lib/providers/plugins.ts`) build instances from configuration
@@ -219,11 +224,37 @@ Five buckets, each importing only what sits below it:
   `hostWorkspace()` in `host.ts`, which ties them into the
   `WorkspaceConnection` every host is written against. A host opens one
   writer handle on the database (`openHostDatabase`) before it builds the
-  engine, keeps it until the engine is disposed, and records the workspace
-  through it once the engine has started; under `--dry-run` it opens none. It imports `lib/`,
+  engine, or is handed one, keeps it until the engine is disposed, and
+  records the workspace's registration (root, source, where its work
+  starts) through it once the engine has started; under `--dry-run` it
+  opens none. Nothing under `workspace/` reads `process.cwd()`: the CLI
+  passes the directory it runs in (`directory`), and a workspace's
+  registration says where its work starts (`cwd`). Each workspace loads
+  into a `Catalog` of its own (`loadSource`, through `loadInto` in
+  `authoring/runtime.ts`; loads may overlap), and its Varlock values into
+  the engine's execution context, never `process.env`. Each load imports
+  copies of its own of every module and data file its source imports by
+  path (`copies.ts`: anything but packages and Marbles' own code; it
+  rewrites only import specifiers, found with `oxc-parser`, and a file
+  that does not parse fails the load), and those
+  copies import a library bound to the load (`authoring/bound.ts`): every
+  word that declares or routes runs in the load's scope (`inLoad`), and
+  builders and instances keep whom they answer to (`captureScope`: the
+  load, or the workspace of the run that made them, never that run). So a call names its workspace by its run or observer
+  (`lib/execution-context.ts`), else by the load whose library it came
+  from; work naming a workspace whose host closed here is refused, and
+  only work naming none may fall to the one workspace hosted. Nothing
+  reads the stack for it. `hosted.ts` (`HostedWorkspaces`) hosts several
+  workspaces in one process over one database handle, refuses work that
+  names no workspace, shares one registration of a workspace between
+  callers, addresses what each declared by workspace id and local name
+  (`run`, `roll`), and loads every registered (`hosted`) workspace again,
+  reporting each that fails (`loadRegistered`; a registration whose source
+  is gone fails, one made without a source is its root alone), and drops
+  a registration (`unregister`). The Marbles process still
+  runs one worker per workspace. It imports `lib/`,
   `authoring/`, `database/`, `layout.ts` and `model/`; never views, `args`, or
-  `process/`. The catalog, the authoring host slot, `process.env` and the
-  module cache are per-process, so one process hosts one workspace.
+  `process/`.
 - `src/process/` is the Marbles process: one daemon per machine
   (`daemon.ts`) that claims `locks/process` at the state root, listens on
   the layout's Unix socket, and hosts each attached workspace in a worker

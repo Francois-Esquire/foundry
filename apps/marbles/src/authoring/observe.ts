@@ -1,4 +1,4 @@
-import { catalog } from "~/authoring/catalog";
+import { declaringCatalog } from "~/authoring/runtime";
 import type { Handler, Observable } from "~/lib/events/source";
 import { SOURCE, sourceKey } from "~/lib/events/source";
 
@@ -23,5 +23,5 @@ export function observe<T>(source: Observable<T>, handler: Handler<T>): void {
     throw new TypeError("observe: the handler must be a function");
   }
   // A source emits only its own payload type.
-  catalog.observe(symbol, handler as Handler<unknown>);
+  declaringCatalog().observe(symbol, handler as Handler<unknown>);
 }

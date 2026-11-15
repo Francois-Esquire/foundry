@@ -158,13 +158,13 @@ function managerDeps(): AgentsDeps {
     containerOf: (): never => {
       throw new Error("no sandbox in these tests");
     },
+    cwd: process.cwd(),
     defaultExecutor: () => CLAUDE_CODE,
     dry: false,
     interactions: host.interactions,
     models: mockModels([CLAUDE_CODE, CODEX], ({ executor }) =>
       String(executor.provider)
     ),
-    root: process.cwd(),
     sessions: host.sessions,
     skills: () => Promise.resolve([]),
     warn: () => undefined,

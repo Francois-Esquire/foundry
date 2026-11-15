@@ -20,6 +20,8 @@ export interface Workspace {
 /** What the registry records of a workspace. */
 export interface WorkspaceRecord {
   readonly config: string | null;
+  /** Where the workspace's runs start and its commands run: its root unless registered otherwise. */
+  readonly cwd: string;
   readonly firstSeen: string;
   /** The Marbles process starts a worker for it. */
   readonly hosted: boolean;

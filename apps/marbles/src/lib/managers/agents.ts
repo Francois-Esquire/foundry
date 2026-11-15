@@ -97,6 +97,8 @@ export interface AgentsDeps {
   readonly automations: AutomationService;
   /** The container behind a sandbox handle; a sandbox session's harness runs in it. */
   readonly containerOf: (sandbox: SandboxHandle) => Container;
+  /** Where a session opened outside a step works: the engine's execution context's. */
+  readonly cwd: string;
   /** The route when an agent names neither model nor provider. */
   readonly defaultExecutor: () => TurnExecutorRef;
   /** Simulation uses echo models and never prepares a guest or reads credentials. */
@@ -125,8 +127,6 @@ export interface AgentsDeps {
   readonly observe?: (runId: string, observation: ExecutionObservation) => void;
   /** Throws when no provider is configured at all, with how to configure one. */
   readonly requireProviders?: () => void;
-  /** The workspace root: where a session opened outside a step works. */
-  readonly root: string;
   readonly sessions: SessionStore;
   readonly skills: (set?: SkillSet) => Promise<Skill[]>;
   /** Where each turn inside a run records what it consumed; nothing is recorded without it. */
@@ -1239,7 +1239,7 @@ export class AgentsManager implements Agents {
             definition.id
           )
         ),
-        cwd: this.#deps.root,
+        cwd: this.#deps.cwd,
         ...this.#observing(run.id),
         retain: (closable) => run.retain(closable),
         signal: run.signal,
@@ -1358,7 +1358,7 @@ export class AgentsManager implements Agents {
   ): SessionSite {
     return {
       consume: consumer(this.#deps, { agentId: definition.id }),
-      cwd: this.#deps.root,
+      cwd: this.#deps.cwd,
       record: () => undefined,
       retain,
       signal: () => this.#closing.signal,

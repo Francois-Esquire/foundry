@@ -32,8 +32,8 @@ import type {
   WorkspaceHandle,
   WorkspaceInstance,
 } from "~/lib/types";
-import type { InstanceRuntime } from "./runtime";
-import { instanceRoot, instanceRuntime } from "./runtime";
+import type { InstanceRuntime, Scope } from "./runtime";
+import { captureScope, instanceRoot, instanceRuntime } from "./runtime";
 
 /**
  * What a definition does when it is called rather than locked. Inside a
@@ -139,6 +139,8 @@ function invocable<INSTANCE extends AgentLike<Output.Output>>(
   extend: (changes: AgentChanges) => AgentLike<Output.Output>
 ): INSTANCE {
   const self = target as AgentLike<Output.Output>;
+  // Called outside a run, it reaches the workspace it was made in.
+  const scope = captureScope();
   const generate = <CALL extends Output.Output>(
     input: SessionInput,
     options?: TurnOptions<CALL>
@@ -147,7 +149,7 @@ function invocable<INSTANCE extends AgentLike<Output.Output>>(
     if (run) {
       return turnsOf(run.bindings, run.args).generate(self, input, options);
     }
-    return instanceRuntime().then((runtime) =>
+    return scope(instanceRuntime).then((runtime) =>
       turnsOf(runtime.bindings).generate(self, input, options)
     );
   };
@@ -160,7 +162,7 @@ function invocable<INSTANCE extends AgentLike<Output.Output>>(
       return turnsOf(run.bindings, run.args).stream(self, input, options);
     }
     return deferredStream(
-      instanceRuntime().then((runtime) =>
+      scope(instanceRuntime).then((runtime) =>
         turnsOf(runtime.bindings).stream(self, input, options)
       )
     );
@@ -374,12 +376,15 @@ export function recipeInstance<OUTPUT extends Output.Output, INPUT>(
 /** Direct calls use the current step, or the host engine outside a run. */
 export function runDefinition(
   definition: AnyDefinition,
-  input: unknown
+  input: unknown,
+  scope: Scope = (work) => work()
 ): Promise<unknown> {
   const running = current.getStore();
   return running
     ? running.run(definition, input)
-    : instanceRuntime().then((runtime) => runtime.execute(definition, input));
+    : scope(instanceRuntime).then((runtime) =>
+        runtime.execute(definition, input)
+      );
 }
 
 /**
@@ -390,13 +395,16 @@ export function runDefinition(
 export function workspaceInstance(
   definition: WorkspaceDefinition
 ): WorkspaceInstance {
+  const scope = captureScope();
   const root = () =>
-    resolve(inRun()?.bindings.root ?? instanceRoot(), definition.path);
+    resolve(inRun()?.bindings.root ?? scope(instanceRoot), definition.path);
   const loaded = (): Promise<WorkspaceHandle> => {
     const run = inRun();
     return run
       ? run.bindings.workspaces(run.args).load(definition)
-      : instanceRuntime().then(({ workspaces }) => workspaces.load(definition));
+      : scope(instanceRuntime).then(({ workspaces }) =>
+          workspaces.load(definition)
+        );
   };
   const git = new Proxy({} as Git, {
     get(_target, property) {
@@ -475,6 +483,7 @@ function lazyFacet(
 export function sandboxInstance(
   definition: SandboxDefinition
 ): SandboxInstance {
+  const scope = captureScope();
   const attempts = new WeakMap<AbortSignal, Promise<SandboxHandle>>();
   const outside = new WeakMap<InstanceRuntime, Promise<SandboxHandle>>();
   const started = (): Promise<SandboxHandle> => {
@@ -488,7 +497,7 @@ export function sandboxInstance(
       }
       return handle;
     }
-    return instanceRuntime().then((runtime) => {
+    return scope(instanceRuntime).then((runtime) => {
       let handle = outside.get(runtime);
       if (!handle) {
         handle = runtime.sandboxes.start(definition);
@@ -503,7 +512,7 @@ export function sandboxInstance(
       object,
       Promise<SandboxHandle>
     >;
-    const key = run ? run.args.frame.signal : await instanceRuntime();
+    const key = run ? run.args.frame.signal : await scope(instanceRuntime);
     const handle = cache.get(key);
     cache.delete(key);
     await (await handle)?.close();
@@ -533,6 +542,7 @@ export function sandboxInstance(
 export function artifactInstance(
   definition: ArtifactDefinition
 ): ArtifactInstance {
+  const scope = captureScope();
   const write = (
     files: ArtifactFiles,
     options?: ArtifactWriteOptions
@@ -540,7 +550,7 @@ export function artifactInstance(
     const run = inRun();
     return run
       ? run.bindings.artifacts(run.args).write(definition, files, options)
-      : instanceRuntime().then(({ artifacts }) =>
+      : scope(instanceRuntime).then(({ artifacts }) =>
           artifacts.write(definition, files, options)
         );
   };
@@ -548,7 +558,9 @@ export function artifactInstance(
     const run = inRun();
     return run
       ? run.bindings.artifacts(run.args).latest(definition)
-      : instanceRuntime().then(({ artifacts }) => artifacts.latest(definition));
+      : scope(instanceRuntime).then(({ artifacts }) =>
+          artifacts.latest(definition)
+        );
   };
   return Object.defineProperties(definition, {
     latest: { value: latest },

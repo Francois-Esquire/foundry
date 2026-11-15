@@ -100,12 +100,22 @@ FIGMA_TOKEN=exec(`security find-generic-password -s figma -w`)
 
 The workspace's worker in the Marbles process, and `list`, load the schema
 before importing authoring modules, using the workspace's own `varlock` or
-one on `PATH`. Resolved values are added to the environment without
-replacing values already set; a worker starts from the environment of the
-Marbles process, not of the command that attached it. Marbles resolves
-secrets each time a worker starts, so after every source reload, and does
-not persist the loaded values. Without a schema, Marbles leaves the
-environment as it is.
+one on `PATH`. Resolved values become the workspace's environment: every
+run of the workspace carries it, and the commands its steps run (`exec`),
+its CLI harnesses and its sandboxes inherit it, beneath values already set
+in the Marbles process, which win. A worker starts from the environment of
+the Marbles process, not of the command that attached it. Marbles resolves
+secrets each time a workspace loads, so after every source reload, and does
+not persist the loaded values. Without a schema, the workspace's
+environment is the Marbles process's.
+
+Marbles does not write the values to `process.env`, which every workspace
+hosted in one process shares. Code that reads `process.env` itself, in a
+module as it loads or in a step body, sees the Marbles process's
+environment, not the workspace's values; so does a provider whose SDK runs
+in the Marbles process and reads `process.env` for its keys, such as Pi's.
+Pass a value to a command through `exec`, or set it in the environment the
+Marbles process starts with.
 
 A value that does not resolve is a warning in the worker and in `list`:
 what is missing is printed and loading continues; work that needs the value

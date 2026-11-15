@@ -45,11 +45,11 @@ function deps(warnings: string[] = []): AgentsDeps {
     containerOf: (): never => {
       throw new Error("no sandbox in these tests");
     },
+    cwd: process.cwd(),
     defaultExecutor: () => CLAUDE_CODE,
     dry: false,
     interactions: host.interactions,
     models,
-    root: process.cwd(),
     sessions: new InMemorySessionStore(),
     skills: () => Promise.resolve([]),
     warn: (message: string) => {

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "00225ac5-d891-4c43-b3c8-0ceefd78db6a",
+  "id": "d129c632-4bbd-4ce9-89f7-5511b7c06eb1",
   "prevId": "63972cbe-690d-4b5a-ae1e-cd1e2edc7547",
   "tables": {
     "agent_messages": {
@@ -951,13 +951,6 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "holder": {
-          "name": "holder",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         }
       },
@@ -2116,13 +2109,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "owner_started": {
-          "name": "owner_started",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "scope": {
           "name": "scope",
           "type": "text",
@@ -2311,13 +2297,6 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "owner_started": {
-          "name": "owner_started",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "progress": {
@@ -2577,37 +2556,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "marbles_recoveries": {
-      "name": "marbles_recoveries",
-      "columns": {
-        "at": {
-          "name": "at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "steps": {
-          "name": "steps",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "marbles_schedule_ticks": {
       "name": "marbles_schedule_ticks",
       "columns": {
@@ -2670,13 +2618,6 @@
         "owner_pid": {
           "name": "owner_pid",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "owner_started": {
-          "name": "owner_started",
-          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -2930,13 +2871,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "owner_started": {
-          "name": "owner_started",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "run_id": {
           "name": "run_id",
           "type": "text",
@@ -2987,6 +2921,13 @@
       "columns": {
         "config": {
           "name": "config",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cwd": {
+          "name": "cwd",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

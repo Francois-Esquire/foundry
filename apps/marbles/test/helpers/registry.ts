@@ -22,7 +22,7 @@ async function asProcess<T>(
 /** Store `record` as it is, times included, in the database under `state`. */
 export function seedWorkspace(
   state: string,
-  record: WorkspaceRecord
+  record: typeof marblesWorkspaces.$inferInsert
 ): Promise<void> {
   return asProcess(state, async (database) => {
     await database.insert(marblesWorkspaces).values(record);

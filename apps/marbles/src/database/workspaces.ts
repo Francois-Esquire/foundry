@@ -20,6 +20,8 @@ import type { Workspace, WorkspaceRecord } from "~/lib/state/workspace";
 import { insideState } from "~/lib/state/workspace";
 
 export interface TouchOptions {
+  /** Where the workspace's work starts; kept as it was when omitted, its root at first. */
+  readonly cwd?: string;
   /** Whether the Marbles process hosts this workspace; kept as it was when omitted. */
   readonly hosted?: boolean;
 }
@@ -60,10 +62,17 @@ export class WorkspaceRegistry {
   ): Promise<void> {
     const now = new Date().toISOString();
     const { hosted } = options;
+    // The root is the default, kept as none, so a moved checkout keeps it.
+    const cwd =
+      options.cwd === undefined || options.cwd === workspace.root
+        ? null
+        : options.cwd;
+    const registersCwd = options.cwd === undefined ? {} : { cwd };
     await this.#database
       .insert(marblesWorkspaces)
       .values({
         config,
+        cwd,
         firstSeen: now,
         hosted: hosted ?? false,
         id: workspace.id,
@@ -74,6 +83,7 @@ export class WorkspaceRegistry {
         set: {
           config,
           lastSeen: now,
+          ...registersCwd,
           root: workspace.root,
           ...(hosted === undefined ? {} : { hosted }),
         },
@@ -105,7 +115,9 @@ export class WorkspaceRegistry {
       .select()
       .from(marblesWorkspaces)
       .where(eq(marblesWorkspaces.id, id));
-    return record !== undefined && this.#counts(record) ? record : undefined;
+    return record !== undefined && this.#counts(record)
+      ? registered(record)
+      : undefined;
   }
 
   /** Every record, by id, but those whose directory is a link. */
@@ -114,12 +126,21 @@ export class WorkspaceRegistry {
       .select()
       .from(marblesWorkspaces)
       .orderBy(asc(marblesWorkspaces.id));
-    return records.filter((record) => this.#counts(record));
+    return records
+      .filter((record) => this.#counts(record))
+      .map((record) => registered(record));
   }
 
-  #counts(record: WorkspaceRecord): boolean {
+  #counts(record: Pick<WorkspaceRecord, "id">): boolean {
     return insideState(this.#state, record.id);
   }
+}
+
+/** A row as the registry gives it: where its work starts is its root unless registered otherwise. */
+function registered(
+  row: typeof marblesWorkspaces.$inferSelect
+): WorkspaceRecord {
+  return { ...row, cwd: row.cwd ?? row.root };
 }
 
 /**

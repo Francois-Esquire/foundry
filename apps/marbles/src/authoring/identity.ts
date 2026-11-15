@@ -28,8 +28,17 @@ export function originOf(site: CallSite): string {
 /** Where this module lives; frames under it belong to the authoring words, not the authored module. */
 const LIB_DIR = dirname(fileURLToPath(import.meta.url));
 
+/**
+ * The file a frame names: a `file:` URL as a path, and without the query a
+ * host's copy of a module carries (`workspace/copies.ts`), so a module is
+ * named and read as written, on every load alike.
+ */
 function pathOf(fileName: string): string {
-  return fileName.startsWith("file://") ? fileURLToPath(fileName) : fileName;
+  const path = fileName.startsWith("file://")
+    ? fileURLToPath(fileName)
+    : fileName;
+  const query = path.indexOf("?");
+  return query === -1 ? path : path.slice(0, query);
 }
 
 /**

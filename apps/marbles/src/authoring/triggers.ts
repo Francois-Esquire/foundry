@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { canonicalizeJson } from "@foundry/lib/json";
-import { catalog } from "~/authoring/catalog";
+import { captureScope, declaringCatalog } from "~/authoring/runtime";
 import type { AnyDefinition, LockedNode } from "~/lib/definition";
 import { launchTarget } from "~/lib/launch";
 import type {
@@ -48,14 +48,17 @@ export interface ScheduleBuilder {
 
 export function schedule(target: AnyDefinition | LockedNode): ScheduleBuilder {
   const launch = launchTarget(target, "schedule()");
+  // `.at` and `.every` declare in the scope `schedule()` was called in.
+  const scope = captureScope();
   const register = (trigger: Trigger) => {
     const hasInput = launch.input !== null;
     const base = hasInput
       ? `${slug(launch.workflow)}-${sha256(canonicalizeJson(jsonData(launch.input))).slice(0, 8)}`
       : slug(launch.workflow);
-    catalog.schedule({
+    const into = scope(declaringCatalog);
+    into.schedule({
       input: launch.input,
-      key: catalog.uniqueKey(base),
+      key: into.uniqueKey(base),
       kind: "schedule",
       label: hasInput
         ? `${launch.workflow} ${JSON.stringify(launch.input)}`
@@ -99,13 +102,16 @@ export function monitor(source: string): MonitorBuilder {
   const spec: MonitorSpec = HTTP_SOURCE.test(source)
     ? { kind: "http", url: source }
     : { glob: source, kind: "files" };
+  // `.do` declares in the scope `monitor()` was called in.
+  const scope = captureScope();
   const build = (every: string, request?: MonitorRequest): MonitorBuilder => ({
     do(handler) {
       const trigger = parseAt(every);
-      const key = catalog.uniqueKey(
+      const into = scope(declaringCatalog);
+      const key = into.uniqueKey(
         `${slug(source)}-${sha256(source).slice(0, 6)}`
       );
-      catalog.monitor({
+      into.monitor({
         handler,
         key,
         label: source,

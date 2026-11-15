@@ -47,23 +47,21 @@ export function identityMaterial(instance: {
 
 /**
  * Why an instance that reads `process.env` itself cannot serve as `env`, or
- * undefined. The process environment is the machine's with the workspace's
- * values beneath it; the live one must also hold `env`'s account.
+ * undefined. The process environment is the machine's alone: a
+ * workspace's values reach its work through its execution context, never
+ * `process.env`, so `env` must be the machine's, and the live process
+ * environment must also hold `env`'s account.
  */
 export function ambientProblem(
-  environment: {
-    readonly machine: Environment;
-    readonly workspace: Environment;
-  },
+  machine: Environment,
   patterns: readonly string[],
   env: Environment
 ): string | undefined {
-  const merged = { ...environment.workspace, ...environment.machine };
-  const differing = [...new Set([...Object.keys(merged), ...Object.keys(env)])]
-    .filter((name) => merged[name] !== env[name])
+  const differing = [...new Set([...Object.keys(machine), ...Object.keys(env)])]
+    .filter((name) => machine[name] !== env[name])
     .sort();
   if (differing.length > 0) {
-    return `reads the process environment, which differs here in ${differing.join(", ")}; configure it for this workspace`;
+    return `reads the process environment, which does not hold the workspace's values for ${differing.join(", ")}; set them in the environment the Marbles process starts with, or configure it for the whole machine`;
   }
   const live = liveDifference(patterns, env);
   if (live.length > 0) {

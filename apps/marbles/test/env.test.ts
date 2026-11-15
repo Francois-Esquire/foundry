@@ -8,6 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { executionEnvironment } from "~/lib/environment";
 import { EnvironmentError, loadEnvironment } from "~/workspace/env";
 
 const REQUIRED_PATTERN = /MARBLES_TEST_TOKEN is required/;
@@ -57,18 +58,25 @@ describe("loadEnvironment", () => {
     expect(lines).toEqual([]);
   });
 
-  it("merges what the schema resolves under what is already set", () => {
+  it("puts what the schema resolves under what the machine already set, for the workspace's commands alone", () => {
     writeFileSync(join(root, ".env.schema"), "MARBLES_TEST_TOKEN=\n");
     fakeVarlock(root);
     process.env.MARBLES_TEST_TOKEN = "from-shell";
     process.env.MARBLES_TEST_GREETING = "kept";
-    loadEnvironment(root, "require", () => undefined);
-    expect(process.env.MARBLES_TEST_TOKEN).toBe("from-shell");
-    expect(process.env.MARBLES_TEST_GREETING).toBe("kept");
+    expect(
+      executionEnvironment(loadEnvironment(root, "require", () => undefined))
+    ).toMatchObject({
+      MARBLES_TEST_GREETING: "kept",
+      MARBLES_TEST_TOKEN: "from-shell",
+    });
 
     delete process.env.MARBLES_TEST_GREETING;
-    loadEnvironment(root, "require", () => undefined);
-    expect(process.env.MARBLES_TEST_GREETING).toBe("hello");
+    expect(
+      executionEnvironment(loadEnvironment(root, "require", () => undefined))
+        .MARBLES_TEST_GREETING
+    ).toBe("hello");
+    // The process's own environment, which another workspace shares, is left as it was.
+    expect(process.env).not.toHaveProperty("MARBLES_TEST_GREETING");
   });
 
   it("returns the environment before the merge and what the schema resolved", () => {
@@ -83,7 +91,7 @@ describe("loadEnvironment", () => {
     });
     expect(environment.machine.MARBLES_TEST_TOKEN).toBe("from-shell");
     expect(environment.machine).not.toHaveProperty("MARBLES_TEST_GREETING");
-    expect(process.env.MARBLES_TEST_GREETING).toBe("hello");
+    expect(process.env).not.toHaveProperty("MARBLES_TEST_GREETING");
   });
 
   it("returns no workspace values without a schema or when one only warns", () => {

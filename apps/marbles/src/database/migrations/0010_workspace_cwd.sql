@@ -1,0 +1,1 @@
+ALTER TABLE `marbles_workspaces` ADD `cwd` text;

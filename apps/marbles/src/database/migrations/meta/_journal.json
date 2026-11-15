@@ -75,8 +75,15 @@
     {
       "idx": 10,
       "version": "6",
-      "when": 1794752735135,
-      "tag": "0010_crash_recovery",
+      "when": 1794745074494,
+      "tag": "0010_workspace_cwd",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1794753675542,
+      "tag": "0011_crash_recovery",
       "breakpoints": true
     }
   ]
