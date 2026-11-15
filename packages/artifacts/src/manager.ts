@@ -67,6 +67,24 @@ interface TransactionScope {
 }
 
 /**
+ * A store transaction a manager runs, as the async context of its work sees
+ * it. `held` turns false once the work settles, so work it scheduled to run
+ * later is not mistaken for a call from inside it.
+ */
+interface StoreTurn {
+  held: boolean;
+  readonly outer: StoreTurn | undefined;
+  readonly store: ArtifactStore;
+}
+
+/** The store transactions managers hold, shared by every manager. */
+const storeTurns = new AsyncLocalStorage<StoreTurn>();
+
+/** Why a call from inside a transaction over the manager's own store is refused. */
+const REENTRY =
+  "[artifacts] The Artifact store was called from inside its own transaction, through another manager over it; use the operations passed to that transaction's work instead";
+
+/**
  * The root of the Artifact substrate. It holds every rule; the store only
  * keeps records. Each operation builds one change and commits it as one
  * store write; `transaction` groups several. Changes run one at a time per
@@ -102,24 +120,6 @@ interface TransactionScope {
  * with {@link TransactionRolledBackError}, even if the operation caught the
  * failure and went on.
  */
-/**
- * A store transaction a manager runs, as the async context of its work sees
- * it. `held` turns false once the work settles, so work it scheduled to run
- * later is not mistaken for a call from inside it.
- */
-interface StoreTurn {
-  held: boolean;
-  readonly outer: StoreTurn | undefined;
-  readonly store: ArtifactStore;
-}
-
-/** The store transactions managers hold, shared by every manager. */
-const storeTurns = new AsyncLocalStorage<StoreTurn>();
-
-/** Why a call from inside a transaction over the manager's own store is refused. */
-const REENTRY =
-  "[artifacts] The Artifact store was called from inside its own transaction, through another manager over it; use the operations passed to that transaction's work instead";
-
 export class ArtifactManager implements Artifacts {
   readonly #store: ArtifactStore;
   readonly #limits: TransactionLimits;
