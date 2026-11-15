@@ -12,7 +12,7 @@ import type { SessionStore, SessionStoreWrite } from "./index";
 import { messageOf, sessionOf } from "./sqlite-decode";
 import { storable } from "./sqlite-records";
 import type { SessionRow, UnplacedMessageRow } from "./sqlite-rows";
-import { owned } from "./sqlite-rows";
+import { captured, owned } from "./sqlite-rows";
 import { agentMessages, agentSessions } from "./tables";
 
 /**
@@ -53,6 +53,20 @@ export interface SqliteSessionStoreOptions {
   ) => Promise<void>;
   /** The partition this store reads and writes; any nonempty string. */
   readonly scope: string;
+}
+
+/**
+ * The copy of `write` a `SqliteSessionStore` takes when `commit` is called:
+ * each record read once, now, and checked by the rules `commit` checks, so
+ * it throws the `RangeError` (or the error a field threw when read) that
+ * `commit` would reject with. It shares nothing with `write`, and
+ * committing it writes what committing `write` would have. For a host that
+ * reads before it commits and must still own the write from the call.
+ */
+export function capturedSessionWrite(
+  write: SessionStoreWrite
+): SessionStoreWrite {
+  return captured(write);
 }
 
 /** A column as SQLite returns it, with no mapping by Drizzle. */

@@ -357,9 +357,15 @@ writes. Every store does the same with a write: it takes its own copy when
 | ------------------------------- | --------------------------------------------------------- |
 | `@foundry/agents/store`         | `SessionStore` and `SessionStoreWrite`.                   |
 | `@foundry/agents/store/memory`  | `InMemorySessionStore`, the default `Sessions` uses.      |
-| `@foundry/agents/store/sqlite`  | `SqliteSessionStore`, over a host's Drizzle database.     |
+| `@foundry/agents/store/sqlite`  | `SqliteSessionStore`, over a host's Drizzle database, and `capturedSessionWrite`, the copy its `commit` takes. |
 | `@foundry/agents/store/tables`  | Its Drizzle tables: `agent_sessions`, `agent_messages`.   |
 | `@foundry/agents/testing/store` | `describeSessionStore`, the suite every store passes.     |
+
+`capturedSessionWrite(write)` is the copy `SqliteSessionStore.commit` takes
+of a write when it is called, checked by the same rules and throwing the same
+errors, for a host that reads in a transaction before it commits and must
+still own the write from the call: committing the copy writes what
+committing `write` would have.
 
 `SqliteSessionStore` takes the host's database and never opens one. The host
 composes the tables from `./store/tables` into its own schema and owns the

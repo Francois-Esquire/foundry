@@ -1,7 +1,10 @@
 import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import type { SessionTransaction } from "@foundry/agents/store/sqlite";
-import { SqliteSessionStore } from "@foundry/agents/store/sqlite";
+import {
+  capturedSessionWrite,
+  SqliteSessionStore,
+} from "@foundry/agents/store/sqlite";
 import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
 import { busyError } from "~/database/client";
 import type { StoreDatabase } from "~/database/open";
@@ -108,27 +111,24 @@ export class DatabaseSessionStore implements ListedSessionStore {
 }
 
 /**
- * Commit `write` through `commit`, given a copy of it taken now, when the
- * caller hands it over, since `commit` reads before the store takes its
- * own. A write that puts no message needs no read, and goes to `plain`
- * as it is; so does one with no copy (a function or a symbol in it),
- * which the store refuses, naming the field.
+ * Commit `write` through `commit`, given the copy the package store takes
+ * of it (`capturedSessionWrite`), taken now, when the caller hands it over,
+ * since `commit` reads before the store takes its own. A write the package
+ * store refuses rejects here with its error, before anything is read or
+ * written. One that puts no message needs no read, and goes to `plain`.
  */
 function committing(
   write: SessionStoreWrite,
   commit: (owned: SessionStoreWrite) => Promise<void>,
-  plain: (write: SessionStoreWrite) => Promise<void>
+  plain: (owned: SessionStoreWrite) => Promise<void>
 ): Promise<void> {
-  if ((write.putMessages ?? []).length === 0) {
-    return plain(write);
-  }
   let owned: SessionStoreWrite;
   try {
-    owned = structuredClone(write);
-  } catch {
-    return plain(write);
+    owned = capturedSessionWrite(write);
+  } catch (error) {
+    return Promise.reject(error);
   }
-  return commit(owned);
+  return (owned.putMessages ?? []).length === 0 ? plain(owned) : commit(owned);
 }
 
 /**

@@ -135,9 +135,10 @@ describe("@foundry/agents public paths", () => {
     });
   });
 
-  it("exports the SQLite store and its tables, and nothing else, from their paths", async () => {
-    expect(Object.keys(await import("../../store/sqlite"))).toEqual([
+  it("exports the SQLite store, its write capture and its tables, and nothing else, from their paths", async () => {
+    expect(Object.keys(await import("../../store/sqlite")).sort()).toEqual([
       "SqliteSessionStore",
+      "capturedSessionWrite",
     ]);
     expect(Object.keys(await import("../../store/tables")).sort()).toEqual([
       "agentMessages",

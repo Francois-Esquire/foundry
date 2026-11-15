@@ -1,6 +1,7 @@
 import { dirname, resolve } from "node:path";
 import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
+import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import type { MarblesDatabase } from "~/database/open";
 import { DatabaseSessionStore } from "~/database/sessions";
@@ -307,10 +308,11 @@ class ManagedSessionStore implements ListedSessionStore {
   }
 
   commit(write: SessionStoreWrite): Promise<void> {
-    // The write as it stands now: the database may still be opening.
+    // The write as it stands now, as the package store takes it, refused as
+    // it refuses it: the database may still be opening.
     let owned: SessionStoreWrite;
     try {
-      owned = structuredClone(write);
+      owned = capturedSessionWrite(write);
     } catch (error) {
       return Promise.reject(error);
     }

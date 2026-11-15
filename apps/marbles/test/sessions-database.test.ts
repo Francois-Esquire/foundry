@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
 import { Sessions } from "@foundry/agents/session";
 import type { SessionStoreWrite } from "@foundry/agents/store";
+import { SqliteSessionStore } from "@foundry/agents/store/sqlite";
 import { describeSessionStore } from "@foundry/agents/testing/store";
 import { afterAll, describe, expect, it } from "vitest";
 import { Catalog } from "~/authoring/catalog";
@@ -126,22 +127,67 @@ function filed(id: string, sessionId: string): SessionMessage {
   };
 }
 
-/** The two ways a write reaches a store: a plain commit, and a transaction's view. */
+/**
+ * The two ways a write reaches a store: a plain commit, and a transaction's
+ * view. `after` runs as soon as the commit is called, before it settles.
+ */
 const WRITERS: readonly {
   readonly commit: (
     store: ListedSessionStore,
-    write: SessionStoreWrite
+    write: SessionStoreWrite,
+    after?: () => void
   ) => Promise<void>;
   readonly name: string;
 }[] = [
-  { commit: (store, write) => store.commit(write), name: "a commit" },
   {
-    commit: async (store, write) => {
-      await store.transaction?.((view) => view.commit(write));
+    commit: async (store, write, after) => {
+      const committed = store.commit(write);
+      after?.();
+      await committed;
+    },
+    name: "a commit",
+  },
+  {
+    commit: async (store, write, after) => {
+      await store.transaction?.(async (view) => {
+        const committed = view.commit(write);
+        after?.();
+        await committed;
+      });
     },
     name: "a transaction's view",
   },
 ];
+
+/** Not a plain object: the package store refuses one inside a message. */
+class Point {
+  readonly x = 1;
+}
+
+/** A message whose tool call's input is a `Point`. */
+function holdingPoint(id: string): SessionMessage {
+  return {
+    ...filed(id, "a"),
+    parts: [
+      { input: new Point(), name: "tool", toolCallId: "c", type: "tool_call" },
+    ],
+  };
+}
+
+/** What `SqliteSessionStore` itself does with `write`: the error it rejects with. */
+async function packageRefusal(write: SessionStoreWrite): Promise<unknown> {
+  const machine = await testMachine();
+  machines.push(machine);
+  return await new SqliteSessionStore({
+    database: machine.database.database,
+    scope: "package",
+  })
+    .commit(write)
+    .then(
+      () => undefined,
+      (error: unknown) => error
+    );
+}
 
 const stampsOf = async (store: ListedSessionStore) =>
   new Map((await store.stamps()).map(({ id, stamp }) => [id, stamp]));
@@ -209,6 +255,68 @@ for (const kind of KINDS) {
         await through.commit(store, { putMessages: [filed("m", "b")] });
         const after = await stampsOf(store);
         await expect(store.listMessages("a")).resolves.toEqual([]);
+        expect(after.get("a")).not.toBe(before.get("a"));
+        expect(after.get("b")).not.toBe(before.get("b"));
+        expect(after.get("c")).toBe(before.get("c"));
+      });
+
+      it(`raises the session a message leaves for a write holding a property no copy keeps, through ${through.name}`, async () => {
+        const store = (await open())("ws");
+        await store.commit({
+          putMessages: [filed("m", "a")],
+          putSessions: [session("a"), session("b")],
+        });
+        const before = await stampsOf(store);
+        // Structurally a write: the package store ignores the extra property.
+        const write = {
+          annotation: () => undefined,
+          putMessages: [filed("m", "b")],
+        };
+        await through.commit(store, write);
+        await expect(store.listMessages("a")).resolves.toEqual([]);
+        await expect(store.getMessage("m")).resolves.toEqual(filed("m", "b"));
+        const after = await stampsOf(store);
+        expect(after.get("a")).not.toBe(before.get("a"));
+        expect(after.get("b")).not.toBe(before.get("b"));
+      });
+
+      it(`refuses a class instance in a message as the package store does, and keeps nothing, through ${through.name}`, async () => {
+        const store = (await open())("ws");
+        await store.commit({ putSessions: [session("a")] });
+        const before = await stampsOf(store);
+        const expected = await packageRefusal({
+          putMessages: [holdingPoint("p")],
+        });
+        expect(expected).toBeInstanceOf(RangeError);
+        const refused = await through
+          .commit(store, { putMessages: [holdingPoint("p")] })
+          .then(
+            () => undefined,
+            (error: unknown) => error
+          );
+        expect(refused).toBeInstanceOf(RangeError);
+        expect((refused as Error).message).toBe((expected as Error).message);
+        await expect(store.getMessage("p")).resolves.toBeNull();
+        expect(await stampsOf(store)).toEqual(before);
+      });
+
+      it(`lands a write as it stood when commit was called, whatever the caller changes after, through ${through.name}`, async () => {
+        const store = (await open())("ws");
+        await store.commit({
+          putMessages: [filed("m", "a")],
+          putSessions: [session("a"), session("b"), session("c")],
+        });
+        const before = await stampsOf(store);
+        const moved = filed("m", "b");
+        const write = { annotation: () => undefined, putMessages: [moved] };
+        await through.commit(store, write, () => {
+          moved.sessionId = "c";
+          moved.parts = [{ text: "changed", type: "text" }];
+          write.putMessages.push(filed("x", "c"));
+        });
+        await expect(store.getMessage("m")).resolves.toEqual(filed("m", "b"));
+        await expect(store.getMessage("x")).resolves.toBeNull();
+        const after = await stampsOf(store);
         expect(after.get("a")).not.toBe(before.get("a"));
         expect(after.get("b")).not.toBe(before.get("b"));
         expect(after.get("c")).toBe(before.get("c"));
