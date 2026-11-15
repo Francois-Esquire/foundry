@@ -722,7 +722,8 @@ Events follow the statuses written. The `Queue` stores a Run it starts as
 `running` and keeps it so until it suspends or ends: the workflow's own state
 reads `queued` until its status mirror catches up, and that lag is not
 written back as the Run returning to its queue. A Run recovered while
-running goes on running, with no `run.resumed`. A handler should not assume
+running goes on running, with no `run.resumed`. A Run started again after a
+Suspension keeps the `startedAt` of its first start. A handler should not assume
 one event precedes another beyond the order they arrive in.
 
 ### Exclusion and host requirements

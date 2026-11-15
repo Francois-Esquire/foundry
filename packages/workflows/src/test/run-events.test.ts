@@ -406,6 +406,79 @@ describe("Run events of a Run the Orchestrator drives", () => {
     ]);
   });
 
+  test("a Run parked and resumed says so, keeps the time it first started, and ends", async () => {
+    const { coordinator, orchestrator, store } = await driven();
+    orchestrator.register("ask", (input: null) =>
+      Workflow.create({
+        execute: async (_value, context) =>
+          context.suspend<string>({
+            kind: "approval",
+            name: "approval",
+            reason: "needs a human",
+            request: null,
+          }),
+        input,
+        name: "ask",
+      })
+    );
+    await orchestrator.start();
+    const run = await orchestrator.run("ask", null);
+    let pending: { readonly id: string } | undefined;
+    for (let tries = 0; pending === undefined && tries < 400; tries += 1) {
+      [pending] = (
+        await orchestrator.listSuspensions({ runId: run.id, status: "pending" })
+      ).items;
+      if (pending === undefined) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    }
+    const startedAt = (await coordinator.getRun(run.id))?.timestamps.startedAt;
+    await orchestrator.resolve(pending?.id ?? "", "yes");
+    await run.result();
+    await orchestrator.stop({ graceMs: 1 });
+
+    expect(
+      writesOf(store, run.id).flatMap((write) => write.events)
+    ).toStrictEqual([
+      "run.queued",
+      "run.started",
+      "run.parked",
+      "run.resumed",
+      "run.started",
+      "run.completed",
+      ["output"],
+    ]);
+    expect(typeof startedAt).toBe("number");
+    expect((await coordinator.getRun(run.id))?.timestamps.startedAt).toBe(
+      startedAt
+    );
+  });
+
+  test("a Run that fails says so once, naming its error once", async () => {
+    const { orchestrator, store } = await driven();
+    orchestrator.register("boom", (input: null) =>
+      Workflow.create({
+        children: [
+          { execute: async () => "leaf", input: undefined, name: "leaf" },
+        ],
+        execute: async (_value, context) => {
+          await context.children[0]?.run();
+          throw new Error("boom");
+        },
+        input,
+        name: "boom",
+      })
+    );
+    await orchestrator.start();
+    const run = await orchestrator.run("boom", null);
+    await run.result().catch(() => undefined);
+    await orchestrator.stop({ graceMs: 1 });
+
+    expect(
+      writesOf(store, run.id).flatMap((write) => write.events)
+    ).toStrictEqual(["run.queued", "run.started", "run.failed", ["error"]]);
+  });
+
   test("a Run recovered while running is not resumed: it goes on running", async () => {
     const { coordinator, orchestrator, store } = await driven();
     const [queue] = await coordinator.listQueues();

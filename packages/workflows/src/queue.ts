@@ -1089,7 +1089,10 @@ export class Queue {
               run.step,
               {
                 ...startSnap,
-                startedAt: new Date().toISOString(),
+                // A Run started before (resumed from a Suspension, or
+                // recovered) keeps the time it first started, as its
+                // workflow's own state does.
+                startedAt: startSnap.startedAt ?? new Date().toISOString(),
                 status: "running",
               },
               run.workflow.persistence
@@ -1443,7 +1446,7 @@ export class Queue {
     // lands first), and only a suspension sends a running Run back to
     // queued: a queued snapshot straight after a running one is that lag,
     // and is stored as running, not as the Run going back to its queue.
-    let stored: WorkflowState["status"] = "running";
+    let last: WorkflowState["status"] = "running";
     return workflowEffectAccess(run.workflow).stateChanges.pipe(
       // SubscriptionRef.changes replays the current value as the first
       // emit. That value is the pre-run state already covered by the
@@ -1451,6 +1454,16 @@ export class Queue {
       // through here would race the boundary write through the mutex
       // and could clobber it back to a pre-run status. Drop it.
       Stream.drop(1),
+      // Before the filter below, so a suspension it keeps from this loop
+      // still counts as the status the next snapshot follows.
+      Stream.map((snap) => {
+        const status =
+          snap.status === "queued" && last === "running"
+            ? ("running" as const)
+            : snap.status;
+        last = status;
+        return status === snap.status ? snap : { ...snap, status };
+      }),
       Stream.filter(
         (snap) =>
           !(
@@ -1458,20 +1471,9 @@ export class Queue {
             (snap.status === "cancelled" && this.#opts.onRunCancelled)
           )
       ),
-      Stream.map((snap) =>
-        snap.status === "queued" && stored === "running"
-          ? { ...snap, status: "running" as const }
-          : snap
+      Stream.tap((snap) =>
+        this.#persistSnapshot(run.id, run.step, snap, run.workflow.persistence)
       ),
-      Stream.tap((snap) => {
-        stored = snap.status;
-        return this.#persistSnapshot(
-          run.id,
-          run.step,
-          snap,
-          run.workflow.persistence
-        );
-      }),
       Stream.runDrain,
       Effect.catchAll(() => Effect.void)
     );
