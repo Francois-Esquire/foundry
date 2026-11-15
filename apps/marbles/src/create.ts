@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
@@ -11,6 +11,7 @@ import type { Provider } from "@foundry/models";
 import { ModelManager } from "@foundry/models";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
+import type { ContainerStore } from "@foundry/sandbox/store";
 import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/git";
@@ -19,6 +20,12 @@ import type { WorkspaceDatabase } from "~/database/managed";
 import { defaultWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
 import { DatabaseSessionStore } from "~/database/sessions";
+import type { WorkspaceStores } from "~/database/stores";
+import {
+  artifactBlobs,
+  readArtifacts,
+  workspaceStores,
+} from "~/database/stores";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { Engine as PublishedEngine } from "~/entries/engine";
 import { layout } from "~/layout";
@@ -29,6 +36,7 @@ import { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
+import { localCatalogue } from "~/lib/managers/workspaces";
 import { echoInstance } from "~/lib/models/echo";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { RegisteredPlugin } from "~/lib/providers/plugins";
@@ -51,11 +59,14 @@ export interface CreateEngineOptions {
   readonly catalog: Catalog;
   /**
    * The Marbles database the host keeps open, which holds this workspace's
-   * tasks, their recorded changes, and its agent sessions; the host closes
-   * it once the engine is disposed. Without it, an engine given a state dir
-   * opens a handle of its own at its first task or session call and closes
-   * it when disposed. Under `dry` the engine gets neither and keeps them in
-   * memory.
+   * tasks, their recorded changes, its agent sessions, its artifacts'
+   * records (their blob files stay under `artifacts`), its sandbox
+   * containers and its workspace catalogue; the host closes it once the
+   * engine is disposed. Without it, an engine given a state dir opens a
+   * handle of its own at its first task or session call and closes it when
+   * disposed, and keeps the rest as it would with no database: artifacts
+   * in JSON under `artifacts`, containers and the catalogue in memory.
+   * Under `dry` the engine gets neither and keeps everything in memory.
    */
   readonly database?: StoreDatabase;
   readonly dry: boolean;
@@ -144,7 +155,10 @@ export function readTriggers(
   return { automations, registry };
 }
 
-/** The shared artifact system: JSON records and blob files under `dir`, or memory. */
+/**
+ * The artifact system without the database: JSON records and blob files
+ * under `dir`, or memory.
+ */
 function artifactsAt(dir: string | undefined): Artifacts {
   return dir === undefined
     ? new ArtifactManager({ store: new InMemoryArtifactStore() })
@@ -152,6 +166,44 @@ function artifactsAt(dir: string | undefined): Artifacts {
         files: blobFiles(join(dir, "blobs")),
         store: new JsonArtifactStore({ path: join(dir, "records.json") }),
       });
+}
+
+/**
+ * The engine's artifacts, and what `--dry-run` reads through to: in the
+ * database's stores when the host gave one, their blob files in the
+ * workspace's directory of the artifact store at `dir`. A dry run writes
+ * to memory and reads what real runs left in the database, read only.
+ */
+function artifactsFor(
+  stores: WorkspaceStores | undefined,
+  options: CreateEngineOptions
+): Pick<EngineOptions, "artifactReads" | "artifacts"> {
+  const { artifacts: dir, dry, workspaceId } = options;
+  if (dry) {
+    return {
+      artifacts: artifactsAt(undefined),
+      ...(dir === undefined
+        ? {}
+        : {
+            artifactReads: readArtifacts(
+              options.stateRoot ?? layout().state,
+              dir,
+              workspaceId
+            ),
+          }),
+    };
+  }
+  if (stores === undefined) {
+    return { artifacts: artifactsAt(dir) };
+  }
+  return {
+    artifacts: new ArtifactManager({
+      ...(dir === undefined
+        ? {}
+        : { files: blobFiles(artifactBlobs(dir, workspaceId)) }),
+      store: stores.artifacts,
+    }),
+  };
 }
 
 /**
@@ -248,10 +300,15 @@ class OwnDatabaseEngine extends PublishedEngine {
   }
 }
 
-/** Started at the first sandbox: the runtime is optional and slow to start. */
+/**
+ * Started at the first sandbox: the runtime is optional and slow to start.
+ * Its rows go to `store`, the database's when the host gave one, else
+ * memory.
+ */
 function containersFor(
   { catalog, dry, print, root, workspaceId }: CreateEngineOptions,
-  worktreeHome: string
+  worktreeHome: string,
+  store: ContainerStore | undefined
 ): () => Promise<Containers> {
   // `--dry-run` echoes every command a sandbox would run, like git and the
   // models, so a config with sandboxes runs end to end with nothing installed.
@@ -268,7 +325,7 @@ function containersFor(
       allowedMountRoots: allowedMountRoots([root, worktreeHome, ...declared]),
       instanceLabel: `marbles-${workspaceId}`,
       runtime: await runtime(),
-      store: createMemoryContainerStore(),
+      store: store ?? createMemoryContainerStore(),
     });
   };
 }
@@ -280,22 +337,18 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const state = persisted(dry, options.stateDir);
   // Its sandboxes may mount what is cut there; see `containersFor`.
   const worktrees = Engine.worktreesFor(state);
-  const { own, ...kept } = recordsFor(
-    state,
-    dry ? undefined : options.database,
-    options
-  );
+  const database = dry ? undefined : options.database;
+  const { own, ...kept } = recordsFor(state, database, options);
+  const stores =
+    database === undefined ? undefined : workspaceStores(database, workspaceId);
+  const git = dry ? { run: echoGit(print) } : {};
   // The class the package publishes, so a host's engine is that `Engine`.
   const engineOptions: EngineOptions = {
-    artifacts: artifactsAt(dry ? undefined : options.artifacts),
-    // A dry run writes to memory but reads what real runs left, if any.
-    ...(dry && options.artifacts && existsSync(options.artifacts)
-      ? { artifactReads: artifactsAt(options.artifacts) }
-      : {}),
+    ...artifactsFor(stores, options),
     askable: options.askable,
-    containers: containersFor(options, worktrees),
+    containers: containersFor(options, worktrees, stores?.containers),
     dry,
-    git: dry ? { run: echoGit(print) } : {},
+    git,
     home,
     ...(options.log ? { log: options.log } : {}),
     ...modelsFor(options),
@@ -304,6 +357,9 @@ export function createEngine(options: CreateEngineOptions): Engine {
     root,
     state,
     workspaceId,
+    ...(stores === undefined
+      ? {}
+      : { workspaces: localCatalogue(git, stores.workspaces) }),
     worktrees,
   };
   const engine =

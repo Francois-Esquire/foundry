@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { WorkspaceSystem } from "@foundry/workspaces";
-import type { git } from "@foundry/workspaces/git";
-import { Git } from "@foundry/workspaces/git";
-import type { directory } from "@foundry/workspaces/node";
+import { WorkspaceSystem } from "@foundry/workspaces";
+import { Git, git } from "@foundry/workspaces/git";
+import { directory } from "@foundry/workspaces/node";
+import { nodeObserver } from "@foundry/workspaces/node/watch";
+import type { WorkspaceStore } from "@foundry/workspaces/store";
 
 import type { ManagerArgs } from "../bindings";
 import { current } from "../run-scope";
@@ -28,6 +29,21 @@ export type Catalogue = WorkspaceSystem<
 
 type Loaded = Awaited<ReturnType<Catalogue["load"]>>;
 export type GitOptions = NonNullable<Parameters<typeof Git.at>[1]>;
+
+/**
+ * Directories and repositories on this machine: a catalogue over the local
+ * filesystem, watched, whose git runs as `gitOptions` says, with its
+ * registrations and entries in `store`, in memory when omitted.
+ */
+export function localCatalogue(
+  gitOptions: GitOptions,
+  store?: WorkspaceStore
+): Catalogue {
+  return new WorkspaceSystem(store === undefined ? {} : { store }).extend(
+    directory({ observer: nodeObserver }),
+    git(gitOptions)
+  );
+}
 
 export interface WorkspacesDeps {
   readonly catalogue: Catalogue;

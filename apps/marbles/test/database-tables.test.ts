@@ -30,9 +30,12 @@ import { testMachine } from "./helpers/records";
  * schema holds but Marbles' own, so a package added to it is checked here
  * without being named.
  */
-const PACKAGE_TABLES: readonly SQLiteTable[] = Object.values(schema).filter(
+const OWN_TABLES: readonly unknown[] = Object.values(own);
+const PACKAGE_TABLES: readonly SQLiteTable[] = (
+  Object.values(schema) as unknown[]
+).filter(
   (value): value is SQLiteTable =>
-    is(value, SQLiteTable) && !Object.values(own).includes(value)
+    is(value, SQLiteTable) && !OWN_TABLES.includes(value)
 );
 
 /** The tables of every package Marbles composes, by name, as the migrations must create them. */
