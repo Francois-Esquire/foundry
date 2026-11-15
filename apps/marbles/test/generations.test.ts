@@ -1007,7 +1007,7 @@ describe("engine generations", () => {
     fixture.client.close();
   }, 150_000);
 
-  it("switches while a detach drains the current generation, which retires leaving that workspace to the drain", async () => {
+  it("switches while a detach drains the current generation, which retires leaving that workspace's queue to the drain", async () => {
     const lines: string[] = [];
     const fixture = await setUp({
       daemon: { print: (line) => lines.push(line) },
@@ -1019,8 +1019,10 @@ describe("engine generations", () => {
     writeFileSync(otherSource, moduleText(fixture, 0));
     const other = await fixture.client.attach(otherSource);
     const workspace = fixture.client.workspace(fixture.summary);
-    const runId = await workspace.actions.launch("hold1", {});
+    await workspace.actions.launch("hold1", {});
     await whenLogged(fixture, `hold1 ${String(first)}`);
+    // The queue lets one run in at a time: this one waits behind hold1.
+    await workspace.actions.launch("where", {});
     const detaching = fixture.client.detach(fixture.summary.id);
     detaching.catch(() => undefined);
     await vi.waitFor(
@@ -1042,12 +1044,15 @@ describe("engine generations", () => {
     );
     expect(now?.state).toBe("ready");
     expect(now?.pid).not.toBe(first);
-    // The drain still reaches its run, and ends with it.
-    await workspace.actions.runs.cancel(runId);
+    // The drain runs what it had, the queued run too, there: the next
+    // generation does not host the workspace, so nothing goes to it.
+    open(1, fixture);
     await detaching;
     await gone(first);
+    expect(logged(fixture)).toContain(`where ${String(first)}`);
     const rows = await executions(fixture, fixture.summary.id);
-    expect(rows.find((row) => row.name === "hold1")?.status).toBe("cancelled");
+    expect(rows.find((row) => row.name === "hold1")?.status).toBe("complete");
+    expect(rows.find((row) => row.name === "where")?.status).toBe("complete");
     expect((await fixture.client.workspaces()).map((each) => each.id)).toEqual([
       other.id,
     ]);

@@ -370,14 +370,22 @@ async function main(): Promise<void> {
     return { config: added.config, id: added.id, root: added.root };
   };
 
+  /** Workspaces being unhosted: each drains here, and a retirement leaves it to that. */
+  const unhosting = new Set<string>();
+
   const unhost = async (raw: unknown): Promise<void> => {
     const { id } = workspaceIdSchema.parse(raw);
-    await untick(id, false);
-    const all = workspaces();
-    const found = all.list().find((each) => each.id === id);
-    // Drain: running work finishes before the workspace closes.
-    await found?.engine.stop();
-    await all.unregister(id);
+    unhosting.add(id);
+    try {
+      await untick(id, false);
+      const all = workspaces();
+      const found = all.list().find((each) => each.id === id);
+      // Drain: running work finishes before the workspace closes.
+      await found?.engine.stop();
+      await all.unregister(id);
+    } finally {
+      unhosting.delete(id);
+    }
   };
 
   /** Close what this generation holds, its engines stopped first. */
@@ -396,7 +404,11 @@ async function main(): Promise<void> {
     if (retiring !== undefined || stopping !== undefined) {
       throw new Error("this generation is already retiring or stopping");
     }
-    const hosts = hosted?.list() ?? [];
+    // One being unhosted is not handed to the successor, which does not
+    // host it: its drain runs what it has here, queued runs too.
+    const hosts = (hosted?.list() ?? []).filter(
+      (each) => !unhosting.has(each.id)
+    );
     // No tick starts here again; one under way runs to its end.
     for (const each of hosts) {
       const loop = ticking.get(each.id);
