@@ -307,7 +307,7 @@ called, by one rule: each is copied as plain JSON, and a write holding one
 that is not (anything but plain objects whose own properties are all
 enumerable, arrays without holes, text, finite numbers other than `-0`,
 booleans and `null`) is refused whole with a `TypeError` naming it, through
-a transaction's view too. `ownedEvents` on `@foundry/agents/store` is that rule, for a store outside
+a transaction's view too. `ownedEvents` in `@foundry/lib/plain-json` is that rule, for a store outside
 this package; it is the rule the workflows and artifacts stores
 take their events by. The schema is `sessionChangeEventSchema` in
 `@foundry/agents/schema`; the type is `SessionChangeEvent`, also exported from
@@ -406,7 +406,7 @@ writes. Every store does the same with a write: it takes its own copy when
 
 | Path                            | Holds                                                     |
 | ------------------------------- | --------------------------------------------------------- |
-| `@foundry/agents/store`         | `SessionStore`, `SessionStoreWrite`, and `ownedEvents`, the rule every store takes events by. |
+| `@foundry/agents/store`         | `SessionStore` and `SessionStoreWrite`. The rule every store takes events by, `ownedEvents`, is in `@foundry/lib/plain-json`. |
 | `@foundry/agents/store/memory`  | `InMemorySessionStore`, the default `Sessions` uses.      |
 | `@foundry/agents/store/sqlite`  | `SqliteSessionStore`, over a host's Drizzle database, and `capturedSessionWrite`, the copy its `commit` takes. |
 | `@foundry/agents/store/tables`  | Its Drizzle tables: `agent_sessions`, `agent_messages`.   |
