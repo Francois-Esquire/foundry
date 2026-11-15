@@ -131,8 +131,11 @@ Five buckets, each importing only what sits below it:
   and puts that record again so it is raised too. Nothing reads the
   package's tables directly. `stores.ts` is a workspace's artifacts,
   sandbox containers and workspace catalogue: each package's SQLite store
-  scoped by the workspace id, handed over as the package makes it, with no
-  hook. Artifact blob files stay on disk, under
+  scoped by the workspace id, handed over as the package makes it; only
+  the artifact store has an `onCommit` hook, which removes a deleted
+  artifact's shares, as the run store's does a Run's. `artifact-links.ts`
+  (`keepingLinks`) follows the engine's artifact commits, after they land,
+  to keep each linked workspace's links (`links.ts`) current. Artifact blob files stay on disk, under
   `<artifacts>/workspaces/<id>/blobs`; `readArtifacts` is the read-only
   view of them a dry run reads through to. `runs.ts` is a workspace's workflow Runs: the package's
   `SqliteWorkflowStore` scoped by the workspace id, whose `onCommit` hook
@@ -174,7 +177,9 @@ Five buckets, each importing only what sits below it:
   (`ResourceView`) is what a workspace shows of the resources every
   package store keeps, its own and those shared with it, or every
   workspace's, each read through its owner's package store. `status`, the
-  resource listings and the dashboard's Feed read through it. Every writer handle goes through `guard.ts`, which
+  resource listings and the dashboard's Feed read through it, and the
+  dashboard's lists of other workspaces' runs and triggers
+  (`workspace/others.ts`, with `storedTicks` in `triggers.ts`). Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no worker opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
@@ -267,8 +272,8 @@ Five buckets, each importing only what sits below it:
   (which parses a command line completely, before anything loads),
   `src/dashboard/`, `src/views/`, `src/components/`, `src/mcp/`,
   `src/status/`, `src/resources/` (the resource listings, sharing, and
-  each workspace's links under `<root>/.marbles/`, made from the database
-  and never read back). The dashboard is a client of the process.
+  `relink`, which rebuilds each workspace's links under `<root>/.marbles/`
+  from the database; they are never read back). The dashboard is a client of the process.
   `src/mcp/stdio.ts` is the `marbles mcp` server, which `cli.ts` loads
   only when that command runs. `src/mcp/relay.ts` runs it in a child
   process whose stdout is the relay's stderr. Protocol frames go out on

@@ -299,16 +299,21 @@ workspace that started it), and `marbles unshare` stops it; neither changes
 the resource. `marbles runs`, `sessions`, `artifacts`, `sandboxes` and
 `modules` list what this workspace shows, its own and what is shared with
 it, and `--all` lists every workspace's; a run's steps are listed under it.
-`marbles status` and the dashboard's Feed read the same way.
+`marbles status` reads the same way. The dashboard's run and trigger lists
+show this workspace's own (live) and those shared with it, and `g` shows
+every workspace's; another workspace's runs and triggers are read only
+there, as are its Feed questions. Deleting a run or an artifact removes its
+shares with it.
 
 `<workspace root>/.marbles/` holds links into the database's files for the
 resources a workspace shows: for now, one link per artifact file whose
 bytes a blob file holds. Nothing reads them back. `marbles relink [--all]`
 removes them and makes them again from the database, leaving anything that
-is not a link, and sharing or unsharing an artifact relinks the other
-workspace. A file the database holds inline (or in chunks) has no link,
-and a file rewritten since the last relink points at its old bytes until
-the next one. `.marbles/.gitignore` keeps the directory out of git.
+is not a link. Once a workspace has links, they follow each artifact write
+after it commits, in the artifact's owner and every workspace it is shared
+with; a link that cannot be made is reported, never failing the write, and
+`relink` repairs it. A file the database holds inline (or in chunks) has
+no link. `.marbles/.gitignore` keeps the directory out of git.
 
 ## Embedding and execution
 

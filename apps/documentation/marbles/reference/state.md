@@ -274,18 +274,25 @@ session, artifact or module in another registered workspace as well, a row
 of `marbles_resource_workspaces`; `marbles unshare` removes the row and
 never the resource. A sandbox container cannot be shared. `status`, the
 resource listings (`runs`, `sessions`, `artifacts`, `sandboxes`, `modules`)
-and the dashboard's Feed read a workspace's view: what it owns and what is
-shared with it, or with `--all` (the Feed's "All workspaces") every
-workspace's. A share naming a resource its owner no longer keeps shows
-nothing.
+and the dashboard read a workspace's view: what it owns and what is shared
+with it, or with `--all` (the dashboard's `g`, the Feed's "All
+workspaces") every workspace's. On the dashboard this workspace's runs and
+triggers are live, from its engine; another workspace's are read from the
+database at most every two seconds, its triggers from their last tick
+(`marbles_schedule_ticks`) and pending monitor launch
+(`marbles_monitor_states`), and offer no control there. A run or artifact
+its store deletes takes its shares with it in the same transaction.
 
 Links are derived, never read: `<workspace root>/.marbles/artifacts/<id>/<path>`
 points at the blob file holding each file of an artifact the workspace
-shows. A file the database holds inline, or in chunks, has no link, and a
-rewritten file's link points at its old bytes until the next relink.
+shows. A file the database holds inline, or in chunks, has no link.
 `marbles relink` removes every link there and makes them again from the
 database; anything else in the directory is left and reported, and
-`.marbles/.gitignore` keeps the directory out of git.
+`.marbles/.gitignore` keeps the directory out of git. Once a workspace has
+a `.marbles/` directory, each artifact write is followed after it commits:
+the artifact is relinked in its owner and every workspace it is shared
+with, and unlinked elsewhere. A link that cannot be made is reported and
+never fails the write.
 
 ### Execution Runs
 
