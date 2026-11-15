@@ -291,8 +291,59 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     } finally {
       await release();
     }
-    // The update under way still finishes before the database closes.
+    // The update that was waiting ends without a word more, before the
+    // database closes.
     await store.drainLinks(30_000);
+    expect(lines).toHaveLength(1);
+  });
+
+  it("read the database no more once a drain gave up, ending the update under way quietly", async () => {
+    const { artifacts, machine, one } = await arranged();
+    // Closed here, under the update still waiting on the lock.
+    machines.splice(machines.indexOf(machine), 1);
+    const lines: string[] = [];
+    const readsAfterClose: string[] = [];
+    let closed = false;
+    const database = new Proxy(machine.database.database, {
+      get(target, property) {
+        const value: unknown = Reflect.get(target, property, target);
+        if (typeof value !== "function") {
+          return value;
+        }
+        if (closed) {
+          readsAfterClose.push(String(property));
+        }
+        return value.bind(target);
+      },
+    });
+    const store = keepingLinks(workspaceStores(database, one.id).artifacts, {
+      artifacts,
+      database,
+      owner: one.id,
+      report: (line) => lines.push(line),
+      state: machine.root,
+    });
+    const release = await holdLinks(one.root);
+    try {
+      await new ArtifactManager({
+        files: blobFiles(artifactBlobs(artifacts, one.id)),
+        store,
+      }).create({
+        entries: { "a.md": { bytes: "# A\n", mime: "text/markdown" } },
+        name: "late",
+        type: "text/markdown",
+      });
+      await store.drainLinks(50);
+      expect(lines).toEqual([expect.stringMatching(REPAIRS)]);
+      closed = true;
+      machine.close();
+    } finally {
+      await release();
+    }
+    // The update that was waiting on the lock ends, and reads nothing.
+    await store.drainLinks(30_000);
+    expect(readsAfterClose).toEqual([]);
+    expect(lines).toHaveLength(1);
   });
 
   it("drain an engine's link updates as it is disposed, giving up on a lock that does not free", async () => {

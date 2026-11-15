@@ -51,7 +51,8 @@ export interface LinksKept {
   /**
    * Resolve once every link update queued so far has finished, or once
    * `withinMs` has passed. On giving up, report the updates still waiting
-   * as `marbles relink` repairs them, and start none of those not begun.
+   * as `marbles relink` repairs them: none of them reads the database
+   * again, the one waiting on a links lock included, and each ends quietly.
    */
   drainLinks(withinMs: number): Promise<void>;
 }
@@ -183,8 +184,14 @@ function artifactLinker(options: KeptLinksOptions): {
 } {
   const { owner, report } = options;
   let queue: Promise<void> = Promise.resolve();
-  // Set once a drain gave up: what has not begun is left to relink.
+  // Set once a drain gave up: the database may close at any moment, so
+  // nothing reads it again; the drain's one line tells relink to repair.
   let abandoned = false;
+  const live = (): void => {
+    if (abandoned) {
+      throw new LinksAbandoned();
+    }
+  };
   const failed = (what: string, error: unknown) =>
     report(
       `[links] could not update ${what}; marbles relink repairs it: ${error instanceof Error ? error.message : String(error)}`
@@ -194,12 +201,12 @@ function artifactLinker(options: KeptLinksOptions): {
       return;
     }
     queue = queue
-      .then(() =>
-        abandoned ? undefined : relinkTouched(options, touched, failed)
-      )
-      .catch((error: unknown) =>
-        failed(`the links of ${owner}'s artifacts`, error)
-      );
+      .then(() => relinkTouched(options, touched, { failed, live }))
+      .catch((error: unknown) => {
+        if (!(error instanceof LinksAbandoned)) {
+          failed(`the links of ${owner}'s artifacts`, error);
+        }
+      });
   };
   const drain = async (withinMs: number): Promise<void> => {
     let timer: NodeJS.Timeout | undefined;
@@ -231,19 +238,32 @@ function artifactLinker(options: KeptLinksOptions): {
   return { drain, follow };
 }
 
+/** An update a drain gave up on, ending before it reads the database again. */
+class LinksAbandoned extends Error {
+  override readonly name = "LinksAbandoned";
+}
+
+interface Relinking {
+  readonly failed: (what: string, error: unknown) => void;
+  /** Throws `LinksAbandoned` once a drain gave up; called before each read of the database. */
+  readonly live: () => void;
+}
+
 async function relinkTouched(
   options: KeptLinksOptions,
   touched: Touched,
-  failed: (what: string, error: unknown) => void
+  { failed, live }: Relinking
 ): Promise<void> {
   const { artifacts, database, owner, report, state } = options;
   const ids = await changedArtifacts(
     new SqliteArtifactStore({ database, scope: owner }),
-    touched
+    touched,
+    live
   );
   if (ids.size === 0) {
     return;
   }
+  live();
   const records = await new WorkspaceRegistry({ database, state }).list();
   const view = new ResourceView({ database, scope: ALL_WORKSPACES, state });
   const shares = new DatabaseAssociationStore({ database });
@@ -251,14 +271,17 @@ async function relinkTouched(
     const ref: ResourceRef = { id, kind: "artifact", owner };
     for (const record of records) {
       // Read under the workspace's links lock, right before the links are
-      // put in place: what the database says then, not when this began.
+      // put in place: what the database says then, not when this began,
+      // and only if no drain gave up while this waited for the lock.
       const files = async (): Promise<readonly ArtifactFile[]> => {
+        live();
         const shown =
           record.id === owner ||
           (await shares.list("artifact")).some(
             (share) =>
               sameResource(share.ref, ref) && share.workspace === record.id
           );
+        live();
         return shown ? view.artifactFiles(ref) : [];
       };
       try {
@@ -275,6 +298,9 @@ async function relinkTouched(
           );
         }
       } catch (error) {
+        if (error instanceof LinksAbandoned) {
+          throw error;
+        }
         failed(`the links of artifact ${id} in ${record.root}`, error);
       }
     }
@@ -284,14 +310,17 @@ async function relinkTouched(
 /** The artifacts a write changed: those it named, and those whose Content holds a blob it put. */
 async function changedArtifacts(
   store: SqliteArtifactStore,
-  touched: Touched
+  touched: Touched,
+  live: () => void
 ): Promise<Set<string>> {
   const ids = new Set<string>(touched.artifacts);
   for (const blob of touched.blobs) {
+    live();
     const { contentIds } = await store.findReferences(
       blob as Parameters<SqliteArtifactStore["findReferences"]>[0]
     );
     for (const contentId of contentIds) {
+      live();
       const content = await store.getContent(contentId);
       if (content !== null) {
         ids.add(content.artifactId);
