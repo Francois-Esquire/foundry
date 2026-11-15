@@ -34,6 +34,8 @@ import { Delivery } from "~/lib/events/delivery";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Handler, Source } from "~/lib/events/source";
+import type { ExecutionStore } from "~/lib/execution-store";
+import { MemoryExecutionStore } from "~/lib/execution-store";
 import type {
   ExecutionRun,
   ExecutionRuns,
@@ -72,8 +74,6 @@ import { HarnessActivities } from "~/lib/sandbox/activities";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { removeRunOutput } from "~/lib/state/output";
-import type { StateStore } from "~/lib/state/store";
-import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 import type { TaskDefinition } from "~/lib/tasks";
 import { factoryFor } from "~/lib/tree";
 import type { TriggerStore } from "~/lib/trigger-store";
@@ -150,6 +150,12 @@ export interface EngineOptions {
    */
   readonly dry?: boolean;
   /**
+   * Where every run's Execution Run is kept, with its observations, and
+   * what pruning removed. In memory when omitted; the `Engine` the package
+   * publishes keeps them in a Marbles database when `state` is set.
+   */
+  readonly executionStore?: ExecutionStore;
+  /**
    * How git runs: on the root workspace, and in the `git()` layer of the
    * workspace system the engine builds when `workspaces` is omitted. A host
    * that brings its own system gives this what that layer was built with;
@@ -209,16 +215,12 @@ export interface EngineOptions {
   /** Where agent transcripts live. */
   readonly sessions: SessionStore;
   /**
-   * Workspace state dir: run records, trigger state, and, with the
-   * published `Engine`, the tasks. Omit for in-memory: nothing survives
-   * the process.
+   * Workspace state dir: each run's output, worktrees, agent grants and
+   * approvals, and, with the published `Engine`, the Marbles database's
+   * stores. Omit for in-memory: nothing survives the process.
    */
   readonly state?: string;
-  /**
-   * Where Execution Runs keep their records and retention. By default a
-   * `JsonStateStore` over `state`, or in memory without one.
-   */
-  readonly store?: StateStore;
+
   /**
    * Where each schedule and monitor keeps its last tick, a monitor what it
    * last saw, and the claim that keeps two ticks of one trigger apart. In
@@ -272,26 +274,21 @@ function sessionListing(
 }
 
 /**
- * The stores an engine keeps its state in: those the host gave, else runs
- * and trigger state in memory, and the rest in JSON under `state`, or in
- * memory without one.
+ * The stores an engine keeps its state in: those the host gave, else each
+ * in memory. The published `Engine` hands its own over a Marbles
+ * database when it has a `state`.
  */
 function storesOf(options: EngineOptions): {
   readonly automations: AutomationStore;
+  readonly executions: ExecutionStore;
   readonly runs: RunStore;
-  readonly store: StateStore;
   readonly triggers: TriggerStore;
   readonly usage: UsageStore;
 } {
-  const { state } = options;
   return {
     automations: options.automationStore ?? new MemoryAutomationStore(),
+    executions: options.executionStore ?? new MemoryExecutionStore(),
     runs: options.runs ?? new MemoryRunStore(),
-    store:
-      options.store ??
-      (state === undefined
-        ? new InMemoryStateStore()
-        : new JsonStateStore(state)),
     triggers: options.triggers ?? new MemoryTriggerStore(),
     usage: options.usageStore ?? new MemoryUsageStore(),
   };
@@ -365,8 +362,6 @@ export class Engine {
   readonly scopes: ReadonlyRunScopes;
   readonly sessions: SessionStore;
   readonly state: string | undefined;
-  /** Execution Run records and retention, and their locks. */
-  readonly store: StateStore;
   /** Each trigger's last tick, each monitor's state, and their tick claims. */
   readonly triggers: TriggerStore;
   /** What each agent turn consumed, one fact per turn. */
@@ -400,6 +395,7 @@ export class Engine {
   readonly #runs: RunStore;
   readonly #usageStore: UsageStore;
   readonly #automationStore: AutomationStore;
+  readonly #executionStore: ExecutionStore;
   readonly #delivery: Delivery;
   readonly #directNames = new WeakMap<AnyDefinition, string>();
   #running: Running | undefined;
@@ -457,9 +453,10 @@ export class Engine {
     this.scopes = this.#scopes;
     this.sessions = sessions;
     this.state = state;
-    const { automations, runs, store, triggers, usage } = storesOf(options);
+    const { automations, executions, runs, triggers, usage } =
+      storesOf(options);
     this.#automationStore = automations;
-    this.store = store;
+    this.#executionStore = executions;
     this.triggers = triggers;
     this.#usageStore = usage;
     this.usage = new UsageLedger(usage);
@@ -475,7 +472,7 @@ export class Engine {
       ...(options.queues === undefined ? {} : { queues: options.queues }),
       removed: (run) => this.#removeRun(run),
       runs,
-      store: this.store,
+      store: executions,
       warn: print,
     });
     this.executions = this.#executions;
@@ -798,7 +795,7 @@ export class Engine {
     try {
       // The run records are read before anything is adopted into them, and
       // ones that cannot be read fail the start.
-      this.#executions.load();
+      await this.#executions.load();
       const store = new ExecutionCoordinator({
         store: await this.#runs.open((runId) =>
           this.#scopes.get(runId)?.recorded()
@@ -887,7 +884,7 @@ export class Engine {
       this.#phase = "started";
       // Last, so a start that fails leaves an exited process's queued runs
       // queued and never starts their bodies.
-      this.#recover(
+      await this.#recover(
         new Set(recovered.map(({ dispatched }) => dispatched.id)),
         statuses
       );
@@ -924,8 +921,8 @@ export class Engine {
   #recover(
     adopted: ReadonlySet<string>,
     statuses: ReadonlyMap<string, string>
-  ): void {
-    this.#launcher.recover({
+  ): Promise<void> {
+    return this.#launcher.recover({
       adopted,
       // A Run committed just before a crash can be ahead of its record.
       fileStatus: (run) =>
@@ -1261,6 +1258,8 @@ export class Engine {
     } finally {
       try {
         await orchestrator.stop();
+        // Every change to a record made so far is on disk.
+        await this.#executions.flush();
       } finally {
         // What is parked is left for the next process that can answer it.
         await this.#runs.release();
@@ -1342,6 +1341,8 @@ export class Engine {
     await close(() => this.#runs.close());
     await close(() => this.triggers.close());
     await close(() => this.#automationStore.close());
+    await close(() => this.#executions.flush());
+    await close(() => this.#executionStore.close());
     await close(() => this.interactions.close());
     await close(() => this.workspaces.close());
     await close(() => this.sandboxes.close());

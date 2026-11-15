@@ -6,13 +6,13 @@ import { Workflow } from "@foundry/workflows/workflow";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
-import { JsonStateStore } from "~/lib/state/store";
 import type { TaskContext } from "~/lib/tasks";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import {
   blockingTask,
   executionFixture,
   gate,
+  storedExecution,
   until,
 } from "../helpers/executions";
 
@@ -60,7 +60,6 @@ it.each(["anonymous", "registered"] as const)(
       });
     const state = join(fixture.root, "state");
     const engine = engineWith({ state });
-    const store = new JsonStateStore(state);
     const first = engine.execute<number>(definition, { n: 1 });
     const second = engine.execute<number>(definition, { n: 2 });
     try {
@@ -78,7 +77,7 @@ it.each(["anonymous", "registered"] as const)(
       expect(started).toEqual([1]);
       expect(records.every((run) => run.queue === "marbles")).toBe(true);
       for (const record of records) {
-        expect(store.read("executions", record.id)).toMatchObject({
+        expect(await storedExecution(state, record.id)).toMatchObject({
           name: record.name,
           status: record.status,
         });

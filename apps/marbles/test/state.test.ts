@@ -14,8 +14,6 @@ import { readStoredRuns } from "~/database/runs";
 import type { ScheduledEngine } from "~/lib/schedule";
 import { runSchedules, tick } from "~/lib/schedule";
 import { acquireLock } from "~/lib/state/locks";
-import type { StateStore } from "~/lib/state/store";
-import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 import { workspaceState } from "~/lib/state/workspace";
 import type { TriggerStore } from "~/lib/trigger-store";
 import { MemoryTriggerStore } from "~/lib/trigger-store";
@@ -25,7 +23,6 @@ import { temporaryDirectory } from "./helpers/temporary";
 
 const SHORT_HEX_ID_PATTERN = /^[0-9a-f]{12}$/;
 const BOOM_PATTERN = /boom/;
-const PLAIN_NAME = /must be a plain name/;
 
 class Shout extends Step<string, string> {
   readonly definitionKey = "test.shout";
@@ -62,14 +59,6 @@ function engineIn(state: string, print: (line: string) => void) {
   engine.register("quiet", new Quiet().factory());
   engine.register("explode", new Explode().factory());
   return engine.start();
-}
-
-function readJson(path: string): Record<string, unknown> {
-  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (typeof parsed !== "object" || parsed === null) {
-    throw new Error(path);
-  }
-  return { ...parsed };
 }
 
 describe("stored runs", () => {
@@ -328,112 +317,5 @@ describe("schedule state", () => {
       lastFinish: new Date(105).toISOString(),
       nextDue: new Date(115).toISOString(),
     });
-  });
-});
-
-describe.each([
-  [
-    "JsonStateStore",
-    () => new JsonStateStore(temporaryDirectory("marbles-store-")),
-    `pid ${String(process.pid)}`,
-  ],
-  ["InMemoryStateStore", () => new InMemoryStateStore(), "this process"],
-] as const)("%s", (_name, open: () => StateStore, holder: string) => {
-  it("reads, lists and removes documents by collection and key", () => {
-    const store = open();
-    expect(store.read("executions", "m")).toBeUndefined();
-    expect(store.list("executions")).toEqual([]);
-    store.write("executions", "m", { seen: [1] });
-    store.write("executions", "a", { seen: [] });
-    store.write("retention", "m", { other: true });
-    expect(store.read("executions", "m")).toEqual({ seen: [1] });
-    expect(
-      store.list("executions").map(({ key, value }) => [key, value])
-    ).toEqual([
-      ["a", { seen: [] }],
-      ["m", { seen: [1] }],
-    ]);
-    expect(store.list("executions")[0]?.modified).toBeGreaterThan(0);
-    store.remove("executions", "m");
-    store.remove("executions", "never");
-    expect(store.read("executions", "m")).toBeUndefined();
-    expect(store.read("retention", "m")).toEqual({ other: true });
-  });
-
-  it("hands out copies, never its own documents", () => {
-    const store = open();
-    const written = { files: { "a.md": "1" } };
-    store.write("executions", "m", written);
-    written.files["a.md"] = "2";
-    const read = store.read("executions", "m") as typeof written;
-    read.files["a.md"] = "3";
-    expect(store.read("executions", "m")).toEqual({ files: { "a.md": "1" } });
-  });
-
-  it("moves a collection's revision on every write and removal, and only then", () => {
-    const store = open();
-    const empty = store.revision("executions");
-    expect(store.revision("executions")).toBe(empty);
-    store.write("executions", "x", { n: 1 });
-    const one = store.revision("executions");
-    expect(one).not.toBe(empty);
-    store.write("retention", "x", { n: 1 });
-    expect(store.revision("executions")).toBe(one);
-    store.write("executions", "x", { n: 1 });
-    const rewritten = store.revision("executions");
-    expect(rewritten).not.toBe(one);
-    store.remove("executions", "x");
-    expect(store.revision("executions")).not.toBe(rewritten);
-  });
-
-  it("holds a lock for one holder until it is released, and says who holds it", () => {
-    const store = open();
-    const lock = store.lock("s");
-    if ("holder" in lock) {
-      throw new Error("expected the lock");
-    }
-    expect(store.lock("s")).toEqual({ holder });
-    const other = store.lock("t");
-    expect(other).toHaveProperty("release");
-    lock.release();
-    const again = store.lock("s");
-    expect(again).toHaveProperty("release");
-    for (const held of [again, other]) {
-      if ("release" in held) {
-        held.release();
-      }
-    }
-  });
-
-  it("refuses a key or lock name that is not one plain name", () => {
-    const store = open();
-    for (const name of ["", ".", "..", "a/b", "../escape", "a\\b", "nul\0"]) {
-      expect(() => store.write("executions", name, {})).toThrow(PLAIN_NAME);
-      expect(() => store.read("executions", name)).toThrow(PLAIN_NAME);
-      expect(() => store.remove("executions", name)).toThrow(PLAIN_NAME);
-      expect(() => store.lock(name)).toThrow(PLAIN_NAME);
-    }
-    expect(store.list("executions")).toEqual([]);
-    store.write("executions", "automation-1.v2", {});
-    expect(store.read("executions", "automation-1.v2")).toEqual({});
-  });
-});
-
-describe("JsonStateStore", () => {
-  it("keeps the layout status reads, and lists an unreadable document with its error", () => {
-    const state = temporaryDirectory("marbles-store-");
-    const store = new JsonStateStore(state);
-    store.write("retention", "s", { lastFinish: "x", version: 1 });
-    expect(readJson(join(state, "retention", "s.json"))).toEqual({
-      lastFinish: "x",
-      version: 1,
-    });
-    writeFileSync(join(state, "retention", "broken.json"), "{ nope");
-    writeFileSync(join(state, "retention", "notes.txt"), "ignored");
-    const [broken, kept] = store.list("retention");
-    expect(broken?.key).toBe("broken");
-    expect(broken?.error).toContain("SyntaxError");
-    expect(store.read("retention", "broken")).toBeUndefined();
-    expect(kept).toMatchObject({ key: "s", value: { lastFinish: "x" } });
   });
 });

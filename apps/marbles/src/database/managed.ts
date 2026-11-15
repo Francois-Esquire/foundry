@@ -5,6 +5,7 @@ import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import type { WorkflowStore } from "@foundry/workflows/store";
 import { DatabaseAutomationStore } from "~/database/automations";
+import { DatabaseExecutionStore } from "~/database/executions";
 import type { MarblesDatabase } from "~/database/open";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
@@ -26,6 +27,16 @@ import type {
   WorkspaceRecords,
 } from "~/lib/events/records";
 import { EmitListeners, RecordsGate } from "~/lib/events/records";
+import type {
+  ExecutionObservation,
+  ExecutionRun,
+  RetentionGap,
+} from "~/lib/execution-record";
+import type {
+  ExecutionStore,
+  ExecutionView,
+  StoredExecution,
+} from "~/lib/execution-store";
 import type { RecordedScope } from "~/lib/run-scope";
 import type { RunStore, StoredScope } from "~/lib/run-store";
 import type { Workspace } from "~/lib/state/workspace";
@@ -77,6 +88,8 @@ export interface WorkspaceDatabase {
   /** The workspace's automations over the same handle. */
   readonly automations: AutomationStore;
   close(): Promise<void>;
+  /** The workspace's Execution Runs over the same handle. */
+  readonly executions: ExecutionStore;
   readonly records: WorkspaceRecords;
   /** The workspace's workflow Runs over the same handle. */
   readonly runs: RunStore;
@@ -112,6 +125,11 @@ export function openWorkspaceDatabase(
     options.workspaceId,
     () => Promise.resolve()
   );
+  const executions = new ManagedExecutionStore(
+    database,
+    options.workspaceId,
+    () => Promise.resolve()
+  );
   return {
     automations,
     async close() {
@@ -121,11 +139,13 @@ export function openWorkspaceDatabase(
         await triggers.close();
         await usage.close();
         await automations.close();
+        await executions.close();
         await sessions.close();
       } finally {
         await database.close();
       }
     },
+    executions,
     records,
     runs,
     sessions,
@@ -207,13 +227,18 @@ export function defaultWorkspaceTriggers(
 /** What an engine keeps in the Marbles database when it is given `state`. */
 type DatabaseKept = Pick<
   EngineOptions,
-  "automationStore" | "records" | "runs" | "triggers" | "usageStore"
+  | "automationStore"
+  | "executionStore"
+  | "records"
+  | "runs"
+  | "triggers"
+  | "usageStore"
 >;
 
 /**
  * `options`, with each store it keeps in the Marbles database that it was
- * not handed (its tasks, workflow Runs, trigger state, automations and
- * usage facts)
+ * not handed (its tasks, workflow Runs, Execution Runs, trigger state,
+ * automations and usage facts)
  * over one handle on the database `defaultWorkspaceRecords` chooses for
  * `state`, opened at the first call to any of them under the rule a host
  * keeps. The handle closes once every store made here has closed, as the
@@ -234,6 +259,8 @@ export function withWorkspaceDatabase(
   } = {
     automationStore: (done) =>
       new ManagedAutomationStore(database, workspaceId, done),
+    executionStore: (done) =>
+      new ManagedExecutionStore(database, workspaceId, done),
     records: (done) => new ManagedWorkspaceRecords(database, workspaceId, done),
     runs: (done) => new ManagedRunStore(database, workspaceId, done),
     triggers: (done) => new ManagedTriggerStore(database, workspaceId, done),
@@ -737,6 +764,105 @@ class ManagedAutomationStore implements AutomationStore {
   }
 
   #run<T>(call: (store: DatabaseAutomationStore) => Promise<T>): Promise<T> {
+    return this.#gate.run(async () => call(await this.#store.get()));
+  }
+}
+
+/**
+ * A workspace's Execution Runs over a `LazyDatabase`, as
+ * `ManagedUsageStore` keeps its facts: what a write is handed is owned from
+ * the call, before the open.
+ */
+class ManagedExecutionStore implements ExecutionStore {
+  readonly #gate = new RecordsGate("the execution store is closed");
+  readonly #release: () => Promise<void>;
+  readonly #store: OverDatabase<DatabaseExecutionStore>;
+
+  constructor(
+    database: LazyDatabase,
+    workspaceId: string,
+    release: () => Promise<void>
+  ) {
+    this.#release = release;
+    this.#store = new OverDatabase(
+      database,
+      (opened) =>
+        new DatabaseExecutionStore({
+          database: opened.database,
+          scope: workspaceId,
+        })
+    );
+  }
+
+  async close(): Promise<void> {
+    await this.#gate.close();
+    try {
+      await (await this.#store.built())?.close();
+    } finally {
+      await this.#release();
+    }
+  }
+
+  get(id: string): Promise<StoredExecution | undefined> {
+    return this.#run((store) => store.get(id));
+  }
+
+  gaps(): Promise<readonly RetentionGap[]> {
+    return this.#run((store) => store.gaps());
+  }
+
+  list(): Promise<readonly StoredExecution[]> {
+    return this.#run((store) => store.list());
+  }
+
+  observe(
+    id: string,
+    observation: ExecutionObservation,
+    at: { readonly revision: number; readonly updatedAt: string }
+  ): Promise<boolean> {
+    return this.#owning(observation, (store, owned) =>
+      store.observe(id, owned, at)
+    );
+  }
+
+  put(run: ExecutionRun): Promise<boolean> {
+    return this.#owning(run, (store, owned) => store.put(owned));
+  }
+
+  putGap(gap: RetentionGap): Promise<void> {
+    return this.#owning(gap, (store, owned) => store.putGap(owned));
+  }
+
+  remove(id: string): Promise<void> {
+    return this.#run((store) => store.remove(id));
+  }
+
+  transaction<T>(work: (view: ExecutionView) => Promise<T>): Promise<T> {
+    return this.#run((store) => store.transaction(work));
+  }
+
+  withSource(
+    name: string,
+    source: string
+  ): Promise<StoredExecution | undefined> {
+    return this.#run((store) => store.withSource(name, source));
+  }
+
+  /** `call` on a copy of `value` taken now: the database may still be opening. */
+  #owning<V, T>(
+    value: V,
+    call: (store: DatabaseExecutionStore, owned: V) => Promise<T>
+  ): Promise<T> {
+    let owned: V;
+    try {
+      owned = structuredClone(value);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#run((store) => call(store, owned));
+  }
+
+  #run<T>(call: (store: DatabaseExecutionStore) => Promise<T>): Promise<T> {
     return this.#gate.run(async () => call(await this.#store.get()));
   }
 }

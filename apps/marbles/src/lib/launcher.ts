@@ -201,7 +201,7 @@ export class Launcher {
       throw new Error(`Definition is not registered: ${name}`);
     }
     const task = this.#tasks.get(name);
-    const { existing, run } = this.executions.enqueue({
+    const { existing, run } = await this.executions.enqueue({
       correlation: {
         ...options.correlation,
         ...(options.triggerId === undefined
@@ -243,12 +243,12 @@ export class Launcher {
    * that and what is registered under their name is the kind they were
    * launched as.
    */
-  recover(options: {
+  async recover(options: {
     readonly adopted: ReadonlySet<string>;
-    /** What a workflow run's own file says its status is; `undefined` without one. */
+    /** What a workflow run's own Run says its status is; `undefined` without one. */
     readonly fileStatus: (run: ExecutionRun) => string | undefined;
-  }): void {
-    const readmitted = this.executions.recover({
+  }): Promise<void> {
+    const readmitted = await this.executions.recover({
       adopted: options.adopted,
       fileStatus: options.fileStatus,
       readmit: (run) => this.#options.recoverQueued && this.#runnableAs(run),
@@ -457,9 +457,12 @@ export class Launcher {
       const error = new Error(
         `run ${id}: no task is registered as ${run.name}`
       );
-      this.executions.settle(id, "failed", this.#failure(id, error));
-      this.#pay(id, error);
-      return Promise.reject(error);
+      return this.executions
+        .settle(id, "failed", this.#failure(id, error))
+        .then(() => {
+          this.#pay(id, error);
+          throw error;
+        });
     }
     this.#run(task, run, input, controller);
     return Promise.resolve();
@@ -493,11 +496,15 @@ export class Launcher {
     } catch (error) {
       this.#live.delete(run.id);
       if (controller.signal.aborted) {
-        this.executions.settle(run.id, "cancelled");
+        await this.executions.settle(run.id, "cancelled");
         this.#pay(run.id, new Error(`run ${run.id} was cancelled`));
         return;
       }
-      this.executions.settle(run.id, "failed", this.#failure(run.id, error));
+      await this.executions.settle(
+        run.id,
+        "failed",
+        this.#failure(run.id, error)
+      );
       this.#pay(run.id, error);
       throw error;
     } finally {
@@ -599,19 +606,20 @@ export class Launcher {
     result: Promise<unknown>,
     endedAs: (error: unknown) => Ending
   ): Promise<void> {
+    // The caller is paid once the record is on disk.
     return result.then(
-      (value) => {
+      async (value) => {
         this.#live.delete(id);
-        this.executions.settle(id, "complete");
+        await this.executions.settle(id, "complete");
         this.#pay(id, undefined, value);
       },
-      (error: unknown) => {
+      async (error: unknown) => {
         this.#live.delete(id);
         const ending = endedAs(error);
         if (ending === "cancelled") {
-          this.executions.settle(id, "cancelled");
+          await this.executions.settle(id, "cancelled");
         } else if (ending === "failed") {
-          this.executions.settle(id, "failed", this.#failure(id, error));
+          await this.executions.settle(id, "failed", this.#failure(id, error));
         }
         this.#pay(id, error);
       }

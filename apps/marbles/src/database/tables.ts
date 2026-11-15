@@ -217,3 +217,95 @@ export const marblesAutomations = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.scope, table.id] })]
 );
+
+/**
+ * Every Execution Run a workspace retains, one per id: what launched it
+ * (`kind`, `name`, `queue`, the caller's `source` and `correlation`), where
+ * it is (`status`, `progress`, `error_*`, the times), the process that owns
+ * it while it is unsettled (`owner_pid`), its admission order
+ * (`sequence`), and the `revision` every change raises. `input` and
+ * `progress` are JSON text, `null` included; SQL NULL when the run has
+ * none. Its observations are rows of their own
+ * (`marbles_execution_observations`). Written by
+ * `database/executions.ts`: a record lands only over a lower revision of
+ * itself.
+ */
+export const marblesExecutions = sqliteTable(
+  "marbles_executions",
+  {
+    correlation: text({ mode: "json" })
+      .$type<Record<string, string>>()
+      .notNull(),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    id: text().notNull(),
+    input: text(),
+    kind: text({ enum: ["workflow", "task"] }).notNull(),
+    name: text().notNull(),
+    ownerPid: integer("owner_pid").notNull(),
+    progress: text(),
+    queue: text().notNull(),
+    queuedAt: text("queued_at").notNull(),
+    revision: integer().notNull(),
+    scope: text().notNull(),
+    sequence: integer().notNull(),
+    settledAt: text("settled_at"),
+    source: text(),
+    startedAt: text("started_at"),
+    status: text().notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scope, table.id] }),
+    index("marbles_executions_scope_source").on(
+      table.scope,
+      table.name,
+      table.source
+    ),
+  ]
+);
+
+/**
+ * Each Execution Run's observations, one row per observation id, in the
+ * order they were last recorded (`position`, after every other the run
+ * has): recording one again replaces its row and moves it last, so a
+ * record costs the same however many its run has. Goes with its run.
+ */
+export const marblesExecutionObservations = sqliteTable(
+  "marbles_execution_observations",
+  {
+    observation: text({ mode: "json" }).$type<unknown>().notNull(),
+    observationId: text("observation_id").notNull(),
+    position: integer().notNull(),
+    runId: text("run_id").notNull(),
+    scope: text().notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.scope, table.runId, table.observationId],
+    }),
+    index("marbles_execution_observations_scope_run_position").on(
+      table.scope,
+      table.runId,
+      table.position
+    ),
+  ]
+);
+
+/**
+ * What pruning removed from a workspace's Execution Runs, by host scope
+ * (`gap_scope`, such as a Module): how many, the latest settlement among
+ * them (`through`), and when one was last removed. Written in the same
+ * transaction as the removals it counts.
+ */
+export const marblesExecutionGaps = sqliteTable(
+  "marbles_execution_gaps",
+  {
+    gapScope: text("gap_scope").notNull(),
+    removed: integer().notNull(),
+    scope: text().notNull(),
+    through: text().notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.scope, table.gapScope] })]
+);

@@ -20,6 +20,7 @@ import {
   DatabaseAutomationStore,
   readAutomations,
 } from "~/database/automations";
+import { DatabaseExecutionStore } from "~/database/executions";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { defaultWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
@@ -275,6 +276,7 @@ function recordsFor(
 ): Pick<
   EngineOptions,
   | "automationStore"
+  | "executionStore"
   | "records"
   | "runs"
   | "sessions"
@@ -287,6 +289,7 @@ function recordsFor(
     const scope = workspaceId;
     return {
       automationStore: new DatabaseAutomationStore({ database, scope }),
+      executionStore: new DatabaseExecutionStore({ database, scope }),
       records: new DatabaseWorkspaceRecords({ database, scope }),
       runs: new DatabaseRunStore({ database, scope }),
       sessions: new DatabaseSessionStore({ database, scope }),
@@ -300,6 +303,7 @@ function recordsFor(
   const own = defaultWorkspaceDatabase(state, root, workspaceId);
   return {
     automationStore: own.automations,
+    executionStore: own.executions,
     own,
     records: own.records,
     runs: own.runs,

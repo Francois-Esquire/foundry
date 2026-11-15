@@ -16,9 +16,9 @@ import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import { TASKS } from "~/lib/events/source";
 import type { ExecutionRun } from "~/lib/executions";
-import { JsonStateStore } from "~/lib/state/store";
 import type { Context } from "~/lib/types";
 import { testEngine } from "../helpers/engine";
+import { storedExecution, withExecutions } from "../helpers/executions";
 
 let root: string;
 let state: string;
@@ -66,25 +66,29 @@ function exitedPid(): number {
 }
 
 /** A run record as a crashed process would have left it. */
-function leftBehind(run: Partial<ExecutionRun> & { id: string }): void {
+async function leftBehind(
+  run: Partial<ExecutionRun> & { id: string }
+): Promise<void> {
   const at = new Date().toISOString();
-  new JsonStateStore(state).write("executions", run.id, {
-    correlation: {},
-    kind: "task",
-    name: "save",
-    observations: [],
-    owner: { pid: exitedPid() },
-    queue: "system",
-    revision: 1,
-    sequence: 1,
-    status: "queued",
-    timestamps: { queuedAt: at, updatedAt: at },
-    ...run,
+  await withExecutions(state, async (store) => {
+    await store.put({
+      correlation: {},
+      kind: "task",
+      name: "save",
+      observations: [],
+      owner: { pid: exitedPid() },
+      queue: "system",
+      revision: 1,
+      sequence: 1,
+      status: "queued",
+      timestamps: { queuedAt: at, updatedAt: at },
+      ...run,
+    });
   });
 }
 
 it("lets an exited process's queued run in again only once the start has succeeded", async () => {
-  leftBehind({ id: "rn-queued", input: {} });
+  await leftBehind({ id: "rn-queued", input: {} });
   // Delivery cannot read its tasks, so the start fails after the run store loaded.
   const memory = new MemoryWorkspaceRecords();
   const unreadable: WorkspaceRecords = {
@@ -95,9 +99,7 @@ it("lets an exited process's queued run in again only once the start has succeed
     taskStore: memory.taskStore,
     watch: (listener) => memory.watch(listener),
   };
-  const dead = new JsonStateStore(state).read("executions", "rn-queued") as
-    | ExecutionRun
-    | undefined;
+  const dead = await storedExecution(state, "rn-queued");
   let started = 0;
   const engine = engineWith({ records: unreadable, recoverQueued: true });
   engine.task({
@@ -117,13 +119,11 @@ it("lets an exited process's queued run in again only once the start has succeed
 
   expect(started).toBe(0);
   // Still queued under the exited process, for a start that can run it.
-  expect(new JsonStateStore(state).read("executions", "rn-queued")).toEqual(
-    dead
-  );
+  expect(await storedExecution(state, "rn-queued")).toEqual(dead);
 });
 
 it("lets a run in again after delivery starts, on an engine that accepts launches", async () => {
-  leftBehind({ id: "rn-queued", input: {} });
+  await leftBehind({ id: "rn-queued", input: {} });
   const engine = engineWith({ recoverQueued: true });
   const launched: string[] = [];
   engine.task({
@@ -162,9 +162,7 @@ async function parkedThenOrphaned(): Promise<string> {
   catalog.reset();
 
   // Its stop gave up the Run; the record names a process that has exited.
-  const store = new JsonStateStore(state);
-  const record = store.read("executions", id) as ExecutionRun;
-  store.write("executions", id, { ...record, owner: { pid: exitedPid() } });
+  await rewriteRecord(id, { owner: { pid: exitedPid() } });
   return id;
 }
 
@@ -181,7 +179,7 @@ it("cancels a parked run whose process exited when nothing here can adopt it", a
     owner: { pid: process.pid },
     status: "cancelled",
   });
-  expect(new JsonStateStore(state).read("executions", id)).toMatchObject({
+  expect(await storedExecution(state, id)).toMatchObject({
     status: "cancelled",
   });
   // The claim on its Run is given back, so a later start can still read it.
@@ -212,7 +210,7 @@ it("never resumes a parked run that was cancelled after its process exited", asy
 });
 
 it("leaves a parked run alone while a live process owns it", async () => {
-  leftBehind({
+  await leftBehind({
     id: "rn-remote",
     kind: "workflow",
     name: "gone",
@@ -232,7 +230,7 @@ it("leaves a parked run alone while a live process owns it", async () => {
 });
 
 it("leaves a parked run alone while another process is adopting it", async () => {
-  leftBehind({
+  await leftBehind({
     id: "rn-adopting",
     kind: "workflow",
     name: "gone",
@@ -265,15 +263,22 @@ function defineProbe(engine: Engine): void {
 }
 
 /** Change what the exited process left on its record. */
-function rewriteRecord(id: string, patch: Partial<ExecutionRun>): void {
-  const store = new JsonStateStore(state);
-  const record = store.read("executions", id) as ExecutionRun;
-  store.write("executions", id, { ...record, ...patch });
+async function rewriteRecord(
+  id: string,
+  patch: Partial<ExecutionRun>
+): Promise<void> {
+  const record = await storedExecution(state, id);
+  if (!record) {
+    throw new Error(`${id} is not stored`);
+  }
+  await withExecutions(state, async (store) => {
+    await store.put({ ...record, ...patch, revision: record.revision + 1 });
+  });
 }
 
 it("records suspended a run it adopts whose process exited before its record saw the park", async () => {
   const id = await parkedThenOrphaned();
-  rewriteRecord(id, { status: "running" });
+  await rewriteRecord(id, { status: "running" });
   const engine = engineWith({ askable: true });
   defineProbe(engine);
   await engine.start();
@@ -287,10 +292,8 @@ it("records suspended a run it adopts whose process exited before its record saw
 
 it("leaves a parked run it cannot adopt suspended for a process that can, even when its record said running", async () => {
   const id = await parkedThenOrphaned();
-  rewriteRecord(id, { status: "running" });
-  const dead = (
-    new JsonStateStore(state).read("executions", id) as ExecutionRun
-  ).owner.pid;
+  await rewriteRecord(id, { status: "running" });
+  const dead = (await storedExecution(state, id))?.owner.pid;
   // Nothing here runs `probe`.
   const engine = engineWith({ askable: true });
   await engine.start();
@@ -311,7 +314,7 @@ it("leaves a parked run it cannot adopt suspended for a process that can, even w
 
 it("gives a parked run saved before Execution Runs existed a record when it is adopted", async () => {
   const id = await parkedThenOrphaned();
-  new JsonStateStore(state).remove("executions", id);
+  await withExecutions(state, (store) => store.remove(id));
   const engine = engineWith({ askable: true });
   defineProbe(engine);
   await engine.start();
@@ -332,7 +335,12 @@ it("gives a parked run saved before Execution Runs existed a record when it is a
 });
 
 it("never readmits a queued run under a name now registered as the other kind", async () => {
-  leftBehind({ id: "rn-was-task", input: {}, kind: "task", name: "flow" });
+  await leftBehind({
+    id: "rn-was-task",
+    input: {},
+    kind: "task",
+    name: "flow",
+  });
   let ran = false;
   const engine = engineWith({ recoverQueued: true });
   engine.define({

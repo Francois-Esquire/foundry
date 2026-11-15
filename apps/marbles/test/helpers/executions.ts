@@ -4,9 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach } from "vitest";
 import { catalog } from "~/authoring/catalog";
+import { DatabaseExecutionStore } from "~/database/executions";
+import { initializeDatabase, readDatabase } from "~/database/open";
+import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
+import { parseStored } from "~/lib/execution-record";
+import type { ExecutionStore } from "~/lib/execution-store";
 import type { ExecutionRun } from "~/lib/executions";
-import { JsonStateStore, type StateStore } from "~/lib/state/store";
 import { testEngine } from "./engine";
 /** Each suite owns its engines and directory; close engines before removing watched files. */
 export function executionFixture() {
@@ -81,42 +85,80 @@ export function exitedPid(): number {
   return pid;
 }
 
-/** Records as a crashed process would have left them. */
-export function leftBehind(
+/**
+ * `work` on the Execution Runs of the workspace `scope` (a test engine's,
+ * `test`, by default) in the Marbles database at the state root `state`,
+ * over a handle of its own, as another process would have; the database is
+ * made when there is none.
+ */
+export async function withExecutions<T>(
   state: string,
-  pid: number,
-  runs: readonly Partial<ExecutionRun>[]
-): void {
-  const store = new JsonStateStore(state);
-  for (const [index, run] of runs.entries()) {
-    const at = new Date(Date.now() - 1000 + index).toISOString();
-    store.write("executions", run.id ?? `rn-left-${index}`, {
-      correlation: {},
-      id: `rn-left-${index}`,
-      kind: "task",
-      name: "save",
-      observations: [],
-      owner: { pid },
-      queue: "system",
-      revision: 2,
-      sequence: 1000 + index,
-      status: "queued",
-      timestamps: { queuedAt: at, updatedAt: at },
-      ...run,
-    });
+  work: (store: ExecutionStore) => Promise<T>,
+  scope = "test"
+): Promise<T> {
+  const opened = await initializeDatabase(stateDatabase(state));
+  try {
+    return await work(
+      new DatabaseExecutionStore({ database: opened.database, scope })
+    );
+  } finally {
+    opened.close();
   }
 }
 
+/**
+ * The Execution Run `id` as the Marbles database at `state` holds it, read
+ * as a later engine would; `undefined` when it holds none.
+ */
+export async function storedExecution(
+  state: string,
+  id: string,
+  scope = "test"
+): Promise<ExecutionRun | undefined> {
+  const stored = await readDatabase(stateDatabase(state), (database) =>
+    new DatabaseExecutionStore({ database, scope }).get(id)
+  );
+  return stored ? parseStored(stored) : undefined;
+}
+
+/** Records as a crashed process would have left them. */
+export async function leftBehind(
+  state: string,
+  pid: number,
+  runs: readonly Partial<ExecutionRun>[]
+): Promise<void> {
+  await withExecutions(state, async (store) => {
+    for (const [index, run] of runs.entries()) {
+      const at = new Date(Date.now() - 1000 + index).toISOString();
+      await store.put({
+        correlation: {},
+        id: `rn-left-${index}`,
+        kind: "task",
+        name: "save",
+        observations: [],
+        owner: { pid },
+        queue: "system",
+        revision: 2,
+        sequence: 1000 + index,
+        status: "queued",
+        timestamps: { queuedAt: at, updatedAt: at },
+        ...run,
+      });
+    }
+  });
+}
+
 /** An unsettled run an exited process left, written straight to `store`. */
-export function orphan(
-  store: StateStore,
+export async function orphan(
+  store: ExecutionStore,
   run: Partial<ExecutionRun> & { readonly id: string }
-): void {
+): Promise<void> {
   const at = new Date().toISOString();
-  store.write("executions", run.id, {
+  await store.put({
     correlation: {},
     kind: "workflow",
     name: "flow",
+    observations: [],
     owner: { pid: exitedPid() },
     queue: "marbles",
     revision: 3,

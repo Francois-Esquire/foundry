@@ -10,7 +10,6 @@ import {
   ExecutionRecords,
   type ExecutionRecordsOptions,
 } from "./execution-records";
-import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
 
 export type {
   ExecutionObservation,
@@ -206,14 +205,14 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     const { input, ...rest } = run;
     // Running is on disk before the first effect, or the run does not start.
     try {
-      this.writeRecord({
+      await this.writeRecord({
         ...rest,
         revision: run.revision + 1,
         status: "running",
         timestamps: { ...run.timestamps, startedAt: at, updatedAt: at },
       });
     } catch (error) {
-      this.settle(id, "failed", { code: "not_recorded" });
+      await this.settle(id, "failed", { code: "not_recorded" });
       fail(error);
       throw error;
     }
@@ -240,21 +239,26 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     }
     return run;
   }
+  /**
+   * Record how a run ended and free its slot; a run already settled frees
+   * its slot too, whatever settled it. Resolves once the record is on disk
+   * in its turn.
+   */
   override settle(
     id: string,
     status: "complete" | "failed" | "cancelled" | "interrupted",
     error?: { readonly code: string; readonly message?: string }
-  ): void {
+  ): Promise<void> {
     const run = this.get(id);
-    if (!run || SETTLED_EXECUTION_STATUSES.has(run.status)) {
-      return;
+    if (!run) {
+      return Promise.resolve();
     }
-    super.settle(id, status, error);
+    const written = super.settle(id, status, error);
     const lane = this.#lanes.get(run.queue);
-    if (lane) {
-      lane.active.delete(id);
+    if (lane?.active.delete(id)) {
       this.#pump(lane);
     }
     this.#checkIdle();
+    return written;
   }
 }

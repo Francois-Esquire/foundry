@@ -35,7 +35,7 @@ export interface ParkedRunsOptions {
   readonly registered: (name: string) => boolean;
   readonly runs: RunStore;
   /** Whether the Run's Execution Run is settled, read afresh. */
-  readonly settled: (runId: string) => boolean;
+  readonly settled: (runId: string) => Promise<boolean>;
   /** The workflow records over `runs`. */
   readonly store: Pick<OrchestratorStore, "listRuns">;
 }
@@ -75,7 +75,7 @@ async function adopt(
     return passed("another live engine owns it");
   }
   // Asked once the claim is held: a canceller takes the same claim.
-  if (settled(run.id)) {
+  if (await settled(run.id)) {
     await runs.release(run.id);
     return passed("its execution run has settled");
   }

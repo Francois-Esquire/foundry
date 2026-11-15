@@ -24,6 +24,13 @@ export { gatewayModels, gatewayProvider } from "@foundry/models/gateway";
 export { vercelProvider } from "@foundry/models/vercel";
 export type { Containers } from "@foundry/sandbox/container/containers";
 
+export type { AutomationRecord } from "./automation/service";
+export type {
+  AutomationStore,
+  AutomationView,
+  StoredAutomation,
+} from "./automation/store";
+export { MemoryAutomationStore } from "./automation/store";
 export type { EngineOptions } from "./engine";
 export { Engine, RunEndedError } from "./engine";
 export type {
@@ -37,6 +44,12 @@ export {
   EXECUTION_STATUSES,
   SETTLED_EXECUTION_STATUSES,
 } from "./execution-statuses";
+export type {
+  ExecutionStore,
+  ExecutionView,
+  StoredExecution,
+} from "./execution-store";
+export { MemoryExecutionStore } from "./execution-store";
 export type {
   ExecutionObservation,
   ExecutionRun,
@@ -58,12 +71,6 @@ export type { RunStore, StoredScope } from "./run-store";
 export { MemoryRunStore } from "./run-store";
 export type { JsonSessionStoreOptions } from "./sessions/json-store";
 export { JsonSessionStore } from "./sessions/json-store";
-export type {
-  StateCollection,
-  StateStore,
-  StoredDocument,
-} from "./state/store";
-export { InMemoryStateStore, JsonStateStore } from "./state/store";
 export type { TaskContext, TaskDefinition, TaskObservation } from "./tasks";
 export type {
   MonitorState,
@@ -80,3 +87,6 @@ export type {
   Session,
   SessionRef,
 } from "./types";
+export type { RecordedUsageFact } from "./usage";
+export type { StoredUsage, UsageOwner, UsageStore } from "./usage-store";
+export { MemoryUsageStore } from "./usage-store";

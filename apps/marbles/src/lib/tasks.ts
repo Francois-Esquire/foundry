@@ -33,10 +33,11 @@ export interface TaskContext {
    */
   readonly agents: Agents;
   /**
-   * Record or replace an observation on this run. Returns whether it was
-   * durably recorded: a failed write keeps it only in this process.
+   * Record or replace an observation on this run, at once in this
+   * process. Resolves whether it was durably recorded: a failed write
+   * keeps it only in this process. It never rejects.
    */
-  observe(observation: TaskObservation): boolean;
+  observe(observation: TaskObservation): Promise<boolean>;
   /** Record where the run has got to; the latest replaces the last. */
   progress(value: JsonValue): void;
   /**
