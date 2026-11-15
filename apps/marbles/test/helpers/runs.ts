@@ -30,7 +30,7 @@ export interface Run {
 }
 
 export const RUN_ENV = "MARBLES_TEST_RUN";
-export const RUN_PREFIX = "marbles-run-";
+const RUN_PREFIX = "marbles-run-";
 const OWNER_FILE = "owner.json";
 
 interface Owner {
