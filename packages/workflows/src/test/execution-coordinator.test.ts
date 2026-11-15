@@ -635,3 +635,47 @@ for (const [name, open] of STORES) {
 function validated(snapshot: unknown): unknown {
   return JSON.parse(JSON.stringify(snapshot));
 }
+
+describe("abandonRun", () => {
+  const crashed = { message: "its process exited", name: "Interrupted" };
+
+  for (const [name, open] of STORES) {
+    test(`fails a queued or running Run once, and leaves any other, over the ${name}`, async () => {
+      const coordinator = new ExecutionCoordinator({ store: await open() });
+      const created = async (status: RunRecord["status"]) => {
+        const run = await coordinator.createRun({
+          input: null,
+          queueId: "q",
+          step: "s",
+        });
+        await coordinator.updateRun(run.id, { status });
+        return run.id;
+      };
+      const queued = await created("queued");
+      const running = await created("running");
+      const parked = await created("suspended");
+      const done = await created("complete");
+
+      expect(await coordinator.abandonRun(running, crashed, 7)).toMatchObject({
+        error: crashed,
+        status: "failed",
+        timestamps: { failedAt: 7 },
+      });
+      expect(await coordinator.abandonRun(queued, crashed, 8)).toMatchObject({
+        status: "failed",
+        timestamps: { failedAt: 8 },
+      });
+      // Again, later: what is settled stays as it was settled.
+      expect(
+        await coordinator.abandonRun(running, { message: "x", name: "X" }, 9)
+      ).toMatchObject({ error: crashed, timestamps: { failedAt: 7 } });
+      expect(await coordinator.abandonRun(parked, crashed)).toMatchObject({
+        status: "suspended",
+      });
+      expect(await coordinator.abandonRun(done, crashed)).toMatchObject({
+        status: "complete",
+      });
+      expect(await coordinator.abandonRun("rn-missing", crashed)).toBeNull();
+    });
+  }
+});
