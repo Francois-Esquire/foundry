@@ -103,7 +103,7 @@ export function runSteps(record: RunRecord): readonly RunStep[] {
 }
 
 /** A step's observed status as listings name it. */
-export function stepStatus(status: string | undefined): string {
+function stepStatus(status: string | undefined): string {
   if (status === undefined || status === "pending") {
     return "queued";
   }
