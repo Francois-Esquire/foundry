@@ -1,7 +1,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SPAWN_RECORD_ENV } from "~/process/spawned";
-import { configureProviders } from "./providers";
+import {
+  configureProviders,
+  makeProvidersTemplate,
+  PROVIDERS_TEMPLATE_ENV,
+} from "./providers";
 import { privateBase, RUN_ENV, startRun, sweepFinishedRuns } from "./runs";
 
 /**
@@ -58,6 +62,7 @@ export default async function setup(): Promise<() => Promise<void>> {
   process.env.HOME = user;
   process.env.FOUNDRY_HOME = home;
   process.env.FOUNDRY_MODELS_DEV_URL = "";
+  process.env[PROVIDERS_TEMPLATE_ENV] = await makeProvidersTemplate(run.root);
   configureProviders(join(home, "marbles"));
   return () => run.finish();
 }

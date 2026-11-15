@@ -1,25 +1,9 @@
-import { randomBytes, randomUUID } from "node:crypto";
-import {
-  chmodSync,
-  closeSync,
-  existsSync,
-  fsyncSync,
-  linkSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname, join } from "node:path";
+import { randomBytes } from "node:crypto";
 import type { ModelKind } from "@foundry/models";
 import { z } from "zod";
-import { acquireLock } from "~/lib/state/locks";
 
 export type ConfigurationErrorCode =
   | "CONFIGURATION_BUSY"
-  | "CONFIGURATION_PARTIAL"
   | "CONFIGURATION_UNREADABLE"
   | "PROVIDER_ENTRY_INVALID"
   | "PROVIDER_ENVIRONMENT_CHANGED"
@@ -49,14 +33,14 @@ export interface ProviderEntryRecord {
   readonly settings?: Readonly<Record<string, unknown>>;
 }
 
-/** One scope's file. `order` appears only in a workspace file. */
+/** One scope's configuration. `order` appears only in a workspace's. */
 export interface ProvidersFile {
   readonly order?: readonly string[];
   readonly providers: readonly ProviderEntryRecord[];
   readonly version: 1;
 }
 
-const FILE = z.object({
+const SCOPE_CONFIGURATION = z.object({
   order: z.array(z.string()).optional(),
   providers: z.array(
     z.object({
@@ -70,30 +54,118 @@ const FILE = z.object({
   version: z.literal(1),
 });
 
-/** The file at `path`, or undefined when there is none. An unreadable one throws. */
-export function readProvidersFile(path: string): ProvidersFile | undefined {
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return;
-    }
-    throw unreadable(
-      path,
-      (error as NodeJS.ErrnoException).code ?? "it cannot be read"
+/**
+ * Every scope's provider configuration as it is kept: the machine's, and
+ * that of each workspace that keeps one of its own. A workspace's is read
+ * only when asked for, so one that cannot be read refuses only what needs
+ * it.
+ */
+export interface ProviderConfigurations {
+  readonly machine: ProvidersFile | undefined;
+  /** The configuration the workspace `id` keeps; `CONFIGURATION_UNREADABLE` when it cannot be read. */
+  workspace(id: string): ProvidersFile | undefined;
+  /** The ids of the workspaces that keep configuration of their own. */
+  readonly workspaces: readonly string[];
+}
+
+/** What one edit writes: a scope it leaves out stays as it is. */
+export interface ProviderWrites {
+  readonly machine?: ProvidersFile;
+  readonly workspace?: ProvidersFile;
+}
+
+/**
+ * Where provider configuration is kept: the Marbles database's for a host
+ * (`database/providers.ts`), memory for a programmatic one. Everything a
+ * store hands back is a copy.
+ */
+export interface ProviderStore {
+  /**
+   * The machine's key for instance identities: made by the first call
+   * with `make` and never rewritten; undefined, without `make`, while there
+   * is none. A key that cannot be used throws `CONFIGURATION_UNREADABLE`.
+   */
+  identityKey(make: boolean): Promise<Buffer | undefined>;
+  /** Every scope as kept now. A machine configuration that cannot be read throws. */
+  read(): Promise<ProviderConfigurations>;
+  /** A number that grows with every write to any scope, cheap to read: how a change elsewhere is noticed. */
+  revision(): Promise<number>;
+  /**
+   * In one transaction: read every scope, run `edit` on them, and write
+   * what it returns for the machine and for the workspace `workspace`;
+   * resolve with every scope as it then stands. `edit` may throw to
+   * refuse, and nothing is written then. A store that cannot take the
+   * write before its wait runs out throws `CONFIGURATION_BUSY`.
+   */
+  update(
+    workspace: string | undefined,
+    edit: (current: ProviderConfigurations) => ProviderWrites
+  ): Promise<ProviderConfigurations>;
+}
+
+/** The scope key a store keeps the machine's configuration under; a workspace's is its id. */
+export const MACHINE_SCOPE = "";
+
+/**
+ * Configuration as a store keeps it, each scope's as JSON text by its
+ * scope key (`MACHINE_SCOPE`, or a workspace id), read through the
+ * configuration's schema. A scope that does not read refuses with where
+ * and why, never with what it holds: a misplaced key is a secret.
+ */
+export function keptConfigurations(
+  texts: ReadonlyMap<string, string>
+): ProviderConfigurations {
+  const machineText = texts.get(MACHINE_SCOPE);
+  const machine =
+    machineText === undefined
+      ? undefined
+      : parseConfiguration("the machine's provider configuration", machineText);
+  const parsed = new Map<string, ProvidersFile>();
+  return {
+    machine,
+    workspace(id) {
+      const text = id === MACHINE_SCOPE ? undefined : texts.get(id);
+      if (text === undefined) {
+        return;
+      }
+      const known = parsed.get(id);
+      if (known !== undefined) {
+        return known;
+      }
+      const file = parseConfiguration(
+        `the provider configuration of workspace ${id}`,
+        text
+      );
+      parsed.set(id, file);
+      return file;
+    },
+    workspaces: [...texts.keys()].filter((key) => key !== MACHINE_SCOPE),
+  };
+}
+
+/** One scope's configuration as the JSON text a store keeps, checked against the schema first. */
+export function configurationText(file: ProvidersFile): string {
+  const checked = SCOPE_CONFIGURATION.safeParse(file);
+  if (!checked.success) {
+    throw new ConfigurationError(
+      "PROVIDER_ENTRY_INVALID",
+      `the provider configuration cannot be kept as it is (${describeIssues(checked.error)})`
     );
   }
+  return JSON.stringify(checked.data);
+}
+
+function parseConfiguration(what: string, text: string): ProvidersFile {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    // biome-ignore lint/style/useErrorCause: the parser's message can quote the file, which may hold a secret.
-    throw unreadable(path, "it is not valid JSON");
+    // biome-ignore lint/style/useErrorCause: the parser's message can quote the configuration, which may hold a secret.
+    throw unreadable(what, "it is not valid JSON");
   }
-  const checked = FILE.safeParse(parsed);
+  const checked = SCOPE_CONFIGURATION.safeParse(parsed);
   if (!checked.success) {
-    throw unreadable(path, describeIssues(checked.error));
+    throw unreadable(what, describeIssues(checked.error));
   }
   return checked.data as ProvidersFile;
 }
@@ -111,332 +183,138 @@ export function describeIssues(error: z.ZodError): string {
     .join("; ");
 }
 
-function unreadable(path: string, why: string): ConfigurationError {
+function unreadable(what: string, why: string): ConfigurationError {
   return new ConfigurationError(
     "CONFIGURATION_UNREADABLE",
-    `${path} cannot be read as provider configuration (${why}); fix or remove it`
+    `${what} cannot be read (${why}); configure those providers again`
   );
 }
 
-/**
- * Temp-and-rename with the file readable by its owner only. The temp file
- * is flushed before the rename and the directory after it, so a crash
- * leaves the old file or the new one.
- */
-function writeProvidersFile(path: string, file: ProvidersFile): void {
-  writeText(path, `${JSON.stringify(file, null, 2)}\n`);
-}
-
-/** Flush a rename. A filesystem that cannot sync a directory is left to its own ordering. */
-function syncDirectory(dir: string): void {
-  const handle = openSync(dir, "r");
-  try {
-    fsyncSync(handle);
-  } catch (error) {
-    const { code } = error as NodeJS.ErrnoException;
-    if (code !== "EINVAL" && code !== "ENOTSUP" && code !== "EISDIR") {
-      throw error;
-    }
-  } finally {
-    closeSync(handle);
-  }
-}
-
-function writeText(path: string, text: string): void {
-  const dir = dirname(path);
-  mkdirSync(dir, { recursive: true });
-  const temp = `${path}.${randomUUID()}.tmp`;
-  try {
-    const fd = openSync(temp, "wx", 0o600);
-    try {
-      writeFileSync(fd, text);
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-    chmodSync(temp, 0o600);
-    renameSync(temp, path);
-    syncDirectory(dir);
-  } finally {
-    rmSync(temp, { force: true });
-  }
-}
-
-const LOCK = "providers";
-const ATTEMPTS = 20;
-const RETRY_MS = 25;
-
-/** One file an update edits under its lock. `edit` returns undefined to leave it as it is. */
-export interface FileEdit {
-  readonly edit: (
-    current: ProvidersFile | undefined
-  ) => ProvidersFile | undefined;
-  readonly lockDir: string;
-  readonly path: string;
-}
-
-/**
- * Edit one scope's file under its lock: re-read, apply `edit`, write. `edit`
- * may throw to refuse, and nothing is written then. A lock held for longer
- * than a brief retry fails `CONFIGURATION_BUSY`.
- */
-export async function updateProvidersFile(
-  path: string,
-  lockDir: string,
-  edit: FileEdit["edit"]
-): Promise<void> {
-  await updateProvidersFiles([{ edit, lockDir, path }]);
-}
-
-/**
- * Edit several files together: take every lock in the order given, re-read
- * each, run every edit, and only then write. When a write fails, the files
- * already written are put back as they were, so other processes never see
- * part of the change unless this process dies between two writes.
- */
-export async function updateProvidersFiles(
-  edits: readonly FileEdit[]
-): Promise<void> {
-  for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
-    const locks = takeLocks(edits.map((each) => each.lockDir));
-    if (locks) {
-      try {
-        const planned = edits.map((each) => ({
-          next: each.edit(readProvidersFile(each.path)),
-          path: each.path,
-        }));
-        writeAll(planned);
-        return;
-      } finally {
-        for (const lock of locks.reverse()) {
-          lock.release();
-        }
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
-  }
-  throw new ConfigurationError(
-    "CONFIGURATION_BUSY",
-    `${edits.map((each) => each.path).join(" and ")} ${edits.length > 1 ? "are" : "is"} being changed by another process; try again`
-  );
-}
-
-/** Every lock, or none: a held or failed one releases those already taken. */
-function takeLocks(dirs: readonly string[]): { release(): void }[] | undefined {
-  const taken: { release(): void }[] = [];
-  const releaseTaken = () => {
-    for (const each of taken.reverse()) {
-      each.release();
-    }
-  };
-  for (const dir of dirs) {
-    let lock: ReturnType<typeof acquireLock>;
-    try {
-      lock = acquireLock(dir, LOCK);
-    } catch (error) {
-      releaseTaken();
-      throw error;
-    }
-    if (!("release" in lock)) {
-      releaseTaken();
-      return;
-    }
-    taken.push(lock);
-  }
-  return taken;
-}
-
-function writeAll(
-  planned: readonly { next: ProvidersFile | undefined; path: string }[]
-): void {
-  const written: { path: string; previous: string | undefined }[] = [];
-  try {
-    for (const { next, path } of planned) {
-      if (next === undefined) {
-        continue;
-      }
-      // Recorded first: a write can fail after its rename.
-      written.push({
-        path,
-        previous: existsSync(path) ? readFileSync(path, "utf8") : undefined,
-      });
-      writeProvidersFile(path, next);
-    }
-  } catch (error) {
-    const stranded = written.reverse().flatMap(({ path, previous }) => {
-      try {
-        if (previous === undefined) {
-          rmSync(path, { force: true });
-        } else {
-          writeText(path, previous);
-        }
-        return [];
-      } catch {
-        return [path];
-      }
-    });
-    if (stranded.length > 0) {
-      // biome-ignore lint/style/useErrorCause: the cause is passed in the options argument.
-      throw new ConfigurationError(
-        "CONFIGURATION_PARTIAL",
-        `A change to provider configuration failed, and ${stranded.join(" and ")} could not be put back; check ${stranded.length > 1 ? "them" : "it"} before editing again`,
-        { cause: error }
-      );
-    }
-    throw error;
-  }
-}
-
-const KEY_FILE = "identity.key";
 const KEY = /^[0-9a-f]{64}$/;
 
-/**
- * The machine's key for instance identities, from `<dir>/identity.key`
- * (mode `0600`). It is created once: written and flushed under a temporary
- * name, then linked into place, so concurrent creators agree on one key and
- * a crash leaves either no key or a whole one. It is never rewritten.
- * Without a directory, or read-only with none yet, a key for this process
- * alone, so identities from it match nothing stored. A key file that is
- * malformed, unreadable, or cannot be created is refused with its path.
- */
-export function identityKey(dir: string | undefined, readOnly = false): Buffer {
-  if (dir === undefined) {
-    return randomBytes(32);
-  }
-  const path = join(dir, KEY_FILE);
-  const existing = readKey(path);
-  if (existing || readOnly) {
-    return existing ?? randomBytes(32);
-  }
-  const temp = `${path}.${randomUUID()}.tmp`;
-  try {
-    mkdirSync(dir, { recursive: true });
-    const fd = openSync(temp, "wx", 0o600);
-    try {
-      writeFileSync(fd, randomBytes(32).toString("hex"));
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-    try {
-      linkSync(temp, path);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        throw error;
-      }
-    }
-    syncDirectory(dir);
-  } catch (error) {
-    // biome-ignore lint/style/useErrorCause: the cause is passed in the options argument.
+/** A new identity key, as the hex a store keeps. */
+export function newIdentityKey(): string {
+  return randomBytes(32).toString("hex");
+}
+
+/** The identity key a store kept as `text`; `CONFIGURATION_UNREADABLE` when it is not one. */
+export function identityKeyFrom(text: string): Buffer {
+  if (!KEY.test(text)) {
     throw new ConfigurationError(
       "CONFIGURATION_UNREADABLE",
-      `the identity key ${path} cannot be created (${(error as NodeJS.ErrnoException).code ?? "unknown error"}); check that the Marbles state root is writable`,
-      { cause: error }
+      "the identity key in the Marbles database is not one; remove it to start new sessions everywhere"
     );
-  } finally {
-    rmSync(temp, { force: true });
   }
-  return readKey(path) as Buffer;
+  return Buffer.from(text, "hex");
 }
-
-function readKey(path: string): Buffer | undefined {
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch (error) {
-    const { code } = error as NodeJS.ErrnoException;
-    if (code === "ENOENT") {
-      return;
-    }
-    throw keyRefused(path, `it cannot be read: ${String(code)}`);
-  }
-  if (!KEY.test(text.trim())) {
-    throw keyRefused(path, "it is not an identity key");
-  }
-  return Buffer.from(text.trim(), "hex");
-}
-
-function keyRefused(path: string, why: string): ConfigurationError {
-  return new ConfigurationError(
-    "CONFIGURATION_UNREADABLE",
-    `the identity key ${path} cannot be used (${why}); restore it, or remove it to start new sessions everywhere`
-  );
-}
-
-export type Edit = (
-  current: ProvidersFile | undefined
-) => ProvidersFile | undefined;
 
 /**
- * Where one scope's entries live: a file under a lock, memory for a
- * programmatic host, or a file read but never written in a dry run.
+ * Provider configuration in this process's memory, as long as it lasts:
+ * for a programmatic host, whose sessions match nothing kept elsewhere.
  */
-export interface Store {
-  /** The file and its lock, when edits are written. */
-  readonly file?: { readonly lockDir: string; readonly path: string };
-  read(): ProvidersFile | undefined;
-  /** Apply `edit`; undefined leaves the store as it is. */
-  update(edit: Edit): Promise<void>;
-  readonly watched?: string;
-}
+export class MemoryProviderStore implements ProviderStore {
+  readonly #texts = new Map<string, string>();
+  #key: string | undefined;
+  #revision = 0;
 
-export function fileStore(
-  path: string,
-  lockDir: string,
-  readOnly = false
-): Store {
-  if (readOnly) {
-    // The file until this engine edits it, then the engine's own copy.
-    let edited: { file: ProvidersFile | undefined } | undefined;
-    const read = () => (edited ? edited.file : readProvidersFile(path));
-    return {
-      read,
-      update: (edit) => {
-        const next = edit(read());
-        if (next !== undefined) {
-          edited = { file: next };
-        }
-        return Promise.resolve();
-      },
-      watched: path,
-    };
+  identityKey(make: boolean): Promise<Buffer | undefined> {
+    if (make) {
+      this.#key ??= newIdentityKey();
+    }
+    return Promise.resolve(
+      this.#key === undefined ? undefined : identityKeyFrom(this.#key)
+    );
   }
-  return {
-    file: { lockDir, path },
-    read: () => readProvidersFile(path),
-    update: (edit) =>
-      updateProvidersFile(path, lockDir, (current) => edit(current)),
-    watched: path,
-  };
+
+  read(): Promise<ProviderConfigurations> {
+    return Promise.resolve(keptConfigurations(new Map(this.#texts)));
+  }
+
+  revision(): Promise<number> {
+    return Promise.resolve(this.#revision);
+  }
+
+  update(
+    workspace: string | undefined,
+    edit: (current: ProviderConfigurations) => ProviderWrites
+  ): Promise<ProviderConfigurations> {
+    try {
+      const writes = edit(keptConfigurations(new Map(this.#texts)));
+      const written = writtenTexts(workspace, writes);
+      for (const [scope, text] of written) {
+        this.#texts.set(scope, text);
+      }
+      if (written.size > 0) {
+        this.#revision += 1;
+      }
+      return this.read();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
 }
 
-export function memoryStore(): Store {
-  let file: ProvidersFile | undefined;
+/** What `writes` puts, by scope key; a workspace's only when there is one. */
+export function writtenTexts(
+  workspace: string | undefined,
+  writes: ProviderWrites
+): ReadonlyMap<string, string> {
+  const texts = new Map<string, string>();
+  if (writes.machine !== undefined) {
+    texts.set(MACHINE_SCOPE, configurationText(writes.machine));
+  }
+  if (writes.workspace !== undefined) {
+    if (workspace === undefined) {
+      throw new ConfigurationError(
+        "PROVIDER_ENTRY_INVALID",
+        "this engine hosts no workspace, so it has no workspace scope"
+      );
+    }
+    texts.set(workspace, configurationText(writes.workspace));
+  }
+  return texts;
+}
+
+/**
+ * `store` read as it is, with every write kept by this view alone: a dry
+ * run's. It never makes an identity key.
+ */
+export function readOnlyProviders(store: ProviderStore): ProviderStore {
+  const own = new Map<string, string>();
+  let writes = 0;
+  const read = async (): Promise<ProviderConfigurations> => {
+    const kept = await store.read();
+    if (own.size === 0) {
+      return kept;
+    }
+    const texts = new Map<string, string>();
+    if (kept.machine !== undefined) {
+      texts.set(MACHINE_SCOPE, configurationText(kept.machine));
+    }
+    for (const id of kept.workspaces) {
+      const file = kept.workspace(id);
+      if (file !== undefined) {
+        texts.set(id, configurationText(file));
+      }
+    }
+    for (const [scope, text] of own) {
+      texts.set(scope, text);
+    }
+    return keptConfigurations(texts);
+  };
   return {
-    read: () => file,
-    update: (edit) => {
-      file = edit(file) ?? file;
-      return Promise.resolve();
+    identityKey: () => store.identityKey(false),
+    read,
+    revision: async () => (await store.revision()) + writes,
+    async update(workspace, edit) {
+      const written = writtenTexts(workspace, edit(await read()));
+      for (const [scope, text] of written) {
+        own.set(scope, text);
+      }
+      writes += written.size > 0 ? 1 : 0;
+      return read();
     },
   };
-}
-
-/**
- * Apply edits to several stores as one change: files under all their locks
- * with rollback, others by running every edit before applying any.
- */
-export async function together(edits: readonly [Store, Edit][]): Promise<void> {
-  const files = edits.flatMap(([store, edit]) =>
-    store.file ? [{ edit, ...store.file }] : []
-  );
-  if (files.length === edits.length) {
-    await updateProvidersFiles(files);
-    return;
-  }
-  const next = edits.map(([store, edit]) => edit(store.read()));
-  for (const [index, [store]] of edits.entries()) {
-    await store.update(() => next[index]);
-  }
 }
 
 export function empty(): ProvidersFile {

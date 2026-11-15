@@ -1308,8 +1308,7 @@ export class Engine {
    */
   async #listModels(): Promise<void> {
     try {
-      // `configured` reads the files too, so it is inside the guard.
-      if (!this.providers?.configured) {
+      if (this.providers === undefined) {
         return;
       }
       for (const problem of await this.providers.refresh()) {

@@ -1,15 +1,3 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { Provider } from "@foundry/models";
 import { ModelManager } from "@foundry/models";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,10 +16,87 @@ import {
   piPlugin,
   registered,
 } from "~/lib/providers/plugins";
-import { acquireLock } from "~/lib/state/locks";
+import type {
+  ProviderConfigurations,
+  ProviderStore,
+  ProviderWrites,
+} from "~/lib/providers/store";
+import {
+  identityKeyFrom,
+  keptConfigurations,
+  MACHINE_SCOPE,
+  newIdentityKey,
+  writtenTexts,
+} from "~/lib/providers/store";
 
-let state: string;
-let workspaceDir: string;
+/**
+ * Provider configuration kept as a store keeps it, each scope's JSON text
+ * by its scope key, which a test reads and writes directly; `hold` makes
+ * the next writes wait, as another process's transaction would.
+ */
+class TestStore implements ProviderStore {
+  readonly texts = new Map<string, string>();
+  key: string | undefined;
+  revisions = 0;
+  #held: Promise<undefined> = Promise.resolve(undefined);
+
+  /** Keep `file` as the configuration of `scope`, as another process would. */
+  put(scope: string, file: object): void {
+    this.texts.set(scope, JSON.stringify({ version: 1, ...file }));
+    this.revisions += 1;
+  }
+
+  hold(): { release(): void } {
+    const { promise, resolve } = Promise.withResolvers<undefined>();
+    this.#held = promise;
+    return { release: () => resolve(undefined) };
+  }
+
+  identityKey(make: boolean): Promise<Buffer | undefined> {
+    if (make) {
+      this.key ??= newIdentityKey();
+    }
+    try {
+      return Promise.resolve(
+        this.key === undefined ? undefined : identityKeyFrom(this.key)
+      );
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
+  read(): Promise<ProviderConfigurations> {
+    try {
+      return Promise.resolve(keptConfigurations(new Map(this.texts)));
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
+  revision(): Promise<number> {
+    return Promise.resolve(this.revisions);
+  }
+
+  async update(
+    workspace: string | undefined,
+    edit: (current: ProviderConfigurations) => ProviderWrites
+  ): Promise<ProviderConfigurations> {
+    await this.#held;
+    const written = writtenTexts(
+      workspace,
+      edit(keptConfigurations(new Map(this.texts)))
+    );
+    for (const [scope, text] of written) {
+      this.texts.set(scope, text);
+    }
+    if (written.size > 0) {
+      this.revisions += 1;
+    }
+    return this.read();
+  }
+}
+
+let store: TestStore;
 const seen = new Map<string, ProviderSetup<{ key?: string }>>();
 
 /** A plugin whose instances record the setup they were built with. */
@@ -87,8 +152,10 @@ const PLUGINS = [
   ),
 ];
 
-function writeFile(path: string, file: object): void {
-  writeFileSync(path, JSON.stringify({ version: 1, ...file }));
+/** Read what the store keeps, then load it: what an engine's start does first. */
+async function loaded(config: ProviderConfiguration): Promise<void> {
+  await config.read();
+  config.load();
 }
 
 function configuration(
@@ -103,8 +170,8 @@ function configuration(
     environment,
     models,
     plugins: PLUGINS,
-    state,
-    workspace: { dir: workspaceDir, id: "ws1", root: "/repo" },
+    store,
+    workspace: { dir: "/state/ws1", id: "ws1", root: "/repo" },
     ...options,
   });
   return { config, models };
@@ -113,15 +180,12 @@ function configuration(
 const ids = (models: ModelManager) => models.providers.map((p) => p.id);
 
 beforeEach(() => {
-  state = mkdtempSync(join(tmpdir(), "marbles-config-"));
-  workspaceDir = join(state, "ws1");
-  mkdirSync(workspaceDir);
+  store = new TestStore();
   seen.clear();
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
-  rmSync(state, { force: true, recursive: true });
 });
 
 /** Make `process.env` hold exactly `env` under the account names `patterns` cover. */
@@ -146,36 +210,36 @@ function matchProcessEnv(
 }
 
 describe("the effective set", () => {
-  it("puts workspace entries before machine entries, in file order", () => {
-    writeFile(join(state, "providers.json"), {
+  it("puts workspace entries before machine entries, in file order", async () => {
+    store.put(MACHINE_SCOPE, {
       providers: [
         { enabled: true, id: "codex", plugin: "codex" },
         { enabled: true, id: "vercel", plugin: "vercel" },
       ],
     });
-    writeFile(join(workspaceDir, "providers.json"), {
+    store.put("ws1", {
       providers: [{ enabled: true, id: "acme-bedrock", plugin: "bedrock" }],
     });
     const { config, models } = configuration();
-    config.load();
+    await loaded(config);
     expect(ids(models)).toEqual(["acme-bedrock", "codex", "vercel"]);
     expect(seen.get("acme-bedrock")?.workspace).toMatchObject({ id: "ws1" });
     expect(seen.get("codex")?.workspace).toBeUndefined();
   });
 
-  it("uses exactly what a workspace order lists, in that order", () => {
-    writeFile(join(state, "providers.json"), {
+  it("uses exactly what a workspace order lists, in that order", async () => {
+    store.put(MACHINE_SCOPE, {
       providers: [
         { enabled: true, id: "codex", plugin: "codex" },
         { enabled: true, id: "vercel", plugin: "vercel" },
       ],
     });
-    writeFile(join(workspaceDir, "providers.json"), {
+    store.put("ws1", {
       order: ["vercel"],
       providers: [],
     });
     const { config, models } = configuration();
-    config.load();
+    await loaded(config);
     expect(ids(models)).toEqual(["vercel"]);
     expect(config.list().find((entry) => entry.id === "codex")).toMatchObject({
       problem: "not in this workspace's order",
@@ -183,15 +247,15 @@ describe("the effective set", () => {
     });
   });
 
-  it("uses neither entry when one id is configured at both scopes", () => {
-    writeFile(join(state, "providers.json"), {
+  it("uses neither entry when one id is configured at both scopes", async () => {
+    store.put(MACHINE_SCOPE, {
       providers: [{ enabled: true, id: "codex", plugin: "codex" }],
     });
-    writeFile(join(workspaceDir, "providers.json"), {
+    store.put("ws1", {
       providers: [{ enabled: true, id: "codex", plugin: "codex" }],
     });
     const { config, models } = configuration();
-    config.load();
+    await loaded(config);
     expect(ids(models)).toEqual([]);
     expect(config.list().map((entry) => entry.state)).toEqual([
       "unloadable",
@@ -199,8 +263,8 @@ describe("the effective set", () => {
     ]);
   });
 
-  it("keeps entries it cannot load, and reports why", () => {
-    writeFile(join(state, "providers.json"), {
+  it("keeps entries it cannot load, and reports why", async () => {
+    store.put(MACHINE_SCOPE, {
       providers: [
         { enabled: true, id: "bound", plugin: "bedrock" },
         { enabled: true, id: "mystery", plugin: "@acme/unknown" },
@@ -214,7 +278,7 @@ describe("the effective set", () => {
       ],
     });
     const { config, models } = configuration();
-    config.load();
+    await loaded(config);
     expect(ids(models)).toEqual([]);
     const problems = Object.fromEntries(
       config.list().map((entry) => [entry.id, entry.problem])
@@ -229,18 +293,18 @@ describe("the effective set", () => {
 });
 
 describe("environments by scope", () => {
-  it("gives machine entries the machine environment and workspace entries the workspace's values on top", () => {
-    writeFile(join(state, "providers.json"), {
+  it("gives machine entries the machine environment and workspace entries the workspace's values on top", async () => {
+    store.put(MACHINE_SCOPE, {
       providers: [{ enabled: true, id: "codex", plugin: "codex" }],
     });
-    writeFile(join(workspaceDir, "providers.json"), {
+    store.put("ws1", {
       providers: [{ enabled: true, id: "vercel", plugin: "vercel" }],
     });
     const { config } = configuration({
       machine: { PATH: "/bin", TOKEN: "machine" },
       workspace: { TOKEN: "workspace", WORKSPACE_ONLY: "w" },
     });
-    config.load();
+    await loaded(config);
     expect(seen.get("codex")?.env).toEqual({ PATH: "/bin", TOKEN: "machine" });
     expect(seen.get("vercel")?.env).toEqual({
       PATH: "/bin",
@@ -249,15 +313,15 @@ describe("environments by scope", () => {
     });
   });
 
-  it("leaves a machine-scope instance that reads the process environment unavailable when the workspace adds to it", () => {
-    writeFile(join(state, "providers.json"), {
+  it("leaves a machine-scope instance that reads the process environment unavailable when the workspace adds to it", async () => {
+    store.put(MACHINE_SCOPE, {
       providers: [{ enabled: true, id: "pi", plugin: "pi" }],
     });
     const { config, models } = configuration({
       machine: { PATH: "/bin" },
       workspace: { ANTHROPIC_API_KEY: "secret-value" },
     });
-    config.load();
+    await loaded(config);
     expect(ids(models)).toEqual([]);
     const [entry] = config.list();
     expect(entry?.state).toBe("unavailable");
@@ -288,14 +352,12 @@ describe("edits", () => {
     expect(config.list().map((entry) => entry.id)).toEqual(["codex"]);
 
     const reloaded = configuration();
-    reloaded.config.load();
+    await loaded(reloaded.config);
     expect(ids(reloaded.models)).toEqual(["codex"]);
   });
 
   it("refuses an id taken at the other scope, a bound plugin at machine scope, and a literal secret", async () => {
-    writeFile(join(state, "other"), {});
-    mkdirSync(join(state, "ws2"));
-    writeFile(join(state, "ws2", "providers.json"), {
+    store.put("ws2", {
       providers: [{ enabled: true, id: "shared", plugin: "codex" }],
     });
     const { config } = configuration();
@@ -317,8 +379,7 @@ describe("edits", () => {
     ).rejects.toThrow("must name an environment variable");
   });
 
-  it("adds a machine entry before the state root exists", async () => {
-    state = join(state, "fresh");
+  it("adds a machine entry to a store that keeps nothing yet", async () => {
     const { config, models } = configuration();
     await config.add({ id: "codex", plugin: "codex" }, { scope: "machine" });
     expect(ids(models)).toEqual(["codex"]);
@@ -329,13 +390,14 @@ describe("edits", () => {
     await config.add({ id: "codex", plugin: "codex" }, { scope: "machine" });
     const problems: string[] = [];
     const stop = config.watch((problem) => problems.push(problem));
-    writeFileSync(join(state, "providers.json"), "{ broken");
+    store.texts.set(MACHINE_SCOPE, "{ broken");
+    store.revisions += 1;
     await vi.waitFor(() => expect(problems.length).toBeGreaterThan(0), {
       timeout: 5000,
     });
     stop();
     expect(ids(models)).toEqual(["codex"]);
-    expect(() => configuration().config.load()).toThrow(
+    await expect(loaded(configuration().config)).rejects.toThrow(
       expect.objectContaining({ code: "CONFIGURATION_UNREADABLE" })
     );
   });
@@ -345,7 +407,7 @@ describe("entries that cannot be built", () => {
   it("writes nothing when the edited entry's plugin throws, and later engines still load", async () => {
     const { config } = configuration();
     await config.add({ id: "codex", plugin: "codex" }, { scope: "machine" });
-    const before = readFileSync(join(state, "providers.json"), "utf8");
+    const before = store.texts.get(MACHINE_SCOPE);
     for (const id of ["broken", "uncatalogued"]) {
       await expect(
         config.add({ id, plugin: id }, { scope: "machine" })
@@ -354,18 +416,18 @@ describe("entries that cannot be built", () => {
         message: expect.stringContaining("exploded"),
       });
     }
-    expect(readFileSync(join(state, "providers.json"), "utf8")).toBe(before);
+    expect(store.texts.get(MACHINE_SCOPE)).toBe(before);
     await expect(
       config.update("codex", { defaults: { text: "missing" } })
     ).rejects.toMatchObject({ code: "PROVIDER_ENTRY_INVALID" });
-    expect(readFileSync(join(state, "providers.json"), "utf8")).toBe(before);
+    expect(store.texts.get(MACHINE_SCOPE)).toBe(before);
     const fresh = configuration();
-    expect(() => fresh.config.load()).not.toThrow();
+    await loaded(fresh.config);
     expect(fresh.config.list().map((entry) => entry.id)).toEqual(["codex"]);
   });
 
-  it("keeps a stored entry whose plugin throws as unloadable, and loads the rest", () => {
-    writeFile(join(state, "providers.json"), {
+  it("keeps a stored entry whose plugin throws as unloadable, and loads the rest", async () => {
+    store.put(MACHINE_SCOPE, {
       providers: [
         { enabled: true, id: "broken", plugin: "broken" },
         { enabled: true, id: "uncatalogued", plugin: "uncatalogued" },
@@ -373,7 +435,7 @@ describe("entries that cannot be built", () => {
       ],
     });
     const { config, models } = configuration();
-    config.load();
+    await loaded(config);
     expect(ids(models)).toEqual(["codex"]);
     expect(
       config.list().map((entry) => [entry.id, entry.state, entry.problem])
@@ -389,7 +451,7 @@ describe("entries that cannot be built", () => {
   });
 });
 
-it("never repeats a value a plugin's settings schema quotes", () => {
+it("never repeats a value a plugin's settings schema quotes", async () => {
   const strict = registered(
     plugin("strict", {
       detect: () => null,
@@ -403,7 +465,7 @@ it("never repeats a value a plugin's settings schema quotes", () => {
       }),
     })
   );
-  writeFile(join(state, "providers.json"), {
+  store.put(MACHINE_SCOPE, {
     providers: [
       {
         enabled: true,
@@ -417,9 +479,9 @@ it("never repeats a value a plugin's settings schema quotes", () => {
     environment: { machine: {}, workspace: {} },
     models: new ModelManager(),
     plugins: [strict],
-    state,
+    store,
   });
-  config.load();
+  await loaded(config);
   const [entry] = config.list();
   expect(entry?.state).toBe("unloadable");
   expect(entry?.problem).toContain("key: custom");
@@ -427,7 +489,7 @@ it("never repeats a value a plugin's settings schema quotes", () => {
 });
 
 it("disables an entry that cannot load, and refuses to enable it again", async () => {
-  writeFile(join(state, "providers.json"), {
+  store.put(MACHINE_SCOPE, {
     providers: [
       {
         enabled: true,
@@ -439,7 +501,7 @@ it("disables an entry that cannot load, and refuses to enable it again", async (
     ],
   });
   const { config } = configuration();
-  config.load();
+  await loaded(config);
   await config.disable("literal");
   await config.disable("gone");
   expect(config.list().map((entry) => [entry.id, entry.enabled])).toEqual([
@@ -451,15 +513,15 @@ it("disables an entry that cannot load, and refuses to enable it again", async (
   });
 });
 
-it("keeps a read-only engine's edits in memory and writes no file", async () => {
+it("keeps a read-only engine's edits in memory and writes nothing", async () => {
   const models = new ModelManager();
   const config = new ProviderConfiguration({
     environment: { machine: { PATH: "/bin" }, workspace: {} },
     models,
     plugins: PLUGINS,
     readOnly: true,
-    state,
-    workspace: { dir: workspaceDir, id: "ws1", root: "/repo" },
+    store,
+    workspace: { dir: "/state/ws1", id: "ws1", root: "/repo" },
   });
   await config.add({ id: "codex", plugin: "codex" }, { scope: "machine" });
   await config.replace([
@@ -468,19 +530,23 @@ it("keeps a read-only engine's edits in memory and writes no file", async () => 
   ]);
   expect(await config.initialize([])).toBe(false);
   expect(ids(models)).toEqual(["vercel", "codex"]);
-  expect(existsSync(join(state, "providers.json"))).toBe(false);
-  expect(existsSync(join(workspaceDir, "providers.json"))).toBe(false);
+  expect(store.texts.has(MACHINE_SCOPE)).toBe(false);
+  expect(store.texts.has("ws1")).toBe(false);
+  // Nor an identity key.
+  await config.read();
+  expect(config.identityOf("codex")).toEqual(expect.any(String));
+  expect(store.key).toBeUndefined();
 });
 
 it("lets a disabled entry stand beside an enabled one with its id, and refuses to enable it", async () => {
-  writeFile(join(state, "providers.json"), {
+  store.put(MACHINE_SCOPE, {
     providers: [{ enabled: true, id: "codex", plugin: "codex" }],
   });
-  writeFile(join(workspaceDir, "providers.json"), {
+  store.put("ws1", {
     providers: [{ enabled: false, id: "codex", plugin: "codex" }],
   });
   const { config, models } = configuration();
-  config.load();
+  await loaded(config);
   expect(ids(models)).toEqual(["codex"]);
   expect(config.list().map((entry) => [entry.scope, entry.state])).toEqual([
     ["machine", "ready"],
@@ -491,8 +557,8 @@ it("lets a disabled entry stand beside an enabled one with its id, and refuses t
   });
 });
 
-it("never lists a secret field's literal value", () => {
-  writeFile(join(state, "providers.json"), {
+it("never lists a secret field's literal value", async () => {
+  store.put(MACHINE_SCOPE, {
     providers: [
       {
         enabled: true,
@@ -509,7 +575,7 @@ it("never lists a secret field's literal value", () => {
     ],
   });
   const { config } = configuration();
-  config.load();
+  await loaded(config);
   const listed = config.list();
   expect(JSON.stringify(listed)).not.toContain("sk-LITERAL");
   expect(listed.find((entry) => entry.id === "literal")).toMatchObject({
@@ -523,8 +589,7 @@ it("never lists a secret field's literal value", () => {
 
 describe("replace", () => {
   it("refuses a machine id another workspace already configures, and a repeated id", async () => {
-    mkdirSync(join(state, "ws2"));
-    writeFile(join(state, "ws2", "providers.json"), {
+    store.put("ws2", {
       providers: [{ enabled: true, id: "shared", plugin: "codex" }],
     });
     const { config } = configuration();
@@ -543,29 +608,29 @@ describe("replace", () => {
   });
 
   it("writes neither file when an entry for either scope cannot be built", async () => {
-    writeFile(join(workspaceDir, "providers.json"), {
+    store.put("ws1", {
       providers: [{ enabled: true, id: "codex", plugin: "codex" }],
     });
-    const before = readFileSync(join(workspaceDir, "providers.json"), "utf8");
+    const before = store.texts.get("ws1") ?? "";
     const { config, models } = configuration();
-    config.load();
+    await loaded(config);
     await expect(
       config.replace([
         { enabled: true, id: "codex", plugin: "codex", scope: "machine" },
         { enabled: true, id: "broken", plugin: "broken", scope: "workspace" },
       ])
     ).rejects.toMatchObject({ code: "PROVIDER_ENTRY_INVALID" });
-    expect(configuration().config.configured).toBe(true);
-    expect(readFileSync(join(workspaceDir, "providers.json"), "utf8")).toBe(
-      before
-    );
-    expect(existsSync(join(state, "providers.json"))).toBe(false);
-    config.load();
+    const fresh = configuration().config;
+    await fresh.read();
+    expect(fresh.configured).toBe(true);
+    expect(store.texts.get("ws1") ?? "").toBe(before);
+    expect(store.texts.has(MACHINE_SCOPE)).toBe(false);
+    await loaded(config);
     expect(ids(models)).toEqual(["codex"]);
   });
 
   it("replaces a workspace order with the entries' own order", async () => {
-    writeFile(join(workspaceDir, "providers.json"), {
+    store.put("ws1", {
       order: ["codex"],
       providers: [{ enabled: true, id: "codex", plugin: "codex" }],
     });
@@ -574,9 +639,9 @@ describe("replace", () => {
       { enabled: true, id: "vercel", plugin: "vercel", scope: "workspace" },
       { enabled: true, id: "codex", plugin: "codex", scope: "machine" },
     ]);
-    expect(
-      JSON.parse(readFileSync(join(workspaceDir, "providers.json"), "utf8"))
-    ).not.toHaveProperty("order");
+    expect(JSON.parse(store.texts.get("ws1") ?? "")).not.toHaveProperty(
+      "order"
+    );
     expect(ids(models)).toEqual(["vercel", "codex"]);
   });
 
@@ -591,17 +656,17 @@ describe("replace", () => {
   });
 });
 
-it("gives the same entry another identity at another scope, and keeps it when only its place changes", () => {
-  writeFile(join(state, "providers.json"), {
+it("gives the same entry another identity at another scope, and keeps it when only its place changes", async () => {
+  store.put(MACHINE_SCOPE, {
     providers: [
       { enabled: true, id: "codex", plugin: "codex" },
       { enabled: true, id: "vercel", plugin: "vercel" },
     ],
   });
   const { config } = configuration();
-  config.load();
+  await loaded(config);
   const machine = config.identityOf("codex");
-  writeFile(join(state, "providers.json"), {
+  store.put(MACHINE_SCOPE, {
     providers: [
       { enabled: true, id: "vercel", plugin: "vercel" },
       {
@@ -612,13 +677,13 @@ it("gives the same entry another identity at another scope, and keeps it when on
       },
     ],
   });
-  config.load();
+  await loaded(config);
   expect(config.identityOf("codex")).toBe(machine);
-  writeFile(join(state, "providers.json"), { providers: [] });
-  writeFile(join(workspaceDir, "providers.json"), {
+  store.put(MACHINE_SCOPE, { providers: [] });
+  store.put("ws1", {
     providers: [{ enabled: true, id: "codex", plugin: "codex" }],
   });
-  config.load();
+  await loaded(config);
   expect(config.identityOf("codex")).toEqual(expect.any(String));
   expect(config.identityOf("codex")).not.toBe(machine);
 });
@@ -627,10 +692,10 @@ describe("instance identity", () => {
   const FIRST_PARTY = [claudeCodePlugin, codexPlugin, piPlugin].map((p) =>
     registered(p)
   );
-  const identity = (
+  const identity = async (
     pluginId: string,
     machine: Record<string, string>,
-    root = state
+    kept = store
   ) => {
     const env = { HOME: "/home/me", ...machine };
     // Pi reads `process.env` itself and serves only when its account names match.
@@ -641,9 +706,9 @@ describe("instance identity", () => {
       environment: { machine: env, workspace: {} },
       models: new ModelManager(),
       plugins: FIRST_PARTY,
-      state: root,
+      store: kept,
     });
-    writeFile(join(root, "providers.json"), {
+    kept.put(MACHINE_SCOPE, {
       providers: [
         {
           enabled: true,
@@ -653,11 +718,11 @@ describe("instance identity", () => {
         },
       ],
     });
-    config.load();
+    await loaded(config);
     return config.identityOf("p");
   };
 
-  it("tells apart every account variable the first-party CLIs read, and agrees on the same environment", () => {
+  it("tells apart every account variable the first-party CLIs read, and agrees on the same environment", async () => {
     const cases: [string, Record<string, string>][] = [
       ["claude-code", {}],
       [
@@ -687,83 +752,75 @@ describe("instance identity", () => {
       ["pi", { GROQ_API_KEY: "b" }],
       ["pi", { AWS_PROFILE: "client" }],
     ];
-    const digests = cases.map(([name, machine]) => identity(name, machine));
+    const digests: (string | undefined)[] = [];
+    for (const [name, machine] of cases) {
+      digests.push(await identity(name, machine));
+    }
     expect(new Set(digests).size).toBe(cases.length);
-    expect(identity("codex", { OPENAI_API_KEY: "k", OPENAI_ORG_ID: "a" })).toBe(
-      digests[9]
-    );
+    expect(
+      await identity("codex", { OPENAI_API_KEY: "k", OPENAI_ORG_ID: "a" })
+    ).toBe(digests[9]);
     // A variable no first-party CLI reads for its account changes nothing.
-    expect(identity("codex", { CODEX_HOME: "/codex/work", EDITOR: "vi" })).toBe(
-      digests[11]
-    );
+    expect(
+      await identity("codex", { CODEX_HOME: "/codex/work", EDITOR: "vi" })
+    ).toBe(digests[11]);
   });
 
-  it("keys identities to the machine, so a ref reveals nothing a guess could check", () => {
-    const here = identity("claude-code", { ANTHROPIC_API_KEY: "sk-secret" });
+  it("keys identities to the machine, so a ref reveals nothing a guess could check", async () => {
+    const here = await identity("claude-code", {
+      ANTHROPIC_API_KEY: "sk-secret",
+    });
     expect(
-      (statSync(join(state, "identity.key")).mode % 0o1000).toString(8)
-    ).toBe("600");
-    const elsewhere = mkdtempSync(join(tmpdir(), "marbles-other-machine-"));
-    try {
-      expect(
-        identity("claude-code", { ANTHROPIC_API_KEY: "sk-secret" }, elsewhere)
-      ).not.toBe(here);
-    } finally {
-      rmSync(elsewhere, { force: true, recursive: true });
-    }
-    writeFileSync(join(state, "identity.key"), "not a key");
-    expect(() => identity("claude-code", {})).toThrow(
+      await identity(
+        "claude-code",
+        { ANTHROPIC_API_KEY: "sk-secret" },
+        new TestStore()
+      )
+    ).not.toBe(here);
+    store.key = "not a key";
+    await expect(identity("claude-code", {})).rejects.toThrow(
       expect.objectContaining({ code: "CONFIGURATION_UNREADABLE" })
     );
-    expect(readFileSync(join(state, "identity.key"), "utf8")).toBe("not a key");
+    expect(store.key).toBe("not a key");
   });
 
-  it("creates the key only when an identity is asked for, and says why it cannot", () => {
-    writeFile(join(state, "providers.json"), {
+  it("makes the key once something is configured, and keeps it", async () => {
+    const { config } = configuration();
+    await config.read();
+    expect(store.key).toBeUndefined();
+    store.put(MACHINE_SCOPE, {
       providers: [{ enabled: true, id: "codex", plugin: "codex" }],
     });
-    const { config } = configuration();
-    config.load();
-    expect(existsSync(join(state, "identity.key"))).toBe(false);
-    expect(config.identityOf("codex")).toEqual(expect.any(String));
-    expect(existsSync(join(state, "identity.key"))).toBe(true);
-
-    rmSync(join(state, "identity.key"));
-    chmodSync(state, 0o500);
-    try {
-      const locked = configuration().config;
-      locked.load();
-      expect(() => locked.identityOf("codex")).toThrow(
-        expect.objectContaining({
-          code: "CONFIGURATION_UNREADABLE",
-          message: expect.stringContaining("cannot be created (EACCES)"),
-        })
-      );
-    } finally {
-      chmodSync(state, 0o700);
-    }
+    await loaded(config);
+    const { key } = store;
+    expect(key).toEqual(expect.any(String));
+    const first = config.identityOf("codex");
+    const again = configuration().config;
+    await loaded(again);
+    expect(store.key).toBe(key);
+    expect(again.identityOf("codex")).toBe(first);
   });
 
-  it("digests settings as the plugin parses them", () => {
+  it("digests settings as the plugin parses them", async () => {
     const defaulted = registered({
       ...plugin("defaulted", { detect: () => null }),
       settings: z.object({ mode: z.string().default("fast") }),
     } as unknown as ProviderPlugin<{ mode: string }>);
-    const of = (settings: object) => {
-      writeFile(join(state, "providers.json"), {
+    const of = async (settings: object) => {
+      store.put(MACHINE_SCOPE, {
         providers: [{ enabled: true, id: "d", plugin: "defaulted", settings }],
       });
       const config = new ProviderConfiguration({
         environment: { machine: {}, workspace: {} },
         models: new ModelManager(),
         plugins: [defaulted],
-        state,
+        store,
       });
-      config.load();
+      await loaded(config);
       return config.identityOf("d");
     };
-    expect(of({})).toBe(of({ mode: "fast" }));
-    expect(of({ mode: "slow" })).not.toBe(of({}));
+    expect(await of({})).toBe(await of({ mode: "fast" }));
+    expect(await of({ mode: "slow" })).not.toBe(await of({}));
   });
 });
 
@@ -781,9 +838,9 @@ it("refuses an entry with a host-supplied provider's id, and keeps its state whe
     fixed: [host],
     models,
     plugins: PLUGINS,
-    state,
+    store,
   });
-  config.load();
+  await loaded(config);
   const before = config.identityOf("work");
   await expect(
     config.add({ id: "work", plugin: "codex" }, { scope: "machine" })
@@ -800,12 +857,12 @@ it("refuses an entry with a host-supplied provider's id, and keeps its state whe
   expect(config.instance("codex")).toBeDefined();
 });
 
-it("tells a configured instance with no execution from a host-supplied one", () => {
-  writeFile(join(state, "providers.json"), {
+it("tells a configured instance with no execution from a host-supplied one", async () => {
+  store.put(MACHINE_SCOPE, {
     providers: [{ enabled: true, id: "codex", plugin: "vercel" }],
   });
   const { config } = configuration();
-  config.load();
+  await loaded(config);
   expect(config.executionOf("codex")).toBeNull();
   const fixed = new ProviderConfiguration({
     environment: { machine: {}, workspace: {} },
@@ -816,13 +873,13 @@ it("tells a configured instance with no execution from a host-supplied one", () 
   expect(fixed.executionOf("codex")).toBeUndefined();
 });
 
-it("builds stand-ins with the same id and catalog for a dry run", () => {
-  writeFile(join(state, "providers.json"), {
+it("builds stand-ins with the same id and catalog for a dry run", async () => {
+  store.put(MACHINE_SCOPE, {
     providers: [{ enabled: true, id: "codex", plugin: "codex" }],
   });
   const echo = vi.fn((provider: Provider) => ({ ...provider, offline: false }));
   const { config, models } = configuration(undefined, { echo });
-  config.load();
+  await loaded(config);
   expect(echo).toHaveBeenCalledTimes(1);
   expect(models.providers[0]?.models.map((row) => row.id)).toEqual([
     "codex-model",
@@ -837,18 +894,18 @@ it("proposes what each plugin detects, at the scope it would use", () => {
 });
 
 describe("order", () => {
-  it("places each provider once when a disabled entry repeats its id", () => {
-    writeFile(join(workspaceDir, "providers.json"), {
+  it("places each provider once when a disabled entry repeats its id", async () => {
+    store.put("ws1", {
       providers: [
         { enabled: true, id: "codex", plugin: "codex" },
         { enabled: true, id: "vercel", plugin: "vercel" },
       ],
     });
-    writeFile(join(state, "providers.json"), {
+    store.put(MACHINE_SCOPE, {
       providers: [{ enabled: false, id: "codex", plugin: "codex" }],
     });
     const { config, models } = configuration();
-    config.load();
+    await loaded(config);
     expect(ids(models)).toEqual(["codex", "vercel"]);
   });
 });
@@ -879,10 +936,10 @@ describe("instance ownership", () => {
   });
 
   it("disposes an instance prepared for a write that is refused", async () => {
-    writeFile(join(state, "providers.json"), {
+    store.put(MACHINE_SCOPE, {
       providers: [{ enabled: true, id: "codex", plugin: "codex" }],
     });
-    writeFile(join(workspaceDir, "providers.json"), {
+    store.put("ws1", {
       providers: [
         {
           enabled: false,
@@ -893,7 +950,7 @@ describe("instance ownership", () => {
       ],
     });
     const { config } = configuration(undefined, { plugins: OWNED });
-    config.load();
+    await loaded(config);
     await expect(config.enable("codex")).rejects.toThrow("already configured");
     expect(built).toHaveLength(2);
     expect(built[0]?.dispose).not.toHaveBeenCalled();
@@ -901,41 +958,34 @@ describe("instance ownership", () => {
   });
 
   it("disposes what the manager never took: an unavailable or misnamed instance, at reload and at dispose", async () => {
-    const file = join(state, "providers.json");
     const entryWith = (key: string) => ({
       providers: [
         { enabled: true, id: "codex", plugin: "codex", settings: { key } },
       ],
     });
-    writeFile(file, entryWith("OFF"));
+    store.put(MACHINE_SCOPE, entryWith("OFF"));
     const { config, models } = configuration(undefined, { plugins: OWNED });
-    config.load();
+    await loaded(config);
     expect(ids(models)).toEqual([]);
-    writeFile(file, entryWith("MISNAMED"));
-    config.load();
+    store.put(MACHINE_SCOPE, entryWith("MISNAMED"));
+    await loaded(config);
     expect(built[0]?.dispose).toHaveBeenCalledTimes(1);
     expect(built[1]?.dispose).toHaveBeenCalledTimes(1);
-    writeFile(file, entryWith("OFF"));
-    config.load();
-    writeFile(file, entryWith("ON"));
-    config.load();
+    store.put(MACHINE_SCOPE, entryWith("OFF"));
+    await loaded(config);
+    store.put(MACHINE_SCOPE, entryWith("ON"));
+    await loaded(config);
     expect(built[2]?.dispose).toHaveBeenCalledTimes(1);
     await config.dispose();
     expect(built[3]?.dispose).not.toHaveBeenCalled();
-    writeFile(file, entryWith("OFF"));
-    config.load();
+    store.put(MACHINE_SCOPE, entryWith("OFF"));
+    await loaded(config);
     await config.dispose();
     expect(built[4]?.dispose).toHaveBeenCalledTimes(1);
   });
 
-  /** Hold the machine file's lock, so the next write prepares and then waits for it. */
-  const holdMachineLock = () => {
-    const held = acquireLock(state, "providers");
-    if (!("release" in held)) {
-      throw new Error("the machine lock is already held");
-    }
-    return held;
-  };
+  /** Hold the store, so the next write prepares and then waits for it. */
+  const holdMachineLock = () => store.hold();
   const machineEntry = (key: string): ScopedRecord => ({
     enabled: true,
     id: "codex",
@@ -977,7 +1027,7 @@ describe("instance ownership", () => {
   });
 
   it("hands the real instance to the dry-run stand-in, which disposes it", async () => {
-    writeFile(join(state, "providers.json"), {
+    store.put(MACHINE_SCOPE, {
       providers: [{ enabled: true, id: "codex", plugin: "codex" }],
     });
     const { config, models } = configuration(undefined, {
@@ -991,7 +1041,7 @@ describe("instance ownership", () => {
       }),
       plugins: OWNED,
     });
-    config.load();
+    await loaded(config);
     await models.dispose();
     expect(built[0]?.dispose).toHaveBeenCalledTimes(1);
   });
@@ -1064,12 +1114,12 @@ describe("an instance that reads the process environment", () => {
   ];
 
   beforeEach(() => {
-    writeFile(join(state, "providers.json"), {
+    store.put(MACHINE_SCOPE, {
       providers: [{ enabled: true, id: "pi", plugin: "pi" }],
     });
   });
 
-  it("is unavailable when the host's environment names another account than the process holds", () => {
+  it("is unavailable when the host's environment names another account than the process holds", async () => {
     vi.stubEnv(ACCOUNT, "value-in-process");
     const { config, models } = configuration(
       {
@@ -1078,7 +1128,7 @@ describe("an instance that reads the process environment", () => {
       },
       { plugins: AMBIENT }
     );
-    config.load();
+    await loaded(config);
     expect(ids(models)).toEqual([]);
     const [entry] = config.list();
     expect(entry?.state).toBe("unavailable");
@@ -1093,7 +1143,7 @@ describe("an instance that reads the process environment", () => {
       { machine: environmentSnapshot(), workspace: {} },
       { plugins: AMBIENT }
     );
-    config.load();
+    await loaded(config);
     const model = models.resolve("text", "pi/pi-model").open();
     await expect(model.doGenerate(CALL)).resolves.toBe("ran");
     vi.stubEnv(ACCOUNT, "second");

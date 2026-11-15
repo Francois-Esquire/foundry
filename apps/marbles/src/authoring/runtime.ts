@@ -38,14 +38,14 @@ let fallback: Promise<InstanceRuntime> | undefined;
 let createFallback: () => Promise<InstanceRuntime> = async () => {
   const { createDefaultEngine } = await import("~/create");
   const engine = createDefaultEngine();
-  // It is never started, so a provider that lists its models is asked here.
-  if (engine.providers?.configured) {
-    const problems = await engine.providers
-      .refresh()
-      .catch((error: unknown) => [String(error)]);
-    for (const problem of problems) {
-      process.stderr.write(`[providers] ${problem}\n`);
-    }
+  // It is never started, so its providers are read, and a provider that
+  // lists its models asked, here.
+  const problems =
+    (await engine.providers
+      ?.refresh()
+      .catch((error: unknown) => [String(error)])) ?? [];
+  for (const problem of problems) {
+    process.stderr.write(`[providers] ${problem}\n`);
   }
   return engine;
 };

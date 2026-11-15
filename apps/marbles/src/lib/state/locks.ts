@@ -6,8 +6,8 @@ import { processAlive, tryFileLock } from "@foundry/lib/file-lock";
 
 /**
  * `<dir>/locks/<name>` holds the pid of the process that has it: the state
- * root's process claim, the provider configuration's, and task
- * delivery's. It is the
+ * root's process claim, the one lock left (everything else is a claim in
+ * the Marbles database). It is the
  * `@foundry/lib/file-lock` protocol taken without waiting: a lock whose
  * holder has exited, or that stayed empty for 30s (its creator died before
  * writing its pid), is broken and taken over, one breaker at a time through

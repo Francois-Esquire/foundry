@@ -11,6 +11,9 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { sleep, spawn, spawnSync, stripANSI } from "bun";
 import { expect, test } from "vitest";
+import { stateProviders } from "../src/database/providers";
+import { marblesProviderConfigurations } from "../src/database/tables";
+import { writeAsHost } from "../src/database/workspaces";
 import { readProcess } from "../src/process/instance";
 import { type TestHome, testHome } from "./helpers/home";
 
@@ -239,11 +242,11 @@ test("first-run provider setup is offered to a run, never to a dry run, and decl
   const home = testHome({ providers: false });
   const config = join(dir, ".foundry", "marbles");
   const { state } = home.layout;
-  const file = join(state, "providers.json");
+  const machine = async () => (await stateProviders(state).read()).machine;
   const dry = await openTestCli(home, config, ["--dry-run"]);
   try {
     await dry.see("Choose a starter");
-    expect(existsSync(file)).toBe(false);
+    expect(await machine()).toBeUndefined();
   } finally {
     await dry.dispose();
   }
@@ -252,15 +255,18 @@ test("first-run provider setup is offered to a run, never to a dry run, and decl
     await live.see("Use these for every workspace?");
     await live.send("n\r");
     await live.see("Nothing saved");
-    expect(existsSync(file)).toBe(false);
+    expect(await machine()).toBeUndefined();
   } finally {
     await live.dispose();
   }
-  mkdirSync(state, { recursive: true });
-  writeFileSync(file, "{ broken");
+  await writeAsHost(state, (database) =>
+    database
+      .insert(marblesProviderConfigurations)
+      .values({ configuration: "{ broken", revision: 1, scope: "" })
+  );
   const broken = await openTestCli(home, config, []);
   try {
-    await broken.see("cannot be read as provider configuration");
+    await broken.see("provider configuration cannot be read");
     await broken.child.exited;
     expect(broken.child.exitCode).toBe(1);
     expect(broken.output()).toContain("marbles: ");
