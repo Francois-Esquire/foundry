@@ -216,8 +216,7 @@ export async function loadInto<T>(
   } catch (error) {
     into.reset();
     // Given up whether or not an engine answers for the workspace meanwhile.
-    loaded.abandoned = true;
-    abandonHost(workspaceId);
+    abandonHost(workspaceId, into);
     throw error;
   } finally {
     importing -= 1;
@@ -268,19 +267,25 @@ export function expectHost(): void {
 }
 
 /**
- * A host gave workspace `workspaceId` up before it bound an engine to it:
- * forget it, so it answers nothing, and work that still names it is
- * refused.
+ * A host gave up the load of workspace `workspaceId` into `given` before
+ * an engine took that catalog: each such load is abandoned, so its work is
+ * refused, whatever engine answers for the workspace meanwhile. When no
+ * engine answers for the workspace at all, it is forgotten too, so it
+ * answers nothing, and work that still names it is refused.
  */
-export function abandonHost(workspaceId: string): void {
+export function abandonHost(workspaceId: string, given: Catalog): void {
+  for (const load of loads.values()) {
+    if (
+      load.workspaceId === workspaceId &&
+      load.catalog === given &&
+      load.binding === undefined
+    ) {
+      load.abandoned = true;
+    }
+  }
   if (hostings.get(workspaceId)?.binding === undefined) {
     hostings.delete(workspaceId);
     released.add(workspaceId);
-    for (const load of loads.values()) {
-      if (load.workspaceId === workspaceId && load.binding === undefined) {
-        load.abandoned = true;
-      }
-    }
   }
 }
 

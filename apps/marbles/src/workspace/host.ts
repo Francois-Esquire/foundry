@@ -224,7 +224,7 @@ export async function hostWorkspace(
     }
   } catch (error) {
     // Nothing of it stays bound in this process for the next host to meet.
-    abandonHost(loaded.workspace.id);
+    abandonHost(loaded.workspace.id, loaded.catalog);
     own?.close();
     throw error;
   }

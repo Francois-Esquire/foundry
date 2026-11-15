@@ -5,18 +5,28 @@
  * is refused. Never the engine bound after it.
  */
 
-import { expect, it } from "vitest";
-import { Catalog } from "~/authoring/catalog";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { step } from "~/authoring/builder";
+import { Catalog, catalog } from "~/authoring/catalog";
+import { observe } from "~/authoring/observe";
 import type { InstanceRuntime, Scope } from "~/authoring/runtime";
 import {
+  abandonHost,
   captureScope,
   declaringCatalog,
+  dispose,
   inLoad,
   instanceRuntime,
   loadInto,
   setHost,
 } from "~/authoring/runtime";
+import { tasks } from "~/authoring/tasks";
 import { inContext } from "~/lib/execution-context";
+import { hostTasks } from "~/workspace/open";
+import { startEngine } from "./helpers/engine";
 
 type TestEngine = InstanceRuntime & { disposed: boolean };
 
@@ -50,13 +60,13 @@ const RELEASED = expect.objectContaining({ name: "WorkspaceReleasedError" });
 async function reached(
   work: (call: () => unknown) => unknown
 ): Promise<{ catalog: unknown; runtime: unknown }> {
-  const catalog = await Promise.resolve()
+  const declaredInto = await Promise.resolve()
     .then(() => work(declaringCatalog))
     .catch((error: Error) => error.name);
   const runtime = await Promise.resolve()
     .then(() => work(instanceRuntime))
     .catch((error: Error) => error.name);
-  return { catalog, runtime };
+  return { catalog: declaredInto, runtime };
 }
 
 /** A workspace with a first engine bound, then a second bound while the first still runs. */
@@ -219,6 +229,24 @@ it("keeps an old run's timers and promises on its engine while it lives, and ref
   expect(await outcomes.secondTimer).toEqual(refused);
 });
 
+it("refuses a load its host gave up while an older engine still answers, and leaves that engine answering its own", async () => {
+  const w = await replaced("given-up");
+  // The second load completed, and its host gave it up before binding it.
+  abandonHost("given-up", w.next);
+  expect(await reached((call) => inLoad(w.second, call))).toEqual({
+    catalog: "WorkspaceReleasedError",
+    runtime: "WorkspaceReleasedError",
+  });
+  expect(await reached((call) => inLoad(w.first, call))).toEqual({
+    catalog: w.old,
+    runtime: w.oldEngine,
+  });
+  expect(await reached((call) => inRunOf(w.oldEngine, call))).toEqual({
+    catalog: w.old,
+    runtime: w.oldEngine,
+  });
+});
+
 it("refuses a first load's late work once its engine closed, though the workspace is hosted again", async () => {
   const workspace = "hosted-again";
   const old = new Catalog();
@@ -236,4 +264,78 @@ it("refuses a first load's late work once its engine closed, though the workspac
   await expect(inLoad(first, instanceRuntime)).rejects.toThrow(RELEASED);
   expect(inLoad(second, declaringCatalog)).toBe(next);
   expect(await inLoad(second, instanceRuntime)).toBe(secondEngine);
+});
+
+describe("two real engines over one workspace", () => {
+  afterEach(async () => {
+    await dispose();
+    catalog.reset();
+  });
+
+  it("keep an old engine's step and observer on that engine after a new one is bound, until it is disposed", async () => {
+    const workspaceId = "real-replacement";
+    const alive = Promise.withResolvers<undefined>();
+    const late = Promise.withResolvers<undefined>();
+    const seen: Record<string, unknown> = {};
+    /** What the calling work declares into and reaches, by identity. */
+    const probe = async () => ({
+      catalog: (() => {
+        try {
+          return declaringCatalog();
+        } catch (error) {
+          return (error as Error).name;
+        }
+      })(),
+      runtime: await instanceRuntime().catch((error: Error) => error.name),
+    });
+    step("probe").do(async () => {
+      await alive.promise;
+      seen.stepAlive = await probe();
+      // Left running after the step returns, as a timer of its run would.
+      seen.stepLate = late.promise.then(probe);
+      return "done";
+    });
+    observe(tasks, async () => {
+      await alive.promise;
+      seen.observerAlive = await probe();
+      seen.observerLate = late.promise.then(probe);
+    });
+    const root = await mkdtemp(join(tmpdir(), "marbles-real-replacement-"));
+    try {
+      const old = await startEngine({
+        print: () => undefined,
+        root,
+        workspaceId,
+      });
+      const oldCatalog = new Catalog();
+      setHost(old, oldCatalog);
+      const running = old.run("probe", undefined);
+      await hostTasks(old).create({ title: "observed" });
+      const next = await startEngine({
+        print: () => undefined,
+        root,
+        workspaceId,
+      });
+      const nextCatalog = new Catalog();
+      setHost(next, nextCatalog);
+      alive.resolve(undefined);
+      expect(await running).toBe("done");
+      await vi.waitFor(() => expect(seen.observerAlive).toBeDefined());
+      const oldAnswers = { catalog: oldCatalog, runtime: old };
+      expect(seen.stepAlive).toEqual(oldAnswers);
+      expect(seen.observerAlive).toEqual(oldAnswers);
+
+      await old.dispose();
+      late.resolve(undefined);
+      const refused = {
+        catalog: "WorkspaceReleasedError",
+        runtime: "WorkspaceReleasedError",
+      };
+      expect(await seen.stepLate).toEqual(refused);
+      expect(await seen.observerLate).toEqual(refused);
+      await next.dispose();
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
 });
