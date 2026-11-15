@@ -217,6 +217,7 @@ export function createDriverSession(
       handlers: options,
       model: settings.model,
       ...(options.output ? { output: options.output } : {}),
+      sessionId,
     });
     return result;
   };

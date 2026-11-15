@@ -16,8 +16,10 @@ import type {
   SessionPart,
   SessionRole,
 } from "../../session/types";
+import type { SessionStore } from "../../store";
 import { InMemorySessionStore } from "../../store/memory";
 import { textGenerateResult } from "../helpers/mock-language-model";
+import { sessionStoreKinds } from "../helpers/session-stores";
 
 const text = (t: string): SessionPart[] => [{ text: t, type: "text" }];
 const labelOf = (m: SessionMessage): string =>
@@ -43,7 +45,7 @@ function fakeSummarizer(): Summarizer & { lastSeen: string[]; calls: number } {
 }
 
 async function seed(
-  store: InMemorySessionStore,
+  store: SessionStore,
   labels: string[]
 ): Promise<{ sessionId: string; ids: string[] }> {
   return seedRoles(
@@ -53,7 +55,7 @@ async function seed(
 }
 
 async function seedRoles(
-  store: InMemorySessionStore,
+  store: SessionStore,
   items: [SessionRole, string][]
 ): Promise<{ sessionId: string; ids: string[] }> {
   const sessions = new Sessions({ store });
@@ -200,23 +202,6 @@ describe("compact", () => {
     expect(active.map(labelOf)).toEqual(["SUMMARY", "m5", "m6"]);
   });
 
-  test("skips the fold when a folded message changes while it is summarized", async () => {
-    const store = new InMemorySessionStore();
-    const sessions = new Sessions({ store });
-    const { sessionId, ids } = await seed(store, ["m1", "m2", "m3"]);
-    const editing: Summarizer = {
-      async summarize() {
-        await sessions.updateMessage(req(ids[0]), { parts: text("edited") });
-        return "SUMMARY";
-      },
-    };
-
-    expect(await compact(store, editing, sessionId, req(ids[2]))).toBeNull();
-
-    const active = await sessions.activeMessages(sessionId);
-    expect(active.map(labelOf)).toEqual(["edited", "m2", "m3"]);
-  });
-
   test("real summarizer over a simulated model", async () => {
     const store = new InMemorySessionStore();
     const sessions = new Sessions({ store });
@@ -243,6 +228,41 @@ describe("compact", () => {
     const active = await sessions.activeMessages(sessionId);
     expect(active.map((m) => m.role)).toEqual(["summary", "user"]);
     expect(active[0]?.parts[0]).toEqual({ text: "[recap]", type: "text" });
+  });
+});
+
+describe.each(sessionStoreKinds())("compact over %s", (_name, open) => {
+  test("skips the fold when a folded message changes while it is summarized", async () => {
+    const store = await open();
+    const sessions = new Sessions({ store });
+    const { sessionId, ids } = await seed(store, ["m1", "m2", "m3"]);
+    const editing: Summarizer = {
+      async summarize() {
+        await sessions.updateMessage(req(ids[0]), { parts: text("edited") });
+        return "SUMMARY";
+      },
+    };
+
+    expect(await compact(store, editing, sessionId, req(ids[2]))).toBeNull();
+    const active = await sessions.activeMessages(sessionId);
+    expect(active.map(labelOf)).toEqual(["edited", "m2", "m3"]);
+  });
+
+  test("folds in one transaction when nothing changed meanwhile", async () => {
+    const store = await open();
+    const sessions = new Sessions({ store });
+    const { sessionId, ids } = await seed(store, ["m1", "m2", "m3"]);
+
+    const result = await compact(
+      store,
+      fakeSummarizer(),
+      sessionId,
+      req(ids[2])
+    );
+
+    expect(result?.summarizedIds).toEqual([ids[0], ids[1]]);
+    const active = await sessions.activeMessages(sessionId);
+    expect(active.map(labelOf)).toEqual(["SUMMARY", "m3"]);
   });
 });
 

@@ -194,21 +194,21 @@ export class SessionHarness {
       if (!appended) {
         return Promise.resolve({ ...message, sessionId });
       }
-      return this.#sessions
-        .appendMessage({
-          metadata: message.metadata,
-          parts: message.parts,
-          role: "assistant",
-          sessionId,
-          status: message.status,
-        })
-        .catch(() => ({ ...message, sessionId }));
+      // A rejection fails the turn (see `TransformOptions.commit`).
+      return this.#sessions.appendMessage({
+        metadata: message.metadata,
+        parts: message.parts,
+        role: "assistant",
+        sessionId,
+        status: message.status,
+      });
     };
 
     return transformStream(source, {
       commit,
       handlers: options,
       model: this.route,
+      sessionId: this.sessionId,
       ...(options.output ? { output: options.output } : {}),
       result: started.then(
         ({ result }) => result,

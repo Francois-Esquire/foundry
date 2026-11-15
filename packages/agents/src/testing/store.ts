@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { SessionMessage, SessionRecord } from "../schema";
+import type { SessionMessage, SessionPart, SessionRecord } from "../schema";
 import type { SessionStore } from "../store";
 
 /**
@@ -113,6 +113,137 @@ export function describeSessionStore(
       }
     });
 
+    it("moves a message to the end of its new session, and the next one follows it", async () => {
+      const store = await fresh();
+      await store.commit({
+        putMessages: [
+          message("a1", "a", 1),
+          message("a2", "a", 2),
+          message("b1", "b", 1),
+          message("b2", "b", 2),
+        ],
+        putSessions: [session("a"), session("b")],
+      });
+      await store.commit({ putMessages: [message("a1", "b", 1)] });
+      await store.commit({
+        putMessages: [message("b3", "b", 3), message("a3", "a", 3)],
+      });
+
+      await expect(ids(store, "a")).resolves.toEqual(["a2", "a3"]);
+      await expect(ids(store, "b")).resolves.toEqual(["b1", "b2", "a1", "b3"]);
+    });
+
+    it("places a message put more than once in one write as its puts, in order, leave it", async () => {
+      const store = await fresh();
+      await store.commit({
+        putMessages: [message("m1", "a", 1), message("m2", "a", 2)],
+        putSessions: [session("a"), session("b"), session("n")],
+      });
+      const last = message("m1", "a", 1, { status: "error" });
+      await store.commit({
+        putMessages: [
+          message("m1", "b", 1),
+          message("n1", "a", 3),
+          last,
+          message("n2", "n", 1),
+          message("n2", "n", 1, { status: "streaming" }),
+        ],
+      });
+
+      await expect(ids(store, "a")).resolves.toEqual(["m2", "n1", "m1"]);
+      await expect(ids(store, "b")).resolves.toEqual([]);
+      await expect(store.getMessage("m1")).resolves.toStrictEqual(last);
+      await expect(store.listMessages("n")).resolves.toStrictEqual([
+        message("n2", "n", 1, { status: "streaming" }),
+      ]);
+    });
+
+    it("keeps the last of a session put more than once in one write", async () => {
+      const store = await fresh();
+      await store.commit({
+        putSessions: [
+          session("s", { title: "first" }),
+          session("s", { title: "last" }),
+        ],
+      });
+
+      await expect(store.getSession("s")).resolves.toStrictEqual(
+        session("s", { title: "last" })
+      );
+    });
+
+    it("reads every field back as written, a field left out still left out", async () => {
+      const store = await fresh();
+      const root = session("root");
+      const child = session("child", {
+        parentMessageId: "full",
+        parentSessionId: "root",
+        recursionDepth: 0,
+        status: "error",
+        title: "",
+      });
+      const full = message("full", "root", 2, {
+        metadata: FULL_METADATA,
+        parts: EVERY_PART,
+        role: "assistant",
+        status: "streaming",
+        summarized: false,
+        updatedAt: 3,
+      });
+      const bare = message("bare", "root", 4, { parts: [], role: "summary" });
+      const folded = message("folded", "root", 5, {
+        role: "tool",
+        summarized: true,
+      });
+      await store.commit({
+        putMessages: [full, bare, folded],
+        putSessions: [root, child],
+      });
+
+      await expect(store.getSession("root")).resolves.toStrictEqual(root);
+      await expect(store.getSession("child")).resolves.toStrictEqual(child);
+      await expect(store.listMessages("root")).resolves.toStrictEqual([
+        full,
+        bare,
+        folded,
+      ]);
+      await expect(store.getMessage("full")).resolves.toStrictEqual(full);
+      const read = await store.getMessage("bare");
+      expect(read !== null && "metadata" in read).toBe(false);
+      expect(read !== null && "summarized" in read).toBe(false);
+      const parent = await store.getSession("root");
+      expect(parent !== null && "recursionDepth" in parent).toBe(false);
+    });
+
+    it("gives back exactly the own properties it was given, and none holding undefined", async () => {
+      const store = await fresh();
+      const root = session("root", { recursionDepth: 1 });
+      const full = message("full", "root", 2, {
+        metadata: FULL_METADATA,
+        parts: EVERY_PART,
+        summarized: false,
+      });
+      const bare = message("bare", "root", 3);
+      await store.commit({ putMessages: [full, bare], putSessions: [root] });
+
+      const read = {
+        listed: await store.listMessages("root"),
+        message: await store.getMessage("full"),
+        session: await store.getSession("root"),
+      };
+      expect(read).toStrictEqual({
+        listed: [full, bare],
+        message: full,
+        session: root,
+      });
+      expect(ownPaths(read)).toEqual(
+        ownPaths({ listed: [full, bare], message: full, session: root })
+      );
+      expect(
+        ownPaths(read).filter((path) => path.endsWith("=undefined"))
+      ).toEqual([]);
+    });
+
     it("keeps each session's messages apart", async () => {
       const store = await fresh();
       await store.commit({
@@ -196,6 +327,55 @@ export function describeSessionStore(
       written.parts.push({ text: "mutated", type: "text" });
 
       await expect(store.getSession("s")).resolves.toStrictEqual(session("s"));
+      await expect(store.getMessage("m1")).resolves.toStrictEqual(
+        message("m1", "s", 1)
+      );
+    });
+
+    it("keeps a write as it was when commit was called, whatever its caller changes after", async () => {
+      const store = await fresh();
+      await store.commit({ putSessions: [session("s")] });
+      const written = message("m1", "s", 1);
+      const record = session("s", { title: "before" });
+
+      const pending = store.commit({
+        putMessages: [written],
+        putSessions: [record],
+      });
+      (written.parts[0] as { text: string }).text = "after";
+      written.status = "error";
+      record.title = "after";
+      await pending;
+
+      await expect(store.getMessage("m1")).resolves.toStrictEqual(
+        message("m1", "s", 1)
+      );
+      await expect(store.getSession("s")).resolves.toStrictEqual(
+        session("s", { title: "before" })
+      );
+    });
+
+    it("keeps a commit queued behind a transaction as it was when called", async (context) => {
+      const store = await fresh();
+      if (store.transaction === undefined) {
+        context.skip();
+        return;
+      }
+      await store.commit({ putSessions: [session("s")] });
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const running = store.transaction(async () => {
+        entered.resolve();
+        await release.promise;
+      });
+      await entered.promise;
+      const written = message("m1", "s", 1);
+
+      const queued = store.commit({ putMessages: [written] });
+      (written.parts[0] as { text: string }).text = "after";
+      release.resolve();
+      await Promise.all([running, queued]);
+
       await expect(store.getMessage("m1")).resolves.toStrictEqual(
         message("m1", "s", 1)
       );
@@ -534,6 +714,112 @@ export function describeSessionStore(
   });
 }
 
+/** Metadata with every field set, nested values included. */
+const FULL_METADATA: SessionMessage["metadata"] = {
+  harnessEnvironment: { harness: "codex", id: "env-1" },
+  model: { harness: "codex", id: "model", provider: "openai" },
+  notification: { kind: "completion", taskId: "task-1" },
+  output: { empty: {}, list: [1, -2.5, "three", null, true, { deep: [[]] }] },
+  providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+  timing: { completedAt: 20, durationMs: -5, startedAt: 25 },
+  usage: {
+    cachedInputTokens: 1,
+    cacheWriteTokens: 2,
+    inputTokens: 3,
+    outputTokens: 4,
+    reasoningTokens: 5,
+    totalTokens: 7,
+  },
+};
+
+/** One part of every type, with each optional field set somewhere. */
+const EVERY_PART: SessionPart[] = [
+  { text: "plain, then \u00e9 and \u{1F600}", type: "text" },
+  { text: "", type: "reasoning" },
+  { mediaType: "image/png", type: "image", url: "data:image/png;base64,AA==" },
+  { type: "image", url: "https://example.test/a.png" },
+  {
+    input: { nested: { list: [1, "two", null] }, text: "in" },
+    name: "read",
+    provenance: {
+      agentGeneration: 1,
+      agentId: "agent",
+      effectLocation: "host",
+      invocationId: "inv",
+      source: "builtin",
+    },
+    providerOptions: { google: { thoughtSignature: "sig" } },
+    toolCallId: "call-1",
+    type: "tool_call",
+  },
+  { input: null, name: "noop", toolCallId: "call-2", type: "tool_call" },
+  {
+    isError: true,
+    output: ["out", 2],
+    toolCallId: "call-1",
+    type: "tool_result",
+  },
+  { output: "plain", toolCallId: "call-2", type: "tool_result" },
+  { message: "failed", type: "error" },
+  {
+    approvalId: "ap-1",
+    approvalMode: "deferred",
+    capability: { kind: "tool.call", source: "builtin", tool: "read" },
+    input: { path: "/a" },
+    name: "read",
+    toolCallId: "call-1",
+    type: "tool_approval_request",
+  },
+  {
+    approvalId: "ap-1",
+    approved: false,
+    reason: "no",
+    scope: "once",
+    type: "tool_approval_response",
+  },
+  {
+    harness: "codex",
+    nativeSessionId: "native",
+    type: "harness_session",
+  },
+  {
+    activityId: "act",
+    answerCount: 1,
+    harness: "codex",
+    outcome: "answered",
+    questionCount: 2,
+    toolCallId: "call-3",
+    type: "harness_question",
+  },
+  {
+    event: {
+      agentId: "agent",
+      harness: "codex",
+      inputSummary: "ls",
+      outcome: "ran",
+      sessionId: "root",
+      toolCallId: "call-4",
+      toolName: "shell",
+    },
+    type: "harness_tool",
+  },
+  {
+    event: {
+      actions: ["stop"],
+      agentId: "agent",
+      harness: "codex",
+      id: "act",
+      kind: "subagent",
+      lifetime: "session",
+      revision: 1,
+      sessionId: "root",
+      status: "running",
+      title: "child",
+    },
+    type: "harness_activity",
+  },
+];
+
 /** What a store's refusal of a call from inside its own transaction says. */
 const REFUSAL = /refused: .*use the view/;
 
@@ -596,6 +882,27 @@ function message(
     updatedAt: at,
     ...fields,
   };
+}
+
+/**
+ * Every own property path in `value`, each marked `=undefined` when it holds
+ * `undefined`, so a property left out and one holding `undefined` differ.
+ */
+function ownPaths(value: unknown, at = "$"): string[] {
+  if (value === undefined) {
+    return [`${at}=undefined`];
+  }
+  if (typeof value !== "object" || value === null) {
+    return [at];
+  }
+  return [
+    at,
+    ...Object.keys(value)
+      .sort()
+      .flatMap((key) =>
+        ownPaths((value as Record<string, unknown>)[key], `${at}.${key}`)
+      ),
+  ];
 }
 
 async function ids(store: SessionStore, sessionId: string): Promise<string[]> {

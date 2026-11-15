@@ -1,3 +1,4 @@
+import { Output } from "ai";
 import { describe, expect, it, vi } from "vitest";
 
 import type { StreamPart } from "../../harness/stream-transform";
@@ -376,18 +377,71 @@ describe("transformStream", () => {
     });
   });
 
-  it("falls back to the enriched message when commit throws", async () => {
+  it("fails the turn when commit rejects, reporting the reply it could not keep", async () => {
+    const onError = vi.fn();
+    const onFinish = vi.fn();
     const stream = transformStream(source(textParts), {
       commit: () => Promise.reject(new Error("db down")),
+      handlers: { onError, onFinish },
       model: { id: "opus-x" },
+      sessionId: "s",
     });
 
     const events = await collect(stream);
     const msg = await stream.message;
 
-    expect(msg.status).toBe("complete");
+    const why = "The session could not keep the turn's reply: db down";
+    expect(msg.status).toBe("error");
+    expect(msg.sessionId).toBe("s");
     expect(msg.metadata?.model?.id).toBe("opus-x");
-    expect(events.at(-1)?.type).toBe("finish");
+    expect(msg.parts.at(-1)).toEqual({ message: why, type: "error" });
+    expect(events.map((event) => event.type)).not.toContain("finish");
+    expect(events.at(-1)).toMatchObject({
+      error: { message: why },
+      type: "error",
+    });
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: why })
+    );
+    expect(onFinish).not.toHaveBeenCalled();
+    await expect(stream.text).resolves.toBe("hello there");
+  });
+
+  it("fails the turn once when commit rejects for a turn that already failed", async () => {
+    async function* throwingSource(): AsyncGenerator<StreamPart> {
+      await Promise.resolve();
+      yield textDelta("partial");
+      throw new Error("stream boom");
+    }
+    const onError = vi.fn();
+    const stream = transformStream(throwingSource(), {
+      commit: () => Promise.reject(new Error("db down")),
+      handlers: { onError },
+    });
+
+    const events = await collect(stream);
+    const msg = await stream.message;
+
+    expect(msg.status).toBe("error");
+    expect(events.filter((event) => event.type === "error")).toHaveLength(2);
+    expect(
+      onError.mock.calls.map(([error]) => (error as Error).message)
+    ).toEqual([
+      "The session could not keep the turn's reply: db down",
+      "stream boom",
+    ]);
+  });
+
+  it("rejects a requested output when commit rejects", async () => {
+    const stream = transformStream(source(textParts), {
+      commit: () => Promise.reject(new Error("db down")),
+      output: Output.text(),
+    });
+    await collect(stream);
+
+    await expect(stream.output).rejects.toThrow(
+      "The session could not keep the turn's reply: db down"
+    );
   });
 
   it("calls commit even for error messages", async () => {
@@ -474,6 +528,36 @@ describe("transformStream", () => {
     });
     expect(await stream.outcome).toBe("awaiting-approval");
   });
+
+  it.each([
+    ["no approval", false],
+    ["a pending approval", true],
+  ])(
+    "reports a failed outcome for a reply with %s that could not be kept",
+    async (_case, approval) => {
+      const parts: StreamPart[] = [
+        ...(approval
+          ? [
+              {
+                approvalId: "appr-1",
+                capability: { kind: "mcp.tool", serverId: "s", tool: "t" },
+                toolCall: toolCall("call-1", "t", { x: 1 }),
+                type: "tool-approval-request",
+              } as StreamPart,
+            ]
+          : []),
+        textDelta("hi"),
+        finish(flatUsage),
+      ];
+      const stream = transformStream(source(parts), {
+        commit: () => Promise.reject(new Error("db down")),
+      });
+      await collect(stream);
+
+      expect(await stream.outcome).toBe("failed");
+      expect((await stream.message).status).toBe("error");
+    }
+  );
 
   it("reports a complete outcome when no approval is requested", async () => {
     const stream = transformStream(source(textParts));
