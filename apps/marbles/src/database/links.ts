@@ -443,7 +443,31 @@ class LinkTree {
     for (const [key, link] of wanted.links) {
       await this.#link(link, prepared.get(key), report);
     }
+    if (wanted.links.size === 0) {
+      await this.#removeEmptyScope(scope);
+    }
     return reportOf(report);
+  }
+
+  /**
+   * Remove the directories of `scope` left empty, deepest first, each in
+   * its checked parent: an artifact unlinked, and its owner's directory
+   * once it holds none.
+   */
+  async #removeEmptyScope(scope: readonly string[]): Promise<void> {
+    for (let depth = scope.length; depth > 0; depth -= 1) {
+      const path = join(this.#dir, ...scope.slice(0, depth));
+      try {
+        await this.#checked(path);
+        await this.#checked(dirname(path));
+      } catch (error) {
+        if (error instanceof Refused) {
+          return;
+        }
+        throw error;
+      }
+      await removeEmpty(path);
+    }
   }
 
   /**

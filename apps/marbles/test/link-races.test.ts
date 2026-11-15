@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { tryFileLock } from "@foundry/lib/file-lock";
+import { thisProcess } from "@foundry/lib/process-identity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   followingCommits,
@@ -25,6 +26,7 @@ import { temporaryDirectory } from "./helpers/temporary";
  */
 
 type Hook = (kind: string, path: string) => Promise<void>;
+const LAST_DIGIT = /\d(?=\D*$)/;
 const hooks: { current: Hook | undefined } = { current: undefined };
 
 vi.mock("node:fs/promises", async (original) => {
@@ -190,6 +192,41 @@ describe("links made and removed under a race", () => {
     expect(
       await real.readlink(join(resourceLinks(root, "artifact"), "note", "f"))
     ).toBe(join(artifacts, "workspaces", "one", "blobs", "new"));
+  });
+});
+
+describe("the links lock", () => {
+  it("is broken when its holder is gone, a process that had this pid before this one", async () => {
+    const { artifacts, root } = await arranged();
+    const { started } = thisProcess();
+    if (started === null) {
+      throw new Error("this process's start is readable here");
+    }
+    // A start of another kind than this process's would compare as unknown.
+    const earlier = started.replace(LAST_DIGIT, (digit) =>
+      String((Number(digit) + 1) % 10)
+    );
+    const lock = join(root, ".marbles", ".lock");
+    await real.writeFile(lock, String(process.pid));
+    const written = await real.stat(lock);
+    await real.writeFile(
+      `${lock}.owner`,
+      JSON.stringify({
+        ctimeMs: written.ctimeMs,
+        ino: written.ino,
+        pid: process.pid,
+        started: earlier,
+      })
+    );
+    await expect(
+      relinkArtifact({
+        artifacts,
+        files: [{ blob: "blob", path: "f" }],
+        ref: note,
+        root,
+        workspace: "one",
+      })
+    ).resolves.toMatchObject({ linked: 1 });
   });
 });
 
