@@ -86,9 +86,11 @@ export async function removeShares(
   transaction: Pick<StoreDatabase, "delete">,
   kind: ResourceKind,
   owner: string,
-  ids: readonly string[]
+  ids: readonly unknown[]
 ): Promise<void> {
-  for (const batch of chunks(ids)) {
+  // A store passes over a key that is no string; so does this.
+  const named = ids.filter((id): id is string => typeof id === "string");
+  for (const batch of chunks(named)) {
     await transaction
       .delete(marblesResourceWorkspaces)
       .where(

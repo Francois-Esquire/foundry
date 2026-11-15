@@ -11,7 +11,7 @@ import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { describe, expect, it } from "vitest";
-import { LinksPlacementError } from "~/database/links";
+import { LinksPlacementError, linkName } from "~/database/links";
 import { initializeDatabase } from "~/database/open";
 import { artifactBlobs } from "~/database/stores";
 import { resourceLinks, stateDatabase, workspaceLinks } from "~/layout";
@@ -110,9 +110,11 @@ describe("the resource commands", () => {
     expect(lines[0]).toBe(
       `shared with ${join(home, "two")}: artifact ${notes.id}`
     );
+    // Another workspace's artifact is under its owner.
     const linked = join(
       resourceLinks(two.root, "artifact"),
-      encodeURIComponent(notes.id)
+      `@${linkName(one.id)}`,
+      linkName(notes.id)
     );
     expect(lstatSync(join(linked, "notes.md")).isSymbolicLink()).toBe(true);
     expect(await readFile(join(linked, "docs", "guide.md"), "utf8")).toBe(
@@ -142,29 +144,34 @@ describe("the resource commands", () => {
     ).toHaveLength(2);
   });
 
-  it("rebuild a workspace's links from the database, removing stale links and keeping what is not a link", async () => {
-    const { context, notes, one } = await machine();
+  it("rebuild a workspace's links from the database, removing its own stale links and keeping what is not one", async () => {
+    const { artifacts, context, notes, one } = await machine();
     const dir = resourceLinks(one.root, "artifact");
     mkdirSync(join(dir, "gone"), { recursive: true });
-    symlinkSync("/nowhere", join(dir, "gone", "stale.md"));
+    // A link Marbles made, to a blob no artifact names now.
+    symlinkSync(
+      join(artifactBlobs(artifacts, one.id), "stale"),
+      join(dir, "gone", "stale.md")
+    );
+    // A link someone else made, and a file.
+    symlinkSync("/nowhere", join(dir, "shortcut"));
     await writeFile(join(dir, "mine.txt"), "kept");
     const { context: here, lines } = context(one);
     await relink(false, here);
     expect(existsSync(join(dir, "gone"))).toBe(false);
+    expect(lstatSync(join(dir, "shortcut")).isSymbolicLink()).toBe(true);
     expect(await readFile(join(dir, "mine.txt"), "utf8")).toBe("kept");
     expect(
-      await readFile(
-        join(dir, encodeURIComponent(notes.id), "notes.md"),
-        "utf8"
-      )
+      await readFile(join(dir, linkName(notes.id), "notes.md"), "utf8")
     ).toBe("# Notes\n");
     expect(lines).toEqual([
       `${dir}: 2 linked`,
-      "  .marbles/artifacts/mine.txt: not a link, left as it is",
+      "  .marbles/artifacts/mine.txt: not a link Marbles made, left as it is",
+      "  .marbles/artifacts/shortcut: not a link Marbles made, left as it is",
     ]);
   });
 
-  it("link nothing outside the artifacts directory, whatever an artifact's id", async () => {
+  it("link an artifact whose id is a path name of its own under an escaped name, never outside", async () => {
     const { artifacts, context, one, state } = await machine();
     const opened = await initializeDatabase(stateDatabase(state));
     await new ArtifactManager({
@@ -183,9 +190,13 @@ describe("the resource commands", () => {
     const { context: here, lines } = context(one);
     await relink(false, here);
     expect(existsSync(join(workspaceLinks(one.root), "escape.md"))).toBe(false);
-    expect(lines[0]).toBe(
-      `${resourceLinks(one.root, "artifact")}: 2 linked, 1 left unlinked (no one blob file holds it)`
-    );
+    expect(
+      await readFile(
+        join(resourceLinks(one.root, "artifact"), "%2E%2E", "escape.md"),
+        "utf8"
+      )
+    ).toBe("# Out\n");
+    expect(lines[0]).toBe(`${resourceLinks(one.root, "artifact")}: 3 linked`);
   });
 
   it("refuse to share a sandbox before looking for it", async () => {

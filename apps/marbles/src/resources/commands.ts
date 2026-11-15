@@ -105,10 +105,19 @@ export async function relink(
       }))
     : [context.workspace];
   for (const workspace of workspaces) {
-    if (existsSync(workspace.root)) {
-      await relinkOne(workspace, context);
-    } else {
+    if (!existsSync(workspace.root)) {
       context.print(`${workspace.root}: not here, left as it is`);
+    } else if (all) {
+      // One workspace that cannot be linked leaves the others to be.
+      try {
+        await relinkOne(workspace, context);
+      } catch (error) {
+        context.print(
+          `${workspace.root}: not relinked: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    } else {
+      await relinkOne(workspace, context);
     }
   }
 }
@@ -121,7 +130,12 @@ async function relinkOne(
     context.state,
     { workspace: workspace.id },
     (view) =>
-      rebuildLinks({ artifacts: context.artifacts, root: workspace.root, view })
+      rebuildLinks({
+        artifacts: context.artifacts,
+        root: workspace.root,
+        view,
+        workspace: workspace.id,
+      })
   );
   for (const line of reportLines(workspace.root, report)) {
     context.print(line);
@@ -134,8 +148,13 @@ function reportLines(root: string, report: LinksReport | undefined): string[] {
     return [`${dir}: no Marbles database yet, nothing to link`];
   }
   return [
-    `${dir}: ${String(report.linked)} linked${report.unlinkable === 0 ? "" : `, ${String(report.unlinkable)} left unlinked (no one blob file holds it)`}`,
-    ...report.kept.map((path) => `  ${path}: not a link, left as it is`),
+    `${dir}: ${String(report.linked)} linked${report.unlinkable === 0 ? "" : `, ${String(report.unlinkable)} left unlinked (no one blob file holds it, or no name can)`}`,
+    ...report.kept.map(
+      (path) => `  ${path}: not a link Marbles made, left as it is`
+    ),
+    ...report.refused.map(
+      (path) => `  ${path}: goes through a link or a file, not linked`
+    ),
   ];
 }
 

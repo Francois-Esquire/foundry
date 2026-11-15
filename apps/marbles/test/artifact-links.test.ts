@@ -1,5 +1,11 @@
-import { existsSync, mkdirSync, readlinkSync } from "node:fs";
-import { mkdtemp, readFile, realpath } from "node:fs/promises";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readlinkSync,
+  symlinkSync,
+} from "node:fs";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
@@ -8,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { keepingLinks } from "~/database/artifact-links";
+import { artifactPlace, linkName } from "~/database/links";
 import { resourceAssociations } from "~/database/resources";
 import { artifactBlobs, workspaceStores } from "~/database/stores";
 import { WorkspaceRegistry } from "~/database/workspaces";
@@ -23,6 +30,11 @@ import { testMachine } from "./helpers/records";
  * every linked workspace it belongs to; a workspace never linked gets
  * none, and a failure to link never fails the write.
  */
+
+/** Links follow a write after it lands; give a loaded machine time. */
+function settled<T>(check: () => T | Promise<T>): Promise<T> {
+  return vi.waitFor(check, { interval: 20, timeout: 10_000 });
+}
 
 const machines: TestMachine[] = [];
 const engines: Engine[] = [];
@@ -87,15 +99,15 @@ describe("links that follow artifact writes", () => {
     await engine.artifacts.write(NOTES, { "a.md": "# First" });
     const link = join(
       resourceLinks(one.root, "artifact"),
-      encodeURIComponent(artifactIdFor(one.id, NOTES.name)),
+      linkName(artifactIdFor(one.id, NOTES.name)),
       "a.md"
     );
-    await vi.waitFor(async () =>
+    await settled(async () =>
       expect(await readFile(link, "utf8")).toBe("# First")
     );
     const first = readlinkSync(link);
     await engine.artifacts.write(NOTES, { "a.md": "# Second" });
-    await vi.waitFor(async () =>
+    await settled(async () =>
       expect(await readFile(link, "utf8")).toBe("# Second")
     );
     expect(readlinkSync(link)).not.toBe(first);
@@ -106,7 +118,7 @@ describe("links that follow artifact writes", () => {
     const { artifacts, machine, one, two } = await arranged();
     const { database } = machine.database;
     const lines: string[] = [];
-    const manager = new ArtifactManager({
+    const kept = new ArtifactManager({
       files: blobFiles(artifactBlobs(artifacts, one.id)),
       store: keepingLinks(workspaceStores(database, one.id).artifacts, {
         artifacts,
@@ -117,61 +129,133 @@ describe("links that follow artifact writes", () => {
       }),
     });
     const id = artifactIdSchema.parse("artifact#plan");
-    await manager.create({
+    await kept.create({
       entries: { "plan.md": { bytes: "# Plan\n", mime: "text/markdown" } },
       id,
       name: "plan",
       type: "text/markdown",
     });
-    const linkIn = (root: string) =>
-      join(resourceLinks(root, "artifact"), encodeURIComponent(id), "plan.md");
-    await vi.waitFor(() => expect(existsSync(linkIn(one.root))).toBe(true));
+    const ref = { id, kind: "artifact", owner: one.id } as const;
+    const linkIn = ({ id: workspace, root }: typeof one) =>
+      join(
+        resourceLinks(root, "artifact"),
+        ...artifactPlace(ref, workspace),
+        "plan.md"
+      );
+    await settled(() => expect(existsSync(linkIn(one))).toBe(true));
     await resourceAssociations(database, machine.root).share(
       { id, kind: "artifact", owner: one.id },
       two.id
     );
-    await manager.write({
+    await kept.write({
       artifactId: id,
       changes: {
         put: { "plan.md": { bytes: "# Plan, again\n", mime: "text/markdown" } },
       },
     });
-    await vi.waitFor(async () =>
-      expect(await readFile(linkIn(two.root), "utf8")).toBe("# Plan, again\n")
+    await settled(async () =>
+      expect(await readFile(linkIn(two), "utf8")).toBe("# Plan, again\n")
     );
-    await manager.delete(id);
-    await vi.waitFor(() => {
-      expect(existsSync(linkIn(one.root))).toBe(false);
-      expect(existsSync(linkIn(two.root))).toBe(false);
+    await kept.delete(id);
+    await settled(() => {
+      expect(existsSync(linkIn(one))).toBe(false);
+      expect(existsSync(linkIn(two))).toBe(false);
     });
     expect(lines).toEqual([]);
   });
 
-  it("report a link it cannot make, and keep the write", async () => {
-    const { artifacts, machine, one } = await arranged();
+  it("report a workspace it cannot link, and still link the others, keeping the write", async () => {
+    const { artifacts, machine, one, two } = await arranged();
     const { database } = machine.database;
     const lines: string[] = [];
-    // A file where the artifacts directory goes.
-    await import("node:fs/promises").then(({ writeFile }) =>
-      writeFile(resourceLinks(one.root, "artifact"), "not a directory")
-    );
-    const manager = new ArtifactManager({
-      files: blobFiles(artifactBlobs(artifacts, one.id)),
-      store: keepingLinks(workspaceStores(database, one.id).artifacts, {
-        artifacts,
-        database,
-        owner: one.id,
-        report: (line) => lines.push(line),
-        state: machine.root,
-      }),
-    });
-    const created = await manager.create({
+    const id = artifactIdSchema.parse("artifact#both");
+    await manager(machine, artifacts, one, lines).create({
       entries: { "a.md": { bytes: "# A\n", mime: "text/markdown" } },
-      name: "a",
+      id,
+      name: "both",
       type: "text/markdown",
     });
-    await vi.waitFor(() => expect(lines).toHaveLength(1));
-    expect(lines[0]).toContain("marbles relink repairs them");
-    expect(await manager.get(created.id)).not.toBeNull();
+    const ref = { id, kind: "artifact", owner: one.id } as const;
+    await resourceAssociations(database, machine.root).share(ref, two.id);
+    // The workspace relinked first is the one that cannot be.
+    const [broken, healthy] = [one, two].sort((a, b) => (a.id < b.id ? -1 : 1));
+    if (broken === undefined || healthy === undefined) {
+      throw new Error("two workspaces");
+    }
+    await settled(() =>
+      expect(
+        existsSync(
+          join(
+            resourceLinks(broken.root, "artifact"),
+            ...artifactPlace(ref, broken.id)
+          )
+        )
+      ).toBe(true)
+    );
+    await rm(resourceLinks(broken.root, "artifact"), {
+      force: true,
+      recursive: true,
+    });
+    await writeFile(resourceLinks(broken.root, "artifact"), "not a directory");
+    const written = manager(machine, artifacts, one, lines);
+    await written.write({
+      artifactId: id,
+      changes: {
+        put: { "a.md": { bytes: "# A, again\n", mime: "text/markdown" } },
+      },
+    });
+    const healthyLink = join(
+      resourceLinks(healthy.root, "artifact"),
+      ...artifactPlace(ref, healthy.id),
+      "a.md"
+    );
+    await settled(async () =>
+      expect(await readFile(healthyLink, "utf8")).toBe("# A, again\n")
+    );
+    await settled(() => expect(lines).toHaveLength(1));
+    expect(lines[0]).toContain(`in ${broken.root}; marbles relink repairs it`);
+    expect(await written.get(id)).not.toBeNull();
+  });
+
+  it("refuse an artifact directory that is a link, making nothing through it", async () => {
+    const { artifacts, machine, one } = await arranged();
+    const lines: string[] = [];
+    const id = artifactIdSchema.parse("notes");
+    const outside = join(one.root, "..", "outside");
+    mkdirSync(outside);
+    mkdirSync(resourceLinks(one.root, "artifact"), { recursive: true });
+    symlinkSync(outside, join(resourceLinks(one.root, "artifact"), "notes"));
+    await manager(machine, artifacts, one, lines).create({
+      entries: {
+        "nested/file.txt": { bytes: "hello", mime: "text/plain" },
+      },
+      id,
+      name: "notes",
+      type: "text/plain",
+    });
+    await settled(() => expect(lines).toHaveLength(1));
+    expect(lines[0]).toContain(
+      ".marbles/artifacts/notes goes through a link or a file"
+    );
+    expect(readdirSync(outside)).toEqual([]);
   });
 });
+
+function manager(
+  machine: TestMachine,
+  artifacts: string,
+  owner: { readonly id: string },
+  lines: string[]
+): ArtifactManager {
+  const { database } = machine.database;
+  return new ArtifactManager({
+    files: blobFiles(artifactBlobs(artifacts, owner.id)),
+    store: keepingLinks(workspaceStores(database, owner.id).artifacts, {
+      artifacts,
+      database,
+      owner: owner.id,
+      report: (line) => lines.push(line),
+      state: machine.root,
+    }),
+  });
+}
