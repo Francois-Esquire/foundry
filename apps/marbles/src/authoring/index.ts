@@ -20,7 +20,8 @@ export type {
   TaskToken,
   UpdateTaskInput,
 } from "@foundry/tasks";
-export { MemoryTaskStore, TaskError, Tasks } from "@foundry/tasks";
+export { TaskError, Tasks } from "@foundry/tasks";
+export { MemoryTaskStore } from "@foundry/tasks/store/memory";
 export type {
   Balance,
   Charge,

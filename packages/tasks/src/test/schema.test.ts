@@ -5,20 +5,10 @@ import {
   taskSnapshotSchema,
   taskStoreWriteSchema,
 } from "../schema";
-import type { TaskStoreWrite } from "../store";
-import { MemoryTaskStore } from "../store";
 import { Tasks } from "../tasks";
+import { RecordingStore } from "./helpers/recording-store";
 
 const clock = () => new Date("2026-10-29T00:00:00.000Z");
-
-class RecordingStore extends MemoryTaskStore {
-  readonly writes: TaskStoreWrite[] = [];
-
-  override commit(write: TaskStoreWrite): Promise<void> {
-    this.writes.push(structuredClone(write));
-    return super.commit(write);
-  }
-}
 
 /** Every kind of write: puts, edges both ways, a settle, and a removal. */
 async function history(): Promise<RecordingStore> {

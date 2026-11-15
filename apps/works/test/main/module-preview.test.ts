@@ -1,4 +1,4 @@
-import { InMemoryArtifactStore } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import type { ModuleVersion } from "@foundry/modules/domain";
 import { createRouterClient } from "@orpc/server";
 import { describe, expect, it, vi } from "vitest";

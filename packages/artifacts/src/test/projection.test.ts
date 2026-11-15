@@ -12,9 +12,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ArtifactManager } from "../manager";
-import { InMemoryArtifactStore } from "../memory";
 import { blobFiles } from "../node/blobs";
 import { projectionMatches, stageProjection } from "../node/projection";
+import { InMemoryArtifactStore } from "../store/memory";
 import { required } from "./helpers/required";
 
 const roots: string[] = [];

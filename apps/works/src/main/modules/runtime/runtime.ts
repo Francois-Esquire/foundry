@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { ArtifactManager, type ArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager } from "@foundry/artifacts";
+import type { ArtifactStore } from "@foundry/artifacts/store";
 import {
   type InstallationId,
   installationIdSchema,
