@@ -100,6 +100,21 @@ function pausable(store: ArtifactStore) {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 /**
+ * `promise`, or a rejection saying it hung once `ms` pass, so a call that
+ * would wait forever fails its test instead of stalling it.
+ */
+function within<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const hung = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Still pending after ${ms} ms`)),
+      ms
+    );
+  });
+  return Promise.race([promise, hung]).finally(() => clearTimeout(timer));
+}
+
+/**
  * Registers the manager's behaviour over a store: rules, sharing, fences,
  * rollback and commit-time effects. `createStore` returns a fresh, empty
  * store each time.
@@ -711,6 +726,73 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
       ]);
       expect(await deleted).toBe(true);
       expect((await reader.list()).items).toEqual([]);
+    });
+
+    test("refuses at once a call on another manager from inside a transaction, even with that manager's own call waiting", async ({
+      skip,
+    }) => {
+      const store = createStore();
+      if (!isTransactional(store)) {
+        return skip();
+      }
+      const first = new ArtifactManager({ store });
+      const second = new ArtifactManager({ store });
+      const entered = Promise.withResolvers<undefined>();
+      const proceed = Promise.withResolvers<undefined>();
+      const outer = first.transaction(async () => {
+        entered.resolve(undefined);
+        await proceed.promise;
+        return await second.list();
+      });
+      await entered.promise;
+      // Independent of the transaction: it waits for it at the store.
+      const waiting = second.create({ name: "Waiting", type: "text/plain" });
+      await settle();
+      proceed.resolve(undefined);
+
+      await expect(within(outer, 1000)).rejects.toThrow(
+        "inside its own transaction"
+      );
+      expect((await within(waiting, 1000)).name).toBe("Waiting");
+      expect((await first.list()).total).toBe(1);
+    });
+
+    /** Two patches of one Content's metadata, the first paused at its read. */
+    async function patchConcurrently(
+      shared: ReturnType<typeof pausable>,
+      created: ArtifactResolved,
+      patchers: readonly [ArtifactManager, ArtifactManager]
+    ) {
+      const contentId = contentOf(created).id;
+      const paused = shared.pause("getContent");
+      const firstPatch = patchers[0].setMetadata(contentId, { first: 1 });
+      await paused.reached;
+      const secondPatch = patchers[1].setMetadata(contentId, { second: 2 });
+      await settle();
+      paused.release();
+      await Promise.all([firstPatch, secondPatch]);
+      return (await patchers[0].getContent(contentId))?.metadata;
+    }
+
+    test("keeps concurrent read-modify-writes on one manager from interleaving", async () => {
+      const { created, shared, writer } = await sharedStore();
+
+      expect(
+        await patchConcurrently(shared, created, [writer, writer])
+      ).toMatchObject({ first: 1, second: 2 });
+    });
+
+    test("keeps concurrent read-modify-writes on two managers over one store from interleaving", async ({
+      skip,
+    }) => {
+      const { created, reader, shared, writer } = await sharedStore();
+      if (!isTransactional(shared.store)) {
+        return skip();
+      }
+
+      expect(
+        await patchConcurrently(shared, created, [reader, writer])
+      ).toMatchObject({ first: 1, second: 2 });
     });
 
     test("reads a file from one state while another manager rewrites it", async () => {

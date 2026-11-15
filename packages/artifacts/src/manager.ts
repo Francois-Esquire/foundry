@@ -66,11 +66,12 @@ interface TransactionScope {
 /**
  * The root of the Artifact substrate. It holds every rule; the store only
  * keeps records. Each operation builds one change and commits it as one
- * store write; `transaction` groups several. Changes run one at a time per
- * manager, and inside the store's transaction when it offers one, so no
- * other manager over the store writes between a change's reads and its
- * commit. A read of several records runs the same way, so it sees one
- * state. After a commit the
+ * store write; `transaction` groups several. When the store offers
+ * `transaction`, each change runs inside one and the store orders them, so
+ * no other change from any manager over the store lands between a change's
+ * reads and its commit. Over a store without it, changes run one at a time
+ * per manager and no further. A read of several records runs the same way,
+ * so it sees one state. After a commit the
  * manager awaits bound application, notifies observers, and removes retired
  * backing files.
  *
@@ -453,18 +454,24 @@ export class ArtifactManager implements Artifacts {
   }
 
   /**
-   * One read-modify-write, or one read of several steps: serialized in this
-   * manager, and exclusive in the store when it offers transactions.
+   * One read-modify-write, or one read of several steps, that no other
+   * change lands inside: in the store's transaction when it offers one, and
+   * in turn with this manager's other changes otherwise.
    */
   #exclusive<T>(work: (store: ArtifactStore) => Promise<T>): Promise<T> {
-    return this.#serialized(() => {
-      const store = this.#store;
-      return store.transaction === undefined
-        ? work(store)
-        : store.transaction(work);
-    });
+    const store = this.#store;
+    return store.transaction === undefined
+      ? this.#serialized(() => work(store))
+      : store.transaction(work);
   }
 
+  /**
+   * One change at a time in this manager. Not used over a store with
+   * transactions: the store's own queue orders those, and a call from
+   * inside one (through another manager over the same store) is refused
+   * there at once instead of waiting here forever behind a call that waits
+   * for that transaction.
+   */
   #serialized<T>(work: () => Promise<T>): Promise<T> {
     const run = this.#tail.then(work, work);
     this.#tail = run.then(

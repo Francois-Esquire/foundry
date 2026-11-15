@@ -274,7 +274,11 @@ take the filter, cursor and limit, so a page never loads the catalogue. An optio
 change's reads and its commit; a plain commit waits for it, and a failed `work` keeps
 none of its commits. Inside `work`, call the view: a `commit` or `transaction` on the
 store itself from there rejects at once rather than waiting on itself. The manager runs
-every change, and every read of several records, through it.
+every change, and every read of several records, through it, and then queues nothing of
+its own: the store orders every manager's changes. So a call on a second manager over the
+same store, made from inside the first manager's `transaction`, reaches the store and is
+refused there at once instead of waiting forever. Over a store without `transaction`, a
+manager runs its own changes one at a time and no further.
 
 Known limit: a change ingests blob bytes inside that exclusion, so a slow or stalled
 blob source holds the store (and, with `JsonArtifactStore`, the cross-process file
