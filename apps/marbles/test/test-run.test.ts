@@ -765,12 +765,19 @@ it("keeps a run's root while a record is still being written in it, and never re
   await run.finish();
   expect(existsSync(join(run.records, "run", ".9.json.live.tmp"))).toBe(true);
 
-  // A root its stop found clear, whose records directory is back since.
+  // A root its stop found clear, a record in it again since: kept, moved
+  // aside, with the record, and reported.
   const other = startRun(parent, FAST);
   mkdirPrivate(other.records);
   writePrivateFile(join(other.records, "9.json"), "{}");
-  removeRoot(other.root);
-  expect(existsSync(join(other.records, "9.json"))).toBe(true);
+  expect(await removeRoot(other.root)).toEqual(
+    expect.arrayContaining([expect.stringContaining("is not a process record")])
+  );
+  expect(
+    readdirSync(parent, { recursive: true }).filter((name) =>
+      String(name).endsWith("9.json")
+    )
+  ).toHaveLength(1);
 });
 
 it("leaves a live run whose owner started under another time zone and language", async () => {

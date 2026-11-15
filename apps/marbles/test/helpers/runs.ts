@@ -1,12 +1,14 @@
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   notPrivate,
@@ -16,6 +18,7 @@ import {
 } from "~/process/spawned";
 import {
   type Marker,
+  type ProcessSystem,
   type StopLimits,
   stopRecorded,
   unrecordedMarked,
@@ -54,6 +57,8 @@ export interface Run {
 export const RUN_ENV = SPAWN_OWNER_ENV;
 const RUN_PREFIX = "marbles-run-";
 const OWNER_FILE = "owner.json";
+/** In a root moved aside to be removed: the root it was, which its processes carry. */
+const MOVED_FILE = "moved-from.json";
 const RECORDS = "spawned";
 /** How long a process that carries the marker unrecorded gets to exit on its own. */
 const UNRECORDED_MS = 2000;
@@ -106,7 +111,9 @@ export function startRun(parent: string, limits?: StopLimits): Run {
       // A root that cannot be cleared is kept; once this process exits,
       // the next run's sweep finds the run over and tries again.
       if (await clear(root, limits)) {
-        removeRoot(root);
+        warnKept(
+          await removeRoot(root, limits === undefined ? {} : { limits })
+        );
       }
     },
     records: runRecords(root),
@@ -143,7 +150,7 @@ export async function sweepFinishedRuns(
       continue;
     }
     if (isOver(root) && (await clear(root, limits))) {
-      removeRoot(root);
+      warnKept(await removeRoot(root, limits === undefined ? {} : { limits }));
     }
   }
 }
@@ -172,7 +179,9 @@ function readOwner(root: string): Owner | undefined {
 
 /** Whether the run's recorded processes are confirmed gone and nothing else carries its marker. */
 async function clear(root: string, limits?: StopLimits): Promise<boolean> {
-  const marker: Marker = { name: RUN_ENV, value: root };
+  // The run's processes carry the root it had, which a root moved aside
+  // to be removed names.
+  const marker: Marker = { name: RUN_ENV, value: movedFrom(root) };
   const problems: string[] = [];
   try {
     problems.push(...(await stopRecorded(runRecords(root), marker, limits)));
@@ -205,27 +214,104 @@ export async function outlast(find: () => number[]): Promise<number[]> {
   return found;
 }
 
+/** The file operations `removeRoot` makes; a test replaces them to land a write between two. */
+export interface RootFiles {
+  /** Remove a directory and all in it; a symbolic link inside goes, not what it points to. */
+  remove(path: string): void;
+  rename(from: string, to: string): void;
+}
+
+const ROOT_FILES: RootFiles = {
+  // Forced: another run's sweep of the same root may be removing it too.
+  remove: (path) =>
+    rmSync(path, { force: true, maxRetries: 3, recursive: true }),
+  rename: (from, to) => renameSync(from, to),
+};
+
+export interface RootRemoval {
+  readonly files?: RootFiles;
+  readonly limits?: StopLimits;
+  readonly system?: ProcessSystem;
+}
+
 /**
- * Remove a run's root, and only it: recursive removal deletes a symbolic
- * link inside it, not what the link points to. A failure warns rather
- * than failing the run; the next run's sweep tries again.
+ * Remove a run's root, which its stop found clear: what kept it, empty
+ * once it is gone. A process may still record itself there at any
+ * moment, so nothing seen before decides. The root is first moved aside
+ * under a fresh name beside it (one rename, atomic): from then on,
+ * nothing reaches what is about to be removed by the root's path. What
+ * was moved is looked in then, and its records stopped as any run's are
+ * (`stopRecorded`); it is removed only once that leaves none. Kept, it is
+ * a run root still, which names the run it was (`moved-from.json`), so
+ * the next sweep stops what it records.
+ *
+ * A writer reaches its record's directory by path each time (it holds
+ * none open), so one that comes after the move makes the old root again
+ * (`mkdir -p`) and records itself there: that root then lacks an owner,
+ * and is given the run's, so the next sweep finds it, and it is reported.
+ * One that opened its partial record before the move and renames it into
+ * place after fails to (its path is gone) and says so on stderr; the
+ * partial it leaves keeps the moved root, reported as still being
+ * written, until it is stale.
  */
-/** Remove a run's root, which its stop found clear, unless a record came back in it since. */
-export function removeRoot(root: string): void {
-  // The stop removed the records directory once it was clear: one there
-  // again holds a record written since, of a process that may run.
-  if (existsSync(runRecords(root))) {
-    console.warn(
-      `marbles tests: kept ${root}: a process was recorded there after its processes were stopped`
-    );
-    return;
-  }
+export async function removeRoot(
+  root: string,
+  options: RootRemoval = {}
+): Promise<string[]> {
+  const files = options.files ?? ROOT_FILES;
+  const owner = readOwner(root);
+  const ran = movedFrom(root);
+  const aside = join(dirname(root), `${RUN_PREFIX}removing-${randomUUID()}`);
+  const kept: string[] = [];
   try {
-    // Forced: another run's sweep of the same root may be removing it too.
-    rmSync(root, { force: true, maxRetries: 3, recursive: true });
+    if (!existsSync(join(root, MOVED_FILE))) {
+      writePrivate(join(root, MOVED_FILE), JSON.stringify({ root: ran }));
+    }
+    files.rename(root, aside);
   } catch (error) {
-    console.warn(
-      `marbles tests: could not remove the run's root ${root}: ${String(error)}`
+    return (error as NodeJS.ErrnoException).code === "ENOENT"
+      ? []
+      : [`could not move ${root} aside to remove it: ${String(error)}`];
+  }
+  const left = await stopRecorded(
+    runRecords(aside),
+    { name: RUN_ENV, value: ran },
+    options.limits,
+    options.system
+  );
+  if (left.length > 0) {
+    kept.push(`kept ${aside}, moved from ${root}:`, ...left);
+  } else {
+    try {
+      files.remove(aside);
+    } catch (error) {
+      kept.push(`could not remove ${aside}: ${String(error)}`);
+    }
+  }
+  if (existsSync(root)) {
+    // Made again by a process that recorded itself after the move.
+    if (owner !== undefined && !existsSync(join(root, OWNER_FILE))) {
+      writePrivate(join(root, OWNER_FILE), JSON.stringify(owner));
+    }
+    kept.push(
+      `${root} was made again after it was moved aside, by a process that recorded itself there; kept for the next sweep`
     );
+  }
+  return kept;
+}
+
+/** The root of the run `root` was: itself, unless it was moved aside to be removed. */
+function movedFrom(root: string): string {
+  try {
+    const moved = JSON.parse(readFileSync(join(root, MOVED_FILE), "utf8"));
+    return typeof moved?.root === "string" ? moved.root : root;
+  } catch {
+    return root;
+  }
+}
+
+function warnKept(kept: readonly string[]): void {
+  if (kept.length > 0) {
+    console.warn(`marbles tests: ${kept.join("\n  ")}`);
   }
 }

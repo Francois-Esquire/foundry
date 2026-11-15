@@ -9,6 +9,7 @@
 import {
   existsSync,
   linkSync,
+  mkdirSync,
   readdirSync,
   readFileSync,
   renameSync,
@@ -23,6 +24,7 @@ import {
   type RecordFiles,
   stopRecorded,
 } from "./helpers/processes";
+import { type RootFiles, removeRoot } from "./helpers/runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
 const MARKER = { name: "MARBLES_TEST_PROBE", value: "records" };
@@ -156,4 +158,93 @@ it("keeps, and reports, a record written during the stop for a process it cannot
   ]);
   expect(existsSync(path)).toBe(true);
   expect(startsIn(dir)).toEqual([NEW.started]);
+});
+
+/** Every record file under `dir`, at any depth, with the start it names. */
+function recordsUnder(dir: string): string[] {
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .filter(
+      (entry) => entry.name !== "owner.json" && entry.name !== "moved-from.json"
+    )
+    .map(
+      (entry) =>
+        JSON.parse(readFileSync(join(entry.parentPath, entry.name), "utf8"))
+          .started
+    );
+}
+
+it("never removes a run's root with a record in it, wherever that record lands against the removal", async () => {
+  let tried = 0;
+  for (let at = 0; ; at += 1) {
+    const parent = temporaryDirectory("sw-");
+    const root = join(parent, "marbles-run-made-up");
+    mkdirSync(join(root, "spawned"), { mode: 0o700, recursive: true });
+    put(join(root, "owner.json"), { ...OLD, group: false });
+    let landed = false;
+    // The process records itself through the root's own path, as one
+    // whose environment names it does; it is never proved, so never
+    // signalled.
+    const lands = () => {
+      mkdirSync(join(root, "spawned", "late"), {
+        mode: 0o700,
+        recursive: true,
+      });
+      put(join(root, "spawned", "late", `${String(PID)}.json`), NEW);
+      landed = true;
+    };
+    const files: RootFiles = {
+      remove: (path) => {
+        if (at === 1) {
+          lands();
+        }
+        rmSync(path, { force: true, recursive: true });
+      },
+      rename: (from, to) => {
+        if (at === 0) {
+          lands();
+        }
+        renameSync(from, to);
+      },
+    };
+    const system: ProcessSystem = {
+      environment: () => undefined,
+      kill: () => {
+        throw new Error("nothing here may be signalled");
+      },
+      look: (pids) =>
+        new Map(
+          landed && pids.includes(PID)
+            ? [[PID, { pgid: 1, started: NEW.started }]]
+            : []
+        ),
+      members: () => [],
+      sleep: () => Promise.resolve(),
+    };
+    const kept = await removeRoot(root, {
+      files,
+      limits: { graceMs: 0, killMs: 0 },
+      system,
+    });
+    if (!landed) {
+      break;
+    }
+    tried += 1;
+    expect({ at, records: recordsUnder(parent) }).toEqual({
+      at,
+      records: [NEW.started],
+    });
+    expect(kept).not.toEqual([]);
+  }
+  // Before the move aside, and after it, through the old path.
+  expect(tried).toBe(2);
+});
+
+it("removes a run's root that holds no record, and nothing else", async () => {
+  const parent = temporaryDirectory("sw-");
+  const root = join(parent, "marbles-run-made-up");
+  mkdirSync(join(root, "spawned", "home"), { mode: 0o700, recursive: true });
+  put(join(root, "owner.json"), { ...OLD, group: false });
+  expect(await removeRoot(root)).toEqual([]);
+  expect(readdirSync(parent)).toEqual([]);
 });
