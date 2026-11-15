@@ -8,6 +8,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { gc } from "bun";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { Catalog, catalog } from "~/authoring/catalog";
@@ -24,9 +26,11 @@ import {
   setHost,
 } from "~/authoring/runtime";
 import { tasks } from "~/authoring/tasks";
-import { inContext } from "~/lib/execution-context";
+import type { StepRecord, WorkflowRecord } from "~/lib/definition";
+import { activeContext, inContext } from "~/lib/execution-context";
 import { hostTasks } from "~/workspace/open";
 import { startEngine } from "./helpers/engine";
+import { seedRepository } from "./helpers/repository";
 
 type TestEngine = InstanceRuntime & { disposed: boolean };
 
@@ -339,3 +343,280 @@ describe("two real engines over one workspace", () => {
     }
   });
 });
+
+/** What the calling authored code reaches: the engine, or the name of what it threw. */
+async function reachedEngine(): Promise<unknown> {
+  return await instanceRuntime().catch((error: Error) => error.name);
+}
+
+/** A schema whose check is an author's code, recording what it reaches. */
+function probingSchema(seen: unknown[]): StandardSchemaV1 {
+  return {
+    "~standard": {
+      validate: async (value: unknown) => {
+        seen.push(await reachedEngine());
+        return { value };
+      },
+      vendor: "test",
+      version: 1,
+    },
+  };
+}
+
+describe("every place an engine calls an author's code", () => {
+  afterEach(async () => {
+    await dispose();
+    catalog.reset();
+  });
+
+  /** A first engine and its replacement over one workspace, both alive. */
+  async function replacedEngines(workspaceId: string) {
+    const root = await seedRepository();
+    const old = await startEngine({
+      print: () => undefined,
+      root,
+      workspaceId,
+    });
+    setHost(old, new Catalog());
+    const next = await startEngine({
+      print: () => undefined,
+      root,
+      workspaceId,
+    });
+    setHost(next, new Catalog());
+    return {
+      [Symbol.asyncDispose]: async () => {
+        await old.dispose();
+        await next.dispose();
+        await rm(root, { force: true, recursive: true });
+      },
+      next,
+      old,
+    };
+  }
+
+  it("runs a host task's body as its engine's work, before and after a replacement is bound", async () => {
+    const root = await mkdtemp(join(tmpdir(), "marbles-task-owner-"));
+    const workspaceId = "task-owner";
+    const old = await startEngine({
+      print: () => undefined,
+      root,
+      workspaceId,
+    });
+    const next = await startEngine({
+      print: () => undefined,
+      root,
+      workspaceId,
+    });
+    const started = Promise.withResolvers<undefined>();
+    const held = Promise.withResolvers<undefined>();
+    old.task({
+      name: "probe",
+      run: async () => {
+        started.resolve(undefined);
+        await held.promise;
+        return { context: activeContext(), reached: await reachedEngine() };
+      },
+    });
+    setHost(old, new Catalog());
+    try {
+      const running = old.run<{ context: unknown; reached: unknown }>(
+        "probe",
+        undefined
+      );
+      await started.promise;
+      setHost(next, new Catalog());
+      held.resolve(undefined);
+      const got = await running;
+      expect(got.context).toBe(old.context);
+      expect(got.reached).toBe(old);
+    } finally {
+      held.resolve(undefined);
+      await old.dispose();
+      await next.dispose();
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it("runs a workflow's setup, a step's input and output schemas and its retry decision as its engine's work", async () => {
+    await using engines = await replacedEngines("entry-points");
+    const { old } = engines;
+    const seen: Record<
+      "input" | "launch" | "output" | "retry" | "setup",
+      unknown[]
+    > = {
+      input: [],
+      launch: [],
+      output: [],
+      retry: [],
+      setup: [],
+    };
+    let attempts = 0;
+    const inner: StepRecord = {
+      config: {
+        retry: {
+          maxAttempts: 2,
+          shouldRetry: () => {
+            seen.retry.push("asked");
+            return true;
+          },
+        },
+      },
+      fn: () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error("first attempt fails");
+        }
+        return "done";
+      },
+      input: probingSchema(seen.input),
+      kind: "step",
+      name: "inner",
+      output: probingSchema(seen.output),
+    };
+    const parent: StepRecord = {
+      fn: ({ input }) => (input as { inner: unknown }).inner,
+      kind: "step",
+      name: "parent",
+    };
+    const flow: WorkflowRecord = {
+      input: probingSchema(seen.launch),
+      kind: "workflow",
+      name: "flow",
+      setup: async () => {
+        seen.setup.push(await reachedEngine());
+        // A child's input is checked as it runs; a root's was at launch.
+        return {
+          children: [
+            [
+              "inner",
+              {
+                children: [],
+                definition: inner,
+                kind: "node",
+                literal: {},
+                mode: "series",
+              },
+            ],
+          ],
+          definition: parent,
+          kind: "node",
+          literal: {},
+          mode: "series",
+        };
+      },
+    };
+    old.define(flow);
+    const reachedAtRetry: unknown[] = [];
+    const decide = inner.config?.retry?.shouldRetry;
+    // The retry decision records what it reaches, then decides.
+    (inner.config?.retry as { shouldRetry: unknown }).shouldRetry = (
+      error: unknown,
+      attempt: number
+    ) => {
+      reachedAtRetry.push(
+        activeContext() === old.context ? old : "not the engine's work"
+      );
+      return decide?.(error, attempt) ?? false;
+    };
+    expect(await old.run("flow", undefined)).toBe("done");
+    // By identity: the engine itself is no value to compare.
+    const which = (each: unknown) => {
+      if (each === old) {
+        return "old";
+      }
+      return each === engines.next ? "next" : each;
+    };
+    expect({
+      input: seen.input.map(which),
+      launch: seen.launch.map(which),
+      output: seen.output.map(which),
+      retry: reachedAtRetry.map(which),
+      setup: seen.setup.map(which),
+    }).toEqual({
+      // Once per attempt.
+      input: ["old", "old"],
+      launch: ["old"],
+      output: ["old"],
+      retry: ["old"],
+      setup: ["old"],
+    });
+  });
+
+  it("refuses a load no engine took yet while two engines of its workspace are alive, rather than hand it to the one bound last", async () => {
+    await using engines = await replacedEngines("two-alive");
+    const loading = await load("two-alive", new Catalog());
+    await expect(inLoad(loading, instanceRuntime)).rejects.toThrow(
+      expect.objectContaining({ name: "AmbiguousWorkspaceError" })
+    );
+    await engines.old.dispose();
+    // One alive: the load reaches it, as a source loading beside it does.
+    expect(await inLoad(loading, instanceRuntime)).toBe(engines.next);
+  });
+
+  it("refuses a run of an engine no host bound that names a workspace another engine is bound to", async () => {
+    await using engines = await replacedEngines("unbound-run");
+    await engines.old.dispose();
+    const stranger = engine("unbound-run");
+    await expect(inRunOf(stranger, () => instanceRuntime())).rejects.toThrow(
+      expect.objectContaining({ name: "AmbiguousWorkspaceError" })
+    );
+    expect(() => inRunOf(stranger, declaringCatalog)).toThrow(
+      expect.objectContaining({ name: "AmbiguousWorkspaceError" })
+    );
+  });
+});
+
+describe("what a disposed engine leaves behind", () => {
+  it("lets every disposed engine and its catalog go, however many loads came before, and refuses their loads' late calls", async () => {
+    const workspace = "leak-probe";
+    const engines: WeakRef<object>[] = [];
+    const catalogs: WeakRef<object>[] = [];
+    const lateCalls: (() => unknown)[] = [];
+    for (let each = 0; each < 32; each += 1) {
+      lateCalls.push(
+        ...(await reloaded(workspace, (bound, loaded) => {
+          engines.push(new WeakRef(bound));
+          catalogs.push(new WeakRef(loaded));
+        }))
+      );
+    }
+    // The engine bound last is replaced too; nothing else keeps them.
+    setHost(engine(workspace), new Catalog());
+    for (let each = 0; each < 4; each += 1) {
+      await new Promise((settle) => setTimeout(settle, 0));
+      gc(true);
+    }
+    expect(engines.filter((ref) => ref.deref() !== undefined)).toHaveLength(0);
+    expect(catalogs.filter((ref) => ref.deref() !== undefined)).toHaveLength(0);
+    for (const late of lateCalls) {
+      expect(late).toThrow(RELEASED);
+    }
+  });
+});
+
+/**
+ * Load `workspace`, bind an engine to the load, keep what work of it might
+ * keep (the load's number, a scope one of its runs captured), and dispose
+ * the engine. Resolves the late calls, which close over neither.
+ */
+async function reloaded(
+  workspace: string,
+  watch: (bound: object, loaded: object) => void
+): Promise<(() => unknown)[]> {
+  const loaded = new Catalog();
+  const number = await load(workspace, loaded);
+  const bound = engine(workspace);
+  setHost(bound, loaded);
+  const scope = inRunOf(bound, captureScope);
+  bound.disposed = true;
+  watch(bound, loaded);
+  return lateCallsOf(number, scope);
+}
+
+function lateCallsOf(number: number, scope: Scope): (() => unknown)[] {
+  return [
+    () => inLoad(number, declaringCatalog),
+    () => scope(declaringCatalog),
+  ];
+}

@@ -524,6 +524,7 @@ export class Engine {
     this.executions = this.#executions;
     this.#launcher = new Launcher({
       agents: (run) => this.agents.forRun(run),
+      context: this.context,
       executions: this.#executions,
       print,
       recoverQueued: options.recoverQueued ?? false,

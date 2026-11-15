@@ -7,6 +7,8 @@ import { DEFAULT_QUEUE } from "~/lib/executions";
 import { errorCode } from "~/lib/observations";
 import type { TaskContext, TaskDefinition } from "~/lib/tasks";
 import type { Agents, SandboxHandle } from "~/lib/types";
+import type { ExecutionContext } from "./execution-context";
+import { withinContext } from "./execution-context";
 
 /**
  * Launches: every run from the moment it is launched until it settles. The
@@ -90,6 +92,8 @@ interface Closable {
 export interface LauncherOptions {
   /** Sessions for a task run: they stop with it, close when it settles, and record on it. */
   readonly agents: (run: TaskRunSite) => Agents;
+  /** What a task's body runs as: its engine's execution context. */
+  readonly context?: ExecutionContext;
   readonly executions: Executions;
   readonly print: (line: string) => void;
   /** Whether queued runs an exited process left are let in again at start. */
@@ -601,7 +605,8 @@ export class Launcher {
       signal: resourceSignal,
     };
     this.#live.set(id, live);
-    const result = (async () => {
+    // The body, and everything it starts, runs as this engine's work.
+    const result = withinContext(this.#options.context, async () => {
       let value: unknown;
       try {
         // Cancelled before its body started: it never runs.
@@ -621,7 +626,7 @@ export class Launcher {
         throw new Error(`run ${id} was cancelled`);
       }
       return value;
-    })();
+    });
     live.done = this.#finish(id, result, () =>
       controller.signal.aborted ? "cancelled" : "failed"
     );

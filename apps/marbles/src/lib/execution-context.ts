@@ -32,6 +32,18 @@ export function inContext<T>(context: ExecutionContext, work: () => T): T {
 }
 
 /**
+ * Run `work` as `context` when there is one, else as it is: what an
+ * engine does at each place it calls code an author wrote, so that code,
+ * and everything it starts, runs as that engine's work.
+ */
+export function withinContext<T>(
+  context: ExecutionContext | undefined,
+  work: () => T
+): T {
+  return context === undefined ? work() : inContext(context, work);
+}
+
+/**
  * The context of the work calling: the step's run, else what the engine
  * entered (`inContext`), else none, as in a script no host loaded.
  */

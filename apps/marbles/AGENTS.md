@@ -80,8 +80,12 @@ Five buckets, each importing only what sits below it:
   Runs a starting engine adopts.
   Each engine has an execution context (`lib/execution-context.ts`): its
   workspace id, where its work starts (`cwd`, the root by default) and the
-  environment its commands inherit. Runs reach it through their bindings,
-  observers through `inContext`, and nothing in `lib/` reads
+  environment its commands inherit. Every place the engine calls code an
+  author wrote runs it as that context (`withinContext`): a step's whole
+  execution, schemas and body (`tree.ts`, `materialize`), its retry
+  decision, a launch's input schema and a workflow's setup (`factoryFor`),
+  a host task's body (`launcher.ts`), and each observer (`Delivery`);
+  whatever that code starts inherits it. Nothing in `lib/` reads
   `process.cwd()` or `process.env` for it.
   `lib/cli-harnesses.ts` describes each CLI harness once (ids in
   preference order, executor, guest artifact and environment). Provider
@@ -229,9 +233,14 @@ Five buckets, each importing only what sits below it:
   binding of the engine that takes its catalog. Work answers to its own
   binding's engine and catalog until that engine is disposed, whatever
   engine is bound to the workspace after it, and is refused
-  (`WorkspaceReleasedError`) once it is; only work that names a
-  workspace and no binding reaches the engine bound last, and only work
-  naming none may fall to the one workspace hosted. Nothing reads the
+  (`WorkspaceReleasedError`) once it is. A released binding keeps
+  neither engine nor catalog, and the loads it took are dropped, only
+  their numbers kept so late calls from them are refused. Work without a
+  binding reaches an engine only while one engine alone is alive for the
+  workspace: a load no engine has taken yet, or work naming nothing in a
+  process hosting one workspace; with two alive it is refused
+  (`AmbiguousWorkspaceError`), as is a run of an engine no host here
+  bound whose workspace another engine is bound to. Nothing reads the
   stack for it. `hosted.ts` (`HostedWorkspaces`) hosts several
   workspaces in one process over one database handle, refuses work that
   names no workspace, shares one registration of a workspace between
