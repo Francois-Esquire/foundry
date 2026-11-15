@@ -790,20 +790,30 @@ describe("engine generations", () => {
 
   it("starts exactly one generation for an idle reload, and one more for each after it", async () => {
     const clock = handClock();
-    const fixture = await setUp({ daemon: { clock } });
+    // What the daemon said, so a failure shows why it scheduled a switch.
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: { clock, print: (line) => lines.push(line) },
+    });
     const first = fixture.summary.pid ?? 0;
     const second = (await fixture.client.reload(fixture.summary.id)).pid ?? 0;
     expect(second).not.toBe(first);
     await gone(first);
     // Past every backoff a replacement could wait: nothing was scheduled.
-    expect(await fixture.daemon.idle()).toEqual({ scheduled: false });
+    expect(await fixture.daemon.idle(), lines.join("\n")).toEqual({
+      reasons: [],
+      scheduled: false,
+    });
     clock.advance(10 * 60_000);
     await fixture.daemon.idle();
     expect(await numbered(fixture)).toBe(2);
 
     const third = (await fixture.client.reload(fixture.summary.id)).pid ?? 0;
     await gone(second);
-    expect(await fixture.daemon.idle()).toEqual({ scheduled: false });
+    expect(await fixture.daemon.idle(), lines.join("\n")).toEqual({
+      reasons: [],
+      scheduled: false,
+    });
     clock.advance(10 * 60_000);
     await fixture.daemon.idle();
     expect(await numbered(fixture)).toBe(3);

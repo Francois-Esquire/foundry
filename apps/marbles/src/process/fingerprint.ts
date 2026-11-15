@@ -87,6 +87,8 @@ export class FileDigests {
 
 /** One workspace's part of a fingerprint. */
 export interface WorkspacePrint {
+  /** Each file under the root, by its path relative to the root, with its digest: what `tree` digests. */
+  readonly files: ReadonlyMap<string, string>;
   /** Each file read outside the root, by absolute path, with its digest as recorded. */
   readonly outside: ReadonlyMap<string, string>;
   /** The digest of every file under the root. */
@@ -173,17 +175,74 @@ export function treeDigest(
   digests: FileDigests,
   ignored: ReadonlySet<string> = new Set()
 ): string {
+  return digestOfTree(treeFiles(registration, digests, ignored));
+}
+
+/** The files `treeDigest` digests, by path relative to the root, each with its digest. */
+function treeFiles(
+  registration: Registration,
+  digests: FileDigests,
+  ignored: ReadonlySet<string>
+): ReadonlyMap<string, string> {
   let { root } = registration;
   let files = filesBelow(root, TREE_LIMIT, ignored);
   if (files === undefined && registration.config !== null) {
     root = dirname(registration.config);
     files = filesBelow(root, TREE_LIMIT, ignored);
   }
-  const hash = createHash("sha256");
+  const entries = new Map<string, string>();
   for (const file of files ?? []) {
-    hash.update(`\0${relative(root, file)}\0${digests.of(file) ?? "missing"}`);
+    entries.set(relative(root, file), digests.of(file) ?? "missing");
+  }
+  return entries;
+}
+
+/** The digest of a tree's files, in path order. */
+function digestOfTree(files: ReadonlyMap<string, string>): string {
+  const hash = createHash("sha256");
+  for (const [path, digest] of [...files].sort(([a], [b]) =>
+    a.localeCompare(b)
+  )) {
+    hash.update(`\0${path}\0${digest}`);
   }
   return hash.digest("hex");
+}
+
+/**
+ * What differs between `was` and `now`, a line each, for whoever must say
+ * why a switch was asked for: the installation, a workspace registered or
+ * not, and each file under a root or read outside it that is not as it was.
+ */
+export function differences(was: Fingerprint, now: Fingerprint): string[] {
+  const lines: string[] = [];
+  if (was.installation !== now.installation) {
+    lines.push("the installation changed");
+  }
+  const ids = new Set([...was.sources.keys(), ...now.sources.keys()]);
+  for (const id of [...ids].sort()) {
+    const before = was.sources.get(id);
+    const after = now.sources.get(id);
+    if (before === undefined || after === undefined) {
+      lines.push(
+        `workspace ${id} ${before === undefined ? "added" : "removed"}`
+      );
+      continue;
+    }
+    for (const [label, one, other] of [
+      ["under its root", before.files, after.files],
+      ["read outside its root", before.outside, after.outside],
+    ] as const) {
+      const paths = new Set([...one.keys(), ...other.keys()]);
+      for (const path of [...paths].sort()) {
+        if (one.get(path) !== other.get(path)) {
+          lines.push(
+            `workspace ${id}: ${path} ${label} (${one.get(path) ?? "absent"} → ${other.get(path) ?? "absent"})`
+          );
+        }
+      }
+    }
+  }
+  return lines;
 }
 
 /**
@@ -207,7 +266,7 @@ export function withRead(
   const unchanged = modified !== undefined && modified < readAt;
   const outside = new Map(print.outside);
   outside.set(file, (unchanged && digests.of(file)) || CHANGED);
-  return { outside, tree: print.tree };
+  return { files: print.files, outside, tree: print.tree };
 }
 
 /**
@@ -220,12 +279,12 @@ export function printNow(
   digests: FileDigests,
   ignored: ReadonlySet<string> = new Set()
 ): WorkspacePrint {
-  const tree = treeDigest(registration, digests, ignored);
-  const files = new Map<string, string>();
+  const tree = treeFiles(registration, digests, ignored);
+  const read = new Map<string, string>();
   for (const file of outside) {
-    files.set(file, digests.of(file) ?? "missing");
+    read.set(file, digests.of(file) ?? "missing");
   }
-  return { outside: files, tree };
+  return { files: tree, outside: read, tree: digestOfTree(tree) };
 }
 
 /** The fingerprint of `installation` and `sources`, in workspace id and file order. */
