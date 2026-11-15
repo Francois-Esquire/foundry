@@ -56,22 +56,23 @@ export class RunListing {
 
   /** Every Run listed, as stored now, oldest first. */
   async list(): Promise<readonly RunRecord[]> {
-    const live: RunRecord[] = [];
+    const read: RunRecord[] = [];
     for (const runId of [...this.#live]) {
       const run = await this.#store.getRun(runId);
-      // Asked again after the read: while it was under way, a listing
-      // that overlapped this one may have found the Run settled, and
-      // `#settled` lists it, or it was pruned, and nothing does.
-      if (run === null || !this.#live.has(runId)) {
+      if (run === null) {
         continue;
       }
-      if (TERMINAL_RUN_STATUSES.has(run.status)) {
-        this.#live.delete(runId);
+      if (!TERMINAL_RUN_STATUSES.has(run.status)) {
+        read.push(run);
+      } else if (this.#live.delete(runId)) {
         this.#settled.set(runId, run);
-      } else {
-        live.push(run);
       }
     }
+    // Asked again once every read is done: while they were under way, a
+    // listing that overlapped this one may have found a Run read live
+    // here settled, and `#settled` lists it, or it was pruned, and
+    // nothing does.
+    const live = read.filter((run) => this.#live.has(run.id));
     return [...this.#settled.values(), ...live].sort(
       (a, b) => a.timestamps.createdAt - b.timestamps.createdAt
     );
