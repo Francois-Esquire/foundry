@@ -337,6 +337,67 @@ export function describeArtifactStore(
       expect(await store.listBlobs()).toEqual([]);
     });
 
+    it("lands a commit made after one that fails in its turn", async () => {
+      const store = await fresh();
+      // An invalid date is cloned whole, so a store that refuses it does so
+      // while the commit holds its turn; one that keeps it resolves.
+      await store
+        .commit({
+          putArtifacts: [artifact({ createdAt: new Date(Number.NaN) })],
+        })
+        .catch(() => undefined);
+      const after = artifact();
+      expect(
+        await settlesWithin(store.commit({ putArtifacts: [after] }), 2000)
+      ).toBe("resolved");
+      expect(await store.getArtifact(after.id)).toEqual(after);
+    });
+
+    it("lands a commit made after a transaction whose work throws, and keeps nothing of it", async () => {
+      const store = await fresh();
+      const transaction = requireTransaction(store);
+      const doomed = artifact();
+      await expect(
+        transaction(async (view) => {
+          await view.commit({ putArtifacts: [doomed] });
+          throw new Error("work failed");
+        })
+      ).rejects.toThrow("work failed");
+      const after = artifact();
+      expect(
+        await settlesWithin(store.commit({ putArtifacts: [after] }), 2000)
+      ).toBe("resolved");
+      expect(await store.getArtifact(doomed.id)).toBeNull();
+      expect(await store.getArtifact(after.id)).toEqual(after);
+    });
+
+    it("lands a commit queued behind a transaction that fails, and one queued behind a failing commit", async () => {
+      const store = await fresh();
+      const transaction = requireTransaction(store);
+      const entered = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
+      const failing = transaction(async () => {
+        entered.resolve(undefined);
+        await release.promise;
+        throw new Error("work failed");
+      });
+      await entered.promise;
+      const queued = artifact();
+      const waiting = store.commit({ putArtifacts: [queued] });
+      const refused = store.commit({
+        putArtifacts: [artifact({ createdAt: new Date(Number.NaN) })],
+      });
+      const last = artifact();
+      const behind = store.commit({ putArtifacts: [last] });
+      release.resolve(undefined);
+      await expect(failing).rejects.toThrow("work failed");
+      await refused.catch(() => undefined);
+      expect(await settlesWithin(waiting, 2000)).toBe("resolved");
+      expect(await settlesWithin(behind, 2000)).toBe("resolved");
+      expect(await store.getArtifact(queued.id)).toEqual(queued);
+      expect(await store.getArtifact(last.id)).toEqual(last);
+    });
+
     it("detaches what it stores from what it returns", async () => {
       const store = await fresh();
       const record = artifact();
