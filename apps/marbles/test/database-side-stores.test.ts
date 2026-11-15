@@ -2,18 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { WorkspaceDatabaseOptions } from "~/database/managed";
 import { withWorkspaceDatabase } from "~/database/managed";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
-import { MemoryAutomationStore } from "~/lib/automation/store";
-import { MemoryWorkspaceRecords } from "~/lib/events/records";
-import { MemoryExecutionStore } from "~/lib/execution-store";
-import { MemoryRunStore } from "~/lib/run-store";
+import type { EngineOptions } from "~/lib/engine";
 import type { ActivityRecord } from "~/lib/sandbox/activities";
-import { MemoryTriggerStore } from "~/lib/trigger-store";
-import { MemoryUsageStore } from "~/lib/usage-store";
-import { testEngine, testInstances } from "./helpers/engine";
+import { testInstances } from "./helpers/engine";
 
 const roots: string[] = [];
 
@@ -46,21 +40,14 @@ const activity: ActivityRecord = {
   source,
 };
 
-/**
- * Close what an engine closes on dispose, every store `withWorkspaceDatabase`
- * counted, then give up the hold the engine keeps.
- */
-async function dispose({
-  options,
-  release,
-}: WorkspaceDatabaseOptions): Promise<void> {
+/** Close what an engine closes on dispose: every store `withWorkspaceDatabase` counted. */
+async function dispose(options: EngineOptions): Promise<void> {
   await options.records?.close();
   await options.runs?.close();
   await options.triggers?.close();
   await options.usageStore?.close();
   await options.automationStore?.close();
   await options.executionStore?.close();
-  await release();
 }
 
 describe("the stores an engine keeps beside its records", () => {
@@ -76,93 +63,32 @@ describe("the stores an engine keeps beside its records", () => {
       });
     };
     const first = options();
-    await first.options.grants?.transact(() => ({
-      next: "{}",
-      result: undefined,
-    }));
-    await first.options.approvals?.change((saved) => ({
+    await first.grants?.transact(() => ({ next: "{}", result: undefined }));
+    await first.approvals?.change((saved) => ({
       ...saved,
       sessions: [session],
     }));
-    await first.options.activityStore?.put("child-1", activity);
+    await first.activityStore?.put("child-1", activity);
     await dispose(first);
-    await expect(first.options.approvals?.load()).rejects.toThrow("closed");
+    await expect(first.approvals?.load()).rejects.toThrow("closed");
 
     const second = options();
     try {
-      expect(await second.options.approvals?.load()).toEqual({
+      expect(await second.approvals?.load()).toEqual({
         requests: [],
         sessions: [session],
       });
-      expect(await second.options.activityStore?.load()).toEqual([activity]);
+      expect(await second.activityStore?.load()).toEqual([activity]);
       expect(
-        await second.options.grants?.transact((stored) => ({ result: stored }))
+        await second.grants?.transact((stored) => ({ result: stored }))
       ).toBe("{}");
     } finally {
       await dispose(second);
     }
   });
 
-  it("are kept, and their handle closed on dispose, when the engine is handed every other store", async () => {
-    const state = join(scratch(), "handed");
-    const root = scratch();
-    const engine = () =>
-      testEngine({
-        automationStore: new MemoryAutomationStore(),
-        executionStore: new MemoryExecutionStore(),
-        records: new MemoryWorkspaceRecords(),
-        root,
-        runs: new MemoryRunStore(),
-        state,
-        triggers: new MemoryTriggerStore(),
-        usageStore: new MemoryUsageStore(),
-        workspaceId: "handed",
-      }).start();
-    const first = await engine();
-    await first.activities.record(activity.event, activity.source);
-    await first.dispose();
-    const late = { ...activity.event, revision: 2 };
-    await expect(first.activities.record(late, source)).rejects.toThrow(
-      "closed"
-    );
-
-    const second = await engine();
-    try {
-      // Listed as no longer live, since no session of this engine runs it.
-      expect(second.activities.list()).toEqual([
-        {
-          event: { ...activity.event, actions: [], status: "unknown" },
-          source,
-        },
-      ]);
-    } finally {
-      await second.dispose();
-    }
-  });
-
-  it("stay open until the engine lets go, after the stores made beside them close", async () => {
-    const kept = withWorkspaceDatabase({
-      ...testInstances({ root: scratch() }),
-      root: scratch(),
-      state: join(scratch(), "held"),
-      usageStore: new MemoryUsageStore(),
-      workspaceId: "held",
-    });
-    const { options } = kept;
-    await options.records?.close();
-    await options.runs?.close();
-    await options.triggers?.close();
-    await options.automationStore?.close();
-    await options.executionStore?.close();
-    // An agent still closing writes its activity after the engine's stores closed.
-    await options.activityStore?.put("child-1", activity);
-    await kept.release();
-    await kept.release();
-    await expect(options.activityStore?.load()).rejects.toThrow("closed");
-  });
-
   it("keep an activity's highest revision", async () => {
-    const { options, release } = withWorkspaceDatabase({
+    const options = withWorkspaceDatabase({
       ...testInstances({ root: scratch() }),
       root: scratch(),
       state: join(scratch(), "revisions"),
@@ -179,7 +105,7 @@ describe("the stores an engine keeps beside its records", () => {
       await options.activityStore?.put("child-1", at(3, "third"));
       expect(await options.activityStore?.load()).toEqual([at(3, "third")]);
     } finally {
-      await dispose({ options, release });
+      await dispose(options);
     }
   });
 });
