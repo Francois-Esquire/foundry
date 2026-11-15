@@ -53,7 +53,7 @@ async function machine() {
 }
 
 describe("other workspaces on the dashboard", () => {
-  it("lists another workspace's runs and triggers, qualified by their owner, a shared run naming this workspace", async () => {
+  it("lists another workspace's runs and triggers, each carrying its owner, a shared run naming this workspace", async () => {
     const state = await machine();
     const opened = await initializeDatabase(stateDatabase(state));
     try {
@@ -72,7 +72,7 @@ describe("other workspaces on the dashboard", () => {
       const { runs, triggers } = await read(Date.now());
       expect(runs.map((run) => run.id)).toEqual(["rn-shared", "rn-two"]);
       expect(runs[0]).toMatchObject({
-        definitionId: "ws2:guides",
+        definitionId: "guides",
         name: "guides · two",
         workspace: { id: "ws2", name: "two" },
         workspaces: ["ws2", "ws1"],
@@ -82,10 +82,11 @@ describe("other workspaces on the dashboard", () => {
       expect(triggers).toEqual([
         expect.objectContaining({
           description: "monitor in two · a launch of refresh waits",
-          id: "ws2:watch",
+          id: "watch",
           kind: "monitor",
           name: "watch docs · two",
           status: "watching",
+          targetId: "refresh",
           workspace: { id: "ws2", name: "two" },
         }),
       ]);
@@ -97,6 +98,41 @@ describe("other workspaces on the dashboard", () => {
       })(Date.now());
       expect(fromTwo.runs.map((run) => run.id)).toEqual(["rn-own"]);
       expect(fromTwo.triggers).toEqual([]);
+    } finally {
+      opened.close();
+    }
+  });
+
+  it("shows a run shared with this workspace however many newer runs its owner has, and caps the others per workspace", async () => {
+    const state = await machine();
+    await seedRuns(
+      state,
+      "ws2",
+      Array.from({ length: 120 }, (_, index) => ({
+        createdAt: 100 + index,
+        id: `newer-${String(index)}`,
+        owner: null,
+        status: "complete" as const,
+      }))
+    );
+    const opened = await initializeDatabase(stateDatabase(state));
+    try {
+      const { database } = opened;
+      // The oldest run of ws2, behind 120 newer ones.
+      await resourceAssociations(database, state).share(
+        { id: "rn-two", kind: "run", owner: "ws2" },
+        "ws1"
+      );
+      const { runs } = await otherWorkspaces({
+        database,
+        state,
+        workspace: "ws1",
+      })(Date.now());
+      expect(runs.find((run) => run.id === "rn-two")).toMatchObject({
+        workspaces: ["ws2", "ws1"],
+      });
+      // 100 of ws2's own newest, and the one it shares.
+      expect(runs).toHaveLength(101);
     } finally {
       opened.close();
     }

@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "vitest";
 import { PreviewApp } from "../preview/app";
 import { dashboardSnapshot } from "../preview/snapshot";
 import { DashboardView } from "../src/views/dashboard";
+import { selectionKey } from "../src/views/dashboard-model";
 import { click, ctrlC, mount, press, unmount } from "./helpers/render";
 
 let closed = false;
@@ -74,7 +75,7 @@ test("modal mouse actions work and background controls cannot change selection",
   const ui = await render();
   const before = ui.captureCharFrame();
   await press(ui, "q");
-  await click(ui, "run:run-103");
+  await click(ui, selectionKey({ id: "run-103", kind: "run" }));
   await press(ui, "ARROW_DOWN");
   await press(ui, "a");
   await click(ui, "dialog:cancel");

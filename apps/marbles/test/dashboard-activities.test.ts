@@ -88,7 +88,13 @@ it("folds an activity branch independently of its owning workflow step", () => {
       activity("child", { parentId: "parent" }),
     ],
   };
-  const rows = runRows([snapshot], new Set(["run:run", "run:run:step:write"]));
+  const rows = runRows(
+    [snapshot],
+    new Set([
+      selectionKey({ id: "run", kind: "run" }),
+      selectionKey({ id: "run", kind: "run", stepId: "write" }),
+    ])
+  );
   expect(rows.map((row) => row.name)).toEqual([
     "Run",
     "Write",

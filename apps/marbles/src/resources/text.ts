@@ -53,15 +53,12 @@ const LINES: {
     );
   },
   async session(view, here) {
-    const lines: string[] = [];
-    for (const shown of await view.sessions()) {
-      const messages = await view.messages(shown.ref);
-      const summary = messages.some((message) => message.role === "summary");
-      lines.push(
-        `${shown.ref.id}  ${String(messages.length)} messages  ${new Date(shown.value.updatedAt).toISOString()}  summary: ${summary ? "yes" : "no"}${belonging(shown, here)}`
-      );
-    }
-    return lines;
+    const sessions = await view.sessions();
+    const tallies = await view.messageTallies(sessions.map(({ ref }) => ref));
+    return sessions.map((shown) => {
+      const tally = tallies.get(shown.ref);
+      return `${shown.ref.id}  ${String(tally?.messages ?? 0)} messages  ${new Date(shown.value.updatedAt).toISOString()}  summary: ${tally?.summarized ? "yes" : "no"}${belonging(shown, here)}`;
+    });
   },
 };
 

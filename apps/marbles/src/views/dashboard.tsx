@@ -21,6 +21,7 @@ import { Text } from "~/components/ui/text";
 import { TextInput } from "~/components/ui/text-input";
 import { theme } from "~/components/ui/theme";
 import type { DashboardSnapshot } from "./dashboard-model";
+import { isSelected } from "./dashboard-model";
 import type { CatalogSelection } from "./dashboard-tree";
 import { FeedView } from "./feed";
 import { LaunchView } from "./launch";
@@ -35,9 +36,11 @@ function describeFilter(
   if (!filter) {
     return undefined;
   }
-  const items =
-    filter.kind === "trigger" ? snapshot.triggers : snapshot.definitions;
-  return `${filter.kind}: ${items.find((item) => item.id === filter.id)?.name ?? filter.id}`;
+  const name =
+    filter.kind === "trigger"
+      ? snapshot.triggers.find((item) => isSelected(item, filter))?.name
+      : snapshot.definitions.find((item) => item.id === filter.id)?.name;
+  return `${filter.kind}: ${name ?? filter.id}`;
 }
 
 /** Room for Runs beside Latest and Usage. */

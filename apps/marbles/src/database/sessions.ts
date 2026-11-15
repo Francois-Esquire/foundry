@@ -1,6 +1,9 @@
 import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
-import type { SessionTransaction } from "@foundry/agents/store/sqlite";
+import type {
+  MessageTally,
+  SessionTransaction,
+} from "@foundry/agents/store/sqlite";
 import {
   capturedSessionWrite,
   SqliteSessionStore,
@@ -81,6 +84,18 @@ export class DatabaseSessionStore implements ListedSessionStore {
 
   listMessages(sessionId: string): Promise<SessionMessage[]> {
     return asMarbles(() => this.#store.listMessages(sessionId));
+  }
+
+  /** The sessions with these ids, in no particular order, read in batches. */
+  getSessions(ids: readonly string[]): Promise<SessionRecord[]> {
+    return asMarbles(() => this.#store.getSessions(ids));
+  }
+
+  /** How many messages each of these sessions holds, and whether one is a summary, read in batches. */
+  messageTallies(
+    sessionIds: readonly string[]
+  ): Promise<Map<string, MessageTally>> {
+    return asMarbles(() => this.#store.messageTallies(sessionIds));
   }
 
   /**

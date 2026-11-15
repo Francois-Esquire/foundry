@@ -5,6 +5,7 @@ import { dashboardSnapshot } from "../preview/snapshot";
 import { theme } from "../src/components/ui/theme";
 import { DashboardView } from "../src/views/dashboard";
 import type { DashboardSnapshot } from "../src/views/dashboard-model";
+import { selectionKey } from "../src/views/dashboard-model";
 import type { RunActions } from "../src/views/run-actions";
 import { click, flush, mount, press, unmount } from "./helpers/render";
 
@@ -268,7 +269,15 @@ test.each([
     const frame = ui.captureCharFrame();
     expect(frame).toContain("task: Background test run");
     expect(frame).not.toContain("[step] task:");
-    await click(ui, 'run:run-104:activity:["child-session","child"]');
+    await click(
+      ui,
+      selectionKey({
+        activityId: "child",
+        id: "run-104",
+        kind: "run",
+        sessionId: "child-session",
+      })
+    );
     expect(ui.captureCharFrame()).toContain("Background test run");
     expect(ui.captureCharFrame()).not.toContain("s steer");
     expect(ui.captureCharFrame().includes("k stop activity")).toBe(stoppable);

@@ -7,6 +7,7 @@ import type {
   AssociationStoreWrite,
   ResourceAssociation,
   ResourceKind,
+  ResourceRef,
 } from "~/lib/resources";
 
 export interface DatabaseAssociationStoreOptions {
@@ -59,6 +60,35 @@ export class DatabaseAssociationStore implements AssociationStore {
         }
       })
     );
+  }
+
+  /**
+   * The resources of `kind` shared with `workspace`, read through the
+   * `(kind, workspace)` index alone.
+   */
+  sharedWith(
+    kind: ResourceKind,
+    workspace: string
+  ): Promise<readonly ResourceRef[]> {
+    return asBusy(async () => {
+      const rows = await this.#database
+        .select({
+          owner: marblesResourceWorkspaces.owner,
+          resourceId: marblesResourceWorkspaces.resourceId,
+        })
+        .from(marblesResourceWorkspaces)
+        .where(
+          and(
+            eq(marblesResourceWorkspaces.kind, kind),
+            eq(marblesResourceWorkspaces.workspace, workspace)
+          )
+        );
+      return rows.map((row) => ({
+        id: row.resourceId,
+        kind,
+        owner: row.owner,
+      }));
+    });
   }
 
   list(kind: ResourceKind): Promise<readonly ResourceAssociation[]> {

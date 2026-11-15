@@ -1459,3 +1459,32 @@ function fieldsOf(shape: Readonly<Record<string, z.ZodType>>) {
     ])
   );
 }
+
+describe("SqliteSessionStore batch reads", () => {
+  it("reads many sessions, and counts their messages and summaries, in one statement each", async () => {
+    const queries: string[] = [];
+    const { store } = await storeOn({
+      onQuery: (query) => queries.push(query),
+    });
+    const ids = Array.from({ length: 50 }, (_, index) => `s${index}`);
+    await store.commit({
+      putMessages: [
+        message("m1", "s1"),
+        message("m2", "s1", { role: "summary" }),
+        message("m3", "s2"),
+      ],
+      putSessions: ids.map((id) => session(id)),
+    });
+    queries.length = 0;
+    const sessions = await store.getSessions([...ids, "missing", "\u0000"]);
+    expect(sessions.map((found) => found.id).sort()).toEqual([...ids].sort());
+    const tallies = await store.messageTallies(ids);
+    expect(queries).toHaveLength(2);
+    expect(tallies).toEqual(
+      new Map([
+        ["s1", { messages: 2, summarized: true }],
+        ["s2", { messages: 1, summarized: false }],
+      ])
+    );
+  });
+});

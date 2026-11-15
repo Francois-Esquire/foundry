@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { dashboardSnapshot } from "../preview/snapshot";
 import type { DashboardSnapshot } from "../src/views/dashboard-model";
+import {
+  resolveSelection,
+  runSelection,
+  selectionKey,
+  triggerSelection,
+} from "../src/views/dashboard-model";
+import { scopedRuns } from "../src/views/dashboard-tree";
 import { showsOthers, workspaceScoped } from "../src/views/workspace-scope";
 
 /**
@@ -43,5 +50,49 @@ describe("the dashboard's workspace scope", () => {
     expect(workspaceScoped(snapshot, true)).toBe(snapshot);
     expect(showsOthers(snapshot)).toBe(true);
     expect(showsOthers(dashboardSnapshot)).toBe(false);
+  });
+
+  it("tells two workspaces' runs and triggers of one id apart, whatever the id holds", () => {
+    const id = "recent:99";
+    const mine = { ...first, id, status: "complete" as const, triggerId: id };
+    const theirs = {
+      ...first,
+      id,
+      status: "failed" as const,
+      triggerId: id,
+      workspace: docs,
+    };
+    const colliding: DashboardSnapshot = {
+      ...dashboardSnapshot,
+      runs: [mine, theirs],
+      triggers: [
+        { ...trigger, id },
+        { ...trigger, id, workspace: docs },
+      ],
+    };
+    const resolvedMine = resolveSelection(colliding, runSelection(mine));
+    const resolvedTheirs = resolveSelection(colliding, runSelection(theirs));
+    expect(resolvedMine).toMatchObject({ run: { status: "complete" } });
+    expect(resolvedTheirs).toMatchObject({ run: { status: "failed" } });
+    expect(selectionKey(runSelection(mine))).not.toBe(
+      selectionKey(runSelection(theirs))
+    );
+    // Neither colon-joined form names the other's run.
+    expect(selectionKey({ id: `ws-docs:${id}`, kind: "run" })).not.toBe(
+      selectionKey(runSelection(theirs))
+    );
+    const [own, other] = colliding.triggers;
+    if (own === undefined || other === undefined) {
+      throw new Error("two triggers");
+    }
+    expect(resolveSelection(colliding, triggerSelection(other))).toMatchObject({
+      trigger: { workspace: docs },
+    });
+    expect(
+      scopedRuns(colliding, triggerSelection(own)).map((run) => run.status)
+    ).toEqual(["complete"]);
+    expect(
+      scopedRuns(colliding, triggerSelection(other)).map((run) => run.status)
+    ).toEqual(["failed"]);
   });
 });

@@ -1,4 +1,5 @@
-import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
+import type { SessionRecord } from "@foundry/agents/schema";
+import type { MessageTally } from "@foundry/agents/store/sqlite";
 import type { Artifact, ArtifactId } from "@foundry/artifacts";
 import type { ArtifactCursor } from "@foundry/artifacts/listing";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
@@ -9,7 +10,7 @@ import type { ContainerRow } from "@foundry/sandbox/schema";
 import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import type { RunRecord } from "@foundry/workflows/schema";
 import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { DatabaseAssociationStore } from "~/database/associations";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
@@ -73,9 +74,12 @@ export interface ResourceViewOptions {
 /** Rows per page when a view reads a whole store. */
 const PAGE = 200;
 
-/** How a view reads one kind, from the store of the owner `owner`. */
+/**
+ * How a view reads one kind from the store of the owner `owner`: all of
+ * it, or the ones with some ids, in as few reads as that store allows.
+ */
 interface KindReader<T> {
-  get(owner: string, id: string): Promise<T | null>;
+  get(owner: string, ids: readonly string[]): Promise<readonly T[]>;
   id(value: T): string;
   list(owner: string): Promise<readonly T[]>;
 }
@@ -93,14 +97,44 @@ export class ResourceView {
     this.#registry = new WorkspaceRegistry(options);
   }
 
-  /** Workflow runs, newest first. Their steps are in each record. */
-  async runs(): Promise<readonly Shown<RunResource>[]> {
-    const shown = await this.#show("run", this.#runs());
-    return shown.sort(
-      (a, b) =>
-        b.value.record.timestamps.createdAt -
-        a.value.record.timestamps.createdAt
+  /**
+   * Workflow runs, newest first. Their steps are in each record. With
+   * `limit`, at most that many of each owning workspace, its newest.
+   */
+  async runs(limit?: number): Promise<readonly Shown<RunResource>[]> {
+    return newestOfEach(
+      await this.#show("run", this.#runs()),
+      (run) => run.record.timestamps.createdAt,
+      limit
     );
+  }
+
+  /**
+   * The runs other workspaces share with this view's workspace, newest
+   * first, at most `limit`: read through this workspace's shares alone,
+   * whatever else their owners keep. None for the all-workspaces view.
+   */
+  async sharedRuns(limit?: number): Promise<readonly Shown<RunResource>[]> {
+    if (this.scope === ALL_WORKSPACES) {
+      return [];
+    }
+    const here = this.scope.workspace;
+    const reader = this.#runs();
+    const refs = (await this.#associations.sharedWith("run", here)).filter(
+      (ref) => ref.owner !== here
+    );
+    const found = await this.#fetch("run", reader, refs);
+    const all = await this.#associations.list("run");
+    const shown = found.map(({ ref, value }) => ({
+      ref,
+      value,
+      workspaces: workspacesOf(ref, all),
+    }));
+    return newestOfEach(
+      shown,
+      (run) => run.record.timestamps.createdAt,
+      undefined
+    ).slice(0, limit);
   }
 
   /** Agent sessions, most recently updated first. */
@@ -109,9 +143,26 @@ export class ResourceView {
     return shown.sort((a, b) => b.value.updatedAt - a.value.updatedAt);
   }
 
-  /** The messages of a session the view shows, oldest first. */
-  messages(ref: ResourceRef): Promise<readonly SessionMessage[]> {
-    return this.#sessionStore(ref.owner).listMessages(ref.id);
+  /**
+   * How many messages each of these sessions holds, and whether one is a
+   * summary, read in a batch per owner; one with none is left out.
+   */
+  async messageTallies(
+    refs: readonly ResourceRef[]
+  ): Promise<ReadonlyMap<ResourceRef, MessageTally>> {
+    const tallies = new Map<ResourceRef, MessageTally>();
+    for (const [owner, group] of byOwner(refs)) {
+      const counted = await this.#sessionStore(owner).messageTallies(
+        group.map((ref) => ref.id)
+      );
+      for (const ref of group) {
+        const tally = counted.get(ref.id);
+        if (tally !== undefined) {
+          tallies.set(ref, tally);
+        }
+      }
+    }
+    return tallies;
   }
 
   /** Artifacts, newest first. */
@@ -169,7 +220,7 @@ export class ResourceView {
 
   /** Whether the owner of `ref` keeps it, whatever this view's scope. */
   async has(ref: ResourceRef): Promise<boolean> {
-    return (await this.#reader(ref.kind).get(ref.owner, ref.id)) !== null;
+    return (await this.#reader(ref.kind).get(ref.owner, [ref.id])).length > 0;
   }
 
   /** Every resource of `kind` this view shows, with the workspaces each belongs to. */
@@ -182,13 +233,7 @@ export class ResourceView {
     return found.map(({ ref, value }) => ({
       ref,
       value,
-      workspaces: [
-        ref.owner,
-        ...associations
-          .filter((association) => sameResource(association.ref, ref))
-          .map((association) => association.workspace)
-          .sort(),
-      ],
+      workspaces: workspacesOf(ref, associations),
     }));
   }
 
@@ -209,17 +254,35 @@ export class ResourceView {
       }));
     if (this.scope === ALL_WORKSPACES) {
       const owners = (await this.#registry.list()).map((record) => record.id);
-      return (await Promise.all(owners.map(owned))).flat();
+      const found: { readonly ref: ResourceRef; readonly value: T }[] = [];
+      for (const owner of owners) {
+        found.push(...(await owned(owner)));
+      }
+      return found;
     }
     const here = this.scope.workspace;
-    const found = await owned(here);
-    for (const { ref, workspace } of associations) {
-      if (workspace !== here || ref.owner === here) {
-        continue;
-      }
-      const value = await reader.get(ref.owner, ref.id);
-      if (value !== null) {
-        found.push({ ref, value });
+    const shared = associations
+      .filter(({ ref, workspace }) => workspace === here && ref.owner !== here)
+      .map(({ ref }) => ref);
+    return [
+      ...(await owned(here)),
+      ...(await this.#fetch(kind, reader, shared)),
+    ];
+  }
+
+  /** The resources `refs` name that their owners keep, read in a batch per owner. */
+  async #fetch<T>(
+    kind: ResourceKind,
+    reader: KindReader<T>,
+    refs: readonly ResourceRef[]
+  ): Promise<{ readonly ref: ResourceRef; readonly value: T }[]> {
+    const found: { readonly ref: ResourceRef; readonly value: T }[] = [];
+    for (const [owner, group] of byOwner(refs)) {
+      for (const value of await reader.get(
+        owner,
+        group.map((ref) => ref.id)
+      )) {
+        found.push({ ref: { id: reader.id(value), kind, owner }, value });
       }
     }
     return found;
@@ -244,32 +307,53 @@ export class ResourceView {
 
   #runs(): KindReader<RunResource> {
     const database = this.#database;
-    const ownerPids = async (owner: string) =>
-      new Map(
-        (
-          await database
-            .select({
-              ownerPid: marblesWorkflowRuns.ownerPid,
-              runId: marblesWorkflowRuns.runId,
-            })
-            .from(marblesWorkflowRuns)
-            .where(eq(marblesWorkflowRuns.scope, owner))
-        ).map((row) => [row.runId, row.ownerPid])
-      );
+    /** The owner pids of `owner`'s runs, every one or those with `ids`, in one read each batch. */
+    const ownerPids = async (owner: string, ids?: readonly string[]) => {
+      const pids = new Map<string, number | null>();
+      const read = (batch?: readonly string[]) =>
+        database
+          .select({
+            ownerPid: marblesWorkflowRuns.ownerPid,
+            runId: marblesWorkflowRuns.runId,
+          })
+          .from(marblesWorkflowRuns)
+          .where(
+            and(
+              eq(marblesWorkflowRuns.scope, owner),
+              batch === undefined
+                ? undefined
+                : inArray(marblesWorkflowRuns.runId, [...batch])
+            )
+          );
+      for (const rows of ids === undefined
+        ? [await read()]
+        : await Promise.all(batches(ids).map(read))) {
+        for (const row of rows) {
+          pids.set(row.runId, row.ownerPid);
+        }
+      }
+      return pids;
+    };
     const store = (owner: string) =>
       new SqliteWorkflowStore({ database, scope: owner });
     return {
-      get: (owner, id) =>
+      get: (owner, ids) =>
         asBusy(async () => {
-          const record = await store(owner).getRun(id);
-          return record === null
-            ? null
-            : { ownerPid: (await ownerPids(owner)).get(id) ?? null, record };
+          const runs = store(owner);
+          const pids = await ownerPids(owner, ids);
+          const found: RunResource[] = [];
+          for (const id of ids) {
+            const record = await runs.getRun(id);
+            if (record !== null) {
+              found.push({ ownerPid: pids.get(id) ?? null, record });
+            }
+          }
+          return found;
         }),
       id: (run) => run.record.id,
       list: (owner) =>
         asBusy(async () => {
-          const owners = await ownerPids(owner);
+          const pids = await ownerPids(owner);
           const runs: RunResource[] = [];
           let after: number | undefined;
           do {
@@ -278,7 +362,7 @@ export class ResourceView {
               ...(after === undefined ? {} : { after }),
             });
             for (const record of page.items) {
-              runs.push({ ownerPid: owners.get(record.id) ?? null, record });
+              runs.push({ ownerPid: pids.get(record.id) ?? null, record });
             }
             after = page.next;
           } while (after !== undefined);
@@ -289,18 +373,11 @@ export class ResourceView {
 
   #sessions(): KindReader<SessionRecord> {
     return {
-      get: (owner, id) => this.#sessionStore(owner).getSession(id),
+      get: (owner, ids) => this.#sessionStore(owner).getSessions(ids),
       id: (session) => session.id,
       list: async (owner) => {
         const store = this.#sessionStore(owner);
-        const sessions: SessionRecord[] = [];
-        for (const { id } of await store.stamps()) {
-          const session = await store.getSession(id);
-          if (session !== null) {
-            sessions.push(session);
-          }
-        }
-        return sessions;
+        return store.getSessions((await store.stamps()).map(({ id }) => id));
       },
     };
   }
@@ -313,8 +390,18 @@ export class ResourceView {
     const store = (owner: string) =>
       new SqliteArtifactStore({ database: this.#database, scope: owner });
     return {
-      get: (owner, id) =>
-        asBusy(() => store(owner).getArtifact(id as ArtifactId)),
+      get: (owner, ids) =>
+        asBusy(async () => {
+          const artifacts = store(owner);
+          const found: Artifact[] = [];
+          for (const id of ids) {
+            const artifact = await artifacts.getArtifact(id as ArtifactId);
+            if (artifact !== null) {
+              found.push(artifact);
+            }
+          }
+          return found;
+        }),
       id: (artifact) => artifact.id,
       list: (owner) =>
         asBusy(async () => {
@@ -340,8 +427,18 @@ export class ResourceView {
     const store = (owner: string) =>
       createSqliteContainerStore({ database: this.#database, scope: owner });
     return {
-      get: (owner, id) =>
-        asBusy(async () => (await store(owner).get(id)) ?? null),
+      get: (owner, ids) =>
+        asBusy(async () => {
+          const containers = store(owner);
+          const found: ContainerRow[] = [];
+          for (const id of ids) {
+            const row = await containers.get(id);
+            if (row !== undefined) {
+              found.push(row);
+            }
+          }
+          return found;
+        }),
       id: (row) => row.id,
       list: (owner) => asBusy(() => store(owner).list()),
     };
@@ -351,7 +448,18 @@ export class ResourceView {
     const store = (owner: string) =>
       new SqliteModuleStore({ database: this.#database, scope: owner });
     return {
-      get: (owner, id) => asBusy(() => store(owner).getModule(id as ModuleId)),
+      get: (owner, ids) =>
+        asBusy(async () => {
+          const modules = store(owner);
+          const found: Module[] = [];
+          for (const id of ids) {
+            const module = await modules.getModule(id as ModuleId);
+            if (module !== null) {
+              found.push(module);
+            }
+          }
+          return found;
+        }),
       id: (module) => module.id,
       list: (owner) =>
         asBusy(async () => {
@@ -369,6 +477,62 @@ export class ResourceView {
         }),
     };
   }
+}
+
+/** Every workspace `ref` belongs to: its owner, then those it is shared with, by id. */
+function workspacesOf(
+  ref: ResourceRef,
+  associations: readonly ResourceAssociation[]
+): readonly string[] {
+  return [
+    ref.owner,
+    ...associations
+      .filter((association) => sameResource(association.ref, ref))
+      .map((association) => association.workspace)
+      .sort(),
+  ];
+}
+
+/** `refs` by owner, in the order each owner first appears. */
+function byOwner(
+  refs: readonly ResourceRef[]
+): Map<string, readonly ResourceRef[]> {
+  const grouped = new Map<string, ResourceRef[]>();
+  for (const ref of refs) {
+    const group = grouped.get(ref.owner) ?? [];
+    group.push(ref);
+    grouped.set(ref.owner, group);
+  }
+  return grouped;
+}
+
+/** Ids per statement, well under SQLite's parameter limit. */
+const BATCH = 500;
+
+function batches(ids: readonly string[]): (readonly string[])[] {
+  const all: (readonly string[])[] = [];
+  for (let start = 0; start < ids.length; start += BATCH) {
+    all.push(ids.slice(start, start + BATCH));
+  }
+  return all;
+}
+
+/** `shown`, newest first by `at`; with `limit`, at most that many of each owner. */
+function newestOfEach<T>(
+  shown: readonly Shown<T>[],
+  at: (value: T) => number,
+  limit: number | undefined
+): Shown<T>[] {
+  const newest = [...shown].sort((a, b) => at(b.value) - at(a.value));
+  if (limit === undefined) {
+    return newest;
+  }
+  const taken = new Map<string, number>();
+  return newest.filter(({ ref }) => {
+    const count = taken.get(ref.owner) ?? 0;
+    taken.set(ref.owner, count + 1);
+    return count < limit;
+  });
 }
 
 /**

@@ -17,16 +17,69 @@ export type {
   TriggerSnapshot,
 } from "~/model/dashboard";
 
+/**
+ * What a list row points at. A run or trigger another workspace owns is
+ * named by that workspace and its id together (`workspace`, absent for
+ * this workspace's own), so two workspaces' items of one id stay two.
+ */
 export type DashboardSelection =
-  | { readonly kind: "trigger"; readonly id: string }
+  | {
+      readonly kind: "trigger";
+      readonly id: string;
+      readonly workspace?: string;
+    }
   | { readonly kind: "definition"; readonly id: string }
   | {
       readonly kind: "run";
       readonly id: string;
+      readonly workspace?: string;
       readonly stepId?: string;
       readonly activityId?: string;
       readonly sessionId?: string;
     };
+
+/** A run or trigger as a list holds it: its id, and its owner when another workspace's. */
+interface Owned {
+  readonly id: string;
+  readonly workspace?: { readonly id: string };
+}
+
+/** Whether `item` is the one `selection` names: the same id of the same owner. */
+export function isSelected(
+  item: Owned,
+  selection: { readonly id: string; readonly workspace?: string }
+): boolean {
+  return item.id === selection.id && item.workspace?.id === selection.workspace;
+}
+
+/** The selection naming `run`, or one of its steps or activities. */
+export function runSelection(
+  run: Owned,
+  within: Pick<
+    Extract<DashboardSelection, { kind: "run" }>,
+    "activityId" | "sessionId" | "stepId"
+  > = {}
+): Extract<DashboardSelection, { kind: "run" }> {
+  return {
+    id: run.id,
+    kind: "run",
+    ...(run.workspace === undefined ? {} : { workspace: run.workspace.id }),
+    ...within,
+  };
+}
+
+/** The selection naming `trigger`. */
+export function triggerSelection(
+  trigger: Owned
+): Extract<DashboardSelection, { kind: "trigger" }> {
+  return {
+    id: trigger.id,
+    kind: "trigger",
+    ...(trigger.workspace === undefined
+      ? {}
+      : { workspace: trigger.workspace.id }),
+  };
+}
 
 /** What a selection points at in one snapshot. */
 export type ResolvedSelection =
@@ -61,14 +114,26 @@ export function flattenSteps(
   ]);
 }
 
+/** A key no two selections share, whatever their ids hold. */
 export function selectionKey(selection: DashboardSelection): string {
-  if (selection.kind === "run" && selection.activityId !== undefined) {
-    return `run:${selection.id}:activity:${JSON.stringify([selection.sessionId, selection.activityId])}`;
+  if (selection.kind === "definition") {
+    return JSON.stringify([selection.kind, selection.id]);
   }
-  if (selection.kind === "run" && selection.stepId) {
-    return `run:${selection.id}:step:${selection.stepId}`;
+  if (selection.kind === "trigger") {
+    return JSON.stringify([
+      selection.kind,
+      selection.workspace ?? null,
+      selection.id,
+    ]);
   }
-  return `${selection.kind}:${selection.id}`;
+  return JSON.stringify([
+    selection.kind,
+    selection.workspace ?? null,
+    selection.id,
+    selection.stepId ?? null,
+    selection.sessionId ?? null,
+    selection.activityId ?? null,
+  ]);
 }
 
 function stepPath(
@@ -119,7 +184,9 @@ export function resolveSelection(
     return { kind: "none" };
   }
   if (selection.kind === "trigger") {
-    const trigger = snapshot.triggers.find((item) => item.id === selection.id);
+    const trigger = snapshot.triggers.find((item) =>
+      isSelected(item, selection)
+    );
     return trigger ? { kind: "trigger", trigger } : { kind: "gone", selection };
   }
   if (selection.kind === "definition") {
@@ -130,7 +197,7 @@ export function resolveSelection(
       ? { definition, kind: "definition" }
       : { kind: "gone", selection };
   }
-  const run = snapshot.runs.find((item) => item.id === selection.id);
+  const run = snapshot.runs.find((item) => isSelected(item, selection));
   return run ? resolveRun(run, selection) : { kind: "gone", selection };
 }
 

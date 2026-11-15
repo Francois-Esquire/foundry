@@ -32,6 +32,7 @@ import {
 import type { CatalogSelection } from "./dashboard-tree";
 import {
   filterLogs,
+  logRun,
   type OperatingLogEntry,
   operatingLogs,
 } from "./operating-model";
@@ -225,14 +226,7 @@ export function useDashboard({
         setState((previous) => selectLog(previous, snapshot, entry));
         return;
       }
-      send({
-        selection: {
-          id: entry.runId,
-          kind: "run",
-          ...(entry.stepId === undefined ? {} : { stepId: entry.stepId }),
-        },
-        type: "inspect",
-      });
+      send({ selection: logRun(entry, entry.runId), type: "inspect" });
     },
     pane: paneOf(state),
     quit,

@@ -507,7 +507,10 @@ await host.close();
       const [kept] = sessions;
       return {
         messages:
-          kept === undefined ? 0 : (await view.messages(kept.ref)).length,
+          kept === undefined
+            ? 0
+            : ((await view.messageTallies([kept.ref])).get(kept.ref)
+                ?.messages ?? 0),
         stamps: sessions.map(({ ref }) => ref.id),
       };
     }).then((read) => {

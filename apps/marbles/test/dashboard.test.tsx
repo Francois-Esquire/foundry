@@ -4,6 +4,7 @@ import { previewScenarios } from "../preview/scenarios";
 import { dashboardSnapshot } from "../preview/snapshot";
 import { DashboardView } from "../src/views/dashboard";
 import type { DashboardSnapshot } from "../src/views/dashboard-model";
+import { selectionKey } from "../src/views/dashboard-model";
 import { click, flush, mount, press, unmount } from "./helpers/render";
 
 const WRITE_STEP = /Step\s+: write/;
@@ -175,7 +176,10 @@ test("keyboard navigation keeps a selected run visible in a long list", async ()
 
 test("branch toggles and panel focus preserve run selection and expansion", async () => {
   const ui = await render();
-  await click(ui, "expand:run:run-104:step:update");
+  await click(
+    ui,
+    `expand:${selectionKey({ id: "run-104", kind: "run", stepId: "update" })}`
+  );
   expect(ui.captureCharFrame()).not.toContain("[step] Write changes");
   await press(ui, "1");
   await press(ui, "TAB");

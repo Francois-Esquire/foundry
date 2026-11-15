@@ -5,6 +5,7 @@ import {
   flattenSteps,
   type HarnessActivitySnapshot,
   type RunSnapshot,
+  runSelection,
   type StepSnapshot,
   selectionKey,
 } from "./dashboard-model";
@@ -32,10 +33,11 @@ export function scopedRuns(
   if (!filter) {
     return snapshot.runs;
   }
+  // A trigger filters its own workspace's runs; a definition is this one's.
   return snapshot.runs.filter((run) =>
     filter.kind === "trigger"
-      ? run.triggerId === filter.id
-      : run.definitionId === filter.id
+      ? run.triggerId === filter.id && run.workspace?.id === filter.workspace
+      : run.definitionId === filter.id && run.workspace === undefined
   );
 }
 
@@ -119,19 +121,17 @@ function activityRoots(run: RunSnapshot): ActivityBranch[] {
 }
 
 function activityRows(
-  runId: string,
+  run: RunSnapshot,
   branches: readonly ActivityBranch[],
   expanded: ReadonlySet<string>,
   reveal: boolean,
   depth: number
 ): RunRow[] {
   return branches.flatMap(({ activity, children }) => {
-    const selection: DashboardSelection = {
+    const selection: DashboardSelection = runSelection(run, {
       activityId: activity.id,
-      id: runId,
-      kind: "run",
       sessionId: activity.sessionId,
-    };
+    });
     const open = reveal || expanded.has(selectionKey(selection));
     return [
       {
@@ -145,9 +145,7 @@ function activityRows(
         selection,
         status: activity.status,
       },
-      ...(open
-        ? activityRows(runId, children, expanded, reveal, depth + 1)
-        : []),
+      ...(open ? activityRows(run, children, expanded, reveal, depth + 1) : []),
     ];
   });
 }
@@ -161,11 +159,9 @@ function stepRows(
   depth = 1
 ): RunRow[] {
   return steps.flatMap((step) => {
-    const selection: DashboardSelection = {
-      id: run.id,
-      kind: "run",
+    const selection: DashboardSelection = runSelection(run, {
       stepId: step.id,
-    };
+    });
     const owned = roots.filter((branch) => branch.activity.stepId === step.id);
     const open = reveal || expanded.has(selectionKey(selection));
     return [
@@ -183,7 +179,7 @@ function stepRows(
       ...(open
         ? [
             ...stepRows(run, step.children, roots, expanded, reveal, depth + 1),
-            ...activityRows(run.id, owned, expanded, reveal, depth + 1),
+            ...activityRows(run, owned, expanded, reveal, depth + 1),
           ]
         : []),
     ];
@@ -196,7 +192,7 @@ export function runRows(
   reveal = false
 ): RunRow[] {
   return runs.flatMap((run) => {
-    const selection: DashboardSelection = { id: run.id, kind: "run" };
+    const selection: DashboardSelection = runSelection(run);
     const open = reveal || expanded.has(selectionKey(selection));
     const roots = activityRoots(run);
     const stepIds = new Set(flattenSteps(run.steps).map(({ step }) => step.id));
@@ -219,7 +215,7 @@ export function runRows(
       ...(open
         ? [
             ...stepRows(run, run.steps, roots, expanded, reveal),
-            ...activityRows(run.id, unowned, expanded, reveal, 1),
+            ...activityRows(run, unowned, expanded, reveal, 1),
           ]
         : []),
     ];
@@ -228,17 +224,17 @@ export function runRows(
 
 export function expandedRun(run: RunSnapshot): string[] {
   return [
-    selectionKey({ id: run.id, kind: "run" }),
+    selectionKey(runSelection(run)),
     ...(run.activities ?? []).map((activity) =>
-      selectionKey({
-        activityId: activity.id,
-        id: run.id,
-        kind: "run",
-        sessionId: activity.sessionId,
-      })
+      selectionKey(
+        runSelection(run, {
+          activityId: activity.id,
+          sessionId: activity.sessionId,
+        })
+      )
     ),
     ...flattenSteps(run.steps).map(({ step }) =>
-      selectionKey({ id: run.id, kind: "run", stepId: step.id })
+      selectionKey(runSelection(run, { stepId: step.id }))
     ),
   ];
 }
