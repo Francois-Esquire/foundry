@@ -1,3 +1,4 @@
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import type {
   ExecutionRun,
   ExecutionRuns,
@@ -176,6 +177,36 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
       this.#checkIdle();
     }
     return cancelled;
+  }
+
+  /**
+   * Take a queued run off its queue and make it `successor`'s, still
+   * queued (`handQueued`); resolves `false`, leaving it here, when it is not
+   * queued here. It holds its queue's place while that is written, as a
+   * withdrawal does.
+   */
+  async handOver(id: string, successor: ProcessIdentity): Promise<boolean> {
+    const run = this.get(id);
+    if (run?.status !== "queued") {
+      return false;
+    }
+    this.#withdrawing.add(id);
+    let handed = false;
+    try {
+      handed = await this.handQueued(id, successor);
+    } finally {
+      this.#withdrawing.delete(id);
+      const lane = this.#lane(run.queue);
+      if (handed) {
+        const index = lane.waiting.findIndex((item) => item.id === id);
+        if (index >= 0) {
+          lane.waiting.splice(index, 1);
+        }
+      }
+      this.#pump(lane);
+      this.#checkIdle();
+    }
+    return handed;
   }
 
   /** Runs waiting in this process's queues, in admission order. */

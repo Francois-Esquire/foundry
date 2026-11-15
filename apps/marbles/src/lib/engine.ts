@@ -9,6 +9,11 @@ import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import { Config } from "@foundry/lib/config";
 import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
+import {
+  type ProcessIdentity,
+  sameProcess,
+  thisProcess,
+} from "@foundry/lib/process-identity";
 import type { ModelManager } from "@foundry/models";
 import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
@@ -43,6 +48,7 @@ import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Handler, Source } from "~/lib/events/source";
 import type { ExecutionContext } from "~/lib/execution-context";
+import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
 import type { ExecutionStore } from "~/lib/execution-store";
 import { MemoryExecutionStore } from "~/lib/execution-store";
 import type {
@@ -379,6 +385,9 @@ function recordedIn(
 }
 
 /** What a started engine holds; absent until `start` and after a failed one. */
+/** How often a retired engine looks again for the runs still running here. */
+const RETIRED_POLL_MS = 250;
+
 interface Running {
   readonly held: HeldRuns;
   /** The Runs `runs()` lists. */
@@ -1320,6 +1329,52 @@ export class Engine {
   /** Hand a prompt to the agent turn running in a step; it becomes the next message. */
   steer(runId: string, stepId: string, prompt: string): void {
     this.#scopeOf(runId).steer(stepId, prompt);
+  }
+
+  /**
+   * Make way for `successor`, the engine that takes this workspace over in
+   * another process, while what runs here goes on to its end: no change is
+   * delivered here again (the claim is given up, for it to take), every
+   * queued run is handed to it (`Launcher.handOver`), and every parked run
+   * is let go, its claim and its open questions, for it to adopt when it
+   * starts. Resolves once that is written, with `ended`, which resolves
+   * once every run left here has ended; then `stop` finds nothing to wait
+   * for. On an engine that has not started, `ended` has resolved already.
+   */
+  async retire(
+    successor: ProcessIdentity
+  ): Promise<{ readonly ended: Promise<void> }> {
+    const running = this.#running;
+    if (running === undefined) {
+      return { ended: Promise.resolve() };
+    }
+    await this.#delivery.stop();
+    const given = new Set(await this.#launcher.handOver(successor));
+    for (const runId of running.held.withStatus(["suspended"])) {
+      running.router.letGo(runId);
+      await this.#runs.release(runId);
+      given.add(runId);
+    }
+    const left = () =>
+      this.#executions
+        .list()
+        .some(
+          (run) =>
+            !(
+              given.has(run.id) || SETTLED_EXECUTION_STATUSES.has(run.status)
+            ) && sameProcess(run.owner, thisProcess())
+        );
+    const ended = new Promise<void>((resolve) => {
+      const look = () => {
+        if (left()) {
+          setTimeout(look, RETIRED_POLL_MS).unref?.();
+        } else {
+          resolve();
+        }
+      };
+      look();
+    });
+    return { ended };
   }
 
   /**

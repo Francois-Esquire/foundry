@@ -1,5 +1,10 @@
 import { AsyncResource } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
+import {
+  type ProcessIdentity,
+  sameProcess,
+  thisProcess,
+} from "@foundry/lib/process-identity";
 import type { Container } from "@foundry/sandbox/container/containers";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
 import type { ExecutionRun, Executions } from "~/lib/executions";
@@ -269,13 +274,38 @@ export class Launcher {
     const readmitted = await this.executions.recover({
       adopted: options.adopted,
       fileStatus: options.fileStatus,
-      readmit: (run) => this.#options.recoverQueued && this.#runnableAs(run),
+      // A queued run handed to this process (`handOver`) is let in whatever
+      // the host asked: it was this host's to run already.
+      readmit: (run) =>
+        (this.#options.recoverQueued ||
+          sameProcess(run.owner, thisProcess())) &&
+        this.#runnableAs(run),
     });
     for (const run of readmitted) {
       this.#options.print(`[run] ${run.name} queued again ${run.id}`);
       this.#owe(run.id, true);
       this.#admit(run.id);
     }
+  }
+
+  /**
+   * Hand every run waiting in this process's queues to `successor`, in
+   * their order, still queued, for it to let in when it starts: none of
+   * them starts here. Whoever awaits one here is told it was handed over.
+   * Resolves with the ids handed over.
+   */
+  async handOver(successor: ProcessIdentity): Promise<readonly string[]> {
+    const handed: string[] = [];
+    for (const id of this.executions.waiting()) {
+      if (await this.executions.handOver(id, successor)) {
+        this.#pay(
+          id,
+          new Error(`run ${id} was handed to the next engine generation`)
+        );
+        handed.push(id);
+      }
+    }
+    return handed;
   }
 
   /**

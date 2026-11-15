@@ -32,6 +32,11 @@ export interface FeedRouter {
   cancelReason(runId: string): string | undefined;
   /** A run ended without answering these: its open questions are marked cancelled. */
   close(runId: string): Promise<void>;
+  /**
+   * Another process takes the run over: forget its open questions here,
+   * leaving their entries open for the one that adopts it.
+   */
+  letGo(runId: string): void;
   /** Handle one run's channel events; `settled` awaits the writes they caused. */
   observe(
     definition: string,
@@ -180,6 +185,15 @@ export function feedRouter(options: {
         open.delete(id);
       }
       await cancel(questions.map(([, question]) => question));
+    },
+
+    letGo(runId) {
+      cancelled.delete(runId);
+      for (const [id, question] of open) {
+        if (question.source.runId === runId) {
+          open.delete(id);
+        }
+      }
     },
 
     observe(definition, runId) {
