@@ -30,6 +30,7 @@ import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { Bindings } from "~/lib/bindings";
 import { harnessOf } from "~/lib/cli-harnesses";
 import { commandRunner } from "~/lib/command";
+import { CrashRecovery } from "~/lib/crash-recovery";
 import type { AnyDefinition } from "~/lib/definition";
 import { Delivery } from "~/lib/events/delivery";
 import type { WorkspaceRecords } from "~/lib/events/records";
@@ -238,6 +239,13 @@ export interface EngineOptions {
   /** Where agent transcripts live. */
   readonly sessions: SessionStore;
   /**
+   * Where the processes this one belongs to record the children they
+   * start (`MARBLES_SPAWN_RECOVERY`), so a start stops what one that is
+   * gone left running (`lib/crash-recovery.ts`). The Marbles process hands
+   * its workers one; without it no child is stopped.
+   */
+  readonly spawned?: string;
+  /**
    * Workspace state dir: each run's output and worktrees, and, with the
    * published `Engine`, the Marbles database's stores. Omit for in-memory:
    * nothing survives the process.
@@ -413,6 +421,7 @@ export class Engine {
    */
   readonly #extra = new Map<string, (orchestrator: Orchestrator) => void>();
   readonly #executions: Executions;
+  readonly #crashRecovery: CrashRecovery;
   readonly #launcher: Launcher;
   readonly #records: WorkspaceRecords;
   readonly #runs: RunStore;
@@ -529,6 +538,14 @@ export class Engine {
     this.activities = new HarnessActivities({
       feed: this.#publisher,
       ...(options.activityStore ? { store: options.activityStore } : {}),
+    });
+    this.#crashRecovery = new CrashRecovery({
+      activities: this.activities,
+      artifacts: options.artifacts,
+      executions: () => this.#executions.list(),
+      print,
+      runs,
+      ...(options.spawned === undefined ? {} : { spawned: options.spawned }),
     });
     this.automations = new AutomationService({
       allowHttp: configuredMonitorUrl(this.#registry),
@@ -920,6 +937,9 @@ export class Engine {
         new Set(recovered.map(({ dispatched }) => dispatched.id)),
         statuses
       );
+      // Once the Execution Runs of exited processes have settled, and
+      // before the host schedules anything: what a crash left.
+      await this.#crashRecovery.recover(store);
       this.#delivery.wake();
     } catch (error) {
       this.#phase = "failed";

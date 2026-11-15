@@ -15,6 +15,7 @@ import {
   WORKER_NOTIFICATIONS,
 } from "~/process/protocol";
 import { envFilesLoaded } from "~/process/runtime";
+import { SPAWN_RECOVERY_ENV } from "~/process/spawned";
 import { dispatchSchema } from "~/workspace/dispatch";
 import type { WorkspaceHost } from "~/workspace/host";
 import { hostWorkspace } from "~/workspace/host";
@@ -261,6 +262,10 @@ async function main(): Promise<void> {
       channel.notify(WORKER_NOTIFICATIONS.line, { line });
     },
     source: args.source,
+    // The daemon names it, under its Foundry home.
+    ...(process.env[SPAWN_RECOVERY_ENV]
+      ? { spawned: process.env[SPAWN_RECOVERY_ENV] }
+      : {}),
     state: args.state,
   });
   const hosted = await hosting;

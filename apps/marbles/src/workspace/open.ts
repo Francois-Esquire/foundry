@@ -36,6 +36,8 @@ export interface HostOptions {
   readonly artifacts: string;
   readonly config: string;
   readonly dry: boolean;
+  /** Where this process's children are recorded for recovery; see `createEngine`. */
+  readonly spawned?: string;
   readonly state: string;
 }
 
@@ -251,6 +253,7 @@ function workspaceEngine(
     print: options.print,
     ...(database === undefined ? {} : { database: database.database }),
     root: workspace.root,
+    ...(args.spawned === undefined ? {} : { spawned: args.spawned }),
     stateDir: workspace.dir,
     stateRoot: resolve(args.state),
     workspaceId: workspace.id,

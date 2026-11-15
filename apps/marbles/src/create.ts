@@ -99,6 +99,12 @@ export interface CreateEngineOptions {
   /** The workspace root: the config's directory, or the cwd without one. */
   readonly root: string;
   /**
+   * Where this process's children are recorded for recovery, so the
+   * engine's start stops what one that is gone left running. Passed over
+   * under `--dry-run`, which persists nothing.
+   */
+  readonly spawned?: string;
+  /**
    * This workspace's state dir. Under `dry` the engine gets none, so nothing
    * is written there; omit it for an engine that persists nothing either way.
    */
@@ -404,6 +410,9 @@ export function createEngine(options: CreateEngineOptions): Engine {
     print,
     ...kept,
     root,
+    ...(dry || options.spawned === undefined
+      ? {}
+      : { spawned: options.spawned }),
     state,
     workspaceId,
     ...(stores === undefined

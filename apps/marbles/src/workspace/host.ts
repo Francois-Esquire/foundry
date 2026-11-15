@@ -57,6 +57,12 @@ export interface HostWorkspaceOptions {
   readonly print?: (line: string) => void;
   /** The authoring folder or module. */
   readonly source: string;
+  /**
+   * Where this process's children are recorded for recovery
+   * (`MARBLES_SPAWN_RECOVERY`), so the engine's start stops what one that
+   * is gone left running; none is stopped without it.
+   */
+  readonly spawned?: string;
   /** The Marbles state root. */
   readonly state: string;
 }
@@ -133,6 +139,7 @@ export async function hostWorkspace(
     artifacts: options.artifacts,
     config: options.source,
     dry: options.dry ?? false,
+    ...(options.spawned === undefined ? {} : { spawned: options.spawned }),
     state: options.state,
   };
   const opened = await openWorkspace(hostOptions, {
