@@ -792,6 +792,80 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
       expect((await first.list()).total).toBe(1);
     });
 
+    /** An async source of `text`, as a stream write takes its bytes. */
+    async function* streamOf(label: string): AsyncIterable<Uint8Array> {
+      await Promise.resolve();
+      yield new TextEncoder().encode(label);
+    }
+
+    for (const [kind, call] of [
+      [
+        "a write with bytes",
+        (
+          artifacts: ArtifactManager,
+          created: ArtifactResolved,
+          label: string
+        ) =>
+          artifacts.write({
+            artifactId: created.id,
+            changes: { put: { "file.txt": { bytes: label } } },
+          }),
+      ],
+      [
+        "a stream write",
+        (
+          artifacts: ArtifactManager,
+          created: ArtifactResolved,
+          label: string
+        ) =>
+          artifacts.write({
+            artifactId: created.id,
+            changes: { put: { "file.txt": { source: streamOf(label) } } },
+          }),
+      ],
+      [
+        "a Content-named change",
+        (
+          artifacts: ArtifactManager,
+          created: ArtifactResolved,
+          label: string
+        ) => artifacts.setMetadata(contentOf(created).id, { label }),
+      ],
+    ] as const) {
+      test(`refuses at once ${kind} to an Artifact another manager's own call to it waits on, from inside a transaction`, async ({
+        skip,
+      }) => {
+        const store = createStore();
+        if (!isTransactional(store)) {
+          return skip();
+        }
+        const first = new ArtifactManager({ store });
+        const second = new ArtifactManager({ store });
+        const created = await second.create({
+          entries: { "file.txt": { bytes: "start" } },
+          name: "Shared",
+          type: "text/plain",
+        });
+        const entered = Promise.withResolvers<undefined>();
+        const proceed = Promise.withResolvers<undefined>();
+        const outer = first.transaction(async () => {
+          entered.resolve(undefined);
+          await proceed.promise;
+          return await call(second, created, "inner");
+        });
+        await entered.promise;
+        // Independent of the transaction: it waits for it at the store.
+        const waiting = call(second, created, "outer");
+        await settle();
+        proceed.resolve(undefined);
+
+        await expect(within(outer, 1000)).rejects.toThrow(
+          "inside its own transaction"
+        );
+        await within(waiting, 1000);
+      });
+    }
+
     /** Two patches of one Content's metadata, the first paused at its read. */
     async function patchConcurrently(
       shared: ReturnType<typeof pausable>,

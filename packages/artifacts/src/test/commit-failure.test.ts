@@ -101,7 +101,23 @@ async function harness(open: (root: string) => ArtifactStore) {
 
 const refuse: CommitInterceptor = () =>
   Promise.reject(new Error("commit refused"));
-/** A memory store whose first transaction fails once its commits landed. */
+/** A memory store whose first transaction that commits fails once its commits landed. */
+
+/** `store`'s methods as plain functions, so a view can be copied and overridden. */
+function bound(store: ArtifactStore): ArtifactStore {
+  return {
+    commit: (write) => store.commit(write),
+    findBlobs: (digest) => store.findBlobs(digest),
+    findReferences: (id) => store.findReferences(id),
+    getArtifact: (id) => store.getArtifact(id),
+    getBlob: (id) => store.getBlob(id),
+    getContent: (id) => store.getContent(id),
+    listArtifacts: (query) => store.listArtifacts(query),
+    listBlobs: () => store.listBlobs(),
+    listContents: (artifactId) => store.listContents(artifactId),
+  };
+}
+
 class FailsAfterLanding extends InMemoryArtifactStore {
   #failed: boolean;
 
@@ -113,8 +129,17 @@ class FailsAfterLanding extends InMemoryArtifactStore {
   override async transaction<T>(
     work: (view: ArtifactStore) => Promise<T>
   ): Promise<T> {
-    const result = await super.transaction(work);
-    if (this.#failed) {
+    let committed = false;
+    const result = await super.transaction((view) =>
+      work({
+        ...bound(view),
+        commit: (write) => {
+          committed = true;
+          return view.commit(write);
+        },
+      })
+    );
+    if (this.#failed || !committed) {
       return result;
     }
     this.#failed = true;
