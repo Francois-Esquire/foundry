@@ -1,18 +1,14 @@
 import { realpathSync } from "node:fs";
 import { basename, isAbsolute, relative, sep } from "node:path";
 import type { RunRecord } from "@foundry/workflows/schema";
-import type {
-  StepSnapshot as ObservedStep,
-  WorkflowStepNode,
-} from "@foundry/workflows/snapshot";
-import { SnapshotStateSchema } from "@foundry/workflows/snapshot";
-import { z } from "zod";
+import type { WorkflowStepNode } from "@foundry/workflows/snapshot";
 import type { AutomationRecord } from "~/lib/automation/service";
 import type { ExecutionRun } from "~/lib/executions";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
 import type { DefinitionEntry } from "~/lib/registry";
+import { decodeTrace, observedTree } from "~/lib/run-trace";
 import type { ActivityRecord } from "~/lib/sandbox/activities";
 import { describeTrigger, nextDue } from "~/lib/schedule";
 import type { Schedule } from "~/lib/triggers";
@@ -31,33 +27,6 @@ import { type InputAttention, isActive } from "~/model/run-status";
 import type { KnownRun, MayBelong } from "./usage";
 import { stepUsages, totalOf, workspaceUsage } from "./usage";
 
-const TraceSchema = z.object({
-  workflow: z
-    .object({
-      steps: SnapshotStateSchema.shape.steps.optional(),
-      telemetry: z
-        .object({
-          logs: z.array(
-            z.object({
-              at: z.string(),
-              level: z.enum(["debug", "info", "warn", "error"]),
-              message: z.string(),
-              path: z.array(z.string()).optional(),
-            })
-          ),
-        })
-        .optional(),
-    })
-    .optional(),
-});
-
-function decodeTrace(
-  metadata: unknown
-): z.infer<typeof TraceSchema> | undefined {
-  const decoded = TraceSchema.safeParse(metadata);
-  return decoded.success ? decoded.data : undefined;
-}
-
 function json(value: unknown): JsonValue | undefined {
   if (value === undefined) {
     return undefined;
@@ -75,44 +44,6 @@ function json(value: unknown): JsonValue | undefined {
 
 function elapsed(start: number, end: number): string {
   return `${Math.max(0, (end - start) / 1000).toFixed(1)}s`;
-}
-
-/** Dynamic graph steps can appear in the trace before the structural plan includes them. */
-function observedTree(
-  planned: readonly WorkflowStepNode[],
-  steps: Readonly<Record<string, ObservedStep>>
-): WorkflowStepNode[] {
-  const nodes = new Map<
-    string,
-    WorkflowStepNode & { children: WorkflowStepNode[] }
-  >();
-  const parents = new Map<string, string>();
-  function seed(entries: readonly WorkflowStepNode[], parent?: string) {
-    for (const node of entries) {
-      nodes.set(node.key, { ...node, children: [] });
-      if (parent) {
-        parents.set(node.key, parent);
-      }
-      seed(node.children ?? [], node.key);
-    }
-  }
-  seed(planned);
-  for (const [key, step] of Object.entries(steps)) {
-    if (!nodes.has(key)) {
-      nodes.set(key, { children: [], index: nodes.size, key, name: step.name });
-      parents.set(key, step.namespace);
-    }
-  }
-  const roots: WorkflowStepNode[] = [];
-  for (const [key, node] of nodes) {
-    const parent = nodes.get(parents.get(key) ?? "");
-    if (parent) {
-      parent.children.push(node);
-    } else {
-      roots.push(node);
-    }
-  }
-  return roots;
 }
 
 function attentionOf(

@@ -6,6 +6,7 @@ import {
   sqliteTable,
   text,
 } from "drizzle-orm/sqlite-core";
+import { RESOURCE_KINDS } from "../lib/resources";
 
 /**
  * Marbles' own tables. A workspace's id is the scope every package's rows
@@ -403,3 +404,31 @@ export const marblesDeliveryClaims = sqliteTable("marbles_delivery_claims", {
   ownerPid: integer("owner_pid"),
   scope: text().primaryKey(),
 });
+
+/**
+ * The workspaces other than its owner each resource is shared with
+ * (`lib/resources.ts`): one row per resource, by its kind, its owner (the
+ * scope its store keeps it under) and its id there, and per workspace it is
+ * shown in. A resource always belongs to its owner, which has no row.
+ * Removing a row never touches the resource. Written by
+ * `database/resources.ts`.
+ */
+export const marblesResourceWorkspaces = sqliteTable(
+  "marbles_resource_workspaces",
+  {
+    associatedAt: text("associated_at").notNull(),
+    kind: text({ enum: RESOURCE_KINDS }).notNull(),
+    owner: text().notNull(),
+    resourceId: text("resource_id").notNull(),
+    workspace: text().notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.owner, table.kind, table.resourceId, table.workspace],
+    }),
+    index("marbles_resource_workspaces_kind_workspace").on(
+      table.kind,
+      table.workspace
+    ),
+  ]
+);
