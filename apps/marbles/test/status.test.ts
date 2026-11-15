@@ -1,9 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-
+import { Sessions } from "@foundry/agents/session";
 import { describe, expect, it } from "vitest";
-
+import { initializeDatabase } from "~/database/open";
+import { DatabaseSessionStore } from "~/database/sessions";
+import { stateDatabase } from "~/layout";
 import { writeJson } from "~/lib/state/json";
 import { readStatus } from "~/status/model";
 import { seedWorkspace } from "./helpers/registry";
@@ -33,8 +35,21 @@ async function layout() {
     lastStatus: "complete",
     nextDue: "2026-09-10T01:30:00.000Z",
   });
-  writeJson(join(dir, "sessions", "s1.json"), {});
-  writeJson(join(dir, "sessions", "s2.json"), {});
+  const database = await initializeDatabase(stateDatabase(state));
+  try {
+    const sessions = new Sessions({
+      store: new DatabaseSessionStore({
+        database: database.database,
+        scope: "ws1",
+      }),
+    });
+    await sessions.createSession({ id: "s1" });
+    await sessions.createSession({ id: "s2" });
+  } finally {
+    database.close();
+  }
+  // A session file an earlier Marbles left is not one of them.
+  writeJson(join(dir, "sessions", "s3.json"), {});
   return { dir, state };
 }
 

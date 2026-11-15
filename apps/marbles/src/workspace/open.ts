@@ -9,7 +9,6 @@ import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
 import type { MarblesDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
-import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
@@ -203,7 +202,8 @@ interface WorkspaceEngineOptions {
   readonly askable?: boolean;
   /**
    * The Marbles database this process hosts the workspace over, which
-   * keeps its tasks; without one (`--dry-run`), they are in memory.
+   * keeps its tasks and agent sessions; without one (`--dry-run`), they are
+   * in memory.
    */
   readonly database?: MarblesDatabase;
   /** Definitions' own `log(...)` lines; to `print` when omitted. */
@@ -232,7 +232,7 @@ export async function hostEngine(
 /**
  * The engine over a workspace, as the flags ask for it, and nothing more:
  * no usage accounts and no host for definitions called outside a run. It
- * keeps the workspace's state, and its tasks in `database`, under
+ * keeps the workspace's state, and its tasks and sessions in `database`, under
  * `--dry-run` in memory only.
  */
 function workspaceEngine(
@@ -249,14 +249,7 @@ function workspaceEngine(
     environment,
     ...(options.log ? { log: options.log } : {}),
     print: options.print,
-    ...(database === undefined
-      ? {}
-      : {
-          records: new DatabaseWorkspaceRecords({
-            database: database.database,
-            scope: workspace.id,
-          }),
-        }),
+    ...(database === undefined ? {} : { database: database.database }),
     root: workspace.root,
     stateDir: workspace.dir,
     stateRoot: resolve(args.state),

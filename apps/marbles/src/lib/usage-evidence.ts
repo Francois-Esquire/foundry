@@ -87,17 +87,36 @@ export type RunRecorded =
     }
   | "unreadable";
 
-/** A session file and a stamp that changes whenever it is written; `null` when the file is there but its stamp cannot be read. */
-interface SessionStamp {
+/** A session the store holds and a stamp that changes whenever it is written; `null` when the session is there but its stamp cannot be read. */
+export interface SessionStamp {
   readonly id: string;
   readonly stamp: string | null;
+}
+
+/**
+ * A session store that can list every session it holds, each with its
+ * stamp, so usage recovery finds a session nothing durable names, and reads
+ * again only the sessions that changed. Marbles' JSON store and the Marbles
+ * database's store both can.
+ */
+export interface ListedSessionStore extends SessionStore {
+  stamps(): readonly SessionStamp[] | Promise<readonly SessionStamp[]>;
+}
+
+/** Whether `store` can list its sessions (`ListedSessionStore`). */
+export function listsSessions(
+  store: SessionStore
+): store is ListedSessionStore {
+  return typeof (store as Partial<ListedSessionStore>).stamps === "function";
 }
 
 /**
  * How sessions are found: by listing the store, or `unavailable` for a store
  * that cannot list them and keeps them past this process.
  */
-export type SessionListing = (() => readonly SessionStamp[]) | "unavailable";
+export type SessionListing =
+  | (() => readonly SessionStamp[] | Promise<readonly SessionStamp[]>)
+  | "unavailable";
 
 /** A recovered leaf's agent when nothing durable names one. */
 export const UNATTRIBUTED = "(unattributed)";
@@ -237,7 +256,7 @@ export class UsageEvidence {
     readonly recordedOf: (runId: string) => RunRecorded | undefined;
     readonly sessions: SessionStore;
     /**
-     * Every session file the store holds, when it can list them; absent when
+     * Every session the store holds, when it can list them; absent when
      * it cannot, but keeps its sessions no longer than this process.
      */
     readonly stamps?: SessionListing;
@@ -408,13 +427,13 @@ export class UsageEvidence {
    * fails is counted as unreadable and owned by nothing, and the sessions
    * the last one held are read again beside the named ones.
    */
-  #listed(
+  async #listed(
     known: Known,
     unreadable: Unverified
-  ): {
+  ): Promise<{
     readonly ids: ReadonlySet<string>;
     readonly listed?: ReadonlyMap<string, string | null>;
-  } {
+  }> {
     const named = [...known.named, ...known.activeNamed];
     if (!this.#stamps) {
       return { ids: new Set(named) };
@@ -426,7 +445,8 @@ export class UsageEvidence {
     }
     let listed: Map<string, string | null>;
     try {
-      listed = new Map(this.#stamps().map(({ id, stamp }) => [id, stamp]));
+      const stamps = await this.#stamps();
+      listed = new Map(stamps.map(({ id, stamp }) => [id, stamp]));
     } catch {
       // State is advisory: what was not listed may still be there.
       unreadable.unowned += 1;
@@ -454,7 +474,7 @@ export class UsageEvidence {
         .filter((fact) => fact.lost === undefined)
         .map((fact) => fact.turnId)
     );
-    const { ids, listed } = this.#listed(known, unreadable);
+    const { ids, listed } = await this.#listed(known, unreadable);
     const facts = new Map<string, UsageFact>();
     for (const id of ids) {
       const turns = await this.#transcriptOf(id, listed);

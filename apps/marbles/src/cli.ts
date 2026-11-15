@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
-import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { ReentrantCallError } from "@foundry/lib/turns";
@@ -20,6 +19,7 @@ import type { Triggers } from "~/create";
 import { DatabaseBusyError } from "~/database/client";
 import { IncompatibleDatabaseError } from "~/database/migrate";
 import { UnreadableDatabaseError, writeDatabase } from "~/database/open";
+import { readSessions } from "~/database/sessions";
 import { TaskStorageError } from "~/database/tasks";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { layout, stateDatabase } from "~/layout";
@@ -29,7 +29,6 @@ import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
 import { ConfigurationError } from "~/lib/providers/store";
 import { describeTrigger } from "~/lib/schedule";
-import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { RunOutputError } from "~/lib/state/output";
 import type { TaskCommandResult } from "~/model/tasks";
 import {
@@ -90,8 +89,8 @@ const USAGE = `marbles — programmable workspace automation
 One Marbles process per machine hosts every attached workspace, each in a worker
 of its own, and keeps their triggers running after the dashboard closes; run and
 roll start it when none runs. Each workspace (the project above .foundry/marbles)
-gets <state>/<id>/ holding runs/, output/, schedules/, locks/ and sessions/, and
-a record in <state>/marbles.db. Feed entries from every workspace share the artifact store. --dry-run
+gets <state>/<id>/ holding runs/, output/, schedules/ and locks/, and its record,
+tasks and agent sessions in <state>/marbles.db. Feed entries from every workspace share the artifact store. --dry-run
 hosts the workspace in this process instead, persists nothing, and echoes every
 model turn and git mutation; custom code still runs.
 
@@ -171,15 +170,16 @@ async function showStatus(
 }
 
 async function listSessions(
-  _args: Args,
+  args: Args,
   { workspace }: OpenedWorkspace
 ): Promise<void> {
-  const dir = join(workspace.dir, "sessions");
-  // The store mkdirs on construction; a listing must not leave one behind.
-  if (!existsSync(dir)) {
-    return;
-  }
-  for (const line of await sessionLines(new JsonSessionStore(dir))) {
+  // Read only: no database reads as no sessions, and is left without one.
+  const lines = await readSessions(
+    resolve(args.state),
+    workspace.id,
+    sessionLines
+  );
+  for (const line of lines ?? []) {
     print(line);
   }
 }

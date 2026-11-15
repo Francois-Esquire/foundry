@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { lockHolder, processAlive } from "@foundry/lib/file-lock";
+import { sessionCounts } from "~/database/sessions";
 import { recordedWorkspaces } from "~/database/workspaces";
 
 import { isRecord, readJson } from "~/lib/state/json";
@@ -69,18 +70,25 @@ const RECENT = 5;
  */
 export async function readStatus(stateRoot: string): Promise<StatusReport> {
   const records = await recordedWorkspaces(stateRoot);
+  const sessions: ReadonlyMap<string, number> =
+    records.length === 0 ? new Map() : await sessionCounts(stateRoot);
   return {
     process: readProcess(stateRoot) ?? null,
     root: stateRoot,
     workspaces: records.map((record) =>
-      readWorkspaceStatus(join(stateRoot, record.id), record)
+      readWorkspaceStatus(
+        join(stateRoot, record.id),
+        record,
+        sessions.get(record.id) ?? 0
+      )
     ),
   };
 }
 
 function readWorkspaceStatus(
   dir: string,
-  record: WorkspaceRecord
+  record: WorkspaceRecord,
+  sessions: number
 ): WorkspaceStatus {
   const owner = readProcess(dir);
   return {
@@ -94,7 +102,7 @@ function readWorkspaceStatus(
     root: record.root,
     runs: readRuns(join(dir, "runs")),
     schedules: readSchedules(dir),
-    sessions: jsonFiles(join(dir, "sessions")).length,
+    sessions,
   };
 }
 

@@ -20,6 +20,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
+import { DatabaseSessionStore } from "~/database/sessions";
 import type { Engine } from "~/lib/engine";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import type { StateCollection } from "~/lib/state/store";
@@ -40,6 +41,7 @@ import { dashboardSnapshot } from "~/workspace/snapshot";
 import { DEFAULT_DRAFT } from "~/workspace/templates";
 import { totalOf, workspaceUsage } from "~/workspace/usage";
 import { startEngine, testEngine } from "./helpers/engine";
+import { testMachine } from "./helpers/records";
 
 const engines: Engine[] = [];
 let state: string;
@@ -853,6 +855,60 @@ it("a direct session none of whose usage was saved is found through the store's 
     expect((await other.readUsage()).facts).toEqual([]);
   } finally {
     await rm(elsewhere, { force: true, recursive: true });
+  }
+});
+
+it("a direct session none of whose usage was saved is found through the database store's listing too", async () => {
+  const machine = await testMachine();
+  const sessionsOf = (scope: string) =>
+    new DatabaseSessionStore({ database: machine.database.database, scope });
+  const owned: Engine[] = [];
+  try {
+    const writer = await startEngine({
+      print: () => undefined,
+      sessions: sessionsOf("test"),
+      state,
+      store: new FailingStore(state, (write) => write === 2 || write === 3),
+    });
+    owned.push(writer);
+    const helper = agent({ name: "helper", prompt: "Help." });
+    const kept = await writer.agents.session(helper);
+    await kept.generate("saved one");
+    const orphan = await writer.agents.session(helper);
+    await orphan.generate("fact and marker both fail");
+    await kept.generate("saved two");
+    await writer.dispose();
+
+    catalog.reset();
+    const second = await startEngine({
+      print: () => undefined,
+      sessions: sessionsOf("test"),
+      state,
+    });
+    owned.push(second);
+    const records = await second.readUsage();
+    expect(records.recovered).toBe(1);
+    expect(
+      records.facts.find((fact) => fact.sessionId === orphan.ref.id)
+    ).toMatchObject({ agentId: UNATTRIBUTED, lost: RECOVERED });
+    expect(records.unreadableAt.unowned).toBe(0);
+    // Another workspace's sessions in the same database are never read.
+    catalog.reset();
+    const elsewhere = await mkdtemp(join(tmpdir(), "marbles-usage-other-"));
+    try {
+      const other = await startEngine({
+        print: () => undefined,
+        sessions: sessionsOf("other"),
+        state: elsewhere,
+      });
+      owned.push(other);
+      expect((await other.readUsage()).facts).toEqual([]);
+    } finally {
+      await rm(elsewhere, { force: true, recursive: true });
+    }
+  } finally {
+    await Promise.all(owned.map((engine) => engine.dispose()));
+    machine.close();
   }
 });
 
