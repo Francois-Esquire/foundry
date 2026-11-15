@@ -16,11 +16,13 @@ import {
   thisProcess,
 } from "../process-identity";
 import {
+  type GroupStopResult,
   type GroupSystem,
   recordGroup,
   recordPath,
   SPAWN_RECOVERY_ENV,
   type SpawnRecord,
+  writePrivate,
 } from "../spawn-record";
 
 /**
@@ -51,12 +53,12 @@ afterEach(() => {
  */
 async function group(
   then: string,
-  record: (child: ChildProcess, dir: string) => () => Promise<boolean>
+  record: (child: ChildProcess, dir: string) => () => Promise<GroupStopResult>
 ): Promise<{
   readonly child: ChildProcess;
   readonly dir: string;
   readonly sleep: number;
-  readonly stop: () => Promise<boolean>;
+  readonly stop: () => Promise<GroupStopResult>;
 }> {
   const dir = mkdtempSync(join(tmpdir(), "record-group-"));
   made.push(dir);
@@ -104,7 +106,7 @@ it("stops the whole group when its call aborts, and forgets it once it is empty"
   );
   expect(records(dir)).toEqual([`${String(child.pid)}.json`]);
   control.abort();
-  expect(await stop()).toBe(true);
+  expect((await stop()).emptied).toBe(true);
   expect(await goneSoon(sleep)).toBe(true);
   expect(records(dir)).toEqual([]);
 });
@@ -118,7 +120,7 @@ it("stops what the leader left in its group when it exits on its own", async () 
   if (child.exitCode === null) {
     await new Promise((done) => child.once("exit", done));
   }
-  expect(await stop()).toBe(true);
+  expect((await stop()).emptied).toBe(true);
   expect(await goneSoon(sleep)).toBe(true);
   expect(records(dir)).toEqual([]);
 });
@@ -150,7 +152,7 @@ it("keeps the record of a group that would not empty, its members written before
       },
     })
   );
-  expect(await stop()).toBe(false);
+  expect((await stop()).emptied).toBe(false);
   // What a start after this process died mid-stop proves each member by.
   expect(recordedAtTerm?.members).toEqual(
     expect.arrayContaining([
@@ -215,7 +217,7 @@ it("sends no SIGKILL to a group id that went to another group during the grace p
   };
   const stop = recordGroup(child, { env: {}, graceMs: 0, killMs: 0, system });
   exit();
-  expect(await stop()).toBe(false);
+  expect((await stop()).emptied).toBe(false);
   expect(sent.filter(([, signal]) => signal !== 0)).toEqual([
     [-pgid, "SIGTERM"],
   ]);
@@ -237,7 +239,7 @@ it("takes a group left only with exited, unreaped members (zombies) for empty", 
   };
   const stop = recordGroup(child, { env: {}, system });
   exit();
-  expect(await stop()).toBe(true);
+  expect((await stop()).emptied).toBe(true);
   expect(sent).toEqual([[-pgid, 0]]);
 });
 
@@ -260,6 +262,115 @@ it("sends nothing to a group id another process leads once the leader is reaped:
   };
   const stop = recordGroup(child, { env: {}, system });
   exit();
-  expect(await stop()).toBe(true);
+  expect((await stop()).emptied).toBe(true);
   expect(sent).toEqual([[-pgid, 0]]);
+});
+
+/** A recovery directory of this test's, holding the made-up leader's record. */
+function recordedIn(pgid: number): {
+  readonly dir: string;
+  readonly path: string;
+} {
+  const dir = mkdtempSync(join(tmpdir(), "record-group-"));
+  made.push(dir);
+  const path = recordPath(dir, pgid);
+  writePrivate(
+    path,
+    JSON.stringify({
+      group: true,
+      owner: thisProcess(),
+      pid: pgid,
+      started: MADE_UP,
+    })
+  );
+  return { dir, path };
+}
+
+it("tries writing the members again once, and saves them when the second write goes through", async () => {
+  const pgid = 4_200_070;
+  const { dir, path } = recordedIn(pgid);
+  const { child, exit } = madeUpChild(pgid);
+  const writes: string[] = [];
+  const reports: string[] = [];
+  let members = new Map<number, SeenProcess>([
+    [4_200_071, { pgid, started: MADE_UP }],
+  ]);
+  // What the record holds as SIGTERM goes, before the group empties.
+  const read: (readonly unknown[] | undefined)[] = [];
+  const system: GroupSystem = {
+    kill(_target, signal) {
+      if (signal === "SIGTERM") {
+        read.push(
+          (JSON.parse(readFileSync(path, "utf8")) as SpawnRecord).members
+        );
+        members = new Map();
+      }
+    },
+    members: () => members,
+    report: (line) => reports.push(line),
+    sleep: () => Promise.resolve(),
+    write(at, text) {
+      writes.push(at);
+      if (writes.length === 1) {
+        throw new Error("disk full");
+      }
+      writePrivate(at, text);
+    },
+  };
+  const stop = recordGroup(child, {
+    env: { [SPAWN_RECOVERY_ENV]: dir },
+    graceMs: 0,
+    killMs: 0,
+    system,
+  });
+  exit();
+  expect(await stop()).toEqual({ emptied: true, saved: true });
+  expect(writes).toEqual([path, path]);
+  expect(reports).toEqual([]);
+  expect(read).toEqual([[{ pid: 4_200_071, started: MADE_UP }]]);
+});
+
+it("reports members it could not save, says so, and stops its group all the same", async () => {
+  const pgid = 4_200_080;
+  const { dir, path } = recordedIn(pgid);
+  const { child, exit } = madeUpChild(pgid);
+  const reports: string[] = [];
+  const sent: [number, NodeJS.Signals | 0][] = [];
+  let members = new Map<number, SeenProcess>([
+    [4_200_081, { pgid, started: MADE_UP }],
+  ]);
+  let writes = 0;
+  const system: GroupSystem = {
+    kill(target, signal) {
+      sent.push([target, signal]);
+      if (signal === "SIGTERM") {
+        members = new Map();
+      }
+    },
+    members: () => members,
+    report: (line) => reports.push(line),
+    sleep: () => Promise.resolve(),
+    write() {
+      writes += 1;
+      throw new Error("read-only file system");
+    },
+  };
+  const stop = recordGroup(child, {
+    env: { [SPAWN_RECOVERY_ENV]: dir },
+    graceMs: 0,
+    killMs: 0,
+    system,
+  });
+  exit();
+  expect(await stop()).toEqual({ emptied: true, saved: false });
+  expect(writes).toBe(2);
+  expect(reports).toEqual([
+    expect.stringContaining(
+      `could not save the members of group ${String(pgid)} into its recovery record ${path}`
+    ),
+  ]);
+  expect(reports[0]).toContain("read-only file system");
+  expect(sent.filter(([, signal]) => signal !== 0)).toEqual([
+    [-pgid, "SIGTERM"],
+  ]);
 });
