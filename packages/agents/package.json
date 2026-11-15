@@ -22,6 +22,14 @@
       "types": "./src/session/index.ts",
       "import": "./src/session/index.ts"
     },
+    "./store": {
+      "types": "./src/store/index.ts",
+      "import": "./src/store/index.ts"
+    },
+    "./store/memory": {
+      "types": "./src/store/memory.ts",
+      "import": "./src/store/memory.ts"
+    },
     "./authorization": {
       "types": "./src/authorization/index.ts",
       "import": "./src/authorization/index.ts"
@@ -41,6 +49,10 @@
     "./schema": {
       "types": "./src/schema.ts",
       "import": "./src/schema.ts"
+    },
+    "./testing/store": {
+      "types": "./src/testing/store.ts",
+      "import": "./src/testing/store.ts"
     }
   },
   "scripts": {

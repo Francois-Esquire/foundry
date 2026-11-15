@@ -1,7 +1,8 @@
 import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import type { HarnessSession } from "@foundry/agents/harness";
 import type { SessionEvent } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import { Sessions } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { ModelManager } from "@foundry/models";
 import { airplaneMode } from "@foundry/models/airplane";
 import { NoObjectGeneratedError, Output } from "ai";
@@ -553,8 +554,9 @@ describe("pinned sessions", () => {
       provider: "claude-code",
     });
 
-    const silent = await d.sessions.createSession({ id: "silent" });
-    await d.sessions.appendMessage({
+    const written = new Sessions({ store: d.sessions });
+    const silent = await written.createSession({ id: "silent" });
+    await written.appendMessage({
       parts: [{ text: "hi", type: "text" }],
       role: "user",
       sessionId: silent.id,

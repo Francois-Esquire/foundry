@@ -243,14 +243,28 @@ console.log(String(review), "|", String(prompts.codex\`Use \${ref.skill("review"
     writeFileSync(
       join(consumer, "embedded.ts"),
       `
-import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager } from "@foundry.sh/marbles/engine";
+import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager, Sessions } from "@foundry.sh/marbles/engine";
+import type { SessionStore, SessionStoreWrite } from "@foundry.sh/marbles/engine";
+// A host can wrap the store it hands the engine and still write sessions.
+const inner = new InMemorySessionStore();
+const sessions: SessionStore = {
+  commit: (write: SessionStoreWrite) => inner.commit(write),
+  getMessage: (id) => inner.getMessage(id),
+  getSession: (id) => inner.getSession(id),
+  listMessages: (sessionId) => inner.listMessages(sessionId),
+  // Forwarded, so writes from two Sessions over this store still exclude each other.
+  transaction: (work) => inner.transaction(work),
+};
+const written = new Sessions({ store: sessions });
+await written.createSession({ id: "host" });
+await written.appendMessage({ parts: [{ text: "hi", type: "text" }], role: "user", sessionId: "host" });
 const engine = new Engine({
   artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
   containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
   models: new ModelManager(),
   queues: { system: { concurrency: Number.POSITIVE_INFINITY } },
   root: ".",
-  sessions: new InMemorySessionStore(),
+  sessions,
   workspaceId: "embedded",
 });
 engine.task<{ n: number }, number>({
@@ -266,6 +280,7 @@ const value = await engine.run<number>("host-save", { n: 1 });
 const [recorded] = engine.executions.list();
 await engine.dispose();
 console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.observations.length);
+console.log("host sessions", (await sessions.listMessages("host")).length, typeof sessions.transaction);
 `
     );
     // Loading the engine entry loads no CLI SDK: they sit behind dynamic imports.
@@ -302,9 +317,9 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
     expect(run("bun", ["host.ts"], consumer)).toContain(
       "Hello host sees files packed-workflow,host-inventory"
     );
-    expect(run("bun", ["embedded.ts"], consumer)).toContain(
-      "embedded 2 system complete 1"
-    );
+    const embedded = run("bun", ["embedded.ts"], consumer);
+    expect(embedded).toContain("embedded 2 system complete 1");
+    expect(embedded).toContain("host sessions 1 function");
     const cli = join(consumer, "node_modules/.bin/marbles");
     for (const command of [[], ["run"]]) {
       const terminal = await inspectDashboard(cli, consumer, command);

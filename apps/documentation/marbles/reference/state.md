@@ -70,7 +70,7 @@ root is the registry of every workspace this machine has run, and each
                           workspace in, or of a program hosting it itself
   process.json            what that process is: pid, host "worker", source, start time
   sessions/<id>.json      agent conversations
-  sessions/<id>.json.lock pid of the process writing that session
+  sessions/.lock          pid of the process changing sessions
   agent-grants.json       tool grants approved for future runs, by agent id
   agent-grants.json.lock  pid of the process changing grants; never taken over,
                           so remove it by hand if its process is gone
@@ -137,8 +137,12 @@ execution can still finish even when its output cannot be saved.
 ### Session writes
 
 Session files are read again for every operation, and each change is a
-read-change-write under `<id>.json.lock`, so two processes appending to one
-session keep both messages. A session file that cannot be read is skipped
+read-change-write under `sessions/.lock`, so two processes appending to one
+session keep both messages. A change staged by a transaction is written only
+once the transaction succeeds; one that fails writes nothing. A change to one
+session file is one atomic replacement. A change to several is written file
+by file, each atomically, so a crash part way through can leave some files
+written. That limit ends when sessions move to the Marbles database. A session file that cannot be read is skipped
 with a warning and never overwritten; changing that session fails until the
 file is repaired or removed. Creating a session under an id that already
 exists returns the existing one.

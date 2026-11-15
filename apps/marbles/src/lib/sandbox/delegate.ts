@@ -3,6 +3,7 @@ import {
   createHarnessActivityRecorder,
   type HarnessSession,
 } from "@foundry/agents/harness";
+import { Sessions } from "@foundry/agents/session";
 import { tool } from "ai";
 import { z } from "zod";
 import type { SandboxSessionSettings } from "./session";
@@ -59,7 +60,7 @@ export function delegationTool(
       const id = randomUUID();
       let child: HarnessSession | undefined;
       try {
-        await settings.store.createSession({
+        await new Sessions({ store: settings.store }).createSession({
           id,
           parentSessionId: settings.sessionId,
           recursionDepth: scope.depth + 1,

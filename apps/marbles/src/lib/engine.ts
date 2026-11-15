@@ -4,8 +4,8 @@ import {
   createAgentAuthorizer,
   createInMemoryAgentAuthorizer,
 } from "@foundry/agents/authorization";
-import type { SessionStore } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import { Config } from "@foundry/lib/config";
 import type { ModelManager } from "@foundry/models";
