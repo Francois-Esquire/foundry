@@ -601,6 +601,42 @@ describe("SqliteWorkflowStore writes and positions", () => {
     });
   });
 
+  test.each([
+    ["deletes and puts", true],
+    ["only deletes", false],
+  ] as const)(
+    "a scope written before the counter keeps its high-water mark when its first commit %s",
+    async (_case, putsToo) => {
+      const first = await files.open();
+      const named = (id: string) => ({ ...run, id });
+      await new SqliteWorkflowStore({ database: first, scope: "s" }).commit({
+        putRuns: [named("rn-a"), named("rn-b"), named("rn-x")],
+      });
+      // A scope whose rows predate `workflow_positions`: no counter row.
+      await first.run(sql`DELETE FROM workflow_positions WHERE scope = 's'`);
+      const before = new SqliteWorkflowStore({
+        database: await files.reopen(first),
+        scope: "s",
+      });
+      const page = await before.listRuns({ limit: 2 });
+      await before.commit({
+        deleteRuns: ["rn-b", "rn-x"],
+        ...(putsToo ? { putRuns: [named("rn-c")] } : {}),
+      });
+
+      const after = new SqliteWorkflowStore({
+        database: await files.reopen(first),
+        scope: "s",
+      });
+      if (!putsToo) {
+        await after.commit({ putRuns: [named("rn-c")] });
+      }
+      expect(
+        (await after.listRuns({ after: page.next, limit: 10 })).items
+      ).toStrictEqual([named("rn-c")]);
+    }
+  );
+
   test("never hands a position out twice, across deletes and reopening", async () => {
     const first = await files.open();
     const store = new SqliteWorkflowStore({ database: first, scope: "s" });

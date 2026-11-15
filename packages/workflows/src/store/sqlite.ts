@@ -222,6 +222,9 @@ export class SqliteWorkflowStore implements WorkflowStore {
     }
     return this.#turns.run(() =>
       this.#database.transaction(async (transaction) => {
+        // Before the deletes: a scope's first counter starts past every
+        // position it holds now, rows about to go included.
+        const positions = await this.#positions(transaction, taken);
         await this.#delete(
           transaction,
           workflowJobs.id,
@@ -242,7 +245,6 @@ export class SqliteWorkflowStore implements WorkflowStore {
           workflowRunFrames.runId,
           taken.write.deleteRunFrames
         );
-        const positions = await this.#positions(transaction, taken);
         await this.#put(transaction, QUEUES, taken.queues, positions);
         await this.#put(transaction, JOBS, taken.jobs, positions);
         await this.#put(transaction, RUNS, taken.runs, positions);
@@ -450,20 +452,27 @@ export class SqliteWorkflowStore implements WorkflowStore {
 
   /**
    * The scope's next position, from `workflow_positions`, read once for a
-   * write that puts anything. A scope with no counter row yet starts past
-   * every position its tables hold.
+   * write that puts or deletes anything, before its deletes. A scope with no
+   * counter row yet starts past every position any of its tables holds at
+   * that moment, and the commit records the counter, so a delete-only
+   * commit keeps the high-water mark of the rows it removes.
    */
   async #positions(
     transaction: WorkflowTransaction,
     taken: OwnedWrite
   ): Promise<Positions> {
-    const puts =
+    const { write } = taken;
+    const changes =
       taken.queues.length +
       taken.jobs.length +
       taken.runs.length +
       taken.suspensions.length +
-      taken.frames.length;
-    if (puts === 0) {
+      taken.frames.length +
+      write.deleteJobs.length +
+      write.deleteRunFrames.length +
+      write.deleteRuns.length +
+      write.deleteSuspensions.length;
+    if (changes === 0) {
       return { next: 0, start: 0 };
     }
     const [counter] = await transaction
@@ -484,7 +493,7 @@ export class SqliteWorkflowStore implements WorkflowStore {
     return { next: highest + 1, start: Number.NaN };
   }
 
-  /** Records how far the write took the scope's positions, if anywhere. */
+  /** Records the scope's counter when it is new or the write moved it. */
   async #savePositions(
     transaction: WorkflowTransaction,
     positions: Positions
