@@ -51,7 +51,12 @@ function within<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
 }
 
 const resultSchema = z.object({
-  result: z.object({ isError: z.boolean().optional() }),
+  result: z.object({
+    content: z
+      .array(z.object({ text: z.string().optional(), type: z.string() }))
+      .optional(),
+    isError: z.boolean().optional(),
+  }),
 });
 
 async function call(
@@ -86,10 +91,13 @@ async function start(
     readonly piped?: boolean;
   } = {}
 ): Promise<Started> {
+  const home = options.home ?? testHome();
+  // In the home, never the workspace root: a file written under an attached
+  // workspace's root changes what its generation loaded, and starts a switch.
   const env = await serverPreload(
-    root,
+    home.path,
     `console.error("PIDS=" + process.pid + "," + process.ppid);\n${body}`,
-    (options.home ?? testHome()).env
+    home.env
   );
   const marbles = [
     "--no-env-file",
@@ -190,7 +198,11 @@ workflow("spin").do(() => spin({}));`
     const dispatched = await call(session, "dispatch_workflow", {
       name: "spin",
     });
-    expect(dispatched.isError).not.toBe(true);
+    // What the server said, when it refused the dispatch.
+    const text = (dispatched.content ?? [])
+      .map((part) => part.text ?? part.type)
+      .join("\n");
+    expect(dispatched.isError, text).not.toBe(true);
     await vi.waitFor(() => expect(existsSync(spinning)).toBe(true), {
       timeout: 15_000,
     });
