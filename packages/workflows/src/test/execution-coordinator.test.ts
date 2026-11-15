@@ -14,6 +14,9 @@ import { SqliteWorkflowStore } from "../store/sqlite";
 import { libsqlDatabases } from "./helpers/sqlite";
 import { orchestratorStoreContract } from "./helpers/store.contract";
 
+/** What a store says to a call from inside its own transaction. */
+const REENTRY = /ReentrantCallError.*use the view/;
+
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
 
@@ -196,6 +199,37 @@ for (const [name, open] of STORES) {
   });
 
   describe(`ExecutionCoordinator rules over the ${name}`, () => {
+    test("refuses a call to itself from inside its own transaction, at once", async () => {
+      const coordinator = new ExecutionCoordinator({ store: await open() });
+      const run = await coordinator.createRun({
+        input: null,
+        queueId: "q",
+        step: "s",
+      });
+
+      const outcomes = await coordinator.transaction?.(async (bound) => {
+        const settled = await Promise.allSettled([
+          coordinator.getRun(run.id),
+          coordinator.updateRun(run.id, { status: "running" }),
+          coordinator.listRuns({}),
+        ]);
+        // The store it is handed is the way in.
+        await bound.updateRun(run.id, { status: "running" });
+        return settled;
+      });
+
+      expect(
+        outcomes?.map((outcome) =>
+          outcome.status === "rejected" ? String(outcome.reason) : "resolved"
+        )
+      ).toEqual(
+        Array.from({ length: 3 }, () => expect.stringMatching(REENTRY))
+      );
+      expect(await coordinator.getRun(run.id)).toMatchObject({
+        status: "running",
+      });
+    });
+
     test("settles a Job whose attempt completed, then refuses the claim", async () => {
       const coordinator = new ExecutionCoordinator({ store: await open() });
       const job = await coordinator.createJob({
