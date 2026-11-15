@@ -34,6 +34,7 @@ import {
 import type { WorkspaceSummary } from "~/model/connection";
 import { Channel, socketTransport } from "~/process/channel";
 import {
+  differences,
   FileDigests,
   type Fingerprint,
   fingerprintOf,
@@ -132,9 +133,13 @@ export interface Daemon {
   readonly closed: Promise<void>;
   /**
    * Resolves once no switch is running, with whether one is scheduled on
-   * the clock: for a caller that waits for the daemon to be still.
+   * the clock and why: each exit, or each file whose change, asked for
+   * it. For a caller that waits for the daemon to be still.
    */
-  idle(): Promise<{ readonly scheduled: boolean }>;
+  idle(): Promise<{
+    readonly reasons: readonly string[];
+    readonly scheduled: boolean;
+  }>;
   readonly pid: number;
   readonly socket: string;
 }
@@ -405,6 +410,13 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   let switchTimer: unknown;
   /** Whether the switch `switchTimer` starts must run whatever the sources say. */
   let switchForced = false;
+  /** Why the switch `switchTimer` starts was asked for, each ask a line. */
+  const switchReasons: string[] = [];
+  /**
+   * Set while a switch runs: what is current is being decided, so the
+   * poll asks for nothing until it is, and then compares with that.
+   */
+  let switchRunning = false;
   /** How long the next replacement of a dead generation waits. */
   let replaceDelay = REPLACE_MIN_MS;
 
@@ -633,7 +645,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       print(
         `[marbles] retired engine generation ${String(generation.number)} died: ${exit.why}`
       );
-      scheduleSwitch("a retired engine generation died", { force: true });
+      scheduleSwitch("a retired engine generation died", {
+        because: [
+          `retired engine generation ${String(generation.number)} exited uncleanly: ${exit.why}`,
+        ],
+        force: true,
+      });
     }
   }
 
@@ -649,7 +666,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         setState(workspace, "failed", { error: why });
       }
     }
-    replaceCurrent("the engine generation exited", generation);
+    replaceCurrent("the engine generation exited", generation, [
+      `current engine generation ${String(generation.number)} exited: ${why}`,
+    ]);
   }
 
   /**
@@ -658,7 +677,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
    * what the last one left. `died` is the generation that was current,
    * when one died; one that stayed up long enough resets the backoff.
    */
-  function replaceCurrent(reason: string, died?: Generation): void {
+  function replaceCurrent(
+    reason: string,
+    died?: Generation,
+    because: readonly string[] = [reason]
+  ): void {
     if (died?.since !== undefined && Date.now() - died.since >= STABLE_MS) {
       replaceDelay = REPLACE_MIN_MS;
     }
@@ -667,7 +690,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     print(
       `[marbles] ${reason}; the next engine generation starts in ${String(delay)}ms`
     );
-    scheduleSwitch(reason, { delayMs: delay, force: true });
+    scheduleSwitch(reason, { because, delayMs: delay, force: true });
   }
 
   /** The generation spawned for `token` dialed in: bind its channel. */
@@ -1060,6 +1083,18 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     reason: string,
     setups: Readonly<Record<string, SetupDraftParams>>
   ): Promise<void> {
+    switchRunning = true;
+    try {
+      await switchOnce(reason, setups);
+    } finally {
+      switchRunning = false;
+    }
+  }
+
+  async function switchOnce(
+    reason: string,
+    setups: Readonly<Record<string, SetupDraftParams>>
+  ): Promise<void> {
     const previous = current;
     const fingerprint = await announceSwitch(previous);
     // Numbered before its spawn, so a crash in between leaves a row.
@@ -1311,17 +1346,25 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   function scheduleSwitch(
     reason: string,
     {
+      because = [reason],
       delayMs = SWITCH_DEBOUNCE_MS,
       force: asked = false,
-    }: { readonly delayMs?: number; readonly force?: boolean } = {}
+    }: {
+      /** What asked for it, said so that `idle` can name it. */
+      readonly because?: readonly string[];
+      readonly delayMs?: number;
+      readonly force?: boolean;
+    } = {}
   ): void {
     if (stopping) {
       return;
     }
     clock.clearTimeout(switchTimer);
     switchForced ||= asked;
+    switchReasons.push(...because);
     switchTimer = clock.setTimeout(() => {
       switchTimer = undefined;
+      switchReasons.length = 0;
       const force = switchForced;
       switchForced = false;
       // Nothing new since the current generation loaded, or since a
@@ -1350,7 +1393,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
    */
   async function pollOnce(): Promise<void> {
     const target = current;
-    if (target === undefined && hosted.size === 0) {
+    if (switchRunning || (target === undefined && hosted.size === 0)) {
       return;
     }
     const now =
@@ -1363,10 +1406,33 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (refused !== undefined && (await unchanged(refused))) {
       return;
     }
+    // Looked at again after the reads: a switch that began meanwhile
+    // decides what is current, and the next poll compares with that.
+    if (switchRunning || current !== target) {
+      return;
+    }
     if (target !== undefined && now !== undefined) {
       sayChanged(target.fingerprint, now);
     }
-    scheduleSwitch("a source or the installation changed");
+    scheduleSwitch("a source or the installation changed", {
+      because: whyNow(target, now),
+    });
+  }
+
+  /** Why the poll asks for a switch: what differs from what `target` recorded, or that none is current. */
+  function whyNow(
+    target: Generation | undefined,
+    now: Fingerprint | undefined
+  ): string[] {
+    if (target === undefined || now === undefined) {
+      return [
+        "no generation is current, and the registered workspaces are not what a candidate refused",
+      ];
+    }
+    return differences(target.fingerprint, now).map(
+      (line) =>
+        `engine generation ${String(target.number)}'s fingerprint: ${line}`
+    );
   }
 
   /** A line for each workspace whose part of `now` differs from `was`. */
@@ -1386,7 +1452,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   /** Poll what the current generation loaded; a change asks for a switch. */
   let polling = false;
   const poll = setInterval(() => {
-    if (polling || stopping || switchTimer !== undefined) {
+    if (polling || stopping || switchRunning || switchTimer !== undefined) {
       return;
     }
     polling = true;
@@ -2064,7 +2130,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         const waited = turn;
         await waited;
         if (turn === waited) {
-          return { scheduled: switchTimer !== undefined };
+          return {
+            reasons: switchTimer === undefined ? [] : [...switchReasons],
+            scheduled: switchTimer !== undefined,
+          };
         }
       }
     },

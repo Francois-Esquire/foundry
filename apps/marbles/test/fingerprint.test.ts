@@ -197,6 +197,7 @@ describe("withRead", () => {
 describe("fingerprintOf", () => {
   it("is the same for the same sources in any order, and differs when one changes", () => {
     const part = (tree: string) => ({
+      files: new Map<string, string>(),
       outside: new Map<string, string>(),
       tree,
     });
