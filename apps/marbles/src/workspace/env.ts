@@ -1,5 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { environmentSnapshot } from "~/lib/environment";
@@ -45,6 +53,50 @@ function varlockAt(root: string): string | undefined {
     .find((candidate) => existsSync(candidate));
 }
 
+/**
+ * Run `varlock load` for the workspace at `root`, its stdout written to a
+ * file rather than a pipe: under load, with other children of this process
+ * exiting, Bun's `spawnSync` can lose a child's piped stdout and report it
+ * as empty with status 0, which read as a workspace whose schema printed
+ * nothing. A file the child writes holds every byte by the time it exits.
+ */
+function run(
+  varlock: string,
+  root: string
+): {
+  readonly status: number | null;
+  readonly stderr: string;
+  readonly stdout: string;
+} {
+  const dir = mkdtempSync(join(tmpdir(), "marbles-varlock-"));
+  try {
+    const path = join(dir, "stdout");
+    const out = openSync(path, "w", 0o600);
+    let result: ReturnType<typeof spawnSync>;
+    try {
+      result = spawnSync(
+        varlock,
+        ["load", "--format", "json", "--path", root],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: process.env,
+          stdio: ["ignore", out, "pipe"],
+        }
+      );
+    } finally {
+      closeSync(out);
+    }
+    return {
+      status: result.status,
+      stderr: String(result.stderr ?? ""),
+      stdout: readFileSync(path, "utf8"),
+    };
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+}
+
 /** What the schema resolved, or why it did not. */
 function load(
   root: string
@@ -59,20 +111,14 @@ function load(
       problem: `${schema} needs Varlock to load; install it with \`${INSTALL}\` in ${root}`,
     };
   }
-  const result = spawnSync(
-    varlock,
-    ["load", "--format", "json", "--path", root],
-    { cwd: root, encoding: "utf8", env: process.env }
-  );
-  if (result.status !== 0) {
-    const said = stripVTControlCharacters(
-      `${result.stdout ?? ""}${result.stderr ?? ""}`
-    ).trim();
+  const { status, stderr, stdout } = run(varlock, root);
+  if (status !== 0) {
+    const said = stripVTControlCharacters(`${stdout}${stderr}`).trim();
     return { problem: `${schema} does not resolve:\n${said}` };
   }
   const values: Record<string, string> = {};
   for (const [name, value] of Object.entries(
-    JSON.parse(result.stdout) as Record<string, unknown>
+    JSON.parse(stdout) as Record<string, unknown>
   )) {
     if (value !== undefined && value !== null) {
       values[name] = String(value);

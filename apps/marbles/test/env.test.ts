@@ -94,6 +94,27 @@ describe("loadEnvironment", () => {
     expect(process.env).not.toHaveProperty("MARBLES_TEST_GREETING");
   });
 
+  it("reads what Varlock prints from a file it writes, never a pipe it could lose", () => {
+    writeFileSync(join(root, ".env.schema"), "MARBLES_TEST_TOKEN=\n");
+    const bin = join(root, "node_modules", ".bin");
+    mkdirSync(bin, { recursive: true });
+    const script = join(bin, "varlock");
+    // Anything but a file gets nothing, as a lost read would.
+    writeFileSync(
+      script,
+      `#!/bin/sh
+if [ ! -f /dev/stdout ]; then
+  exit 0
+fi
+printf '{"MARBLES_TEST_TOKEN":"from a file"}'
+`
+    );
+    chmodSync(script, 0o755);
+    expect(loadEnvironment(root, "require", () => undefined).workspace).toEqual(
+      { MARBLES_TEST_TOKEN: "from a file" }
+    );
+  });
+
   it("returns no workspace values without a schema or when one only warns", () => {
     expect(loadEnvironment(root, "require", () => undefined).workspace).toEqual(
       {}
