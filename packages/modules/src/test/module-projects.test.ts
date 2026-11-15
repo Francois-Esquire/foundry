@@ -1,4 +1,8 @@
-import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
+import {
+  ArtifactManager,
+  artifactIdSchema,
+  InMemoryArtifactStore,
+} from "@foundry/artifacts";
 import { describe, expect, it, vi } from "vitest";
 
 import { moduleIdSchema } from "../domain";
@@ -6,6 +10,7 @@ import { ModuleStoreConflictError } from "../errors";
 import { createModuleProjects, ModuleProjectError } from "../projects";
 import { ModuleRegistry } from "../registry";
 import { MODULE_SOURCE_LIMITS, ModuleSourceAdmissionError } from "../source";
+import { failingArtifacts } from "./helpers/failing-artifacts";
 import { VALID_MANIFEST } from "./helpers/module-fixture";
 import {
   builtManifest,
@@ -62,6 +67,74 @@ describe("Module projects", () => {
     ]);
     expect(created[0].artifactId).toBe(created[1].artifactId);
     expect((await artifacts.list()).items).toHaveLength(2);
+  });
+
+  describe("across the Artifact and registry writes", () => {
+    it("registers nothing when the Artifact write fails, and a retry creates the Module", async () => {
+      const failing = failingArtifacts();
+      const store = new ModuleRegistry();
+      const projects = createModuleProjects({
+        artifacts: failing.artifacts,
+        store,
+      });
+      await expect(
+        projects.create({ id, name: "Notes", source })
+      ).rejects.toThrow("simulated Artifact commit failure");
+      expect(await store.loadModule(id)).toBeNull();
+
+      failing.fail = false;
+      const created = await projects.create({ id, name: "Notes", source });
+      expect(created.idempotent).toBe(false);
+      expect(await store.loadModule(id)).toEqual(created.module);
+      expect(await failing.artifacts.get(created.artifactId)).not.toBeNull();
+    });
+
+    it("archives the Artifact a failed registration made, and a retry creates the Module", async () => {
+      const artifacts = new ArtifactManager({
+        store: new InMemoryArtifactStore(),
+      });
+      const registry = new ModuleRegistry();
+      const registryDown: { refuse: boolean } = { refuse: true };
+      const store = {
+        loadModule: (moduleId: typeof id) => registry.loadModule(moduleId),
+        registerModule: (
+          input: Parameters<ModuleRegistry["registerModule"]>[0]
+        ) =>
+          registryDown.refuse
+            ? Promise.reject(new Error("registry unavailable"))
+            : registry.registerModule(input),
+      };
+      const projects = createModuleProjects({ artifacts, store });
+      await expect(
+        projects.create({ id, name: "Notes", source })
+      ).rejects.toThrow("registry unavailable");
+      expect(await registry.loadModule(id)).toBeNull();
+      const [orphan] = (await artifacts.list({ includeArchived: true })).items;
+      expect(orphan?.status).toBe("archived");
+
+      registryDown.refuse = false;
+      const created = await projects.create({ id, name: "Notes", source });
+      expect(created.idempotent).toBe(false);
+      expect((await artifacts.get(created.artifactId))?.status).not.toBe(
+        "archived"
+      );
+    });
+
+    it("refuses to return as idempotent a Module whose Artifact does not exist", async () => {
+      const artifacts = new ArtifactManager({
+        store: new InMemoryArtifactStore(),
+      });
+      const store = new ModuleRegistry();
+      await store.registerModule({
+        module: { artifactId: artifactIdSchema.parse("gone"), id },
+      });
+      const projects = createModuleProjects({ artifacts, store });
+      await expect(
+        projects.create({ id, name: "Notes", source })
+      ).rejects.toThrow(
+        `Module ${id} names Artifact gone, which does not exist`
+      );
+    });
   });
 
   it.each(["../escape", "/absolute", "a\\b", "empty//part", "nul\0path"])(

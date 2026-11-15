@@ -146,12 +146,16 @@ export function createModuleManagement(options: {
           installationId: installation.id,
         });
       }
-      await artifacts.transaction((scoped) =>
-        store.transaction(async (registry) => {
-          await registry.deleteModule({ moduleId });
+      // The Artifact first: an archived Artifact still exists, so the
+      // registry names nothing missing whichever step fails, and a retry
+      // archives again (a no-op) and then retires the Module.
+      await artifacts.transaction(async (scoped) => {
+        const artifact = await scoped.get(module.artifactId);
+        if (artifact !== null && artifact.status !== "archived") {
           await scoped.archive(module.artifactId);
-        })
-      );
+        }
+      });
+      await store.deleteModule({ moduleId });
     },
     getInstallation: ({
       installationId,

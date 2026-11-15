@@ -28,6 +28,18 @@ export interface ModuleRegistryHarness {
   readonly store: ModuleRegistry;
 }
 
+/** How `transaction` on a transaction's registry is refused. */
+const NESTED_REFUSAL =
+  /ReentrantCallError: .*transactions do not nest; use the registry passed/;
+
+/** `refused: <error>` or `resolved`, so a test can return either. */
+function settled(promise: Promise<unknown>): Promise<string> {
+  return promise.then(
+    () => "resolved",
+    (error: unknown) => `refused: ${String(error)}`
+  );
+}
+
 /** How a call from inside a registry's own transaction is refused. */
 const REFUSAL = /ReentrantCallError: .*use the/;
 
@@ -50,6 +62,149 @@ export function describeModuleRegistry(
   createHarness: () => Promise<ModuleRegistryHarness>
 ): void {
   describe(`${name} ModuleRegistry rules`, () => {
+    it("refuses a transaction on the registry a transaction handed its work, at once", async () => {
+      const harness = await createHarness();
+      try {
+        const { version } = harness.installation;
+        const module = { artifactId: version.artifactId, id: version.moduleId };
+        let ran = false;
+        const outcome = await harness.store.transaction(async (registry) => {
+          const nested = await settled(
+            registry.transaction(async (inner) => {
+              ran = true;
+              await inner.createInstallation(harness.installation);
+              throw new Error("abort inner");
+            })
+          );
+          // The outer work carries on, and commits.
+          await registry.registerModule({ module });
+          return nested;
+        });
+
+        expect(outcome).toMatch(NESTED_REFUSAL);
+        expect(ran).toBe(false);
+        expect(
+          await harness.store.loadGatewayContext(harness.installation.id)
+        ).toBeNull();
+      } finally {
+        await harness.dispose?.();
+      }
+    });
+
+    it("states its durability: a command's commit is durable, a transaction's registry's is not", async () => {
+      const harness = await createHarness();
+      try {
+        expect(harness.store.durability).toBe("commit");
+        expect(
+          await harness.store.transaction((registry) =>
+            Promise.resolve(registry.durability)
+          )
+        ).toBe("host");
+      } finally {
+        await harness.dispose?.();
+      }
+    });
+
+    it("runs a transaction's effects once it commits, every one though one throws", async () => {
+      const harness = await createHarness();
+      try {
+        const seen: string[] = [];
+        const failure = new Error("effect failed");
+        const outcome = harness.store.transaction(async (registry, effects) => {
+          await registry.createInstallation(harness.installation);
+          effects.afterCommit(async () => {
+            // The change is there for good, and the registry free again.
+            const context = await harness.store.loadGatewayContext(
+              harness.installation.id
+            );
+            seen.push(context === null ? "missing" : "committed");
+            throw failure;
+          });
+          effects.afterCommit(() => {
+            seen.push("second");
+            return Promise.resolve();
+          });
+          expect(seen).toEqual([]);
+          return "done";
+        });
+
+        await expect(outcome).rejects.toBe(failure);
+        expect(seen).toEqual(["committed", "second"]);
+      } finally {
+        await harness.dispose?.();
+      }
+    });
+
+    it("runs none of a transaction's effects when it rolls back, and refuses one registered late", async () => {
+      const harness = await createHarness();
+      try {
+        const seen: string[] = [];
+        const original = new Error("outer rollback");
+        let late: { afterCommit: (effect: () => Promise<void>) => void } = {
+          afterCommit: () => undefined,
+        };
+        await expect(
+          harness.store.transaction(async (registry, effects) => {
+            await registry.createInstallation(harness.installation);
+            effects.afterCommit(() => {
+              seen.push("ran");
+              return Promise.resolve();
+            });
+            late = effects;
+            throw original;
+          })
+        ).rejects.toBe(original);
+
+        expect(seen).toEqual([]);
+        expect(
+          await harness.store.loadGatewayContext(harness.installation.id)
+        ).toBeNull();
+        expect(() => late.afterCommit(() => Promise.resolve())).toThrow(
+          "has settled"
+        );
+      } finally {
+        await harness.dispose?.();
+      }
+    });
+
+    it("reads each input field by name, wherever it lives, in every command", async () => {
+      const harness = await createHarness();
+      try {
+        const { id, now, version } = harness.installation;
+        const inherited = <T extends object>(fields: T): T =>
+          Object.create(fields) as T;
+        const created = await harness.store.createInstallation(
+          inherited({ id, now, version: inherited({ ...version }) })
+        );
+        expect(created).toMatchObject({ id, moduleId: version.moduleId });
+        const grants = await harness.store.replaceInstallationGrants(
+          inherited({
+            expectedGeneration: 0,
+            grants: [inherited({ ...FETCH })],
+            installationId: id,
+            now: T(5),
+          })
+        );
+        expect(grants).toEqual([{ ...FETCH, createdAt: T(5) }]);
+        await harness.store.revokeInstallationGrant(
+          inherited({
+            capability: FETCH.capability,
+            expectedGeneration: 0,
+            installationId: id,
+          })
+        );
+        await harness.store.deleteInstallation(
+          inherited({ expectedGeneration: 0, installationId: id })
+        );
+        await harness.store.deleteModule(
+          inherited({ moduleId: version.moduleId })
+        );
+        expect(await harness.store.loadModule(version.moduleId)).toBeNull();
+      } finally {
+        await harness.dispose?.();
+      }
+    });
+
     it("refuses a call to the registry from inside its own transaction, at once", async () => {
       const harness = await createHarness();
       try {

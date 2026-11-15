@@ -6,8 +6,10 @@ import { ModuleStoreConflictError } from "../errors";
 import { createModuleGateway } from "../gateway/module-gateway";
 import { createModuleManagement } from "../management";
 import { createModuleProgramSupervisor } from "../platform/program-supervisor";
+import { createModuleProjects } from "../projects";
 import { ModuleRegistry } from "../registry";
 import { createModuleVersions } from "../version";
+import { failingArtifacts } from "./helpers/failing-artifacts";
 import {
   moduleFixture,
   PROGRAM_FILES,
@@ -30,7 +32,10 @@ async function fixture() {
       },
     },
   });
-  const store = new ModuleRegistry();
+  const store = new ModuleRegistry({
+    artifactOfContent: async (contentId) =>
+      (await artifacts.getContent(contentId))?.artifactId ?? null,
+  });
   const module = defineModule({ artifact, id: moduleIdSchema.parse("notes") });
   await store.registerModule({ module });
   const versions = createModuleVersions({ artifacts, store });
@@ -223,6 +228,67 @@ describe("Module management", () => {
     } finally {
       archive.mockRestore();
     }
+  });
+
+  it("archives before retiring: a failed Artifact write leaves the Module registered, and a retry completes", async () => {
+    const failing = failingArtifacts();
+    failing.fail = false;
+    const store = new ModuleRegistry();
+    const projects = createModuleProjects({
+      artifacts: failing.artifacts,
+      store,
+    });
+    const { module } = await projects.create({
+      id: moduleIdSchema.parse("doomed"),
+      name: "Doomed",
+      source: { "foundry.module.json": JSON.stringify(VALID_MANIFEST) },
+    });
+    const management = createModuleManagement({
+      artifacts: failing.artifacts,
+      programs: {
+        delete: () => Promise.resolve(),
+        selectVersion: () => Promise.reject(new Error("unused")),
+      },
+      store,
+    });
+
+    failing.fail = true;
+    await expect(
+      management.deleteModule({ moduleId: module.id })
+    ).rejects.toThrow("simulated Artifact commit failure");
+    expect(await store.loadModule(module.id)).toEqual(module);
+    expect((await failing.artifacts.get(module.artifactId))?.status).not.toBe(
+      "archived"
+    );
+
+    failing.fail = false;
+    await management.deleteModule({ moduleId: module.id });
+    expect(await store.loadModule(module.id)).toBeNull();
+    expect((await failing.artifacts.get(module.artifactId))?.status).toBe(
+      "archived"
+    );
+  });
+
+  it("archives again harmlessly when the registry step failed, and a retry completes", async () => {
+    const { management, module, artifacts, store } = await fixture();
+    const retire = vi
+      .spyOn(store, "deleteModule")
+      .mockRejectedValueOnce(new Error("registry unavailable"));
+    await expect(
+      management.deleteModule({ moduleId: module.id })
+    ).rejects.toThrow("registry unavailable");
+    expect(await store.loadModule(module.id)).toEqual(module);
+    const archived = await artifacts.get(module.artifactId);
+    expect(archived?.status).toBe("archived");
+
+    retire.mockRestore();
+    await management.deleteModule({ moduleId: module.id });
+    expect(await store.loadModule(module.id)).toBeNull();
+    // Archived once: the retry did not archive it again.
+    expect(await artifacts.get(module.artifactId)).toMatchObject({
+      archivedAt: archived?.archivedAt,
+      status: "archived",
+    });
   });
 
   it("keeps registration and Artifact when installation cleanup fails", async () => {

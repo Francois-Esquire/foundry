@@ -1,8 +1,9 @@
-import type { ContentId } from "@foundry/artifacts";
+import type { ArtifactId, ContentId } from "@foundry/artifacts";
 import type { Page, PageInput } from "@foundry/core/pagination";
+import { type CommitEffects, runAfterCommit } from "@foundry/core/storage";
 import { canonicalizeJson } from "@foundry/lib/json";
 import { byCodeUnit } from "@foundry/lib/ordering";
-import { Turns } from "@foundry/lib/turns";
+import { ReentrantCallError, Turns } from "@foundry/lib/turns";
 
 import type {
   Installation,
@@ -24,10 +25,12 @@ import type {
 import { grantCapabilitiesProblem } from "./schema";
 import type {
   ModuleStore,
+  ModuleStoreDurability,
   ModuleStorePage,
   ModuleStorePageQuery,
   ModuleStoreWrite,
 } from "./store";
+import { plainData } from "./store/captured";
 import { MemoryModuleStore } from "./store/memory";
 
 export type { InstallationGrant, RetainedManifest } from "./schema";
@@ -130,14 +133,25 @@ export interface DeleteModuleInput {
 }
 
 export interface ModuleRegistryOptions {
+  /**
+   * The Artifact a Content belongs to, or `null` when there is no such
+   * Content. With it, an Installation may select only a version whose
+   * Content exists and belongs to the version's Artifact. Without it, the
+   * registry checks only that the version's Module is registered on the
+   * version's Artifact; that the Content is one of that Artifact's is then
+   * the caller's to have checked (`createModuleVersions` resolves it so).
+   */
+  readonly artifactOfContent?: (
+    contentId: ContentId
+  ) => Promise<ArtifactId | null>;
   /** Where the records live; a new `MemoryModuleStore` when absent. */
   readonly store?: ModuleStore;
 }
 
-/** A registry command: everything but `transaction`. */
+/** A registry command: everything but `transaction` and `durability`. */
 export type ModuleRegistryCommand = Exclude<
   keyof ModuleRegistry,
-  "transaction"
+  "durability" | "transaction"
 >;
 
 /**
@@ -149,8 +163,13 @@ export type ModuleRegistryUnit<Command extends ModuleRegistryCommand> = Pick<
   ModuleRegistry,
   Command
 > & {
+  /** As `ModuleRegistry.durability`; `"commit"` when absent. */
+  readonly durability?: ModuleStoreDurability;
   transaction<T>(
-    work: (registry: Pick<ModuleRegistry, Command>) => Promise<T>
+    work: (
+      registry: Pick<ModuleRegistry, Command>,
+      effects: CommitEffects
+    ) => Promise<T>
   ): Promise<T>;
 };
 
@@ -165,6 +184,17 @@ export type ModuleCommands = ModuleRegistryUnit<ModuleRegistryCommand>;
 const REENTRY =
   "ModuleRegistry was called from inside its own transaction; use the registry passed to the transaction's work instead";
 
+/** Why `transaction` on a registry a transaction handed its work is refused. */
+const NESTED =
+  "ModuleRegistry.transaction was called on a registry bound to a transaction, and transactions do not nest; use the registry passed to the transaction's work instead";
+
+/** Why an effect registered once its transaction settled is refused. */
+const SETTLED =
+  "ModuleRegistry transaction has settled; register an effect while its work runs";
+
+/** The registries a transaction handed its work, on which `transaction` is refused. */
+const BOUND = new WeakSet<ModuleRegistry>();
+
 /** How many records one store read returns when the registry reads them all. */
 const STORE_PAGE_LIMIT = 500;
 
@@ -177,7 +207,9 @@ const STORE_PAGE_LIMIT = 500;
  * delete a Module an Installation still selects. The store enforces none of
  * these.
  *
- * Each command copies its input when called, then runs one
+ * Each command reads the fields it takes from its input by name, wherever
+ * they live (an own property or a getter on a prototype), and copies them
+ * when called, before its first await (see `ownedInput`); it then runs one
  * read-modify-write ending in one `commit`. When the store offers
  * `transaction`, each runs inside one, so registries sharing a store (two
  * hosts on one database) never interleave; a read made of several store
@@ -189,32 +221,106 @@ const STORE_PAGE_LIMIT = 500;
  * sorts them here, which suits a local library.
  */
 export class ModuleRegistry {
+  /**
+   * When a command's commit is there for good: its store's durability
+   * (`"commit"` when the store states none). A registry a transaction
+   * handed its work is `"host"`: its commits stand only if the work
+   * succeeds.
+   */
+  readonly durability: ModuleStoreDurability;
   readonly #store: ModuleStore;
+  readonly #artifactOfContent: ModuleRegistryOptions["artifactOfContent"];
   readonly #turns = new Turns(REENTRY);
 
   constructor(options: ModuleRegistryOptions = {}) {
     this.#store = options.store ?? new MemoryModuleStore();
+    this.#artifactOfContent = options.artifactOfContent;
+    this.durability = this.#store.durability ?? "commit";
+  }
+
+  /** A registry over a transaction's view, which `transaction` refuses on. */
+  static #boundTo(
+    view: ModuleStore,
+    durability: ModuleStoreDurability,
+    artifactOfContent: ModuleRegistryOptions["artifactOfContent"]
+  ): ModuleRegistry {
+    const registry = new ModuleRegistry({
+      store: withoutTransaction(view, durability),
+      ...(artifactOfContent === undefined ? {} : { artifactOfContent }),
+    });
+    BOUND.add(registry);
+    return registry;
   }
 
   /**
    * Runs `work` over a registry bound to one store transaction, so every
    * command it runs lands together or not at all, and no other write lands
    * between its reads and its writes. `work` uses the registry it is
-   * given; a call to this registry from inside `work` is refused at once.
-   * Over a store without `transaction`, `work` runs alone among this
-   * registry's commands, and its commands land one by one.
+   * given; a call to this registry from inside `work` is refused at once,
+   * and so is `transaction` on the registry `work` is given: transactions
+   * do not nest.
+   *
+   * `effects.afterCommit(effect)` registers what to do once the change is
+   * there for good: every effect runs after the transaction commits, each
+   * though one throws (the error, or an aggregate of them, then rejects the
+   * call), and none runs if it rolls back. Over a store without
+   * `transaction`, `work` runs alone among this registry's commands, its
+   * commands land one by one and stay if `work` throws, and so its effects
+   * run either way.
    */
   async transaction<T>(
-    work: (registry: ModuleRegistry) => Promise<T>
+    work: (registry: ModuleRegistry, effects: CommitEffects) => Promise<T>
   ): Promise<T> {
-    return await this.#exclusive((store) =>
-      work(new ModuleRegistry({ store: withoutTransaction(store) }))
-    );
+    if (BOUND.has(this)) {
+      throw new ReentrantCallError(NESTED);
+    }
+    const callbacks: (() => Promise<void>)[] = [];
+    let open = true;
+    const effects: CommitEffects = {
+      afterCommit(effect) {
+        if (!open) {
+          throw new Error(SETTLED);
+        }
+        callbacks.push(effect);
+      },
+    };
+    const rollsBack = this.#store.transaction !== undefined;
+    let result: T;
+    try {
+      result = await this.#exclusive((store) =>
+        work(
+          ModuleRegistry.#boundTo(
+            store,
+            // A view's commits stand only if the work succeeds; without a
+            // store transaction, each command's commit is the store's own.
+            rollsBack ? "host" : this.durability,
+            this.#artifactOfContent
+          ),
+          effects
+        )
+      );
+    } catch (error) {
+      open = false;
+      if (!rollsBack) {
+        await runAfterCommit(callbacks).catch((effectError: unknown) => {
+          throw new AggregateError(
+            [error, effectError],
+            "ModuleRegistry transaction work failed after its commits landed, and so did their effects"
+          );
+        });
+      }
+      throw error;
+    }
+    open = false;
+    await runAfterCommit(callbacks);
+    return result;
   }
 
   /** Registers the Module. Idempotent; another Artifact on either side conflicts. */
   async registerModule(input: RegisterModuleInput): Promise<Module> {
-    const module = copyModule(input.module);
+    const { module } = ownedInput<RegisterModuleInput>(input, {
+      module: MODULE,
+    });
     return await this.#exclusive(async (store) => {
       const registration = await registrationOf(store, module);
       if (registration.write !== undefined) {
@@ -230,11 +336,10 @@ export class ModuleRegistry {
    * another Module, conflicts.
    */
   async retainManifest(input: RetainManifestInput): Promise<void> {
-    const { contentId, manifest, module } = structuredClone({
-      contentId: input.contentId,
-      manifest: input.manifest,
-      module: copyModule(input.module),
-    });
+    const { contentId, manifest, module } = ownedInput<RetainManifestInput>(
+      input,
+      { contentId: "value", manifest: "data", module: MODULE }
+    );
     return await this.#exclusive(async (store) => {
       const registration = await registrationOf(store, module);
       const existing = await store.getManifest(contentId);
@@ -286,7 +391,7 @@ export class ModuleRegistry {
   }
 
   async listModules(input: PageInput = {}): Promise<Page<Module>> {
-    const owned = ownedFields(input, PAGE);
+    const owned = ownedInput<PageInput>(input, PAGE);
     return await this.#consistent(async (store) =>
       page(
         (await everything((query) => store.listModules(query))).sort(
@@ -300,7 +405,9 @@ export class ModuleRegistry {
   }
 
   async deleteModule(input: DeleteModuleInput): Promise<void> {
-    const { moduleId } = ownedFields(input, ["moduleId"]);
+    const { moduleId } = ownedInput<DeleteModuleInput>(input, {
+      moduleId: "value",
+    });
     return await this.#exclusive(async (store) => {
       if ((await store.getModule(moduleId)) === null) {
         throw new ModuleStoreConflictError(
@@ -326,10 +433,10 @@ export class ModuleRegistry {
   async listInstallations(
     input: ListInstallationsInput = {}
   ): Promise<Page<Installation>> {
-    const { moduleId, ...pageInput } = ownedFields(input, [
-      ...PAGE,
-      "moduleId",
-    ]);
+    const { moduleId, ...pageInput } = ownedInput<ListInstallationsInput>(
+      input,
+      { ...PAGE, moduleId: "value" }
+    );
     return await this.#consistent(async (store) =>
       page(
         (
@@ -352,14 +459,16 @@ export class ModuleRegistry {
   async createInstallation(
     input: CreateInstallationInput
   ): Promise<Installation> {
-    const owned = structuredClone({
-      ...picked(input, ["id", "now"]),
-      version: picked(input.version, VERSION),
+    const owned = ownedInput<CreateInstallationInput>(input, {
+      id: "value",
+      now: "value",
+      version: VERSION,
     });
     const created: StoredInstallation = {
       grants: [],
       installation: createDisabledInstallation(owned),
     };
+    await this.#assertContent(owned.version);
     return await this.#exclusive(async (store) => {
       await assertModuleVersion(store, owned.version);
       const { id } = created.installation;
@@ -375,7 +484,10 @@ export class ModuleRegistry {
   async setInstallationContainerId(
     input: SetInstallationContainerIdInput
   ): Promise<Installation> {
-    const owned = ownedFields(input, [...TRANSITION, "containerId"]);
+    const owned = ownedInput<SetInstallationContainerIdInput>(input, {
+      ...TRANSITION,
+      containerId: "value",
+    });
     return await this.#change(owned, (stored) =>
       patched(stored, { containerId: owned.containerId, updatedAt: owned.now })
     );
@@ -385,11 +497,11 @@ export class ModuleRegistry {
   async beginInstallationTransition(
     input: BeginInstallationTransitionInput
   ): Promise<Installation> {
-    const owned = ownedFields(input, [
+    const owned = ownedInput<BeginInstallationTransitionInput>(input, {
       ...TRANSITION,
-      "resetStartAttempts",
-      "status",
-    ]);
+      resetStartAttempts: "value",
+      status: "value",
+    });
     return await this.#change(owned, (stored) =>
       patched(stored, {
         generation: stored.installation.generation + 1,
@@ -404,7 +516,10 @@ export class ModuleRegistry {
   async settleInstallationStatus(
     input: SettleInstallationStatusInput
   ): Promise<Installation> {
-    const owned = ownedFields(input, [...TRANSITION, "status"]);
+    const owned = ownedInput<SettleInstallationStatusInput>(input, {
+      ...TRANSITION,
+      status: "value",
+    });
     return await this.#change(owned, (stored) =>
       patched(stored, {
         startAttempts: settledStartAttempts(
@@ -424,10 +539,11 @@ export class ModuleRegistry {
   async selectInstallationVersion(
     input: SelectInstallationVersionInput
   ): Promise<Installation> {
-    const owned = structuredClone({
-      ...picked(input, TRANSITION),
-      version: picked(input.version, VERSION),
+    const owned = ownedInput<SelectInstallationVersionInput>(input, {
+      ...TRANSITION,
+      version: VERSION,
     });
+    await this.#assertContent(owned.version);
     return await this.#change(owned, async (stored, store) => {
       await assertModuleVersion(store, owned.version);
       if (stored.installation.moduleId !== owned.version.moduleId) {
@@ -446,7 +562,7 @@ export class ModuleRegistry {
 
   /** Removes the Installation and its Grants. The caller has stopped it and detached its data. */
   async deleteInstallation(input: DeleteInstallationInput): Promise<void> {
-    const owned = ownedFields(input, TARGET);
+    const owned = ownedInput<DeleteInstallationInput>(input, TARGET);
     return await this.#exclusive(async (store) => {
       atGeneration(
         await store.getInstallation(owned.installationId),
@@ -461,11 +577,11 @@ export class ModuleRegistry {
   async replaceInstallationGrants(
     input: ReplaceInstallationGrantsInput
   ): Promise<readonly InstallationGrant[]> {
-    const owned = structuredClone({
-      ...picked(input, TRANSITION),
-      grants: input.grants.map((grant) =>
-        picked(grant, ["capability", "constraintsDigest", "version"])
-      ),
+    const owned = ownedInput<ReplaceInstallationGrantsInput>(input, {
+      ...TRANSITION,
+      grants: [
+        { capability: "value", constraintsDigest: "value", version: "value" },
+      ],
     });
     return await this.#change(owned, (stored) => {
       const problem = grantCapabilitiesProblem(owned.grants);
@@ -486,7 +602,10 @@ export class ModuleRegistry {
   async revokeInstallationGrant(
     input: RevokeInstallationGrantInput
   ): Promise<InstallationGrant> {
-    const owned = ownedFields(input, [...TARGET, "capability"]);
+    const owned = ownedInput<RevokeInstallationGrantInput>(input, {
+      ...TARGET,
+      capability: "value",
+    });
     return await this.#change(owned, (stored) => {
       const revoked = stored.grants.find(
         (grant) => grant.capability === owned.capability
@@ -517,6 +636,30 @@ export class ModuleRegistry {
       grants: Object.freeze(stored.grants.map(copyGrant)),
       installation: copyInstallation(stored.installation),
     });
+  }
+
+  /**
+   * With an `artifactOfContent`, refuses a version whose Content is unknown
+   * or belongs to another Artifact. A Content never moves between
+   * Artifacts, so this is asked before the command's transaction, which
+   * then holds no lock while the host answers.
+   */
+  async #assertContent(version: SelectedVersion): Promise<void> {
+    const resolve = this.#artifactOfContent;
+    if (resolve === undefined) {
+      return;
+    }
+    const owner = await resolve(version.contentId);
+    if (owner === null) {
+      throw new ModuleStoreConflictError(
+        `Content ${version.contentId} does not exist`
+      );
+    }
+    if (owner !== version.artifactId) {
+      throw new ModuleStoreConflictError(
+        `Content ${version.contentId} belongs to Artifact ${owner}, not ${version.artifactId}`
+      );
+    }
   }
 
   /**
@@ -563,38 +706,87 @@ export class ModuleRegistry {
   }
 }
 
-/** The fields that name an Installation at the generation a caller saw. */
-const TARGET = ["expectedGeneration", "installationId"] as const;
-/** A target, and when the change happens. */
-const TRANSITION = [...TARGET, "now"] as const;
-/** The fields of a selected version the registry reads. */
-const VERSION = ["artifactId", "contentId", "moduleId"] as const;
-const PAGE = ["cursor", "limit"] as const;
-
 /**
- * The named fields `value` holds, and only those: a caller's object may
- * carry more (a signal, a reason) that the registry never reads, and need
- * not be cloneable. An absent field stays absent.
+ * Which fields a command reads from its input: `"value"` copies the field as
+ * it is, `"data"` copies a JSON document that must be plain data, a nested
+ * shape reads an object field by field, and `[shape]` reads each entry of a
+ * list by that shape.
  */
-function picked<T extends object, K extends keyof T>(
-  value: T,
-  keys: readonly K[]
-): Pick<T, K> {
-  const result: Partial<Pick<T, K>> = {};
-  for (const key of keys) {
-    if (Object.hasOwn(value, key)) {
-      result[key] = value[key];
-    }
-  }
-  return result as Pick<T, K>;
+interface InputShape {
+  readonly [field: string]:
+    | "data"
+    | "value"
+    | InputShape
+    | readonly [InputShape];
 }
 
-/** A detached copy of the named fields of a command's input, taken when it is called. */
-function ownedFields<T extends object, K extends keyof T>(
-  value: T,
-  keys: readonly K[]
-): Pick<T, K> {
-  return structuredClone(picked(value, keys));
+const MODULE = { artifactId: "value", id: "value" } as const;
+/** The fields that name an Installation at the generation a caller saw. */
+const TARGET = {
+  expectedGeneration: "value",
+  installationId: "value",
+} as const;
+/** A target, and when the change happens. */
+const TRANSITION = { ...TARGET, now: "value" } as const;
+/** The fields of a selected version the registry reads. */
+const VERSION = {
+  artifactId: "value",
+  contentId: "value",
+  moduleId: "value",
+} as const;
+const PAGE = { cursor: "value", limit: "value" } as const;
+
+/**
+ * A command's input as it stands when the command is called: the fields
+ * `shape` names, each read once by name wherever it lives (an own property
+ * or a getter on a prototype, so a class instance or a derived object is
+ * honoured), and nothing else, copied with `structuredClone` so a caller
+ * changing its object later changes nothing. A field that reads as
+ * `undefined` stays absent. Every command goes through this before its
+ * first await.
+ */
+function ownedInput<T>(input: unknown, shape: InputShape): T {
+  return structuredClone(readInput(input, shape, "input")) as T;
+}
+
+function readInput(
+  input: unknown,
+  shape: InputShape,
+  at: string
+): Record<string, unknown> {
+  if (typeof input !== "object" || input === null) {
+    throw new TypeError(`${at} must be an object`);
+  }
+  const read: Record<string, unknown> = {};
+  for (const [field, kind] of Object.entries(shape)) {
+    const value: unknown = Reflect.get(input, field);
+    if (value === undefined) {
+      continue;
+    }
+    const fieldAt = `${at}.${field}`;
+    if (kind === "value") {
+      read[field] = value;
+    } else if (kind === "data") {
+      plainData(value, fieldAt);
+      read[field] = value;
+    } else if (isListShape(kind)) {
+      if (!Array.isArray(value)) {
+        throw new TypeError(`${fieldAt} must be an array`);
+      }
+      read[field] = Array.from({ length: value.length }, (_, index) =>
+        readInput(value[index], kind[0], `${fieldAt}[${index}]`)
+      );
+    } else {
+      read[field] = readInput(value, kind, fieldAt);
+    }
+  }
+  return read;
+}
+
+function isListShape(
+  kind: InputShape | readonly [InputShape]
+): kind is readonly [InputShape] {
+  return Array.isArray(kind);
 }
 
 /** What a transition produced: the record to keep, and the command's result. */
@@ -688,10 +880,17 @@ function patched(
   };
 }
 
-/** `view` without `transaction`: a registry over it runs its work directly. */
-function withoutTransaction(view: ModuleStore): ModuleStore {
+/**
+ * `view` without `transaction`: a registry over it runs its work directly.
+ * `durability` is the view's when it states one.
+ */
+function withoutTransaction(
+  view: ModuleStore,
+  durability: ModuleStoreDurability
+): ModuleStore {
   return {
     commit: (write) => view.commit(write),
+    durability: view.durability ?? durability,
     getInstallation: (id) => view.getInstallation(id),
     getManifest: (contentId) => view.getManifest(contentId),
     getModule: (id) => view.getModule(id),

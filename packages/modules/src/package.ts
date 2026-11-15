@@ -29,9 +29,10 @@ import {
   moduleIdSchema,
   parseModuleVersionContent,
 } from "./domain";
+import { ModuleStoreConflictError } from "./errors";
 import type { ModuleManifest } from "./manifest";
 import { parseModuleManifestSourceText } from "./manifest";
-import type { ModuleRegistryUnit } from "./registry";
+import type { ModuleCommands } from "./registry";
 import { MODULE_CONTENT_MANIFEST_PATH } from "./version";
 
 const MAX_PACKAGE_BYTES = 32 * 1024 * 1024;
@@ -189,38 +190,50 @@ type ModulePackageOperations = Pick<
  */
 export async function importModulePackage(input: {
   readonly artifacts: ModulePackageArtifacts;
-  readonly modules: ModuleRegistryUnit<"registerModule" | "retainManifest">;
+  readonly modules: Pick<
+    ModuleCommands,
+    "loadModule" | "registerModule" | "retainManifest"
+  >;
   readonly encoded: string;
 }): Promise<ModuleVersion> {
   const validated = await validateModulePackageEnvelope(input.encoded);
-  return input.artifacts.transaction(async (artifacts) =>
-    input.modules.transaction(async (modules) => {
-      const content = await landContent(artifacts, validated);
-      if (content.digest !== validated.content.digest) {
-        throw new ModulePackageError(
-          "Module Package Content digest mismatch after import"
-        );
-      }
-      const artifact = { id: validated.artifact.id, type: MODULE_MIME };
-      const module = defineModule({ artifact, id: validated.module.id });
-      const version = defineModuleVersion({
-        artifact,
-        content,
-        manifest: validated.content.manifest,
-        module,
-      });
-      if (validated.content.embedsManifest) {
-        await modules.registerModule({ module });
-      } else {
-        await modules.retainManifest({
-          contentId: version.contentId,
-          manifest: version.manifest,
-          module,
-        });
-      }
-      return version;
-    })
-  );
+  const { modules } = input;
+  const artifact = { id: validated.artifact.id, type: MODULE_MIME };
+  const module = defineModule({ artifact, id: validated.module.id });
+  // Refused before anything lands: a Module of this id on another Artifact.
+  const registered = await modules.loadModule(module.id);
+  if (registered !== null && registered.artifactId !== module.artifactId) {
+    throw new ModuleStoreConflictError(
+      `Module ${module.id} already belongs to another Artifact`
+    );
+  }
+  // The Content first, then the registration that names it, so the
+  // registry never names a Content that does not exist. Landing is
+  // idempotent, so a retry after either step fails completes the import.
+  const version = await input.artifacts.transaction(async (artifacts) => {
+    const content = await landContent(artifacts, validated);
+    if (content.digest !== validated.content.digest) {
+      throw new ModulePackageError(
+        "Module Package Content digest mismatch after import"
+      );
+    }
+    return defineModuleVersion({
+      artifact,
+      content,
+      manifest: validated.content.manifest,
+      module,
+    });
+  });
+  if (validated.content.embedsManifest) {
+    await modules.registerModule({ module });
+  } else {
+    await modules.retainManifest({
+      contentId: version.contentId,
+      manifest: version.manifest,
+      module,
+    });
+  }
+  return version;
 }
 
 async function landContent(

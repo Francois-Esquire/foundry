@@ -23,7 +23,7 @@ import {
   validateModuleManifestBuild,
 } from "./manifest";
 import { unsupportedModuleRequirements } from "./preflight";
-import type { ModuleRegistryUnit } from "./registry";
+import type { ModuleCommands } from "./registry";
 import { admitModuleSource } from "./source";
 
 const SOURCE_PREFIX = "source/";
@@ -107,9 +107,19 @@ export class ModuleProjectError extends Error {
 
 export function createModuleProjects(options: {
   readonly artifacts: Artifacts;
-  readonly store: ModuleRegistryUnit<"loadModule" | "registerModule">;
+  readonly store: Pick<ModuleCommands, "loadModule" | "registerModule">;
 }): ModuleProjects {
   const { artifacts, store } = options;
+
+  /** A Module registered already, once its Artifact is found to exist. */
+  async function registered(module: Module) {
+    if ((await artifacts.get(module.artifactId)) === null) {
+      throw new ModuleProjectError(
+        `Module ${module.id} names Artifact ${module.artifactId}, which does not exist`
+      );
+    }
+    return { artifactId: module.artifactId, idempotent: true, module };
+  }
 
   /** Pass the transaction handle when called inside `artifacts.transaction`. */
   async function requireArtifact(
@@ -130,30 +140,39 @@ export function createModuleProjects(options: {
   }
 
   return Object.freeze({
+    /**
+     * The Artifact first, then the registration that names it, so the
+     * registry never names an Artifact that does not exist. A create whose
+     * Artifact write fails leaves nothing; one whose registration fails
+     * archives the Artifact it made, which nothing names, and a retry
+     * makes another. A Module registered already is returned as idempotent
+     * once its Artifact is found; one registered by a concurrent create
+     * wins, and this create's Artifact is archived.
+     */
     async create(input: Parameters<ModuleProjects["create"]>[0]) {
       const entries = admittedSourceFiles(input.source);
       validateManifest(input.source);
-      return artifacts.transaction((scoped) =>
-        store.transaction(async (registry) => {
-          const existing = await registry.loadModule(input.id);
-          if (existing !== null) {
-            return {
-              artifactId: existing.artifactId,
-              idempotent: true,
-              module: existing,
-            };
-          }
-          const artifact = await scoped.create({
-            entries,
-            name: input.name,
-            type: MODULE_MIME,
-          });
-          const module = await registry.registerModule({
-            module: defineModule({ artifact, id: input.id }),
-          });
-          return { artifactId: artifact.id, idempotent: false, module };
-        })
+      const existing = await store.loadModule(input.id);
+      if (existing !== null) {
+        return await registered(existing);
+      }
+      const artifact = await artifacts.transaction((scoped) =>
+        scoped.create({ entries, name: input.name, type: MODULE_MIME })
       );
+      try {
+        const module = await store.registerModule({
+          module: defineModule({ artifact, id: input.id }),
+        });
+        return { artifactId: artifact.id, idempotent: false, module };
+      } catch (error) {
+        const winner = await store.loadModule(input.id).catch(() => null);
+        // Best effort: the Artifact this create made is named by nothing.
+        await artifacts.archive(artifact.id).catch(() => undefined);
+        if (winner !== null && winner.artifactId !== artifact.id) {
+          return await registered(winner);
+        }
+        throw error;
+      }
     },
     async publish(input: ModuleBuildPublication) {
       assertSemverTag(input.tag);

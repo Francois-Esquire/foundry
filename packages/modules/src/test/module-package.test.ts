@@ -13,8 +13,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { defineModule, defineModuleVersion, moduleIdSchema } from "../domain";
 import { encodeModulePackage, importModulePackage } from "../package";
-import { ModuleRegistry, type ModuleRegistryUnit } from "../registry";
+import { ModuleRegistry } from "../registry";
 import { createModuleVersions, MODULE_CONTENT_MANIFEST_PATH } from "../version";
+import { failingArtifacts } from "./helpers/failing-artifacts";
 import {
   moduleFixture,
   PROGRAM_FILES,
@@ -80,23 +81,18 @@ function importPackage(artifacts: ArtifactManager, text: string) {
   });
 }
 
-/** A registry whose transactions refuse to retain a manifest. */
-function rejectingModules(): ModuleRegistryUnit<
-  "registerModule" | "retainManifest"
-> {
-  const registry = new ModuleRegistry();
-  const reject = () =>
-    Promise.reject(new Error("injected Module persistence failure"));
+/** `registry`, refusing to retain a manifest while `refusing.on` holds. */
+function rejectingModules(
+  registry: ModuleRegistry,
+  refusing: { on: boolean }
+): Pick<ModuleRegistry, "loadModule" | "registerModule" | "retainManifest"> {
   return {
+    loadModule: (id) => registry.loadModule(id),
     registerModule: (input) => registry.registerModule(input),
-    retainManifest: reject,
-    transaction: (work) =>
-      registry.transaction((inner) =>
-        work({
-          registerModule: (input) => inner.registerModule(input),
-          retainManifest: reject,
-        })
-      ),
+    retainManifest: (input) =>
+      refusing.on
+        ? Promise.reject(new Error("injected Module persistence failure"))
+        : registry.retainManifest(input),
   };
 }
 
@@ -625,18 +621,56 @@ describe("Module Package", () => {
     ).rejects.toThrow("Unsupported Module Package format");
   });
 
-  it("rolls back the Artifact when Module persistence fails inside the transaction", async () => {
-    const source = await fixture();
+  it("keeps the landed Content when registering fails, and a retry completes the import", async () => {
+    const source = await fixture(undefined, STRICT_MANIFEST);
     const artifacts = new ArtifactManager({
       store: new InMemoryArtifactStore(),
     });
+    const registry = new ModuleRegistry();
+    const refusing = { on: true };
+    const modules = rejectingModules(registry, refusing);
+    const text = await encoded(source);
+    await expect(
+      importModulePackage({ artifacts, encoded: text, modules })
+    ).rejects.toThrow("injected Module persistence failure");
+    expect(await artifacts.get(source.artifact.id)).not.toBeNull();
+    expect(await registry.loadModule(source.module.id)).toBeNull();
+
+    refusing.on = false;
+    const imported = await importModulePackage({
+      artifacts,
+      encoded: text,
+      modules,
+    });
+    expect(await registry.loadModule(source.module.id)).toEqual(source.module);
+    expect(await registry.loadRetainedManifest(imported.contentId)).toEqual(
+      imported.manifest
+    );
+  });
+
+  it("registers nothing when the Artifact write fails, and a retry completes the import", async () => {
+    const source = await fixture();
+    const failing = failingArtifacts();
+    const registry = new ModuleRegistry();
+    const text = await encoded(source);
     await expect(
       importModulePackage({
-        artifacts,
-        encoded: await encoded(source),
-        modules: rejectingModules(),
+        artifacts: failing.artifacts,
+        encoded: text,
+        modules: registry,
       })
-    ).rejects.toThrow("injected Module persistence failure");
-    expect(await artifacts.get(source.artifact.id)).toBeNull();
+    ).rejects.toThrow("simulated Artifact commit failure");
+    expect(await registry.loadModule(source.module.id)).toBeNull();
+
+    failing.fail = false;
+    const imported = await importModulePackage({
+      artifacts: failing.artifacts,
+      encoded: text,
+      modules: registry,
+    });
+    expect(await registry.loadModule(source.module.id)).toEqual(source.module);
+    expect(
+      await failing.artifacts.getContent(imported.contentId)
+    ).not.toBeNull();
   });
 });

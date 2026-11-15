@@ -8,7 +8,7 @@ import { MODULE_MIME } from "@foundry/modules/constants";
 import { type Module, moduleIdSchema } from "@foundry/modules/domain";
 import { ModuleStoreConflictError } from "@foundry/modules/errors";
 import { parseModuleManifest } from "@foundry/modules/manifest";
-import type { ModuleRegistryUnit } from "@foundry/modules/registry";
+import type { ModuleCommands } from "@foundry/modules/registry";
 
 export function createModulePersistence(store: ArtifactStore) {
   const artifacts = new ArtifactManager({ store });
@@ -42,7 +42,8 @@ export function createModulePersistence(store: ArtifactStore) {
     );
     return artifact ? { artifactId: artifact.id, id } : null;
   }
-  const modules: ModuleRegistryUnit<
+  const modules: Pick<
+    ModuleCommands,
     "loadModule" | "loadRetainedManifest" | "registerModule" | "retainManifest"
   > = {
     loadModule,
@@ -102,11 +103,6 @@ export function createModulePersistence(store: ArtifactStore) {
       await artifacts.patchArtifactMetadata(module.artifactId, {
         retainedManifests: { ...retained, [contentId]: manifest },
       });
-    },
-    // Nested Artifact transactions join this one, so `work` runs these
-    // same operations inside it.
-    transaction(work) {
-      return artifacts.transaction(() => work(modules));
     },
   };
   return { artifacts, modules, registered };

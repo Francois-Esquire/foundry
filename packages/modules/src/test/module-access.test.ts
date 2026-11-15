@@ -8,7 +8,14 @@ import {
 import { installationIdSchema } from "../domain";
 import { ModuleStoreConflictError } from "../errors";
 import { ensureInstallation } from "../management";
-import type { ModuleRegistry } from "../registry";
+import { ModuleRegistry } from "../registry";
+import type { ModuleStore } from "../store";
+import { MemoryModuleStore } from "../store/memory";
+import { SqliteModuleStore } from "../store/sqlite";
+import { libsqlDatabases } from "./helpers/sqlite";
+
+const sqliteDatabases = libsqlDatabases("memory");
+
 import {
   publishedModule,
   WEATHER,
@@ -18,8 +25,13 @@ import {
 
 const installationId = installationIdSchema.parse("forecast-installation");
 
-async function fixture(capabilities = [weatherRequest(["Oslo"])]) {
-  const module = await publishedModule();
+async function fixture(
+  capabilities = [weatherRequest(["Oslo"])],
+  registry?: ModuleRegistry
+) {
+  const module = await publishedModule(
+    registry === undefined ? {} : { registry }
+  );
   const version = await module.publish("1.0.0", capabilities);
   const installation = await ensureInstallation({
     installationId,
@@ -47,16 +59,19 @@ function failingAfterRevokeWrite(registry: ModuleRegistry): AccessRegistry {
       registry.replaceInstallationGrants(input),
     revokeInstallationGrant: (input) => registry.revokeInstallationGrant(input),
     transaction: (work) =>
-      registry.transaction((inner) =>
-        work({
-          loadGatewayContext: (id) => inner.loadGatewayContext(id),
-          replaceInstallationGrants: (input) =>
-            inner.replaceInstallationGrants(input),
-          async revokeInstallationGrant(input) {
-            await inner.revokeInstallationGrant(input);
-            throw new Error("Failed after the write, before the commit");
+      registry.transaction((inner, effects) =>
+        work(
+          {
+            loadGatewayContext: (id) => inner.loadGatewayContext(id),
+            replaceInstallationGrants: (input) =>
+              inner.replaceInstallationGrants(input),
+            async revokeInstallationGrant(input) {
+              await inner.revokeInstallationGrant(input);
+              throw new Error("Failed after the write, before the commit");
+            },
           },
-        })
+          effects
+        )
       ),
   };
 }
@@ -255,43 +270,97 @@ describe("Module access", () => {
     });
 
     it.each(["revoke", "carryOver"] as const)(
-      "%s cancels once its own transaction has committed",
+      "%s cancels once its store transaction has committed, and never before",
       async (operation) => {
-        const { accessOver, installation, invocations, store } =
-          await approved();
+        const memory = new MemoryModuleStore();
         let committed = false;
-        const watched: AccessRegistry = {
-          loadGatewayContext: (id) => store.loadGatewayContext(id),
-          replaceInstallationGrants: (input) =>
-            store.replaceInstallationGrants(input),
-          revokeInstallationGrant: (input) =>
-            store.revokeInstallationGrant(input),
+        // The registry's store, telling when a transaction it runs commits.
+        const watched: ModuleStore = {
+          commit: (write) => memory.commit(write),
+          getInstallation: (id) => memory.getInstallation(id),
+          getManifest: (contentId) => memory.getManifest(contentId),
+          getModule: (id) => memory.getModule(id),
+          listInstallations: (query) => memory.listInstallations(query),
+          listManifests: (query) => memory.listManifests(query),
+          listModules: (query) => memory.listModules(query),
           async transaction(work) {
-            const result = await store.transaction(work);
+            committed = false;
+            const result = await memory.transaction(work);
             committed = true;
             return result;
           },
         };
+        const fixed = await fixture(
+          undefined,
+          new ModuleRegistry({ store: watched })
+        );
+        await fixed.access.approve({
+          capability: WEATHER,
+          installation: fixed.installation,
+          version: fixed.version,
+        });
         const cancelledAfterCommit: boolean[] = [];
-        invocations.revoke.mockImplementation(() => {
+        fixed.invocations.revoke.mockImplementation(() => {
           cancelledAfterCommit.push(committed);
         });
-        const access = accessOver(watched);
         await (operation === "revoke"
-          ? access.revoke({ capability: WEATHER, installationId })
-          : access.carryOver({
-              expectedGeneration: installation.generation,
+          ? fixed.access.revoke({ capability: WEATHER, installationId })
+          : fixed.access.carryOver({
+              expectedGeneration: fixed.installation.generation,
               installationId,
               requests: [],
             }));
 
         expect(cancelledAfterCommit).toEqual([true]);
-        expect(invocations.revoke).toHaveBeenCalledWith({
+        expect(fixed.invocations.revoke).toHaveBeenCalledWith({
           capability: WEATHER,
           installationId,
           reason: "The Grant was revoked",
         });
       }
     );
+
+    it("refuses to run over a registry bound to a transaction, so an outer rollback cannot follow a cancellation", async () => {
+      const { invocations, store } = await approved();
+      const original = new Error("outer rollback");
+      await expect(
+        store.transaction(async (registry) => {
+          expect(() =>
+            createModuleAccess({
+              invocations,
+              providers: [weatherProvider],
+              store: registry,
+            })
+          ).toThrow('durability "host"');
+          await registry.revokeInstallationGrant({
+            capability: WEATHER,
+            expectedGeneration: 0,
+            installationId,
+          });
+          throw original;
+        })
+      ).rejects.toBe(original);
+
+      expect(
+        (await store.loadGatewayContext(installationId))?.grants
+      ).toHaveLength(1);
+      expect(invocations.revoke).not.toHaveBeenCalled();
+    });
+
+    it("refuses a registry over a SQLite store inside a host transaction", async () => {
+      const database = await sqliteDatabases.open();
+      await database
+        .transaction(async (transaction) => {
+          const registry = new ModuleRegistry({
+            store: new SqliteModuleStore({ database: transaction, scope: "s" }),
+          });
+          expect(registry.durability).toBe("host");
+          expect(() =>
+            createModuleAccess({ providers: [], store: registry })
+          ).toThrow('durability "host"');
+          throw new Error("host rolled back");
+        })
+        .catch(() => undefined);
+    });
   });
 });

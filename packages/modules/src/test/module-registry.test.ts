@@ -1,3 +1,4 @@
+import type { ArtifactId, ContentId } from "@foundry/artifacts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,7 +9,7 @@ import {
   moduleIdSchema,
 } from "../domain";
 import { ModuleStoreConflictError } from "../errors";
-import { ModuleRegistry } from "../registry";
+import { ModuleRegistry, type ModuleRegistryOptions } from "../registry";
 import type { ModuleStore } from "../store";
 import { MemoryModuleStore } from "../store/memory";
 import { SqliteModuleStore } from "../store/sqlite";
@@ -66,9 +67,11 @@ const RUNS: readonly StoreRun[] = [
 for (const run of RUNS) {
   let opened: Awaited<ReturnType<StoreRun["open"]>> | undefined;
   /** A registry over fresh storage, kept for the test's `reopen`. */
-  async function freshRegistry(): Promise<ModuleRegistry> {
+  async function freshRegistry(
+    options: Omit<ModuleRegistryOptions, "store"> = {}
+  ): Promise<ModuleRegistry> {
     opened = await run.open();
-    return new ModuleRegistry({ store: opened.store });
+    return new ModuleRegistry({ ...options, store: opened.store });
   }
 
   async function fixture() {
@@ -123,6 +126,77 @@ for (const run of RUNS) {
   });
 
   describe(`ModuleRegistry over ${run.name}`, () => {
+    it("with artifactOfContent, refuses a version whose Content is unknown or another Artifact's", async () => {
+      const { artifact, content } = await moduleFixture();
+      const other = await moduleFixture();
+      const owners = new Map<string, ArtifactId>([
+        [content.id, artifact.id],
+        [other.content.id, other.artifact.id],
+      ]);
+      const registry = await freshRegistry({
+        artifactOfContent: (contentId) =>
+          Promise.resolve(owners.get(contentId) ?? null),
+      });
+      const module = defineModule({
+        artifact,
+        id: moduleIdSchema.parse("module-1"),
+      });
+      await registry.registerModule({ module });
+      const now = new Date("2026-08-08T00:00:00.000Z");
+      const version = {
+        artifactId: artifact.id,
+        contentId: content.id,
+        moduleId: module.id,
+      };
+      const madeUp = { ...version, contentId: "made-up" as ContentId };
+      const foreign = { ...version, contentId: other.content.id };
+
+      await expect(
+        registry.createInstallation({
+          id: installationIdSchema.parse("made-up"),
+          now,
+          version: madeUp,
+        })
+      ).rejects.toThrow("Content made-up does not exist");
+      await expect(
+        registry.createInstallation({
+          id: installationIdSchema.parse("foreign"),
+          now,
+          version: foreign,
+        })
+      ).rejects.toThrow(
+        `Content ${other.content.id} belongs to Artifact ${other.artifact.id}, not ${artifact.id}`
+      );
+      const created = await registry.createInstallation({
+        id: installationIdSchema.parse("real"),
+        now,
+        version,
+      });
+      for (const selected of [madeUp, foreign]) {
+        await expect(
+          registry.selectInstallationVersion({
+            expectedGeneration: 0,
+            installationId: created.id,
+            now,
+            version: selected,
+          })
+        ).rejects.toBeInstanceOf(ModuleStoreConflictError);
+      }
+      // A transaction's registry checks the same way.
+      await expect(
+        registry.transaction((bound) =>
+          bound.createInstallation({
+            id: installationIdSchema.parse("bound"),
+            now,
+            version: madeUp,
+          })
+        )
+      ).rejects.toThrow("does not exist");
+      expect(
+        (await registry.listInstallations()).items.map(({ id }) => id)
+      ).toEqual(["real"]);
+    });
+
     it("registers a Module identity before it has a version", async () => {
       const { artifact, content } = await moduleFixture();
       const module = defineModule({

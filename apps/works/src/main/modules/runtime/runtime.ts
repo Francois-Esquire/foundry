@@ -30,7 +30,11 @@ export async function createModuleRuntime(
     "@foundry/sandbox/container/microsandbox-runtime"
   );
   const artifacts = new ArtifactManager({ store: artifactStore });
-  const store = new ModuleRegistry();
+  const store = new ModuleRegistry({
+    // A version's Content must exist and be one of its Artifact's.
+    artifactOfContent: async (contentId) =>
+      (await artifacts.getContent(contentId))?.artifactId ?? null,
+  });
   const root = path.join(userData, ".runtime");
   const checkoutsRoot = path.join(root, "checkouts");
   const filesRoot = path.join(userData, ".data");

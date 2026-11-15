@@ -78,7 +78,12 @@ export async function publishedModule(
   } = {}
 ) {
   const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
-  const store = options.registry ?? new ModuleRegistry();
+  const store =
+    options.registry ??
+    new ModuleRegistry({
+      artifactOfContent: async (contentId) =>
+        (await artifacts.getContent(contentId))?.artifactId ?? null,
+    });
   const projects = createModuleProjects({ artifacts, store });
   const moduleId = moduleIdSchema.parse("forecast");
   await projects.create({
