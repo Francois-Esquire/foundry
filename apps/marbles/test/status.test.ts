@@ -9,6 +9,7 @@ import { initializeDatabase } from "~/database/open";
 import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { resourceAssociations } from "~/database/resources";
 import { DatabaseSessionStore } from "~/database/sessions";
+import { marblesMonitorStates } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { stateDatabase } from "~/layout";
 import { writeJson } from "~/lib/state/json";
@@ -237,6 +238,34 @@ describe("readStatus", () => {
     expect(schedules).toEqual([
       expect.objectContaining({ name: "fresh", running: process.pid }),
       expect.objectContaining({ name: "guides", running: null }),
+    ]);
+  });
+
+  it("reports a trigger with a launch waiting as a monitor, as the dashboard does, history or not", async () => {
+    const { state } = await layout();
+    // A first tick that handed a launch over and died before its history.
+    await seedTicks(state, "ws1", [{ key: "first", owner: null }]);
+    const database = await initializeDatabase(stateDatabase(state));
+    try {
+      for (const key of ["first", "guides"]) {
+        await database.database.insert(marblesMonitorStates).values({
+          key,
+          observed: {},
+          pending: { input: null, workflow: "refresh" },
+          scope: "ws1",
+        });
+      }
+    } finally {
+      database.close();
+    }
+    const schedules = (await readStatus(state)).workspaces[0]?.schedules;
+    expect(schedules).toEqual([
+      expect.objectContaining({
+        kind: "monitor",
+        lastStatus: null,
+        name: "first",
+      }),
+      expect.objectContaining({ kind: "monitor", name: "guides" }),
     ]);
   });
 

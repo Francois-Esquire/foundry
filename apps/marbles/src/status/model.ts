@@ -10,7 +10,7 @@ import { readLastRecovery } from "~/database/recoveries";
 import type { RunResource, Shown } from "~/database/resources";
 import { ResourceView } from "~/database/resources";
 import type { StoredTick } from "~/database/triggers";
-import { readStoredTicks } from "~/database/triggers";
+import { isMonitorTick, readStoredTicks } from "~/database/triggers";
 import { recordedWorkspaces } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import type { RecoveryReport } from "~/lib/crash-recovery";
@@ -206,10 +206,11 @@ function readWorkspaceStatus(
   };
 }
 
-function scheduleStatus({ key, last, running }: StoredTick): ScheduleStatus {
+function scheduleStatus(tick: StoredTick): ScheduleStatus {
+  const { key, last, running } = tick;
   return {
     key,
-    kind: last?.kind === "monitor" ? "monitor" : null,
+    kind: isMonitorTick(tick) ? "monitor" : null,
     lastFinish: last?.lastFinish ?? null,
     lastStatus: last?.lastStatus ?? null,
     name: last?.label ?? key,

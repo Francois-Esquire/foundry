@@ -268,6 +268,17 @@ export interface StoredTick {
 }
 
 /**
+ * Whether a stored trigger is a monitor: its history says so, or a launch
+ * it handed over waits, which only a monitor does, history or not. The
+ * one rule every reader of stored ticks shows a trigger's kind by.
+ */
+export function isMonitorTick(
+  tick: Pick<StoredTick, "last" | "pending">
+): boolean {
+  return tick.last?.kind === "monitor" || tick.pending !== undefined;
+}
+
+/**
  * Every trigger the workspace `scope` has ticked, or is ticking now, in
  * the Marbles database at the state root `state`, by key, read only.
  * Empty with no database, or nothing migrated into it. A tick it cannot

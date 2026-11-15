@@ -3,7 +3,7 @@ import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import { ALL_WORKSPACES, ResourceView } from "~/database/resources";
 import type { StoredTick } from "~/database/triggers";
-import { storedTicks } from "~/database/triggers";
+import { isMonitorTick, storedTicks } from "~/database/triggers";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type {
   OwnerWorkspace,
@@ -135,12 +135,11 @@ function ownedElsewhere(
 }
 
 function triggerSnapshot(
-  { key, last, pending, running }: StoredTick,
+  tick: StoredTick,
   owner: OwnerWorkspace
 ): TriggerSnapshot {
-  // Only a monitor hands a launch over, history or not.
-  const kind =
-    last?.kind === "monitor" || pending !== undefined ? "monitor" : "schedule";
+  const { key, last, pending, running } = tick;
+  const kind = isMonitorTick(tick) ? "monitor" : "schedule";
   let status: TriggerSnapshot["status"] =
     kind === "monitor" ? "watching" : "waiting";
   if (last?.lastStatus === "failed") {
