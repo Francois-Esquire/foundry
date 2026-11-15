@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { StaleSuspensionRevisionError } from "../errors";
 import { Orchestrator } from "../orchestrator";
 import type { SuspensionRecord } from "../schema";
 import { Workflow } from "../workflow";
@@ -135,5 +136,48 @@ describe("Orchestrator.adopt", () => {
     await other.cancelRun(run.id);
     await orchestrator.stop();
     await other.stop();
+  });
+
+  test("refuses as stale an answer the old Orchestrator read before the Run was taken over, and the new one resumes it once", async () => {
+    const store = makeInMemoryStore();
+    const queue = `test-${crypto.randomUUID()}`;
+    const first = new Orchestrator({
+      config: makeOrchestratorConfig({ defaultName: queue }),
+      store,
+    });
+    const second = new Orchestrator({
+      config: makeOrchestratorConfig({ defaultName: queue }),
+      store,
+    });
+    const firstSteps: string[] = [];
+    const secondSteps: string[] = [];
+    await first.setup();
+    register(first, firstSteps);
+    await first.start();
+    await second.setup();
+    register(second, secondSteps);
+    await second.start();
+
+    const run = await first.run("approval", "ship");
+    // Read by the old one before the handover; applied after it.
+    const read = await pendingSuspension(first, run.id);
+    const adopted = await second.adopt(run.id);
+    await expect(
+      first.resolve(read.id, "late", { expectedRevision: read.revision })
+    ).rejects.toThrow(StaleSuspensionRevisionError);
+    expect(firstSteps).not.toContain("after late");
+    const current = await pendingSuspension(second, run.id);
+    await second.resolve(current.id, "yes", {
+      expectedRevision: current.revision,
+    });
+    await expect(adopted?.result()).resolves.toMatchObject({
+      status: "complete",
+      value: "ship: yes",
+    });
+    expect(secondSteps.filter((line) => line.startsWith("after"))).toEqual([
+      "after yes",
+    ]);
+    await first.stop();
+    await second.stop();
   });
 });

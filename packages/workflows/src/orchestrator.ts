@@ -881,6 +881,11 @@ export class Orchestrator {
     if (!this.registry.has(definition)) {
       throw new RecoverableDefinitionMissingError(row.id, definition);
     }
+    // The authority over its pending Suspensions is this Orchestrator's
+    // from here, decided on the stored Run in one commit: a resolution the
+    // one that let it go read before this is refused as stale, and a Run
+    // that was resumed meanwhile is refused here.
+    await this.store.claimSuspensions(runId);
     const workflow = await this.#rebuild(row);
     this.#throwIfStopped();
     return queue.adopt(workflow, row);
