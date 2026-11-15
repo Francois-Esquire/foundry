@@ -45,10 +45,18 @@ export type InstanceRuntime = Pick<
  * memory, which would accept a workspace's write and lose it.
  */
 interface Hosting {
+  /**
+   * Which binding of an engine to the workspace this is, once one is bound:
+   * a new one each time, so work that answers to an engine that closed is
+   * told apart from work for the engine hosting the workspace now.
+   */
+  readonly binding: number | undefined;
   readonly catalog: Catalog;
   readonly id: string;
   readonly runtime: InstanceRuntime | undefined;
 }
+
+let bindings = 0;
 
 const hostings = new Map<string, Hosting>();
 /**
@@ -56,18 +64,30 @@ const hostings = new Map<string, Hosting>();
  * one is refused, never handed to whichever workspace is left.
  */
 const released = new Set<string>();
-/** Each load's workspace, and the catalog its modules declare into, by load number. */
-const loads = new Map<
-  number,
-  { readonly catalog: Catalog; readonly workspaceId: string }
->();
+/**
+ * One load of a workspace's source: the catalog its modules declare into,
+ * and the binding of the engine that took that catalog, once one has. A
+ * load whose host gave it up before any engine took it is abandoned.
+ */
+interface Load {
+  abandoned: boolean;
+  binding: number | undefined;
+  readonly catalog: Catalog;
+  readonly workspaceId: string;
+}
+
+/** Each load, by load number. */
+const loads = new Map<number, Load>();
 /**
  * Whom work done later on another's behalf answers to: a load, while its
  * library's words run, or the workspace of the run or observer that made
- * a builder or an instance. Only this identity is kept, never the stores
- * of the run it came from.
+ * a builder or an instance, with the binding of the engine hosting it
+ * then. Only these identities are kept, never the engine or the stores of
+ * the run it came from.
  */
-type Route = { readonly load: number } | { readonly workspaceId: string };
+type Route =
+  | { readonly load: number }
+  | { readonly binding: number | undefined; readonly workspaceId: string };
 
 const routeScope = new AsyncLocalStorage<Route>();
 /**
@@ -127,7 +147,10 @@ export function captureScope(): Scope {
   const route: Route | undefined =
     context === undefined
       ? routeScope.getStore()
-      : { workspaceId: context.workspaceId };
+      : {
+          binding: liveHosting(context.workspaceId)?.binding,
+          workspaceId: context.workspaceId,
+        };
   return route === undefined
     ? (work) => work()
     : (work) => routeScope.run(route, work);
@@ -148,9 +171,16 @@ export async function loadInto<T>(
   load: (n: number) => Promise<T>
 ): Promise<T> {
   const n = newLoad();
-  loads.set(n, { catalog: into, workspaceId });
+  const loaded: Load = {
+    abandoned: false,
+    binding: undefined,
+    catalog: into,
+    workspaceId,
+  };
+  loads.set(n, loaded);
   if (liveHosting(workspaceId) === undefined) {
     hostings.set(workspaceId, {
+      binding: undefined,
       catalog: into,
       id: workspaceId,
       runtime: undefined,
@@ -162,6 +192,8 @@ export async function loadInto<T>(
     return await load(n);
   } catch (error) {
     into.reset();
+    // Given up whether or not an engine answers for the workspace meanwhile.
+    loaded.abandoned = true;
     abandonHost(workspaceId);
     throw error;
   } finally {
@@ -178,11 +210,26 @@ export async function loadInto<T>(
  */
 export function setHost(runtime: InstanceRuntime, declared?: Catalog): void {
   const hosting = hostings.get(runtime.workspaceId);
+  const bound = declared ?? hosting?.catalog ?? catalog;
+  bindings += 1;
+  const binding = bindings;
   hostings.set(runtime.workspaceId, {
-    catalog: declared ?? hosting?.catalog ?? catalog,
+    binding,
+    catalog: bound,
     id: runtime.workspaceId,
     runtime,
   });
+  // Each load whose catalog this engine took answers to this engine alone.
+  for (const load of loads.values()) {
+    if (
+      load.workspaceId === runtime.workspaceId &&
+      load.catalog === bound &&
+      load.binding === undefined &&
+      !load.abandoned
+    ) {
+      load.binding = binding;
+    }
+  }
   released.delete(runtime.workspaceId);
   hostState = "hosted";
 }
@@ -205,7 +252,44 @@ export function abandonHost(workspaceId: string): void {
   if (hostings.get(workspaceId)?.runtime === undefined) {
     hostings.delete(workspaceId);
     released.add(workspaceId);
+    for (const load of loads.values()) {
+      if (load.workspaceId === workspaceId && load.binding === undefined) {
+        load.abandoned = true;
+      }
+    }
   }
+}
+
+/**
+ * The workspace the calling work answers to through an engine that has
+ * closed, though the workspace may be hosted again since: work a run of
+ * that engine left behind, or a load that engine took, or one its host
+ * gave up. Undefined for work whose run or observer names its workspace
+ * itself, and for work that answers to the engine hosting it now.
+ */
+function closedRoute(): string | undefined {
+  if (activeContext() !== undefined) {
+    return;
+  }
+  const route = routeScope.getStore();
+  if (route === undefined) {
+    return;
+  }
+  if ("load" in route) {
+    const load = loads.get(route.load);
+    if (load === undefined) {
+      return;
+    }
+    const closed =
+      load.abandoned ||
+      (load.binding !== undefined &&
+        liveHosting(load.workspaceId)?.binding !== load.binding);
+    return closed ? load.workspaceId : undefined;
+  }
+  return route.binding !== undefined &&
+    liveHosting(route.workspaceId)?.binding !== route.binding
+    ? route.workspaceId
+    : undefined;
 }
 
 /** `id`'s hosting, unless its engine was disposed, which releases it. */
@@ -268,6 +352,10 @@ function unnamedError(): AmbiguousWorkspaceError {
  * than reach whichever was bound last.
  */
 function hostingNow(): Hosting | undefined {
+  const closed = closedRoute();
+  if (closed !== undefined) {
+    throw releasedError(closed);
+  }
   const named = namedWorkspace();
   if (named !== undefined) {
     const hosting = liveHosting(named);
@@ -301,6 +389,10 @@ function hostingNow(): Hosting | undefined {
  * workspace while one's source is loading.
  */
 export function declaringCatalog(): Catalog {
+  const closed = closedRoute();
+  if (closed !== undefined) {
+    throw releasedError(closed);
+  }
   const route = routeScope.getStore();
   const workspaceId =
     activeContext()?.workspaceId ??
@@ -320,14 +412,6 @@ export function declaringCatalog(): Catalog {
   const owner =
     route !== undefined && "load" in route ? loads.get(route.load) : undefined;
   if (owner !== undefined) {
-    // A load's module declaring after its host closed, from a timer or a
-    // callback: no engine uses that catalog any more.
-    if (
-      liveHosting(owner.workspaceId) === undefined &&
-      released.has(owner.workspaceId)
-    ) {
-      throw releasedError(owner.workspaceId);
-    }
     return owner.catalog;
   }
   if (importing > 0) {

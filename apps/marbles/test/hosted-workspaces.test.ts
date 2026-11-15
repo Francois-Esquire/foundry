@@ -638,3 +638,42 @@ it("refuses what a closed workspace's module declares later, rather than keep it
   );
   expect(report.late).toBe("WorkspaceReleasedError");
 }, 120_000);
+
+it("refuses a first load's late work once its workspace is hosted again, and the new host answers its own", async () => {
+  const root = await scratch();
+  const a = await workspace(
+    root,
+    "alpha",
+    // Kept by the test, so only the first load's are called late.
+    `globalThis.loads = [...(globalThis.loads ?? []), {
+  declare: () => step("late").do(() => "late"),
+  run: () => build.run(),
+}];
+`
+  );
+  const report = await inProcess(
+    root,
+    `const registration = { config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} };
+  const alpha = await hosted.register(registration);
+  await hosted.unregister(alpha.id);
+  const again = await hosted.register(registration);
+  report.hostedAgain = again !== alpha && !again.engine.disposed;
+  const [first] = globalThis.loads;
+  try {
+    first.declare();
+    report.late = "declared";
+  } catch (error) {
+    report.late = error.name;
+  }
+  report.lateRun = await first.run().then(() => "ran", (error) => error.name);
+  report.inNew = again.engine.definitions().some(({ name }) => name === "late");
+  report.newRun = await hosted.run({ name: "build", workspace: again.id });`
+  );
+  expect(report).toMatchObject({
+    hostedAgain: true,
+    inNew: false,
+    late: "WorkspaceReleasedError",
+    lateRun: "WorkspaceReleasedError",
+  });
+  expect(report.newRun).toBe(`${a.dir}\nalpha`);
+}, 120_000);
