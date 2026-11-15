@@ -6,11 +6,12 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import { moduleIdSchema } from "../domain";
-import { ModuleStoreConflictError } from "../errors";
+import { ModuleCrossStoreError, ModuleStoreConflictError } from "../errors";
 import { createModuleProjects, ModuleProjectError } from "../projects";
-import { ModuleRegistry } from "../registry";
+import { ModuleRegistry, type ModuleRegistryUnit } from "../registry";
 import { MODULE_SOURCE_LIMITS, ModuleSourceAdmissionError } from "../source";
 import { failingArtifacts } from "./helpers/failing-artifacts";
+import { faultyRegistry } from "./helpers/faulty-registry";
 import { VALID_MANIFEST } from "./helpers/module-fixture";
 import {
   builtManifest,
@@ -95,15 +96,12 @@ describe("Module projects", () => {
       });
       const registry = new ModuleRegistry();
       const registryDown: { refuse: boolean } = { refuse: true };
-      const store = {
-        loadModule: (moduleId: typeof id) => registry.loadModule(moduleId),
-        registerModule: (
-          input: Parameters<ModuleRegistry["registerModule"]>[0]
-        ) =>
+      const store = faultyRegistry(registry, (commands) => ({
+        registerModule: (input) =>
           registryDown.refuse
             ? Promise.reject(new Error("registry unavailable"))
-            : registry.registerModule(input),
-      };
+            : commands.registerModule(input),
+      }));
       const projects = createModuleProjects({ artifacts, store });
       await expect(
         projects.create({ id, name: "Notes", source })
@@ -117,6 +115,93 @@ describe("Module projects", () => {
       expect(created.idempotent).toBe(false);
       expect((await artifacts.get(created.artifactId))?.status).not.toBe(
         "archived"
+      );
+    });
+
+    it("refuses, before writing anything, a create inside a caller's Artifact transaction", async () => {
+      const artifacts = new ArtifactManager({
+        store: new InMemoryArtifactStore(),
+      });
+      const store = new ModuleRegistry();
+      const projects = createModuleProjects({ artifacts, store });
+      await expect(
+        artifacts.transaction(async () => {
+          await projects.create({ id, name: "Notes", source });
+          throw new Error("host rollback");
+        })
+      ).rejects.toBeInstanceOf(ModuleCrossStoreError);
+
+      expect(await store.loadModule(id)).toBeNull();
+      expect((await artifacts.list({ includeArchived: true })).items).toEqual(
+        []
+      );
+      // Called on its own, the same create succeeds.
+      expect(
+        (await projects.create({ id, name: "Notes", source })).idempotent
+      ).toBe(false);
+    });
+
+    it("succeeds when its registration committed but the acknowledgment was lost", async () => {
+      const artifacts = new ArtifactManager({
+        store: new InMemoryArtifactStore(),
+      });
+      const registry = new ModuleRegistry();
+      const store = {
+        ...faultyRegistry(registry, () => ({})),
+        async transaction<T>(
+          work: Parameters<ModuleRegistry["transaction"]>[0]
+        ): Promise<T> {
+          await registry.transaction(work);
+          throw new Error("acknowledgment lost after the commit");
+        },
+      } as ModuleRegistryUnit<"loadModule" | "registerModule">;
+      const projects = createModuleProjects({ artifacts, store });
+
+      const created = await projects.create({ id, name: "Notes", source });
+      expect(created.idempotent).toBe(false);
+      expect(await registry.loadModule(id)).toEqual(created.module);
+      expect((await artifacts.get(created.artifactId))?.status).not.toBe(
+        "archived"
+      );
+      const retried = await createModuleProjects({
+        artifacts,
+        store: registry,
+      }).create({ id, name: "Notes", source });
+      expect(retried).toEqual({ ...created, idempotent: true });
+    });
+
+    it("archives nothing, and keeps the original error, when the reconciling read fails", async () => {
+      const artifacts = new ArtifactManager({
+        store: new InMemoryArtifactStore(),
+      });
+      const registry = new ModuleRegistry();
+      const unreadable: { on: boolean } = { on: false };
+      const store = faultyRegistry(registry, (commands) => ({
+        loadModule: (moduleId) =>
+          unreadable.on
+            ? Promise.reject(new Error("registry unreadable"))
+            : commands.loadModule(moduleId),
+        registerModule: () => {
+          unreadable.on = true;
+          return Promise.reject(new Error("registration failed"));
+        },
+      }));
+      const projects = createModuleProjects({ artifacts, store });
+
+      await expect(
+        projects.create({ id, name: "Notes", source })
+      ).rejects.toThrow("registration failed");
+      const [made] = (await artifacts.list({ includeArchived: true })).items;
+      expect(made?.status).not.toBe("archived");
+    });
+
+    it("refuses to return as idempotent a Module whose Artifact is archived", async () => {
+      const { artifacts, project, projects } = await fixture();
+      await artifacts.archive(project.artifactId);
+      await expect(
+        projects.create({ id, name: "Notes", source })
+      ).rejects.toThrow(
+        `Module ${id} names Artifact ${project.artifactId}, which is archived`
       );
     });
 

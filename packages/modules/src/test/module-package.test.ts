@@ -12,10 +12,12 @@ import { canonicalizeJson } from "@foundry/lib/json";
 import { describe, expect, it, vi } from "vitest";
 
 import { defineModule, defineModuleVersion, moduleIdSchema } from "../domain";
+import { ModuleCrossStoreError } from "../errors";
 import { encodeModulePackage, importModulePackage } from "../package";
 import { ModuleRegistry } from "../registry";
 import { createModuleVersions, MODULE_CONTENT_MANIFEST_PATH } from "../version";
 import { failingArtifacts } from "./helpers/failing-artifacts";
+import { faultyRegistry } from "./helpers/faulty-registry";
 import {
   moduleFixture,
   PROGRAM_FILES,
@@ -82,18 +84,13 @@ function importPackage(artifacts: ArtifactManager, text: string) {
 }
 
 /** `registry`, refusing to retain a manifest while `refusing.on` holds. */
-function rejectingModules(
-  registry: ModuleRegistry,
-  refusing: { on: boolean }
-): Pick<ModuleRegistry, "loadModule" | "registerModule" | "retainManifest"> {
-  return {
-    loadModule: (id) => registry.loadModule(id),
-    registerModule: (input) => registry.registerModule(input),
+function rejectingModules(registry: ModuleRegistry, refusing: { on: boolean }) {
+  return faultyRegistry(registry, (commands) => ({
     retainManifest: (input) =>
       refusing.on
         ? Promise.reject(new Error("injected Module persistence failure"))
-        : registry.retainManifest(input),
-  };
+        : commands.retainManifest(input),
+  }));
 }
 
 interface Envelope {
@@ -619,6 +616,122 @@ describe("Module Package", () => {
         canonicalizeJson({ format: "foundry.module/1" })
       )
     ).rejects.toThrow("Unsupported Module Package format");
+  });
+
+  describe("refuses, leaving the target Artifact exactly as it was", () => {
+    /** A package of `moduleId` on Artifact `shared-artifact` at `2.0.0`. */
+    async function sharedArtifactPackage(moduleId: string) {
+      const source = await moduleFixture({
+        artifactId: "shared-artifact",
+        files: {
+          ...PROGRAM_FILES,
+          "outputs/program/server.js": {
+            bytes: "export const foreign = true;",
+            mime: "text/javascript",
+          },
+        },
+        tag: "2.0.0",
+      });
+      const module = defineModule({
+        artifact: source.artifact,
+        id: moduleIdSchema.parse(moduleId),
+      });
+      return encodeModulePackage({
+        artifact: source.artifact,
+        content: source.content,
+        files: source.bytes,
+        module,
+        version: defineModuleVersion({
+          artifact: source.artifact,
+          content: source.content,
+          manifest: VALID_MANIFEST,
+          module,
+        }),
+      });
+    }
+
+    /** Everything a reader can see of an Artifact and its Contents. */
+    async function state(artifacts: ArtifactManager, id: string) {
+      const artifactId = id as Parameters<ArtifactManager["get"]>[0];
+      return {
+        artifact: await artifacts.get(artifactId),
+        contents: await artifacts.listContents(artifactId),
+      };
+    }
+
+    it("an Artifact another Module owns", async () => {
+      const target = await moduleFixture({ artifactId: "shared-artifact" });
+      const registry = new ModuleRegistry();
+      const owner = defineModule({
+        artifact: target.artifact,
+        id: moduleIdSchema.parse("owner"),
+      });
+      await registry.registerModule({ module: owner });
+      const before = await state(target.system, "shared-artifact");
+
+      await expect(
+        importModulePackage({
+          artifacts: target.system,
+          encoded: await sharedArtifactPackage("foreign"),
+          modules: registry,
+        })
+      ).rejects.toThrow(
+        "Artifact shared-artifact already belongs to Module owner"
+      );
+
+      expect(await state(target.system, "shared-artifact")).toEqual(before);
+      expect(
+        await registry.loadModule(moduleIdSchema.parse("foreign"))
+      ).toBeNull();
+      expect(await registry.loadModule(owner.id)).toEqual(owner);
+    });
+
+    it("a Module id registered on another Artifact", async () => {
+      const target = new ArtifactManager({
+        store: new InMemoryArtifactStore(),
+      });
+      const registry = new ModuleRegistry();
+      const elsewhere = await moduleFixture();
+      await registry.registerModule({
+        module: defineModule({
+          artifact: elsewhere.artifact,
+          id: moduleIdSchema.parse("owner"),
+        }),
+      });
+
+      await expect(
+        importModulePackage({
+          artifacts: target,
+          encoded: await sharedArtifactPackage("owner"),
+          modules: registry,
+        })
+      ).rejects.toThrow("Module owner already belongs to another Artifact");
+      expect(await state(target, "shared-artifact")).toEqual({
+        artifact: null,
+        contents: [],
+      });
+    });
+
+    it("a call inside a caller's Artifact transaction", async () => {
+      const target = await moduleFixture({ artifactId: "shared-artifact" });
+      const registry = new ModuleRegistry();
+      const before = await state(target.system, "shared-artifact");
+      const encodedPackage = await sharedArtifactPackage("joined");
+
+      await expect(
+        target.system.transaction(() =>
+          importModulePackage({
+            artifacts: target.system,
+            encoded: encodedPackage,
+            modules: registry,
+          })
+        )
+      ).rejects.toBeInstanceOf(ModuleCrossStoreError);
+      expect(await state(target.system, "shared-artifact")).toEqual(before);
+      expect(
+        await registry.loadModule(moduleIdSchema.parse("joined"))
+      ).toBeNull();
+    });
   });
 
   it("keeps the landed Content when registering fails, and a retry completes the import", async () => {

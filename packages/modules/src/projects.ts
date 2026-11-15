@@ -1,6 +1,7 @@
 import type {
   ArtifactId,
   ArtifactOperations,
+  ArtifactResolved,
   Artifacts,
   ContentId,
   FileInputs,
@@ -12,6 +13,7 @@ import { sha256Hex } from "@foundry/lib/digest";
 import { decodeUtf8 } from "@foundry/lib/encoding";
 import { isModuleBuildOutputPath } from "./build";
 import { MODULE_MIME } from "./constants";
+import { assertOwnsArtifactCommit } from "./cross-store";
 import type { Module, ModuleId, ModuleVersion } from "./domain";
 import { defineModule, defineModuleVersion } from "./domain";
 import { ModuleStoreConflictError } from "./errors";
@@ -23,7 +25,7 @@ import {
   validateModuleManifestBuild,
 } from "./manifest";
 import { unsupportedModuleRequirements } from "./preflight";
-import type { ModuleCommands } from "./registry";
+import type { ModuleRegistryUnit } from "./registry";
 import { admitModuleSource } from "./source";
 
 const SOURCE_PREFIX = "source/";
@@ -107,18 +109,58 @@ export class ModuleProjectError extends Error {
 
 export function createModuleProjects(options: {
   readonly artifacts: Artifacts;
-  readonly store: Pick<ModuleCommands, "loadModule" | "registerModule">;
+  readonly store: ModuleRegistryUnit<"loadModule" | "registerModule">;
 }): ModuleProjects {
   const { artifacts, store } = options;
 
-  /** A Module registered already, once its Artifact is found to exist. */
+  /**
+   * A Module registered already, returned as an idempotent create only once
+   * its Artifact is found and is not archived. One whose Artifact is gone or
+   * archived is refused, not repaired: which of the two to restore (the
+   * Artifact or the registration) is the host's decision.
+   */
   async function registered(module: Module) {
-    if ((await artifacts.get(module.artifactId)) === null) {
+    const artifact = await artifacts.get(module.artifactId);
+    if (artifact === null) {
       throw new ModuleProjectError(
         `Module ${module.id} names Artifact ${module.artifactId}, which does not exist`
       );
     }
+    if (artifact.status === "archived") {
+      throw new ModuleProjectError(
+        `Module ${module.id} names Artifact ${module.artifactId}, which is archived; unarchive the Artifact or delete the Module`
+      );
+    }
     return { artifactId: module.artifactId, idempotent: true, module };
+  }
+
+  /**
+   * After a create failed once its Artifact committed: whether a
+   * registration naming that Artifact committed anyway (its acknowledgment
+   * lost). If one did, the create succeeded. The Artifact is archived only
+   * when a read shows positively that no registration names it; if that
+   * read fails too, nothing is archived and the original error stands.
+   */
+  async function reconciled(
+    id: ModuleId,
+    made: ArtifactResolved,
+    error: unknown
+  ) {
+    const read = await store.loadModule(id).then(
+      (module) => ({ module, read: true }) as const,
+      () => ({ read: false }) as const
+    );
+    if (!read.read) {
+      // Whether the registration committed is unknown: archive nothing.
+      throw error;
+    }
+    const current = read.module;
+    if (current?.artifactId === made.id) {
+      return { artifactId: made.id, idempotent: false, module: current };
+    }
+    // Best effort: nothing names the Artifact this create made.
+    await artifacts.archive(made.id).catch(() => undefined);
+    throw error;
   }
 
   /** Pass the transaction handle when called inside `artifacts.transaction`. */
@@ -141,37 +183,43 @@ export function createModuleProjects(options: {
 
   return Object.freeze({
     /**
-     * The Artifact first, then the registration that names it, so the
-     * registry never names an Artifact that does not exist. A create whose
-     * Artifact write fails leaves nothing; one whose registration fails
-     * archives the Artifact it made, which nothing names, and a retry
-     * makes another. A Module registered already is returned as idempotent
-     * once its Artifact is found; one registered by a concurrent create
-     * wins, and this create's Artifact is archived.
+     * One registry transaction holds the check and both writes, so two
+     * creates of one id never both pass the check. Inside it the Artifact
+     * commits first, then the registration that names it commits with the
+     * transaction, so the registry never names an Artifact that does not
+     * exist. The call must own its Artifact commit: inside a caller's
+     * Artifact transaction it is refused before anything is written.
+     *
+     * A create whose Artifact write fails leaves nothing. One that fails
+     * after it reconciles: a registration naming the new Artifact means the
+     * create succeeded; otherwise the Artifact, which nothing names, is
+     * archived and a retry makes another.
      */
     async create(input: Parameters<ModuleProjects["create"]>[0]) {
       const entries = admittedSourceFiles(input.source);
       validateManifest(input.source);
-      const existing = await store.loadModule(input.id);
-      if (existing !== null) {
-        return await registered(existing);
-      }
-      const artifact = await artifacts.transaction((scoped) =>
-        scoped.create({ entries, name: input.name, type: MODULE_MIME })
-      );
+      await assertOwnsArtifactCommit(artifacts, "Module project create");
+      const step: { made?: ArtifactResolved } = {};
       try {
-        const module = await store.registerModule({
-          module: defineModule({ artifact, id: input.id }),
+        return await store.transaction(async (registry) => {
+          const existing = await registry.loadModule(input.id);
+          if (existing !== null) {
+            return await registered(existing);
+          }
+          const artifact = await artifacts.transaction((scoped) =>
+            scoped.create({ entries, name: input.name, type: MODULE_MIME })
+          );
+          step.made = artifact;
+          const module = await registry.registerModule({
+            module: defineModule({ artifact, id: input.id }),
+          });
+          return { artifactId: artifact.id, idempotent: false, module };
         });
-        return { artifactId: artifact.id, idempotent: false, module };
       } catch (error) {
-        const winner = await store.loadModule(input.id).catch(() => null);
-        // Best effort: the Artifact this create made is named by nothing.
-        await artifacts.archive(artifact.id).catch(() => undefined);
-        if (winner !== null && winner.artifactId !== artifact.id) {
-          return await registered(winner);
+        if (step.made === undefined) {
+          throw error;
         }
-        throw error;
+        return await reconciled(input.id, step.made, error);
       }
     },
     async publish(input: ModuleBuildPublication) {

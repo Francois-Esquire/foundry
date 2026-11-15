@@ -1,6 +1,6 @@
 import type { Artifacts, ContentId } from "@foundry/artifacts";
 import type { Page, PageInput } from "@foundry/core/pagination";
-
+import { assertOwnsArtifactCommit } from "./cross-store";
 import type {
   Installation,
   InstallationId,
@@ -124,6 +124,8 @@ export function createModuleManagement(options: {
     delete: (input: Parameters<ModuleManagement["delete"]>[0]) =>
       programs.delete(input),
     async deleteModule({ moduleId }: { readonly moduleId: ModuleId }) {
+      // Before anything is deleted, Installations included.
+      await assertOwnsArtifactCommit(artifacts, "Module delete");
       const module = await store.loadModule(moduleId);
       if (module === null) {
         throw new ModuleStoreConflictError(
@@ -146,16 +148,33 @@ export function createModuleManagement(options: {
           installationId: installation.id,
         });
       }
-      // The Artifact first: an archived Artifact still exists, so the
-      // registry names nothing missing whichever step fails, and a retry
-      // archives again (a no-op) and then retires the Module.
-      await artifacts.transaction(async (scoped) => {
-        const artifact = await scoped.get(module.artifactId);
-        if (artifact !== null && artifact.status !== "archived") {
-          await scoped.archive(module.artifactId);
+      // One registry transaction holds the checks, the archive and the
+      // retirement, so no Installation can be created between them. The
+      // Artifact is archived first, and an archived Artifact still exists,
+      // so the registry names nothing missing whichever commit fails; a
+      // retry archives again (a no-op) and then retires the Module.
+      await store.transaction(async (registry) => {
+        if ((await registry.loadModule(moduleId)) === null) {
+          throw new ModuleStoreConflictError(
+            `Module ${moduleId} is not registered`
+          );
         }
+        const [selecting] = (
+          await registry.listInstallations({ limit: 1, moduleId })
+        ).items;
+        if (selecting !== undefined) {
+          throw new ModuleStoreConflictError(
+            `Module ${moduleId} still has Installation ${selecting.id}`
+          );
+        }
+        await artifacts.transaction(async (scoped) => {
+          const artifact = await scoped.get(module.artifactId);
+          if (artifact !== null && artifact.status !== "archived") {
+            await scoped.archive(module.artifactId);
+          }
+        });
+        await registry.deleteModule({ moduleId });
       });
-      await store.deleteModule({ moduleId });
     },
     getInstallation: ({
       installationId,

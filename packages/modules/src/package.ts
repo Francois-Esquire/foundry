@@ -22,6 +22,7 @@ import {
 import { canonicalizeJson } from "@foundry/lib/json";
 import { z } from "zod";
 import { MODULE_MIME } from "./constants";
+import { assertOwnsArtifactCommit } from "./cross-store";
 import type { Module, ModuleId, ModuleVersion } from "./domain";
 import {
   defineModule,
@@ -32,7 +33,7 @@ import {
 import { ModuleStoreConflictError } from "./errors";
 import type { ModuleManifest } from "./manifest";
 import { parseModuleManifestSourceText } from "./manifest";
-import type { ModuleCommands } from "./registry";
+import type { ModuleRegistryUnit } from "./registry";
 import { MODULE_CONTENT_MANIFEST_PATH } from "./version";
 
 const MAX_PACKAGE_BYTES = 32 * 1024 * 1024;
@@ -190,50 +191,62 @@ type ModulePackageOperations = Pick<
  */
 export async function importModulePackage(input: {
   readonly artifacts: ModulePackageArtifacts;
-  readonly modules: Pick<
-    ModuleCommands,
+  readonly modules: ModuleRegistryUnit<
     "loadModule" | "registerModule" | "retainManifest"
   >;
   readonly encoded: string;
 }): Promise<ModuleVersion> {
   const validated = await validateModulePackageEnvelope(input.encoded);
-  const { modules } = input;
   const artifact = { id: validated.artifact.id, type: MODULE_MIME };
   const module = defineModule({ artifact, id: validated.module.id });
-  // Refused before anything lands: a Module of this id on another Artifact.
-  const registered = await modules.loadModule(module.id);
-  if (registered !== null && registered.artifactId !== module.artifactId) {
-    throw new ModuleStoreConflictError(
-      `Module ${module.id} already belongs to another Artifact`
-    );
-  }
-  // The Content first, then the registration that names it, so the
-  // registry never names a Content that does not exist. Landing is
-  // idempotent, so a retry after either step fails completes the import.
-  const version = await input.artifacts.transaction(async (artifacts) => {
-    const content = await landContent(artifacts, validated);
-    if (content.digest !== validated.content.digest) {
-      throw new ModulePackageError(
-        "Module Package Content digest mismatch after import"
-      );
+  await assertOwnsArtifactCommit(input.artifacts, "Module Package import");
+  // One registry transaction holds the ownership check, the landing and the
+  // registration, so nothing can claim the Module id or the Artifact in
+  // between. The registration commits with it, after the Content landed, so
+  // the registry never names a Content that does not exist. Landing is
+  // idempotent, so a retry after either commit fails completes the import.
+  return await input.modules.transaction(async (modules) => {
+    const version = await input.artifacts.transaction(async (artifacts) => {
+      // Ownership in both directions, before anything lands: a refusal here
+      // rolls this Artifact transaction back, leaving the Artifact as it was.
+      if ((await artifacts.get(artifact.id)) === null) {
+        // A new Artifact: the registry names no Artifact that does not
+        // exist, so only the Module id can be taken.
+        const registered = await modules.loadModule(module.id);
+        if (registered !== null) {
+          throw new ModuleStoreConflictError(
+            `Module ${module.id} already belongs to another Artifact`
+          );
+        }
+      } else {
+        // Refuses a Module id on another Artifact, and an Artifact another
+        // Module owns.
+        await modules.registerModule({ module });
+      }
+      const content = await landContent(artifacts, validated);
+      if (content.digest !== validated.content.digest) {
+        throw new ModulePackageError(
+          "Module Package Content digest mismatch after import"
+        );
+      }
+      return defineModuleVersion({
+        artifact,
+        content,
+        manifest: validated.content.manifest,
+        module,
+      });
+    });
+    if (validated.content.embedsManifest) {
+      await modules.registerModule({ module });
+    } else {
+      await modules.retainManifest({
+        contentId: version.contentId,
+        manifest: version.manifest,
+        module,
+      });
     }
-    return defineModuleVersion({
-      artifact,
-      content,
-      manifest: validated.content.manifest,
-      module,
-    });
+    return version;
   });
-  if (validated.content.embedsManifest) {
-    await modules.registerModule({ module });
-  } else {
-    await modules.retainManifest({
-      contentId: version.contentId,
-      manifest: version.manifest,
-      module,
-    });
-  }
-  return version;
 }
 
 async function landContent(

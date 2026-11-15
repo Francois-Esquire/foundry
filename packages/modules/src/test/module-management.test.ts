@@ -2,7 +2,7 @@ import { ArtifactTransaction } from "@foundry/artifacts/transaction";
 import { describe, expect, it, vi } from "vitest";
 
 import { defineModule, installationIdSchema, moduleIdSchema } from "../domain";
-import { ModuleStoreConflictError } from "../errors";
+import { ModuleCrossStoreError, ModuleStoreConflictError } from "../errors";
 import { createModuleGateway } from "../gateway/module-gateway";
 import { createModuleManagement } from "../management";
 import { createModuleProgramSupervisor } from "../platform/program-supervisor";
@@ -271,8 +271,9 @@ describe("Module management", () => {
 
   it("archives again harmlessly when the registry step failed, and a retry completes", async () => {
     const { management, module, artifacts, store } = await fixture();
+    // The registry step runs on the registry its transaction hands the work.
     const retire = vi
-      .spyOn(store, "deleteModule")
+      .spyOn(ModuleRegistry.prototype, "deleteModule")
       .mockRejectedValueOnce(new Error("registry unavailable"));
     await expect(
       management.deleteModule({ moduleId: module.id })
@@ -289,6 +290,21 @@ describe("Module management", () => {
       archivedAt: archived?.archivedAt,
       status: "archived",
     });
+  });
+
+  it("refuses, before archiving or retiring anything, a delete inside a caller's Artifact transaction", async () => {
+    const { management, module, artifacts, store, files } = await fixture();
+    const before = await artifacts.get(module.artifactId);
+    await expect(
+      artifacts.transaction(async () => {
+        await management.deleteModule({ moduleId: module.id });
+        throw new Error("host rollback");
+      })
+    ).rejects.toBeInstanceOf(ModuleCrossStoreError);
+    expect(await store.loadModule(module.id)).toEqual(module);
+    expect(await artifacts.get(module.artifactId)).toEqual(before);
+    expect((await store.listInstallations()).items).toHaveLength(1);
+    expect(files.delete).not.toHaveBeenCalled();
   });
 
   it("keeps registration and Artifact when installation cleanup fails", async () => {
