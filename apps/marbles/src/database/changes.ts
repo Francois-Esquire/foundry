@@ -1,3 +1,4 @@
+import { ownedEvents } from "@foundry/lib/plain-json";
 import { and, asc, eq, gt, gte, inArray, lt, lte, min, sql } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
@@ -124,8 +125,8 @@ export class ChangeRecorder {
         }
         if (property === "commit") {
           return (write: object) =>
-            this.#caused(write, runOf(), () =>
-              Reflect.apply(value, target, [write])
+            this.#caused(write, runOf(), (taken) =>
+              Reflect.apply(value, target, [taken])
             );
         }
         if (property === "transaction") {
@@ -141,28 +142,32 @@ export class ChangeRecorder {
     });
   }
 
-  /** Run `commit` with each fact of `write` noted as made by `runId`. */
+  /**
+   * Commit `write` through `commit`, its facts noted as made by
+   * `runId`. The write's events are taken once, here, by the rule every
+   * store takes them by (`ownedEvents`), and the store is handed that same
+   * copy in their place, so the facts noted are the facts it stores; a
+   * write whose events break the rule is refused before the store sees
+   * it. Everything else in the write reaches the store as the caller
+   * handed it, for the store to take by its own rules.
+   */
   async #caused(
     write: object,
     runId: string | null,
-    commit: () => unknown
+    commit: (taken: object) => unknown
   ): Promise<void> {
+    const events = ownedEvents<Fact>(Reflect.get(write, "events"));
     const noted: string[] = [];
     if (runId !== null) {
-      // Read once, as the store reads it; a fact it refuses refuses the write.
-      const events: unknown = Reflect.get(write, "events");
-      if (Array.isArray(events)) {
-        for (const event of events as unknown[]) {
-          const id: unknown = (event as { id?: unknown } | null)?.id;
-          if (typeof id === "string" && !this.#causes.has(id)) {
-            this.#causes.set(id, runId);
-            noted.push(id);
-          }
+      for (const { id } of events ?? []) {
+        if (!this.#causes.has(id)) {
+          this.#causes.set(id, runId);
+          noted.push(id);
         }
       }
     }
     try {
-      await commit();
+      await commit(withEvents(write, events));
     } finally {
       for (const id of noted) {
         this.#causes.delete(id);
@@ -187,6 +192,38 @@ export class ChangeRecorder {
       this.#listeners.emit();
     });
   }
+}
+
+/**
+ * `write` taken once, as the store is to be handed it: each of its own
+ * properties read once, in a plain object, and `events` as the copy
+ * already taken, so the store reads that and never the caller's getter
+ * again. The values are not copied: the store takes them by its own rules.
+ */
+function withEvents(
+  write: object,
+  events: readonly Fact[] | undefined
+): object {
+  const taken: Record<string, unknown> = {};
+  for (const key of Reflect.ownKeys(write)) {
+    if (typeof key !== "string" || key === "events") {
+      continue;
+    }
+    const value: unknown = Reflect.get(write, key);
+    if (value !== undefined) {
+      // Defined, not assigned, so a `__proto__` key stays an own property.
+      Object.defineProperty(taken, key, {
+        configurable: true,
+        enumerable: true,
+        value,
+        writable: true,
+      });
+    }
+  }
+  if (events !== undefined) {
+    taken.events = events;
+  }
+  return taken;
 }
 
 /** The change log of the workspace `scope` over `database`. */

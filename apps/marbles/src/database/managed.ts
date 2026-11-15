@@ -3,6 +3,7 @@ import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
 import type { JsonValue } from "@foundry/lib/json";
+import { ownedWrite } from "@foundry/lib/plain-json";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import type { WorkflowStore } from "@foundry/workflows/store";
 import { DatabaseActivityStore } from "~/database/activities";
@@ -493,10 +494,11 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
     const store = async () => (await this.#records.get()).taskStore;
     this.taskStore = {
       commit: (write) => {
-        // The write as it stands now: the database may still be opening.
+        // The write as it stands now, its events by the rule every task
+        // store takes them by: the database may still be opening.
         let owned: TaskStoreWrite;
         try {
-          owned = structuredClone(write);
+          owned = ownedWrite(write);
         } catch (error) {
           return Promise.reject(error);
         }

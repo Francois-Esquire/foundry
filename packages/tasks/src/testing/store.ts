@@ -175,22 +175,21 @@ export function describeTaskStore(
       });
     });
 
-    test("refuses a write whose events are not plain JSON, and changes nothing", async () => {
-      const target = await store();
-      const a = task("a");
-      const unplain = {
-        at: new Date(0),
-        dependencies: { added: [], removed: [] },
-        id: "event-a",
-        tasks: [],
-        type: "tasks.changed",
-      } as unknown as TaskEvent;
-      await expect(
-        target.commit({ events: [unplain], putTasks: [a] })
-      ).rejects.toThrow(TypeError);
+    test.each(UNPLAIN_EVENTS)(
+      "refuses a write whose events hold %s, before anything copies them, and changes nothing",
+      async (_part, unplain) => {
+        const target = await store();
+        const a = task("a");
+        await expect(
+          target.commit({ events: [unplain()], putTasks: [a] })
+        ).rejects.toThrow(TypeError);
 
-      expect(await target.snapshot()).toEqual({ dependencies: [], tasks: [] });
-    });
+        expect(await target.snapshot()).toEqual({
+          dependencies: [],
+          tasks: [],
+        });
+      }
+    );
 
     test("a failing commit leaves nothing behind", async () => {
       const target = await store();
@@ -511,6 +510,34 @@ function task(name: string, overrides: Partial<Task> = {}): Task {
 function dependency(from: Task, on: Task): TaskDependency {
   return { dependsOnId: on.id, taskId: from.id };
 }
+
+/** A task fact made by a class: no JSON form reads it back as it is. */
+class ClassEvent {
+  readonly at = new Date(0).toISOString();
+  readonly dependencies = { added: [], removed: [] };
+  readonly id = "event-class";
+  readonly tasks = [];
+  readonly type = "tasks.changed";
+}
+
+/**
+ * Events a store refuses: each has a part with no JSON form that reads
+ * back the same, though a `structuredClone` would make one of it.
+ */
+const UNPLAIN_EVENTS: readonly (readonly [string, () => TaskEvent])[] = [
+  ["a class instance", () => new ClassEvent() as unknown as TaskEvent],
+  [
+    "a Date",
+    () =>
+      ({
+        at: new Date(0),
+        dependencies: { added: [], removed: [] },
+        id: "event-date",
+        tasks: [],
+        type: "tasks.changed",
+      }) as unknown as TaskEvent,
+  ],
+];
 
 /**
  * A write as a caller holds it: one task and one edge to put beside `kept`,

@@ -1,3 +1,4 @@
+import { ownedWrite } from "@foundry/lib/plain-json";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import { MemoryTaskStore } from "@foundry/tasks/store/memory";
 import type { ChangeLog, RecordedFact } from "~/lib/events/log";
@@ -95,7 +96,10 @@ export class RecordsGate {
 
 /**
  * Run `work` on a copy of `write` taken now, when the caller hands it
- * over; a write the copy refuses rejects without running `work`.
+ * over, by the rule every task store takes a write by (`ownedWrite`: its
+ * events as plain JSON, the rest cloned), so a write a store would refuse
+ * is refused here, before anything clones it into one the store accepts;
+ * a write the copy refuses rejects without running `work`.
  */
 function owning(
   write: TaskStoreWrite,
@@ -103,7 +107,7 @@ function owning(
 ): Promise<void> {
   let owned: TaskStoreWrite;
   try {
-    owned = structuredClone(write);
+    owned = ownedWrite(write);
   } catch (error) {
     return Promise.reject(error);
   }

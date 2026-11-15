@@ -23,6 +23,7 @@ import {
   TASKS,
   WORKSPACES,
 } from "~/lib/events/source";
+import { current } from "~/lib/run-scope";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
@@ -187,4 +188,82 @@ describe("an engine that does not record a source", () => {
       "[observe] notes (artifacts) receives nothing here: this engine keeps its artifacts without recording their changes",
     ]);
   }, 30_000);
+});
+
+describe("the run a fact is recorded as made by", () => {
+  it("is the run the write was handed in, through every store's hook, from its events read once", async () => {
+    const state = machine.workspace();
+    const scope = basename(state);
+    const records = machine.records(state);
+    const { changes } = records;
+    const { database } = machine.database;
+    const stores = workspaceStores(database, scope, changes);
+    const runStore = new DatabaseRunStore({ changes, database, scope });
+    const committers: readonly (readonly [
+      string,
+      (write: { readonly events: readonly Fact[] }) => Promise<void>,
+    ])[] = [
+      ["tasks", (write) => records.taskStore.commit(write as never)],
+      ["artifacts", (write) => stores.artifacts.commit(write as never)],
+      ["sandboxes", (write) => stores.containers.commit(write as never)],
+      [
+        "workspaces",
+        // A catalogue write names a Workspace: one that is not filed here.
+        (write) =>
+          stores.workspaces.commit(
+            Object.assign(write, {
+              removeWorkspace: crypto.randomUUID(),
+            }) as never
+          ),
+      ],
+      [
+        "sessions",
+        (write) =>
+          new DatabaseSessionStore({ changes, database, scope }).commit(
+            write as never
+          ),
+      ],
+      [
+        "runs",
+        async (write) =>
+          (await runStore.open(() => undefined)).commit(write as never),
+      ],
+    ];
+    const reads = new Map<string, number>();
+    for (const [source, commit] of committers) {
+      reads.set(source, 0);
+      // A write whose events read differently each time they are read.
+      const write = {
+        get events(): readonly Fact[] {
+          const read = (reads.get(source) ?? 0) + 1;
+          reads.set(source, read);
+          return [
+            {
+              at: new Date(0).toISOString(),
+              id: `${source}-${String(read)}`,
+              type: `${source}.probed`,
+            },
+          ];
+        },
+      };
+      await current.run({ scope: { id: `run-${source}` } } as never, () =>
+        commit(write)
+      );
+    }
+
+    expect(Object.fromEntries(reads)).toEqual(
+      Object.fromEntries(committers.map(([source]) => [source, 1]))
+    );
+    expect(
+      (await machine.changes(state)).map((change) => [
+        change.source,
+        change.id,
+        change.runId,
+      ])
+    ).toEqual(
+      committers.map(([source]) => [source, `${source}-1`, `run-${source}`])
+    );
+    await records.close();
+    await runStore.close();
+  });
 });
