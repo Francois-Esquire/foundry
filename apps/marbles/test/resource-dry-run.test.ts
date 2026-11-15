@@ -6,7 +6,7 @@ import { ArtifactManager } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { describe, expect, it } from "vitest";
-import { COMMANDS, dryRunRefusal } from "~/cli";
+import { COMMANDS, dryRunRefusal } from "~/command-line";
 import { initializeDatabase } from "~/database/open";
 import { resourceAssociations } from "~/database/resources";
 import { artifactBlobs } from "~/database/stores";

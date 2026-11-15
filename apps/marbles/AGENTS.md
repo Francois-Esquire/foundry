@@ -340,7 +340,10 @@ Five buckets, each importing only what sits below it:
   workspace); or by starting and hosting it, which only the CLI does. It
   imports `workspace/`, `process/`, `database/`, `lib/`, `layout.ts` and
   `model/`, and nothing from the app.
-- The app sits on top and may import anything: `src/cli.ts`, `src/args.ts`
+- The app sits on top and may import anything: `src/cli.ts` (the entry,
+  which runs `main` whenever it loads, imported by `bin/marbles` too),
+  `src/command-line.ts` (every command's handler, and what `--dry-run`
+  means for it, beside `main`), `src/args.ts`
   (which parses a command line completely, before anything loads),
   `src/dashboard/`, `src/views/`, `src/components/`, `src/mcp/`,
   `src/status/`, `src/resources/` (the resource listings, sharing, and
