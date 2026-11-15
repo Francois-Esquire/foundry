@@ -26,6 +26,7 @@ import {
   writePrivate,
 } from "../spawn-record";
 import { anotherStart } from "../testing/process-identity";
+import { stopLeftover } from "./helpers/leftovers";
 
 /**
  * Every process here is one this test started (`sleep`), and the only
@@ -343,9 +344,7 @@ async function stubbornGroup(dir: string): Promise<{
 const leftovers: { pid: number; started: string }[] = [];
 afterEach(() => {
   for (const { pid, started: start } of leftovers.splice(0)) {
-    if (startedAt(pid) === start) {
-      process.kill(pid, "SIGKILL");
-    }
+    stopLeftover(pid, start);
   }
 });
 

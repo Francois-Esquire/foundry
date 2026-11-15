@@ -24,6 +24,7 @@ import {
   type SpawnRecord,
   writePrivate,
 } from "../spawn-record";
+import { signalOwn, stopLeftover } from "./helpers/leftovers";
 
 /**
  * A group leader recorded as a group is stopped with everything it
@@ -37,9 +38,7 @@ const leftovers: { pid: number; started: string }[] = [];
 
 afterEach(() => {
   for (const { pid, started } of leftovers.splice(0)) {
-    if (startedAt(pid) === started) {
-      process.kill(pid, "SIGKILL");
-    }
+    stopLeftover(pid, started);
   }
   for (const dir of made.splice(0)) {
     rmSync(dir, { force: true, recursive: true });
@@ -168,7 +167,7 @@ it("keeps the record of a group that would not empty, its members written before
     true
   );
   // Stopped for real here, as the next start would.
-  process.kill(-(child.pid ?? 0), "SIGKILL");
+  signalOwn(-(child.pid ?? 0), "SIGKILL");
 });
 
 /**
