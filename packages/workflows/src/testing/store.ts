@@ -363,6 +363,24 @@ export function describeWorkflowStore(
       expect(await allRuns(target, 1)).toStrictEqual(runs);
     });
 
+    test("a cursor stays valid when the records around it are deleted", async () => {
+      const target = await store();
+      await target.commit({
+        putRuns: [run("rn-a"), run("rn-b"), run("rn-x")],
+      });
+      const page = await target.listRuns({ limit: 2 });
+      expect(page.items.map((item) => item.id)).toEqual(["rn-a", "rn-b"]);
+      await target.commit({ deleteRuns: ["rn-a", "rn-b", "rn-x"] });
+      await target.commit({ putRuns: [run("rn-c")] });
+
+      // A record put after the deletes lists after the cursor: no position
+      // is handed out twice, even once every row past it is gone.
+      expect(
+        (await target.listRuns({ after: page.next, limit: 10 })).items
+      ).toStrictEqual([run("rn-c")]);
+      expect(await allRuns(target)).toStrictEqual([run("rn-c")]);
+    });
+
     test("reads each property of a write once, and keeps what that read gave", async () => {
       const target = await store();
       const reads = new Map<string, number>();

@@ -575,6 +575,37 @@ describe("SqliteWorkflowStore writes and positions", () => {
     expect(received?.putRuns).toStrictEqual([run]);
     expect(await store.getRun(run.id)).toStrictEqual(run);
   });
+
+  test("never hands a position out twice, across deletes and reopening", async () => {
+    const first = await files.open();
+    const store = new SqliteWorkflowStore({ database: first, scope: "s" });
+    const named = (id: string) => ({ ...run, id });
+    await store.commit({
+      putRuns: [named("rn-a"), named("rn-b"), named("rn-x")],
+    });
+    const page = await store.listRuns({ limit: 2 });
+    // The two highest positions go, so none is left past the cursor.
+    await store.commit({ deleteRuns: ["rn-b", "rn-x"] });
+
+    const reopened = new SqliteWorkflowStore({
+      database: await files.reopen(first),
+      scope: "s",
+    });
+    await reopened.commit({ putRuns: [named("rn-c")] });
+
+    expect(
+      (await reopened.listRuns({ after: page.next, limit: 10 })).items
+    ).toStrictEqual([named("rn-c")]);
+    // Another scope counts on its own.
+    const other = new SqliteWorkflowStore({
+      database: await files.reopen(first),
+      scope: "t",
+    });
+    await other.commit({ putRuns: [named("rn-t")] });
+    expect((await other.listRuns({ limit: 10 })).items).toStrictEqual([
+      named("rn-t"),
+    ]);
+  });
 });
 
 describe("workflow tables", () => {

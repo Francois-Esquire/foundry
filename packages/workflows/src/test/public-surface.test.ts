@@ -439,6 +439,7 @@ describe("@foundry/workflows store paths", () => {
     ]);
     expect(Object.keys(await import("../store/tables")).sort()).toEqual([
       "workflowJobs",
+      "workflowPositions",
       "workflowQueues",
       "workflowRunFrames",
       "workflowRuns",

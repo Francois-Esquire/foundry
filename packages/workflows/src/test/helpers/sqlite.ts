@@ -9,6 +9,7 @@ import { drizzle } from "drizzle-orm/libsql";
 import { afterAll, afterEach } from "vitest";
 import {
   workflowJobs,
+  workflowPositions,
   workflowQueues,
   workflowRunFrames,
   workflowRuns,
@@ -130,4 +131,5 @@ const WORKFLOW_TABLES = [
   workflowRuns,
   workflowSuspensions,
   workflowRunFrames,
+  workflowPositions,
 ];

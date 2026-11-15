@@ -51,6 +51,7 @@ import {
 } from "./sqlite-records";
 import {
   workflowJobs,
+  workflowPositions,
   workflowQueues,
   workflowRunFrames,
   workflowRuns,
@@ -220,11 +221,13 @@ export class SqliteWorkflowStore implements WorkflowStore {
           workflowRunFrames.runId,
           taken.write.deleteRunFrames
         );
-        await this.#put(transaction, QUEUES, taken.queues);
-        await this.#put(transaction, JOBS, taken.jobs);
-        await this.#put(transaction, RUNS, taken.runs);
-        await this.#put(transaction, SUSPENSIONS, taken.suspensions);
-        await this.#put(transaction, FRAMES, taken.frames);
+        const positions = await this.#positions(transaction, taken);
+        await this.#put(transaction, QUEUES, taken.queues, positions);
+        await this.#put(transaction, JOBS, taken.jobs, positions);
+        await this.#put(transaction, RUNS, taken.runs, positions);
+        await this.#put(transaction, SUSPENSIONS, taken.suspensions, positions);
+        await this.#put(transaction, FRAMES, taken.frames, positions);
+        await this.#savePositions(transaction, positions);
         await this.#onCommit?.(transaction, taken.write);
       })
     );
@@ -401,20 +404,15 @@ export class SqliteWorkflowStore implements WorkflowStore {
   async #put<T>(
     transaction: WorkflowTransaction,
     shelf: Shelf<T>,
-    rows: readonly Row[]
+    rows: readonly Row[],
+    positions: Positions
   ): Promise<void> {
     if (rows.length === 0) {
       return;
     }
-    const position = positionOf(shelf.table);
-    const [last] = await transaction
-      .select({ position: max(position) })
-      .from(shelf.table)
-      .where(eq(scopeOf(shelf.table), this.#scope));
-    const first = Number(last?.position ?? 0) + 1;
-    const placed = rows.map((row, index) => ({
+    const placed = rows.map((row) => ({
       ...row,
-      position: first + index,
+      position: nextPosition(positions),
       scope: this.#scope,
     }));
     const columns = Object.keys(getTableColumns(shelf.table)).length;
@@ -427,6 +425,59 @@ export class SqliteWorkflowStore implements WorkflowStore {
           target: [...shelf.keys],
         })
     );
+  }
+
+  /**
+   * The scope's next position, from `workflow_positions`, read once for a
+   * write that puts anything. A scope with no counter row yet starts past
+   * every position its tables hold.
+   */
+  async #positions(
+    transaction: WorkflowTransaction,
+    taken: OwnedWrite
+  ): Promise<Positions> {
+    const puts =
+      taken.queues.length +
+      taken.jobs.length +
+      taken.runs.length +
+      taken.suspensions.length +
+      taken.frames.length;
+    if (puts === 0) {
+      return { next: 0, start: 0 };
+    }
+    const [counter] = await transaction
+      .select({ next: workflowPositions.next })
+      .from(workflowPositions)
+      .where(eq(workflowPositions.scope, this.#scope));
+    if (counter !== undefined) {
+      return { next: counter.next, start: counter.next };
+    }
+    let highest = 0;
+    for (const table of TABLES) {
+      const [last] = await transaction
+        .select({ position: max(positionOf(table)) })
+        .from(table)
+        .where(eq(scopeOf(table), this.#scope));
+      highest = Math.max(highest, Number(last?.position ?? 0));
+    }
+    return { next: highest + 1, start: Number.NaN };
+  }
+
+  /** Records how far the write took the scope's positions, if anywhere. */
+  async #savePositions(
+    transaction: WorkflowTransaction,
+    positions: Positions
+  ): Promise<void> {
+    if (positions.next === positions.start) {
+      return;
+    }
+    await transaction
+      .insert(workflowPositions)
+      .values({ next: positions.next, scope: this.#scope })
+      .onConflictDoUpdate({
+        set: { next: positions.next },
+        target: [workflowPositions.scope],
+      });
   }
 
   /**
@@ -472,6 +523,31 @@ export class SqliteWorkflowStore implements WorkflowStore {
       throw error;
     }
   }
+}
+
+/** Every table a record is kept in. */
+const TABLES: readonly StoreTable[] = [
+  workflowQueues,
+  workflowJobs,
+  workflowRuns,
+  workflowSuspensions,
+  workflowRunFrames,
+];
+
+/**
+ * The positions one commit hands out: `next` is the next to give, `start`
+ * what the counter row held (NaN when the scope had none).
+ */
+interface Positions {
+  next: number;
+  readonly start: number;
+}
+
+/** The next position, and the counter moved past it. */
+function nextPosition(positions: Positions): number {
+  const position = positions.next;
+  positions.next += 1;
+  return position;
 }
 
 /** A row to put, before the commit places it: every column but `scope` and `position`. */

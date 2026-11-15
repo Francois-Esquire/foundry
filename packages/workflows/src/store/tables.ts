@@ -36,13 +36,30 @@ import {
  * - `scope`, an opaque partition key the host chooses, first in every key.
  * - `position`, the order a row was first put in its scope. List reads
  *   return rows by it, as the memory store lists its records, and a row
- *   put again keeps its position.
+ *   put again keeps its position. Positions come from `workflow_positions`
+ *   and are never reused in a scope.
  *
  * A NULL in a nullable column is `null` where the record takes `null`
  * (`last_error`, `error`, `resolution`, and a JSON value that is `null`),
  * and the field left out where the record may leave it out (a Run's
  * `definition` and `links`). No field may be both.
  */
+
+/**
+ * One row per scope: `next`, the position the scope's next new row of any
+ * table takes. Positions only ever grow, so a cursor a page returned stays
+ * valid however many rows are deleted before or after it, and a deleted
+ * row's position is never handed out again, across connections and
+ * reopening. It is the only table no record defines.
+ */
+export const workflowPositions = sqliteTable(
+  "workflow_positions",
+  {
+    next: integer("next").notNull(),
+    scope: text("scope").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.scope] })]
+);
 
 /** One row per `QueueRecord`. Queues are few; they are read whole. */
 export const workflowQueues = sqliteTable(
