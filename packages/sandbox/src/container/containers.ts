@@ -423,10 +423,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         }
         return;
       }
-      const constraints =
-        spec === undefined
-          ? parseSpec(JSON.parse(entry.row.spec))
-          : parseSpec(spec);
+      const given = spec === undefined ? undefined : parseSpec(spec);
       /** Refuses to go on once the last handle has closed. */
       const assertStillLive = (): void => {
         if (live.get(id) !== entry) {
@@ -438,9 +435,12 @@ export function createContainers(options: CreateContainersOptions): Containers {
       };
       const run = async (): Promise<void> => {
         assertStillLive();
+        // Read at its turn, so a restart queued behind one with a new spec
+        // boots that spec rather than the one stored when it was called.
+        const constraints = given ?? parseSpec(JSON.parse(entry.row.spec));
         await update(entry, {
           status: "restarting",
-          ...(spec === undefined ? {} : { spec: JSON.stringify(constraints) }),
+          ...(given === undefined ? {} : { spec: JSON.stringify(given) }),
         });
         await entry.sandbox.remove();
         assertStillLive();
@@ -452,6 +452,8 @@ export function createContainers(options: CreateContainersOptions): Containers {
           const booted = await boot(entry, constraints, signal);
           entry.sandbox = booted.sandbox;
           entry.facets = booted.facets;
+          // A close during the boot is waiting to remove the VM just booted.
+          assertStillLive();
         } catch (error: unknown) {
           if (live.get(id) === entry) {
             live.delete(id);
