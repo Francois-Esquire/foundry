@@ -24,6 +24,7 @@ import {
 import { marblesWorkspaces } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { workspaceState } from "~/lib/state/workspace";
+import { recordSpawned } from "~/process/spawned";
 import { cliArgs } from "./helpers/cli";
 import { type TestHome, testHome } from "./helpers/home";
 import { readWorkspace, touchWorkspace } from "./helpers/registry";
@@ -105,6 +106,7 @@ if (${JSON.stringify(then)} === "hold") {
     cwd: resolve("."),
     stdio: ["ignore", "pipe", "pipe"],
   });
+  recordSpawned(child.pid, false);
   children.push(child);
   return new Promise((ready, failed) => {
     let stderr = "";

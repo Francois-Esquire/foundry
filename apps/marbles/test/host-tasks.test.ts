@@ -27,6 +27,7 @@ import { connect } from "~/process/client";
 import type { Daemon } from "~/process/daemon";
 import { startDaemon } from "~/process/daemon";
 import { readProcess } from "~/process/instance";
+import { recordSpawned } from "~/process/spawned";
 import { testHome } from "./helpers/home";
 
 const SRC = resolve("src");
@@ -273,6 +274,7 @@ process.stdout.write(JSON.stringify({ refused }) + "\\n");
   const run = (name: string) =>
     new Promise<string>((done, failed) => {
       const child = spawn("bun", [counter, name], { cwd: resolve(".") });
+      recordSpawned(child.pid, false);
       children.push(child);
       let output = "";
       let errors = "";

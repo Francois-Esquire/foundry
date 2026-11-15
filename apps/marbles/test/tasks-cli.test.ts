@@ -304,6 +304,7 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
               cwd: root,
               env: home.env,
             });
+            home.track(child.pid, false);
             let stderr = "";
             child.stderr?.on("data", (chunk: Buffer) => {
               stderr += chunk.toString();

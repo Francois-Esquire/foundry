@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { SPAWN_RECORD_ENV } from "~/process/spawned";
 import { configureProviders } from "./providers";
 import { RUN_ENV, startRun, sweepFinishedRuns } from "./runs";
 
@@ -24,7 +25,8 @@ const USER_HOME = "user";
  * with the CLI providers configured and no models.dev load, so no test
  * reaches the network. `TMPDIR` names the root, so every temp directory a
  * test makes is inside it, and the run's marker goes to everything it
- * starts. Set before workers start, so it is in their environment and in
+ * starts, as does the directory Marbles records its background processes
+ * in. Set before workers start, so it is in their environment and in
  * that of every process they spawn: Bun hands a child the environment it
  * started with, not later changes to `process.env`.
  */
@@ -48,6 +50,8 @@ export default async function setup(): Promise<() => Promise<void>> {
     "cache"
   );
   process.env[RUN_ENV] = run.root;
+  // What Marbles starts in the background outside a test's home.
+  process.env[SPAWN_RECORD_ENV] = join(run.records, "run");
   process.env.TMPDIR = run.root;
   process.env.HOME = user;
   process.env.FOUNDRY_HOME = home;

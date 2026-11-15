@@ -12,7 +12,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { tasks as taskRows } from "@foundry/tasks/store/tables";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -25,6 +24,7 @@ import { stateDatabase } from "~/layout";
 import { cliArgs } from "./helpers/cli";
 import { stopDaemon } from "./helpers/daemon";
 import { testHome } from "./helpers/home";
+import { RecordedStdioTransport } from "./helpers/mcp-stdio";
 
 const change = z.object({
   delivered: z.number(),
@@ -113,7 +113,7 @@ observe(tasks, () => {
 });
 step("titles").do(async () => (await tasks.list()).items.map((task) => task.title));`
   );
-  const transport = new StdioClientTransport({
+  const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],
     command: "bun",
     cwd: root,

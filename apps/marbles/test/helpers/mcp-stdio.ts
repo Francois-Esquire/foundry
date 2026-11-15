@@ -1,7 +1,12 @@
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  StdioClientTransport,
+  type StdioServerParameters,
+} from "@modelcontextprotocol/sdk/client/stdio.js";
 import { z } from "zod";
+import { recordSpawned, SPAWN_RECORD_ENV } from "~/process/spawned";
 
 const responseSchema = z.looseObject({
   error: z.unknown().optional(),
@@ -33,6 +38,27 @@ interface Ended {
 }
 
 /**
+ * The SDK's transport, recording the server it starts where the server's
+ * environment says Marbles records what it starts (else this process's),
+ * so a test's teardown or the next run can stop it.
+ */
+export class RecordedStdioTransport extends StdioClientTransport {
+  readonly #env: Readonly<Record<string, string | undefined>>;
+
+  constructor(params: StdioServerParameters) {
+    super(params);
+    this.#env = params.env?.[SPAWN_RECORD_ENV] ? params.env : process.env;
+  }
+
+  override start(): Promise<void> {
+    // The SDK spawns before its first await: the pid is there already.
+    const started = super.start();
+    recordSpawned(this.pid ?? undefined, false, this.#env);
+    return started;
+  }
+}
+
+/**
  * Start `command` and complete the MCP `initialize` handshake. Vitest's own
  * marker is dropped from the child's environment: a library that sees it
  * behaves as under test, and would hide what it writes to stdout.
@@ -52,6 +78,8 @@ export async function rawMcpSession(
   if (pid === undefined) {
     throw new Error(`could not start ${command}`);
   }
+  // Where its environment says Marbles records what it starts.
+  recordSpawned(pid, false, inherited);
   let stdout = "";
   let stderr = "";
   let buffered = "";

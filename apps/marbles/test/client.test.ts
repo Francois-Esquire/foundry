@@ -2,7 +2,6 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Layout, layout } from "~/layout";
 import { Channel, socketTransport } from "~/process/channel";
@@ -14,6 +13,7 @@ import {
   stopProcess,
 } from "~/process/client";
 import { type HelloResult, PROTOCOL } from "~/process/protocol";
+import { recordSpawned } from "~/process/spawned";
 import { testHome } from "./helpers/home";
 
 /**
@@ -200,6 +200,7 @@ describe("connecting to the Marbles process", () => {
     const at = machine();
     // A daemon on its way out: it holds the claim, and its socket is gone.
     const leaving: ChildProcess = spawn("sleep", ["1.5"], { stdio: "ignore" });
+    recordSpawned(leaving.pid, false);
     const pid = leaving.pid ?? 0;
     mkdirSync(join(at.state, "locks"), { recursive: true });
     writeFileSync(join(at.state, "locks", "process"), String(pid));

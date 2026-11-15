@@ -11,7 +11,6 @@ import { join, resolve } from "node:path";
 import { ReentrantCallError } from "@foundry/lib/turns";
 import { Tasks } from "@foundry/tasks";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { MIGRATIONS } from "~/database/migrate";
@@ -20,6 +19,7 @@ import { TaskStorageError } from "~/database/tasks";
 import { stateDatabase } from "~/layout";
 import { cliArgs } from "./helpers/cli";
 import { type TestHome, testHome } from "./helpers/home";
+import { RecordedStdioTransport } from "./helpers/mcp-stdio";
 import { testMachine } from "./helpers/records";
 
 const SRC = resolve("src");
@@ -96,8 +96,9 @@ await new Promise((done) => setTimeout(done, 30_000));
 await held.rollback();
 `
   );
-  // Carries the home, so its teardown stops it.
+  // Recorded in the home, so its teardown stops it.
   const holder = spawn("bun", [script], { cwd: resolve("."), env: home.env });
+  home.track(holder.pid, false);
   await new Promise<void>((ready, failed) => {
     holder.stdout?.on("data", (chunk: Buffer) => {
       if (chunk.toString().includes("held")) {
@@ -122,7 +123,7 @@ function toolError(value: unknown): string {
 
 /** An MCP server in `home`, for the workspace at its root. */
 async function mcp(home: TestHome): Promise<Client> {
-  const transport = new StdioClientTransport({
+  const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp"],
     command: "bun",
     cwd: home.path,

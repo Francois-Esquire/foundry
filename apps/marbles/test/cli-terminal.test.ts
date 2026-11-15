@@ -81,6 +81,8 @@ for (const command of [[], ["run"]]) {
         },
       }
     );
+    // On a terminal, a session and process group of its own.
+    home.track(child.pid, true);
     try {
       await until(() => output.includes("Press Enter to enter"));
       await sleep(1200);
@@ -127,6 +129,7 @@ test("piped startup runs immediately and SIGTERM drains work with plain output",
     [process.execPath, resolve("src/cli.ts"), "--dry-run", "--config", config],
     { env: home.env, stderr: "pipe", stdout: "pipe" }
   );
+  home.track(child.pid, false);
   const output = new Response(child.stdout).text();
   try {
     await until(() => existsSync(marker));
@@ -164,6 +167,7 @@ test("a config error restores the terminal and exits instead of leaving the spla
       },
     }
   );
+  home.track(child.pid, true);
   try {
     await until(() => output.includes("Marbles could not load"));
     child.terminal?.write("\r");
@@ -203,6 +207,7 @@ async function openTestCli(
       },
     }
   );
+  home.track(child.pid, true);
   return {
     child,
     async dispose() {
@@ -464,6 +469,7 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
       ],
       { env: home.env, stderr: "pipe", stdout: "pipe" }
     );
+    home.track(follower.pid, false);
     try {
       await terminal.see("w workspace");
       await terminal.send("w");

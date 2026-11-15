@@ -12,7 +12,6 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -20,7 +19,12 @@ import { workspaceState } from "~/lib/state/workspace";
 import { daemonAlive } from "~/process/client";
 import { version } from "../package.json";
 import { testHome } from "./helpers/home";
-import { rawMcpSession, serverPreload, strayLines } from "./helpers/mcp-stdio";
+import {
+  RecordedStdioTransport,
+  rawMcpSession,
+  serverPreload,
+  strayLines,
+} from "./helpers/mcp-stdio";
 import {
   readWorkspace,
   seedWorkspace,
@@ -79,7 +83,7 @@ const greet = step("greet").input(z.object({ name: z.string() })).do(({ input })
 workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
   );
   // `marbles mcp` hosts nothing, so the tools are served over a host here.
-  const transport = new StdioClientTransport({
+  const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("test/helpers/dry-mcp-host.ts"), source],
     command: "bun",
     cwd: root,
@@ -245,7 +249,7 @@ it("under --dry-run, loads no source, keeps tasks in memory, and refuses what ne
 console.error("SOURCE_LOADED");
 workflow("greeting").do(() => step("greet").do(() => "hello")({}));`
   );
-  const transport = new StdioClientTransport({
+  const transport = new RecordedStdioTransport({
     args: [
       "--no-env-file",
       resolve("src/cli.ts"),
@@ -512,7 +516,7 @@ observe(tasks, () => appendFileSync(${JSON.stringify(observed)}, "x"));
 const tick = step("tick").do(() => appendFileSync(${JSON.stringify(ticked)}, "x"));
 schedule(tick).every("1s");`
   );
-  const transport = new StdioClientTransport({
+  const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],
     command: "bun",
     cwd: root,
@@ -638,7 +642,7 @@ it("starts without a source and serves the stored tasks of every recorded worksp
     root: outside,
   });
   await symlink(outside, join(state, "abc"));
-  const transport = new StdioClientTransport({
+  const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp"],
     command: "bun",
     cwd: here,
@@ -736,7 +740,7 @@ it("refuses its own workspace's tasks when its state links out of the state root
   await mkdir(state, { recursive: true });
   const own = workspaceState(state, here);
   await symlink(outside, own.dir);
-  const transport = new StdioClientTransport({
+  const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp"],
     command: "bun",
     cwd: here,
@@ -787,7 +791,7 @@ import { z } from ${JSON.stringify(schemaLibrary)};
 const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => ({ greeting: "Hello " + input.name }));
 workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
   );
-  const transport = new StdioClientTransport({
+  const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],
     command: "bun",
     cwd: root,
@@ -876,7 +880,7 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
     // Under --dry-run the server drives nothing, though a worker hosts the
     // workspace: a dry dispatch never starts a real run.
     const dry = new Client({ name: "marbles-dry", version: "1.0.0" });
-    const dryTransport = new StdioClientTransport({
+    const dryTransport = new RecordedStdioTransport({
       args: [
         "--no-env-file",
         resolve("src/cli.ts"),
