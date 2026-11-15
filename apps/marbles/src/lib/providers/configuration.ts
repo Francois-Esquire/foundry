@@ -31,6 +31,7 @@ import {
   ConfigurationError,
   describeIssues,
   empty,
+  InvalidStoredConfiguration,
   keptConfigurations,
   MemoryProviderStore,
   readOnlyProviders,
@@ -132,11 +133,13 @@ export class ProviderConfiguration {
   /** `read` kept a newer `#kept` than the manager's set was loaded from. */
   #unloaded = false;
   /**
-   * The last read of the store, or the identity key a read or write needed,
-   * failed: the store, not what it holds. The watcher retries until one
-   * succeeds, though the revision may say nothing changed.
+   * Why the store could not be reached when it was last asked: its last
+   * read, the identity key a read or write needed, or the revision the
+   * watcher polls. Not what it holds, which reads the same until it
+   * changes. The watcher retries until a read succeeds, though the
+   * revision may say nothing changed.
    */
-  #unreached = false;
+  #unreached: string | undefined;
   /** Every scope as the edit under way reads it, inside the store's transaction. */
   #editing: ProviderConfigurations | undefined;
   readonly #plugins: ReadonlyMap<string, RegisteredPlugin>;
@@ -246,12 +249,14 @@ export class ProviderConfiguration {
     this.#key ??= key;
   }
 
-  /** `call` on the store, marking it unreached when it rejects. */
+  /** `call` on the store, marking it unreached when it could not be reached. */
   async #reaching<T>(call: () => Promise<T>): Promise<T> {
     try {
       return await call();
     } catch (error) {
-      this.#unreached = true;
+      if (!(error instanceof InvalidStoredConfiguration)) {
+        this.#unreached = messageOf(error);
+      }
       throw error;
     }
   }
@@ -283,7 +288,7 @@ export class ProviderConfiguration {
     // reported once per change, not on every poll, and a later repair is
     // still noticed.
     const kept = await this.#reaching(() => this.#store.read());
-    this.#unreached = false;
+    this.#unreached = undefined;
     if (this.#adopt(kept)) {
       this.#unloaded = true;
     }
@@ -712,8 +717,10 @@ export class ProviderConfiguration {
    * process: the store's revision is polled. One that cannot be read keeps
    * the last good set and is reported once per change. A store that could
    * not be reached (a lock held too long, say) is tried again on every
-   * poll until it is, whatever its revision. Nothing is polled before the
-   * first `refresh`, or for a programmatic host's set.
+   * poll until it is, whatever its revision; a failure is reported when it
+   * differs from the one before it, so the one the engine reported as it
+   * started is not reported again, and the recovery once. Nothing is
+   * polled before the first `refresh`, or for a programmatic host's set.
    */
   watch(report: (problem: string) => void): () => void {
     if (this.#options.fixed !== undefined) {
@@ -723,9 +730,9 @@ export class ProviderConfiguration {
     const poll = async () => {
       const seen = this.#revision;
       if (
-        // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; a failed store call sets it.
-        !this.#unreached &&
-        (seen === undefined || (await this.#store.revision()) === seen)
+        this.#unreached === undefined &&
+        (seen === undefined ||
+          (await this.#reaching(() => this.#store.revision())) === seen)
       ) {
         return;
       }
@@ -738,9 +745,20 @@ export class ProviderConfiguration {
         return;
       }
       polling = true;
+      const before = this.#unreached;
       poll()
-        .catch((error: unknown) => report(messageOf(error)))
+        .catch((error: unknown) => {
+          const unreached = this.#unreached;
+          if (unreached === undefined) {
+            report(messageOf(error));
+          } else if (unreached !== before) {
+            report(unreached);
+          }
+        })
         .finally(() => {
+          if (before !== undefined && this.#unreached === undefined) {
+            report(RECOVERED);
+          }
           polling = false;
         });
     }, POLL_MS);
@@ -1324,6 +1342,9 @@ function taken(message: string): ConfigurationError {
 function invalid(message: string): ConfigurationError {
   return new ConfigurationError("PROVIDER_ENTRY_INVALID", message);
 }
+
+/** What the watcher reports once a store it could not reach is read again. */
+const RECOVERED = "the provider configuration can be read again";
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
