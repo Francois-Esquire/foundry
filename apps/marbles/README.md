@@ -325,7 +325,7 @@ Marbles database, each belonging to the workspace it was created in.
 `marbles share <kind> <id> <dir>` shows one of this workspace's resources in
 the workspace at `<dir>` as well (a sandbox container stays with the
 workspace that started it), and `marbles unshare` stops it; neither changes
-the resource. `marbles runs`, `sessions`, `artifacts`, `sandboxes` and
+the resource, and neither takes `--dry-run`, nor does `relink`. `marbles runs`, `sessions`, `artifacts`, `sandboxes` and
 `modules` list what this workspace shows, its own and what is shared with
 it, and `--all` lists every workspace's; a run's steps are listed under it.
 `marbles status` reads the same way. The dashboard's run and trigger lists

@@ -106,7 +106,8 @@ the listings show this workspace's own and shared resources, or with --all every
 workspace's. .marbles/ in a workspace holds links to its artifact files, rebuilt by
 relink from the database. --dry-run
 hosts the workspace in this process instead, persists nothing, and echoes every
-model turn and git mutation; custom code still runs.
+model turn and git mutation; custom code still runs. attach, share, unshare and
+relink refuse it.
 
 
 Tasks, the workspace backlog (--json prints the result as JSON; --tag needs every tag given,
@@ -216,9 +217,18 @@ function association<C extends "share" | "unshare">(
 ): Handler<ArgsOf<C>> {
   return {
     needs: "workspace",
-    run: (args, opened) =>
-      changeAssociation(change, args, resourceContext(args, opened)),
+    run: (args, opened) => {
+      refuseDryRun(args, `${change} changes what the Marbles database keeps`);
+      return changeAssociation(change, args, resourceContext(args, opened));
+    },
   };
+}
+
+/** A command that changes kept state has nothing to show under `--dry-run`, which persists nothing. */
+function refuseDryRun(args: { readonly dry: boolean }, what: string): void {
+  if (args.dry) {
+    throw new UsageError(`${what}; it takes no --dry-run`);
+  }
 }
 
 async function listTriggers(
@@ -516,7 +526,10 @@ const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   modules: listing("module"),
   relink: {
     needs: "workspace",
-    run: (args, opened) => relink(args.all, resourceContext(args, opened)),
+    run: (args, opened) => {
+      refuseDryRun(args, "relink rebuilds links from the Marbles database");
+      return relink(args.all, resourceContext(args, opened));
+    },
   },
   roll: { needs: "connection", run: roll },
   run: { needs: "connection", run: runUntilStopped },
