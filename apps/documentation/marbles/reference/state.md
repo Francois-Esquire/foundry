@@ -188,10 +188,12 @@ change to the session raises, written in the same transaction. Usage
 recovery, `marbles sessions` and `status` list a workspace's sessions
 through it. Detaching a workspace keeps them. A `sessions/` directory left
 in a workspace's directory by an earlier Marbles is ignored, not imported,
-and left as it is, like `tasks.json`: its sessions are not listed, a
-session a parked run or a host recorded before is not found, as if its
-file had been removed, and usage recovery counts one that a run or a usage
-record still names as an unreadable usage record.
+and left as it is, like `tasks.json`. Its sessions behave as if their files
+had been removed: they are not listed; a session a parked run or a host
+recorded before starts afresh under its id, without its history; a
+deferred approval `agent-approvals.json` keeps for one is dropped from it
+when the engine starts; and usage recovery counts one that a run or a
+usage record still names as an unreadable usage record.
 
 Any number of processes write a workspace's sessions at once. A change is
 one transaction that takes the database's write lock for its whole

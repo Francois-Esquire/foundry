@@ -6,8 +6,10 @@
  * session files an earlier Marbles wrote alone.
  */
 
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { SessionRecord } from "@foundry/agents/schema";
 import { Sessions } from "@foundry/agents/session";
 import type { SessionStoreWrite } from "@foundry/agents/store";
@@ -254,4 +256,53 @@ describe("an engine Marbles creates over a workspace's state", () => {
     ).resolves.toBeUndefined();
     expect(existsSync(stateDatabase(stateRoot))).toBe(false);
   });
+});
+
+describe("a program hosting a workspace itself", () => {
+  it("keeps the sessions its engine writes in the state root's database, after it closes", () => {
+    const root = temporaryDirectory("marbles-sessions-host-");
+    const workspace = join(root, "workspace");
+    mkdirSync(workspace);
+    writeFileSync(join(workspace, "marbles.ts"), "");
+    const state = join(root, "state");
+    const script = join(root, "host.ts");
+    const src = resolve("src");
+    // Resolved here: the script sits outside the workspace's node_modules.
+    const agentsSessions = fileURLToPath(
+      import.meta.resolve("@foundry/agents/session")
+    );
+    writeFileSync(
+      script,
+      `import { Sessions } from ${JSON.stringify(agentsSessions)};
+import { hostWorkspace } from ${JSON.stringify(join(src, "workspace/host.ts"))};
+let sessions;
+const host = await hostWorkspace({
+  artifacts: ${JSON.stringify(join(root, "artifacts"))},
+  prepare: (engine) => {
+    sessions = engine.sessions;
+  },
+  source: ${JSON.stringify(join(workspace, "marbles.ts"))},
+  state: ${JSON.stringify(state)},
+});
+const written = new Sessions({ store: sessions });
+await written.createSession({ id: "hosted" });
+await written.appendMessage({ parts: [{ text: "hi", type: "text" }], role: "user", sessionId: "hosted" });
+await host.close();
+`
+    );
+    const hosted = spawnSync("bun", ["--no-env-file", script], {
+      cwd: resolve("."),
+      encoding: "utf8",
+      timeout: 60_000,
+    });
+    expect(hosted.status, hosted.stderr).toBe(0);
+    const { dir, id } = workspaceState(state, workspace);
+    return readSessions(state, id, async (store) => ({
+      messages: (await store.listMessages("hosted")).length,
+      stamps: (await store.stamps()).map((stamp) => stamp.id),
+    })).then((read) => {
+      expect(read).toEqual({ messages: 1, stamps: ["hosted"] });
+      expect(existsSync(join(dir, "sessions"))).toBe(false);
+    });
+  }, 60_000);
 });

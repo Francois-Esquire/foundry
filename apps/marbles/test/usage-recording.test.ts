@@ -42,6 +42,7 @@ import { DEFAULT_DRAFT } from "~/workspace/templates";
 import { totalOf, workspaceUsage } from "~/workspace/usage";
 import { startEngine, testEngine } from "./helpers/engine";
 import { testMachine } from "./helpers/records";
+import { temporaryDirectory } from "./helpers/temporary";
 
 const engines: Engine[] = [];
 let state: string;
@@ -894,18 +895,13 @@ it("a direct session none of whose usage was saved is found through the database
     expect(records.unreadableAt.unowned).toBe(0);
     // Another workspace's sessions in the same database are never read.
     catalog.reset();
-    const elsewhere = await mkdtemp(join(tmpdir(), "marbles-usage-other-"));
-    try {
-      const other = await startEngine({
-        print: () => undefined,
-        sessions: sessionsOf("other"),
-        state: elsewhere,
-      });
-      owned.push(other);
-      expect((await other.readUsage()).facts).toEqual([]);
-    } finally {
-      await rm(elsewhere, { force: true, recursive: true });
-    }
+    const other = await startEngine({
+      print: () => undefined,
+      sessions: sessionsOf("other"),
+      state: temporaryDirectory("marbles-usage-other-"),
+    });
+    owned.push(other);
+    expect((await other.readUsage()).facts).toEqual([]);
   } finally {
     await Promise.all(owned.map((engine) => engine.dispose()));
     machine.close();
