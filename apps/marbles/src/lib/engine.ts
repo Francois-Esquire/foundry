@@ -64,7 +64,7 @@ import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
 import type { FeedRouter } from "~/lib/feed/route";
-import { feedRouter } from "~/lib/feed/route";
+import { feedRouter, movedAway, QuestionMovingError } from "~/lib/feed/route";
 import type { Dispatched } from "~/lib/held-runs";
 import { HeldRuns } from "~/lib/held-runs";
 import type { DispatchedRun, Launched, LaunchOptions } from "~/lib/launcher";
@@ -487,6 +487,12 @@ export class Engine {
   #stopping: Promise<void> | undefined;
   /** Set once `retire` began: nothing let go comes back here. */
   #retiring = false;
+  /**
+   * The runs this engine let go for another to take over: handed on as it
+   * retired, parked after it retired, or given back by an adoption that
+   * found it retiring. Nothing here answers or resumes them again.
+   */
+  readonly #letGo = new Set<string>();
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
   readonly #unwatchRecords: () => void;
@@ -1178,12 +1184,19 @@ export class Engine {
    */
   async resume(runId: string, stepId: string, prompt?: string): Promise<void> {
     const { orchestrator } = this.#live();
+    if (this.#letGo.has(runId)) {
+      throw new QuestionMovingError(runId);
+    }
     const scope = this.#scopeOf(runId);
     const pending = await orchestrator.listSuspensions({
       kind: PAUSE_KIND,
       runId,
       status: "pending",
     });
+    // Let go while the pauses were read: the engine taking it resumes it.
+    if (this.#letGo.has(runId)) {
+      throw new QuestionMovingError(runId);
+    }
     // A pause parks a subtree, so a resume releases every pause at or
     // under the step. The root segment of a step path is the registered
     // name here, but compare below it too, as the feed does, in case a
@@ -1205,7 +1218,16 @@ export class Engine {
       if (frame && trimmed !== undefined) {
         frame.resumePrompt = trimmed;
       }
-      await orchestrator.resolve(suspension.id, { prompt: trimmed ?? null });
+      // At the revision read: one taken over meanwhile is refused as stale.
+      await orchestrator
+        .resolve(
+          suspension.id,
+          { prompt: trimmed ?? null },
+          { expectedRevision: suspension.revision }
+        )
+        .catch((error: unknown) => {
+          throw movedAway(error, runId);
+        });
     }
   }
 
@@ -1362,25 +1384,27 @@ export class Engine {
     this.#retiring = true;
     running.router.retire();
     await this.#delivery.stop();
-    const given = new Set(await this.#launcher.handOver(successor));
-    const letGo = async (runId: string): Promise<void> => {
-      running.router.letGo(runId);
-      await this.#runs.release(runId);
-      given.add(runId);
-    };
+    for (const runId of await this.#launcher.handOver(successor)) {
+      this.#letGo.add(runId);
+    }
     // Every run that parks from now on goes too, as soon as it has parked.
     running.orchestrator.on("suspended", ({ runId }) => {
-      if (given.has(runId) || running.held.workflow(runId) === undefined) {
+      if (
+        this.#letGo.has(runId) ||
+        running.held.workflow(runId) === undefined
+      ) {
         return;
       }
-      letGo(runId)
+      this.#giveBack(running, runId)
         .then(() => options.onLetGo?.(runId))
         .catch((error: unknown) =>
           this.#print(`[run] ${runId} not let go: ${String(error)}`)
         );
     });
     for (const runId of running.held.withStatus(["suspended"])) {
-      await letGo(runId);
+      if (!this.#letGo.has(runId)) {
+        await this.#giveBack(running, runId);
+      }
     }
     const left = () =>
       this.#executions
@@ -1388,7 +1412,8 @@ export class Engine {
         .some(
           (run) =>
             !(
-              given.has(run.id) || SETTLED_EXECUTION_STATUSES.has(run.status)
+              this.#letGo.has(run.id) ||
+              SETTLED_EXECUTION_STATUSES.has(run.status)
             ) && sameProcess(run.owner, thisProcess())
         );
     const ended = new Promise<void>((resolve) => {
@@ -1416,11 +1441,14 @@ export class Engine {
    */
   async adopt(runId: string): Promise<boolean> {
     const running = this.#running;
-    if (running === undefined || this.#phase !== "started" || this.#retiring) {
+    // Retirement may begin at any wait below: looked at again after each.
+    const away = () =>
+      this.#running !== running || this.#phase !== "started" || this.#retiring;
+    if (running === undefined || away()) {
       return false;
     }
     const record = await running.store.getRun(runId);
-    if (record?.status !== "suspended") {
+    if (record?.status !== "suspended" || away()) {
       return false;
     }
     const scope = await adoptParkedRun(record, {
@@ -1435,27 +1463,61 @@ export class Engine {
       return false;
     }
     this.#scopes.recover(runId, scope);
+    this.#letGo.delete(runId);
     let dispatched: Awaited<ReturnType<Orchestrator["adopt"]>>;
     try {
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
       if (!(await this.#executions.takeReleased(runId))) {
         throw new Error("its execution run is not parked");
+      }
+      if (away()) {
+        throw new Error("this engine began to retire");
       }
       dispatched = await running.orchestrator.adopt(runId);
       if (dispatched === null) {
         throw new Error("it is no longer parked in the store");
       }
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
+      await running.router.adopt(record.step, runId);
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
     } catch (error) {
+      // Given back, unanswered here: for the engine taking over, whose
+      // start, or whose next adoption, finds it parked and unowned.
       this.#scopes.forget(runId);
-      await this.#runs.release(runId).catch(() => undefined);
+      await this.#giveBack(running, runId).catch(() => undefined);
+      if (away()) {
+        this.#print(
+          `[run] ${record.step} ${runId} given back: this engine began to retire as it took it over`
+        );
+        return false;
+      }
       throw new Error(`run ${runId} was not taken over: ${String(error)}`, {
         cause: error,
       });
     }
+    // In the same turn as the last look: a retirement that begins after
+    // this finds the run held here, and lets it go with the rest.
     this.#print(`[run] ${record.step} taken over ${runId}`);
-    await running.router.adopt(record.step, runId);
     running.listing.add(runId);
     this.#launcher.follow(runId, running.held.follow(record.step, dispatched));
     return true;
+  }
+
+  /**
+   * Let a parked run go for another engine to take over: its open
+   * questions forgotten here, its claim given up, and nothing here
+   * answers or resumes it again.
+   */
+  async #giveBack(running: Running, runId: string): Promise<void> {
+    this.#letGo.add(runId);
+    running.router.letGo(runId);
+    await this.#runs.release(runId);
   }
 
   /**

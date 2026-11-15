@@ -50,6 +50,17 @@ import { filedRuns, removalOf } from "~/lib/run-store";
  * a lock waited on too long as a `DatabaseBusyError`.
  */
 
+/** A change to a Run this engine no longer holds: another took it over, or it was let go. */
+export class RunMovedError extends Error {
+  override readonly name = "RunMovedError";
+
+  constructor(runId: string) {
+    super(
+      `run ${runId} is not held by this engine any more; the engine that holds it changes it`
+    );
+  }
+}
+
 export interface DatabaseRunStoreOptions {
   /** The database the host keeps open; never one of its transactions, since a Run's commit must be there for good. */
   readonly database: StoreDatabase;
@@ -233,7 +244,12 @@ export class DatabaseRunStore implements RunStore {
    * What `write` files beside its Runs, in its own `transaction`: each Run
    * it puts unsettled has this store as its owner, and the recording of
    * its scope when there is one here; each Run it settles is owned by no
-   * one; each Run it deletes loses its row.
+   * one; each Run it deletes loses its row. A Run whose row another engine
+   * owns, one that claimed it after this one let it go, is not this
+   * engine's to change: the whole commit is refused with a `RunMovedError`,
+   * read and decided in this same transaction, so an answer, a resume or
+   * any other change this engine makes after the run moved never lands. A
+   * Run no one owns is this store's again once it puts it, as before.
    */
   async #file(
     transaction: WorkflowTransaction,
@@ -241,6 +257,14 @@ export class DatabaseRunStore implements RunStore {
     recorded: (runId: string) => RecordedScope | undefined
   ): Promise<void> {
     for (const { runId, scope, settled } of filedRuns(write, recorded)) {
+      const held = await this.#ownerOf(transaction, runId);
+      if (
+        held !== undefined &&
+        held.ownerId !== null &&
+        held.ownerId !== this.#owner
+      ) {
+        throw new RunMovedError(runId);
+      }
       const owner = settled ? NO_OWNER : this.#owned();
       // Without a recording, the row keeps what it had and changes owner.
       const recording =
