@@ -37,6 +37,7 @@ export type {
   ChangeLog,
   ChangeQuery,
   CompactionBound,
+  DeclaredObserver,
   LoggedChange,
   ObserverFailure,
   ObserverKey,

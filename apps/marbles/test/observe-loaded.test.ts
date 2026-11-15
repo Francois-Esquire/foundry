@@ -8,7 +8,7 @@
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { asc } from "drizzle-orm";
@@ -26,17 +26,23 @@ afterEach(async () => {
   );
 });
 
-it("delivers a loaded module's observers of workflow, artifact and tasks the facts of a step's work, each with the run that made it", async () => {
+it("delivers a loaded module's observers of every word the facts of a step's work, each with the run that made it, and names one by its const", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-observe-loaded-"));
   roots.push(root);
   const dir = join(root, "ws");
-  await mkdir(dir, { recursive: true });
+  await mkdir(join(dir, "node_modules"), { recursive: true });
+  // A const names an observer through the author's own TypeScript, found
+  // from the module.
+  await symlink(
+    resolve("../../node_modules/typescript"),
+    join(dir, "node_modules", "typescript")
+  );
   const seen = join(dir, "seen.log");
   const source = join(dir, "marbles.ts");
   await writeFile(
     source,
     `import { appendFileSync } from "node:fs";
-import { artifact, observe, step, tasks, workflow } from "@foundry.sh/marbles";
+import { agent, artifact, observe, sandbox, step, tasks, workflow, workspace } from "@foundry.sh/marbles";
 const log = (line) => appendFileSync(${JSON.stringify(seen)}, line + "\\n");
 observe(workflow, function runFacts(fact) {
   log("runs " + fact.type);
@@ -44,9 +50,13 @@ observe(workflow, function runFacts(fact) {
 observe(artifact, function artifactFacts(fact) {
   log("artifacts " + fact.type);
 }, { types: ["artifact.created"] });
-observe(tasks, function taskFacts(fact) {
+// Named by the const it is assigned to.
+export const taskFacts = observe(tasks, (fact) => {
   log("tasks " + fact.type);
 });
+observe(sandbox, () => undefined, { name: "sandboxFacts" });
+observe(workspace, () => undefined, { name: "workspaceFacts" });
+observe(agent, () => undefined, { name: "sessionFacts" });
 const notes = artifact({ name: "notes", type: "text/markdown" });
 export const write = step("write").do(async ({ run }) => {
   await tasks.create({ title: "from a step" });
@@ -106,10 +116,14 @@ process.exit(0);
       .from(marblesObservers)
       .orderBy(asc(marblesObservers.name)),
   }));
+  // Every word a load's library binds is still its source.
   expect(stored?.observers).toEqual([
     { name: "artifactFacts", source: "artifacts" },
     { name: "runFacts", source: "runs" },
+    { name: "sandboxFacts", source: "sandboxes" },
+    { name: "sessionFacts", source: "sessions" },
     { name: "taskFacts", source: "tasks" },
+    { name: "workspaceFacts", source: "workspaces" },
   ]);
   // The step's own work records its run as the cause.
   const made = (from: string, type: string) =>

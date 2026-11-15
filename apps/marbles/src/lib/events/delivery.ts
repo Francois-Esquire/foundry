@@ -257,7 +257,7 @@ export class Delivery {
       observer.position = state.position;
       observer.failures = state.failures;
       observer.retryAt = state.retryAt;
-      if (state.missed !== null) {
+      if (state.fellBehind && state.missed !== null) {
         this.#print(
           `[observe] ${describe(observer.key)} missed changes ${String(state.missed.from)} to ${String(state.missed.through)}: they were removed before it received them; it goes on after them`
         );

@@ -26,9 +26,10 @@ export interface ChangeLog {
   /**
    * The observer `key`'s place, filed at the counter (from now) when it is
    * new, and seen at `now`: one that fell behind the compacted prefix is
-   * moved past it, and what it missed is recorded on it (`missed`).
+   * moved past it, what it missed is recorded on it (`missed`), and this
+   * call alone says it fell behind (`fellBehind`).
    */
-  declare(key: ObserverKey, now: number): Promise<ObserverState>;
+  declare(key: ObserverKey, now: number): Promise<DeclaredObserver>;
   /**
    * Record that `key` failed at `now` and is tried again at `retryAt`:
    * one more failure, with `error`, its place kept.
@@ -67,6 +68,12 @@ export interface ObserverState extends ObserverKey {
   readonly position: number;
   /** When it is tried again, in epoch ms; `null` while it is well. */
   readonly retryAt: number | null;
+}
+
+/** An observer as `declare` finds it. */
+export interface DeclaredObserver extends ObserverState {
+  /** Whether this declaration found it behind the compacted prefix and moved it past: `missed` is new. */
+  readonly fellBehind: boolean;
 }
 
 export interface ObserverFailure {
@@ -169,7 +176,7 @@ export class MemoryChangeLog implements ChangeLog {
     return Promise.resolve(removed);
   }
 
-  declare(key: ObserverKey, now: number): Promise<ObserverState> {
+  declare(key: ObserverKey, now: number): Promise<DeclaredObserver> {
     let observer = this.#observers.get(KEY(key));
     if (observer === undefined) {
       observer = {
@@ -184,14 +191,15 @@ export class MemoryChangeLog implements ChangeLog {
       this.#observers.set(KEY(key), observer);
     }
     observer.seenAt = now;
-    if (observer.position < this.#compacted) {
+    const fellBehind = observer.position < this.#compacted;
+    if (fellBehind) {
       observer.missed = {
         from: observer.position + 1,
         through: this.#compacted,
       };
       observer.position = this.#compacted;
     }
-    return Promise.resolve(stateOf(observer.key, observer));
+    return Promise.resolve({ ...stateOf(observer.key, observer), fellBehind });
   }
 
   fail(key: ObserverKey, failure: ObserverFailure): Promise<void> {

@@ -12,6 +12,7 @@ import type {
   ChangeLog,
   ChangeQuery,
   CompactionBound,
+  DeclaredObserver,
   LoggedChange,
   ObserverFailure,
   ObserverKey,
@@ -256,7 +257,7 @@ export class DatabaseChangeLog implements ChangeLog {
     });
   }
 
-  declare(key: ObserverKey, now: number): Promise<ObserverState> {
+  declare(key: ObserverKey, now: number): Promise<DeclaredObserver> {
     return this.#database.transaction(async (transaction) => {
       const head = await counterOf(transaction, this.#scope);
       await transaction
@@ -278,7 +279,7 @@ export class DatabaseChangeLog implements ChangeLog {
         throw new Error(`observer ${key.name} was not filed`);
       }
       if (row.position >= head.compacted) {
-        return stateOf(row);
+        return { ...stateOf(row), fellBehind: false };
       }
       // Fell behind what compaction removed: say so, then go on after it.
       const behind = {
@@ -290,7 +291,7 @@ export class DatabaseChangeLog implements ChangeLog {
         .update(marblesObservers)
         .set(behind)
         .where(this.#where(key));
-      return stateOf({ ...row, ...behind });
+      return { ...stateOf({ ...row, ...behind }), fellBehind: true };
     });
   }
 

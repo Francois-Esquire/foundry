@@ -773,8 +773,9 @@ observe(workflow, async ({ runId }) => notifyFailure(runId), {
 ```
 
 An observer is known by its name within the workspace and source:
-`options.name`, else the top-level `const` the call is assigned to, else
-the handler's function name; `observe` refuses one it cannot name, and a
+`options.name`, else the top-level `const` the call is assigned to (found
+with the project's own `typescript`; without it, give a name), else the
+handler's function name; `observe` refuses one it cannot name, and a
 second observer of a source under a name already declared. Editing a
 handler keeps its place; renaming it makes a new observer. A new observer
 starts from now: it is handed the facts committed after its first start,

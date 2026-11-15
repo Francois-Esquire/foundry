@@ -956,6 +956,17 @@ describe("compaction", () => {
       from: 1,
       through: 2,
     });
+
+    // Told once: the next start finds it caught up, and says nothing.
+    const quiet: string[] = [];
+    const again = delivery((line) => quiet.push(line));
+    await again.start();
+    await again.stop();
+    expect(quiet.filter((line) => line.includes("missed"))).toEqual([]);
+    expect((await records.log.observers())[0]?.missed).toEqual({
+      from: 1,
+      through: 2,
+    });
     await records.close();
   });
 });
