@@ -64,6 +64,8 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
   readonly #idle = new Set<() => void>();
   /** Runs whose cancellation is being written: each holds its queue's place. */
   readonly #withdrawing = new Set<string>();
+  /** Set while every waiting run is handed over: no queue lets anything in. */
+  #frozen = false;
   constructor(
     options: ExecutionRecordsOptions & {
       readonly queues?: Readonly<Record<string, QueueSettings>>;
@@ -180,12 +182,40 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
   }
 
   /**
+   * Take every run waiting in this process's queues off them and make each
+   * `successor`'s, still queued (`handQueued`), in their order; resolves
+   * with the ids handed over. No queue lets a run in from the moment this
+   * begins until every one is handed over, so a slot that frees meanwhile
+   * (a run that parks, a task that gives its slot up) starts none of them
+   * here. One no longer queued here stays as it is, and is let in
+   * afterwards if it is still waiting.
+   */
+  async handOverAll(successor: ProcessIdentity): Promise<readonly string[]> {
+    this.#frozen = true;
+    const handed: string[] = [];
+    try {
+      for (const id of this.waiting()) {
+        if (await this.#handOver(id, successor)) {
+          handed.push(id);
+        }
+      }
+    } finally {
+      this.#frozen = false;
+      for (const lane of this.#lanes.values()) {
+        this.#pump(lane);
+      }
+      this.#checkIdle();
+    }
+    return handed;
+  }
+
+  /**
    * Take a queued run off its queue and make it `successor`'s, still
    * queued (`handQueued`); resolves `false`, leaving it here, when it is not
    * queued here. It holds its queue's place while that is written, as a
    * withdrawal does.
    */
-  async handOver(id: string, successor: ProcessIdentity): Promise<boolean> {
+  async #handOver(id: string, successor: ProcessIdentity): Promise<boolean> {
     const run = this.get(id);
     if (run?.status !== "queued") {
       return false;
@@ -242,7 +272,8 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
    * one being withdrawn holds its place, and nothing behind it goes first.
    */
   #pump(lane: Lane): void {
-    while (lane.active.size < lane.concurrency) {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `handOverAll` sets it.
+    while (!this.#frozen && lane.active.size < lane.concurrency) {
       const [next] = lane.waiting;
       if (!next || this.#withdrawing.has(next.id)) {
         return;

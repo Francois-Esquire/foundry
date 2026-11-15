@@ -295,15 +295,12 @@ export class Launcher {
    * Resolves with the ids handed over.
    */
   async handOver(successor: ProcessIdentity): Promise<readonly string[]> {
-    const handed: string[] = [];
-    for (const id of this.executions.waiting()) {
-      if (await this.executions.handOver(id, successor)) {
-        this.#pay(
-          id,
-          new Error(`run ${id} was handed to the next engine generation`)
-        );
-        handed.push(id);
-      }
+    const handed = await this.executions.handOverAll(successor);
+    for (const id of handed) {
+      this.#pay(
+        id,
+        new Error(`run ${id} was handed to the next engine generation`)
+      );
     }
     return handed;
   }
