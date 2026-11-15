@@ -680,14 +680,17 @@ export function describeArtifactManager(
       const reached = Promise.withResolvers<undefined>();
       const held = Promise.withResolvers<undefined>();
       let holding = true;
-      const store = interceptCommits(createStore(), async (write, commit) => {
-        if (holding) {
-          holding = false;
-          reached.resolve(undefined);
-          await held.promise;
+      const store = interceptCommits(
+        await createStore(),
+        async (write, commit) => {
+          if (holding) {
+            holding = false;
+            reached.resolve(undefined);
+            await held.promise;
+          }
+          await commit(write);
         }
-        await commit(write);
-      });
+      );
       const artifacts = new ArtifactManager({ store });
       const trigger = Promise.withResolvers<undefined>();
       let later: Promise<ArtifactResolved> | undefined;
@@ -770,7 +773,7 @@ export function describeArtifactManager(
     test("refuses at once a call on another manager from inside a transaction, even with that manager's own call waiting", async ({
       skip,
     }) => {
-      const store = createStore();
+      const store = await createStore();
       if (!isTransactional(store)) {
         return skip();
       }
@@ -839,7 +842,7 @@ export function describeArtifactManager(
       test(`refuses at once ${kind} to an Artifact another manager's own call to it waits on, from inside a transaction`, async ({
         skip,
       }) => {
-        const store = createStore();
+        const store = await createStore();
         if (!isTransactional(store)) {
           return skip();
         }
