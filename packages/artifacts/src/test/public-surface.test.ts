@@ -10,6 +10,7 @@ import * as artifacts from "../index";
 import { blobFiles } from "../node";
 import type { ArtifactStore, ArtifactStoreWrite } from "../store";
 import { InMemoryArtifactStore } from "../store/memory";
+import type { SqliteArtifactStore } from "../store/sqlite";
 import { ArtifactTransaction, operationEffects } from "../transaction";
 
 describe("Artifact package public surface", () => {
@@ -49,6 +50,16 @@ describe("Artifact package public surface", () => {
     expect(await exported("../store/memory")).toEqual([
       "InMemoryArtifactStore",
     ]);
+    expect(await exported("../store/sqlite")).toEqual(["SqliteArtifactStore"]);
+    expect(await exported("../store/tables")).toEqual([
+      "artifactBlobChunks",
+      "artifactBlobs",
+      "artifactContentBlobs",
+      "artifactContents",
+      "artifacts",
+    ]);
+    expect(artifacts).not.toHaveProperty("SqliteArtifactStore");
+    expect(artifacts).not.toHaveProperty("artifactContents");
     expect(await exported("../testing/store")).toEqual([
       "describeArtifactStore",
     ]);
@@ -57,6 +68,7 @@ describe("Artifact package public surface", () => {
       .parameter(0)
       .toEqualTypeOf<ArtifactStoreWrite>();
     expectTypeOf<InMemoryArtifactStore>().toExtend<ArtifactStore>();
+    expectTypeOf<SqliteArtifactStore>().toExtend<ArtifactStore>();
   });
 
   test("declares each store and suite path explicitly", () => {
@@ -64,6 +76,8 @@ describe("Artifact package public surface", () => {
     for (const [path, file] of [
       ["./store", "store/index"],
       ["./store/memory", "store/memory"],
+      ["./store/sqlite", "store/sqlite"],
+      ["./store/tables", "store/tables"],
       ["./testing", "testing/index"],
       ["./testing/store", "testing/store"],
       ["./testing/manager", "testing/manager"],

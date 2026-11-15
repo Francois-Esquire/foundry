@@ -22,6 +22,7 @@ export function interceptCommits(
 ): ArtifactStore {
   const wrapped: ArtifactStore = {
     commit: (write) => intercept(write, (landing) => store.commit(landing)),
+    ...(store.durability === undefined ? {} : { durability: store.durability }),
     findBlobs: (digest) => store.findBlobs(digest),
     findReferences: (id) => store.findReferences(id),
     getArtifact: (id) => store.getArtifact(id),

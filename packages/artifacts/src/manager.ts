@@ -112,6 +112,17 @@ const REENTRY =
  * stopped naming once it lands, and `recover` removes any file left behind
  * by a crash in between.
  *
+ * Over a store whose durability is `"host"` (it writes inside a transaction
+ * someone else owns, which may yet roll back), a landed commit is not
+ * known to last, so the manager never removes a file committed records may
+ * name: not the files a change retired, and not in `recover`, which it
+ * refuses. A rolled-back change then still finds every file it retired.
+ * Reclaiming is a durable manager's `recover`, over a `"commit"` store
+ * outside the host's transaction: it reads committed records under the
+ * store's exclusion, so it sees the host's outcome. Bindings, observers and
+ * after-commit effects still run once the store's commit resolves, before
+ * the host's outcome is known.
+ *
  * Inside a `transaction` operation, every call on the manager joins that
  * transaction: a read sees its uncommitted writes and a nested `transaction`
  * commits with it. Stores serialize transactions, so the alternative is a
@@ -122,6 +133,11 @@ const REENTRY =
  */
 export class ArtifactManager implements Artifacts {
   readonly #store: ArtifactStore;
+  /**
+   * Whether a commit that resolved may still be rolled back by a
+   * transaction the store sits inside; see {@link ArtifactStore.durability}.
+   */
+  readonly #held: boolean;
   readonly #limits: TransactionLimits;
   readonly #bindings = new Set<(id: ArtifactId) => Promise<void>>();
   readonly #observers = new Set<ArtifactObserver>();
@@ -137,6 +153,7 @@ export class ArtifactManager implements Artifacts {
 
   constructor(options: ArtifactManagerOptions = {}) {
     this.#store = options.store ?? new InMemoryArtifactStore();
+    this.#held = this.#store.durability === "host";
     this.#limits = {
       ...(options.files ? { files: options.files } : {}),
       maxFileBytes: options.maxFileBytes ?? MAX_FILE_BYTES,
@@ -479,7 +496,19 @@ export class ArtifactManager implements Artifacts {
     return this.transaction((artifacts) => artifacts.sweep(input));
   }
 
+  /**
+   * Removes staging and backing files no committed record names, then
+   * reapplies every Artifact to bindings and observers. Refused over a
+   * `"host"` store: the records it would read may yet be rolled back, and a
+   * rollback names again files it would have removed. Run it from a manager
+   * over the durable store instead, outside the host's transaction.
+   */
   async recover(): Promise<void> {
+    if (this.#held) {
+      throw new Error(
+        'ArtifactManager cannot recover over a store whose commits a host transaction may roll back (durability "host"): files its records stop naming may be named again. Run recover from a manager over the durable store, outside the host\'s transaction.'
+      );
+    }
     const refused = this.#reentry();
     if (refused) {
       throw refused;
@@ -899,7 +928,11 @@ export class ArtifactManager implements Artifacts {
     if (failure) {
       throw failure;
     }
-    await this.#removeFiles(effects.retired);
+    // Over a "host" store a rollback could name them again: they wait for
+    // a durable manager's recover.
+    if (!this.#held) {
+      await this.#removeFiles(effects.retired);
+    }
   }
 
   #notify(ids: Iterable<ArtifactId>, cause: ArtifactChangeCause): void {

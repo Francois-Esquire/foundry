@@ -5,12 +5,12 @@ import type { ListArtifactsInput } from "../index";
 import { ArtifactManager } from "../manager";
 import { artifactIdSchema } from "../ref";
 import type { Artifact, Blob } from "../schema";
-import { InMemoryArtifactStore } from "../store/memory";
 import { required } from "./helpers/required";
+import { openStore, STORE_KINDS, type StoreKind } from "./helpers/stores";
 
 /** A store holding one Artifact with one active Content over one blob. */
-async function seeded() {
-  const store = new InMemoryArtifactStore();
+async function seeded(kind: StoreKind) {
+  const store = await openStore(kind);
   const artifacts = new ArtifactManager({ store });
   const created = await artifacts.create({
     entries: { "a.txt": { bytes: "a" } },
@@ -32,9 +32,9 @@ async function seeded() {
   };
 }
 
-describe("Artifact change rules", () => {
+describe.each(STORE_KINDS)("%s store: Artifact change rules", (kind) => {
   it("refuses a pointer to another Artifact's Content", async () => {
-    const { artifacts, content, store } = await seeded();
+    const { artifacts, content, store } = await seeded(kind);
     const other = required(
       await store.getArtifact(
         (await artifacts.create({ name: "B", type: "text/plain" })).id
@@ -48,7 +48,7 @@ describe("Artifact change rules", () => {
   });
 
   it("refuses Content without its Artifact", async () => {
-    const { artifact, content, store } = await seeded();
+    const { artifact, content, store } = await seeded(kind);
     const change = new ArtifactChange(store, {});
     await change.deleteArtifact(artifact.id);
     await expect(change.putContent(content)).rejects.toThrow(
@@ -57,7 +57,7 @@ describe("Artifact change rules", () => {
   });
 
   it("deletes an Artifact's Contents with it, including ones this change put", async () => {
-    const { artifact, content, store } = await seeded();
+    const { artifact, content, store } = await seeded(kind);
     const change = new ArtifactChange(store, {});
     const added = { ...content, id: crypto.randomUUID() } as typeof content;
     await change.putContent(added);
@@ -71,7 +71,7 @@ describe("Artifact change rules", () => {
   });
 
   it("refuses to delete the active Content", async () => {
-    const { content, store } = await seeded();
+    const { content, store } = await seeded(kind);
     const change = new ArtifactChange(store, {});
     await expect(change.deleteContent(content.id)).rejects.toThrow(
       "active Content"
@@ -79,7 +79,7 @@ describe("Artifact change rules", () => {
   });
 
   it("refuses a backing path another blob owns", async () => {
-    const { blob, store } = await seeded();
+    const { blob, store } = await seeded(kind);
     const path = crypto.randomUUID();
     const backed = (id: string): Blob =>
       ({
@@ -97,7 +97,7 @@ describe("Artifact change rules", () => {
   });
 
   it("reads its own writes and leaves the store alone until written", async () => {
-    const { artifact, store } = await seeded();
+    const { artifact, store } = await seeded(kind);
     const change = new ArtifactChange(store, {});
     await change.putArtifact({ ...artifact, name: "Renamed" });
     expect((await change.getArtifact(artifact.id))?.name).toBe("Renamed");
@@ -107,7 +107,7 @@ describe("Artifact change rules", () => {
   });
 
   it("rejects writes when read-only and every call once settled", async () => {
-    const { artifact, store } = await seeded();
+    const { artifact, store } = await seeded(kind);
     const reading = new ArtifactChange(store, { readOnly: true });
     await expect(reading.putArtifact(artifact)).rejects.toThrow("read-only");
     reading.settle();
@@ -115,7 +115,7 @@ describe("Artifact change rules", () => {
   });
 });
 
-describe("Artifact change listings", () => {
+describe.each(STORE_KINDS)("%s store: Artifact change listings", (kind) => {
   const at = (seconds: number) =>
     new Date(Date.UTC(2026, 0, 1) + seconds * 1000);
   function record(
@@ -158,7 +158,7 @@ describe("Artifact change listings", () => {
       record("Deleted later", 4),
       record("Keep last", 5),
     ];
-    const store = new InMemoryArtifactStore();
+    const store = await openStore(kind);
     await store.commit({ putArtifacts: stored });
     const change = new ArtifactChange(store, {});
     const [, , renamed, archived, deleted] = stored;
@@ -173,9 +173,9 @@ describe("Artifact change listings", () => {
     await change.putArtifact(record("Keep added tied", 2, "c-tied"));
     await change.putArtifact(record("Added last", 7));
 
-    const committed = new InMemoryArtifactStore({
-      records: await store.records(),
-    });
+    // The same records in a second store, with the change committed.
+    const committed = await openStore(kind);
+    await committed.commit({ putArtifacts: stored });
     await committed.commit(required(change.write()));
     const after = new ArtifactChange(committed, { readOnly: true });
 

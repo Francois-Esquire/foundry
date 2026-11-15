@@ -19,13 +19,12 @@ import {
   type ArtifactDiskConflict,
   type ArtifactFileMutation,
   artifactFileSystem,
-  JsonArtifactStore,
 } from "../node";
-import { InMemoryArtifactStore } from "../store/memory";
 import type { ContentResolved } from "../substrate";
 import { interceptCommits } from "../testing";
 import { fixture } from "./helpers/directory";
 import { required } from "./helpers/required";
+import { openStore, STORE_KINDS } from "./helpers/stores";
 
 const encoder = new TextEncoder();
 const STAMP_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{8}$/;
@@ -47,40 +46,45 @@ async function text(
   return new TextDecoder().decode(required(file).blob);
 }
 
-describe("a filesystem bound to a JSON record store", () => {
-  it("applies each commit without waiting on its own lock", async () => {
-    const root = await mkdtemp(join(tmpdir(), "artifact-json-fs-"));
-    cleanups.push(() => rm(root, { force: true, recursive: true }));
-    const artifacts = new ArtifactManager({
-      store: new JsonArtifactStore({
-        lockTimeoutMs: 2000,
-        path: join(root, "artifacts.json"),
-      }),
+describe.each(STORE_KINDS)(
+  "a filesystem bound to a %s record store",
+  (storeKind) => {
+    it("applies each commit without waiting on the store's own turn or lock", async () => {
+      const root = await mkdtemp(join(tmpdir(), "artifact-json-fs-"));
+      cleanups.push(() => rm(root, { force: true, recursive: true }));
+      const artifacts = new ArtifactManager({
+        store: await openStore(storeKind),
+      });
+      const filesystem = artifactFileSystem({
+        artifacts,
+        root: join(root, "files"),
+      });
+      cleanups.push(() => filesystem.close());
+      const created = await artifacts.create({
+        entries: { "notes.md": { bytes: encoder.encode("one") } },
+        name: "Notes",
+        type: "text/markdown",
+      });
+      const { path } = await filesystem.resolve({ artifactId: created.id });
+      await artifacts.write({
+        artifactId: created.id,
+        changes: { put: { "notes.md": { bytes: encoder.encode("two") } } },
+      });
+      expect(await readFile(join(path, "notes.md"), "utf8")).toBe("two");
     });
-    const filesystem = artifactFileSystem({
-      artifacts,
-      root: join(root, "files"),
-    });
-    cleanups.push(() => filesystem.close());
-    const created = await artifacts.create({
-      entries: { "notes.md": { bytes: encoder.encode("one") } },
-      name: "Notes",
-      type: "text/markdown",
-    });
-    const { path } = await filesystem.resolve({ artifactId: created.id });
-    await artifacts.write({
-      artifactId: created.id,
-      changes: { put: { "notes.md": { bytes: encoder.encode("two") } } },
-    });
-    expect(await readFile(join(path, "notes.md"), "utf8")).toBe("two");
-  });
-});
+  }
+);
 
-describe("selective application", () => {
+describe.each(STORE_KINDS)("%s store: selective application", (storeKind) => {
   it("never mirrors or writes an Artifact it does not include", async () => {
-    const { artifacts, filesystem, root, system } = await fixture({}, false, {
-      includes: (artifact) => artifact.type !== "application/x-private",
-    });
+    const { artifacts, filesystem, root, system } = await fixture(
+      {},
+      false,
+      {
+        includes: (artifact) => artifact.type !== "application/x-private",
+      },
+      storeKind
+    );
     const hidden = await artifacts.create({
       entries: { "secret.md": { bytes: encoder.encode("hidden") } },
       name: "Private",
@@ -107,7 +111,7 @@ describe("selective application", () => {
   });
 });
 
-describe("mutation hooks", () => {
+describe.each(STORE_KINDS)("%s store: mutation hooks", (storeKind) => {
   it("stamp Content metadata in the same write and see it once committed", async () => {
     const seen: ArtifactFileMutation["kind"][] = [];
     const committed: ContentResolved[] = [];
@@ -128,7 +132,8 @@ describe("mutation hooks", () => {
             metadata: { origin: { actor: kind } },
           });
         },
-      }
+      },
+      storeKind
     );
     const workspace = await load();
     directory = workspace.root;
@@ -162,7 +167,7 @@ describe("mutation hooks", () => {
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const commit: { fails: boolean } = { fails: false };
     const artifacts = new ArtifactManager({
-      store: interceptCommits(new InMemoryArtifactStore(), (write, land) =>
+      store: interceptCommits(await openStore(storeKind), (write, land) =>
         commit.fails ? Promise.reject(new Error("commit failed")) : land(write)
       ),
     });
@@ -218,7 +223,8 @@ describe("mutation hooks", () => {
                 }
               },
             }),
-        }
+        },
+        storeKind
       );
       const { path } = await filesystem.resolve({ artifactId: artifact.id });
       const unbind =
@@ -263,7 +269,8 @@ describe("mutation hooks", () => {
             Promise.resolve({
               committed: (content) => committed.push(content),
             }),
-        }
+        },
+        storeKind
       );
       const { path } = await filesystem.resolve({ artifactId: artifact.id });
       let reportedInside: number | undefined;
@@ -295,7 +302,8 @@ describe("mutation hooks", () => {
     const { artifact, artifacts, load } = await fixture(
       { "notes.md": { bytes: "before" } },
       false,
-      { mutation: () => Promise.reject(new Error("not allowed")) }
+      { mutation: () => Promise.reject(new Error("not allowed")) },
+      storeKind
     );
     const workspace = await load();
     const [file] = await workspace.files();
@@ -325,7 +333,8 @@ describe("mutation hooks", () => {
           synchronized.push(id);
           await write();
         },
-      }
+      },
+      storeKind
     );
     const workspace = await load();
     await writeFile(join(workspace.root, "notes.md"), "typed on disk");
@@ -344,7 +353,7 @@ describe("mutation hooks", () => {
   });
 });
 
-describe("conflicting disk edits", () => {
+describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
   it("are kept aside before a commit replaces them", async () => {
     const conflicts: ArtifactDiskConflict[] = [];
     const { artifact, artifacts, load, root } = await fixture(
@@ -354,7 +363,8 @@ describe("conflicting disk edits", () => {
         conflicted: (kept) => conflicts.push(kept),
         // Hold disk synchronization so the commit lands first.
         synchronize: () => new Promise<void>(() => undefined),
-      }
+      },
+      storeKind
     );
     const workspace = await load();
     await writeFile(join(workspace.root, "notes.md"), "disk edit");
@@ -384,7 +394,7 @@ describe("conflicting disk edits", () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-metadata-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+      store: await openStore(storeKind),
     });
     const conflicts: ArtifactDiskConflict[] = [];
     const held: (() => void)[] = [];
@@ -441,7 +451,8 @@ describe("conflicting disk edits", () => {
           await held;
           await write();
         },
-      }
+      },
+      storeKind
     );
     const workspace = await load();
     await writeFile(join(workspace.root, "notes.md"), "disk edit");
@@ -459,13 +470,13 @@ describe("conflicting disk edits", () => {
     expect(
       await readFile(join(required(conflicts[0]).directory, "notes.md"), "utf8")
     ).toBe("disk edit");
-  });
+  }, 30_000);
 
   it("left by a previous process are kept before records are applied", async () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-restart-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const artifacts = new ArtifactManager({
-      store: new JsonArtifactStore({ path: join(root, "artifacts.json") }),
+      store: await openStore(storeKind),
     });
     const before = artifactFileSystem({ artifacts, root: join(root, "files") });
     const created = await artifacts.create({
@@ -494,7 +505,7 @@ describe("conflicting disk edits", () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-stale-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const artifacts = new ArtifactManager({
-      store: new JsonArtifactStore({ path: join(root, "artifacts.json") }),
+      store: await openStore(storeKind),
     });
     const before = artifactFileSystem({ artifacts, root: join(root, "files") });
     const created = await artifacts.create({
@@ -527,7 +538,7 @@ describe("conflicting disk edits", () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-unapplied-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const artifacts = new ArtifactManager({
-      store: new JsonArtifactStore({ path: join(root, "artifacts.json") }),
+      store: await openStore(storeKind),
     });
     const before = artifactFileSystem({ artifacts, root: join(root, "files") });
     const created = await artifacts.create({
@@ -560,7 +571,7 @@ describe("conflicting disk edits", () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-orphan-note-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const artifacts = new ArtifactManager({
-      store: new JsonArtifactStore({ path: join(root, "artifacts.json") }),
+      store: await openStore(storeKind),
     });
     const files = join(root, "files");
     const before = artifactFileSystem({ artifacts, root: files });
@@ -600,7 +611,8 @@ describe("conflicting disk edits", () => {
         keptConflicts: 2,
         // Hold disk synchronization so each commit lands first.
         synchronize: () => new Promise<void>(() => undefined),
-      }
+      },
+      storeKind
     );
     const workspace = await load();
     for (const round of [1, 2, 3]) {

@@ -4,6 +4,7 @@ import {
   compareCreated,
   isAfterCursor,
   matchesArtifactFilter,
+  ownedListQuery,
 } from "../listing";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, ArtifactRecords, Blob, Content } from "../schema";
@@ -15,6 +16,7 @@ import type {
   BlobListing,
   BlobReferences,
 } from "./index";
+import { ownedRecords, ownedWrite } from "./owned";
 
 export interface InMemoryArtifactStoreOptions {
   /** Starting records; cloned, so the caller keeps ownership. */
@@ -38,14 +40,21 @@ export class InMemoryArtifactStore implements ArtifactStore {
 
   constructor(options: InMemoryArtifactStoreOptions = {}) {
     this.#records = Records.from(
-      structuredClone(
+      ownedRecords(
         options.records ?? { artifacts: [], blobs: [], contents: [] }
       )
     );
   }
 
+  /**
+   * Takes the write as it stands now: one owned copy of it (`ownedWrite`), made
+   * before the commit waits its turn, so a caller changing the write later
+   * changes nothing. A write the clone refuses rejects whole.
+   */
   commit(write: ArtifactStoreWrite): Promise<void> {
-    return this.#turns.run(() => this.#records.apply(write));
+    return owned(write, (copy) =>
+      this.#turns.run(() => this.#records.apply(copy))
+    );
   }
 
   transaction<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T> {
@@ -59,17 +68,23 @@ export class InMemoryArtifactStore implements ArtifactStore {
           : Promise.reject(new Error("Artifact store transaction has settled"));
       const view: ArtifactStore = {
         commit: (write) =>
-          read(() => {
-            staged ??= this.#records.copy();
-            return staged.apply(write);
-          }),
+          owned(write, (copy) =>
+            read(() => {
+              staged ??= this.#records.copy();
+              return staged.apply(copy);
+            })
+          ),
+        // Its commits stand only if the work succeeds.
+        durability: "host",
         findBlobs: (digest) => read((records) => records.findBlobs(digest)),
         findReferences: (id) => read((records) => records.findReferences(id)),
         getArtifact: (id) => read((records) => records.getArtifact(id)),
         getBlob: (id) => read((records) => records.getBlob(id)),
         getContent: (id) => read((records) => records.getContent(id)),
         listArtifacts: (query) =>
-          read((records) => records.listArtifacts(query)),
+          listed(query, (copy) =>
+            read((records) => records.listArtifacts(copy))
+          ),
         listBlobs: () => read((records) => records.listBlobs()),
         listContents: (artifactId) =>
           read((records) => records.listContents(artifactId)),
@@ -107,7 +122,7 @@ export class InMemoryArtifactStore implements ArtifactStore {
   }
 
   listArtifacts(query: ArtifactListQuery): Promise<ArtifactListing> {
-    return this.#records.listArtifacts(query);
+    return listed(query, (copy) => this.#records.listArtifacts(copy));
   }
 
   listBlobs(): Promise<readonly BlobListing[]> {
@@ -160,20 +175,8 @@ class Records {
     );
   }
 
+  /** Applies `write`, which the records take ownership of. */
   apply(write: ArtifactStoreWrite): Promise<void> {
-    // Clone first so a value that cannot be cloned refuses the whole write.
-    let puts: Required<
-      Pick<ArtifactStoreWrite, "putArtifacts" | "putBlobs" | "putContents">
-    >;
-    try {
-      puts = structuredClone({
-        putArtifacts: write.putArtifacts ?? [],
-        putBlobs: write.putBlobs ?? [],
-        putContents: write.putContents ?? [],
-      });
-    } catch (error) {
-      return Promise.reject(error);
-    }
     for (const id of write.deleteArtifacts ?? []) {
       this.#artifacts.delete(id);
     }
@@ -183,13 +186,13 @@ class Records {
     for (const id of write.deleteBlobs ?? []) {
       this.#blobs.delete(id);
     }
-    for (const artifact of puts.putArtifacts) {
+    for (const artifact of write.putArtifacts ?? []) {
       this.#artifacts.set(artifact.id, artifact);
     }
-    for (const content of puts.putContents) {
+    for (const content of write.putContents ?? []) {
       this.#contents.set(content.id, content);
     }
-    for (const blob of puts.putBlobs) {
+    for (const blob of write.putBlobs ?? []) {
       this.#blobs.set(blob.id, blob);
     }
     return Promise.resolve();
@@ -265,6 +268,40 @@ class Records {
       contents: [...this.#contents.values()],
     });
   }
+}
+
+/**
+ * `take` with the store's own copy of a listing query, or a rejection of
+ * one {@link ownedListQuery} refuses.
+ */
+function listed(
+  query: ArtifactListQuery,
+  take: (copy: ArtifactListQuery) => Promise<ArtifactListing>
+): Promise<ArtifactListing> {
+  let copy: ArtifactListQuery;
+  try {
+    copy = ownedListQuery(query);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  return take(copy);
+}
+
+/**
+ * `take` with the store's own copy of `write`, or a rejection when the
+ * write cannot be cloned.
+ */
+function owned(
+  write: ArtifactStoreWrite,
+  take: (copy: ArtifactStoreWrite) => Promise<void>
+): Promise<void> {
+  let copy: ArtifactStoreWrite;
+  try {
+    copy = ownedWrite(write);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  return take(copy);
 }
 
 function detached<T>(value: T): Promise<T> {
