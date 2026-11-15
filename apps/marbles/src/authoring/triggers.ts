@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { canonicalizeJson } from "@foundry/lib/json";
-import { catalog } from "~/authoring/catalog";
+import { declaringCatalog } from "~/authoring/runtime";
 import type { AnyDefinition, LockedNode } from "~/lib/definition";
 import { launchTarget } from "~/lib/launch";
 import type {
@@ -53,9 +53,10 @@ export function schedule(target: AnyDefinition | LockedNode): ScheduleBuilder {
     const base = hasInput
       ? `${slug(launch.workflow)}-${sha256(canonicalizeJson(jsonData(launch.input))).slice(0, 8)}`
       : slug(launch.workflow);
-    catalog.schedule({
+    const into = declaringCatalog();
+    into.schedule({
       input: launch.input,
-      key: catalog.uniqueKey(base),
+      key: into.uniqueKey(base),
       kind: "schedule",
       label: hasInput
         ? `${launch.workflow} ${JSON.stringify(launch.input)}`
@@ -102,10 +103,11 @@ export function monitor(source: string): MonitorBuilder {
   const build = (every: string, request?: MonitorRequest): MonitorBuilder => ({
     do(handler) {
       const trigger = parseAt(every);
-      const key = catalog.uniqueKey(
+      const into = declaringCatalog();
+      const key = into.uniqueKey(
         `${slug(source)}-${sha256(source).slice(0, 6)}`
       );
-      catalog.monitor({
+      into.monitor({
         handler,
         key,
         label: source,

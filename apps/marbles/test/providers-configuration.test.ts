@@ -313,8 +313,20 @@ describe("environments by scope", () => {
     });
   });
 
-  it("leaves a machine-scope instance that reads the process environment unavailable when the workspace adds to it", async () => {
+  it("serves a machine-scope instance that reads the process environment, which the workspace's values never enter", async () => {
     store.put(MACHINE_SCOPE, {
+      providers: [{ enabled: true, id: "pi", plugin: "pi" }],
+    });
+    const { config, models } = configuration({
+      machine: { PATH: "/bin" },
+      workspace: { ANTHROPIC_API_KEY: "secret-value" },
+    });
+    await loaded(config);
+    expect(ids(models)).toEqual(["pi"]);
+  });
+
+  it("leaves a workspace-scope instance that reads the process environment unavailable when the workspace adds to it", async () => {
+    store.put("ws1", {
       providers: [{ enabled: true, id: "pi", plugin: "pi" }],
     });
     const { config, models } = configuration({

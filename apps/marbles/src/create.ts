@@ -46,7 +46,7 @@ import { AutomationService } from "~/lib/automation/service";
 import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
-import { environmentSnapshot } from "~/lib/environment";
+import { environmentSnapshot, executionEnvironment } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { localCatalogue } from "~/lib/managers/workspaces";
@@ -69,6 +69,8 @@ export interface CreateEngineOptions {
   readonly artifacts?: string;
   readonly askable?: boolean;
   readonly catalog: Catalog;
+  /** Where the workspace's runs start and commands run; `root` when omitted. */
+  readonly cwd?: string;
   /**
    * The Marbles database the host keeps open, which holds this workspace's
    * tasks, their recorded changes, its agent sessions, its workflow Runs,
@@ -403,6 +405,10 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...modelsFor(options),
     print,
     ...kept,
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.environment === undefined
+      ? {}
+      : { environment: executionEnvironment(options.environment) }),
     root,
     state,
     workspaceId,

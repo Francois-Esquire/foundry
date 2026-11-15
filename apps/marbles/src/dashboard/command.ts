@@ -1,6 +1,5 @@
 import { basename } from "node:path";
 import type { Flags } from "~/args";
-import { catalog } from "~/authoring/catalog";
 import { applyTheme } from "~/components/ui/theme";
 import { openDashboard } from "~/dashboard/terminal";
 import { layout } from "~/layout";
@@ -17,7 +16,6 @@ import { createStarter } from "~/workspace/create";
 import { Diagnostics } from "~/workspace/diagnostics";
 import type { WorkspaceHost } from "~/workspace/host";
 import { hostWorkspace } from "~/workspace/host";
-import { loadSource } from "~/workspace/open";
 import {
   registerSetupStep,
   SETUP_STEP,
@@ -40,7 +38,7 @@ export async function runInteractive(args: Flags): Promise<void> {
   const controller = new AbortController();
   const local = localState(args);
   const terminal = await openDashboard(
-    basename(sourceRoot(resolveSource(args.config))),
+    basename(sourceRoot(resolveSource(args.config, args.directory))),
     controller
   );
   // The one place this process stops on a signal: everything below is
@@ -159,21 +157,13 @@ async function runLocal(
     host = await hostWorkspace({
       artifacts: args.artifacts,
       askable: true,
+      directory: args.directory,
       dry: args.dry,
       onMissing: async (missing) =>
         !controller.signal.aborted &&
         (await terminal.onboard(missing, async (draft) => {
           createdFile = await createStarter(missing, draft);
           createdDraft = draft;
-          try {
-            await loadSource(missing, print);
-          } catch (error) {
-            catalog.reset();
-            throw new Error(
-              `Starter was created but could not load: ${String(error)}. Fix it and restart Marbles.`,
-              { cause: error }
-            );
-          }
         })),
       prepare: registerSetupStep,
       print,
@@ -248,7 +238,7 @@ async function runRemote(
   controller: AbortController,
   local: LocalState
 ): Promise<void> {
-  const configPath = resolveSource(args.config);
+  const configPath = resolveSource(args.config, args.directory);
   const client = await connect({
     layout: layout(),
   });

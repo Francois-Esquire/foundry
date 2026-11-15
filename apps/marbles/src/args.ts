@@ -483,6 +483,8 @@ function isCommand(name: string): name is Command {
 }
 
 export interface Flags extends HostOptions {
+  /** The shell's directory, which the command line is relative to. */
+  readonly directory: string;
   readonly inputJson: string | undefined;
 }
 
@@ -546,6 +548,8 @@ function parseFlags(argv: readonly string[]): {
   const flags = {
     artifacts,
     config: values.config ?? DEFAULT_SOURCE,
+    // The command line's edge: the one place the shell's directory is read.
+    directory: process.cwd(),
     dry,
     inputJson: values.inputJson,
     state,

@@ -84,10 +84,14 @@ export function sourceRoot(path: string): string {
   return isDirectory ? absolute : dirname(absolute);
 }
 
-/** Existing single-file consumers remain available through --config. */
-export function resolveSource(path: string): string {
-  const absolute = resolve(path);
-  const legacy = resolve("marbles.config.ts");
+/**
+ * The source `path` names, from `directory`, the directory the command
+ * runs in. Existing single-file consumers remain available through
+ * --config.
+ */
+export function resolveSource(path: string, directory: string): string {
+  const absolute = resolve(directory, path);
+  const legacy = resolve(directory, "marbles.config.ts");
   return path === DEFAULT_SOURCE && !existsSync(absolute) && existsSync(legacy)
     ? legacy
     : absolute;

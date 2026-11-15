@@ -162,7 +162,7 @@ function serveWorkspace(flags: Flags): Served {
 /** Serve the workspace until the client leaves. */
 async function serve(flags: Flags): Promise<void> {
   const output = protocolOutput();
-  const configPath = resolveSource(flags.config);
+  const configPath = resolveSource(flags.config, flags.directory);
   let served: Served;
   try {
     served = serveWorkspace(flags);

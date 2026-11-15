@@ -1,7 +1,7 @@
 import { fillArgv, parseArgv, placeholdersOf } from "@foundry/lib/argv";
 import type { Bail } from "@foundry/workflows/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { catalog } from "~/authoring/catalog";
+import { declaringCatalog } from "~/authoring/runtime";
 import type { CommandResult, ExecOptions } from "~/lib/command";
 import type {
   LockedNode,
@@ -171,7 +171,7 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
       kind: "step",
       ...(output === undefined ? {} : { output }),
     });
-    catalog.define(definition, identity.inferred);
+    declaringCatalog().define(definition, identity.inferred);
     return definition;
   }
 }
@@ -276,7 +276,7 @@ function finishWorkflow<I, O, R = I>(
     kind: "workflow",
     setup,
   });
-  catalog.define(definition, identity.inferred);
+  declaringCatalog().define(definition, identity.inferred);
   return definition;
 }
 

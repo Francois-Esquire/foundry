@@ -950,7 +950,7 @@ export class ProviderConfiguration {
     const env = this.#envFor(scope);
     const patterns = accountPatterns(plugin, settings);
     const ambient = plugin.ambient
-      ? ambientProblem(this.#options.environment, patterns, env)
+      ? ambientProblem(this.#options.environment.machine, patterns, env)
       : undefined;
     if (ambient) {
       return report("unavailable", ambient);

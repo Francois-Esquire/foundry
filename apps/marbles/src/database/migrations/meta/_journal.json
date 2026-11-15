@@ -71,6 +71,13 @@
       "when": 1794740303787,
       "tag": "0009_machine_state",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1794745074494,
+      "tag": "0010_workspace_cwd",
+      "breakpoints": true
     }
   ]
 }
