@@ -212,7 +212,9 @@ export class MemoryRunStore implements RunStore {
 
   recorded(runId: string): Promise<StoredScope> {
     return this.#gate.run(() => {
-      const scope = this.#scopes.get(runId);
+      // A copy, as the database reads one, so a caller changing what it
+      // is given changes nothing kept here.
+      const scope = structuredClone(this.#scopes.get(runId));
       return Promise.resolve(
         scope === undefined
           ? { ledger: {} }
