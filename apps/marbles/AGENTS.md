@@ -216,8 +216,9 @@ Five buckets, each importing only what sits below it:
   into a `Catalog` of its own (`loadSource`, through `loadInto` in
   `authoring/runtime.ts`; loads may overlap), and its Varlock values into
   the engine's execution context, never `process.env`. Each load imports
-  copies of its own of the workspace's modules (`copies.ts`, which
-  rewrites only import specifiers, found with `oxc-parser`), and those
+  copies of its own of every module its source imports by path
+  (`copies.ts`: anything but packages and Marbles' own code; it rewrites
+  only import specifiers, found with `oxc-parser`), and those
   copies import a library bound to the load (`authoring/bound.ts`): every
   word that declares or routes runs in the load's scope (`inLoad`), and
   builders and instances keep the scope they were made in

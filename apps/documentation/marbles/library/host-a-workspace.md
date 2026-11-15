@@ -80,9 +80,10 @@ Each host loads its workspace's source into a catalog of its own, and its
 definitions, triggers, agents, tasks or values, and two workspaces may use
 the same names. What a workspace's modules do later, from a timer, a
 promise or a listener, still belongs to that workspace, and is refused once
-its host has closed. A module outside the workspace's root, such as a
-package, is shared by every workspace in the process: what it declares
-while a workspace loads is refused. A relative `source`, or a
+its host has closed. Every module a workspace's source imports by path,
+under its root or not, is loaded for that workspace alone; a package,
+imported by name or from `node_modules`, is shared by every workspace in
+the process, and what it declares while a workspace loads is refused. A relative `source`, or a
 workspace with no source at all, needs `directory`: the directory the
 source is relative to, which is the workspace's root without one. `cwd`
 sets where the workspace's runs start and its commands run, the root when

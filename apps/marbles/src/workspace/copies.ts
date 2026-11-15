@@ -1,5 +1,5 @@
 import { readFileSync, realpathSync } from "node:fs";
-import { dirname, extname, isAbsolute, sep } from "node:path";
+import { dirname, extname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { JavaScriptLoader, PluginBuilder } from "bun";
 import { resolveSync } from "bun";
@@ -13,7 +13,7 @@ import {
 
 /**
  * Each load of a workspace's source imports its own copy of every module
- * under the workspace's root that its entries reach, so what one load
+ * of its source that its entries reach, by path, so what one load
  * evaluated, or failed to evaluate, is never what another gets: a module
  * cannot be unloaded, but a copy is a different module. A copy is the
  * file's path with its load's tag in the query (`authoring/load-tag.ts`);
@@ -25,9 +25,10 @@ import {
  * pointed at copies of the same load, found by parsing it, so nothing but
  * an import's specifier is ever changed:
  *
- * - each relative specifier of an `import`, `export … from`, type-only or
- *   side-effect import, or a literal `import()`, that names a module under
- *   the workspace's root outside `node_modules`, names that module's copy;
+ * - each specifier of an `import`, `export … from`, type-only or
+ *   side-effect import, or a literal `import()`, that names a module by its
+ *   path (anywhere but under `node_modules` or in Marbles' own code) names
+ *   that module's copy; one named as a package never does;
  * - every other `import()` goes through `importFrom`, which resolves what
  *   it is given from the importing file as Bun would, and imports the copy
  *   of the same load when that is a module of the workspace;
@@ -43,7 +44,18 @@ import {
  */
 
 const COPY = /\?marbles-load=\d+$/;
-const RELATIVE = /^\.{1,2}\//;
+/** A specifier that names a file by its path, not a package by its name. */
+const BY_PATH = /^(?:\.{1,2}\/|\/|file:)/;
+/**
+ * Marbles' own code, which every load shares: a copy of it would be a
+ * second Marbles. Its examples and templates are authored source.
+ */
+const MARBLES = realpathSync(
+  fileURLToPath(
+    new URL(import.meta.url.endsWith(".ts") ? "../.." : "..", import.meta.url)
+  )
+);
+const MARBLES_CODE = [join(MARBLES, "src"), join(MARBLES, "dist")];
 const LOADERS: Readonly<Record<string, JavaScriptLoader>> = {
   ".cjs": "js",
   ".cts": "ts",
@@ -83,11 +95,8 @@ function libraryOf(specifier: string, load: number): string {
 }
 let modules: PluginBuilder | undefined;
 
-function inside(root: string, file: string): boolean {
-  return (
-    file.startsWith(`${root}${sep}`) &&
-    !file.slice(root.length).includes(`${sep}node_modules${sep}`)
-  );
+function inside(directory: string, file: string): boolean {
+  return file.startsWith(`${directory}${sep}`);
 }
 
 /**
@@ -111,11 +120,17 @@ function resolved(specifier: string, directory: string): string | undefined {
   return isAbsolute(target) ? realpathSync(target) : target;
 }
 
-/** The copy of load `load` that `target` is imported as, when it is a module of that load's workspace. */
+/**
+ * The copy of load `load` that `target`, named by its path, is imported
+ * as: any module of the workspace's own source, under its root or not,
+ * but none under `node_modules` and none of Marbles' own code, which stay
+ * one instance per process.
+ */
 function copyFor(target: string, load: number): string | undefined {
-  const root = roots.get(load);
-  return root !== undefined &&
-    inside(root, target) &&
+  return roots.has(load) &&
+    isAbsolute(target) &&
+    !target.includes(`${sep}node_modules${sep}`) &&
+    !MARBLES_CODE.some((directory) => inside(directory, target)) &&
     LOADERS[extname(target)] !== undefined
     ? copyPath(target, load)
     : undefined;
@@ -140,7 +155,8 @@ function importFrom(
   if (target === undefined) {
     return import(named, options);
   }
-  return import(copyFor(target, load) ?? target, options);
+  const copy = BY_PATH.test(named) ? copyFor(target, load) : undefined;
+  return import(copy ?? target, options);
 }
 
 interface Edit {
@@ -175,7 +191,7 @@ function specifierEdit(
       text: JSON.stringify(libraryOf(value, load)),
     };
   }
-  if (!RELATIVE.test(value)) {
+  if (!BY_PATH.test(value)) {
     return;
   }
   const target = resolved(value, dirname(file));

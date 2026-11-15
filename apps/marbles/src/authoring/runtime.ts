@@ -238,7 +238,7 @@ function namedWorkspace(): string | undefined {
 /** Work that names no workspace, where that is refused. */
 function unnamedError(): AmbiguousWorkspaceError {
   return new AmbiguousWorkspaceError(
-    "this call names no workspace: it comes from outside every workspace's runs, observers and modules (a package, a file outside a workspace's root, or Marbles itself), and this process hosts several, so none of them answers it"
+    "this call names no workspace: it comes from outside every workspace's runs, observers and modules (a package, or Marbles itself), and this process hosts several, so none of them answers it"
   );
 }
 
@@ -299,13 +299,13 @@ export function declaringCatalog(): Catalog {
   if (owner !== undefined) {
     return owner.catalog;
   }
-  if (unnamedRefused) {
-    throw unnamedError();
-  }
   if (importing > 0) {
     throw new AmbiguousWorkspaceError(
-      "this declaration comes from no workspace's own module (a package, or a file outside the workspace's root, which one process shares between workspaces) while a workspace's source loads, so it belongs to none of them; declare it in a module under the workspace's root"
+      "this declaration comes from a package, which one process shares between every workspace it hosts, while a workspace's source loads, so it belongs to none of them; declare it in a module the workspace imports by path, or export a function from the package and call it there"
     );
+  }
+  if (unnamedRefused) {
+    throw unnamedError();
   }
   return catalog;
 }

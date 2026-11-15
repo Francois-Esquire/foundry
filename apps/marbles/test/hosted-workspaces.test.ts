@@ -468,3 +468,50 @@ it("loads every registered workspace again, reports each that fails, and fires a
   const records = await recordedWorkspaces(join(root, "state"));
   expect(records.map((record) => record.hosted)).toEqual([true, true]);
 }, 120_000);
+
+it("loads a module two workspaces import from outside their roots once for each of them", async () => {
+  const root = await scratch();
+  const shared = join(root, "shared.ts");
+  await writeFile(
+    shared,
+    'import { step } from "@foundry.sh/marbles";\nexport const sharedStep = step("shared").do(() => "shared");\n'
+  );
+  const tail = `import ${JSON.stringify(shared)};\n`;
+  const a = await workspace(root, "alpha", tail);
+  const b = await workspace(root, "beta", tail);
+  const report = await inProcess(
+    root,
+    `const loads = await hosted.load([
+    { config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} },
+    { config: ${JSON.stringify(b.source)}, root: ${JSON.stringify(b.dir)} },
+  ]);
+  report.loads = loads.map((load) => load.loaded);
+  report.shared = await Promise.all(
+    hosted.list().map((host) => hosted.run({ name: "shared", workspace: host.id }))
+  );`
+  );
+  expect(report.loads).toEqual([true, true]);
+  expect(report.shared).toEqual(["shared", "shared"]);
+}, 120_000);
+
+it("refuses what a package declares while a workspace loads, since every workspace shares it", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha", 'import "declaring-package";\n');
+  const pkg = join(a.dir, "node_modules", "declaring-package");
+  await mkdir(pkg, { recursive: true });
+  await writeFile(
+    join(pkg, "package.json"),
+    '{ "name": "declaring-package", "type": "module", "main": "index.js" }\n'
+  );
+  // It imports the library by name, as a package does: the shared one.
+  await writeFile(
+    join(pkg, "index.js"),
+    'import { step } from "@foundry.sh/marbles";\nstep("from-package").do(() => 1);\n'
+  );
+  const report = await inProcess(
+    root,
+    `const [load] = await hosted.load([{ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} }]);
+  report.load = load.loaded ? "loaded" : load.error.message;`
+  );
+  expect(report.load).toContain("comes from a package");
+}, 120_000);
