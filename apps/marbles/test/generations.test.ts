@@ -903,6 +903,33 @@ describe("engine generations", () => {
     }
   }, 150_000);
 
+  it("launches again on the current generation a launch a generation refused as retiring, recording it once", async () => {
+    const marker = join(testHome({ providers: false }).path, "refuse-launch");
+    process.env.MARBLES_TEST_REFUSE_LAUNCH = marker;
+    try {
+      const fixture = await setUp({
+        daemon: {
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-retiring-launch.ts"
+          ),
+        },
+      });
+      const workspace = fixture.client.workspace(fixture.summary);
+      writeFileSync(marker, "");
+      await workspace.actions.launch("where", {});
+      // Refused once, as retiring, then launched on the generation current now.
+      expect(existsSync(marker)).toBe(false);
+      await whenLogged(fixture, `where ${String(fixture.summary.pid ?? 0)}`);
+      const rows = await executions(fixture, fixture.summary.id);
+      expect(rows.filter((row) => row.name === "where")).toHaveLength(1);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_REFUSE_LAUNCH;
+    }
+  }, 150_000);
+
   it("switches when a text file its source imports under the root changes, though no tree covers it", async () => {
     const fixture = await setUp();
     const first = fixture.summary.pid ?? 0;
@@ -990,6 +1017,7 @@ describe("engine generations", () => {
     await expect(fixture.client.attach(fixture.source)).rejects.toThrow(
       "is detaching"
     );
+    await expect(workspace.snapshot()).rejects.toThrow("is detaching");
     // Another workspace attaches meanwhile: the daemon's turn is free.
     const otherRoot = join(fixture.gates, "..", "other");
     mkdirSync(otherRoot);
@@ -1165,6 +1193,39 @@ describe("engine generations", () => {
       host: "generation",
       pid: fixture.summary.pid,
     });
+    fixture.client.close();
+  }, 150_000);
+
+  it("schedules no write of the hosts again once a later one landed", async () => {
+    const clock = handClock();
+    const original = GenerationRecords.prototype.hosting;
+    GenerationRecords.prototype.hosting = () => {
+      GenerationRecords.prototype.hosting = original;
+      return Promise.reject(new Error("injected hosts write failure"));
+    };
+    let fixture: Awaited<ReturnType<typeof setUp>>;
+    try {
+      fixture = await setUp({ daemon: { clock } });
+    } finally {
+      GenerationRecords.prototype.hosting = original;
+    }
+    expect((await fixture.daemon.idle()).scheduled).toBe(true);
+    // An attach writes the hosts before the retry is due, and it lands.
+    const otherRoot = join(fixture.gates, "..", "other");
+    mkdirSync(otherRoot);
+    const otherSource = join(otherRoot, "marbles.config.ts");
+    writeFileSync(otherSource, moduleText(fixture, 0));
+    const other = await fixture.client.attach(otherSource);
+    expect(await fixture.daemon.idle()).toEqual({
+      reasons: [],
+      scheduled: false,
+    });
+    const report = await readStatus(fixture.machine.state);
+    for (const id of [fixture.summary.id, other.id]) {
+      expect(report.workspaces.find((each) => each.id === id)).toMatchObject({
+        alive: true,
+      });
+    }
     fixture.client.close();
   }, 150_000);
 

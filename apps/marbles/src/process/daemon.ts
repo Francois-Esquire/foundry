@@ -1349,6 +1349,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
     }
     if (hostsDue.size === 0) {
+      // A retry armed for a write that has landed since has nothing to do.
+      clock.clearTimeout(hostsTimer);
+      hostsTimer = undefined;
       hostsDelay = REPLACE_MIN_MS;
       return;
     }
@@ -2025,6 +2028,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     // A generation current but still starting answers once it has started.
     await settledStart(target);
     const { error, id, state } = workspace.summary;
+    if (workspace.detaching !== undefined) {
+      throw new Error(`workspace ${id} is detaching`);
+    }
     if (
       target === undefined ||
       target !== current ||
