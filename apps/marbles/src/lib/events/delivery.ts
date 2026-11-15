@@ -25,13 +25,21 @@ import { current } from "~/lib/run-scope";
  * fact again. A fact of another type than the observer asked for is passed
  * over, its place moved past it.
  *
- * Observers are handed facts one handler at a time, in declaration order,
- * outside any write. A handler that throws keeps its place, and is tried
- * again after a backoff that doubles with each failure in a row
- * (`retryDelay`), while the other observers go on; its failures, its last
- * error and when it is tried next are kept with its place, for `marbles
- * status`. An observer that fell behind what compaction removed is told
- * what it missed, once, and goes on after it.
+ * Observers are delivered to independently: each has a lane of its own,
+ * one handler call at a time, outside any write, so one observer being
+ * slow, failing or hung never delays another. A pass reads the counter
+ * once and starts the lane of each observer that is behind it and due; a
+ * lane hands its observer the facts up to that counter and no further, so
+ * a handler that writes to the source it observes cannot keep one lane
+ * going for ever. A handler that throws, or does not finish within its
+ * time limit (`HANDLER_TIMEOUT_MS`, or the observer's own), keeps its
+ * place, and is tried again after a backoff that doubles with each
+ * failure in a row (`retryDelay`); its failures, its last error and when
+ * it is tried next are kept with its place, for `marbles status`. A call
+ * past its limit is not abandoned to another: until it settles, the
+ * observer is stuck in it (kept with its place, since when) and handed
+ * nothing, and its retry waits for it. An observer that fell behind what
+ * compaction removed is told what it missed, once, and goes on after it.
  *
  * Facts every observer seen within the retention has completed, and that
  * committed longer ago than the retention, are removed (`compact`), at
@@ -43,7 +51,10 @@ import { current } from "~/lib/run-scope";
  * woken at once by a commit made in its own process, and notices one made
  * elsewhere within `DELIVERY_POLL_MS`, the tick that also retries failed
  * observers. A process refused the claim tries again on the same tick, and
- * takes up each observer at the place the last deliverer left it.
+ * takes up each observer at the place the last deliverer left it. `stop`
+ * waits for the handler calls in flight for `STOP_GRACE_MS` at most, then
+ * gives the claim up without them: the place of an observer whose call
+ * did not finish is not moved, so its fact is delivered again later.
  *
  * A pass never runs inside a run. A write inside a step body wakes
  * delivery, and a pass started there would otherwise inherit that step's
@@ -67,6 +78,12 @@ const CHANGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 /** How often, in ms, a running delivery compacts the log: every ten minutes. */
 const COMPACTION_EVERY_MS = 10 * 60 * 1000;
 
+/** How long, in ms, a handler call may run before it counts as failed: five minutes. */
+export const HANDLER_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** How long, in ms, `stop` waits for the handler calls in flight: ten seconds. */
+export const STOP_GRACE_MS = 10 * 1000;
+
 /** The longest a failing observer waits to be tried again, in ms. */
 const LONGEST_RETRY_MS = 5 * 60 * 1000;
 const FIRST_RETRY_MS = 1000;
@@ -79,45 +96,89 @@ export function retryDelay(failures: number): number {
   );
 }
 
+/**
+ * The time delivery goes by: what time it is, in epoch ms, and a wait that
+ * ends after a while, or never once cancelled. A test hands in one it
+ * moves itself.
+ */
+export interface DeliveryClock {
+  after(ms: number): { readonly done: Promise<void>; cancel(): void };
+  now(): number;
+}
+
+/** The wall clock, its waits keeping no process alive. */
+const WALL_CLOCK: DeliveryClock = {
+  after(ms) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const done = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms);
+      timer.unref?.();
+    });
+    return { cancel: () => clearTimeout(timer), done };
+  },
+  now: () => Date.now(),
+};
+
 /** How an observer is declared, beside its source and handler. */
 export interface ObserveOptions {
   /** Its name within the workspace and source: its identity. */
   readonly name: string;
+  /** How long, in ms, one call of its handler may run; the delivery's limit when omitted. */
+  readonly timeout?: number | undefined;
   /** Only facts of these types; every type of the source when omitted. */
   readonly types?: readonly string[];
 }
 
 interface Observer {
+  /** The handler call in flight, and when it began. */
+  call: { readonly since: number; readonly settled: Promise<void> } | undefined;
   /** Failures in a row, as last filed. */
   failures: number;
   readonly handler: Handler<unknown>;
   readonly key: ObserverKey;
+  /** Its lane, while one runs. */
+  lane: Promise<void> | undefined;
   /** The last position it completed or passed over, as last filed. */
   position: number;
   /** When it is tried again, in epoch ms; `null` while it is well. */
   retryAt: number | null;
+  /** How long one call may run, in ms. */
+  readonly timeout: number;
   readonly types: readonly string[] | undefined;
 }
 
 export interface DeliveryOptions {
+  /** The time delivery goes by; the wall clock when omitted. */
+  readonly clock?: DeliveryClock;
   /** What every handler runs as: the engine's workspace, outside any run. */
   readonly context?: ExecutionContext;
-  /** The clock, in epoch ms; `Date.now` when omitted. */
-  readonly now?: () => number;
+  /** How long, in ms, one handler call may run; `HANDLER_TIMEOUT_MS` when omitted. */
+  readonly handlerTimeout?: number | undefined;
   readonly print: (line: string) => void;
   /** The workspace's records: its change log, and who delivers it. */
   readonly records: WorkspaceRecords;
   /** How long facts every observer completed are kept, in ms; `CHANGE_RETENTION_MS` when omitted. */
   readonly retention?: number | undefined;
+  /** How long `stop` waits for handler calls in flight, in ms; `STOP_GRACE_MS` when omitted. */
+  readonly stopGrace?: number | undefined;
 }
+
+/** How one handler call ended. */
+type Outcome =
+  | { readonly kind: "completed" }
+  | { readonly error: unknown; readonly kind: "threw" }
+  | { readonly kind: "timed out" }
+  | { readonly kind: "abandoned" };
 
 export class Delivery {
   readonly #observers: Observer[] = [];
   readonly #context: ExecutionContext | undefined;
   readonly #records: WorkspaceRecords;
   readonly #print: (line: string) => void;
-  readonly #now: () => number;
+  readonly #clock: DeliveryClock;
   readonly #retention: number;
+  readonly #handlerTimeout: number;
+  readonly #stopGrace: number;
   /** Whether this delivery holds the claim, so `stop` gives it up. */
   #claimed = false;
   /** A tick's claim under way, so the next tick does not start another. */
@@ -128,6 +189,12 @@ export class Delivery {
   #pass: Promise<void> | undefined;
   /** A wake came while a pass ran: look again once it ends. */
   #again = false;
+  /**
+   * Settled once `stop` stops waiting for the calls in flight: from then
+   * no lane moves a place or files a failure, since the claim is given up.
+   */
+  readonly #abandoned = Promise.withResolvers<"abandoned">();
+  readonly #stopped: { gaveUp: boolean } = { gaveUp: false };
   /** When the log was last compacted here, in epoch ms; never, at first. */
   #compactedAt = Number.NEGATIVE_INFINITY;
   #timer: ReturnType<typeof setInterval> | undefined;
@@ -140,8 +207,10 @@ export class Delivery {
     this.#records = options.records;
     this.#print = options.print;
     this.#context = options.context;
-    this.#now = options.now ?? Date.now;
+    this.#clock = options.clock ?? WALL_CLOCK;
     this.#retention = options.retention ?? CHANGE_RETENTION_MS;
+    this.#handlerTimeout = options.handlerTimeout ?? HANDLER_TIMEOUT_MS;
+    this.#stopGrace = options.stopGrace ?? STOP_GRACE_MS;
   }
 
   /**
@@ -162,6 +231,14 @@ export class Delivery {
       throw new TypeError("observe: an observer's name cannot be blank");
     }
     if (
+      options.timeout !== undefined &&
+      !(Number.isFinite(options.timeout) && options.timeout > 0)
+    ) {
+      throw new TypeError(
+        "observe: an observer's timeout is a number of ms above 0"
+      );
+    }
+    if (
       this.#observers.some(
         (observer) => observer.key.source === key && observer.key.name === name
       )
@@ -171,12 +248,15 @@ export class Delivery {
       );
     }
     this.#observers.push({
+      call: undefined,
       failures: 0,
       // A source emits only its own fact type.
       handler: handler as Handler<unknown>,
       key: { name, source: key },
+      lane: undefined,
       position: 0,
       retryAt: null,
+      timeout: options.timeout ?? this.#handlerTimeout,
       types: options.types === undefined ? undefined : [...options.types],
     });
   }
@@ -209,6 +289,16 @@ export class Delivery {
       this.#tickEvery();
       return;
     }
+    try {
+      await this.#takeOver();
+    } catch (error) {
+      await this.#release();
+      throw error;
+    }
+    if (this.#phase !== "starting") {
+      await this.#release();
+      return;
+    }
     this.#phase = "running";
     this.#tickEvery();
     this.wake();
@@ -234,7 +324,28 @@ export class Delivery {
     );
   }
 
-  /** Start no handler again; wait for the one running, then give up the claim. */
+  /**
+   * Resolves once no pass and no lane runs here: what a wake started has
+   * been handed out, or has failed. A call stuck past its limit does not
+   * count; its lane has ended.
+   */
+  async idle(): Promise<void> {
+    for (;;) {
+      const running = [
+        this.#pass,
+        ...this.#observers.map((observer) => observer.lane),
+      ].filter((work) => work !== undefined);
+      if (running.length === 0) {
+        return;
+      }
+      await Promise.allSettled(running);
+    }
+  }
+
+  /**
+   * Start no handler again; wait for those in flight for the grace at
+   * most, then give up the claim without them, their places unmoved.
+   */
   async stop(): Promise<void> {
     this.#phase = "stopped";
     clearInterval(this.#timer);
@@ -242,26 +353,51 @@ export class Delivery {
     try {
       await this.#pass;
       await this.#claiming;
+      const lanes = this.#observers
+        .map((observer) => observer.lane)
+        .filter((lane) => lane !== undefined);
+      if (lanes.length > 0) {
+        const grace = this.#clock.after(this.#stopGrace);
+        await Promise.race([Promise.allSettled(lanes), grace.done]);
+        grace.cancel();
+      }
     } finally {
+      this.#stopped.gaveUp = true;
+      this.#abandoned.resolve("abandoned");
       await this.#release();
     }
   }
 
-  /**
-   * Read every observer's place as filed, filing it at the counter when it
-   * is new, and tell of any that fell behind compaction.
-   */
+  /** Read every observer's place as filed, filing it at the counter when it is new. */
   async #declare(): Promise<void> {
     for (const observer of this.#observers) {
-      const state = await this.#records.log.declare(observer.key, this.#now());
-      observer.position = state.position;
-      observer.failures = state.failures;
-      observer.retryAt = state.retryAt;
-      if (state.fellBehind && state.missed !== null) {
-        this.#print(
-          `[observe] ${describe(observer.key)} missed changes ${String(state.missed.from)} to ${String(state.missed.through)}: they were removed before it received them; it goes on after them`
-        );
-      }
+      await this.#declareOne(observer);
+    }
+  }
+
+  /** Read `observer`'s place as filed, and tell of it falling behind compaction. */
+  async #declareOne(observer: Observer): Promise<void> {
+    const state = await this.#records.log.declare(
+      observer.key,
+      this.#clock.now()
+    );
+    observer.position = state.position;
+    observer.failures = state.failures;
+    observer.retryAt = state.retryAt;
+    if (state.fellBehind && state.missed !== null) {
+      this.#print(
+        `[observe] ${describe(observer.key)} missed changes ${String(state.missed.from)} to ${String(state.missed.through)}: they were removed before it received them; it goes on after them`
+      );
+    }
+  }
+
+  /**
+   * Now this delivery holds the claim: no observer is stuck in a call of
+   * a deliverer that let go or is gone, whatever it filed.
+   */
+  async #takeOver(): Promise<void> {
+    for (const observer of this.#observers) {
+      await this.#records.log.unstick(observer.key);
     }
   }
 
@@ -316,6 +452,7 @@ export class Delivery {
       }
       // The places the engine that let go left them at.
       await this.#declare();
+      await this.#takeOver();
     } catch (error) {
       this.#report(error);
       return;
@@ -349,7 +486,7 @@ export class Delivery {
     try {
       do {
         try {
-          await this.#deliverAll();
+          await this.#startDue();
           this.#problem = undefined;
         } catch (error) {
           this.#report(error);
@@ -361,27 +498,48 @@ export class Delivery {
     }
   }
 
-  /** One pass: compact when due, then bring each observer that is due up to the counter. */
-  async #deliverAll(): Promise<void> {
+  /**
+   * One pass: compact when due, then start the lane of each observer that
+   * is behind the counter as it reads now, and due, up to that counter.
+   */
+  async #startDue(): Promise<void> {
     const head = await this.#records.log.head();
     await this.#compactWhenDue();
+    const now = this.#clock.now();
     for (const observer of this.#observers) {
       if (this.#phase !== "running") {
         return;
       }
-      const now = this.#now();
       if (
+        observer.lane !== undefined ||
+        observer.call !== undefined ||
         observer.position >= head ||
         (observer.retryAt !== null && observer.retryAt > now)
       ) {
         continue;
       }
-      await this.#catchUp(observer, head);
+      observer.lane = this.#lane(observer, head);
+    }
+  }
+
+  /** `observer`'s lane: its catch-up to `head`, then a look for more. */
+  async #lane(observer: Observer, head: number): Promise<void> {
+    let caughtUp = false;
+    try {
+      caughtUp = await this.#catchUp(observer, head);
+    } catch (error) {
+      this.#report(error);
+    } finally {
+      observer.lane = undefined;
+    }
+    // What was written while it ran is for the next pass, not this lane.
+    if (caughtUp) {
+      this.wake();
     }
   }
 
   async #compactWhenDue(): Promise<void> {
-    const now = this.#now();
+    const now = this.#clock.now();
     if (now - this.#compactedAt < COMPACTION_EVERY_MS) {
       return;
     }
@@ -391,11 +549,12 @@ export class Delivery {
   }
 
   /**
-   * Hand `observer` each fact of its source after its place, up to `head`
-   * at least, then move it to `head` past any of other types; stop at its
-   * first failure, or a move it could not make.
+   * Hand `observer` each fact of its source after its place up to `head`,
+   * and no further, then move it to `head` past any of other types:
+   * whether it got there, rather than stopping at a failure, a move it
+   * could not make, or a stop.
    */
-  async #catchUp(observer: Observer, head: number): Promise<void> {
+  async #catchUp(observer: Observer, head: number): Promise<boolean> {
     for (;;) {
       const batch = await this.#records.log.read({
         after: observer.position,
@@ -404,32 +563,98 @@ export class Delivery {
         ...(observer.types === undefined ? {} : { types: observer.types }),
       });
       for (const change of batch) {
+        if (change.position > head) {
+          return (
+            observer.position >= head || (await this.#moveTo(observer, head))
+          );
+        }
         if (this.#phase !== "running") {
-          return;
+          return false;
         }
         if (!(await this.#hand(observer, change))) {
-          return;
+          return false;
         }
       }
       if (batch.length < CHANGE_BATCH) {
         break;
       }
     }
-    if (observer.position < head) {
-      await this.#moveTo(observer, head);
-    }
+    return observer.position >= head || (await this.#moveTo(observer, head));
   }
 
   /** Hand `change` to `observer` and move it past; whether it may go on. */
   async #hand(observer: Observer, change: LoggedChange): Promise<boolean> {
-    try {
-      // Each handler gets its own copy: one cannot change what another sees.
-      await observer.handler(structuredClone(change.fact));
-    } catch (error) {
-      await this.#failed(observer, change, error);
-      return false;
+    const outcome = await this.#call(observer, change);
+    switch (outcome.kind) {
+      case "abandoned":
+        return false;
+      case "threw":
+        await this.#failed(
+          observer,
+          change,
+          describeError(outcome.error),
+          null
+        );
+        return false;
+      case "timed out":
+        await this.#failed(
+          observer,
+          change,
+          `the handler did not finish within ${seconds(observer.timeout)}`,
+          observer.call?.since ?? null
+        );
+        return false;
+      default:
+        return await this.#moveTo(observer, change.position, change);
     }
-    return await this.#moveTo(observer, change.position, change);
+  }
+
+  /**
+   * Call `observer`'s handler with `change`, waiting for it no longer than
+   * its time limit, nor once `stop` gave up waiting. A call past its limit
+   * stays the observer's own until it settles: then the observer is no
+   * longer stuck, and is looked at again.
+   */
+  async #call(observer: Observer, change: LoggedChange): Promise<Outcome> {
+    // Each handler gets its own copy: one cannot change what another sees.
+    const fact = structuredClone(change.fact);
+    const settled: Promise<Outcome> = Promise.resolve()
+      .then(() => observer.handler(fact))
+      .then(
+        () => ({ kind: "completed" }),
+        (error: unknown) => ({ error, kind: "threw" })
+      );
+    observer.call = {
+      settled: settled.then(() => undefined),
+      since: this.#clock.now(),
+    };
+    const limit = this.#clock.after(observer.timeout);
+    const outcome = await Promise.race([
+      settled,
+      limit.done.then((): Outcome => ({ kind: "timed out" })),
+      this.#abandoned.promise.then((): Outcome => ({ kind: "abandoned" })),
+    ]);
+    limit.cancel();
+    if (outcome.kind === "timed out") {
+      settled.then(() => this.#unstuck(observer));
+      return outcome;
+    }
+    observer.call = undefined;
+    return this.#stopped.gaveUp ? { kind: "abandoned" } : outcome;
+  }
+
+  /** `observer`'s call past its limit settled: hand it facts again, once its retry is due. */
+  async #unstuck(observer: Observer): Promise<void> {
+    observer.call = undefined;
+    if (this.#stopped.gaveUp) {
+      return;
+    }
+    try {
+      await this.#records.log.unstick(observer.key);
+    } catch (error) {
+      this.#report(error);
+    }
+    this.wake();
   }
 
   /**
@@ -443,11 +668,14 @@ export class Delivery {
     to: number,
     completed?: LoggedChange
   ): Promise<boolean> {
+    if (this.#stopped.gaveUp) {
+      return false;
+    }
     let moved: boolean;
     try {
       moved = await this.#records.log.move(observer.key, {
         from: observer.position,
-        now: this.#now(),
+        now: this.#clock.now(),
         to,
       });
     } catch (error) {
@@ -460,7 +688,7 @@ export class Delivery {
     }
     if (!moved) {
       // Another deliverer moved it: go on from where it is filed.
-      await this.#declare();
+      await this.#declareOne(observer);
       return false;
     }
     observer.position = to;
@@ -469,26 +697,33 @@ export class Delivery {
     return true;
   }
 
-  /** File `observer`'s failure on `change`, and when it is tried again. */
+  /**
+   * File `observer`'s failure on `change`, `stuckSince` when the call is
+   * past its limit and still running, and when it is tried again.
+   */
   async #failed(
     observer: Observer,
     change: LoggedChange,
-    error: unknown
+    message: string,
+    stuckSince: number | null
   ): Promise<void> {
+    if (this.#stopped.gaveUp) {
+      return;
+    }
     const failures = observer.failures + 1;
     const delay = retryDelay(failures);
-    const now = this.#now();
-    const message = error instanceof Error ? error.message : String(error);
+    const now = this.#clock.now();
     observer.failures = failures;
     observer.retryAt = now + delay;
     this.#print(
-      `[observe] ${describe(observer.key)} failed on ${change.fact.type} ${String(change.position)} (failure ${String(failures)}; trying again in ${String(Math.round(delay / 1000))}s): ${message}`
+      `[observe] ${describe(observer.key)} failed on ${change.fact.type} ${String(change.position)} (failure ${String(failures)}; trying again in ${seconds(delay)}${stuckSince === null ? "" : ", once this call settles"}): ${message}`
     );
     try {
       await this.#records.log.fail(observer.key, {
         error: message,
         now,
         retryAt: observer.retryAt,
+        stuckSince,
       });
     } catch (saving) {
       this.#report(saving);
@@ -499,4 +734,13 @@ export class Delivery {
 /** An observer as a line names it: `name (source)`. */
 function describe(key: ObserverKey): string {
   return `${key.name} (${key.source})`;
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** `ms` as a person reads it: whole seconds. */
+function seconds(ms: number): string {
+  return `${String(Math.round(ms / 1000))}s`;
 }

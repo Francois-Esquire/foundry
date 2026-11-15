@@ -90,7 +90,9 @@ export const marblesChangeLogs = sqliteTable("marbles_change_logs", {
  * counter, so from now. A failing observer keeps its position and counts
  * its `failures` since the last success, with the error and when it is
  * tried again (`retry_at`, epoch ms); one that fell behind compaction says
- * which facts it missed (`missed_from`..`missed_through`). `seen_at` is
+ * which facts it missed (`missed_from`..`missed_through`). One whose call
+ * passed its time limit and has not settled says since when
+ * (`stuck_since`, epoch ms). `seen_at` is
  * when an engine last declared it, in epoch ms: only an observer seen
  * within the retention holds compaction back.
  */
@@ -107,6 +109,7 @@ export const marblesObservers = sqliteTable(
     scope: text().notNull(),
     seenAt: integer("seen_at").notNull(),
     source: text().notNull(),
+    stuckSince: integer("stuck_since"),
   },
   (table) => [primaryKey({ columns: [table.scope, table.source, table.name] })]
 );

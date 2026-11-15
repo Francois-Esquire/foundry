@@ -25,6 +25,7 @@ import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Fact, Handler } from "~/lib/events/source";
 import { TASKS } from "~/lib/events/source";
 import { recordSpawned } from "~/process/spawned";
+import { ManualClock } from "./helpers/clock";
 import { testEngine } from "./helpers/engine";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
@@ -146,38 +147,47 @@ function losingMoves(fail: number): {
 describe("observing tasks", () => {
   it("hands each fact to every observer; a failing one is filed failing and holds no other back", async () => {
     const state = stateDir();
+    const records = machine.records(state);
+    const clock = new ManualClock();
     const seen: TaskEvent[] = [];
     let failures = 0;
     const lines: string[] = [];
-    const engine = engineWith(
-      state,
-      {
-        failing: () => {
-          failures += 1;
-          throw new Error("not today");
-        },
-        steady: (payload) => {
-          seen.push(payload);
-        },
+    const delivery = new Delivery({
+      clock,
+      print: (line) => lines.push(line),
+      records,
+    });
+    delivery.observe(
+      TASKS,
+      () => {
+        failures += 1;
+        throw new Error("not today");
       },
-      (line) => lines.push(line)
+      { name: "failing" }
     );
-    const tasks = new Tasks({ store: engine.taskStore });
-    await engine.start();
+    delivery.observe(
+      TASKS,
+      (payload: TaskEvent) => {
+        seen.push(payload);
+      },
+      { name: "steady" }
+    );
+    await delivery.start();
+    await delivery.idle();
+    const tasks = new Tasks({ store: records.taskStore });
 
     await tasks.create({ tags: ["review"], title: "First" });
     await tasks.create({ title: "Second" });
-    await vi.waitFor(() => expect(titles(seen)).toEqual(["First", "Second"]));
-    await vi.waitFor(() => expect(failures).toBe(1));
-    await engine.stop();
+    delivery.wake();
+    await delivery.idle();
+    await delivery.stop();
 
+    // The clock never moved, so the failing one was tried once.
+    expect(titles(seen)).toEqual(["First", "Second"]);
+    expect(failures).toBe(1);
     expect(seen[0]?.tasks[0]?.after?.tags).toEqual(["review"]);
     const changes = await machine.changes(state, "tasks");
     expect(changes.map((change) => change.payload)).toEqual(seen);
-    expect(changes.map((change) => change.type)).toEqual([
-      "tasks.changed",
-      "tasks.changed",
-    ]);
     expect(await places(state)).toEqual([
       { failures: 1, name: "failing", position: 0 },
       { failures: 0, name: "steady", position: 2 },
@@ -189,38 +199,50 @@ describe("observing tasks", () => {
           line.includes("not today")
       )
     ).toBe(true);
+    await records.close();
   });
 
-  it("tries a failing observer again after its backoff, on the fact it failed on, before any newer one", async () => {
-    const state = stateDir();
+  it("tries a failing observer again once its backoff is over, on the fact it failed on, before any newer one", async () => {
+    const records = new MemoryWorkspaceRecords();
+    const clock = new ManualClock();
     const outage: { down: boolean } = { down: true };
     const calls: string[] = [];
-    const engine = engineWith(state, {
-      flaky: (payload) => {
+    const delivery = new Delivery({ clock, print: () => undefined, records });
+    delivery.observe(
+      TASKS,
+      (payload: TaskEvent) => {
         calls.push(titles([payload]).join());
         if (outage.down) {
           throw new Error("down");
         }
       },
-    });
-    const tasks = new Tasks({ store: engine.taskStore });
-    await engine.start();
+      { name: "flaky" }
+    );
+    await delivery.start();
+    const tasks = new Tasks({ store: records.taskStore });
 
     await tasks.create({ title: "First" });
-    await vi.waitFor(() => expect(calls).toEqual(["First"]));
-    await tasks.create({ title: "Second" });
-    // Within its backoff, a newer fact wakes nothing for it.
-    await new Promise((settle) => setTimeout(settle, retryDelay(1) / 2));
+    delivery.wake();
+    await delivery.idle();
     expect(calls).toEqual(["First"]);
+    // Within its backoff, a newer fact wakes nothing for it.
+    await tasks.create({ title: "Second" });
+    clock.advance(retryDelay(1) - 1);
+    delivery.wake();
+    await delivery.idle();
+    expect(calls).toEqual(["First"]);
+
     outage.down = false;
-    await vi.waitFor(
-      () => expect(calls).toEqual(["First", "First", "Second"]),
-      { timeout: retryDelay(1) + DELIVERY_POLL_MS * 4 }
-    );
-    await engine.stop();
-    expect(await places(state)).toEqual([
-      { failures: 0, name: "flaky", position: 2 },
-    ]);
+    clock.advance(1);
+    delivery.wake();
+    await delivery.idle();
+    expect(calls).toEqual(["First", "First", "Second"]);
+    expect((await records.log.observers())[0]).toMatchObject({
+      failures: 0,
+      lastError: null,
+      position: 2,
+    });
+    await delivery.stop();
   });
 
   it("hands a fact again, before any newer one, to an observer whose move past it was not saved: at least once", async () => {
@@ -256,25 +278,29 @@ describe("observing tasks", () => {
     expect(lines.some((line) => line.includes("may run again"))).toBe(true);
   });
 
-  it("runs a pass in the context the engine was built in, never in the waking call's", async () => {
+  it("runs a pass in the context the delivery was built in, never in the waking call's", async () => {
     const caller = new AsyncLocalStorage<string>();
     const seen: (string | undefined)[] = [];
-    const engine = engineWith(stateDir(), {
-      context: () => {
+    const records = machine.records(stateDir());
+    const delivery = new Delivery({ print: () => undefined, records });
+    delivery.observe(
+      TASKS,
+      () => {
         seen.push(caller.getStore());
       },
-    });
-    const tasks = new Tasks({ store: engine.taskStore });
-    await engine.start();
-    // Let the start's own pass, which finds nothing, end; the write below
-    // is then what starts the next pass.
-    await new Promise((done) => setTimeout(done, 20));
-    await caller.run("a command's output", () =>
-      tasks.create({ title: "Woken" })
+      { name: "context" }
     );
-    await vi.waitFor(() => expect(seen).toHaveLength(1));
-    await engine.stop();
+    await delivery.start();
+    // The start's own pass is over: the wake below starts the next one.
+    await delivery.idle();
+    await caller.run("a command's output", async () => {
+      await new Tasks({ store: records.taskStore }).create({ title: "Woken" });
+      delivery.wake();
+    });
+    await delivery.idle();
+    await delivery.stop();
     expect(seen).toEqual([undefined]);
+    await records.close();
   });
 
   it("starts a new observer from now: a fact committed before its first start is not handed to it", async () => {
@@ -585,6 +611,223 @@ function delegate(records: WorkspaceRecords): WorkspaceRecords {
   };
 }
 
+describe("a handler's time, and the observers beside it", () => {
+  const LIMIT = 60_000;
+
+  /** Delivery over memory records on a manual clock, and a task writer. */
+  function delivering(options: { readonly stopGrace?: number } = {}) {
+    const records = new MemoryWorkspaceRecords();
+    const clock = new ManualClock();
+    const lines: string[] = [];
+    const delivery = new Delivery({
+      clock,
+      handlerTimeout: LIMIT,
+      print: (line) => lines.push(line),
+      records,
+      ...options,
+    });
+    const tasks = new Tasks({ store: records.taskStore });
+    return { clock, delivery, lines, records, tasks };
+  }
+
+  /** A handler whose calls settle only when the test says. */
+  function held() {
+    const calls: { readonly fact: string; release(): void }[] = [];
+    const handler = (payload: TaskEvent) => {
+      const { promise, resolve } = Promise.withResolvers<void>();
+      calls.push({ fact: titles([payload]).join(), release: resolve });
+      return promise;
+    };
+    return { calls, handler };
+  }
+
+  it("never delays one observer for another that is slow, failing or hung", async () => {
+    const { delivery, records, tasks } = delivering();
+    const hung = held();
+    const healthy: string[] = [];
+    delivery.observe(TASKS, hung.handler, { name: "hung" });
+    delivery.observe(
+      TASKS,
+      () => {
+        throw new Error("down");
+      },
+      { name: "failing" }
+    );
+    delivery.observe(
+      TASKS,
+      (payload: TaskEvent) => {
+        healthy.push(titles([payload]).join());
+      },
+      { name: "healthy" }
+    );
+    await delivery.start();
+    await tasks.create({ title: "One" });
+    await tasks.create({ title: "Two" });
+    delivery.wake();
+
+    await vi.waitFor(() => expect(healthy).toEqual(["One", "Two"]));
+    expect(hung.calls.map((call) => call.fact)).toEqual(["One"]);
+    const states = await records.log.observers();
+    expect(states.map((state) => [state.name, state.position])).toEqual([
+      ["failing", 0],
+      ["healthy", 2],
+      ["hung", 0],
+    ]);
+    hung.calls[0]?.release();
+    await delivery.stop();
+  });
+
+  it("counts a call past its limit as a failure, keeps the place, says it is stuck, and calls again only once the old call settles", async () => {
+    const { clock, delivery, lines, records, tasks } = delivering();
+    const hung = held();
+    // Its own limit, beside the delivery's.
+    delivery.observe(TASKS, hung.handler, { name: "hung", timeout: 5000 });
+    await delivery.start();
+    const began = clock.now();
+    await tasks.create({ title: "Slow" });
+    delivery.wake();
+    await vi.waitFor(() => expect(hung.calls).toHaveLength(1));
+
+    clock.advance(5000);
+    await delivery.idle();
+    const [stuck] = await records.log.observers();
+    expect(stuck).toMatchObject({
+      failures: 1,
+      lastError: "the handler did not finish within 5s",
+      position: 0,
+      stuckSince: began,
+    });
+    expect(lines.some((line) => line.includes("once this call settles"))).toBe(
+      true
+    );
+
+    // Its backoff is long over, but the old call has not settled: no new call.
+    clock.advance(retryDelay(1) * 10);
+    delivery.wake();
+    await delivery.idle();
+    expect(hung.calls).toHaveLength(1);
+
+    // Settled late: the place stays, it is no longer stuck, and the fact
+    // is handed to it again.
+    hung.calls[0]?.release();
+    await vi.waitFor(() => expect(hung.calls).toHaveLength(2));
+    expect(hung.calls[1]?.fact).toBe("Slow");
+    expect((await records.log.observers())[0]).toMatchObject({
+      position: 0,
+      stuckSince: null,
+    });
+    hung.calls[1]?.release();
+    await vi.waitFor(async () =>
+      expect((await records.log.observers())[0]).toMatchObject({
+        failures: 0,
+        position: 1,
+      })
+    );
+    await delivery.stop();
+  });
+
+  it("stops after the grace without a handler still in flight, its place unmoved, even once it finishes", async () => {
+    const { clock, delivery, records, tasks } = delivering({
+      stopGrace: 10_000,
+    });
+    const hung = held();
+    delivery.observe(TASKS, hung.handler, { name: "hung" });
+    await delivery.start();
+    await tasks.create({ title: "Late" });
+    delivery.wake();
+    await vi.waitFor(() => expect(hung.calls).toHaveLength(1));
+
+    let stopped = false;
+    const stopping = delivery.stop().then(() => {
+      stopped = true;
+    });
+    // The grace has not passed: stop waits for the call.
+    await vi.waitFor(() => expect(clock.waiting).toBe(2));
+    expect(stopped).toBe(false);
+    clock.advance(10_000);
+    await stopping;
+
+    hung.calls[0]?.release();
+    await new Promise((settle) => setImmediate(settle));
+    expect((await records.log.observers())[0]).toMatchObject({
+      failures: 0,
+      position: 0,
+    });
+  });
+
+  it("stops at once when every call in flight finishes within the grace, moving their places", async () => {
+    const { delivery, records, tasks } = delivering();
+    const slow = held();
+    delivery.observe(TASKS, slow.handler, { name: "slow" });
+    await delivery.start();
+    await tasks.create({ title: "Finishing" });
+    delivery.wake();
+    await vi.waitFor(() => expect(slow.calls).toHaveLength(1));
+    const stopping = delivery.stop();
+    slow.calls[0]?.release();
+    await stopping;
+    expect((await records.log.observers())[0]?.position).toBe(1);
+  });
+
+  it("hands an observer that writes to its own source only what was there when its pass began", async () => {
+    const records = new MemoryWorkspaceRecords();
+    const tasks = new Tasks({ store: records.taskStore });
+    const trace: string[] = [];
+    const log: WorkspaceRecords["log"] = {
+      ...records.log,
+      head: async () => {
+        const head = await records.log.head();
+        trace.push(`pass at ${String(head)}`);
+        return head;
+      },
+    };
+    const traced = new Delivery({
+      clock: new ManualClock(),
+      print: () => undefined,
+      records: { ...delegate(records), log },
+    });
+    const echoes: string[] = [];
+    traced.observe(
+      TASKS,
+      async (payload: TaskEvent) => {
+        const [title = ""] = titles([payload]);
+        trace.push(`handed ${title}`);
+        // Each of its first three calls writes a fact of the source it
+        // observes, past the batch the lane is reading.
+        if (echoes.length < 3 && title.startsWith("Seed")) {
+          echoes.push(`Echo ${String(echoes.length + 1)}`);
+          await tasks.create({ title: echoes.at(-1) ?? "" });
+        }
+      },
+      { name: "echo" }
+    );
+    await traced.start();
+    await traced.idle();
+    // A full batch, so the lane reads on past it unless the pass bounds it.
+    for (let index = 0; index < CHANGE_BATCH; index += 1) {
+      await tasks.create({ title: `Seed ${String(index)}` });
+    }
+    traced.wake();
+    await vi.waitFor(() =>
+      expect(trace.filter((line) => line.startsWith("handed"))).toHaveLength(
+        CHANGE_BATCH + 3
+      )
+    );
+    await traced.idle();
+    await traced.stop();
+
+    // The echoes went to a later pass, which read the counter again.
+    const lastSeed = trace.indexOf(`handed Seed ${String(CHANGE_BATCH - 1)}`);
+    const firstEcho = trace.indexOf("handed Echo 1");
+    expect(firstEcho).toBeGreaterThan(lastSeed);
+    expect(
+      trace
+        .slice(lastSeed, firstEcho)
+        .some((line) => line === `pass at ${String(CHANGE_BATCH + 3)}`)
+    ).toBe(true);
+  });
+});
+
 describe("delivery lifecycle", () => {
   it("lets several engines over one workspace read and write its tasks, and refuses them to a disposed one", async () => {
     const state = stateDir();
@@ -731,14 +974,19 @@ describe("delivery across processes", () => {
   it("delivers a fact recorded through other records without any change made here", async () => {
     const state = stateDir();
     const seen: TaskEvent[] = [];
-    const owner = engineWith(state, {
-      notify: (payload) => {
+    const records = machine.records(state);
+    const owner = new Delivery({ print: () => undefined, records });
+    owner.observe(
+      TASKS,
+      (payload: TaskEvent) => {
         seen.push(payload);
       },
-    });
+      { name: "notify" }
+    );
     await owner.start();
-    // Let the start's own pass end, so only noticing the fact can deliver it.
-    await new Promise((settle) => setTimeout(settle, 200));
+    // The start's own pass is over, and nothing here wakes it again: only
+    // the tick noticing the fact can deliver it.
+    await owner.idle();
     // Another process's records, on the same workspace in the same database.
     const elsewhere = machine.records(state);
     try {
@@ -750,6 +998,8 @@ describe("delivery across processes", () => {
       });
     } finally {
       await elsewhere.close();
+      await owner.stop();
+      await records.close();
     }
   });
 
@@ -944,7 +1194,13 @@ describe("compaction", () => {
     const seen: string[] = [];
     const delivery = (print: (line: string) => void) => {
       const built = new Delivery({
-        now: () => now.at,
+        clock: {
+          after: () => ({
+            cancel: () => undefined,
+            done: new Promise(() => undefined),
+          }),
+          now: () => now.at,
+        },
         print,
         records,
         retention: DAY,

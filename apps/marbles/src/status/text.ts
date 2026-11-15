@@ -27,7 +27,8 @@ export function workspaceLines(workspace: WorkspaceStatus): string[] {
 
 /**
  * Each observer, a line, and a second for one that is failing or missed
- * changes: `name (source)  [caught up | N behind | failing]`.
+ * changes: `name (source)  [caught up | N behind | failing | stuck in a
+ * call since]`.
  */
 function observerLines(observers: WorkspaceStatus["observers"]): string[] {
   return [
@@ -54,6 +55,9 @@ function observerLines(observers: WorkspaceStatus["observers"]): string[] {
 
 /** How an observer is faring, in a word or two. */
 function observerState(observer: WorkspaceStatus["observers"][number]): string {
+  if (observer.stuckSince !== null) {
+    return `stuck in a call since ${new Date(observer.stuckSince).toISOString()}`;
+  }
   if (observer.failures > 0) {
     return `failing ×${String(observer.failures)}`;
   }

@@ -490,6 +490,7 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
         this.#gate.run(async () => (await log()).move(key, move)),
       observers: () => this.#gate.run(async () => (await log()).observers()),
       read: (query) => this.#gate.run(async () => (await log()).read(query)),
+      unstick: (key) => this.#gate.run(async () => (await log()).unstick(key)),
     };
     const store = async () => (await this.#records.get()).taskStore;
     this.taskStore = {

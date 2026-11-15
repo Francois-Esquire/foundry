@@ -340,7 +340,15 @@ export class DatabaseChangeLog implements ChangeLog {
         lastError: failure.error,
         retryAt: failure.retryAt,
         seenAt: failure.now,
+        stuckSince: failure.stuckSince,
       })
+      .where(this.#where(key));
+  }
+
+  async unstick(key: ObserverKey): Promise<void> {
+    await this.#database
+      .update(marblesObservers)
+      .set({ stuckSince: null })
       .where(this.#where(key));
   }
 
@@ -484,5 +492,6 @@ function stateOf(row: typeof marblesObservers.$inferSelect): ObserverState {
     position: row.position,
     retryAt: row.retryAt,
     source: row.source,
+    stuckSince: row.stuckSince,
   };
 }

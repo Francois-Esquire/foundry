@@ -139,6 +139,7 @@ describe("readStatus", () => {
         error: "down",
         now,
         retryAt: now + 1000,
+        stuckSince: null,
       });
       await records.close();
     } finally {
@@ -156,6 +157,7 @@ describe("readStatus", () => {
         position: 2,
         retryAt: expect.any(Number),
         source: "tasks",
+        stuckSince: null,
       },
       {
         behind: 0,
@@ -166,6 +168,7 @@ describe("readStatus", () => {
         position: 4,
         retryAt: null,
         source: "tasks",
+        stuckSince: null,
       },
     ]);
   });

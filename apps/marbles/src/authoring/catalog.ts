@@ -13,6 +13,8 @@ export interface DeclaredObserver {
   /** Its identity within the workspace and source. */
   readonly name: string;
   readonly source: Source;
+  /** How long, in ms, one call of its handler may run; the engine's limit when omitted. */
+  readonly timeout?: number;
   /** Only facts of these types; every type when omitted. */
   readonly types?: readonly string[];
 }

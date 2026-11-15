@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0fb3bc41-6957-4ebc-85a2-ad63001afb63",
+  "id": "5c507001-4a55-43cc-8d33-da1f23b98d24",
   "prevId": "02be6c70-5458-4919-b1a4-bc1e54467428",
   "tables": {
     "agent_messages": {
@@ -2801,6 +2801,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "stuck_since": {
+          "name": "stuck_since",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },

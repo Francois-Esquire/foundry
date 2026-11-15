@@ -158,8 +158,12 @@ the first left it. An observer's place moves only from where it was read,
 so two deliverers never move one back.
 
 Delivery is at least once per observer: a handler that completed but
-whose place was not saved runs again. A handler that throws keeps its
-place and is tried again after a backoff; other handlers go on. The
+whose place was not saved runs again. A handler that throws, or runs past
+its time limit, keeps its place and is tried again after a backoff; other
+handlers go on, each observer on its own. A call past its limit keeps its
+observer waiting until it settles, which `marbles_observers.stuck_since`
+records. A host that stops waits ten seconds at most for the calls in
+flight; their observers keep their places. The
 delivering host is woken at once by a change made in its process and
 notices one made in another within a second. When it stops, or its
 process exits, a host that was refused delivery takes it over within a

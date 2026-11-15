@@ -224,6 +224,12 @@ export interface EngineOptions {
    * Marbles database when `state` is set.
    */
   readonly grants?: GrantDocumentStorage;
+  /**
+   * How long, in ms, one call of an observer's handler may run before it
+   * counts as a failure: five minutes when omitted. An observer's own
+   * `timeout` overrides it.
+   */
+  readonly handlerTimeout?: number;
   /** The user's home, whose skill folders `skills.load()` reads; the OS home by default. */
   readonly home?: string;
   /**
@@ -583,6 +589,7 @@ export class Engine {
     this.#records = options.records ?? new MemoryWorkspaceRecords();
     this.#delivery = new Delivery({
       context: this.context,
+      handlerTimeout: options.handlerTimeout,
       print,
       records: this.#records,
       retention: options.changeRetention,
@@ -784,7 +791,8 @@ export class Engine {
    * Hand every fact `source` commits in this workspace from now on to
    * `handler`, as the observer `options.name` (the handler's own name when
    * omitted; one of the two is required), only those of `options.types`
-   * when given. Declared before `start`, as an authoring module's
+   * when given, each call allowed `options.timeout` ms (the engine's
+   * `handlerTimeout` when omitted). Declared before `start`, as an authoring module's
    * `observe` is.
    */
   observe<T extends Fact>(

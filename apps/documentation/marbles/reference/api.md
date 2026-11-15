@@ -785,12 +785,25 @@ The host delivers from its start until it stops, one host per workspace at
 a time. Every fact is stored with its change in the same write, whether or
 not anything observes it, with the run that made it when a run did. An
 observer is handed its source's facts in the order they were committed,
-each once it completed the one before. One that throws keeps its place and
-is tried again on the same fact after a backoff (a second, doubling to five
-minutes); other observers go on, and `marbles status` shows its failures,
-its last error and when it is tried next. One that completed but whose
-place was not saved is handed the fact again: delivery is at least once,
-so handle a fact more than once safely. A handler runs outside any write
+each once it completed the one before. Observers are delivered to
+independently: one that is slow, failing or hung never delays another.
+Each pass hands an observer the facts committed when the pass began, so
+facts a handler writes to its own source go to the next pass.
+
+One that throws keeps its place and is tried again on the same fact after a
+backoff (a second, doubling to five minutes), and `marbles status` shows its
+failures, its last error and when it is tried next. A call has a time limit:
+`options.timeout`, in ms, else the host's (five minutes; `handlerTimeout`
+on the engine). A call past it counts as a failure, recorded and shown the
+same way, and the place does not move. The call is not abandoned: until it
+settles, the observer is handed nothing, and `marbles status` says it is
+stuck in a call and since when; its retry starts once the call settles.
+When the host stops, or its engine retires, it waits for the calls in
+flight ten seconds at most, then stops without them; an observer whose
+call did not finish keeps its place, and is handed the fact again later.
+One that completed but whose place was not saved is handed the fact again
+too: delivery is at least once, so handle a fact more than once safely. The
+handler takes the fact alone; nothing cancels a call past its limit. A handler runs outside any write
 and outside any run, even when a step's write woke delivery, so a
 definition it calls starts a run of its own. It may change things itself.
 

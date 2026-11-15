@@ -144,9 +144,10 @@ export function declareCatalog(target: Declarable, catalog: Catalog): void {
   for (const record of catalog.monitors.values()) {
     target.monitor(record);
   }
-  for (const { handler, name, source, types } of catalog.observers) {
+  for (const { handler, name, source, timeout, types } of catalog.observers) {
     target.observe?.(source, handler, {
       name,
+      ...(timeout === undefined ? {} : { timeout }),
       ...(types === undefined ? {} : { types }),
     });
   }

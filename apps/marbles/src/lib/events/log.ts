@@ -47,6 +47,8 @@ export interface ChangeLog {
   observers(): Promise<readonly ObserverState[]>;
   /** The facts of one source after a position, oldest first, detached. */
   read(query: ChangeQuery): Promise<readonly LoggedChange[]>;
+  /** Record that `key` is no longer stuck in a call: it settled, or its deliverer is gone. */
+  unstick(key: ObserverKey): Promise<void>;
 }
 
 /** An observer's identity within its workspace. */
@@ -68,6 +70,12 @@ export interface ObserverState extends ObserverKey {
   readonly position: number;
   /** When it is tried again, in epoch ms; `null` while it is well. */
   readonly retryAt: number | null;
+  /**
+   * When the call it is stuck in began, in epoch ms: a call that passed its
+   * time limit and has not settled, so it is handed nothing until it does.
+   * `null` while it is in no such call.
+   */
+  readonly stuckSince: number | null;
 }
 
 /** An observer as `declare` finds it. */
@@ -80,6 +88,8 @@ export interface ObserverFailure {
   readonly error: string;
   readonly now: number;
   readonly retryAt: number;
+  /** When the call that failed began, if it passed its limit and has not settled; else `null`. */
+  readonly stuckSince: number | null;
 }
 
 export interface ObserverMove {
@@ -134,6 +144,7 @@ interface MemoryObserver {
   position: number;
   retryAt: number | null;
   seenAt: number;
+  stuckSince: number | null;
 }
 
 const KEY = (key: ObserverKey) => `${key.source}\0${key.name}`;
@@ -187,6 +198,7 @@ export class MemoryChangeLog implements ChangeLog {
         position: this.#position,
         retryAt: null,
         seenAt: now,
+        stuckSince: null,
       };
       this.#observers.set(KEY(key), observer);
     }
@@ -209,6 +221,7 @@ export class MemoryChangeLog implements ChangeLog {
       observer.lastError = failure.error;
       observer.retryAt = failure.retryAt;
       observer.seenAt = failure.now;
+      observer.stuckSince = failure.stuckSince;
     }
     return Promise.resolve();
   }
@@ -236,6 +249,14 @@ export class MemoryChangeLog implements ChangeLog {
         .map((observer) => stateOf(observer.key, observer))
         .sort(byKey)
     );
+  }
+
+  unstick(key: ObserverKey): Promise<void> {
+    const observer = this.#observers.get(KEY(key));
+    if (observer !== undefined) {
+      observer.stuckSince = null;
+    }
+    return Promise.resolve();
   }
 
   read(query: ChangeQuery): Promise<readonly LoggedChange[]> {
@@ -295,6 +316,7 @@ function stateOf(key: ObserverKey, observer: MemoryObserver): ObserverState {
     position: observer.position,
     retryAt: observer.retryAt,
     source: key.source,
+    stuckSince: observer.stuckSince,
   };
 }
 

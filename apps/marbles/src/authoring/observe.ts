@@ -32,6 +32,11 @@ import { SOURCE, sourceKey } from "~/lib/events/source";
  * else the handler's own function name. Editing its handler keeps its
  * place; renaming it starts a new observer, from now. `options.types`
  * hands it only facts of those types.
+ *
+ * Observers are delivered to independently: one slow, failing or hung
+ * never delays another. A call that runs past `options.timeout` counts as
+ * a failure; the observer is handed nothing more until that call settles,
+ * then tried again on the same fact.
  */
 export function observe<T extends Fact>(
   source: Observable<T>,
@@ -84,10 +89,19 @@ export function observe(
       "observe: `types` names no type; leave it out to observe every type"
     );
   }
+  if (
+    options.timeout !== undefined &&
+    !(Number.isFinite(options.timeout) && options.timeout > 0)
+  ) {
+    throw new TypeError(
+      "observe: `timeout` is how many ms one call may run, above 0"
+    );
+  }
   declaringCatalog().observe({
     handler: handler as Handler<unknown>,
     name,
     source: symbol,
+    ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
     ...(options.types === undefined ? {} : { types: [...options.types] }),
   });
   return Object.freeze({ kind: "observer", name, source: key });
@@ -97,6 +111,11 @@ export function observe(
 export interface ObserveOptions<T extends Fact> {
   /** Its identity within the workspace and source; see `observe`. */
   readonly name?: string;
+  /**
+   * How long, in ms, one call of the handler may run before it counts as
+   * a failure; five minutes, or the host's setting, when omitted.
+   */
+  readonly timeout?: number;
   /** Only facts of these types; every type of the source when omitted. */
   readonly types?: readonly T["type"][];
 }

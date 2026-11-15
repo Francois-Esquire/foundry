@@ -28,6 +28,7 @@ CREATE TABLE `marbles_observers` (
 	`scope` text NOT NULL,
 	`seen_at` integer NOT NULL,
 	`source` text NOT NULL,
+	`stuck_since` integer,
 	PRIMARY KEY(`scope`, `source`, `name`)
 );
 --> statement-breakpoint

@@ -229,5 +229,6 @@ function gated(log: ChangeLog, gate: RecordsGate): ChangeLog {
     move: (key, move) => gate.run(() => log.move(key, move)),
     observers: () => gate.run(() => log.observers()),
     read: (query) => gate.run(() => log.read(query)),
+    unstick: (key) => gate.run(() => log.unstick(key)),
   };
 }
