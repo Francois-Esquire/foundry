@@ -1,10 +1,16 @@
 import { describe, expect, expectTypeOf, test } from "vitest";
 import manifest from "../../package.json" with { type: "json" };
+import type { BlobFiles, BlobStagingArea } from "../blob";
+import type { ByteInput, ReferenceInput } from "../blob-repository";
+import { BlobRepository, isReferenceInput } from "../blob-repository";
+import { ArtifactChange } from "../change";
 import type { Artifacts, FileInput, FileRangeResolved } from "../index";
 // biome-ignore lint/performance/noNamespaceImport: This test inspects the complete public export contract.
 import * as artifacts from "../index";
+import { blobFiles } from "../node";
 import type { ArtifactStore, ArtifactStoreWrite } from "../store";
-import type { InMemoryArtifactStore } from "../store/memory";
+import { InMemoryArtifactStore } from "../store/memory";
+import { ArtifactTransaction, operationEffects } from "../transaction";
 
 describe("Artifact package public surface", () => {
   test("publishes the substrate vocabulary and nothing from the release model", () => {
@@ -66,5 +72,44 @@ describe("Artifact package public surface", () => {
         import: `./src/${file}.ts`,
       });
     }
+  });
+
+  test("keeps what consumers import from the blob-repository and transaction subpaths", async () => {
+    expectTypeOf<ByteInput>().toExtend<FileInput>();
+    expectTypeOf<ReferenceInput>().toExtend<FileInput>();
+    expect(isReferenceInput({ blobId: "b" } as FileInput)).toBe(true);
+    expect(isReferenceInput({ bytes: "x" })).toBe(false);
+    const change = new ArtifactChange(new InMemoryArtifactStore(), {});
+    const limits = { maxFileBytes: 64, maxTreeBytes: 64 };
+    // The constructors consumers called before staging existed still work.
+    const transaction = new ArtifactTransaction(
+      change,
+      operationEffects(),
+      limits
+    );
+    const repository = new BlobRepository(change, operationEffects(), limits);
+    expect(repository.files).toBeUndefined();
+    const written = await repository.write("b.txt", { bytes: "b" });
+    expect(written.byteLength).toBe(1);
+    const created = await transaction.create({
+      entries: { "a.txt": { bytes: "a" } },
+      name: "A",
+      type: "text/plain",
+    });
+    expect(created.content?.tree["a.txt"]).toMatchObject({ type: "file" });
+  });
+
+  test("offers staging as an optional BlobFiles capability", () => {
+    expectTypeOf<BlobFiles["staging"]>().toEqualTypeOf<
+      BlobStagingArea | undefined
+    >();
+    // A BlobFiles without staging is still a BlobFiles.
+    expectTypeOf<Omit<BlobFiles, "staging">>().toExtend<BlobFiles>();
+    expect(blobFiles("/nonexistent/root").staging).toMatchObject({
+      abandon: expect.any(Function),
+      discard: expect.any(Function),
+      promote: expect.any(Function),
+      stage: expect.any(Function),
+    });
   });
 });

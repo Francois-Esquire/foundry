@@ -7,8 +7,9 @@ import { workspaceState } from "~/lib/state/workspace";
 /**
  * Where Marbles keeps things on this machine, decided once. The opinionated
  * default is one Foundry home, `~/.foundry`, holding the Marbles state root
- * (`marbles/`, one directory per workspace plus the process files) and the
- * artifact store (`artifacts/`) that every workspace shares. Each location
+ * (`marbles/`, one directory per workspace plus the process files and the
+ * Marbles database) and the artifact store (`artifacts/`) that every
+ * workspace shares. Each location
  * can be set on its own; the others follow from it, so a custom state root
  * keeps its artifacts beside it rather than in the user's home.
  *
@@ -30,6 +31,8 @@ export interface LayoutOptions {
 export interface Layout {
   /** The shared artifact store: records, blobs, and the feed. */
   readonly artifacts: string;
+  /** The Marbles database, one file for every workspace under the state root. */
+  readonly database: string;
   /** The Foundry home the defaults hang off. */
   readonly home: string;
   /** The Unix socket the Marbles process listens on. */
@@ -43,6 +46,7 @@ export interface Layout {
 const HOME_DIR = ".foundry";
 const STATE_DIR = "marbles";
 const ARTIFACTS_DIR = "artifacts";
+const DATABASE_FILE = "marbles.db";
 /** Short on purpose: a Unix socket path has about a hundred bytes to work with. */
 const SOCKET_FILE = "marbles.sock";
 
@@ -60,9 +64,19 @@ export function layout(options: LayoutOptions = {}): Layout {
   );
   return {
     artifacts,
+    database: stateDatabase(state),
     home,
     socket: join(state, SOCKET_FILE),
     state,
     workspace: (root) => workspaceState(state, root),
   };
+}
+
+/**
+ * The Marbles database under the state root `state`. It follows the state
+ * root, as the process claim and socket do, so a state root moved with
+ * `--state` keeps its own registry instead of sharing the home's.
+ */
+export function stateDatabase(state: string): string {
+  return join(resolve(state), DATABASE_FILE);
 }

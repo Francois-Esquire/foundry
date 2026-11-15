@@ -7,15 +7,14 @@ import { expectHost, setHost } from "~/authoring/runtime";
 import { initializeUsage } from "~/authoring/usage";
 import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
+import { readDatabase } from "~/database/open";
+import { recordWorkspace, WorkspaceRegistry } from "~/database/workspaces";
+import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
-import {
-  readWorkspace,
-  recordedState,
-  workspaceState,
-} from "~/lib/state/workspace";
+import { workspaceAt, workspaceState } from "~/lib/state/workspace";
 import type { WorkspaceEnvironment } from "~/workspace/env";
 import { loadEnvironment } from "~/workspace/env";
 import {
@@ -137,20 +136,25 @@ export function findWorkspace(args: HostOptions): OpenedWorkspace {
 /**
  * A workspace recorded under the state root, by its id, found without
  * executing anything. Its checkout need not exist: stored state is all a
- * task command reads. Undefined when no readable record has that id.
+ * task command reads. Undefined when nothing has that id, or when
+ * `<state>/<id>` is a link; a state root without a database is left
+ * without one.
  */
-export function recordedWorkspace(
+export async function recordedWorkspace(
   args: HostOptions,
   id: string
-): OpenedWorkspace | undefined {
-  const workspace = recordedState(resolve(args.state), id);
-  if (workspace === undefined) {
+): Promise<OpenedWorkspace | undefined> {
+  const state = resolve(args.state);
+  const record = await readDatabase(stateDatabase(state), (database) =>
+    new WorkspaceRegistry({ database, state }).read(id)
+  );
+  if (record === undefined) {
     return;
   }
-  const config = readWorkspace(workspace.dir)?.config ?? null;
+  const workspace = workspaceAt(state, id, record.root);
   return {
-    config,
-    configPath: config ?? resolve(workspace.root, DEFAULT_SOURCE),
+    config: record.config,
+    configPath: record.config ?? resolve(workspace.root, DEFAULT_SOURCE),
     environment: { machine: environmentSnapshot(), workspace: {} },
     workspace,
   };
@@ -257,12 +261,15 @@ export function hostTriggers(
  * writes it: a listing, and anything under `--dry-run`, leaves the state root
  * as it found it.
  */
-export function touchWorkspace(
+export async function touchWorkspace(
   engine: Engine,
+  args: Pick<HostOptions, "state">,
   { config, workspace }: OpenedWorkspace
-): void {
+): Promise<void> {
   if (engine.state !== undefined) {
-    workspace.touch(config);
+    // A host is a writer: it makes and migrates the database only under
+    // the state root's process lock (`recordWorkspace`).
+    await recordWorkspace(args.state, workspace, config);
   }
 }
 

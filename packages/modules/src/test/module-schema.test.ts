@@ -8,6 +8,7 @@ import {
   moduleIdSchema,
 } from "../domain";
 import { parseModuleManifest } from "../manifest";
+import { ModuleRegistry } from "../registry";
 import {
   installationGrantSchema,
   installationSchema,
@@ -16,7 +17,6 @@ import {
   storedInstallationSchema,
   storedManifestSchema,
 } from "../schema";
-import { InMemoryModuleStore } from "../store/memory";
 import { moduleFixture, VALID_MANIFEST } from "./helpers/module-fixture";
 
 /** A record schema that also refuses any field it does not declare. */
@@ -38,7 +38,7 @@ async function storedRecords() {
     manifest: VALID_MANIFEST,
     module,
   });
-  const store = new InMemoryModuleStore();
+  const store = new ModuleRegistry();
   await store.registerModule({ module });
   await store.retainManifest({
     contentId: content.id,
@@ -85,7 +85,7 @@ async function storedRecords() {
 }
 
 describe("Module record schemas", () => {
-  it("describe every field of the records a ModuleStore returns", async () => {
+  it("describe every field of the records a ModuleRegistry returns", async () => {
     const { context, modules, retained } = await storedRecords();
 
     expect(modules.items).toHaveLength(1);

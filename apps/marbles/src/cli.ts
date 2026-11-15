@@ -15,7 +15,10 @@ import {
 import type { Args, ArgsOf, Command, Flags } from "~/args";
 import { parseArgs, UsageError } from "~/args";
 import type { Triggers } from "~/create";
-import { layout } from "~/layout";
+import { IncompatibleDatabaseError } from "~/database/migrate";
+import { UnreadableDatabaseError, writeDatabase } from "~/database/open";
+import { WorkspaceRegistry } from "~/database/workspaces";
+import { layout, stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import { RunEndedError } from "~/lib/engine";
 import { RecordsHeldError } from "~/lib/events/records";
@@ -25,7 +28,6 @@ import { ConfigurationError } from "~/lib/providers/store";
 import { describeTrigger } from "~/lib/schedule";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { RunOutputError } from "~/lib/state/output";
-import { readWorkspace } from "~/lib/state/workspace";
 import type { TaskCommandResult } from "~/model/tasks";
 import {
   describeDisconnect,
@@ -85,8 +87,8 @@ const USAGE = `marbles — programmable workspace automation
 One Marbles process per machine hosts every attached workspace, each in a worker
 of its own, and keeps their triggers running after the dashboard closes; run and
 roll start it when none runs. Each workspace (the project above .foundry/marbles)
-gets <state>/<id>/ holding workspace.json, runs/, output/, schedules/, locks/ and
-sessions/. Feed entries from every workspace share the artifact store. --dry-run
+gets <state>/<id>/ holding runs/, output/, schedules/, locks/ and sessions/, and
+a record in <state>/marbles.db. Feed entries from every workspace share the artifact store. --dry-run
 hosts the workspace in this process instead, persists nothing, and echoes every
 model turn and git mutation; custom code still runs.
 
@@ -151,12 +153,12 @@ async function createStarterModule(args: ArgsOf<"init">): Promise<void> {
   print(`Created ${file}`);
 }
 
-/** Reads files only: an empty state root stays empty. */
+/** Reads only: an empty state root stays empty. */
 async function showStatus(
   args: Args,
   { workspace }: OpenedWorkspace
 ): Promise<void> {
-  const report = readStatus(resolve(args.state));
+  const report = await readStatus(resolve(args.state));
   if (process.stdout.isTTY && process.stdin.isTTY) {
     const { showStatus: renderStatus } = await import("~/status/view");
     await renderStatus({ here: workspace.id, report });
@@ -374,16 +376,20 @@ async function detachWorkspace(
   args: ArgsOf<"detach">,
   opened: OpenedWorkspace
 ): Promise<void> {
-  const { config, workspace } = opened;
+  const { workspace } = opened;
   const where = `${workspace.root} (${workspace.id})`;
-  const forget = (): void => {
-    if (readWorkspace(workspace.dir)?.hosted === true) {
-      workspace.touch(config, { hosted: false });
-    }
+  const forget = async (): Promise<void> => {
+    // By id, in one statement: a linked workspace's record is cleared too,
+    // and a Marbles process attaching it meanwhile writes after or before.
+    await writeDatabase(stateDatabase(args.state), (database) =>
+      new WorkspaceRegistry({ database, state: args.state }).unhost(
+        workspace.id
+      )
+    );
   };
   const client = await joinProcess(args);
   if (client === undefined) {
-    forget();
+    await forget();
     print(`no Marbles process is running; ${where} is not hosted`);
     return;
   }
@@ -395,7 +401,7 @@ async function detachWorkspace(
         `detached ${where} from Marbles process pid ${String(client.hello.pid)}`
       );
     } else {
-      forget();
+      await forget();
       print(`${where} is not hosted`);
     }
   } finally {
@@ -604,6 +610,7 @@ function actionable(error: unknown): error is Error {
     error instanceof UsageError ||
     error instanceof ConfigurationError ||
     error instanceof EnvironmentError ||
+    error instanceof IncompatibleDatabaseError ||
     error instanceof LaunchInputError ||
     error instanceof NoProcessError ||
     error instanceof NotHostedError ||
@@ -613,7 +620,8 @@ function actionable(error: unknown): error is Error {
     error instanceof RecordsHeldError ||
     error instanceof RemoteError ||
     error instanceof RunEndedError ||
-    error instanceof RunOutputError
+    error instanceof RunOutputError ||
+    error instanceof UnreadableDatabaseError
   );
 }
 

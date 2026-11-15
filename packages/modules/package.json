@@ -2,7 +2,7 @@
   "name": "@foundry/modules",
   "version": "0.1.0",
   "private": true,
-  "description": "Artifact-backed Module domain, package, Gateway, Store, and workspace composition contracts",
+  "description": "Module domain, registry and store, package, Gateway, and workspace composition contracts",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -39,9 +39,19 @@
   },
   "devDependencies": {
     "@foundry/tsconfig": "workspace:*",
+    "@libsql/client": "^0.18.0",
     "@types/node": "^26.4.1",
     "@vitest/coverage-v8": "^4.1.9",
+    "drizzle-orm": "^0.45.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
+  },
+  "peerDependencies": {
+    "drizzle-orm": "^0.45.4"
+  },
+  "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    }
   }
 }

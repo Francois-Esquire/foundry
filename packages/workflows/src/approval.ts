@@ -1,5 +1,5 @@
+import type { JsonValue } from "./json-value";
 import type { StepContext } from "./step";
-import type { JsonValue } from "./store";
 
 /**
  * Approval suspensions use the engine's durable `(stepPath, name, occurrence)`

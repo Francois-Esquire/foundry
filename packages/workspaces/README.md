@@ -96,15 +96,160 @@ whole or refused. A store implementation therefore only persists; those rules
 come with the system. Catalog mutations and per-Workspace observations, saves,
 and removals each run one at a time in-process. Each catalog mutation reads
 and commits inside the store's optional `transaction`, so a second system over
-the same store cannot write between them; `MemoryWorkspaceStore` offers one.
-Over a store without it, a second system can still interleave.
+the same store cannot write between them; both stores here offer one. Over a
+store without it, a second system can still interleave.
 
-A store reads a write once, when `commit` is called. `MemoryWorkspaceStore`
-takes one `structuredClone` of the whole write then, before the commit waits
-its turn, and keeps only that copy, through a transaction's view as well. A
-caller that changes its write after the call changes nothing, even while the
-commit is still queued. A write the clone refuses, such as one holding a
-function, rejects and writes nothing.
+| Path                                | Holds                                                               |
+| ----------------------------------- | ------------------------------------------------------------------- |
+| `@foundry/workspaces/store`         | `WorkspaceStore` and its write types.                               |
+| `@foundry/workspaces/store/memory`  | `MemoryWorkspaceStore`, the default `WorkspaceSystem` uses.         |
+| `@foundry/workspaces/store/sqlite`  | `SqliteWorkspaceStore`, over a host's Drizzle database.             |
+| `@foundry/workspaces/store/tables`  | The Drizzle tables it uses: `workspaces`, `workspace_entries`.      |
+| `@foundry/workspaces/testing/store` | `describeWorkspaceStore`, the suite every store passes.             |
+
+Both stores read in the same fixed orders. Registrations sort by creation
+time, then by id in code-point order, which is how SQLite compares text.
+Entries sort by path in code-unit order, then by id. No read answers in the order
+rows were put, so the tables have no `position` column. `listWorkspaces`
+pages by offset; its cursor must be a nonnegative safe integer. A save's
+entry deletes name entries of its own Workspace, and each put is filed under
+the entry's own `workspaceId`. A removal names only the Workspace. It deletes
+the registration and every entry filed under it, in one commit, and a store
+ignores any entry ids a caller hands it.
+
+A store reads a write once, when `commit` is called. Both stores here take
+one `structuredClone` of the whole write then, before the commit waits its
+turn, and check, store and hand on (to `onCommit`) only that copy, through
+a transaction's view as well; `listWorkspaces` reads its cursor and limit
+when called too. A caller that changes its write or its input after the
+call changes nothing, even while the call is still queued. A write the
+clone refuses, such as one holding a function, rejects and writes nothing.
+
+### SQLite
+
+`SqliteWorkspaceStore` takes the host's database and never opens one. The
+host composes the tables from `./store/tables` into its own schema and owns
+the migrations; `drizzle-orm` is an optional peer dependency, needed only on
+the two SQLite paths. Every row carries a `scope`, an opaque partition the
+host chooses, first in every key. Marbles passes its workspace id. A store
+reads and writes only its own scope.
+
+```ts
+import { WorkspaceSystem } from "@foundry/workspaces";
+import { SqliteWorkspaceStore } from "@foundry/workspaces/store/sqlite";
+
+const store = new SqliteWorkspaceStore({
+  database, // a drizzle-orm/libsql database, or a transaction on one
+  scope,
+  // Optional: runs in the commit's transaction, after the store's statements.
+  onCommit: async (transaction, write) => {
+    await recordChange(transaction, write);
+  },
+});
+const workspaces = new WorkspaceSystem({ store, onError: log });
+```
+
+The tables hold each record field for field. A `Date` is integer epoch
+milliseconds. A registration's `source` spreads over `source_kind`,
+`source_path`, and `source_id`. One `workspace_entries` row holds any entry
+type; the columns only a file has (`bytes`, `digest`, `extension`, `kind`,
+`mime`) and a symlink's `target` are null on the other types, and a read
+gives back only the fields the row's type has. Each read is one indexed
+query, except `listWorkspaces`, which is two:
+
+| Read                       | Served by                                                     |
+| -------------------------- | ------------------------------------------------------------- |
+| `getWorkspace`             | the primary key `(scope, id)`                                 |
+| `listWorkspaces`           | `workspaces_scope_created (scope, created_at, id)`, a count   |
+| `findWorkspaceByPath`      | `workspaces_scope_source_path (scope, source_path, created_at, id)` |
+| `findWorkspaceBySourceId`  | `workspaces_scope_source_id (scope, source_id, created_at, id)` |
+| `getEntry`, `listEntries`  | the primary key `(scope, workspace_id, id)`                   |
+
+`listEntries` sorts in the store, because SQLite's collation orders text by
+code point, not by code unit.
+
+Each `commit` is one transaction, ending with `onCommit`; a throwing
+`onCommit` rolls it back. A save runs its entry deletes, its entry puts and
+the registration. A removal runs two statements, one deleting every entry row
+of the Workspace and one deleting its registration, each through a primary
+key. A save's entries are batched under SQLite's bound-parameter limit inside
+the one transaction, so a save of thousands of entries lands whole.
+`onCommit` receives the write as committed. A removal carries only the
+Workspace id, so a hook that wants to record which entries a removal dropped
+does not get their ids from the store.
+`onCommit` uses the `transaction` it is given; a call to the store itself
+from the hook is refused (see below). `listWorkspaces` reads its count and
+its page in one database transaction, so it is one state. On libSQL that
+transaction holds the write lock while it reads: Drizzle's libSQL driver
+begins every transaction with `BEGIN IMMEDIATE` and offers no deferred
+(read-only) transaction through the database type the store accepts.
+
+Two systems over one `SqliteWorkspaceStore` are kept apart. In this process
+the store's calls take turns, so one made while a transaction runs waits
+for it. Across connections, each transaction takes SQLite's write lock at
+its first statement. A write from another process then waits for as long
+as its connection's busy timeout allows, or fails with `SQLITE_BUSY`.
+Either way it never lands between a transaction's reads and its commit.
+
+Host requirement: the store's queue covers only its own instance. Within
+one process, the host must serialize writes per database file across every
+client and store on it (Marbles does). A second libSQL client in the same
+process does not wait usefully: libSQL waits out its busy timeout
+synchronously, holding up the thread the first client needs to commit, so
+it blocks for the whole timeout and then fails with `SQLITE_BUSY`. Do not
+open the same file with a second SQLite library in the process either
+(`bun:sqlite` or `node:sqlite` beside libSQL): SQLite's file locks are per
+process, so the two libraries do not see each other's locks at all.
+Connection settings such as WAL and the busy timeout are the host's.
+
+A defect of `@libsql/client` 0.18.0, which the store cannot work around: a
+client whose `BEGIN` fails with `SQLITE_BUSY` keeps the failed statement
+open, and its next transaction fails at `COMMIT` with "SQL statements in
+progress". In rollback-journal mode the file can stay blocked even for a
+fresh client; in WAL mode a fresh client works. The store cannot reset a
+client it was handed. So a host should put the database in WAL mode, and
+replace its client after a `SQLITE_BUSY`.
+
+Storage limits of the SQLite store, not rules of the package. `commit`
+refuses, before writing anything, a write holding a value SQLite would not
+give back as it was bound, with a `RangeError` naming the field, such as
+`putEntries[0].path` or `workspace.source.path`; commits through a
+transaction's view are checked the same way:
+
+- Text holding U+0000, in any text field. libSQL reads text back cut at its
+  first NUL.
+- Text that is not well-formed UTF-16, in any text field. A lone surrogate
+  is bound as U+FFFD on Node and as nothing on Bun, so it reads back changed
+  and could match another row's key. The text fields are the ids, names,
+  paths, the source, the type, and a file's digest, extension, kind, and
+  MIME type.
+- A `bytes` of `-0`. The schema accepts it, and SQLite gives back `0`. A
+  `bytes` that is not a safe integer is refused too.
+- A `Date` that is not valid.
+
+A read or delete by a key no row can hold finds nothing, and the constructor
+refuses such a `scope`.
+
+A read that meets an entry row this store would not have written rejects
+with an `Error` naming the scope, the Workspace, the entry, and the column
+at fault. That covers a type the package does not know, a column the type
+always has left null (a file's `bytes`, `digest` or `kind`, a symlink's
+`target`), a column only another type has filled, and an unknown file kind.
+The tables carry no `CHECK` constraints, so a host's own writes are checked
+only when read.
+
+Every store takes one call at a time, so a call to the store itself from
+inside its own transaction's `work` (or from `onCommit`) could only wait for
+itself. It is refused at once with a `ReentrantCallError` from
+`@foundry/lib/turns` that says to use the view, or the transaction, instead.
+A caller that is merely concurrent with a transaction still waits its turn.
+The stores tell the two apart by asynchronous context, with
+`AsyncLocalStorage` from `node:async_hooks`, so the package needs a runtime
+that provides it: Node, Bun, Deno, or a worker runtime with Node
+compatibility.
+
+Known limit: saving a Workspace File is last write wins, as before this
+store; neither store compares a version when it commits.
 
 Storage observation is optional. `directory({ filesystem, observer })` uses an
 explicit `StorageObserver`, or the filesystem's own `watch` capability when
@@ -172,8 +317,12 @@ the resulting `Git`.
 
 A new `WorkspaceStore` proves itself against the conformance suite on
 `@foundry/workspaces/testing/store`: `describeWorkspaceStore(name, open)`
-registers Vitest tests. `open()` returns fresh, empty storage as a function
-`(scope: string) => WorkspaceStore`.
+registers Vitest tests. `open()` returns fresh, empty storage, or a promise
+of it, as a function `(scope: string) => WorkspaceStore`. Two scopes over one
+storage must never see each other's records. The package runs it against
+the memory store and against the SQLite store on libSQL, in memory and on a
+file, with tables created from `./store/tables` by `createTables` from
+`@foundry/lib/testing/sqlite`.
 
 Tests live in `src/test/`. The build emits declarations; runtime exports resolve
 to TypeScript source. Run lint and formatting checks from the repository root.

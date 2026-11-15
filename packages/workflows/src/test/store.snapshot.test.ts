@@ -4,14 +4,13 @@ import {
   InvalidStoreSnapshotError,
   UnsupportedStoreSnapshotVersionError,
 } from "../errors";
-import type { OrchestratorStoreSnapshot } from "../store";
-import {
-  InMemoryOrchestratorStore,
-  ORCHESTRATOR_STORE_SNAPSHOT_VERSION,
-} from "../store";
+import { ExecutionCoordinator } from "../index";
+import type { OrchestratorStoreSnapshot } from "../schema";
+import { ORCHESTRATOR_STORE_SNAPSHOT_VERSION } from "../schema";
+import { restoredStore } from "./helpers/store";
 
-async function makeMixedStore(): Promise<InMemoryOrchestratorStore> {
-  const store = new InMemoryOrchestratorStore();
+async function makeMixedStore(): Promise<ExecutionCoordinator> {
+  const store = new ExecutionCoordinator();
   const queue = await store.ensureQueue({
     extensions: { "host.queue": { region: "local", revision: 1 } },
     id: "qu-snapshot",
@@ -149,16 +148,14 @@ function mutableSnapshot(snapshot: OrchestratorStoreSnapshot) {
   };
 }
 
-describe("InMemoryOrchestratorStore snapshots", () => {
+describe("ExecutionCoordinator snapshots", () => {
   test("round-trips mixed JSON state through public queries", async () => {
     const original = await makeMixedStore();
-    const captured = original.snapshot();
+    const captured = await original.snapshot();
     expect(captured.version).toBe(ORCHESTRATOR_STORE_SNAPSHOT_VERSION);
     expect(() => JSON.stringify(captured)).not.toThrow();
 
-    const restored = new InMemoryOrchestratorStore({
-      snapshot: jsonRoundTrip(captured),
-    });
+    const restored = await restoredStore(jsonRoundTrip(captured));
     expect(await restored.listQueues()).toEqual(await original.listQueues());
     expect(await restored.listJobs()).toEqual(await original.listJobs());
     expect(await restored.listRuns({})).toEqual(await original.listRuns({}));
@@ -170,14 +167,14 @@ describe("InMemoryOrchestratorStore snapshots", () => {
         await original.listRunFrames(run.id)
       );
     }
-    expect(restored.snapshot()).toEqual(captured);
+    expect(await restored.snapshot()).toEqual(captured);
   });
 
   test("deep-clones constructor input and every captured snapshot", async () => {
     const original = await makeMixedStore();
-    const input = mutableSnapshot(jsonRoundTrip(original.snapshot()));
-    const restored = new InMemoryOrchestratorStore({ snapshot: input });
-    const baseline = restored.snapshot();
+    const input = mutableSnapshot(jsonRoundTrip(await original.snapshot()));
+    const restored = await restoredStore(input);
+    const baseline = await restored.snapshot();
 
     const inputQueue = input.queues[0] as {
       extensions: { "host.queue": { region: string } };
@@ -199,72 +196,68 @@ describe("InMemoryOrchestratorStore snapshots", () => {
       payload: { value: { delta: string } };
     };
     inputFrame.payload.value.delta = "mutated-input";
-    expect(restored.snapshot()).toEqual(baseline);
+    expect(await restored.snapshot()).toEqual(baseline);
 
-    const output = mutableSnapshot(restored.snapshot());
+    const output = mutableSnapshot(await restored.snapshot());
     output.queues.length = 0;
     output.jobs.length = 0;
     output.runs.length = 0;
     output.suspensions.length = 0;
     output.frames.length = 0;
-    expect(restored.snapshot()).toEqual(baseline);
+    expect(await restored.snapshot()).toEqual(baseline);
   });
 
   test("rejects unsupported and malformed versions or records", async () => {
-    const valid = (await makeMixedStore()).snapshot();
-    expect(
-      () =>
-        new InMemoryOrchestratorStore({
-          snapshot: { ...valid, version: 2 },
-        })
-    ).toThrow(UnsupportedStoreSnapshotVersionError);
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: { version: 1 } })
-    ).toThrow(InvalidStoreSnapshotError);
+    const valid = await (await makeMixedStore()).snapshot();
+    await expect(restoredStore({ ...valid, version: 2 })).rejects.toThrow(
+      UnsupportedStoreSnapshotVersionError
+    );
+    await expect(restoredStore({ version: 1 })).rejects.toThrow(
+      InvalidStoreSnapshotError
+    );
     for (const version of ["2", Number.NaN, 2n, {}, null]) {
-      expect(
-        () =>
-          new InMemoryOrchestratorStore({
-            snapshot: { ...valid, version },
-          })
-      ).toThrow(InvalidStoreSnapshotError);
+      await expect(restoredStore({ ...valid, version })).rejects.toThrow(
+        InvalidStoreSnapshotError
+      );
     }
 
     const malformedJob = mutableSnapshot(valid);
     malformedJob.jobs[0] = { ...malformedJob.jobs[0], id: "not-a-job" };
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: malformedJob })
-    ).toThrow(InvalidStoreSnapshotError);
+    await expect(restoredStore(malformedJob)).rejects.toThrow(
+      InvalidStoreSnapshotError
+    );
 
     const nonJsonRun = mutableSnapshot(valid);
     nonJsonRun.runs[0] = { ...nonJsonRun.runs[0], output: undefined };
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: nonJsonRun })
-    ).toThrow(InvalidStoreSnapshotError);
+    await expect(restoredStore(nonJsonRun)).rejects.toThrow(
+      InvalidStoreSnapshotError
+    );
   });
 
   test.each(["queues", "jobs", "runs", "suspensions"] as const)(
     "rejects duplicate identities in %s",
     async (section) => {
-      const corrupt = mutableSnapshot((await makeMixedStore()).snapshot());
+      const corrupt = mutableSnapshot(
+        await (await makeMixedStore()).snapshot()
+      );
       corrupt[section].push(structuredClone(corrupt[section][0] ?? {}));
-      expect(
-        () => new InMemoryOrchestratorStore({ snapshot: corrupt })
-      ).toThrow(InconsistentStoreSnapshotError);
+      await expect(restoredStore(corrupt)).rejects.toThrow(
+        InconsistentStoreSnapshotError
+      );
     }
   );
 
   test("rejects dangling Queue, Job, parent Run, and Suspension references", async () => {
-    const valid = (await makeMixedStore()).snapshot();
+    const valid = await (await makeMixedStore()).snapshot();
 
     const missingQueue = mutableSnapshot(valid);
     missingQueue.runs[0] = {
       ...missingQueue.runs[0],
       queueId: "qu-missing",
     };
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: missingQueue })
-    ).toThrow(InconsistentStoreSnapshotError);
+    await expect(restoredStore(missingQueue)).rejects.toThrow(
+      InconsistentStoreSnapshotError
+    );
 
     const missingJob = mutableSnapshot(valid);
     const managedIndex = missingJob.runs.findIndex(
@@ -275,18 +268,18 @@ describe("InMemoryOrchestratorStore snapshots", () => {
       ...missingJob.runs[managedIndex],
       links: { jobId: "jb-missing" },
     };
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: missingJob })
-    ).toThrow(InconsistentStoreSnapshotError);
+    await expect(restoredStore(missingJob)).rejects.toThrow(
+      InconsistentStoreSnapshotError
+    );
 
     const conflictingJobContext = mutableSnapshot(valid);
     conflictingJobContext.runs[managedIndex] = {
       ...conflictingJobContext.runs[managedIndex],
       links: { jobId: "jb-snapshot", sessionId: "session-conflict" },
     };
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: conflictingJobContext })
-    ).toThrow(InconsistentStoreSnapshotError);
+    await expect(restoredStore(conflictingJobContext)).rejects.toThrow(
+      InconsistentStoreSnapshotError
+    );
 
     const missingParentRun = mutableSnapshot(valid);
     const childIndex = missingParentRun.runs.findIndex(
@@ -298,22 +291,22 @@ describe("InMemoryOrchestratorStore snapshots", () => {
       ...missingParentRun.runs[childIndex],
       links: { parentRunId: "rn-missing" },
     };
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: missingParentRun })
-    ).toThrow(InconsistentStoreSnapshotError);
+    await expect(restoredStore(missingParentRun)).rejects.toThrow(
+      InconsistentStoreSnapshotError
+    );
 
     const missingRun = mutableSnapshot(valid);
     missingRun.suspensions[0] = {
       ...missingRun.suspensions[0],
       runId: "rn-missing",
     };
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: missingRun })
-    ).toThrow(InconsistentStoreSnapshotError);
+    await expect(restoredStore(missingRun)).rejects.toThrow(
+      InconsistentStoreSnapshotError
+    );
   });
 
   test("rejects contradictory Job, Run, and pending Suspension lifecycles", async () => {
-    const valid = (await makeMixedStore()).snapshot();
+    const valid = await (await makeMixedStore()).snapshot();
 
     const terminalJobWithActiveRun = mutableSnapshot(valid);
     const managedIndex = terminalJobWithActiveRun.runs.findIndex(
@@ -331,10 +324,9 @@ describe("InMemoryOrchestratorStore snapshots", () => {
     terminalJobWithActiveRun.frames = terminalJobWithActiveRun.frames.filter(
       (frame) => frame.runId !== "rn-managed"
     );
-    expect(
-      () =>
-        new InMemoryOrchestratorStore({ snapshot: terminalJobWithActiveRun })
-    ).toThrow(InconsistentStoreSnapshotError);
+    await expect(restoredStore(terminalJobWithActiveRun)).rejects.toThrow(
+      InconsistentStoreSnapshotError
+    );
 
     const pendingOnQueuedRun = mutableSnapshot(valid);
     const pending = pendingOnQueuedRun.suspensions.find(
@@ -347,22 +339,22 @@ describe("InMemoryOrchestratorStore snapshots", () => {
       ...pendingOnQueuedRun.runs[pendingRunIndex],
       status: "queued",
     };
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: pendingOnQueuedRun })
-    ).toThrow(InconsistentStoreSnapshotError);
+    await expect(restoredStore(pendingOnQueuedRun)).rejects.toThrow(
+      InconsistentStoreSnapshotError
+    );
   });
 
   test("rejects invalid frame ownership and per-Run cursor disorder", async () => {
-    const valid = (await makeMixedStore()).snapshot();
+    const valid = await (await makeMixedStore()).snapshot();
 
     const missingRun = mutableSnapshot(valid);
     missingRun.frames[0] = {
       ...missingRun.frames[0],
       runId: "rn-missing",
     };
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: missingRun })
-    ).toThrow(InconsistentStoreSnapshotError);
+    await expect(restoredStore(missingRun)).rejects.toThrow(
+      InconsistentStoreSnapshotError
+    );
 
     const mismatchedSuspension = mutableSnapshot(valid);
     const suspensionFrameIndex = mismatchedSuspension.frames.findIndex(
@@ -376,9 +368,9 @@ describe("InMemoryOrchestratorStore snapshots", () => {
       ...suspensionFrame.payload.value,
       runId: "rn-managed",
     };
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: mismatchedSuspension })
-    ).toThrow(InvalidStoreSnapshotError);
+    await expect(restoredStore(mismatchedSuspension)).rejects.toThrow(
+      InvalidStoreSnapshotError
+    );
 
     const disorder = mutableSnapshot(valid);
     const managedFrames = disorder.frames.filter(
@@ -389,13 +381,13 @@ describe("InMemoryOrchestratorStore snapshots", () => {
       (frame) => frame.runId === "rn-managed" && frame.cursor === 1
     );
     disorder.frames[secondManagedIndex] = managedFrames[1];
-    expect(() => new InMemoryOrchestratorStore({ snapshot: disorder })).toThrow(
+    await expect(restoredStore(disorder)).rejects.toThrow(
       InconsistentStoreSnapshotError
     );
   });
 
   test("rejects duplicate or lifecycle-contradictory terminal frames", async () => {
-    const valid = (await makeMixedStore()).snapshot();
+    const valid = await (await makeMixedStore()).snapshot();
 
     const duplicateTerminal = mutableSnapshot(valid);
     duplicateTerminal.frames.push({
@@ -407,9 +399,9 @@ describe("InMemoryOrchestratorStore snapshots", () => {
       },
       runId: "rn-managed",
     });
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: duplicateTerminal })
-    ).toThrow(InconsistentStoreSnapshotError);
+    await expect(restoredStore(duplicateTerminal)).rejects.toThrow(
+      InconsistentStoreSnapshotError
+    );
 
     const afterTerminal = mutableSnapshot(valid);
     afterTerminal.frames.push({
@@ -418,9 +410,9 @@ describe("InMemoryOrchestratorStore snapshots", () => {
       payload: { kind: "progress", value: 1 },
       runId: "rn-managed",
     });
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: afterTerminal })
-    ).toThrow(InconsistentStoreSnapshotError);
+    await expect(restoredStore(afterTerminal)).rejects.toThrow(
+      InconsistentStoreSnapshotError
+    );
 
     const terminalOnActive = mutableSnapshot(valid);
     terminalOnActive.frames.push({
@@ -432,9 +424,9 @@ describe("InMemoryOrchestratorStore snapshots", () => {
       },
       runId: "rn-suspended",
     });
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: terminalOnActive })
-    ).toThrow(InconsistentStoreSnapshotError);
+    await expect(restoredStore(terminalOnActive)).rejects.toThrow(
+      InconsistentStoreSnapshotError
+    );
 
     const mismatchedTerminal = mutableSnapshot(valid);
     const terminalIndex = mismatchedTerminal.frames.findIndex(
@@ -449,22 +441,25 @@ describe("InMemoryOrchestratorStore snapshots", () => {
         value: { event: "failed", status: "failed" },
       },
     };
-    expect(
-      () => new InMemoryOrchestratorStore({ snapshot: mismatchedTerminal })
-    ).toThrow(InconsistentStoreSnapshotError);
-  });
-
-  test("constructor rejection leaves no partially seeded target", async () => {
-    const valid = (await makeMixedStore()).snapshot();
-    const corrupt = mutableSnapshot(valid);
-    corrupt.runs.push(structuredClone(corrupt.runs[0] ?? {}));
-
-    expect(() => new InMemoryOrchestratorStore({ snapshot: corrupt })).toThrow(
+    await expect(restoredStore(mismatchedTerminal)).rejects.toThrow(
       InconsistentStoreSnapshotError
     );
-    const seededAfterRejection = new InMemoryOrchestratorStore({
-      snapshot: valid,
-    });
-    expect(seededAfterRejection.snapshot()).toEqual(valid);
+  });
+
+  test("a refused restore leaves nothing, and a valid one then lands", async () => {
+    const valid = await (await makeMixedStore()).snapshot();
+    const corrupt = mutableSnapshot(valid);
+    corrupt.runs.push(structuredClone(corrupt.runs[0] ?? {}));
+    const target = new ExecutionCoordinator();
+
+    await expect(target.restore(corrupt)).rejects.toThrow(
+      InconsistentStoreSnapshotError
+    );
+    expect(await target.listQueues()).toEqual([]);
+    await target.restore(valid);
+    expect(await target.snapshot()).toEqual(valid);
+    await expect(target.restore(valid)).rejects.toThrow(
+      "A snapshot restores only into an empty store"
+    );
   });
 });

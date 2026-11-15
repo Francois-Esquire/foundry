@@ -1,24 +1,30 @@
+import { ChildProcess } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
 import { connect as connectSocket, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
+import { processAlive } from "@foundry/lib/file-lock";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { fileIdentity, queuedFiles } from "~/database/client";
+import { WorkspaceRegistry } from "~/database/workspaces";
 import { type Layout, layout } from "~/layout";
-import { readWorkspace } from "~/lib/state/workspace";
 import type {
   DispatchOptions,
   WorkspaceState,
   WorkspaceSummary,
 } from "~/model/connection";
+import { Channel } from "~/process/channel";
 import {
   connect,
   NoProcessError,
@@ -27,7 +33,8 @@ import {
 } from "~/process/client";
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { ProcessHeldError, readProcess } from "~/process/instance";
-import { RemoteError } from "~/process/protocol";
+import { RemoteError, WORKER_METHODS } from "~/process/protocol";
+import { readWorkspace, touchWorkspace } from "./helpers/registry";
 
 /**
  * The daemon runs here, under the test runner; the workers it spawns run
@@ -116,7 +123,7 @@ describe("the Marbles process", () => {
       id: machine.workspace(root).id,
       state: "ready",
     });
-    expect(readWorkspace(join(machine.state, summary.id))).toMatchObject({
+    expect(await readWorkspace(machine.state, summary.id)).toMatchObject({
       config: source,
       hosted: true,
     });
@@ -160,7 +167,9 @@ describe("the Marbles process", () => {
 
     await client.detach(summary.id);
     expect(await client.workspaces()).toEqual([]);
-    expect(readWorkspace(join(machine.state, summary.id))?.hosted).toBe(false);
+    expect((await readWorkspace(machine.state, summary.id))?.hosted).toBe(
+      false
+    );
     expect(readProcess(join(machine.state, summary.id))?.alive).not.toBe(true);
     await expect(workspace.describe()).rejects.toThrow(RemoteError);
     client.close();
@@ -313,6 +322,51 @@ describe("the Marbles process", () => {
       { interval: 250, timeout: 30_000 }
     );
     again.close();
+  }, 60_000);
+
+  it("hosts again at boot only the recorded workspaces kept under the state root", async () => {
+    const { home, machine } = fixture();
+    homes.push(home);
+    const [kept, linked, dangling] = await Promise.all(
+      ["kept", "linked", "dangling"].map(async (name) => {
+        const root = join(home, name);
+        mkdirSync(root);
+        const config = join(root, "marbles.config.ts");
+        writeFileSync(config, greeter(name));
+        const workspace = machine.workspace(root);
+        await touchWorkspace(machine.state, workspace, config, {
+          hosted: true,
+        });
+        return workspace;
+      })
+    );
+    if (!(kept && linked && dangling)) {
+      throw new Error("the workspaces were not recorded");
+    }
+    // A worker would write its runs and claim through these links.
+    const outside = join(home, "outside");
+    mkdirSync(outside);
+    symlinkSync(outside, linked.dir);
+    symlinkSync(join(home, "missing"), dangling.dir);
+    const lines: string[] = [];
+    await daemonFor(machine, lines);
+    const client = await connect({ layout: machine, start: false });
+    try {
+      await vi.waitFor(
+        async () => {
+          expect(await client.workspaces()).toEqual([
+            expect.objectContaining({ id: kept.id, state: "ready" }),
+          ]);
+        },
+        { interval: 250, timeout: 30_000 }
+      );
+      expect(readdirSync(outside)).toEqual([]);
+      expect(existsSync(join(home, "missing"))).toBe(false);
+      expect(lines.join("\n")).not.toContain(linked.id);
+      expect(lines.join("\n")).not.toContain(dangling.id);
+    } finally {
+      client.close();
+    }
   }, 60_000);
 
   it("stops itself once the claim at the state root is gone, leaving a successor's socket", async () => {
@@ -528,8 +582,238 @@ export const hold = step("hold").do(async () => {
     expect(await client.workspaces()).toEqual([
       expect.objectContaining({ id: summary.id, state: "ready" }),
     ]);
-    expect(readWorkspace(join(machine.state, summary.id))?.hosted).toBe(true);
+    expect((await readWorkspace(machine.state, summary.id))?.hosted).toBe(true);
     client.close();
+  }, 60_000);
+
+  it("keeps a workspace attached again while its detach is recording it", async () => {
+    const { home, machine, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, greeter("greet"));
+    await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    const summary = await client.attach(source);
+    // The detach drains its worker, then waits here, in the record write.
+    const writing = Promise.withResolvers<void>();
+    const gate = Promise.withResolvers<void>();
+    const { touch } = WorkspaceRegistry.prototype;
+    const paused = vi
+      .spyOn(WorkspaceRegistry.prototype, "touch")
+      .mockImplementation(async function (
+        this: WorkspaceRegistry,
+        workspace,
+        config,
+        options
+      ) {
+        if (options?.hosted === false) {
+          writing.resolve();
+          await gate.promise;
+        }
+        return touch.call(this, workspace, config, options);
+      });
+    try {
+      const detaching = client.detach(summary.id);
+      await writing.promise;
+      const attaching = client.attach(source);
+      // Long enough for the attach to reach the daemon and do what it may.
+      await sleep(300);
+      gate.resolve();
+      await detaching;
+      expect(await client.workspaces()).toEqual([
+        expect.objectContaining({ id: summary.id }),
+      ]);
+      const again = await attaching;
+      expect(again.state).toBe("ready");
+      expect(again.pid).not.toBe(summary.pid);
+      expect((await readWorkspace(machine.state, summary.id))?.hosted).toBe(
+        true
+      );
+    } finally {
+      gate.resolve();
+      paused.mockRestore();
+      client.close();
+    }
+  }, 60_000);
+
+  it("refuses to host a workspace whose state links out of the state root", async () => {
+    const { home, machine, root, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, greeter("greet"));
+    mkdirSync(machine.state, { recursive: true });
+    const outside = join(home, "outside");
+    mkdirSync(outside);
+    symlinkSync(outside, machine.workspace(root).dir);
+    await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    try {
+      await expect(client.attach(source)).rejects.toThrow(
+        "links out of the state root"
+      );
+      expect(await client.workspaces()).toEqual([]);
+      expect(readdirSync(outside)).toEqual([]);
+    } finally {
+      client.close();
+    }
+  }, 30_000);
+
+  it("lets two overlapping detaches of one workspace both succeed", async () => {
+    const { home, machine, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, greeter("greet"));
+    await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    try {
+      const summary = await client.attach(source);
+      await Promise.all([client.detach(summary.id), client.detach(summary.id)]);
+      expect(await client.workspaces()).toEqual([]);
+      expect((await readWorkspace(machine.state, summary.id))?.hosted).toBe(
+        false
+      );
+    } finally {
+      client.close();
+    }
+  }, 60_000);
+
+  it("lets go of everything it took when it cannot listen", async () => {
+    const { home, machine } = fixture();
+    homes.push(home);
+    // The socket's directory is not there, so listening fails.
+    const deaf: Layout = {
+      ...machine,
+      socket: join(home, "no-such-dir", "marbles.sock"),
+    };
+    const started = Date.now();
+    await expect(startDaemon({ layout: deaf })).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(readProcess(machine.state)?.alive).not.toBe(true);
+    // Its database handle is closed: no client in this process holds it.
+    expect(queuedFiles()).not.toContain(fileIdentity(machine.database));
+    // Nothing is left that would refuse the next Marbles process.
+    const daemon = await daemonFor(machine);
+    expect(daemon.pid).toBe(process.pid);
+  }, 30_000);
+
+  it("lets go of everything when it cannot listen and printing fails as well", async () => {
+    const { home, machine } = fixture();
+    homes.push(home);
+    const deaf: Layout = {
+      ...machine,
+      socket: join(home, "no-such-dir", "marbles.sock"),
+    };
+    const failure = await startDaemon({
+      layout: deaf,
+      print: () => {
+        throw new Error("print failed");
+      },
+    }).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    // What is thrown is why it could not start, not the cleanup's failure.
+    expect(failure).toBeInstanceOf(Error);
+    expect(String(failure)).not.toContain("print failed");
+    expect(readProcess(machine.state)?.alive).not.toBe(true);
+    expect(queuedFiles()).not.toContain(fileIdentity(machine.database));
+    const daemon = await daemonFor(machine);
+    expect(daemon.pid).toBe(process.pid);
+  }, 30_000);
+
+  it("lets go of everything when it is closed and printing fails", async () => {
+    const { home, machine } = fixture();
+    homes.push(home);
+    const printing: { fails: boolean } = { fails: false };
+    const daemon = await startDaemon({
+      layout: machine,
+      print: () => {
+        if (printing.fails) {
+          throw new Error("print failed");
+        }
+      },
+    });
+    printing.fails = true;
+    await expect(daemon.close()).rejects.toThrow("print failed");
+    await daemon.closed;
+    expect(readProcess(machine.state)?.alive).not.toBe(true);
+    expect(existsSync(machine.socket)).toBe(false);
+    expect(queuedFiles()).not.toContain(fileIdentity(machine.database));
+    const next = await daemonFor(machine);
+    expect(next.pid).toBe(process.pid);
+  }, 30_000);
+
+  it("rejects a close with its first failure when a later step fails too", async () => {
+    const { home, machine } = fixture();
+    homes.push(home);
+    // The socket alone in a directory that can then be made read-only, so
+    // removing it fails after printing has.
+    const sockets = join(home, "s");
+    mkdirSync(sockets);
+    const printing: { fails: boolean } = { fails: false };
+    const daemon = await startDaemon({
+      layout: { ...machine, socket: join(sockets, "m.sock") },
+      print: () => {
+        if (printing.fails) {
+          throw new Error("print failed");
+        }
+      },
+    });
+    printing.fails = true;
+    chmodSync(sockets, 0o500);
+    try {
+      await expect(daemon.close()).rejects.toThrow("print failed");
+    } finally {
+      chmodSync(sockets, 0o700);
+    }
+    await daemon.closed;
+    expect(readProcess(machine.state)?.alive).not.toBe(true);
+    expect(queuedFiles()).not.toContain(fileIdentity(machine.database));
+  }, 30_000);
+
+  it("kills a worker that would not stop even when saying so fails", async () => {
+    const { home, machine, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, greeter("greet"));
+    const printing: { fails: boolean } = { fails: false };
+    const daemon = await startDaemon({
+      layout: machine,
+      print: () => {
+        if (printing.fails) {
+          throw new Error("print failed");
+        }
+      },
+    });
+    const client = await connect({ layout: machine, start: false });
+    const { pid } = await client.attach(source);
+    client.close();
+    if (pid === undefined) {
+      throw new Error("the worker has no pid");
+    }
+    // The worker does not answer the stop: the daemon has to kill it.
+    const { request } = Channel.prototype;
+    vi.spyOn(Channel.prototype, "request").mockImplementation(function (
+      this: Channel,
+      method,
+      ...rest
+    ) {
+      return method === WORKER_METHODS.stop
+        ? Promise.reject(new Error("the worker would not stop"))
+        : request.call(this, method, ...rest);
+    });
+    // It may also leave once its connection drops; the kill must be sent anyway.
+    const kill = vi.spyOn(ChildProcess.prototype, "kill");
+    printing.fails = true;
+    try {
+      await expect(daemon.close()).rejects.toThrow("print failed");
+      expect(kill).toHaveBeenCalledWith("SIGKILL");
+      await vi.waitFor(() => expect(processAlive(pid)).toBe(false), {
+        timeout: 5000,
+      });
+      expect(readProcess(machine.state)?.alive).not.toBe(true);
+    } finally {
+      vi.restoreAllMocks();
+      if (processAlive(pid)) {
+        process.kill(pid, "SIGKILL");
+      }
+    }
   }, 60_000);
 
   it("refuses a second daemon on the same state root, and a client with none to start", async () => {

@@ -1,4 +1,5 @@
 import type { Installation, InstallationId, ModuleVersion } from "./domain";
+import { ModuleStoreConflictError } from "./errors";
 import type {
   ModuleCapabilityProvider,
   ModuleConstraintsPrincipal,
@@ -9,8 +10,7 @@ import {
   type ModuleAccessRequest,
   moduleAccessRequests,
 } from "./grants";
-import type { InstallationGrant, ModuleStore } from "./store/contract";
-import { ModuleStoreConflictError } from "./store/contract";
+import type { InstallationGrant, ModuleRegistryUnit } from "./registry";
 
 /**
  * Approving and revoking an Installation's Grants. A request grants nothing
@@ -64,12 +64,22 @@ export interface ModuleAccess {
 }
 
 export interface CreateModuleAccessOptions {
-  /** Cancels a revoked Grant's active Invocations; none run without it. */
+  /**
+   * Cancels a revoked Grant's active Invocations; none run without it.
+   * Access runs each change in a transaction of its own and cancels only
+   * once it commits, so `store` must not be `"host"` durable: access
+   * refuses one at construction.
+   */
   readonly invocations?: Pick<ModuleGatewayRuntimeDispatcher, "revoke">;
   readonly now?: () => Date;
   readonly providers: readonly ModuleCapabilityProvider[];
-  readonly store: ModuleStore;
+  readonly store: AccessRegistry;
 }
+
+/** The registry commands access reads and changes Grants through. */
+export type AccessRegistry = ModuleRegistryUnit<
+  "loadGatewayContext" | "replaceInstallationGrants" | "revokeInstallationGrant"
+>;
 
 /** Who a provider resolves constraints for, before a Program exists. */
 export function installationPrincipal(
@@ -88,6 +98,11 @@ export function createModuleAccess(
   options: CreateModuleAccessOptions
 ): ModuleAccess {
   const { providers, store } = options;
+  if (store.durability === "host") {
+    throw new TypeError(
+      'createModuleAccess cannot run over a registry whose commits a host transaction may roll back (durability "host"), such as the registry a transaction hands its work: it cancels Invocations once a revoke commits, and a rollback would restore the Grant. Run it over a registry on the store itself.'
+    );
+  }
   const now = options.now ?? (() => new Date());
 
   function requests(input: {
@@ -100,12 +115,16 @@ export function createModuleAccess(
       version: input.version,
     });
   }
-  function cancel(installationId: InstallationId, capability: string) {
+  function cancel(
+    installationId: InstallationId,
+    capability: string
+  ): Promise<void> {
     options.invocations?.revoke({
       capability,
       installationId,
       reason: "The Grant was revoked",
     });
+    return Promise.resolve();
   }
 
   return Object.freeze({
@@ -128,8 +147,8 @@ export function createModuleAccess(
           `This host cannot provide ${capability}, so it cannot be approved`
         );
       }
-      const grants = await store.transaction(async () => {
-        const current = await store.loadGatewayContext(installation.id);
+      const grants = await store.transaction(async (registry) => {
+        const current = await registry.loadGatewayContext(installation.id);
         if (
           !current ||
           current.installation.contentId !== version.contentId ||
@@ -139,7 +158,7 @@ export function createModuleAccess(
             "The Installation changed while approving; review its requests again"
           );
         }
-        return store.replaceInstallationGrants({
+        return registry.replaceInstallationGrants({
           expectedGeneration: current.installation.generation,
           grants: [
             ...current.grants.filter(
@@ -158,8 +177,8 @@ export function createModuleAccess(
       expectedGeneration,
       requests: wanted,
     }: Parameters<ModuleAccess["carryOver"]>[0]) {
-      return store.transaction(async (effects) => {
-        const context = await store.loadGatewayContext(installationId);
+      return await store.transaction(async (registry, effects) => {
+        const context = await registry.loadGatewayContext(installationId);
         if (!context) {
           throw new ModuleAccessError(
             `Installation ${installationId} is missing`
@@ -175,36 +194,36 @@ export function createModuleAccess(
           (grant) => !carried.includes(grant)
         );
         for (const grant of dropped) {
-          await store.revokeInstallationGrant({
+          await registry.revokeInstallationGrant({
             capability: grant.capability,
             expectedGeneration,
             installationId,
           });
-        }
-        for (const grant of dropped) {
-          effects.afterCommit(async () =>
-            cancel(installationId, grant.capability)
-          );
+          // Only once the revokes have committed: a rolled-back carry-over
+          // cancels nothing. Every dropped Grant is cancelled, though one
+          // cancellation throws.
+          effects.afterCommit(() => cancel(installationId, grant.capability));
         }
         return carried;
       });
     },
     requests,
-    revoke({
+    async revoke({
       installationId,
       capability,
     }: Parameters<ModuleAccess["revoke"]>[0]) {
-      return store.transaction(async (effects) => {
-        const current = await store.loadGatewayContext(installationId);
+      return await store.transaction(async (registry, effects) => {
+        const current = await registry.loadGatewayContext(installationId);
         if (!current?.grants.some((grant) => grant.capability === capability)) {
           throw new ModuleAccessError(`${capability} is not approved`);
         }
-        const revoked = await store.revokeInstallationGrant({
+        const revoked = await registry.revokeInstallationGrant({
           capability,
           expectedGeneration: current.installation.generation,
           installationId,
         });
-        effects.afterCommit(async () => cancel(installationId, capability));
+        // Only once the revoke has committed.
+        effects.afterCommit(() => cancel(installationId, capability));
         return revoked;
       });
     },

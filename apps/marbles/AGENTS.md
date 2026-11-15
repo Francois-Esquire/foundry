@@ -59,6 +59,38 @@ Five buckets, each importing only what sits below it:
   plugins (`lib/providers/plugins.ts`) build instances from configuration
   (`lib/providers/configuration.ts`), and the sandbox reads their execution
   facets.
+- `src/database/` is the Marbles database: one SQLite file at the state
+  root, `<state>/marbles.db`, that every process on the machine opens at
+  once. `open.ts` has one way in per role: `initializeDatabase`, for
+  whoever holds the state root's process lock (the Marbles process for its
+  lifetime, a program hosting a workspace itself only while it records it,
+  through `recordWorkspace`), creates it (WAL, busy timeout, foreign keys)
+  and migrates it; `writeDatabase` writes only to a file that is there and
+  current; `readDatabase` reads through a read-only connection and never
+  creates the database file, migrates it, or changes its content. It
+  makes no side file either, but for one narrow race, described on
+  `readDatabase`, that can leave an empty WAL file, which holds nothing
+  and which readers and writers pass over. `client.ts` makes everything this
+  process does on the file take turns, keyed by the file's device and
+  inode (a link or another spelling of its name shares the queue), since
+  the native driver blocks the thread while it waits for a lock. Nothing
+  may open and close the database file or its side files outside SQLite:
+  closing any descriptor to it drops this process's locks on it;
+  `migrate.ts` applies the committed migrations in `migrations/` in one
+  write transaction, and refuses an applied history that is not an exact
+  prefix of the shipped one. `schema.ts` composes every table, Marbles'
+  own (`tables.ts`) and each domain package's `@foundry/<pkg>/store/tables`,
+  one `export *` line per package; `bun run db:generate` writes the next
+  migration from it, and a test fails when one is missing. Marbles' own
+  stores sit beside the tables (`workspaces.ts`, the workspace registry,
+  which leaves out any workspace whose `<state>/<id>` is a link, for every
+  reader alike).
+  A store takes `{ database }` (`StoreDatabase`, the type a package store
+  declares too), the database or one of its transactions; a package store
+  also takes `scope`, which is the workspace id. `transaction.ts` runs
+  several stores' writes in one transaction by handing each the same `tx`. Open one
+  handle per process and pass it down. It imports `lib/`, `layout.ts`, and
+  third-party packages; every tier above `lib/` may import it.
 - `src/authoring/` owns definition instance methods and runtime routing as
   well as the module-authoring sugar; it collects into the `catalog` in
   `authoring/catalog.ts`, which is private to Marbles, and may import
@@ -76,7 +108,7 @@ Five buckets, each importing only what sits below it:
   dispatch, the task commands the CLI and MCP share (`tasks.ts`), and
   `hostWorkspace()` in `host.ts`, which ties them into the
   `WorkspaceConnection` every host is written against. It imports `lib/`,
-  `authoring/`, `layout.ts` and `model/`; never views, `args`, or
+  `authoring/`, `database/`, `layout.ts` and `model/`; never views, `args`, or
   `process/`. The catalog, the authoring host slot, `process.env` and the
   module cache are per-process, so one process hosts one workspace.
 - `src/process/` is the Marbles process: one daemon per machine
@@ -86,7 +118,8 @@ Five buckets, each importing only what sits below it:
   wire protocol (`protocol.ts`, `channel.ts`); the client (`client.ts`),
   which joins the running daemon or starts one; and the claim
   (`instance.ts`). Apart from the worker it imports only `lib/`,
-  `layout.ts`, `model/` and the pure discovery in `workspace/source.ts`,
+  `database/`, `layout.ts`, `model/` and the pure discovery in
+  `workspace/source.ts`,
   so the daemon never loads an authoring module and survives any of them.
 - `src/access/` is how a command reaches its workspace, shared by the CLI
   and the MCP server (`workspace.ts`): through stored state, with an engine
@@ -116,7 +149,8 @@ Five buckets, each importing only what sits below it:
 
 `src/layout.ts` decides where things live: the Foundry home
 (`$FOUNDRY_HOME`, else `~/.foundry`), the Marbles state root under it, the
-shared artifact store, and the process socket; `--state` and
+Marbles database and the process socket in that root, and the shared
+artifact store; `--state` and
 `--artifacts` move one location each. `src/model/` holds the plain data
 types the tiers share (snapshots, the `WorkspaceConnection`, run status,
 task commands);
