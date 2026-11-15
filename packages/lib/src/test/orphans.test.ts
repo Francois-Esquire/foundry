@@ -431,7 +431,10 @@ it("keeps, and reports, a record whose start is of another kind than the system 
  * exited (a zombie) stays listed, as no signal reaches it. Every signal
  * is kept in `sent`; none reaches a real process.
  */
-function madeUpTable(processes: Map<number, SeenProcess>): {
+function madeUpTable(
+  processes: Map<number, SeenProcess>,
+  afterKill: (target: number, name: NodeJS.Signals) => void = () => undefined
+): {
   readonly sent: [number, NodeJS.Signals][];
   readonly table: ProcessTable;
 } {
@@ -449,6 +452,7 @@ function madeUpTable(processes: Map<number, SeenProcess>): {
             processes.delete(pid);
           }
         }
+        afterKill(target, name);
       },
       look: (pids) => pick((pid) => pids.includes(pid)),
       members: (pgid) => pick((_pid, seen) => seen.pgid === pgid),
@@ -507,4 +511,74 @@ it("forgets a group whose leader is gone once only exited, unreaped members (zom
   });
   expect(sent).toEqual([]);
   expect(existsSync(recordPath(dir, 4_200_003))).toBe(false);
+});
+
+const LATER = "ps:Sun Nov 15 09:00:00 2026";
+
+function readRecord(dir: string, pid: number): SpawnRecord {
+  return JSON.parse(readFileSync(recordPath(dir, pid), "utf8")) as SpawnRecord;
+}
+
+it("proves a group again before it records or signals it: one whose id went to another group meanwhile gets nothing", async () => {
+  const dir = scratch();
+  const leader = 4_200_010;
+  record(dir, { group: true, owner: OWNER, pid: leader, started: MADE_UP });
+  const processes = new Map<number, SeenProcess>([
+    [leader, { pgid: leader, started: MADE_UP }],
+  ]);
+  const { sent, table } = madeUpTable(processes);
+  let looked = false;
+  const system: ProcessTable = {
+    ...table,
+    look(pids) {
+      const seen = table.look(pids);
+      if (!looked) {
+        // Proved as the records are read; then, while other orphans are
+        // stopped, the group exits and its id goes to another group.
+        looked = true;
+        processes.clear();
+        processes.set(leader, { pgid: leader, started: LATER });
+        processes.set(4_200_011, { pgid: leader, started: LATER });
+      }
+      return seen;
+    },
+  };
+
+  const stop = await stopOrphans(dir, { graceMs: 0, killMs: 0, system });
+
+  expect(sent).toEqual([]);
+  expect(stop.stopped).toEqual([]);
+  expect(stop.problems).toEqual([
+    expect.stringContaining(`group ${String(leader)}'s leader is gone`),
+  ]);
+  expect(readRecord(dir, leader).members).toBeUndefined();
+});
+
+it("signals a group by its id only while a recorded member is proved in it: not once its id is another group's", async () => {
+  const dir = scratch();
+  const leader = 4_200_020;
+  const stubborn = 4_200_021;
+  record(dir, { group: true, owner: OWNER, pid: leader, started: MADE_UP });
+  const processes = new Map<number, SeenProcess>([
+    [leader, { pgid: leader, started: MADE_UP }],
+    [stubborn, { pgid: leader, started: MADE_UP }],
+  ]);
+  const { sent, table } = madeUpTable(processes, (target, name) => {
+    if (target === -leader && name === "SIGTERM") {
+      // The group empties, and before the SIGKILL its id is another's.
+      processes.set(leader, { pgid: leader, started: LATER });
+      processes.set(4_200_022, { pgid: leader, started: LATER });
+    }
+  });
+
+  const stop = await stopOrphans(dir, { graceMs: 0, killMs: 0, system: table });
+
+  expect(sent).toEqual([[-leader, "SIGTERM"]]);
+  expect(stop.problems).toEqual([
+    `group ${String(leader)} still has members after SIGKILL; pending, its record kept`,
+  ]);
+  expect(readRecord(dir, leader).members).toEqual([
+    { pid: leader, started: MADE_UP },
+    { pid: stubborn, started: MADE_UP },
+  ]);
 });

@@ -25,9 +25,10 @@
  * record goes only once no process of the group is left. While a stop
  * proves the leader, it writes the group's members, each with its start,
  * into the record, and signals the group by its id; it keeps doing so
- * until the group is empty, watching it all along, since a group id
- * cannot be given to another group while any member of this one lives,
- * and a stop that has seen it empty is done with it. A later stop that
+ * until the group is empty, each signal only once a recorded member is
+ * proved in the group right then, since a group id cannot be given to
+ * another group while any member of this one lives, and a stop that has
+ * seen it empty is done with it. A later stop that
  * finds the leader gone, as after a stop cut short, signals each member
  * the record names that it can still prove, and no other process; one
  * whose remaining members it cannot prove keeps the record, reported as
@@ -347,12 +348,21 @@ async function waitGone(
 }
 
 /**
- * Stop the group `group` names: whole, by its id, when its leader was
- * proved (its members written into its record first), else each member
- * its record names that is proved right before its signal. SIGTERM, a
- * grace period, SIGKILL, a last wait; the record goes only once no
- * process of the group is left. `undefined` once it is empty; why its
- * record is kept otherwise.
+ * Stop the group `group` names: whole, by its id, while one of its
+ * recorded members (its leader first) is proved in it right before each
+ * signal, else each member its record names that is proved right before
+ * its signal. Its members are written into its record before any signal,
+ * and again as more are seen, so a stop cut short leaves its proof
+ * behind. SIGTERM, a grace period, SIGKILL, a last wait; the record goes
+ * only once no process of the group is left. `undefined` once it is
+ * empty; why its record is kept otherwise.
+ *
+ * The leader was proved when the records were read, but stopping other
+ * orphans since may have taken seconds: the group may have emptied and
+ * its id gone to another group meanwhile. So nothing is taken from that
+ * proof. A group id is not given to another group while any process of
+ * this one lives, so a recorded member found in it, with its recorded
+ * start, proves the id is still this group's at that moment.
  */
 async function stopGroup(
   dir: string,
@@ -362,30 +372,41 @@ async function stopGroup(
 ): Promise<string | undefined> {
   const pgid = group.record.pid;
   let { record } = group;
-  if (group.leader) {
+  let whole = group.leader;
+  if (whole) {
     const members = system.members(pgid);
     if (members === undefined) {
       return `the members of group ${String(pgid)} could not be listed; its record is kept`;
     }
-    record = {
-      ...record,
-      members: [...members].map(([pid, seen]) => ({
-        pid,
-        started: seen.started,
-      })),
-    };
-    // Before any signal, so a stop cut short leaves its proof behind.
-    writePrivate(recordPath(dir, pgid), JSON.stringify(record));
+    if (proved(record, members)) {
+      record = withMembers(dir, record, members);
+    } else {
+      // The leader is gone since, or its pid is another's: what is left
+      // is judged by the members its record names, as a later stop would.
+      whole = false;
+      const left = leftMembers(record, system);
+      if (left === "gone") {
+        forget(dir, pgid);
+        return;
+      }
+      if (typeof left === "object") {
+        return left.problem;
+      }
+    }
   }
   const send = (name: NodeJS.Signals): void => {
-    if (group.leader) {
-      // Proved by its leader in this stop, and watched since: still this group.
+    const members = system.members(pgid);
+    if (members === undefined) {
+      return;
+    }
+    const known = record.members ?? [];
+    if (whole && known.some((member) => proved(member, members))) {
+      record = withMembers(dir, record, members);
       signalTarget(system, -pgid, name);
       return;
     }
-    const members = system.members(pgid);
-    for (const member of record.members ?? []) {
-      if (members !== undefined && proved(member, members)) {
+    for (const member of known) {
+      if (proved(member, members)) {
         signalTarget(system, member.pid, name);
       }
     }
@@ -401,6 +422,33 @@ async function stopGroup(
     }
   }
   return `group ${String(pgid)} still has members after SIGKILL; pending, its record kept`;
+}
+
+/**
+ * `record` naming every process of `members`, the group as just proved,
+ * as well as those it named already; written when that adds one.
+ */
+function withMembers(
+  dir: string,
+  record: SpawnRecord,
+  members: ReadonlyMap<number, SeenProcess>
+): SpawnRecord {
+  const known = record.members ?? [];
+  const added = [...members]
+    .filter(([pid, seen]) =>
+      known.every(
+        (member) =>
+          member.pid !== pid ||
+          compareStarts(member.started, seen.started) !== "same"
+      )
+    )
+    .map(([pid, seen]) => ({ pid, started: seen.started }));
+  if (added.length === 0 && record.members !== undefined) {
+    return record;
+  }
+  const next = { ...record, members: [...known, ...added] };
+  writePrivate(recordPath(dir, record.pid), JSON.stringify(next));
+  return next;
 }
 
 /** Poll until no process of the group `pgid` is left, or `ms` pass. */
