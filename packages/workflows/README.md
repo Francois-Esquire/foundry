@@ -406,7 +406,8 @@ interface ChannelChunk<S> { … }
 type ChannelMessage<S> = ChannelChunk | ChannelEvent;
 ```
 
-Events are Effect `Schema.TaggedStruct`s, so they decode as well as encode:
+Each event has a Zod schema keyed by `_tag` (`StepStartedEvent`, …), and
+`ChannelEventSchema` decodes any of them:
 
 ```
 step.started · step.complete · step.failed · step.bailed
@@ -425,9 +426,9 @@ interface StepSnapshot { … }
 interface SnapshotState { … }
 ```
 
-Every shape has a matching `Schema` export (`StepSnapshotSchema`,
-`SnapshotStateSchema`, …) — decode at the persistence boundary rather than
-casting.
+Every shape has a matching Zod schema (`StepSnapshotSchema`,
+`SnapshotStateSchema`, …), defined in `./schema` — decode at the persistence
+boundary rather than casting.
 
 ## `@foundry/workflows/step-hooks`
 
@@ -481,6 +482,20 @@ type RunLifecycleEvent;
 ```
 
 `./store` is the compatibility surface for the existing Orchestrator consumer.
+
+## `@foundry/workflows/schema`
+
+The single definition of every record the stores persist or return: Queue,
+Job, Run, Suspension, Run frame, and the in-memory store snapshot, plus the
+snapshot and channel-event values they embed. Each is a Zod schema with its
+type inferred from it; `./store`, `./snapshot`, `./channels`, and `./types`
+re-export the same schemas and types. Effect stays the runtime.
+
+`RunRecordSchema` admits a Run the way the store always has and returns it
+unchanged, so fields it does not declare survive. `RunRecordShapeSchema` is
+the plain object schema of the declared fields, which a Run table derives
+from. `PersistedMetadataSchema` and `PersistedWorkflowSchema` describe the
+workflows namespaces of a Run's `metadata`; other namespaces stay open.
 
 ---
 

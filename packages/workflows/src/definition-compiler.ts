@@ -11,6 +11,7 @@ import {
 } from "./definition-plan";
 import type { DefinitionBinding } from "./definitions";
 import type { BaseContext } from "./executable";
+import { defineOwnEntry } from "./own-entry";
 import type { Step } from "./step";
 import type { StepSpec } from "./step-types";
 
@@ -61,11 +62,10 @@ export function compileWorkflowDefinition<
     execute: async (workflowInput, context) => {
       const values: Record<string, unknown> = { input: workflowInput };
       for (const node of plan.steps) {
-        values[node.nodeKey] = await executeNode(
-          node,
+        defineOwnEntry(
           values,
-          context,
-          binding
+          node.nodeKey,
+          await executeNode(node, values, context, binding)
         );
       }
       return plan.output(values);
@@ -126,7 +126,7 @@ async function executeGroup(
     if (step === undefined) {
       throw new Error("Definition group child missing");
     }
-    entries[child.nodeKey] = { input, step };
+    defineOwnEntry(entries, child.nodeKey, { input, step });
   }
   return node.kind === "parallel"
     ? context.parallel(entries, node.nodeKey)

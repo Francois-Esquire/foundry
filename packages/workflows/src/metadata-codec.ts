@@ -1,96 +1,17 @@
-import { Option, Schema } from "effect";
-
 import type { ChannelEvent } from "./channels";
-import {
-  ChannelEventSchema,
-  ErrorShapeSchema,
-  SuspensionStateSchema,
-} from "./channels";
 import { resolveInput } from "./helpers";
+import { defineOwnEntry } from "./own-entry";
+import type { PersistedMetadata } from "./schema";
+import { PersistedMetadataSchema } from "./schema";
 import type { StepSnapshot, WorkflowSnapshot } from "./snapshot";
-import { StepSnapshotSchema, WorkflowSnapshotSchema } from "./snapshot";
 import type { RecoverableRun, RunRecord } from "./store";
 import type { RunStatus } from "./types";
 import type { WorkflowPersistence, WorkflowState } from "./workflow";
 
-/**
- * Shared schema for the persisted run metadata blob. The writer validates it
- * with encodePersistedMetadata, and readers decode it through
- * decodeMetadataValue or workflowTraceFactsFromMetadata.
- */
-const RunStatusSchema = Schema.Literal(
-  "queued",
-  "running",
-  "complete",
-  "failed",
-  "cancelled",
-  "suspended"
-);
-
-const TelemetrySchema = Schema.Struct({
-  logs: Schema.Array(
-    Schema.Struct({
-      at: Schema.String,
-      level: Schema.Literal("debug", "info", "warn", "error"),
-      message: Schema.String,
-      metadata: Schema.optional(
-        Schema.Record({ key: Schema.String, value: Schema.Unknown })
-      ),
-      path: Schema.optional(Schema.Array(Schema.String)),
-      stepId: Schema.optional(Schema.String),
-    })
-  ),
-  metrics: Schema.Struct({
-    updatedAt: Schema.String,
-    values: Schema.Record({ key: Schema.String, value: Schema.Number }),
-  }),
-});
-
-/**
- * The `metadata.workflow` blob: a {@link WorkflowState} fortified with the
- * `runId`/`step` ornaments the writer stamps. Most fields are optional because
- * the insert-time row carries only `{ input, steps, tree }` before the first
- * reactive write fills in the rest.
- */
-const PersistedWorkflowSchema = Schema.Struct({
-  attempt: Schema.optional(Schema.Number),
-  completedAt: Schema.optional(Schema.String),
-  createdAt: Schema.optional(Schema.String),
-  error: Schema.optional(ErrorShapeSchema),
-  input: Schema.optional(Schema.Unknown),
-  metadata: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown })
-  ),
-  output: Schema.optional(Schema.Unknown),
-  runId: Schema.optional(Schema.String),
-  startedAt: Schema.optional(Schema.String),
-  status: Schema.optional(RunStatusSchema),
-  step: Schema.optional(Schema.String),
-  steps: Schema.optional(
-    Schema.Record({ key: Schema.String, value: StepSnapshotSchema })
-  ),
-  suspendedAt: Schema.optional(Schema.String),
-  suspension: Schema.optional(SuspensionStateSchema),
-  tags: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.String })
-  ),
-  telemetry: Schema.optional(TelemetrySchema),
-  tree: Schema.optional(Schema.NullOr(WorkflowSnapshotSchema)),
-});
-export type PersistedWorkflow = Schema.Schema.Type<
-  typeof PersistedWorkflowSchema
->;
-
-const PersistedMetadataSchema = Schema.Struct({
-  stream: Schema.optional(Schema.Array(ChannelEventSchema)),
-  workflow: Schema.optional(Schema.NullOr(PersistedWorkflowSchema)),
-});
-type PersistedMetadata = Schema.Schema.Type<typeof PersistedMetadataSchema>;
-
-const decodeMetadataOption = Schema.decodeUnknownOption(
-  PersistedMetadataSchema
-);
-const encodePersistedMetadataSync = Schema.encodeSync(PersistedMetadataSchema);
+function decodePersistedMetadata(value: unknown): PersistedMetadata | null {
+  const result = PersistedMetadataSchema.safeParse(value);
+  return result.success ? result.data : null;
+}
 
 /** Generic, read-only facts projected from one persisted workflow Run. */
 export interface WorkflowTraceFacts {
@@ -124,7 +45,7 @@ export function workflowTraceFactsFromMetadata(
   value: unknown
 ): WorkflowTraceFacts {
   try {
-    const metadata = Option.getOrNull(decodeMetadataOption(value));
+    const metadata = decodePersistedMetadata(value);
     if (!metadata) {
       return emptyWorkflowTraceFacts;
     }
@@ -147,7 +68,7 @@ export function decodeMetadataValue(value: unknown): PersistedMetadata | null {
   if (value === null || value === undefined) {
     return null;
   }
-  return Option.getOrNull(decodeMetadataOption(value));
+  return decodePersistedMetadata(value);
 }
 
 /**
@@ -165,7 +86,7 @@ function gateTransientSteps(
   const gated: Record<string, (typeof steps)[string]> = {};
   for (const [key, snapshot] of Object.entries(steps)) {
     const { output: _output, ...rest } = snapshot;
-    gated[key] = rest;
+    defineOwnEntry(gated, key, rest);
   }
   return gated;
 }
@@ -189,10 +110,10 @@ export function encodePersistedMetadata(
   policy: WorkflowPersistence = { results: "retained" }
 ): Record<string, unknown> {
   if (policy.results === "retained") {
-    return encodePersistedMetadataSync({ stream, workflow });
+    return PersistedMetadataSchema.parse({ stream, workflow });
   }
   const { output: _output, ...rest } = workflow;
-  return encodePersistedMetadataSync({
+  return PersistedMetadataSchema.parse({
     stream: gateTransientStream(stream),
     workflow: { ...rest, steps: gateTransientSteps(workflow.steps) },
   });
