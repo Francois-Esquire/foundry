@@ -2,6 +2,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Tasks } from "@foundry/tasks";
 import { plugin } from "bun";
+import { libraryOfLoad, prebuiltOfLoad } from "~/authoring/bound";
 import { Catalog } from "~/authoring/catalog";
 import { expectHost, loadInto, setHost } from "~/authoring/runtime";
 import { initializeUsage } from "~/authoring/usage";
@@ -16,7 +17,7 @@ import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceAt, workspaceState } from "~/lib/state/workspace";
-import { copyModules, importLoad } from "~/workspace/copies";
+import { copyModules, importLoad, linkLibrary } from "~/workspace/copies";
 import type { WorkspaceEnvironment } from "~/workspace/env";
 import { loadEnvironment } from "~/workspace/env";
 import {
@@ -101,6 +102,11 @@ function linkSourceLibrary(): Promise<void> {
       },
       target: "bun",
     });
+    // A load's own modules get the library bound to that load.
+    linkLibrary("@foundry.sh/marbles", (load) => libraryOfLoad(library, load));
+    linkLibrary("@foundry.sh/marbles/prebuilt", (load) =>
+      prebuiltOfLoad(prebuilt, load)
+    );
   })();
   return sourceLibrary;
 }
@@ -126,8 +132,8 @@ async function loadSource(
     return false;
   }
   await linkSourceLibrary();
-  await loadInto(workspaceId, catalog, () =>
-    importLoad(sourceRoot(configPath), files)
+  await loadInto(workspaceId, catalog, (load) =>
+    importLoad(sourceRoot(configPath), files, load)
   );
   print(`[source] ${configPath}`);
   return true;

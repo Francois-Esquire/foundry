@@ -314,7 +314,11 @@ Each host loads its workspace's source into a catalog of its own, and its
 `.env.schema` into the environment the workspace's runs carry, leaving
 `process.env` as it was; two hosts in one process never see each other's
 definitions, triggers, agents, tasks or values, and two workspaces may use
-the same names. Sources load one at a time. A relative `source`, or a
+the same names. What a workspace's modules do later, from a timer, a
+promise or a listener, still belongs to that workspace, and is refused once
+its host has closed. A module outside the workspace's root, such as a
+package, is shared by every workspace in the process: what it declares
+while a workspace loads is refused. A relative `source`, or a
 workspace with no source at all, needs `directory`: the directory the
 source is relative to, which is the workspace's root without one. `cwd`
 sets where the workspace's runs start and its commands run, the root when

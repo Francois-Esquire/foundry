@@ -13,11 +13,18 @@ import {
  */
 
 /**
- * Every workspace this machine has run, and whether the Marbles process
- * hosts it: its registration, enough to load it again from the row alone
- * (its root, its source, and where its work starts). One row per id;
- * `first_seen` is set once, `last_seen` on every sight. Times are ISO
- * strings, as the record holds them.
+ * Every workspace this machine has run, with enough to load it again from
+ * the row alone (its root, its source, and where its work starts). One row
+ * per id; `first_seen` is set once, `last_seen` on every sight. Times are
+ * ISO strings, as the record holds them.
+ *
+ * `hosted` says the workspace is registered with the Marbles process:
+ * attached (`marbles attach`, a CLI run the process hosts) or registered
+ * through `HostedWorkspaces.register`, and not detached since. The Marbles
+ * process loads every hosted workspace again when it starts
+ * (`HostedWorkspaces.loadRegistered`), and reports each one that fails. A
+ * row a command only read or ran, with no Marbles process hosting it,
+ * stays unhosted.
  */
 export const marblesWorkspaces = sqliteTable("marbles_workspaces", {
   config: text(),
