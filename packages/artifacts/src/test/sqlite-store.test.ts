@@ -1063,8 +1063,9 @@ describe("what onCommit learns of a change", () => {
     expect(await shapes(() => manager.setMetadata(first, { n: 1 }))).toEqual([
       { events: 1, putContents: 1 },
     ]);
+    // Frozen, and its draft Artifact published: two events.
     expect(await shapes(() => manager.freeze(first))).toEqual([
-      { events: 1, putArtifacts: 1, putContents: 1 },
+      { events: 2, putArtifacts: 1, putContents: 1 },
     ]);
     expect(await shapes(() => manager.tag(first, "v1"))).toEqual([
       { events: 1, putContents: 1 },

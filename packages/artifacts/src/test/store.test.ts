@@ -5,6 +5,7 @@ import { InMemoryArtifactStore } from "../store/memory";
 import { SqliteArtifactStore } from "../store/sqlite";
 import { describeArtifactManager } from "../testing/manager";
 import { describeArtifactStore } from "../testing/store";
+import { recordingStorage } from "./helpers/recording";
 import { libsqlDatabases } from "./helpers/sqlite";
 
 /** Fresh storage: one store per scope, kept for that scope. */
@@ -33,7 +34,11 @@ for (const location of ["memory", "file"] as const) {
       return store;
     };
   }
-  describeArtifactStore(`SQLite on libSQL (${location})`, sqliteStorage);
+  describeArtifactStore(
+    `SQLite on libSQL (${location})`,
+    sqliteStorage,
+    async () => recordingStorage(await databases.open())
+  );
   describeArtifactManager(
     `SQLite on libSQL (${location})`,
     async () =>

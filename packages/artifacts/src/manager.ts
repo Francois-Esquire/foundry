@@ -129,7 +129,9 @@ const REENTRY =
  * call that waits on the transaction it runs in. A joined call is not a
  * savepoint: when one that writes fails, the whole transaction rolls back
  * with {@link TransactionRolledBackError}, even if the operation caught the
- * failure and went on.
+ * failure and went on. So does an operation on the handle `transaction`
+ * passes that is refused after it wrote part of the change; one refused
+ * before it wrote anything leaves the change as it was.
  */
 export class ArtifactManager implements Artifacts {
   readonly #store: ArtifactStore;
@@ -254,10 +256,11 @@ export class ArtifactManager implements Artifacts {
             } finally {
               scope.open = false;
             }
-            if (scope.failed) {
-              throw new TransactionRolledBackError({
-                cause: scope.failed.error,
-              });
+            // A joined call that failed, or an operation refused after it
+            // wrote part of the change: either way the change is not whole.
+            const failed = scope.failed ?? change.failure;
+            if (failed) {
+              throw new TransactionRolledBackError({ cause: failed.error });
             }
             await transaction.reclaim();
             attempted = change.write();

@@ -280,7 +280,10 @@ export type ArtifactRecords = z.infer<typeof artifactRecordsSchema>;
 
 const eventFields = {
   artifactId: artifactIdSchema,
-  /** When the manager built the event, an ISO time. */
+  /**
+   * When the manager built the event, an ISO time. Not commit order: a host
+   * orders events by its own sequence.
+   */
   at: z.iso.datetime(),
   /** The event's own id, unique. */
   id: z.string().min(1),
@@ -313,6 +316,10 @@ export const artifactEventSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...contentEventFields, type: z.literal("artifact.frozen") }),
   z.strictObject({
     ...contentEventFields,
+    type: z.literal("artifact.published"),
+  }),
+  z.strictObject({
+    ...contentEventFields,
     type: z.literal("artifact.selected"),
   }),
   z.strictObject({
@@ -337,7 +344,14 @@ export const artifactEventSchema = z.discriminatedUnion("type", [
   }),
   z.strictObject({ ...eventFields, type: z.literal("artifact.archived") }),
   z.strictObject({ ...eventFields, type: z.literal("artifact.unarchived") }),
-  z.strictObject({ ...eventFields, type: z.literal("artifact.removed") }),
+  z.strictObject({
+    ...eventFields,
+    /** The removed Artifact's `type`, as it can no longer be read. */
+    artifactType: nonBlankSchema,
+    /** The removed Artifact's name, as it can no longer be read. */
+    name: nonBlankSchema,
+    type: z.literal("artifact.removed"),
+  }),
   z.strictObject({
     ...contentEventFields,
     type: z.literal("artifact.discarded"),

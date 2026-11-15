@@ -53,12 +53,35 @@ export class ArtifactChange {
   readonly #blobs: Pending<BlobId, Blob> = new Map();
   readonly #contents: Pending<ContentId, Content> = new Map();
   readonly #events: ArtifactEvent[] = [];
+  /** How many times this change took a record or an event in. */
+  #writes = 0;
+  /** An operation's failure that left part of its writes behind. */
+  #failure: { readonly error: unknown } | undefined;
   #active: boolean;
 
   constructor(store: ArtifactStore, options: { readonly readOnly?: boolean }) {
     this.#store = store;
     this.readOnly = options.readOnly ?? false;
     this.#active = true;
+  }
+
+  /** How many records and events this change has taken in so far. */
+  get writes(): number {
+    return this.#writes;
+  }
+
+  /**
+   * The failure of an operation that wrote part of this change before it
+   * was refused, if one did: the change cannot commit, as its writes are
+   * not all or nothing. The first such failure is kept.
+   */
+  get failure(): { readonly error: unknown } | undefined {
+    return this.#failure;
+  }
+
+  /** Marks the change unable to commit, after `error` refused an operation midway. */
+  fail(error: unknown): void {
+    this.#failure ??= { error };
   }
 
   settle(): void {
@@ -109,6 +132,7 @@ export class ArtifactChange {
       at: new Date().toISOString(),
       id: crypto.randomUUID(),
     } as ArtifactEvent);
+    this.#writes += 1;
   }
 
   // ── Artifacts ──
@@ -181,6 +205,7 @@ export class ArtifactChange {
       throw new Error("Artifact pointer must name its own Content");
     }
     this.#artifacts.set(artifact.id, structuredClone(artifact));
+    this.#writes += 1;
   }
 
   async deleteArtifact(id: ArtifactId): Promise<void> {
@@ -189,6 +214,7 @@ export class ArtifactChange {
       this.#contents.set(content.id, null);
     }
     this.#artifacts.set(id, null);
+    this.#writes += 1;
   }
 
   // ── Contents ──
@@ -220,6 +246,7 @@ export class ArtifactChange {
       throw new Error("Content requires an Artifact");
     }
     this.#contents.set(content.id, structuredClone(content));
+    this.#writes += 1;
   }
 
   async deleteContent(id: ContentId): Promise<void> {
@@ -232,6 +259,7 @@ export class ArtifactChange {
       throw new Error("Cannot delete active Content");
     }
     this.#contents.set(id, null);
+    this.#writes += 1;
   }
 
   // ── Blobs ──
@@ -318,11 +346,13 @@ export class ArtifactChange {
       throw new Error("Blob backing path already belongs to another blob");
     }
     this.#blobs.set(blob.id, structuredClone(blob));
+    this.#writes += 1;
   }
 
   deleteBlob(id: BlobId): Promise<void> {
     this.assertWritable();
     this.#blobs.set(id, null);
+    this.#writes += 1;
     return Promise.resolve();
   }
 

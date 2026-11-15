@@ -172,7 +172,9 @@ While a transaction's callback runs, any other call on the same manager joins it
 however deep in the call stack. Reads see its uncommitted writes, and a nested
 `transaction` commits with the outer one. Joined calls are not savepoints: if one fails
 and the callback still returns, the whole transaction rolls back with
-`TransactionRolledBackError` (its `cause` is the failure). Work scheduled during the
+`TransactionRolledBackError` (its `cause` is the failure). So does an operation on the
+callback's own handle that is refused after writing part of the change; one refused
+before writing anything leaves the transaction to go on. Work scheduled during the
 callback but run after it returns starts its own transaction, once the callback's
 transaction has settled.
 
@@ -431,39 +433,62 @@ The write also carries `events`: what the change did, as change events
 `.`), in the order its operations made them. The manager's operations build them,
 never a store; a host records them in `onCommit`, on the transaction it is handed,
 so an event lands exactly when its change does: once per commit that succeeds, never
-for one refused or rolled back. Every store hands the events on with its copy of the
-write and keeps no record of them; an event the copy refuses refuses the write.
+for one refused or rolled back.
 
-An event is plain JSON: `{ type, id, at, artifactId, ... }`. `id` is unique (`af-` and
-a UUID), made with the write before `commit`; `at` is an ISO time. An event about one
-version names it as `contentId`. A handler reads the records for anything more.
+Every store keeps no record of events. Each takes them as they stand when `commit` is
+called, as plain JSON, before it copies the records: a part that has no JSON form
+reading back the same (a Date, a class instance, `NaN`, `-0`, a bigint, `undefined`, a
+function, a hole in an array) refuses the whole write with a `TypeError` naming it.
+`describeArtifactStore(name, open, recording)` proves a store with a host hook hands
+every kept commit's events to it, in order, and none of a refused or rolled-back one;
+pass `recording` for such a store.
+
+An event is plain JSON: `{ type, id, at, artifactId, ... }`. `id` is a UUID, unique,
+made with the write before `commit`. `at` is when the manager built the event, an ISO
+time: it cannot establish commit order, as managers' clocks and commits interleave. A
+host orders events by its own sequence, such as the position of the row its `onCommit`
+writes. An event about one version names it as `contentId`. A handler reads the records
+for anything more, except after `artifact.removed`, which carries what identified the
+Artifact.
 
 | Event                 | Emitted when                                                                   | Also carries                          |
-| -------------------- | ------------------------------------------------------------------------------ | ------------------------------------- |
-| `artifact.created`   | `create` files an Artifact                                                     |                                       |
-| `artifact.forked`    | `fork` files an Artifact from another's Content (not also `created`)           | `contentId`, `sourceArtifactId`, `sourceContentId` |
-| `artifact.written`   | `write` edits the active Content in place, or makes the first one              | `contentId`                           |
-| `artifact.revised`   | `revise` makes a successor Content and selects it                              | `contentId`, `sourceContentId`        |
-| `artifact.frozen`    | `freeze` freezes a ready Content (and publishes a draft Artifact)              | `contentId`                           |
-| `artifact.selected`  | `select` points the Artifact at another of its Contents                        | `contentId`                           |
-| `artifact.cleared`   | `clearFailedContent` drops the pointer to a failed Content                     | `contentId`                           |
-| `artifact.tagged`    | `tag` sets or clears a Content's tag, to a value it did not have               | `contentId`, `tag` (or `null`)        |
-| `artifact.updated`   | `patchArtifactMetadata` or `setMetadata` with at least one key                 | `contentId`: the Content, or `null` for the Artifact |
-| `artifact.renamed`   | `rename` to another name                                                       | `name`                                |
-| `artifact.archived`  | `archive` of an Artifact not archived                                          |                                       |
-| `artifact.unarchived`| `unarchive` of an archived Artifact                                            |                                       |
-| `artifact.removed`   | `delete` removes an Artifact, and its Contents with it                         |                                       |
-| `artifact.discarded` | `deleteContent` or `sweep` removes one Content                                 | `contentId`                           |
+| --------------------- | ------------------------------------------------------------------------------ | ------------------------------------- |
+| `artifact.created`    | `create` files an Artifact                                                     |                                       |
+| `artifact.forked`     | `fork` files an Artifact from another's Content (not also `created`)           | `contentId`, `sourceArtifactId`, `sourceContentId` |
+| `artifact.written`    | `write` edits the active Content in place, or makes the first one              | `contentId`                           |
+| `artifact.revised`    | `revise` makes a successor Content and selects it                              | `contentId`, `sourceContentId`        |
+| `artifact.frozen`     | a ready Content is frozen: by `freeze`, or as the source of `revise` or `fork`, on the Content's own Artifact | `contentId` |
+| `artifact.published`  | `freeze` publishes an Artifact never published before                          | `contentId`: the Content frozen       |
+| `artifact.selected`   | `select` points the Artifact at another of its Contents                        | `contentId`                           |
+| `artifact.cleared`    | `clearFailedContent` drops the pointer to a failed Content                     | `contentId`                           |
+| `artifact.tagged`     | `tag` sets or clears a Content's tag, to a value it did not have               | `contentId`, `tag` (or `null`)        |
+| `artifact.updated`    | `patchArtifactMetadata` or `setMetadata` leaves the metadata different         | `contentId`: the Content, or `null` for the Artifact |
+| `artifact.renamed`    | `rename` to another name                                                       | `name`                                |
+| `artifact.archived`   | `archive` of an Artifact not archived                                          |                                       |
+| `artifact.unarchived` | `unarchive` of an archived Artifact                                            |                                       |
+| `artifact.removed`    | `delete` removes an Artifact, and its Contents with it                         | `name`, `artifactType` (its `type`)   |
+| `artifact.discarded`  | `deleteContent` or `sweep` removes one Content                                 | `contentId`                           |
 
-An operation that performs another records that one's event too, after its own:
-`create` with entries is `created` then `written`, with its `freeze` option `tagged`,
-`updated` and `frozen` after; a `deleteContent` of the active Content is `selected`
-(the replacement) then `discarded`. The source frozen by `revise` or `fork` is part of
-that operation and makes no event of its own. An operation that changes nothing an event
-names (the same name, an Artifact already archived, the tag a Content has, an empty
-metadata patch, a Content already frozen) makes no event, though it may still write.
-Events are a record of operations, not a net difference: an Artifact created and
-deleted inside one `transaction` carries `created` and `removed`.
+Every Artifact a write changes gets an event naming that change on that Artifact. An
+operation that performs another records that one's event too, in the order they
+happen: `create` with entries is `created` then `written`, with its `freeze` option
+`tagged`, `updated`, `frozen` and `published` after; `revise` of a ready source is
+`frozen` (the source) then `revised`; `fork` of a ready source is `frozen` on the
+source's Artifact then `forked` on the new one; a `deleteContent` of the active Content
+is `selected` (the replacement) then `discarded`.
+
+An operation that changes nothing (the same name, an Artifact already archived, or not
+archived for `unarchive`, the tag a Content has, metadata that comes out as it was, a
+Content already frozen) writes nothing and makes no event. Events are a record of
+operations, not a net difference: an Artifact created and deleted inside one
+`transaction` carries `created`, `written` and `removed`.
+
+Within `transaction`, an operation on the handle is all or nothing. One refused before
+it wrote anything leaves the transaction as it was, and the operation may catch the
+refusal and go on. One refused after it wrote part of the change (a `create` whose first
+Content refuses, say) leaves the transaction unable to commit: it rejects with
+`TransactionRolledBackError`, keeping no record and no event, whatever the operation
+caught, as a failed joined call does.
 
 `transaction(work)` runs `work` in one database transaction over a view; each commit
 through the view is a savepoint, and the view refuses calls once `work` settles. In this

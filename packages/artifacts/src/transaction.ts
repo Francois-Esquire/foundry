@@ -2,6 +2,7 @@ import type { Page } from "@foundry/core/pagination";
 import type { StorageNode } from "@foundry/core/storage";
 
 import { isStoragePath, withParentDirectories } from "@foundry/core/storage";
+import { canonicalizeJson } from "@foundry/lib/json";
 
 import type { Blob, BlobFiles, ContentTree, StoredFile } from "./blob";
 import type { BlobEffects } from "./blob-repository";
@@ -81,8 +82,62 @@ export interface LocatedFile {
   readonly path: string;
 }
 
+/**
+ * Every operation that writes. Each is all or nothing within its change:
+ * one refused after it wrote part of the change marks the change failed
+ * (`ArtifactChange.fail`), so it cannot commit, whatever the caller of the
+ * operation catches. One refused before it wrote anything leaves the change
+ * as it was, and the caller may go on.
+ */
+const WRITING_OPERATIONS = [
+  "archive",
+  "clearFailedContent",
+  "create",
+  "delete",
+  "deleteContent",
+  "fork",
+  "freeze",
+  "patchArtifactMetadata",
+  "rename",
+  "revise",
+  "select",
+  "setMetadata",
+  "sweep",
+  "tag",
+  "unarchive",
+  "write",
+] as const satisfies readonly (keyof ArtifactOperations)[];
+
 /** The Artifact operations within one change. */
 export class ArtifactTransaction implements ArtifactOperations {
+  static {
+    for (const name of WRITING_OPERATIONS) {
+      const operation: unknown = Reflect.get(
+        ArtifactTransaction.prototype,
+        name
+      );
+      if (typeof operation !== "function") {
+        throw new Error(`ArtifactTransaction has no operation ${name}`);
+      }
+      Object.defineProperty(ArtifactTransaction.prototype, name, {
+        configurable: true,
+        async value(this: ArtifactTransaction, ...args: unknown[]) {
+          const change = this.#change;
+          const before = change.writes;
+          try {
+            return await Reflect.apply(operation, this, args);
+          } catch (error) {
+            if (change.writes !== before) {
+              change.fail(error);
+            }
+            throw error;
+          }
+        },
+        writable: true,
+      });
+    }
+  }
+
   readonly #change: ArtifactChange;
   readonly #effects: OperationEffects;
   readonly #blobs: BlobRepository;
@@ -240,10 +295,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     return this.#updateArtifact(
       id,
       () => ({ name }),
-      (previous) =>
-        previous.name === name
-          ? undefined
-          : { artifactId: id, name, type: "artifact.renamed" }
+      () => ({ artifactId: id, name, type: "artifact.renamed" })
     );
   }
 
@@ -254,10 +306,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     return this.#updateArtifact(
       id,
       (row) => ({ metadata: mergeMetadata(row.metadata, patch) }),
-      () =>
-        Object.keys(patch).length === 0
-          ? undefined
-          : { artifactId: id, contentId: null, type: "artifact.updated" }
+      () => ({ artifactId: id, contentId: null, type: "artifact.updated" })
     );
   }
 
@@ -268,10 +317,7 @@ export class ArtifactTransaction implements ArtifactOperations {
         archivedAt: row.archivedAt ?? new Date(),
         status: "archived",
       }),
-      (previous) =>
-        previous.status === "archived"
-          ? undefined
-          : { artifactId: id, type: "artifact.archived" }
+      () => ({ artifactId: id, type: "artifact.archived" })
     );
   }
 
@@ -282,10 +328,7 @@ export class ArtifactTransaction implements ArtifactOperations {
         archivedAt: null,
         status: row.publishedAt ? "published" : "draft",
       }),
-      (previous) =>
-        previous.status === "archived"
-          ? { artifactId: id, type: "artifact.unarchived" }
-          : undefined
+      () => ({ artifactId: id, type: "artifact.unarchived" })
     );
   }
 
@@ -309,7 +352,8 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   async delete(id: ArtifactId): Promise<boolean> {
-    if (!(await this.#change.getArtifact(id))) {
+    const artifact = await this.#change.getArtifact(id);
+    if (!artifact) {
       return false;
     }
     await this.#point(id, null);
@@ -317,7 +361,13 @@ export class ArtifactTransaction implements ArtifactOperations {
       this.#releaseTree(content.tree);
     }
     await this.#change.deleteArtifact(id);
-    this.#change.record({ artifactId: id, type: "artifact.removed" });
+    // The Artifact is gone: the event keeps what identified it.
+    this.#change.record({
+      artifactId: id,
+      artifactType: artifact.type,
+      name: artifact.name,
+      type: "artifact.removed",
+    });
     return true;
   }
 
@@ -406,15 +456,18 @@ export class ArtifactTransaction implements ArtifactOperations {
       return current;
     }
     const frozen = await this.#markFrozen(current);
-    await this.#updateArtifact(row.artifactId, (artifact) => ({
-      publishedAt: artifact.publishedAt ?? frozen.updatedAt,
-      status: artifact.status === "draft" ? "published" : artifact.status,
-    }));
-    this.#change.record({
-      artifactId: row.artifactId,
-      contentId: id,
-      type: "artifact.frozen",
-    });
+    await this.#updateArtifact(
+      row.artifactId,
+      (artifact) => ({
+        publishedAt: artifact.publishedAt ?? frozen.updatedAt,
+        status: artifact.status === "draft" ? "published" : artifact.status,
+      }),
+      () => ({
+        artifactId: row.artifactId,
+        contentId: id,
+        type: "artifact.published",
+      })
+    );
     return frozen;
   }
 
@@ -482,17 +535,18 @@ export class ArtifactTransaction implements ArtifactOperations {
     if (tag !== null) {
       await this.#assertTagFree(row, tag);
     }
+    if (row.tag === tag) {
+      return row;
+    }
     const content = { ...row, tag };
     await this.#change.putContent(content);
     this.#effects.changed.add(row.artifactId);
-    if (row.tag !== tag) {
-      this.#change.record({
-        artifactId: row.artifactId,
-        contentId: id,
-        tag,
-        type: "artifact.tagged",
-      });
-    }
+    this.#change.record({
+      artifactId: row.artifactId,
+      contentId: id,
+      tag,
+      type: "artifact.tagged",
+    });
     return content;
   }
 
@@ -509,16 +563,17 @@ export class ArtifactTransaction implements ArtifactOperations {
       throw new ContentStateError(id, row.state, "setMetadata");
     }
     validatePointers(metadata, row.tree);
+    if (sameJson(row.metadata, metadata)) {
+      return row;
+    }
     const content = { ...row, metadata, updatedAt: nextTime(row) };
     await this.#change.putContent(content);
     this.#effects.changed.add(row.artifactId);
-    if (Object.keys(patch).length > 0) {
-      this.#change.record({
-        artifactId: row.artifactId,
-        contentId: id,
-        type: "artifact.updated",
-      });
-    }
+    this.#change.record({
+      artifactId: row.artifactId,
+      contentId: id,
+      type: "artifact.updated",
+    });
     return content;
   }
 
@@ -802,7 +857,11 @@ export class ArtifactTransaction implements ArtifactOperations {
     return content;
   }
 
-  /** Freeze without publishing; `freeze` adds publication. */
+  /**
+   * Freeze without publishing; `freeze` adds publication. Records
+   * `artifact.frozen` on the Content's own Artifact, whichever operation
+   * froze it (`freeze`, or `revise` and `fork` freezing their source).
+   */
   async #markFrozen(row: Content): Promise<Content> {
     const now = nextTime(row);
     const content: Content = {
@@ -813,6 +872,11 @@ export class ArtifactTransaction implements ArtifactOperations {
     };
     await this.#change.putContent(content);
     this.#effects.changed.add(row.artifactId);
+    this.#change.record({
+      artifactId: row.artifactId,
+      contentId: row.id,
+      type: "artifact.frozen",
+    });
     return content;
   }
 
@@ -841,27 +905,30 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   /**
-   * Puts the Artifact with `update` applied, then records the event `event`
-   * makes of the Artifact as it was, if any.
+   * Puts the Artifact with `update` applied and records the event `event`
+   * makes of it, if any. An update that changes no field the Artifact
+   * holds, `updatedAt` aside, writes nothing and records nothing, unless it
+   * `touches` the Artifact: a change to its Content stamps it either way.
    */
   async #updateArtifact(
     id: ArtifactId,
     update: (artifact: Artifact) => Partial<Artifact>,
-    event: (previous: Artifact) => EventInput | undefined = () => undefined
+    event: () => EventInput | undefined = () => undefined,
+    touches = false
   ): Promise<Artifact> {
     const previous = await this.#change.getArtifact(id);
     if (!previous) {
       throw new ArtifactNotFoundError(id);
     }
-    const artifact = {
-      ...previous,
-      ...update(previous),
-      updatedAt: new Date(),
-    };
-    assertJsonMetadata(artifact.metadata);
+    const updated = { ...previous, ...update(previous) };
+    assertJsonMetadata(updated.metadata);
+    if (!touches && sameArtifact(previous, updated)) {
+      return previous;
+    }
+    const artifact = { ...updated, updatedAt: new Date() };
     await this.#change.putArtifact(artifact);
     this.#effects.changed.add(id);
-    const made = event(previous);
+    const made = event();
     if (made !== undefined) {
       this.#change.record(made);
     }
@@ -869,7 +936,7 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   async #point(id: ArtifactId, contentId: ContentId | null): Promise<void> {
-    await this.#updateArtifact(id, () => ({ contentId }));
+    await this.#updateArtifact(id, () => ({ contentId }), undefined, true);
   }
 
   async #assertTagFree(row: Content, tag: string): Promise<void> {
@@ -1026,6 +1093,25 @@ function storedFile(blob: Blob, mime: string | null | undefined): StoredFile {
     mime: mime ?? null,
     type: "file",
   };
+}
+
+/** Whether two Artifacts hold the same fields, `updatedAt` aside. */
+function sameArtifact(left: Artifact, right: Artifact): boolean {
+  return (
+    left.name === right.name &&
+    left.type === right.type &&
+    left.status === right.status &&
+    left.contentId === right.contentId &&
+    left.createdAt.getTime() === right.createdAt.getTime() &&
+    left.archivedAt?.getTime() === right.archivedAt?.getTime() &&
+    left.publishedAt?.getTime() === right.publishedAt?.getTime() &&
+    sameJson(left.metadata, right.metadata)
+  );
+}
+
+/** Whether two metadata objects hold the same JSON, keys in any order. */
+function sameJson(left: Readonly<object>, right: Readonly<object>): boolean {
+  return canonicalizeJson(left) === canonicalizeJson(right);
 }
 
 function nextTime(row: Content): Date {
