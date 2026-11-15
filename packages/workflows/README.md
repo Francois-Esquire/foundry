@@ -645,23 +645,23 @@ calls `onCommit` inside the one transaction. Per command, the write holds:
 | Command                                  | The write                                                                 | No commit when                                   |
 | ---------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------ |
 | `ensureQueue`                            | `putQueues`: the new Queue                                                | the Queue exists                                 |
-| `updateQueue`                            | `putQueues`: the Queue                                                    | the Queue is missing                             |
+| `updateQueue`                            | `putQueues`: the Queue                                                    | the Queue is missing, or the patch leaves it as stored |
 | `createJob`                              | `putJobs`: the new Job                                                    |                                                  |
-| `updateJob`                              | `putJobs`: the Job                                                        | it is missing, or ended and the status differs  |
+| `updateJob`                              | `putJobs`: the Job                                                        | it is missing, or ended and the status differs, or the patch leaves it as stored |
 | `claimJobRun`                            | `putJobs`: the Job, active; `putRuns`: the new Run                        |                                                  |
 | `claimJobRun`, an earlier attempt done   | `putJobs`: the Job, complete. The call then rejects with `JobAlreadySettledError` |                                          |
 | `cancelJob`                              | `putJobs`, `putRuns` (its live Run, if any), `putSuspensions` (each pending one, cancelled) |                                |
-| `deleteJob`                              | `deleteJobs`: its id                                                      |                                                  |
+| `deleteJob`                              | `deleteJobs`: its id                                                      | the Job is missing                               |
 | `createRun`                              | `putRuns`: the new Run                                                    |                                                  |
-| `updateRun`                              | `putRuns`: the Run                                                        | it is missing, or ended and the status differs  |
-| `deleteRun`                              | `deleteRuns`: its id                                                      |                                                  |
+| `updateRun`                              | `putRuns`: the Run                                                        | it is missing, or ended and the status differs, or the patch leaves it as stored |
+| `deleteRun`                              | `deleteRuns`: its id                                                      | the Run is missing                               |
 | `createSuspension`                       | `putSuspensions`: the new Suspension                                      |                                                  |
 | `parkSuspension`                         | `putRuns`: the Run, suspended; `putSuspensions`: the new Suspension      | the occurrence is parked already                 |
 | `settleSuspension`                       | `putRuns`: the Run, queued or cancelled; `putSuspensions`: the Suspension |                                                  |
-| `cancelRun`, `cancelRunSuspensions`      | `putRuns`: the Run, cancelled; `putSuspensions`: each pending one, cancelled | `cancelRunSuspensions` finds it ended otherwise |
-| `deleteSuspension`                       | `deleteSuspensions`: its id                                               |                                                  |
+| `cancelRun`, `cancelRunSuspensions`      | `putRuns`: the Run, cancelled; `putSuspensions`: each pending one, cancelled | `cancelRunSuspensions` finds it ended otherwise, or cancelled already with nothing pending and nothing patched |
+| `deleteSuspension`                       | `deleteSuspensions`: its id                                               | the Suspension is missing                        |
 | `appendRunFrame`, `claimRunEffect`       | `putFrames`: the new frame                                                | a terminal frame or the claim exists already     |
-| `deleteRunFrames`                        | `deleteRunFrames`: the Run id                                             |                                                  |
+| `deleteRunFrames`                        | `deleteRunFrames`: the Run id                                             | the Run has no frames                            |
 | `restore`                                | every record of the snapshot, put                                         |                                                  |
 
 The write names no command; a host that needs one tells the commands apart by
@@ -680,9 +680,14 @@ The stores keep no record of events. Both take them as they stand when
 `commit` is called, as plain JSON: a part that has no JSON form reading back
 the same (a Date, a class instance, `NaN`, `-0`, a bigint, `undefined`, a
 function, a hole in an array) refuses the whole write with a `TypeError`
-naming it. `describeWorkflowStore(name, open, recording)` proves a store with
-a host hook hands every kept commit's events to it, in order, and none of a
-refused or rolled-back one; pass `recording` for such a store.
+naming it. `describeWorkflowStore(name, open, mode)` holds every store to
+that refusal, directly and through a transaction's view. `mode` is required:
+`{ hooked: false }` for a store with no host hook, or
+`{ hooked: true, recording }` for one with a hook, where `recording` opens
+storage whose hook records each commit's events in the commit's own
+transaction (`RecordingWorkflowStores`: `failNextCommit`, `recorded`,
+`stores`). The suite then proves the hook is handed every kept commit's
+events, in order, and none of a refused or rolled-back one.
 
 An event is plain JSON: `{ type, id, at, runId, queueId, ... }`. `id` is a
 UUID, unique, built with the write before `commit`. `at` is when the
@@ -712,9 +717,10 @@ not an update. `metadata` there means a host's namespaces: the runtime's own
 `workflows.execution`) are step progress, as is the step tree (`snapshot`).
 A metadata patch replaces the host's namespaces, so a persist that drops one
 is an update. A patch that changes no Run-level field and no status makes no
-event: a true no-op, a step tree persisted, a second Suspension parked on a
-Run already suspended. Jobs, Queues, Suspensions and frames make no events of
-their own, and neither does `restore`, which files records rather than
+event: a step tree persisted, a second Suspension parked on a Run already
+suspended. A change that leaves every record as stored (a true no-op, a
+delete of nothing) writes nothing at all, so it makes no event either.
+Jobs, Queues, Suspensions and frames make no events of their own, and neither does `restore`, which files records rather than
 changing them, nor a `deleteRun` of a Run that is not filed. A write carries
 no `events` field when it has none.
 

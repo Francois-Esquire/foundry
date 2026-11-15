@@ -22,7 +22,7 @@ function jsonStorage() {
     new JsonArtifactStore({ path: join(directory, scope, "records.json") });
 }
 
-describeArtifactStore("JSON", jsonStorage);
+describeArtifactStore("JSON", jsonStorage, { hooked: false });
 describeArtifactManager("JSON", store);
 
 describe("JSON Artifact store persistence", () => {

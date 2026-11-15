@@ -44,6 +44,33 @@ function holed(): number[] {
   return values;
 }
 
+/** Events each with a part that has no JSON form reading back the same. */
+function unplainEvents(): readonly unknown[] {
+  const base = event({ artifactId: artifactId(), type: "artifact.created" });
+  class Instance {
+    readonly artifactId = base.artifactId;
+    readonly at = base.at;
+    readonly id = base.id;
+    readonly type = base.type;
+  }
+  return [
+    new Instance(),
+    { ...base, at: new Date() },
+    { ...base, extra: Number.NaN },
+    { ...base, extra: -0 },
+    { ...base, extra: 1n },
+    { ...base, extra: undefined },
+    { ...base, extra: () => undefined },
+    { ...base, extra: holed() },
+    { ...base, extra: new Map() },
+    { ...base, [Symbol("extra")]: 1 },
+    Object.defineProperty({ ...base }, "hidden", {
+      enumerable: false,
+      value: 1,
+    }),
+  ];
+}
+
 /** An `artifact.removed` event of an Artifact no store holds. */
 function removedEvent(): ArtifactEvent {
   return event({
@@ -177,28 +204,40 @@ export type ScopedArtifactStores = (scope: string) => ArtifactStore;
  * (a SQLite store's `onCommit`), and a record the hook keeps: it writes the
  * write's events, in order, in the commit's own transaction.
  */
-export interface RecordingArtifactStorage {
+export interface RecordingArtifactStores {
   /** Makes the hook throw on its next call, after it has recorded. */
   readonly failNextCommit: () => void;
   /** The events recorded by every commit that was kept, in the order kept. */
   readonly recorded: () => Promise<readonly ArtifactEvent[]>;
-  readonly storage: ScopedArtifactStores;
+  readonly stores: ScopedArtifactStores;
 }
+
+/**
+ * Whether the storage a suite run opens hands its commits to a host hook.
+ * A store with one (a SQLite store's `onCommit`) says `hooked: true` and
+ * supplies `recording`, so the suite proves the hook is handed each commit's
+ * events; a store with none says `hooked: false`.
+ */
+export type ArtifactStoreMode =
+  | { readonly hooked: false }
+  | {
+      readonly hooked: true;
+      readonly recording: () => Promise<RecordingArtifactStores>;
+    };
 
 /**
  * Registers the tests every `ArtifactStore` must pass. `open` returns fresh,
  * empty storage, opened per scope: two scopes over one storage never see
- * each other's records, and one scope opened twice sees one set. A store
- * with a host hook passes `recording` too, which opens it with one, and the
- * suite also proves the hook is handed each commit's events.
+ * each other's records, and one scope opened twice sees one set. `mode` says
+ * whether the storage has a host hook (see {@link ArtifactStoreMode}).
  */
 export function describeArtifactStore(
   name: string,
   open: () => ScopedArtifactStores | Promise<ScopedArtifactStores>,
-  recording?: () => Promise<RecordingArtifactStorage>
+  mode: ArtifactStoreMode
 ): void {
-  if (recording !== undefined) {
-    describeRecordedEvents(name, recording);
+  if (mode.hooked) {
+    describeRecordedEvents(name, mode.recording);
   }
   const fresh = async () => (await open())("conformance");
   /** Every Artifact, oldest first. */
@@ -396,27 +435,7 @@ export function describeArtifactStore(
         artifactId: artifactId(),
         type: "artifact.created",
       });
-      class Instance {
-        readonly artifactId = base.artifactId;
-        readonly at = base.at;
-        readonly id = base.id;
-        readonly type = base.type;
-      }
-      const unplain: readonly unknown[] = [
-        new Instance(),
-        { ...base, at: new Date() },
-        { ...base, extra: Number.NaN },
-        { ...base, extra: -0 },
-        { ...base, extra: 1n },
-        { ...base, extra: undefined },
-        { ...base, extra: () => undefined },
-        { ...base, extra: holed() },
-        Object.defineProperty({ ...base }, "hidden", {
-          enumerable: false,
-          value: 1,
-        }),
-      ];
-      for (const value of unplain) {
+      for (const value of unplainEvents()) {
         await expect(
           store.commit({
             events: [value as ArtifactEvent],
@@ -428,6 +447,29 @@ export function describeArtifactStore(
         store.commit({ events: base as unknown as ArtifactEvent[] })
       ).rejects.toThrow("events must be an array");
       expect(await everyArtifact(store)).toEqual([]);
+    });
+
+    it("refuses such a write through a transaction's view, and the transaction goes on", async () => {
+      const store = await fresh();
+      const refused = artifact();
+      const kept = artifact();
+      await requireTransaction(store)(async (view) => {
+        for (const value of unplainEvents()) {
+          await expect(
+            view.commit({
+              events: [value as ArtifactEvent],
+              putArtifacts: [refused],
+            })
+          ).rejects.toThrow(TypeError);
+        }
+        await view.commit({
+          events: [event({ artifactId: kept.id, type: "artifact.created" })],
+          putArtifacts: [kept],
+        });
+      });
+
+      expect(await store.getArtifact(refused.id)).toBeNull();
+      expect(await store.getArtifact(kept.id)).toEqual(kept);
     });
 
     it("keeps nothing from a commit that fails", async () => {
@@ -1346,11 +1388,11 @@ export function describeArtifactStore(
 /** The suite's proof that a store hands its host hook every commit's events. */
 function describeRecordedEvents(
   name: string,
-  recording: () => Promise<RecordingArtifactStorage>
+  recording: () => Promise<RecordingArtifactStores>
 ): void {
   const recorder = async () => {
     const opened = await recording();
-    return { ...opened, store: opened.storage("conformance") };
+    return { ...opened, store: opened.stores("conformance") };
   };
   const created = (owner: Artifact) =>
     event({ artifactId: owner.id, type: "artifact.created" });

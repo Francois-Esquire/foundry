@@ -374,12 +374,26 @@ export class ArtifactTransaction implements ArtifactOperations {
   async write(input: WriteInput): Promise<ContentResolved> {
     const artifact = await this.checkWrite(input);
     const active = artifact.content;
+    const { writes } = this.#change;
     const tree = await this.#applyChanges(
       active?.tree ?? {},
       input.changes,
       active?.id
     );
     const metadata = mergeMetadata(active?.metadata ?? {}, input.metadata);
+    if (
+      active &&
+      this.#change.writes === writes &&
+      sameJson(active.tree, tree) &&
+      sameJson(active.metadata, metadata)
+    ) {
+      // The Content as stored, every blob it names untouched: nothing to
+      // write and nothing to say, though a freeze asked for still applies.
+      if (input.freeze) {
+        await this.freeze(active.id, input.freeze);
+      }
+      return this.#resolvedContent(active.id);
+    }
     let content: Content;
     if (active) {
       validatePointers(metadata, tree);

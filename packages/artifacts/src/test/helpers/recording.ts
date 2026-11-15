@@ -4,7 +4,7 @@ import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import type { ArtifactEvent } from "../../schema";
 import { SqliteArtifactStore } from "../../store/sqlite";
-import type { RecordingArtifactStorage } from "../../testing/store";
+import type { RecordingArtifactStores } from "../../testing/store";
 
 /** A host's record of events, written on the commit's own transaction. */
 const recordedEvents = sqliteTable("recorded_events", {
@@ -17,9 +17,9 @@ const recordedEvents = sqliteTable("recorded_events", {
  * one store per scope. `failNextCommit` makes the hook throw once, after it
  * has written its rows.
  */
-export async function recordingStorage(
+export async function recordingStores(
   database: LibSQLDatabase
-): Promise<RecordingArtifactStorage> {
+): Promise<RecordingArtifactStores> {
   await database.run(
     sql`CREATE TABLE IF NOT EXISTS "recorded_events" ("event" text NOT NULL)`
   );
@@ -33,7 +33,7 @@ export async function recordingStorage(
       (await database.select().from(recordedEvents)).map(
         (row) => row.event as ArtifactEvent
       ),
-    storage: (scope) => {
+    stores: (scope) => {
       const store =
         scopes.get(scope) ??
         new SqliteArtifactStore({

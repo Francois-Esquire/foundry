@@ -160,6 +160,37 @@ describe("ArtifactManager change events", () => {
     ).toStrictEqual([]);
   });
 
+  test("a write that leaves the Content as stored writes nothing", async () => {
+    const { manager, typesOf } = await hosted();
+    const created = await manager.create({
+      ...TEXT,
+      entries: { "a.txt": { bytes: "a" } },
+      metadata: { title: "t" },
+    });
+
+    expect(
+      await typesOf(async () => {
+        await manager.write({
+          artifactId: created.id,
+          changes: { put: { "a.txt": { bytes: "a" } } },
+        });
+        await manager.write({
+          artifactId: created.id,
+          changes: {},
+          metadata: { title: "t" },
+        });
+      })
+    ).toStrictEqual([]);
+    expect(
+      await typesOf(() =>
+        manager.write({
+          artifactId: created.id,
+          changes: { remove: ["a.txt"] },
+        })
+      )
+    ).toStrictEqual([["artifact.written"]]);
+  });
+
   test("freezing publishes a draft once; a later freeze only freezes", async () => {
     const { manager, rows, typesOf } = await hosted();
     const created = await manager.create({

@@ -439,9 +439,13 @@ Every store keeps no record of events. Each takes them as they stand when `commi
 called, as plain JSON, before it copies the records: a part that has no JSON form
 reading back the same (a Date, a class instance, `NaN`, `-0`, a bigint, `undefined`, a
 function, a hole in an array) refuses the whole write with a `TypeError` naming it.
-`describeArtifactStore(name, open, recording)` proves a store with a host hook hands
-every kept commit's events to it, in order, and none of a refused or rolled-back one;
-pass `recording` for such a store.
+`describeArtifactStore(name, open, mode)` holds every store to that refusal, directly
+and through a transaction's view. `mode` is required: `{ hooked: false }` for a store
+with no host hook, or `{ hooked: true, recording }` for one with a hook, where
+`recording` opens storage whose hook records each commit's events in the commit's own
+transaction (`RecordingArtifactStores`: `failNextCommit`, `recorded`, `stores`). The
+suite then proves the hook is handed every kept commit's events, in order, and none of
+a refused or rolled-back one.
 
 An event is plain JSON: `{ type, id, at, artifactId, ... }`. `id` is a UUID, unique,
 made with the write before `commit`. `at` is when the manager built the event, an ISO
@@ -479,7 +483,8 @@ is `selected` (the replacement) then `discarded`.
 
 An operation that changes nothing (the same name, an Artifact already archived, or not
 archived for `unarchive`, the tag a Content has, metadata that comes out as it was, a
-Content already frozen) writes nothing and makes no event. Events are a record of
+Content already frozen, a `write` that leaves the active Content's tree, bytes and
+metadata as stored) writes nothing and makes no event. Events are a record of
 operations, not a net difference: an Artifact created and deleted inside one
 `transaction` carries `created`, `written` and `removed`.
 

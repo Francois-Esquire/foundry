@@ -156,7 +156,31 @@ describe("ExecutionCoordinator change events", () => {
     ).toStrictEqual([["run.started"], ["run.completed", ["output", "tags"]]]);
   });
 
-  test("a patch that changes no Run-level data says nothing: a true no-op, step progress, the runtime's metadata", async () => {
+  test("a change that leaves every record as stored writes nothing", async () => {
+    const { coordinator, store } = recorded();
+    await coordinator.ensureQueue({ id: "q", name: "Q" });
+    await coordinator.updateQueue("q", { status: "paused" });
+    const job = await coordinator.createJob({
+      definition: { name: "d" },
+      input: null,
+    });
+    const run = await coordinator.createRun(RUN);
+    await coordinator.cancelRun(run.id);
+    const from = store.commits.length;
+
+    await coordinator.updateQueue("q", { status: "paused" });
+    await coordinator.updateJob(job.id, { status: "pending" });
+    await coordinator.cancelRunSuspensions(run.id);
+    await coordinator.updateRun(run.id, { tags: {} });
+    await coordinator.deleteRun("rn-missing");
+    await coordinator.deleteJob("jb-missing");
+    await coordinator.deleteSuspension("su-missing");
+    await coordinator.deleteRunFrames(run.id);
+
+    expect(store.commits.slice(from)).toStrictEqual([]);
+  });
+
+  test("a patch that changes no Run-level data says nothing: a true no-op writes nothing, step progress writes without an event", async () => {
     const { coordinator, store } = recorded();
     const run = await coordinator.createRun({
       ...RUN,
@@ -175,7 +199,9 @@ describe("ExecutionCoordinator change events", () => {
       metadata: { stream: [], workflow: { status: "running" } },
     });
 
-    expect(store.commits.length).toBe(from + 4);
+    // The same status and the same tags leave the Run as stored: no write.
+    // The step tree and the runtime's metadata are written, with no event.
+    expect(store.commits.length).toBe(from + 2);
     for (const write of store.commits.slice(from)) {
       expect(write).not.toHaveProperty("events");
     }
@@ -276,7 +302,7 @@ describe("ExecutionCoordinator change events", () => {
     );
   });
 
-  test("a Run deleted says run.removed with what identified it; a delete of no Run says nothing", async () => {
+  test("a Run deleted says run.removed with what identified it; a delete of no Run writes nothing", async () => {
     const { coordinator, store } = recorded();
     const job = await coordinator.createJob({
       definition: { name: "d" },
@@ -310,7 +336,6 @@ describe("ExecutionCoordinator change events", () => {
           type: "run.removed",
         },
       ],
-      undefined,
     ]);
     const [removed] = eventsSince(store, from);
     expect(RunEventSchema.parse(removed)).toStrictEqual(removed);

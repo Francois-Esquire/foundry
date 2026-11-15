@@ -283,7 +283,9 @@ export class ExecutionCoordinator implements OrchestratorStore {
           ? {}
           : { timestamps: { ...existing.timestamps, ...patch.timestamps } }),
       });
-      await store.commit({ putJobs: [updated] });
+      if (!asStored(existing, updated)) {
+        await store.commit({ putJobs: [updated] });
+      }
       return updated;
     });
   }
@@ -308,7 +310,9 @@ export class ExecutionCoordinator implements OrchestratorStore {
       if (runs.length > 0) {
         throw new RecordInUseError("job", id);
       }
-      await store.commit({ deleteJobs: [id] });
+      if (await store.getJob(id)) {
+        await store.commit({ deleteJobs: [id] });
+      }
     });
   }
 
@@ -461,9 +465,11 @@ export class ExecutionCoordinator implements OrchestratorStore {
         return existing;
       }
       const updated = normalizeRunRecord(applyRunPatch(existing, patch));
-      await store.commit(
-        withEvents({ putRuns: [updated] }, runEvents(existing, updated))
-      );
+      if (!asStored(stored, updated)) {
+        await store.commit(
+          withEvents({ putRuns: [updated] }, runEvents(existing, updated))
+        );
+      }
       return updated;
     });
   }
@@ -498,13 +504,15 @@ export class ExecutionCoordinator implements OrchestratorStore {
       if (suspensions.items.length > 0 || frames.length > 0) {
         throw new RecordInUseError("run", id);
       }
-      // A Run that is not filed is not removed: the delete changes nothing.
-      await store.commit(
-        withEvents(
-          { deleteRuns: [id] },
-          runEvents(run && hydrateRunRecord(run), null)
-        )
-      );
+      // A Run that is not filed is not removed: nothing to write.
+      if (run) {
+        await store.commit(
+          withEvents(
+            { deleteRuns: [id] },
+            runEvents(hydrateRunRecord(run), null)
+          )
+        );
+      }
     });
   }
 
@@ -703,8 +711,8 @@ export class ExecutionCoordinator implements OrchestratorStore {
         if (referenced) {
           throw new RecordInUseError("suspension", id);
         }
+        await store.commit({ deleteSuspensions: [id] });
       }
-      await store.commit({ deleteSuspensions: [id] });
     });
   }
 
@@ -819,9 +827,12 @@ export class ExecutionCoordinator implements OrchestratorStore {
   }
 
   deleteRunFrames(runId: string): Promise<void> {
-    return this.#exclusive((store) =>
-      store.commit({ deleteRunFrames: [runId] })
-    );
+    return this.#exclusive(async (store) => {
+      const { items } = await store.listFrames({ limit: 1, runId });
+      if (items.length > 0) {
+        await store.commit({ deleteRunFrames: [runId] });
+      }
+    });
   }
 
   /** The Queue filed under the id, or this one when none is: the first writer wins. */
@@ -872,7 +883,9 @@ export class ExecutionCoordinator implements OrchestratorStore {
               ),
             }),
       };
-      await store.commit({ putQueues: [updated] });
+      if (!asStored(existing, updated)) {
+        await store.commit({ putQueues: [updated] });
+      }
       return updated;
     });
   }
@@ -909,12 +922,15 @@ export class ExecutionCoordinator implements OrchestratorStore {
       const nextRun = normalizeRunRecord(
         applyRunPatch(run, { ...runPatch, status: "cancelled" })
       );
-      await store.commit(
-        withEvents(
-          { putRuns: [nextRun], putSuspensions: suspensions },
-          runEvents(run, nextRun)
-        )
-      );
+      // Cancelled already, with nothing pending and nothing patched: as stored.
+      if (suspensions.length > 0 || !asStored(storedRun, nextRun)) {
+        await store.commit(
+          withEvents(
+            { putRuns: [nextRun], putSuspensions: suspensions },
+            runEvents(run, nextRun)
+          )
+        );
+      }
       return { run: nextRun, suspensions };
     });
   }
@@ -1555,6 +1571,17 @@ function sameStringArray(
   return (
     left.length === right.length &&
     left.every((value, index) => value === right[index])
+  );
+}
+
+/**
+ * Whether `next` holds exactly what `stored` does, as the store keeps it:
+ * a change that leaves a record so writes nothing and makes no event.
+ */
+function asStored<T extends object>(stored: T, next: T): boolean {
+  return jsonValuesEqual(
+    stored as unknown as JsonValue,
+    next as unknown as JsonValue
   );
 }
 

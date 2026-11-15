@@ -28,32 +28,44 @@ export type ScopedWorkflowStores = (scope: string) => WorkflowStore;
  * (a SQLite store's `onCommit`), and a record the hook keeps: it writes the
  * write's events, in order, in the commit's own transaction.
  */
-export interface RecordingWorkflowStorage {
+export interface RecordingWorkflowStores {
   /** Makes the hook throw on its next call, after it has recorded. */
   readonly failNextCommit: () => void;
   /** The events recorded by every commit that was kept, in the order kept. */
   readonly recorded: () => Promise<readonly RunEvent[]>;
-  readonly storage: ScopedWorkflowStores;
+  readonly stores: ScopedWorkflowStores;
 }
 
 /**
+ * Whether the storage a suite run opens hands its commits to a host hook.
+ * A store with one (a SQLite store's `onCommit`) says `hooked: true` and
+ * supplies `recording`, so the suite proves the hook is handed each commit's
+ * events; a store with none says `hooked: false`.
+ */
+export type WorkflowStoreMode =
+  | { readonly hooked: false }
+  | {
+      readonly hooked: true;
+      readonly recording: () => Promise<RecordingWorkflowStores>;
+    };
+
+/**
  * The behaviour every `WorkflowStore` shares, as Vitest tests. `open` returns
- * new, empty storage each time it is called. A store with a host hook passes
- * `recording` too, which opens it with one, and the suite also proves the
- * hook is handed each commit's events. The host's test file closes whatever
- * `open` and `recording` opened.
+ * new, empty storage each time it is called; `mode` says whether it has a
+ * host hook (see {@link WorkflowStoreMode}). The host's test file closes
+ * whatever `open` and `recording` opened.
  */
 export function describeWorkflowStore(
   name: string,
   open: () => ScopedWorkflowStores | Promise<ScopedWorkflowStores>,
-  recording?: () => Promise<RecordingWorkflowStorage>
+  mode: WorkflowStoreMode
 ): void {
   async function store(scope = "scope-a"): Promise<WorkflowStore> {
     return (await open())(scope);
   }
 
-  if (recording !== undefined) {
-    describeRecordedEvents(name, recording);
+  if (mode.hooked) {
+    describeRecordedEvents(name, mode.recording);
   }
 
   describe(`${name} workflow store conformance`, () => {
@@ -239,11 +251,29 @@ export function describeWorkflowStore(
       ];
       for (const [write, message] of refusals) {
         await expect(target.commit(write)).rejects.toThrow(message);
-        await expect(
-          transactionOf(target)((view) => view.commit(write))
-        ).rejects.toThrow(message);
       }
       expect(await contents(target)).toStrictEqual(EMPTY);
+    });
+
+    test("refuses such a write through a transaction's view, and the transaction goes on", async () => {
+      const target = await store();
+      await transactionOf(target)(async (view) => {
+        for (const [label, value] of unplainEvents()) {
+          await expect(
+            view.commit({
+              events: [value as RunEvent],
+              putRuns: [run("rn-refused")],
+            })
+          ).rejects.toThrow(label);
+        }
+        await view.commit({
+          events: [event("run.queued", "rn-kept")],
+          putRuns: [run("rn-kept")],
+        });
+      });
+
+      expect(await target.getRun("rn-refused")).toBeNull();
+      expect(await target.getRun("rn-kept")).toStrictEqual(run("rn-kept"));
     });
 
     test("a failing commit leaves nothing behind", async () => {
@@ -1034,6 +1064,7 @@ function unplainEvents(): [string, unknown][] {
     ],
     ["events[0].extra[0] is a hole in an array", { ...base, extra: holed() }],
     ["events[0].extra must be a plain object", { ...base, extra: new Map() }],
+    ["events[0] must be a plain object", { ...base, [Symbol("extra")]: 1 }],
   ];
 }
 
@@ -1261,11 +1292,11 @@ function mutable<T>(value: T | null | undefined): {
 /** The suite's proof that a store hands its host hook every commit's events. */
 function describeRecordedEvents(
   name: string,
-  recording: () => Promise<RecordingWorkflowStorage>
+  recording: () => Promise<RecordingWorkflowStores>
 ): void {
   const recorder = async () => {
     const opened = await recording();
-    return { ...opened, store: opened.storage("scope-a") };
+    return { ...opened, store: opened.stores("scope-a") };
   };
 
   describe(`${name} workflow store events handed to the host`, () => {

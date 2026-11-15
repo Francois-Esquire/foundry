@@ -1,6 +1,6 @@
 import { SqliteWorkflowStore } from "../store/sqlite";
 import { describeWorkflowStore } from "../testing/store";
-import { recordingStorage } from "./helpers/recording";
+import { recordingStores } from "./helpers/recording";
 import { libsqlDatabases } from "./helpers/sqlite";
 
 for (const location of ["memory", "file"] as const) {
@@ -11,6 +11,9 @@ for (const location of ["memory", "file"] as const) {
       const database = await databases.open();
       return (scope) => new SqliteWorkflowStore({ database, scope });
     },
-    async () => recordingStorage(await databases.open())
+    {
+      hooked: true,
+      recording: async () => recordingStores(await databases.open()),
+    }
   );
 }
