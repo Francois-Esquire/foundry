@@ -709,6 +709,29 @@ describe.each(sessionStoreKinds())("over %s", (_kind, open) => {
         await expect(store.listMessages("s")).resolves.toEqual([]);
       }
     );
+    it("refuses an update whose parts have no JSON form, as an append does, and keeps the old parts", async () => {
+      const store = await open();
+      const sessions = new Sessions({ store });
+      await sessions.createSession({ id: "s" });
+      const parts = Object.assign([{ text: "new", type: "text" }], {
+        toJSON: () => undefined,
+      }) as unknown as SessionPart[];
+      const appended = await sessions.appendMessage({
+        parts: [{ text: "old", type: "text" }],
+        role: "user",
+        sessionId: "s",
+      });
+
+      await expect(
+        sessions.appendMessage({ parts, role: "user", sessionId: "s" })
+      ).rejects.toThrow("[sessions] cannot keep message");
+      await expect(
+        sessions.updateMessage(appended.id, { parts })
+      ).rejects.toThrow("[sessions] cannot keep message");
+      await expect(store.getMessage(appended.id)).resolves.toStrictEqual(
+        appended
+      );
+    });
   });
 
   describe("Sessions reads what a caller hands it once, when called", () => {

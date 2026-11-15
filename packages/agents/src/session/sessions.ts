@@ -327,8 +327,9 @@ function keptMessage(
  * so the update holds nothing of the caller's.
  */
 function keptPatch(id: string, patch: UpdateMessageInput): UpdateMessageInput {
+  let kept: UpdateMessageInput;
   try {
-    return {
+    kept = {
       ...(patch.metadata === undefined
         ? {}
         : {
@@ -348,6 +349,16 @@ function keptPatch(id: string, patch: UpdateMessageInput): UpdateMessageInput {
       { cause }
     );
   }
+  // Parts whose JSON form is no list of parts (a `toJSON` that returns
+  // `undefined`, say) are refused, as `appendMessage` refuses them, rather
+  // than read as parts left out.
+  const fault = patch.parts === undefined ? undefined : partsFault(kept.parts);
+  if (fault !== undefined) {
+    throw new TypeError(
+      `[sessions] cannot keep message ${id}: ${fault.path} ${fault.reason}`
+    );
+  }
+  return kept;
 }
 
 /** `record` without the properties that hold `undefined`. */
