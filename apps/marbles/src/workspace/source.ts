@@ -14,6 +14,16 @@ const MODULE_EXTENSIONS = new Set([
 ]);
 const DECLARATION_FILE = /\.d\.(?:ts|mts|cts)$/;
 
+/** The data files a load imports by path, by extension (`workspace/copies.ts` reads each). */
+export const DATA_EXTENSIONS: ReadonlySet<string> = new Set([
+  ".json",
+  ".jsonc",
+  ".toml",
+  ".txt",
+  ".yaml",
+  ".yml",
+]);
+
 export function isModulePath(path: string): boolean {
   return MODULE_EXTENSIONS.has(extname(path));
 }

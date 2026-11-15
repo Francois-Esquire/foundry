@@ -1,5 +1,11 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -374,6 +380,21 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   let refused: Fingerprint | undefined;
   /** Content digests of the files fingerprints cover, each read again only once it changed. */
   const digests = new FileDigests();
+  /**
+   * What no workspace tree covers: the Foundry home, which may sit inside
+   * a workspace's root, and whose database changes as Marbles runs. Both
+   * its spellings, as given and resolved through links.
+   */
+  const ignored = new Set(
+    [layout.home, layout.state, layout.artifacts].flatMap((path) => {
+      const resolved = resolvePath(path);
+      try {
+        return [resolved, realpathSync(resolved)];
+      } catch {
+        return [resolved];
+      }
+    })
+  );
   let installation = installationDigest(script, version);
   let installationAt = Date.now();
   const clock: DaemonClock = options.clock ?? {
@@ -947,7 +968,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     const sources = new Map<string, WorkspacePrint>();
     for (const record of registered) {
       const outside = against?.sources.get(record.id)?.outside.keys() ?? [];
-      sources.set(record.id, printNow(record, outside, digests));
+      sources.set(record.id, printNow(record, outside, digests, ignored));
     }
     return fingerprintOf(installation, sources);
   }
@@ -1520,7 +1541,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     target.fingerprint = withSource(
       target.fingerprint,
       workspace.id,
-      printNow({ config, id: workspace.id, root: workspace.root }, [], digests)
+      printNow(
+        { config, id: workspace.id, root: workspace.root },
+        [],
+        digests,
+        ignored
+      )
     );
     try {
       hostResultSchema.parse(

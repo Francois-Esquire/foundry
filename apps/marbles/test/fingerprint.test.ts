@@ -92,6 +92,20 @@ describe("sourceDigests", () => {
     expect(digest()).toBe(later);
   });
 
+  it("leaves out what a run writes under the root that no load could read", () => {
+    const root = join(temporaryDirectory("marbles-fingerprint-"), "project");
+    mkdirSync(root);
+    const config = join(root, "marbles.config.ts");
+    writeFileSync(config, "export {};\n");
+    const records = [{ config, id: "w", root }];
+    const before = sourceDigests(records, new Map()).get("w");
+    writeFileSync(join(root, "seen.jsonl"), "{}\n");
+    writeFileSync(join(root, "report.md"), "# done\n");
+    expect(sourceDigests(records, new Map()).get("w")).toBe(before);
+    writeFileSync(join(root, "values.json"), "{}\n");
+    expect(sourceDigests(records, new Map()).get("w")).not.toBe(before);
+  });
+
   it("leaves out dependencies, history, Marbles' own and builds", () => {
     const root = join(temporaryDirectory("marbles-fingerprint-"), "project");
     for (const name of ["node_modules", ".git", ".marbles", "dist"]) {

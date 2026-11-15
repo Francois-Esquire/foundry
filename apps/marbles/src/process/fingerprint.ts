@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative, sep } from "node:path";
+import { basename, dirname, extname, join, relative, sep } from "node:path";
 
 import type { WorkspaceRecord } from "~/lib/state/workspace";
+import { DATA_EXTENSIONS, isModulePath } from "~/workspace/source";
 
 /**
  * What an engine generation loaded, as digests the daemon compares to
@@ -12,11 +13,11 @@ import type { WorkspaceRecord } from "~/lib/state/workspace";
  * it at the next poll; it grows as the generation reports files it read
  * outside a workspace's root, each recorded as it was when read.
  *
- * - A workspace's tree is every file under its root, its path relative to
- *   that root and its content, but those under `SKIPPED` directories: the
- *   modules a load or a run imports there, its data files, its `.env`
- *   schema, wherever they sit, whether the last load read them or not,
- *   and whether it succeeded or not.
+ * - A workspace's tree is every file under its root a load could read, a
+ *   module, a data file or an `.env` file, its path relative to that root
+ *   and its content, but those under `SKIPPED` directories: wherever they
+ *   sit, whether the last load read them or not, and whether it succeeded
+ *   or not. What a run writes there of any other kind counts for nothing.
  * - Files outside the root count only as a generation reported reading
  *   them: what it depends on there, and nothing another generation read.
  *
@@ -108,6 +109,19 @@ function isUnder(root: string, file: string): boolean {
   return path !== "" && !path.startsWith("..") && !path.startsWith(sep);
 }
 
+/**
+ * Whether a load could read `file`: a module, a data file it imports by
+ * path, or an environment file its schema loads. What a run writes under
+ * the root (a log, a report) is none of them, and never starts a switch.
+ */
+function importable(file: string): boolean {
+  return (
+    isModulePath(file) ||
+    DATA_EXTENSIONS.has(extname(file)) ||
+    basename(file).startsWith(".env")
+  );
+}
+
 /** The entries of `dir`; none when it cannot be read. */
 function entriesOf(dir: string): Dirent[] {
   try {
@@ -117,19 +131,26 @@ function entriesOf(dir: string): Dirent[] {
   }
 }
 
-/** Every file under `dir`, sorted, but those under skipped directories; `undefined` past `limit`. */
-function filesBelow(dir: string, limit: number): string[] | undefined {
+/**
+ * Every file under `dir`, sorted, but those under skipped directories or
+ * any of `ignored`; `undefined` past `limit`.
+ */
+function filesBelow(
+  dir: string,
+  limit: number,
+  ignored: ReadonlySet<string>
+): string[] | undefined {
   const files: string[] = [];
   const pending = [dir];
   for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
     for (const entry of entriesOf(at)) {
       const path = join(at, entry.name);
-      if (SKIPPED.has(entry.name)) {
+      if (SKIPPED.has(entry.name) || ignored.has(path)) {
         continue;
       }
       if (entry.isDirectory()) {
         pending.push(path);
-      } else if (entry.isFile()) {
+      } else if (entry.isFile() && importable(path)) {
         files.push(path);
       }
     }
@@ -142,18 +163,21 @@ function filesBelow(dir: string, limit: number): string[] | undefined {
 
 /**
  * The digest of every file under the workspace's root, each by its path
- * relative to the root and its content. A root past `TREE_LIMIT` files is
- * digested from its source's folder alone.
+ * relative to the root and its content, but those under `ignored`: the
+ * Foundry home, say, when it sits inside the root, whose database changes
+ * as Marbles runs. A root past `TREE_LIMIT` files is digested from its
+ * source's folder alone.
  */
 export function treeDigest(
   registration: Registration,
-  digests: FileDigests
+  digests: FileDigests,
+  ignored: ReadonlySet<string> = new Set()
 ): string {
   let { root } = registration;
-  let files = filesBelow(root, TREE_LIMIT);
+  let files = filesBelow(root, TREE_LIMIT, ignored);
   if (files === undefined && registration.config !== null) {
     root = dirname(registration.config);
-    files = filesBelow(root, TREE_LIMIT);
+    files = filesBelow(root, TREE_LIMIT, ignored);
   }
   const hash = createHash("sha256");
   for (const file of files ?? []) {
@@ -194,8 +218,9 @@ export function printNow(
   registration: Registration,
   outside: Iterable<string>,
   digests: FileDigests,
-  tree: string = treeDigest(registration, digests)
+  ignored: ReadonlySet<string> = new Set()
 ): WorkspacePrint {
+  const tree = treeDigest(registration, digests, ignored);
   const files = new Map<string, string>();
   for (const file of outside) {
     files.set(file, digests.of(file) ?? "missing");
