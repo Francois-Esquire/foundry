@@ -74,6 +74,8 @@ import type { StateStore } from "~/lib/state/store";
 import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 import type { TaskDefinition } from "~/lib/tasks";
 import { factoryFor } from "~/lib/tree";
+import type { TriggerStore } from "~/lib/trigger-store";
+import { MemoryTriggerStore } from "~/lib/trigger-store";
 import type { Schedule } from "~/lib/triggers";
 import type { UsageRecords } from "~/lib/usage";
 import { UsageLedger, withRecovered } from "~/lib/usage";
@@ -203,11 +205,18 @@ export interface EngineOptions {
    */
   readonly state?: string;
   /**
-   * Where triggers keep their history, monitors what they saw, and agents
-   * the triggers they create, with the locks that keep two ticks apart. By
-   * default a `JsonStateStore` over `state`, or in memory without one.
+   * Where agents keep the triggers they create, Execution Runs their
+   * records and retention, and turns their usage. By default a
+   * `JsonStateStore` over `state`, or in memory without one.
    */
   readonly store?: StateStore;
+  /**
+   * Where each schedule and monitor keeps its last tick, a monitor what it
+   * last saw, and the claim that keeps two ticks of one trigger apart. In
+   * memory when omitted; the `Engine` the package publishes keeps them in
+   * a Marbles database when `state` is set.
+   */
+  readonly triggers?: TriggerStore;
   /** Identity of this workspace: part of a declared artifact's id and of every feed entry. */
   readonly workspaceId: string;
   /**
@@ -247,11 +256,26 @@ function sessionListing(
   return outlives ? { stamps: "unavailable" } : {};
 }
 
-/** The trigger state an engine keeps by default: JSON under `state`, or memory without one. */
-function stateStoreAt(state: string | undefined): StateStore {
-  return state === undefined
-    ? new InMemoryStateStore()
-    : new JsonStateStore(state);
+/**
+ * The stores an engine keeps its state in: those the host gave, else runs
+ * and trigger state in memory, and the rest in JSON under `state`, or in
+ * memory without one.
+ */
+function storesOf(options: EngineOptions): {
+  readonly runs: RunStore;
+  readonly store: StateStore;
+  readonly triggers: TriggerStore;
+} {
+  const { state } = options;
+  return {
+    runs: options.runs ?? new MemoryRunStore(),
+    store:
+      options.store ??
+      (state === undefined
+        ? new InMemoryStateStore()
+        : new JsonStateStore(state)),
+    triggers: options.triggers ?? new MemoryTriggerStore(),
+  };
 }
 
 /**
@@ -322,8 +346,10 @@ export class Engine {
   readonly scopes: ReadonlyRunScopes;
   readonly sessions: SessionStore;
   readonly state: string | undefined;
-  /** Trigger history, monitor state, agent-created triggers, and their locks. */
+  /** Agent-created triggers, Execution Run records and usage, and their locks. */
   readonly store: StateStore;
+  /** Each trigger's last tick, each monitor's state, and their tick claims. */
+  readonly triggers: TriggerStore;
   /** What each run's agent turns consumed, one fact per turn, in `store`. */
   readonly usage: UsageLedger;
   /**
@@ -410,9 +436,10 @@ export class Engine {
     this.scopes = this.#scopes;
     this.sessions = sessions;
     this.state = state;
-    this.store = options.store ?? stateStoreAt(state);
+    const { runs, store, triggers } = storesOf(options);
+    this.store = store;
+    this.triggers = triggers;
     this.usage = new UsageLedger(this.store);
-    const runs = options.runs ?? new MemoryRunStore();
     this.#runs = runs;
     this.#evidence = new UsageEvidence({
       recordedOf: recordedIn(this.#scopes, runs),
@@ -539,7 +566,7 @@ export class Engine {
           signal: () => frame.signal,
           write,
         }),
-      host: { catalogue, store: this.store },
+      host: { catalogue, triggers: this.triggers },
       log: createLog((level, message) =>
         options.log
           ? options.log(level, message, { kind: "step" })
@@ -1287,6 +1314,7 @@ export class Engine {
     this.#unwatchRecords();
     await close(() => this.#records.close());
     await close(() => this.#runs.close());
+    await close(() => this.triggers.close());
     await close(() => this.interactions.close());
     await close(() => this.workspaces.close());
     await close(() => this.sandboxes.close());

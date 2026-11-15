@@ -66,6 +66,13 @@ export type {
 export { InMemoryStateStore, JsonStateStore } from "./state/store";
 export type { TaskContext, TaskDefinition, TaskObservation } from "./tasks";
 export type {
+  MonitorState,
+  ScheduleHistory,
+  TickClaim,
+  TriggerStore,
+} from "./trigger-store";
+export { MemoryTriggerStore } from "./trigger-store";
+export type {
   AgentDefinition,
   Agents,
   SandboxAgentOptions,

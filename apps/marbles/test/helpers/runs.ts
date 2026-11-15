@@ -3,9 +3,10 @@ import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { and, eq } from "drizzle-orm";
 import { openDatabase, readDatabase } from "~/database/open";
 import { DatabaseRunStore } from "~/database/runs";
-import { marblesWorkflowRuns } from "~/database/tables";
+import { marblesScheduleTicks, marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { StoredScope } from "~/lib/run-store";
+import type { ScheduleHistory } from "~/lib/trigger-store";
 
 /** What the Marbles database keeps of one Run, as a later process would find it. */
 export interface StoredRunState {
@@ -111,6 +112,44 @@ export async function seedRuns(
         ownerId: run.owner === null ? null : "seeded",
         ownerPid: run.owner,
         runId: run.id,
+        scope,
+      });
+    }
+  } finally {
+    opened.close();
+  }
+}
+
+/** A trigger's tick row as an engine left it, for `seedTicks`. */
+export interface SeededTick {
+  readonly key: string;
+  /** How its last tick went; absent before its first. */
+  readonly last?: ScheduleHistory;
+  /** The process whose tick of it is under way; `null` for none. */
+  readonly owner: number | null;
+}
+
+/**
+ * Put `ticks` in the Marbles database at the state root `state`, under
+ * the workspace `scope`, as engines would have left them. The database
+ * must be there.
+ */
+export async function seedTicks(
+  state: string,
+  scope: string,
+  ticks: readonly SeededTick[]
+): Promise<void> {
+  const opened = await openDatabase(stateDatabase(state));
+  if (opened === undefined) {
+    throw new Error("no Marbles database to seed");
+  }
+  try {
+    for (const { key, last, owner } of ticks) {
+      await opened.database.insert(marblesScheduleTicks).values({
+        key,
+        ...(last ?? {}),
+        ownerId: owner === null ? null : "seeded",
+        ownerPid: owner,
         scope,
       });
     }

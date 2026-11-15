@@ -28,6 +28,7 @@ import {
   workspaceStores,
 } from "~/database/stores";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
+import { DatabaseTriggerStore } from "~/database/triggers";
 import { Engine as PublishedEngine } from "~/entries/engine";
 import { layout } from "~/layout";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
@@ -253,8 +254,8 @@ function modelsFor(options: CreateEngineOptions): {
 }
 
 /**
- * Where the engine keeps the workspace's tasks, agent sessions and workflow
- * Runs: in the host's database, scoped by the workspace id; without one
+ * Where the engine keeps the workspace's tasks, agent sessions, workflow
+ * Runs and trigger state: in the host's database, scoped by the workspace id; without one
  * but with a state dir, in a handle on the database the engine opens
  * itself (`own`), which it closes once disposed; with neither, in memory.
  */
@@ -262,7 +263,7 @@ function recordsFor(
   state: string | undefined,
   database: StoreDatabase | undefined,
   { root, workspaceId }: CreateEngineOptions
-): Pick<EngineOptions, "records" | "runs" | "sessions"> & {
+): Pick<EngineOptions, "records" | "runs" | "sessions" | "triggers"> & {
   readonly own?: WorkspaceDatabase;
 } {
   if (database !== undefined) {
@@ -271,6 +272,7 @@ function recordsFor(
       records: new DatabaseWorkspaceRecords({ database, scope }),
       runs: new DatabaseRunStore({ database, scope }),
       sessions: new DatabaseSessionStore({ database, scope }),
+      triggers: new DatabaseTriggerStore({ database, scope }),
     };
   }
   if (state === undefined) {
@@ -282,6 +284,7 @@ function recordsFor(
     records: own.records,
     runs: own.runs,
     sessions: own.sessions,
+    triggers: own.triggers,
   };
 }
 

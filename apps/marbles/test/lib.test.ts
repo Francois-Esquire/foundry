@@ -11,7 +11,7 @@ import {
   runSchedules,
 } from "~/lib/schedule";
 import { JSON_INPUT_FIELD } from "~/lib/schema";
-import { InMemoryStateStore } from "~/lib/state/store";
+import { MemoryTriggerStore } from "~/lib/trigger-store";
 import type { CalendarSlot, Schedule } from "~/lib/triggers";
 
 import { declared, testEngine } from "./helpers/engine";
@@ -28,7 +28,7 @@ const NO_NAME_PATTERN = /has no name/;
 
 const text = z.object({ text: z.string() });
 
-/** An engine as the loop sees it: these triggers, a memory store, a stub launch. */
+/** An engine as the loop sees it: these triggers, trigger state in memory, a stub launch. */
 function loopEngine(
   schedules: readonly Schedule[],
   started: () => void
@@ -41,7 +41,7 @@ function loopEngine(
       return Promise.resolve({ id: "run", result: Promise.resolve() });
     },
     schedules: () => schedules,
-    store: new InMemoryStateStore(),
+    triggers: new MemoryTriggerStore(),
   } as ScheduledEngine;
 }
 
@@ -266,7 +266,7 @@ describe("cadence", () => {
     const engine = loopEngine([every], () => {
       throw new Error("a held trigger must not start");
     });
-    const held = engine.store.lock("schedule:held");
+    expect(await engine.triggers.claimTick("held")).toEqual({ claimed: true });
     const skipped: number[] = [];
     await runSchedules(engine, {
       now: () => clock,
@@ -285,9 +285,7 @@ describe("cadence", () => {
       },
     });
     expect(skipped).toEqual([10, 20, 30]);
-    if ("release" in held) {
-      held.release();
-    }
+    await engine.triggers.finishTick("held");
   });
 });
 

@@ -14,13 +14,13 @@ import type { HeldLock, Lock } from "~/lib/state/locks";
 import { acquireLock } from "~/lib/state/locks";
 
 /**
- * Where the scheduler, monitors and agent-created triggers keep what must
- * outlive one tick: JSON documents by collection and key, and named locks.
- * An engine owns one: on disk under its state dir, or in memory when nothing
- * should survive the process. A host may hand the engine its own.
+ * Where agent-created triggers, Execution Runs and usage keep what must
+ * outlive the process: JSON documents by collection and key, and named
+ * locks. An engine owns one: on disk under its state dir, or in memory when
+ * nothing should survive the process. A host may hand the engine its own.
+ * Schedules' ticks and monitors' state are kept apart, in a `TriggerStore`
+ * (`lib/trigger-store.ts`).
  *
- * - `schedules`: each trigger's last tick, read by `status` and the loop.
- * - `monitors`: what each monitor last saw, and a launch it handed out.
  * - `automations`: the triggers agents created, one record per id.
  * - `executions`: every Execution Run's lifecycle record, one per run id,
  *   written when it is queued and at each change after (`lib/executions.ts`).
@@ -41,10 +41,8 @@ import { acquireLock } from "~/lib/state/locks";
 export type StateCollection =
   | "automations"
   | "executions"
-  | "monitors"
   | "observations"
   | "retention"
-  | "schedules"
   | "usage";
 
 export type StoredDocument = {

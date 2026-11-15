@@ -115,3 +115,46 @@ export const marblesWorkflowRuns = sqliteTable(
     index("marbles_workflow_runs_scope_owner").on(table.scope, table.ownerId),
   ]
 );
+
+/**
+ * Each schedule's and monitor's tick, by the trigger's key, as a newer
+ * engine declaring the same trigger finds it: how its last tick went (all
+ * null until the first one has run), and the engine whose tick is under
+ * way (`owner_id`, unique per engine, and its process, `owner_pid`), null
+ * between ticks. Written by `database/triggers.ts`, a claim and a finished
+ * tick each in a transaction of its own.
+ */
+export const marblesScheduleTicks = sqliteTable(
+  "marbles_schedule_ticks",
+  {
+    key: text().notNull(),
+    kind: text({ enum: ["schedule", "monitor"] }),
+    label: text(),
+    lastFinish: text("last_finish"),
+    lastStart: text("last_start"),
+    lastStatus: text("last_status", { enum: ["complete", "failed"] }),
+    nextDue: text("next_due"),
+    ownerId: text("owner_id"),
+    ownerPid: integer("owner_pid"),
+    scope: text().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.scope, table.key] })]
+);
+
+/**
+ * What each monitor keeps, by its key: what it last saw of its source,
+ * and the launch it handed out that no tick has started yet, if any.
+ */
+export const marblesMonitorStates = sqliteTable(
+  "marbles_monitor_states",
+  {
+    key: text().notNull(),
+    observed: text({ mode: "json" }).$type<Record<string, unknown>>().notNull(),
+    pending: text({ mode: "json" }).$type<{
+      readonly input: unknown;
+      readonly workflow: string;
+    }>(),
+    scope: text().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.scope, table.key] })]
+);

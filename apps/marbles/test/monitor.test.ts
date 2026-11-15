@@ -8,6 +8,7 @@ import { monitor, step, workflow } from "@foundry.sh/marbles";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
+import { defaultWorkspaceTriggers } from "~/database/managed";
 import type { AnyDefinition } from "~/lib/definition";
 import type { EngineOptions } from "~/lib/engine";
 import { createLog } from "~/lib/log";
@@ -23,9 +24,9 @@ import type {
 } from "~/lib/monitor";
 import { acknowledgeLaunch, detector, handlerResponse } from "~/lib/monitor";
 import { tick } from "~/lib/schedule";
-import { isRecord, readJson } from "~/lib/state/json";
-import type { StateStore } from "~/lib/state/store";
-import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
+import { isRecord } from "~/lib/state/json";
+import type { TriggerStore } from "~/lib/trigger-store";
+import { MemoryTriggerStore } from "~/lib/trigger-store";
 
 import { declared, startEngine, testEngine } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";
@@ -48,7 +49,7 @@ afterEach(async () => {
 });
 
 /** What the last `hostIn` wired: the host a detector reads, and what an engine over it takes. */
-let hosted: MonitorHost & { readonly store: StateStore } & Pick<
+let hosted: MonitorHost & { readonly triggers: TriggerStore } & Pick<
     EngineOptions,
     "root" | "state" | "workspaces"
   >;
@@ -60,14 +61,16 @@ function hostIn(root: string, state?: string) {
   const catalogue = new WorkspaceSystem().extend(directory(), git());
   catalogues.push(catalogue);
   const stateOption = state === undefined ? {} : { state };
-  const store =
-    state === undefined ? new InMemoryStateStore() : new JsonStateStore(state);
-  hosted = { catalogue, root, store, workspaces: catalogue, ...stateOption };
+  const triggers =
+    state === undefined
+      ? new MemoryTriggerStore()
+      : defaultWorkspaceTriggers(state, root, "test");
+  hosted = { catalogue, root, triggers, workspaces: catalogue, ...stateOption };
   bindLaunch(
     testEngine({
       print: (line) => lines.push(line),
       root,
-      store,
+      triggers,
       workspaces: catalogue,
       ...stateOption,
     }).bindings
@@ -161,16 +164,15 @@ describe("files detector", () => {
     expect(removed[0]?.checksum).toMatch(SHA_256_HEX_PATTERN);
   });
 
-  it("round-trips its state through monitors/<name>.json", async () => {
+  it("round-trips its state through the trigger store", async () => {
     const root = temporaryDirectory("marbles-mon-");
     const state = temporaryDirectory("marbles-mon-state-");
     writeFileSync(join(root, "a.md"), "one\n");
 
     const first = recorder();
     await detectorIn("m", spec, first.handler)(hostIn(root, state).context);
-    const stored = readJson(join(state, "monitors", "m.json"));
-    const files =
-      isRecord(stored) && isRecord(stored.files) ? stored.files : {};
+    const stored = await hosted.triggers.monitorState("m");
+    const files = isRecord(stored?.observed.files) ? stored.observed.files : {};
     expect(files["a.md"]).toMatch(SHA_256_HEX_PATTERN_2);
 
     const second = recorder();
@@ -274,16 +276,15 @@ describe("files detector", () => {
       launch: { input: { task: "guide.md" }, workflow: "ship" },
     };
     await expect(detect(context)).resolves.toEqual(expected);
-    expect(readJson(join(state, "monitors", "m.json"))).toMatchObject({
+    expect(await hosted.triggers.monitorState("m")).toMatchObject({
       pending: expected.launch,
     });
     // Nothing changed, but the launch was never started: out it goes again,
     // without asking the handler.
     await expect(detect(context)).resolves.toEqual(expected);
     expect(handled).toBe(1);
-    acknowledgeLaunch(hosted.store, "m");
-    const stored = readJson(join(state, "monitors", "m.json"));
-    expect(isRecord(stored) && "pending" in stored).toBe(false);
+    await acknowledgeLaunch(hosted.triggers, "m");
+    expect((await hosted.triggers.monitorState("m"))?.pending).toBeUndefined();
     await expect(detect(context)).resolves.toEqual({ changed: false });
   });
 
@@ -317,8 +318,7 @@ describe("files detector", () => {
     expect(attempts).toBe(1);
     // Started is delivered: the file no longer holds the launch, and the
     // next tick finds nothing changed.
-    const stored = readJson(join(state, "monitors", `${key}.json`));
-    expect(isRecord(stored) && "pending" in stored).toBe(false);
+    expect((await hosted.triggers.monitorState(key))?.pending).toBeUndefined();
     await expect(
       tick(engine, schedule, { print: () => undefined })
     ).resolves.toEqual({ value: { changed: false } });
@@ -337,11 +337,10 @@ describe("files detector", () => {
     if (!schedule) {
       throw new Error("expected the monitor's schedule");
     }
-    mkdirSync(join(state, "monitors"), { recursive: true });
-    writeFileSync(
-      join(state, "monitors", `${key}.json`),
-      JSON.stringify({ pending: { input: null, workflow: "gone" }, version: 1 })
-    );
+    await hosted.triggers.saveMonitorState(key, {
+      observed: {},
+      pending: { input: null, workflow: "gone" },
+    });
     const engine = await startEngine({
       ...hosted,
       print: () => undefined,
@@ -349,8 +348,7 @@ describe("files detector", () => {
     await expect(
       tick(engine, schedule, { print: () => undefined })
     ).rejects.toThrow();
-    const stored = readJson(join(state, "monitors", `${key}.json`));
-    expect(isRecord(stored) && "pending" in stored).toBe(false);
+    expect((await hosted.triggers.monitorState(key))?.pending).toBeUndefined();
     // The next tick polls: the first sight of the file is a change, handled quietly.
     await expect(
       tick(engine, schedule, { print: () => undefined })
@@ -393,7 +391,7 @@ describe("files detector", () => {
     await expect(
       tick(engine, schedule, { print: () => undefined })
     ).rejects.toThrow("not yet");
-    expect(readJson(join(state, "monitors", `${key}.json`))).toMatchObject({
+    expect(await hosted.triggers.monitorState(key)).toMatchObject({
       pending: { workflow: "flaky" },
     });
     await expect(

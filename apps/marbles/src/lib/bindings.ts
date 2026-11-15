@@ -1,5 +1,5 @@
 import type { Log } from "~/lib/log";
-import type { StateStore } from "~/lib/state/store";
+import type { TriggerStore } from "~/lib/trigger-store";
 
 import type { Exec } from "./command";
 import type { AgentTurns } from "./managers/agents";
@@ -24,8 +24,8 @@ export interface ManagerArgs {
 export interface HostBindings {
   /** The workspace system; file monitors read the tree through it. */
   readonly catalogue?: Catalogue;
-  /** The engine's state store; monitors keep what they last saw in it. */
-  readonly store?: StateStore;
+  /** The engine's trigger store; monitors keep what they last saw in it. */
+  readonly triggers?: TriggerStore;
 }
 
 /** The engine's managers, as a step body reaches them. */

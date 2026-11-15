@@ -9,7 +9,7 @@ import { stateDatabase } from "~/layout";
 import { writeJson } from "~/lib/state/json";
 import { readStatus } from "~/status/model";
 import { seedWorkspace } from "./helpers/registry";
-import { seedRuns } from "./helpers/runs";
+import { seedRuns, seedTicks } from "./helpers/runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
 async function layout() {
@@ -22,12 +22,6 @@ async function layout() {
     id: "ws1",
     lastSeen: "2026-09-10T01:00:00.000Z",
     root: "/repo/one",
-  });
-  writeJson(join(dir, "schedules", "guides.json"), {
-    lastFinish: "2026-09-10T01:00:00.000Z",
-    lastStart: "2026-09-10T00:59:00.000Z",
-    lastStatus: "complete",
-    nextDue: "2026-09-10T01:30:00.000Z",
   });
   const database = await initializeDatabase(stateDatabase(state));
   try {
@@ -42,6 +36,18 @@ async function layout() {
   } finally {
     database.close();
   }
+  await seedTicks(state, "ws1", [
+    {
+      key: "guides",
+      last: {
+        lastFinish: "2026-09-10T01:00:00.000Z",
+        lastStart: "2026-09-10T00:59:00.000Z",
+        lastStatus: "complete",
+        nextDue: "2026-09-10T01:30:00.000Z",
+      },
+      owner: null,
+    },
+  ]);
   // A session file an earlier Marbles left is not one of them.
   writeJson(join(dir, "sessions", "s3.json"), {});
   return { dir, state };
@@ -134,25 +140,16 @@ describe("readStatus", () => {
     });
   });
 
-  it("reports a live lock as running and ignores a dead one", async () => {
-    const { state, dir } = await layout();
-    mkdirSync(join(dir, "locks"));
-    writeFileSync(join(dir, "locks", "schedule:guides"), String(process.pid));
-    writeFileSync(join(dir, "locks", "schedule:fresh"), String(process.pid));
-    writeFileSync(
-      join(dir, "locks", "schedule:stale"),
-      String(spawnSync("true").pid)
-    );
-
-    writeFileSync(join(dir, "locks", "run-probe"), String(process.pid));
-    writeFileSync(
-      join(dir, "locks", "edit-automation-probe"),
-      String(process.pid)
-    );
+  it("reports a tick under way in a live process as running, and ignores a dead one's", async () => {
+    const { state } = await layout();
+    await seedTicks(state, "ws1", [
+      { key: "fresh", owner: process.pid },
+      { key: "stale", owner: spawnSync("true").pid },
+    ]);
     const schedules = (await readStatus(state)).workspaces[0]?.schedules;
     expect(schedules).toEqual([
       expect.objectContaining({ name: "fresh", running: process.pid }),
-      expect.objectContaining({ name: "guides", running: process.pid }),
+      expect.objectContaining({ name: "guides", running: null }),
     ]);
   });
 
@@ -183,7 +180,8 @@ describe("readStatus", () => {
     // Run files an earlier Marbles left are not read.
     writeJson(join(dir, "runs", "rn-old.json"), { pid: 1 });
     writeFileSync(join(dir, "runs", "rn-bad.json"), "{ not json");
-    writeFileSync(join(dir, "schedules", "bad.json"), "{");
+    // Nor are schedule files.
+    writeJson(join(dir, "schedules", "old.json"), { lastStatus: "failed" });
     writeJson(join(state, "ws2", "workspace.json"), { id: "ws2", root: "/r" });
     mkdirSync(join(state, "ws3"));
 
@@ -194,10 +192,7 @@ describe("readStatus", () => {
       total: 1,
     });
     expect(workspaces[0]?.schedules.map((s) => [s.name, s.lastStatus])).toEqual(
-      [
-        ["bad", null],
-        ["guides", "complete"],
-      ]
+      [["guides", "complete"]]
     );
   });
 });

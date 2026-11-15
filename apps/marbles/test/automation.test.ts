@@ -13,9 +13,10 @@ import {
 } from "~/lib/automation/service";
 import type { ScheduledEngine } from "~/lib/schedule";
 import { runSchedules, tick } from "~/lib/schedule";
-import { readJson } from "~/lib/state/json";
 import type { StateStore } from "~/lib/state/store";
 import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
+import type { TriggerStore } from "~/lib/trigger-store";
+import { MemoryTriggerStore } from "~/lib/trigger-store";
 import type { Schedule } from "~/lib/triggers";
 import { bindMock } from "./helpers/bindings";
 import { declared, startEngine } from "./helpers/engine";
@@ -47,7 +48,7 @@ function serviceAt(state?: string): AutomationService {
 function loopEngine(
   schedules: () => readonly Schedule[],
   launch: (name: string) => void,
-  store: StateStore = new InMemoryStateStore()
+  triggers: TriggerStore = new MemoryTriggerStore()
 ): ScheduledEngine {
   return {
     cancel: async () => undefined,
@@ -57,7 +58,7 @@ function loopEngine(
       return { id: "run", result: Promise.resolve(undefined) };
     },
     schedules,
-    store,
+    triggers,
   } as ScheduledEngine;
 }
 
@@ -303,8 +304,7 @@ it("fails closed on invalid persisted sources while exposing a host-readable err
   expect(service.schedules()).toHaveLength(0);
 });
 
-it("rechecks completion and live membership under the schedule lock", async () => {
-  const state = temp();
+it("rechecks completion and live membership under the tick's claim", async () => {
   let starts = 0;
   const schedule = {
     input: null,
@@ -319,7 +319,7 @@ it("rechecks completion and live membership under the schedule lock", async () =
     () => {
       starts += 1;
     },
-    new JsonStateStore(state)
+    new MemoryTriggerStore()
   );
   await tick(engine, schedule, {
     now: () => 2000,
@@ -477,9 +477,9 @@ it("records a visible failed tick when a restored target was removed", async () 
     await expect(
       tick(engine, schedule, { print: () => undefined })
     ).rejects.toThrow();
-    expect(
-      readJson(join(state, "schedules", `${record.id}.json`))
-    ).toMatchObject({ lastStatus: "failed" });
+    expect(await engine.triggers.lastTick(record.id)).toMatchObject({
+      lastStatus: "failed",
+    });
   } finally {
     await engine.stop({ cancel: true });
     await bound.dispose();
@@ -506,8 +506,7 @@ it("preserves the first firing deadline when restored before any tick history ex
   const controller = new AbortController();
   const engine = loopEngine(
     () => restored.schedules(),
-    () => controller.abort(),
-    new JsonStateStore(state)
+    () => controller.abort()
   );
   await runSchedules(engine, {
     now: () => now,

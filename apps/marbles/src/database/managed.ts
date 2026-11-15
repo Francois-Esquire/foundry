@@ -8,6 +8,7 @@ import type { MarblesDatabase } from "~/database/open";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
+import { DatabaseTriggerStore } from "~/database/triggers";
 import type { HostDatabaseOptions } from "~/database/workspaces";
 import { openHostDatabase } from "~/database/workspaces";
 import type {
@@ -20,6 +21,12 @@ import type { RecordedScope } from "~/lib/run-scope";
 import type { RunStore, StoredScope } from "~/lib/run-store";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
+import type {
+  MonitorState,
+  ScheduleHistory,
+  TickClaim,
+  TriggerStore,
+} from "~/lib/trigger-store";
 import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
 
 export interface OpenWorkspaceRecordsOptions extends HostDatabaseOptions {
@@ -61,6 +68,8 @@ export interface WorkspaceDatabase {
   /** The workspace's workflow Runs over the same handle. */
   readonly runs: RunStore;
   readonly sessions: ListedSessionStore;
+  /** The workspace's trigger state over the same handle. */
+  readonly triggers: TriggerStore;
 }
 
 /** `openWorkspaceRecords`, with the workspace's sessions over the same handle. */
@@ -77,11 +86,15 @@ export function openWorkspaceDatabase(
   const runs = new ManagedRunStore(database, options.workspaceId, () =>
     Promise.resolve()
   );
+  const triggers = new ManagedTriggerStore(database, options.workspaceId, () =>
+    Promise.resolve()
+  );
   return {
     async close() {
       try {
         await records.close();
         await runs.close();
+        await triggers.close();
         await sessions.close();
       } finally {
         await database.close();
@@ -90,6 +103,7 @@ export function openWorkspaceDatabase(
     records,
     runs,
     sessions,
+    triggers,
   };
 }
 
@@ -145,6 +159,22 @@ export function defaultWorkspaceRuns(
     workspaceId,
   });
   return new ManagedRunStore(database, workspaceId, () => database.close());
+}
+
+/**
+ * The trigger store an engine given `state` and no `triggers` keeps its
+ * schedules' and monitors' state in, as `defaultWorkspaceRuns` keeps runs.
+ */
+export function defaultWorkspaceTriggers(
+  state: string,
+  root: string,
+  workspaceId: string
+): TriggerStore {
+  const database = new LazyDatabase({
+    state: defaultStateRoot(state, root, workspaceId),
+    workspaceId,
+  });
+  return new ManagedTriggerStore(database, workspaceId, () => database.close());
 }
 
 /** The state root whose database an engine given `state` keeps its records in (`defaultWorkspaceRecords`). */
@@ -432,6 +462,65 @@ class ManagedRunStore implements RunStore {
   }
 
   #run<T>(call: (store: DatabaseRunStore) => Promise<T>): Promise<T> {
+    return this.#gate.run(async () => call(await this.#store.get()));
+  }
+}
+
+/**
+ * A workspace's trigger state over a `LazyDatabase`, as `ManagedRunStore`
+ * keeps its runs.
+ */
+class ManagedTriggerStore implements TriggerStore {
+  readonly #gate = new RecordsGate("the trigger store is closed");
+  readonly #release: () => Promise<void>;
+  readonly #store: OverDatabase<DatabaseTriggerStore>;
+
+  constructor(
+    database: LazyDatabase,
+    workspaceId: string,
+    release: () => Promise<void>
+  ) {
+    this.#release = release;
+    this.#store = new OverDatabase(
+      database,
+      (opened) =>
+        new DatabaseTriggerStore({
+          database: opened.database,
+          scope: workspaceId,
+        })
+    );
+  }
+
+  claimTick(key: string): Promise<TickClaim> {
+    return this.#run((store) => store.claimTick(key));
+  }
+
+  async close(): Promise<void> {
+    await this.#gate.close();
+    try {
+      await (await this.#store.built())?.close();
+    } finally {
+      await this.#release();
+    }
+  }
+
+  finishTick(key: string, tick?: ScheduleHistory): Promise<void> {
+    return this.#run((store) => store.finishTick(key, tick));
+  }
+
+  lastTick(key: string): Promise<ScheduleHistory | undefined> {
+    return this.#run((store) => store.lastTick(key));
+  }
+
+  monitorState(key: string): Promise<MonitorState | undefined> {
+    return this.#run((store) => store.monitorState(key));
+  }
+
+  saveMonitorState(key: string, state: MonitorState): Promise<void> {
+    return this.#run((store) => store.saveMonitorState(key, state));
+  }
+
+  #run<T>(call: (store: DatabaseTriggerStore) => Promise<T>): Promise<T> {
     return this.#gate.run(async () => call(await this.#store.get()));
   }
 }

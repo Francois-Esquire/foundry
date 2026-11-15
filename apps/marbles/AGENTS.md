@@ -43,8 +43,9 @@ Five buckets, each importing only what sits below it:
   authoring words, no views, no CLI. The `Engine` constructor takes the
   packages' own instances (models, session store, containers, artifact
   system, all required; a workspace system, which it builds from its `git`
-  option when omitted, and a `StateStore`, a `JsonStateStore` over `state`
-  or in memory without one) and builds the managers and everything that
+  option when omitted; a `StateStore`, a `JsonStateStore` over `state`
+  or in memory without one, for automations, Execution Runs and usage; a
+  `RunStore` and a `TriggerStore`, in memory without one) and builds the managers and everything that
   connects them itself. It owns its run scopes and its trigger state; no
   module global holds either. The workspace's tasks reach it through
   `records` (`lib/events/records.ts`): the host hands in the database's
@@ -118,7 +119,10 @@ Five buckets, each importing only what sits below it:
   what the run's scope recorded and the engine that owns it, so a parked
   run is adopted by the next process that can answer it; a claim on a Run
   is a transaction on that row, not a lock file. Each run's output stays
-  a log file on disk, `<state>/<id>/output/<run>.jsonl`. The modules
+  a log file on disk, `<state>/<id>/output/<run>.jsonl`. `triggers.ts`
+  is a workspace's trigger state: each schedule's and monitor's last tick
+  and each monitor's state by the trigger's key, and the claim that keeps
+  two ticks of one trigger apart, a transaction on the tick's row. The modules
   tables are composed and migrated, but nothing in Marbles uses them yet. Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no worker opens the database per

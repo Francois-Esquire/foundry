@@ -12,7 +12,10 @@ import { directory } from "@foundry/workspaces/node";
 import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { catalog } from "~/authoring/catalog";
 import { declareCatalog, echoGit } from "~/create";
-import { defaultWorkspaceRuns } from "~/database/managed";
+import {
+  defaultWorkspaceRuns,
+  defaultWorkspaceTriggers,
+} from "~/database/managed";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
@@ -82,9 +85,9 @@ export function testInstances(
  * An engine over mock models, in-memory stores, a real workspace system
  * with echoed git, and a fake container runtime, with everything the
  * authoring catalog holds declared to it. Given a `state`, its workflow
- * Runs are kept as the published `Engine` keeps them, in a Marbles
- * database at `<state>/marbles.db`, so a later engine over the same state
- * adopts what this one parked. Any option replaces its default.
+ * Runs and trigger state are kept as the published `Engine` keeps them, in
+ * a Marbles database at `<state>/marbles.db`, so a later engine over the
+ * same state adopts what this one parked and carries on its triggers. Any option replaces its default.
  */
 export function testEngine(options: TestEngineOptions = {}): Engine {
   const {
@@ -102,7 +105,10 @@ export function testEngine(options: TestEngineOptions = {}): Engine {
     workspaceId,
     ...(given.state === undefined
       ? {}
-      : { runs: defaultWorkspaceRuns(given.state, root, workspaceId) }),
+      : {
+          runs: defaultWorkspaceRuns(given.state, root, workspaceId),
+          triggers: defaultWorkspaceTriggers(given.state, root, workspaceId),
+        }),
     ...given,
     ...testInstances(options),
   });

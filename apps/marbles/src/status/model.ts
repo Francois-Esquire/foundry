@@ -1,14 +1,13 @@
-import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { lockHolder, processAlive } from "@foundry/lib/file-lock";
+import { processAlive } from "@foundry/lib/file-lock";
 import type { StoredRun } from "~/database/runs";
 import { readStoredRuns } from "~/database/runs";
 import { sessionCounts } from "~/database/sessions";
+import type { StoredTick } from "~/database/triggers";
+import { readStoredTicks } from "~/database/triggers";
 import { recordedWorkspaces } from "~/database/workspaces";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
-import { isRecord, readJson } from "~/lib/state/json";
-import { scheduleKeyOfLock } from "~/lib/state/locks";
 import type { WorkspaceRecord } from "~/lib/state/workspace";
 import type { ProcessHost, ProcessStatus } from "~/process/instance";
 import { readProcess } from "~/process/instance";
@@ -82,7 +81,8 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
           join(stateRoot, record.id),
           record,
           sessions.get(record.id) ?? 0,
-          await readStoredRuns(stateRoot, record.id)
+          await readStoredRuns(stateRoot, record.id),
+          await readStoredTicks(stateRoot, record.id)
         )
       )
     ),
@@ -93,7 +93,8 @@ function readWorkspaceStatus(
   dir: string,
   record: WorkspaceRecord,
   sessions: number,
-  runs: readonly StoredRun[]
+  runs: readonly StoredRun[],
+  ticks: readonly StoredTick[]
 ): WorkspaceStatus {
   const owner = readProcess(dir);
   return {
@@ -106,45 +107,21 @@ function readWorkspaceStatus(
     pid: owner?.pid ?? null,
     root: record.root,
     runs: runsStatus(runs),
-    schedules: readSchedules(dir),
+    schedules: ticks.map(scheduleStatus),
     sessions,
   };
 }
 
-function readSchedules(dir: string): ScheduleStatus[] {
-  const locks = join(dir, "locks");
-  const running = new Map<string, number>();
-  for (const name of listFiles(locks)) {
-    const key = scheduleKeyOfLock(name);
-    if (key === undefined) {
-      continue;
-    }
-    const holder = lockHolder(join(locks, name));
-    if (holder !== undefined && processAlive(holder)) {
-      running.set(key, holder);
-    }
-  }
-  const names = new Set([
-    ...jsonFiles(join(dir, "schedules")).map((file) => file.slice(0, -5)),
-    ...running.keys(),
-  ]);
-  return [...names].sort().map((name) => {
-    const history = readJson(join(dir, "schedules", `${name}.json`));
-    const field = (key: string) =>
-      isRecord(history) && typeof history[key] === "string"
-        ? history[key]
-        : null;
-    return {
-      key: name,
-      kind: field("kind") === "monitor" ? "monitor" : null,
-      lastFinish: field("lastFinish"),
-      lastStatus: field("lastStatus"),
-      // Older history files carry no label; the key is the filename.
-      name: field("label") ?? name,
-      nextDue: field("nextDue"),
-      running: running.get(name) ?? null,
-    };
-  });
+function scheduleStatus({ key, last, running }: StoredTick): ScheduleStatus {
+  return {
+    key,
+    kind: last?.kind === "monitor" ? "monitor" : null,
+    lastFinish: last?.lastFinish ?? null,
+    lastStatus: last?.lastStatus ?? null,
+    name: last?.label ?? key,
+    nextDue: last?.nextDue ?? null,
+    running,
+  };
 }
 
 function runsStatus(stored: readonly StoredRun[]): RunsStatus {
@@ -162,18 +139,4 @@ function runsStatus(stored: readonly StoredRun[]): RunsStatus {
     )
     .sort((a, b) => b.createdAt - a.createdAt);
   return { recent: runs.slice(0, RECENT), total: runs.length };
-}
-
-function listFiles(dir: string): string[] {
-  if (!existsSync(dir)) {
-    return [];
-  }
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name)
-    .sort();
-}
-
-function jsonFiles(dir: string): string[] {
-  return listFiles(dir).filter((name) => name.endsWith(".json"));
 }
