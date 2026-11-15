@@ -216,7 +216,7 @@ async function readUsage(
   }
   try {
     // The saved facts alone, without what the transcripts would recover.
-    const saved = engine.usage.read();
+    const saved = await engine.usage.read();
     return {
       ...saved,
       unreadable: saved.unreadable + 1,

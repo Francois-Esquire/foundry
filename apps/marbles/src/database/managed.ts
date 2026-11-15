@@ -9,8 +9,10 @@ import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { DatabaseTriggerStore } from "~/database/triggers";
+import { DatabaseUsageStore } from "~/database/usage";
 import type { HostDatabaseOptions } from "~/database/workspaces";
 import { openHostDatabase } from "~/database/workspaces";
+import type { EngineOptions } from "~/lib/engine";
 import type {
   PendingQuery,
   StreamItem,
@@ -27,7 +29,9 @@ import type {
   TickClaim,
   TriggerStore,
 } from "~/lib/trigger-store";
+import type { RecordedUsageFact } from "~/lib/usage";
 import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
+import type { StoredUsage, UsageStore } from "~/lib/usage-store";
 
 export interface OpenWorkspaceRecordsOptions extends HostDatabaseOptions {
   /** The Marbles state root, whose `marbles.db` holds the tasks. */
@@ -70,6 +74,8 @@ export interface WorkspaceDatabase {
   readonly sessions: ListedSessionStore;
   /** The workspace's trigger state over the same handle. */
   readonly triggers: TriggerStore;
+  /** The workspace's usage facts over the same handle. */
+  readonly usage: UsageStore;
 }
 
 /** `openWorkspaceRecords`, with the workspace's sessions over the same handle. */
@@ -89,12 +95,16 @@ export function openWorkspaceDatabase(
   const triggers = new ManagedTriggerStore(database, options.workspaceId, () =>
     Promise.resolve()
   );
+  const usage = new ManagedUsageStore(database, options.workspaceId, () =>
+    Promise.resolve()
+  );
   return {
     async close() {
       try {
         await records.close();
         await runs.close();
         await triggers.close();
+        await usage.close();
         await sessions.close();
       } finally {
         await database.close();
@@ -104,6 +114,7 @@ export function openWorkspaceDatabase(
     runs,
     sessions,
     triggers,
+    usage,
   };
 }
 
@@ -175,6 +186,54 @@ export function defaultWorkspaceTriggers(
     workspaceId,
   });
   return new ManagedTriggerStore(database, workspaceId, () => database.close());
+}
+
+/** What an engine keeps in the Marbles database when it is given `state`. */
+type DatabaseKept = Pick<
+  EngineOptions,
+  "records" | "runs" | "triggers" | "usageStore"
+>;
+
+/**
+ * `options`, with each store it keeps in the Marbles database that it was
+ * not handed (its tasks, workflow Runs, trigger state and usage facts)
+ * over one handle on the database `defaultWorkspaceRecords` chooses for
+ * `state`, opened at the first call to any of them under the rule a host
+ * keeps. The handle closes once every store made here has closed, as the
+ * engine closes each on dispose; a store it was handed is left as it is.
+ */
+export function withWorkspaceDatabase(
+  options: EngineOptions & { readonly state: string }
+): EngineOptions {
+  const { root, state, workspaceId } = options;
+  const database = new LazyDatabase({
+    state: defaultStateRoot(state, root, workspaceId),
+    workspaceId,
+  });
+  const make: {
+    readonly [K in keyof DatabaseKept]-?: (
+      done: () => Promise<void>
+    ) => NonNullable<DatabaseKept[K]>;
+  } = {
+    records: (done) => new ManagedWorkspaceRecords(database, workspaceId, done),
+    runs: (done) => new ManagedRunStore(database, workspaceId, done),
+    triggers: (done) => new ManagedTriggerStore(database, workspaceId, done),
+    usageStore: (done) => new ManagedUsageStore(database, workspaceId, done),
+  };
+  const missing = (Object.keys(make) as (keyof DatabaseKept)[]).filter(
+    (key) => options[key] === undefined
+  );
+  let open = missing.length;
+  const release = async () => {
+    open -= 1;
+    if (open === 0) {
+      await database.close();
+    }
+  };
+  return {
+    ...options,
+    ...Object.fromEntries(missing.map((key) => [key, make[key](release)])),
+  };
 }
 
 /** The state root whose database an engine given `state` keeps its records in (`defaultWorkspaceRecords`). */
@@ -525,6 +584,79 @@ class ManagedTriggerStore implements TriggerStore {
   }
 
   #run<T>(call: (store: DatabaseTriggerStore) => Promise<T>): Promise<T> {
+    return this.#gate.run(async () => call(await this.#store.get()));
+  }
+}
+
+/**
+ * A workspace's usage facts over a `LazyDatabase`: each call waits for the
+ * database to open, and `close` refuses later calls once those made have
+ * settled. A fact is owned from the call, before the open.
+ */
+class ManagedUsageStore implements UsageStore {
+  readonly #gate = new RecordsGate("the usage store is closed");
+  readonly #release: () => Promise<void>;
+  readonly #store: OverDatabase<DatabaseUsageStore>;
+
+  constructor(
+    database: LazyDatabase,
+    workspaceId: string,
+    release: () => Promise<void>
+  ) {
+    this.#release = release;
+    this.#store = new OverDatabase(
+      database,
+      (opened) =>
+        new DatabaseUsageStore({
+          database: opened.database,
+          scope: workspaceId,
+        })
+    );
+  }
+
+  async close(): Promise<void> {
+    await this.#gate.close();
+    try {
+      await (await this.#store.built())?.close();
+    } finally {
+      await this.#release();
+    }
+  }
+
+  facts(): Promise<{
+    readonly facts: readonly StoredUsage[];
+    readonly revision: number;
+  }> {
+    return this.#run((store) => store.facts());
+  }
+
+  mark(marker: RecordedUsageFact): Promise<void> {
+    return this.#owning(marker, (store, owned) => store.mark(owned));
+  }
+
+  revision(): Promise<number> {
+    return this.#run((store) => store.revision());
+  }
+
+  save(fact: RecordedUsageFact): Promise<void> {
+    return this.#owning(fact, (store, owned) => store.save(owned));
+  }
+
+  /** `call` on a copy of `fact` taken now: the database may still be opening. */
+  #owning(
+    fact: RecordedUsageFact,
+    call: (store: DatabaseUsageStore, owned: RecordedUsageFact) => Promise<void>
+  ): Promise<void> {
+    let owned: RecordedUsageFact;
+    try {
+      owned = structuredClone(fact);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#run((store) => call(store, owned));
+  }
+
+  #run<T>(call: (store: DatabaseUsageStore) => Promise<T>): Promise<T> {
     return this.#gate.run(async () => call(await this.#store.get()));
   }
 }

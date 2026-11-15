@@ -158,3 +158,29 @@ export const marblesMonitorStates = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.scope, table.key] })]
 );
+
+/**
+ * Every usage fact of a workspace, one per turn (`turn_id`), filed under
+ * the run it ran in (`run_id`), or none for a direct session's, as the
+ * ledger read it when it saved it. `fact` is the record whole, read back
+ * through `usageFactSchema`; `lost` repeats its marker reason, so a saved
+ * fact is told from a marker without reading it. `revision` grows with
+ * every fact kept in the scope, so a reader can tell nothing changed
+ * without reading the facts. Written by `database/usage.ts`; nothing
+ * removes a row.
+ */
+export const marblesUsageFacts = sqliteTable(
+  "marbles_usage_facts",
+  {
+    fact: text({ mode: "json" }).$type<unknown>().notNull(),
+    lost: text(),
+    revision: integer().notNull(),
+    runId: text("run_id"),
+    scope: text().notNull(),
+    turnId: text("turn_id").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scope, table.turnId] }),
+    index("marbles_usage_facts_scope_revision").on(table.scope, table.revision),
+  ]
+);

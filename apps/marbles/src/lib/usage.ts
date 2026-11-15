@@ -15,9 +15,8 @@ import { loadedModelsDev } from "@foundry/models/catalog/models-dev-source";
 import { claudeCodeCallCost } from "@foundry/models/cost";
 import { wrapLanguageModel } from "ai";
 
-import { isRecord } from "~/lib/state/json";
-import type { HeldLock, Lock } from "~/lib/state/locks";
-import type { StateStore } from "~/lib/state/store";
+import type { UsageStore } from "~/lib/usage-store";
+import { usageFactSchema } from "~/lib/usage-store";
 
 /**
  * What agent turns consumed, recorded once per committed turn. A fact is a
@@ -476,199 +475,6 @@ export function sourceOf(fact: RecordedUsageFact): TurnSource {
     : { agentId: fact.agentId };
 }
 
-const COLLECTION = "usage";
-
-/*
- * Reading back: state is advisory, so a document or fact that does not have
- * every field the totals and labels use, with the right type, is counted as
- * unreadable rather than trusted or read as zero.
- */
-
-function text(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0;
-}
-
-function optionalText(value: unknown): value is string | undefined {
-  return value === undefined || typeof value === "string";
-}
-
-function count(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
-}
-
-function optionalCount(value: unknown): value is number | undefined {
-  return value === undefined || count(value);
-}
-
-function decodeTokens(value: unknown): UsageTokens | undefined {
-  if (
-    !(
-      isRecord(value) &&
-      count(value.input) &&
-      count(value.output) &&
-      count(value.total) &&
-      optionalCount(value.cachedInput) &&
-      optionalCount(value.cacheWrite) &&
-      optionalCount(value.reasoning)
-    )
-  ) {
-    return;
-  }
-  return {
-    ...(value.cachedInput === undefined
-      ? {}
-      : { cachedInput: value.cachedInput }),
-    ...(value.cacheWrite === undefined ? {} : { cacheWrite: value.cacheWrite }),
-    input: value.input,
-    output: value.output,
-    ...(value.reasoning === undefined ? {} : { reasoning: value.reasoning }),
-    total: value.total,
-  };
-}
-
-function isTiers(value: unknown): boolean {
-  return (
-    value === undefined ||
-    (Array.isArray(value) &&
-      value.every(
-        (tier) =>
-          isRecord(tier) &&
-          count(tier.costPer1M) &&
-          count(tier.minTokens) &&
-          optionalCount(tier.maxTokens)
-      ))
-  );
-}
-
-function decodePricing(value: unknown): PriceBasis | undefined {
-  if (!(isRecord(value) && text(value.reference) && isRecord(value.rates))) {
-    return;
-  }
-  const { rates } = value;
-  const valid =
-    count(rates.input) &&
-    count(rates.output) &&
-    optionalCount(rates.cachedInput) &&
-    optionalCount(rates.cacheWrite) &&
-    isTiers(rates.inputTiers) &&
-    isTiers(rates.outputTiers);
-  // Kept as recorded: provenance, validated, never re-priced.
-  return valid
-    ? { rates: rates as unknown as ModelCosts, reference: value.reference }
-    : undefined;
-}
-
-function decodeCost(value: unknown): UsageCost | undefined {
-  if (!isRecord(value)) {
-    return;
-  }
-  if (value.kind === "unknown") {
-    return typeof value.reason === "string"
-      ? { kind: "unknown", reason: value.reason }
-      : undefined;
-  }
-  if (!(count(value.amount) && text(value.currency))) {
-    return;
-  }
-  if (value.kind === "reported") {
-    return text(value.reference)
-      ? {
-          amount: value.amount,
-          currency: value.currency,
-          ...(value.estimate === true ? { estimate: true } : {}),
-          kind: "reported",
-          reference: value.reference,
-        }
-      : undefined;
-  }
-  if (value.kind === "estimated") {
-    const pricing = decodePricing(value.pricing);
-    return pricing
-      ? {
-          amount: value.amount,
-          currency: value.currency,
-          kind: "estimated",
-          pricing,
-        }
-      : undefined;
-  }
-}
-
-function decodeScope(
-  value: Record<string, unknown>
-):
-  | Pick<RunUsageFact, "definitionId" | "path" | "runId" | "scope">
-  | Pick<DirectUsageFact, "scope">
-  | undefined {
-  if (value.scope === "direct") {
-    return { scope: "direct" };
-  }
-  const { path } = value;
-  if (
-    value.scope === "run" &&
-    text(value.runId) &&
-    text(value.definitionId) &&
-    Array.isArray(path) &&
-    path.every(text)
-  ) {
-    return {
-      definitionId: value.definitionId,
-      path: [...path],
-      runId: value.runId,
-      scope: "run",
-    };
-  }
-}
-
-/** A persisted fact, rebuilt from the fields it must have; `undefined` when any is missing or wrong. */
-function decodeFact(value: unknown): RecordedUsageFact | undefined {
-  if (
-    !(
-      isRecord(value) &&
-      value.version === 1 &&
-      text(value.turnId) &&
-      text(value.sessionId) &&
-      text(value.workspaceId) &&
-      text(value.agentId) &&
-      count(value.completedAt) &&
-      optionalCount(value.durationMs) &&
-      optionalText(value.harness) &&
-      optionalText(value.implementation) &&
-      optionalText(value.model) &&
-      optionalText(value.provider) &&
-      optionalText(value.lost)
-    )
-  ) {
-    return;
-  }
-  const scope = decodeScope(value);
-  const cost = decodeCost(value.cost);
-  const tokens =
-    value.tokens === undefined ? undefined : decodeTokens(value.tokens);
-  if (!(scope && cost) || (value.tokens !== undefined && !tokens)) {
-    return;
-  }
-  return {
-    agentId: value.agentId,
-    completedAt: value.completedAt,
-    cost,
-    ...(value.durationMs === undefined ? {} : { durationMs: value.durationMs }),
-    ...(value.harness === undefined ? {} : { harness: value.harness }),
-    ...(value.implementation === undefined
-      ? {}
-      : { implementation: value.implementation }),
-    ...(value.lost === undefined ? {} : { lost: value.lost }),
-    ...(value.model === undefined ? {} : { model: value.model }),
-    ...(value.provider === undefined ? {} : { provider: value.provider }),
-    ...scope,
-    sessionId: value.sessionId,
-    ...(tokens ? { tokens } : {}),
-    turnId: value.turnId,
-    version: 1,
-    workspaceId: value.workspaceId,
-  };
-}
-
 /** What the ledger holds, and what it could not read or save. */
 export interface UsageRecords {
   readonly facts: readonly UsageFact[];
@@ -678,14 +484,15 @@ export interface UsageRecords {
    */
   readonly recovered: number;
   /**
-   * Documents or facts that could not be read, and transcripts or run files
+   * Stored facts that could not be read, and transcripts or run records
    * that reconciliation needed and could not read: totals over them are
    * partial.
    */
   readonly unreadable: number;
   /**
-   * Where unreadable records were filed: a usage document by its key, by
-   * run or outside runs; a settled run's file by that run; anything else,
+   * Where unreadable records were filed: a stored fact where the store
+   * filed it, by run or outside runs; a settled run's record by that run;
+   * anything else,
    * transcripts included, nowhere (`unowned`). The counts add up to
    * `unreadable`. A record's own fields are not trusted for this.
    */
@@ -700,42 +507,17 @@ export interface UsageRecords {
 }
 
 /**
- * Unreadable records by where their document said they belong: a usage
- * document by its key, a settled run's file by its run. Who named a
+ * Unreadable records by where they were filed: a stored fact where the
+ * store filed it, a settled run's record by its run. Who named a
  * transcript does not own it: any run, or the host, may have continued it.
  */
 export interface UnreadablePlaces {
-  /** Filed under a direct session's usage document. */
+  /** A stored fact filed under a direct session. */
   readonly direct: number;
-  /** Filed under a run's usage document, or the run's own file, by run id. */
+  /** A stored fact filed under a run, or the run's own record, by run id. */
   readonly runs: ReadonlyMap<string, number>;
-  /** A key that names no owner, a transcript, or a session listing that failed. */
+  /** A transcript, a session listing that failed, or a read that did. */
   readonly unowned: number;
-}
-
-const RUN_KEY = /^run\.([^+]+)(?:\+.*)?$/;
-const DIRECT_KEY = /^direct\.[^+]+(?:\+.*)?$/;
-
-/** Count one unreadable record where its document key says it belongs. */
-function placeUnreadable(
-  places: { direct: number; runs: Map<string, number>; unowned: number },
-  key: string
-): void {
-  const run = RUN_KEY.exec(key)?.[1];
-  if (run !== undefined) {
-    try {
-      const id = decodeURIComponent(run);
-      places.runs.set(id, (places.runs.get(id) ?? 0) + 1);
-      return;
-    } catch {
-      // Not an encoding the ledger wrote: owner unknown.
-    }
-  }
-  if (DIRECT_KEY.test(key)) {
-    places.direct += 1;
-    return;
-  }
-  places.unowned += 1;
 }
 
 /**
@@ -793,7 +575,7 @@ export function withRecovered(
 /** What reconciliation found: recovered leaves, and the evidence it could not read, by owner. */
 export interface Reconciled {
   readonly facts: readonly UsageFact[];
-  /** No transcript or run file is a direct session's usage document. */
+  /** No transcript or run record is a direct session's stored fact. */
   readonly unreadable: Omit<UnreadablePlaces, "direct">;
 }
 
@@ -803,66 +585,51 @@ export type RecordOutcome =
   | { readonly saved: "marker"; readonly error: string }
   | { readonly saved: "nothing"; readonly error: string };
 
-/** Keys are file names: one document per run, or per direct session. */
-function documentKey(fact: RecordedUsageFact): string {
-  return fact.scope === "run"
-    ? `run.${encodeURIComponent(fact.runId)}`
-    : `direct.${encodeURIComponent(fact.sessionId)}`;
-}
-
-/** A one-fact document beside its own, for a fact its document cannot take. */
-function sideKey(key: string, turnId: string): string {
-  return `${key}+${encodeURIComponent(turnId)}`;
-}
-
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
 /**
- * Usage facts in the engine's state store: one document per run (or per
- * direct session) holding its facts by turn id, so recording a turn again
- * replaces it instead of adding to it. A document that cannot be read is
- * never overwritten; a fact for it goes into a document of its own. Writes
- * are synchronous read-modify-write under the store's lock for that
- * document, since engines in other processes may share the store and
- * continue the same session. A writer that finds the lock held never waits:
- * its fact goes into a document of its own, which no other writer shares.
- * Reads are cached until the collection or the unsaved markers change, for a
- * dashboard that polls.
+ * Usage facts in the engine's usage store (`lib/usage-store.ts`), one per
+ * turn, so recording a turn again replaces it. A fact goes in with one
+ * write, so engines in other processes recording the same session never
+ * lose one another's. A saved fact outranks a `lost` marker for its turn:
+ * a marker never replaces one. Reads are cached until the store's
+ * revision or the unsaved markers change, for a dashboard that polls.
  */
 export class UsageLedger {
-  readonly #store: StateStore;
+  readonly #store: UsageStore;
   /** `lost` markers that could not be saved either, by turn id. */
   readonly #unsaved = new Map<string, RecordedUsageFact>();
   #cache:
     | {
-        readonly revision: string;
+        readonly revision: number;
         readonly unsaved: number;
         readonly records: UsageRecords;
-        readonly unreadableKeys: ReadonlySet<string>;
       }
     | undefined;
 
-  constructor(store: StateStore) {
+  constructor(store: UsageStore) {
     this.#store = store;
   }
 
   /**
    * Save a fact. When that fails, save a `lost` marker for the turn, and
-   * when that fails too, keep the marker in memory. Never throws.
+   * when that fails too, keep the marker in memory. Never rejects.
    */
-  record(fact: RecordedUsageFact): RecordOutcome {
+  async record(fact: RecordedUsageFact): Promise<RecordOutcome> {
     try {
-      this.#save(fact);
+      await (fact.lost === undefined
+        ? this.#store.save(fact)
+        : this.#store.mark(fact));
       this.#unsaved.delete(fact.turnId);
       return { saved: "fact" };
     } catch (error) {
-      return this.#lose(fact, errorText(error));
+      return await this.#lose(fact, errorText(error));
     }
   }
 
-  #lose(fact: RecordedUsageFact, error: string): RecordOutcome {
+  async #lose(fact: RecordedUsageFact, error: string): Promise<RecordOutcome> {
     const marker = lostFact(
       {
         completedAt: fact.completedAt,
@@ -874,11 +641,7 @@ export class UsageLedger {
       error
     );
     try {
-      this.#store.write(
-        COLLECTION,
-        sideKey(documentKey(marker), marker.turnId),
-        { facts: { [marker.turnId]: marker }, version: 1 }
-      );
+      await this.#store.mark(marker);
       this.#unsaved.delete(marker.turnId);
       return { error, saved: "marker" };
     } catch (markerError) {
@@ -890,104 +653,36 @@ export class UsageLedger {
     }
   }
 
-  /** The fact alone, beside its document: no other writer shares the key. */
-  #saveBeside(key: string, fact: RecordedUsageFact): void {
-    this.#store.write(COLLECTION, sideKey(key, fact.turnId), {
-      facts: { [fact.turnId]: fact },
-      version: 1,
-    });
-  }
-
-  /** The document's lock, or `undefined` when another writer holds it or it cannot be taken. */
-  #lock(key: string): Lock | undefined {
-    let lock: Lock | HeldLock;
-    try {
-      lock = this.#store.lock(`${COLLECTION}-${key}`);
-    } catch {
-      return;
-    }
-    return "release" in lock ? lock : undefined;
-  }
-
-  #save(fact: RecordedUsageFact): void {
-    const key = documentKey(fact);
-    const lock = this.#lock(key);
-    if (!lock) {
-      // Merging now could race whoever has the document: never wait for them.
-      this.#saveBeside(key, fact);
-      return;
-    }
-    try {
-      this.#merge(key, fact);
-    } finally {
-      try {
-        lock.release();
-      } catch {
-        // The fact is saved; a lock left behind sends later facts beside it.
-      }
-    }
-  }
-
-  #merge(key: string, fact: RecordedUsageFact): void {
-    const existing = this.#store.read(COLLECTION, key);
-    const readable = isRecord(existing) && isRecord(existing.facts);
-    if (
-      !readable &&
-      (existing !== undefined || this.#unreadableKeys().has(key))
-    ) {
-      // Something is there that cannot be read: leave it for a person.
-      this.#saveBeside(key, fact);
-      return;
-    }
-    const facts = readable ? (existing.facts as Record<string, unknown>) : {};
-    this.#store.write(COLLECTION, key, {
-      facts: { ...facts, [fact.turnId]: fact },
-      version: 1,
-    });
-  }
-
-  #unreadableKeys(): ReadonlySet<string> {
-    this.read();
-    return this.#cache?.unreadableKeys ?? new Set();
-  }
-
   /**
-   * Read recorded facts and unsaved markers, counting unreadable documents or
-   * facts by their document's owner. A saved fact takes precedence over a
-   * marker for the same turn. Store revision and listing errors propagate.
+   * Read recorded facts and unsaved markers, counting a stored fact that
+   * cannot be read where the store filed it. A saved fact takes precedence
+   * over a marker for the same turn. A store that cannot be read rejects.
    */
-  read(): UsageRecords {
-    const revision = this.#store.revision(COLLECTION);
+  async read(): Promise<UsageRecords> {
+    const revision = await this.#store.revision();
     if (
       this.#cache?.revision === revision &&
       this.#cache.unsaved === this.#unsaved.size
     ) {
       return this.#cache.records;
     }
+    const stored = await this.#store.facts();
     const byTurn = new Map<string, RecordedUsageFact>();
-    const unreadableKeys = new Set<string>();
     const places = { direct: 0, runs: new Map<string, number>(), unowned: 0 };
     let unreadable = 0;
-    for (const document of this.#store.list(COLLECTION)) {
-      const { value } = document;
-      if (!(isRecord(value) && isRecord(value.facts))) {
+    for (const { owner, value } of stored.facts) {
+      const parsed = usageFactSchema.safeParse(value);
+      if (!parsed.success) {
         unreadable += 1;
-        unreadableKeys.add(document.key);
-        placeUnreadable(places, document.key);
+        if (owner.kind === "run") {
+          places.runs.set(owner.runId, (places.runs.get(owner.runId) ?? 0) + 1);
+        } else {
+          places.direct += 1;
+        }
         continue;
       }
-      for (const stored of Object.values(value.facts)) {
-        const fact = decodeFact(stored);
-        if (!fact) {
-          unreadable += 1;
-          placeUnreadable(places, document.key);
-          continue;
-        }
-        const known = byTurn.get(fact.turnId);
-        if (!known || (known.lost !== undefined && fact.lost === undefined)) {
-          byTurn.set(fact.turnId, fact);
-        }
-      }
+      const fact = parsed.data as RecordedUsageFact;
+      byTurn.set(fact.turnId, fact);
     }
     const unsavedTurns = new Set<string>();
     for (const marker of this.#unsaved.values()) {
@@ -1006,8 +701,7 @@ export class UsageLedger {
     };
     this.#cache = {
       records,
-      revision,
-      unreadableKeys,
+      revision: stored.revision,
       unsaved: this.#unsaved.size,
     };
     return records;

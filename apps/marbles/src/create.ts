@@ -29,6 +29,7 @@ import {
 } from "~/database/stores";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { DatabaseTriggerStore } from "~/database/triggers";
+import { DatabaseUsageStore } from "~/database/usage";
 import { Engine as PublishedEngine } from "~/entries/engine";
 import { layout } from "~/layout";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
@@ -263,7 +264,10 @@ function recordsFor(
   state: string | undefined,
   database: StoreDatabase | undefined,
   { root, workspaceId }: CreateEngineOptions
-): Pick<EngineOptions, "records" | "runs" | "sessions" | "triggers"> & {
+): Pick<
+  EngineOptions,
+  "records" | "runs" | "sessions" | "triggers" | "usageStore"
+> & {
   readonly own?: WorkspaceDatabase;
 } {
   if (database !== undefined) {
@@ -273,6 +277,7 @@ function recordsFor(
       runs: new DatabaseRunStore({ database, scope }),
       sessions: new DatabaseSessionStore({ database, scope }),
       triggers: new DatabaseTriggerStore({ database, scope }),
+      usageStore: new DatabaseUsageStore({ database, scope }),
     };
   }
   if (state === undefined) {
@@ -285,6 +290,7 @@ function recordsFor(
     runs: own.runs,
     sessions: own.sessions,
     triggers: own.triggers,
+    usageStore: own.usage,
   };
 }
 

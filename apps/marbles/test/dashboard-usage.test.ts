@@ -15,7 +15,6 @@ import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
 import type { Engine } from "~/lib/engine";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
-import { JsonStateStore } from "~/lib/state/store";
 import type { DirectUsageFact, RunUsageFact, UsageCost } from "~/lib/usage";
 import { filterLogs, operatingLogs } from "~/views/operating-model";
 import { costCell, costLabel, tokensLabel } from "~/views/usage-format";
@@ -23,6 +22,7 @@ import { Diagnostics, hostOutput } from "~/workspace/diagnostics";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { stepUsages, totalOf, workspaceUsage } from "~/workspace/usage";
 import { startEngine } from "./helpers/engine";
+import { putStoredFact, storedUsage } from "./helpers/usage-store";
 
 const engines: Engine[] = [];
 
@@ -249,7 +249,7 @@ it("projects recorded turns onto real runs and steps, and catalog origins onto t
     schedules: engine.schedules(),
     startedAt: 0,
     status: "Ready",
-    usage: engine.usage.read(),
+    usage: await engine.usage.read(),
     workspaceId: "test",
   });
   const run = snapshot.runs.find((item) => item.id === launched.id);
@@ -389,27 +389,29 @@ it("after a restart, a malformed leaf in a run's document makes that run's, its 
     const quiet = await first.launch("other", {});
     await quiet.result;
     await first.dispose();
-    const disk = new JsonStateStore(state);
-    const key = `run.${encodeURIComponent(launched.id)}`;
-    const document = disk.read("usage", key) as {
-      facts: Record<string, Record<string, unknown>>;
-    };
-    const [saved] = Object.values(document.facts);
+    const [saved] = (await storedUsage(state))?.facts ?? [];
     if (!saved) {
       throw new Error("expected a saved fact");
     }
-    saved.cost = {
-      amount: 2,
-      currency: "USD",
-      kind: "reported",
-      reference: "probe",
-    };
-    document.facts.broken = {
+    const reported = {
       ...saved,
-      cost: { amount: "bad" },
-      turnId: "broken",
+      cost: {
+        amount: 2,
+        currency: "USD",
+        kind: "reported",
+        reference: "probe",
+      },
     };
-    disk.write("usage", key, document);
+    await putStoredFact(state, {
+      runId: launched.id,
+      turnId: saved.turnId,
+      value: reported,
+    });
+    await putStoredFact(state, {
+      runId: launched.id,
+      turnId: "broken",
+      value: { ...reported, cost: { amount: "bad" }, turnId: "broken" },
+    });
 
     catalog.reset();
     step("priced").do(() => undefined);

@@ -1,7 +1,6 @@
 import {
   chmod,
   mkdtemp,
-  readdir,
   readFile,
   rm,
   stat,
@@ -22,13 +21,13 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
-import { openDatabase } from "~/database/open";
+import type { MarblesDatabase } from "~/database/open";
+import { initializeDatabase, openDatabase } from "~/database/open";
 import { DatabaseSessionStore } from "~/database/sessions";
+import { DatabaseUsageStore } from "~/database/usage";
 import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
-import type { StateCollection } from "~/lib/state/store";
-import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 import type { SessionRef } from "~/lib/types";
 import type { PriceLookup, TurnSource, UsageFact } from "~/lib/usage";
 import { RECOVERED, UsageLedger, usageFact } from "~/lib/usage";
@@ -39,6 +38,8 @@ import {
   UNATTRIBUTED,
   UsageEvidence,
 } from "~/lib/usage-evidence";
+import type { UsageStore } from "~/lib/usage-store";
+import { MemoryUsageStore } from "~/lib/usage-store";
 import { costLabel, tokensLabel } from "~/views/usage-format";
 import { registerSetupStep, SETUP_STEP } from "~/workspace/setup-step";
 import { dashboardSnapshot } from "~/workspace/snapshot";
@@ -47,8 +48,14 @@ import { totalOf, workspaceUsage } from "~/workspace/usage";
 import { startEngine, testEngine } from "./helpers/engine";
 import { testMachine } from "./helpers/records";
 import { temporaryDirectory } from "./helpers/temporary";
+import {
+  FailingUsageStore,
+  putStoredFact,
+  storedUsage,
+} from "./helpers/usage-store";
 
 const engines: Engine[] = [];
+const handles: MarblesDatabase[] = [];
 let state: string;
 
 beforeEach(async () => {
@@ -57,9 +64,56 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
+  for (const handle of handles.splice(0)) {
+    handle.close();
+  }
   catalog.reset();
   await rm(state, { force: true, recursive: true });
 });
+
+/** The usage facts of the test workspace in the Marbles database at `state`, over a handle of the test's own. */
+async function databaseUsage(): Promise<UsageStore> {
+  const opened = await initializeDatabase(stateDatabase(state));
+  handles.push(opened);
+  return new DatabaseUsageStore({ database: opened.database, scope: "test" });
+}
+
+/** `databaseUsage`, its saves and marks failing when `fail` says so. */
+async function failingUsage(
+  fail: (write: number) => boolean
+): Promise<UsageStore> {
+  return new FailingUsageStore(await databaseUsage(), fail);
+}
+
+/** What a later engine's ledger reads of the test workspace's usage at `state`. */
+async function reread() {
+  const records = await storedUsage(state);
+  if (records === undefined) {
+    throw new Error(`no Marbles database at ${state}`);
+  }
+  return records;
+}
+
+/** Price every stored fact of `runId` as a provider could have reported it, at $2 a turn. */
+async function reportStored(runId: string): Promise<void> {
+  for (const fact of (await reread()).facts) {
+    if (fact.scope === "run" && fact.runId === runId) {
+      await putStoredFact(state, {
+        runId,
+        turnId: fact.turnId,
+        value: {
+          ...fact,
+          cost: {
+            amount: 2,
+            currency: "USD",
+            kind: "reported",
+            reference: "probe",
+          },
+        },
+      });
+    }
+  }
+}
 
 async function started(options: Parameters<typeof startEngine>[0] = {}) {
   const engine = await startEngine({ print: () => undefined, ...options });
@@ -83,7 +137,7 @@ it("records one fact per turn, attributed to the run, its root definition, and t
   const launched = await engine.launch("outer", {});
   await launched.result;
 
-  const { facts, unreadable } = engine.usage.read();
+  const { facts, unreadable } = await engine.usage.read();
   expect(unreadable).toBe(0);
   expect(facts).toHaveLength(3);
   expect(new Set(facts.map((fact) => fact.turnId)).size).toBe(3);
@@ -157,7 +211,9 @@ it("a replayed one-turn call records nothing new; a turn run again records once 
   });
   const engine = await started();
   const launched = await engine.launch<string>("review", {});
-  await vi.waitFor(() => expect(engine.usage.read().facts).toHaveLength(2));
+  await vi.waitFor(async () =>
+    expect((await engine.usage.read()).facts).toHaveLength(2)
+  );
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(engine.pause(launched.id, "review")).toBe(true);
   await vi.waitFor(async () =>
@@ -170,7 +226,7 @@ it("a replayed one-turn call records nothing new; a turn run again records once 
   await engine.resume(launched.id, "review");
   await expect(launched.result).resolves.toBe("done");
   expect(attempts).toBe(2);
-  const turns = engine.usage.read().facts;
+  const turns = (await engine.usage.read()).facts;
   expect(turns).toHaveLength(3);
   expect(new Set(turns.map((fact) => fact.sessionId)).size).toBe(2);
 });
@@ -187,7 +243,7 @@ it("turns outside a run are recorded as direct: their agent and session, no run 
   await streamed.message;
   await engine.agents.turns().generate(helper, "one-turn call");
 
-  const { facts } = engine.usage.read();
+  const { facts } = await engine.usage.read();
   expect(facts).toHaveLength(3);
   for (const fact of facts) {
     expect(fact).toMatchObject({
@@ -203,7 +259,7 @@ it("turns outside a run are recorded as direct: their agent and session, no run 
   expect(
     facts.filter((fact) => fact.sessionId === session.ref.id)
   ).toHaveLength(2);
-  const { byRun, usage } = workspaceUsage(engine.usage.read(), "test");
+  const { byRun, usage } = workspaceUsage(await engine.usage.read(), "test");
   expect(byRun.size).toBe(0);
   expect(usage.byWorkflow).toEqual([]);
   expect(usage.byAgent.map((group) => [group.id, group.total.turns])).toEqual([
@@ -292,26 +348,27 @@ it("a turn that reported no tokens is unknown, never zero", () => {
   });
 });
 
-it("JSON facts survive a restart, record each turn once, and count what cannot be read", async () => {
+it("stored facts survive a restart, record each turn once, and count what cannot be read", async () => {
   const fact: UsageFact = usageFact(
     { message: message("m3"), route: {}, source, workspaceId: "ws" },
     () => undefined
   );
-  const first = new UsageLedger(new JsonStateStore(state));
-  first.record(fact);
-  first.record(fact);
-  first.record({ ...fact, turnId: "m4" });
+  const first = new UsageLedger(await databaseUsage());
+  await first.record(fact);
+  await first.record(fact);
+  await first.record({ ...fact, turnId: "m4" });
 
-  const reopened = new UsageLedger(new JsonStateStore(state));
-  expect(
-    reopened
-      .read()
-      .facts.map((item) => item.turnId)
-      .sort()
-  ).toEqual(["m3", "m4"]);
+  expect((await reread()).facts.map((item) => item.turnId).sort()).toEqual([
+    "m3",
+    "m4",
+  ]);
 
-  await writeFile(join(state, "usage", "broken.json"), "{not json");
-  const after = new UsageLedger(new JsonStateStore(state)).read();
+  await putStoredFact(state, {
+    runId: "run-1",
+    turnId: "x",
+    value: "{not json",
+  });
+  const after = await reread();
   expect(after.facts).toHaveLength(2);
   expect(after.unreadable).toBe(1);
 });
@@ -321,16 +378,12 @@ const priced: PriceLookup = () => ({
   reference: "@foundry/models anthropic/sonnet",
 });
 
-function stored(turnId: string, fact: Record<string, unknown>) {
-  return JSON.stringify({ facts: { [turnId]: fact }, version: 1 });
-}
-
 it("after a restart, syntactically valid but malformed facts count as unreadable and never break totals", async () => {
   const good = usageFact(
     { message: message("good"), route: {}, source, workspaceId: "ws" },
     priced
   );
-  new UsageLedger(new JsonStateStore(state)).record(good);
+  await new UsageLedger(await databaseUsage()).record(good);
   const base = JSON.parse(JSON.stringify(good)) as Record<string, unknown>;
   const cost = base.cost as Record<string, unknown>;
   const malformed: Record<string, Record<string, unknown>> = {
@@ -347,38 +400,19 @@ it("after a restart, syntactically valid but malformed facts count as unreadable
     tokens: { ...base, tokens: { input: 1, output: 1, total: "2" } },
   };
   for (const [name, value] of Object.entries(malformed)) {
-    await writeFile(
-      join(state, "usage", `bad-${name}.json`),
-      stored(`bad-${name}`, value)
-    );
+    await putStoredFact(state, {
+      runId: "run-1",
+      turnId: `bad-${name}`,
+      value: { ...value, turnId: `bad-${name}` },
+    });
   }
-  const reopened = new UsageLedger(new JsonStateStore(state)).read();
+  const reopened = await reread();
   expect(reopened.facts.map((fact) => fact.turnId)).toEqual(["good"]);
   expect(reopened.unreadable).toBe(Object.keys(malformed).length);
   const total = totalOf(reopened.facts);
   expect(() => costLabel(total)).not.toThrow();
   expect(costLabel(total)).toBe("$4.50 est.");
   expect(tokensLabel(total)).toContain("1 turn");
-});
-
-it("never overwrites a run document it cannot read; the new turn goes beside it", async () => {
-  const first = usageFact(
-    { message: message("first"), route: {}, source, workspaceId: "ws" },
-    priced
-  );
-  new UsageLedger(new JsonStateStore(state)).record(first);
-  const path = join(state, "usage", "run.run-1.json");
-  await writeFile(path, '{"facts": oops');
-  const next = usageFact(
-    { message: message("next"), route: {}, source, workspaceId: "ws" },
-    priced
-  );
-  const ledger = new UsageLedger(new JsonStateStore(state));
-  expect(ledger.record(next)).toEqual({ saved: "fact" });
-  expect(await readFile(path, "utf8")).toBe('{"facts": oops');
-  const after = new UsageLedger(new JsonStateStore(state)).read();
-  expect(after.facts.map((fact) => fact.turnId)).toEqual(["next"]);
-  expect(after.unreadable).toBe(1);
 });
 
 it("a run read while it settles, before its file is written, is never counted as unreadable", async () => {
@@ -426,33 +460,8 @@ it("a run read while it settles, before its file is written, is never counted as
   }
 });
 
-/** A JSON store whose usage writes fail when `fail` says so. */
-class FailingStore extends JsonStateStore {
-  writes = 0;
-  readonly #fail: (write: number) => boolean;
-
-  constructor(dir: string, fail: (write: number) => boolean) {
-    super(dir);
-    this.#fail = fail;
-  }
-
-  override write(
-    collection: StateCollection,
-    key: string,
-    value: Readonly<Record<string, unknown>>
-  ): void {
-    if (collection === "usage") {
-      this.writes += 1;
-      if (this.#fail(this.writes)) {
-        throw new Error("disk full");
-      }
-    }
-    super.write(collection, key, value);
-  }
-}
-
 it("a second turn whose usage cannot be saved leaves a marker, so the first turn's total says it is partial, after a restart too", async () => {
-  const store = new FailingStore(state, (write) => write === 2);
+  const usageStore = await failingUsage((write) => write === 2);
   const warnings: string[] = [];
   const reviewer = agent({ name: "reviewer", prompt: "Review." });
   step("two").do(async ({ agents }) => {
@@ -463,11 +472,11 @@ it("a second turn whose usage cannot be saved leaves a marker, so the first turn
   });
   const engine = await started({
     print: (line) => warnings.push(line),
-    store,
+    usageStore,
   });
   const launched = await engine.launch<string>("two", {});
   await expect(launched.result).resolves.toBe("done");
-  const { facts, unsaved } = engine.usage.read();
+  const { facts, unsaved } = await engine.usage.read();
   expect(unsaved).toBe(0);
   expect(facts).toHaveLength(2);
   const lost = facts.find((fact) => fact.lost !== undefined);
@@ -487,8 +496,10 @@ it("a second turn whose usage cannot be saved leaves a marker, so the first turn
   expect(costLabel(total)).toContain("1 not recorded");
   expect(tokensLabel(total)).toContain("1 not recorded");
 
-  const reopened = new UsageLedger(new JsonStateStore(state)).read();
-  expect(totalOf(reopened.facts)).toMatchObject({ missing: 1, turns: 2 });
+  expect(totalOf((await reread()).facts)).toMatchObject({
+    missing: 1,
+    turns: 2,
+  });
 });
 
 it("when the fact and its marker both fail, a new engine over the same disk finds the turn in the durable transcript, claims it for no run, and says the run's total may be incomplete", async () => {
@@ -506,33 +517,21 @@ it("when the fact and its marker both fail, a new engine over the same disk find
     print: () => undefined,
     sessions: new JsonSessionStore(sessions),
     state,
-    store: new FailingStore(state, (write) => write === 2 || write === 3),
+    usageStore: await failingUsage((write) => write === 2 || write === 3),
   });
   const launched = await first.launch<string>("two", {});
   await expect(launched.result).resolves.toBe("done");
   // In this process: the in-memory marker, until the transcript accounts for it.
-  expect(first.usage.read()).toMatchObject({ unsaved: 1 });
+  expect(await first.usage.read()).toMatchObject({ unsaved: 1 });
   await first.dispose();
 
   // Before reconciliation, the ledger alone would read as one complete turn.
-  expect(
-    totalOf(new UsageLedger(new JsonStateStore(state)).read().facts)
-  ).toMatchObject({ missing: 0, turns: 1 });
+  expect(totalOf((await reread()).facts)).toMatchObject({
+    missing: 0,
+    turns: 1,
+  });
   // Price the saved leaf, as a provider could have, to show the label plainly.
-  const disk = new JsonStateStore(state);
-  const key = `run.${encodeURIComponent(launched.id)}`;
-  const document = disk.read("usage", key) as {
-    facts: Record<string, Record<string, unknown>>;
-  };
-  for (const fact of Object.values(document.facts)) {
-    fact.cost = {
-      amount: 2,
-      currency: "USD",
-      kind: "reported",
-      reference: "probe",
-    };
-  }
-  disk.write("usage", key, document);
+  await reportStored(launched.id);
 
   // A new engine, as a new process builds it: nothing in memory from the first.
   catalog.reset();
@@ -628,7 +627,7 @@ it("a separate reader sees a direct session's committed but unrecorded turn at o
     print: () => undefined,
     sessions: new JsonSessionStore(join(state, "sessions")),
     state,
-    store: new FailingStore(state, (write) => write >= 2),
+    usageStore: await failingUsage((write) => write >= 2),
   });
   engines.push(writer);
   const helper = agent({ name: "helper", prompt: "Help." });
@@ -742,25 +741,12 @@ it("an unreadable or missing transcript a settled run names is owned by nothing:
     print: () => undefined,
     sessions: new JsonSessionStore(join(state, "sessions")),
     state,
-    store: new FailingStore(state, (write) => write === 2 || write === 3),
+    usageStore: await failingUsage((write) => write === 2 || write === 3),
   });
   const launched = await writer.launch<string>("two", {});
   await expect(launched.result).resolves.toBe("done");
   await writer.dispose();
-  const disk = new JsonStateStore(state);
-  const key = `run.${encodeURIComponent(launched.id)}`;
-  const document = disk.read("usage", key) as {
-    facts: Record<string, Record<string, unknown>>;
-  };
-  for (const fact of Object.values(document.facts)) {
-    fact.cost = {
-      amount: 2,
-      currency: "USD",
-      kind: "reported",
-      reference: "probe",
-    };
-  }
-  disk.write("usage", key, document);
+  await reportStored(launched.id);
   await writeFile(join(state, "sessions", `${sessionId}.json`), "{broken");
 
   const second = await reader();
@@ -815,7 +801,7 @@ it("a direct session none of whose usage was saved is found through the store's 
     print: () => undefined,
     sessions: new JsonSessionStore(join(state, "sessions")),
     state,
-    store: new FailingStore(state, (write) => write === 2 || write === 3),
+    usageStore: await failingUsage((write) => write === 2 || write === 3),
   });
   const helper = agent({ name: "helper", prompt: "Help." });
   const kept = await writer.agents.session(helper);
@@ -825,7 +811,7 @@ it("a direct session none of whose usage was saved is found through the store's 
   await kept.generate("saved two");
   await writer.dispose();
   // Nothing durable in the usage ledger names the orphan session.
-  const ledger = new UsageLedger(new JsonStateStore(state)).read();
+  const ledger = await reread();
   expect(ledger.facts.some((fact) => fact.sessionId === orphan.ref.id)).toBe(
     false
   );
@@ -874,7 +860,7 @@ it("a direct session none of whose usage was saved is found through the database
       print: () => undefined,
       sessions: sessionsOf("test"),
       state,
-      store: new FailingStore(state, (write) => write === 2 || write === 3),
+      usageStore: await failingUsage((write) => write === 2 || write === 3),
     });
     owned.push(writer);
     const helper = agent({ name: "helper", prompt: "Help." });
@@ -934,7 +920,7 @@ it("a direct turn in a session a workflow only continued is not claimed by the o
     print: () => undefined,
     sessions: new JsonSessionStore(join(state, "sessions")),
     state,
-    store: new FailingStore(state, (write) => write === 2 || write === 3),
+    usageStore: await failingUsage((write) => write === 2 || write === 3),
   });
   const direct = await writer.agents.session(helper);
   await direct.generate("saved direct turn");
@@ -997,7 +983,7 @@ it("a saved marker's own attribution goes to the recovered leaf, which replaces 
     print: () => undefined,
     sessions: new JsonSessionStore(join(state, "sessions")),
     state,
-    store: new FailingStore(state, (write) => write === 2 || write === 4),
+    usageStore: await failingUsage((write) => write === 2 || write === 4),
   });
   const direct = await writer.agents.session(helper);
   await direct.generate("saved direct turn");
@@ -1216,7 +1202,7 @@ it("a one-turn call whose usage was lost is recovered for its own agent and its 
     print: () => undefined,
     sessions: new JsonSessionStore(join(state, "sessions")),
     state,
-    store: new FailingStore(state, () => true),
+    usageStore: await failingUsage(() => true),
   });
   const launched = await first.launch<string>("docs.v2", {});
   await launched.result;
@@ -1249,7 +1235,7 @@ it("a turn the host takes directly in a session a run opened is not claimed by t
     print: () => undefined,
     sessions: new JsonSessionStore(join(state, "sessions")),
     state,
-    store: new FailingStore(state, (write) => write >= 2),
+    usageStore: await failingUsage((write) => write >= 2),
   });
   const launched = await writer.launch<string>("opens", {});
   await wait.ready;
@@ -1307,12 +1293,12 @@ it("a workflow continuing another workflow's session keeps its unrecorded turn: 
     return "consumed";
   });
   const sessions = new JsonSessionStore(join(state, "sessions"));
-  const store = new FailingStore(state, () => failing);
+  const usageStore = await failingUsage(() => failing);
   const first = await startEngine({
     print: () => undefined,
     sessions,
     state,
-    store,
+    usageStore,
   });
   const creating = await first.launch<string>("creator", {});
   await wait.ready;
@@ -1321,7 +1307,7 @@ it("a workflow continuing another workflow's session keeps its unrecorded turn: 
     print: () => undefined,
     sessions,
     state,
-    store,
+    usageStore,
   });
   const consuming = await other.launch<string>("consumer", {});
   await expect(consuming.result).resolves.toBe("consumed");
@@ -1359,7 +1345,7 @@ it("a workflow continuing another workflow's session keeps its unrecorded turn: 
   );
 });
 
-it("a direct session a workflow continues in another engine, whose fact and marker both fail with EACCES, is not claimed as direct by a fresh reader, and the workflow says the turn may be its, even once the transcript cannot be read", async () => {
+it("a direct session a workflow continues in another engine, whose fact and marker both fail, is not claimed as direct by a fresh reader, and the workflow says the turn may be its, even once the transcript cannot be read", async () => {
   const helper = agent({ name: "helper", prompt: "Help." });
   const wait = gated();
   let ref: SessionRef | undefined;
@@ -1381,7 +1367,6 @@ it("a direct session a workflow continues in another engine, whose fact and mark
   const direct = await host.agents.session(helper);
   await direct.generate("saved direct turn");
   ({ ref } = direct);
-  const usageDir = join(state, "usage");
   const transcript = join(state, "sessions", `${direct.ref.id}.json`);
   const { mode } = await stat(transcript);
   const fresh = async () => {
@@ -1400,9 +1385,12 @@ it("a direct session a workflow continues in another engine, whose fact and mark
       snapshot.usage?.byWorkflow.find((group) => group.id === id)?.total
     );
   try {
-    // A real permission failure: both the fact and its marker cannot be written.
-    await chmod(usageDir, 0o500);
-    const workflowEngine = await started({ sessions, state });
+    // Both the fact and its marker cannot be written.
+    const workflowEngine = await started({
+      sessions,
+      state,
+      usageStore: await failingUsage(() => true),
+    });
     const consuming = await workflowEngine.launch<string>("consumer", {});
     await wait.ready;
     const messages = await sessions.listMessages(direct.ref.id);
@@ -1411,8 +1399,8 @@ it("a direct session a workflow continues in another engine, whose fact and mark
     );
     expect(turns).toHaveLength(2);
     // Neither the workflow turn's fact nor its marker reached the disk.
-    expect(await readdir(usageDir)).toEqual([
-      `direct.${encodeURIComponent(direct.ref.id)}.json`,
+    expect((await reread()).facts.map((fact) => fact.sessionId)).toEqual([
+      direct.ref.id,
     ]);
     const [savedTurn, lostTurn] = turns;
     const tokensOf = (turn: SessionMessage | undefined) =>
@@ -1480,7 +1468,6 @@ it("a direct session a workflow continues in another engine, whose fact and mark
     );
     await chmod(transcript, mode);
 
-    await chmod(usageDir, 0o700);
     wait.release();
     await expect(consuming.result).resolves.toBe("consumed");
     await workflowEngine.dispose();
@@ -1502,12 +1489,11 @@ it("a direct session a workflow continues in another engine, whose fact and mark
     );
   } finally {
     await chmod(transcript, mode);
-    await chmod(usageDir, 0o700);
     wait.release();
   }
 });
 
-it("a session one settled run names, which a workflow in another engine continues with its fact and marker both failing with EACCES, warns that workflow, not only the run, when the transcript cannot be read", async () => {
+it("a session one settled run names, which a workflow in another engine continues with its fact and marker both failing, warns that workflow, not only the run, when the transcript cannot be read", async () => {
   const helper = agent({ name: "helper", prompt: "Help." });
   const wait = gated();
   let ref: SessionRef | undefined;
@@ -1538,7 +1524,6 @@ it("a session one settled run names, which a workflow in another engine continue
   if (!ref) {
     throw new Error("the producer opened no session");
   }
-  const usageDir = join(state, "usage");
   const transcript = join(state, "sessions", `${ref.id}.json`);
   const { mode } = await stat(transcript);
   const fresh = async () => {
@@ -1550,13 +1535,18 @@ it("a session one settled run names, which a workflow in another engine continue
     });
   };
   try {
-    await chmod(usageDir, 0o500);
-    const workflowEngine = await started({ sessions, state });
+    const workflowEngine = await started({
+      sessions,
+      state,
+      usageStore: await failingUsage(() => true),
+    });
     const consuming = await workflowEngine.launch<string>("consumer", {});
     await wait.ready;
-    expect(await readdir(usageDir)).toEqual([
-      `run.${encodeURIComponent(producing.id)}.json`,
-    ]);
+    expect(
+      (await reread()).facts.map((fact) =>
+        fact.scope === "run" ? fact.runId : undefined
+      )
+    ).toEqual([producing.id]);
     await chmod(transcript, 0o000);
     await expect(readFile(transcript)).rejects.toMatchObject({
       code: "EACCES",
@@ -1597,17 +1587,15 @@ it("a session one settled run names, which a workflow in another engine continue
     expect(snapshot.usage?.total).toMatchObject({ turns: 1, unreadable: 1 });
 
     await chmod(transcript, mode);
-    await chmod(usageDir, 0o700);
     wait.release();
     await expect(consuming.result).resolves.toBe("consumed");
   } finally {
     await chmod(transcript, mode);
-    await chmod(usageDir, 0o700);
     wait.release();
   }
 });
 
-it("damaged usage documents stay with the owner their key names: a run's with that run, a direct session's outside runs, and an unrelated workflow stays empty", async () => {
+it("damaged stored facts stay with the owner they are filed under: a run's with that run, a direct session's outside runs, and an unrelated workflow stays empty", async () => {
   const reviewer = agent({ name: "reviewer", prompt: "Review." });
   const define = () => {
     step("priced").do(async ({ agents }) => {
@@ -1624,15 +1612,13 @@ it("damaged usage documents stay with the owner their key names: a run's with th
   });
   const launched = await writer.launch<string>("priced", {});
   await expect(launched.result).resolves.toBe("done");
-  const disk = new JsonStateStore(state);
-  const key = `run.${encodeURIComponent(launched.id)}`;
-  const document = disk.read("usage", key) as {
-    facts: Record<string, Record<string, unknown>>;
-  };
-  const [saved] = Object.values(document.facts);
-  document.facts.broken = { ...saved, cost: { amount: "bad" }, turnId: "x" };
-  disk.write("usage", key, document);
-  await writeFile(join(state, "usage", "direct.gone.json"), "{broken");
+  const [saved] = (await reread()).facts;
+  await putStoredFact(state, {
+    runId: launched.id,
+    turnId: "x",
+    value: { ...saved, cost: { amount: "bad" }, turnId: "x" },
+  });
+  await putStoredFact(state, { runId: null, turnId: "gone", value: "{broken" });
 
   catalog.reset();
   define();
@@ -1665,7 +1651,7 @@ it("one damaged session entry does not hide a healthy orphan already found, or f
     print: () => undefined,
     sessions: new JsonSessionStore(sessionsDir),
     state,
-    store: new FailingStore(state, (write) => write === 2 || write === 3),
+    usageStore: await failingUsage((write) => write === 2 || write === 3),
   });
   const helper = agent({ name: "helper", prompt: "Help." });
   const kept = await writer.agents.session(helper);
@@ -1714,7 +1700,7 @@ it("a listing that fails on a new reader's first read still reads the named sess
     print: () => undefined,
     sessions: new JsonSessionStore(join(state, "sessions")),
     state,
-    store: new FailingStore(state, (write) => write === 2 || write === 3),
+    usageStore: await failingUsage((write) => write === 2 || write === 3),
   });
   const kept = await writer.agents.session(helper);
   await kept.generate("saved");
@@ -1760,31 +1746,22 @@ it("a listing that fails on a new reader's first read still reads the named sess
   );
 });
 
-it("labels a priced total with a lost turn as partial, never as whole", () => {
-  const ledger = new UsageLedger(new InMemoryStateStore());
+it("labels a priced total with a lost turn as partial, never as whole", async () => {
+  const ledger = new UsageLedger(new MemoryUsageStore());
   const saved = usageFact(
     { message: message("saved"), route: {}, source, workspaceId: "ws" },
     priced
   );
-  ledger.record(saved);
+  await ledger.record(saved);
   const lostTurn = usageFact(
     { message: message("lost"), route: {}, source, workspaceId: "ws" },
     priced
   );
-  const failing = new UsageLedger({
-    append: () => undefined,
-    list: () => [],
-    lock: () => ({ holder: "test" }),
-    log: () => [],
-    read: () => undefined,
-    remove: () => undefined,
-    revision: () => "0",
-    write: () => {
-      throw new Error("read-only");
-    },
-  });
-  expect(failing.record(lostTurn)).toMatchObject({ saved: "nothing" });
-  const total = totalOf([saved, ...failing.read().facts]);
+  const failing = new UsageLedger(
+    new FailingUsageStore(new MemoryUsageStore(), () => true)
+  );
+  expect(await failing.record(lostTurn)).toMatchObject({ saved: "nothing" });
+  const total = totalOf([saved, ...(await failing.read()).facts]);
   expect(costLabel(total)).toBe(
     "$4.50 est. · partial: 1 of 2 turns not recorded"
   );
@@ -1865,7 +1842,7 @@ it("a store that cannot list sessions and outlives the process says every total 
   const writer = await started({
     sessions: new UnlistedSessions(sessions),
     state,
-    store: new FailingStore(state, (write) => write <= 2),
+    usageStore: await failingUsage((write) => write <= 2),
   });
   const orphan = await writer.agents.session(helper);
   await orphan.generate("fact and marker both fail");
@@ -1922,7 +1899,7 @@ it("a running run continuing a session recovers an earlier engine's lost turn im
   const writer = await started({
     sessions: new JsonSessionStore(sessions),
     state,
-    store: new FailingStore(state, (write) => write <= 2),
+    usageStore: await failingUsage((write) => write <= 2),
   });
   const direct = await writer.agents.session(helper);
   await direct.generate("fact and marker both fail");

@@ -43,6 +43,13 @@
       "when": 1794732672898,
       "tag": "0005_trigger_state",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794734696774,
+      "tag": "0006_usage_facts",
+      "breakpoints": true
     }
   ]
 }

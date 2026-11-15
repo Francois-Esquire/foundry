@@ -85,6 +85,8 @@ import type {
   SessionListing,
 } from "~/lib/usage-evidence";
 import { listsSessions, UsageEvidence } from "~/lib/usage-evidence";
+import type { UsageStore } from "~/lib/usage-store";
+import { MemoryUsageStore } from "~/lib/usage-store";
 
 /**
  * The engine: the one place the packages meet. It is handed the instances
@@ -217,6 +219,12 @@ export interface EngineOptions {
    * a Marbles database when `state` is set.
    */
   readonly triggers?: TriggerStore;
+  /**
+   * Where each agent turn's usage fact is kept. In memory when omitted;
+   * the `Engine` the package publishes keeps them in a Marbles database
+   * when `state` is set.
+   */
+  readonly usageStore?: UsageStore;
   /** Identity of this workspace: part of a declared artifact's id and of every feed entry. */
   readonly workspaceId: string;
   /**
@@ -244,14 +252,14 @@ export interface EngineOptions {
  */
 function sessionListing(
   sessions: SessionStore,
-  store: StateStore
+  usage: UsageStore
 ): { readonly stamps?: SessionListing } {
   if (listsSessions(sessions)) {
     return { stamps: () => sessions.stamps() };
   }
   const outlives = !(
     sessions instanceof InMemorySessionStore ||
-    store instanceof InMemoryStateStore
+    usage instanceof MemoryUsageStore
   );
   return outlives ? { stamps: "unavailable" } : {};
 }
@@ -265,6 +273,7 @@ function storesOf(options: EngineOptions): {
   readonly runs: RunStore;
   readonly store: StateStore;
   readonly triggers: TriggerStore;
+  readonly usage: UsageStore;
 } {
   const { state } = options;
   return {
@@ -275,6 +284,7 @@ function storesOf(options: EngineOptions): {
         ? new InMemoryStateStore()
         : new JsonStateStore(state)),
     triggers: options.triggers ?? new MemoryTriggerStore(),
+    usage: options.usageStore ?? new MemoryUsageStore(),
   };
 }
 
@@ -350,7 +360,7 @@ export class Engine {
   readonly store: StateStore;
   /** Each trigger's last tick, each monitor's state, and their tick claims. */
   readonly triggers: TriggerStore;
-  /** What each run's agent turns consumed, one fact per turn, in `store`. */
+  /** What each agent turn consumed, one fact per turn. */
   readonly usage: UsageLedger;
   /**
    * This workspace's tasks, for a `Tasks` to be built over. Each commit
@@ -379,6 +389,7 @@ export class Engine {
   readonly #launcher: Launcher;
   readonly #records: WorkspaceRecords;
   readonly #runs: RunStore;
+  readonly #usageStore: UsageStore;
   readonly #delivery: Delivery;
   readonly #directNames = new WeakMap<AnyDefinition, string>();
   #running: Running | undefined;
@@ -436,15 +447,16 @@ export class Engine {
     this.scopes = this.#scopes;
     this.sessions = sessions;
     this.state = state;
-    const { runs, store, triggers } = storesOf(options);
+    const { runs, store, triggers, usage } = storesOf(options);
     this.store = store;
     this.triggers = triggers;
-    this.usage = new UsageLedger(this.store);
+    this.#usageStore = usage;
+    this.usage = new UsageLedger(usage);
     this.#runs = runs;
     this.#evidence = new UsageEvidence({
       recordedOf: recordedIn(this.#scopes, runs),
       sessions,
-      ...sessionListing(sessions, this.store),
+      ...sessionListing(sessions, usage),
     });
     this.workspaceId = workspaceId;
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
@@ -1133,12 +1145,12 @@ export class Engine {
       };
     });
     const found = await this.#evidence.unrecorded(
-      this.usage.read(),
+      await this.usage.read(),
       runs,
       this.workspaceId
     );
     // Read again: a fact saved while the transcripts were read outranks its recovered leaf.
-    return withRecovered(this.usage.read(), found);
+    return withRecovered(await this.usage.read(), found);
   }
 
   /**
@@ -1325,6 +1337,8 @@ export class Engine {
       await this.providers?.dispose();
     });
     await close(() => this.agents.close());
+    // Last: a turn its agents finished may still be recording its usage.
+    await close(() => this.#usageStore.close());
     if (errors.length > 0) {
       throw new AggregateError(errors, "Failed to dispose the engine");
     }
