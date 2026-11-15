@@ -166,8 +166,9 @@ Five buckets, each importing only what sits below it:
   `followingCommits`) follows the engine's artifact commits, after they
   land, nested transactions included, to keep each linked workspace's
   links (`links.ts`) current, and the engine `createEngine` builds over it
-  drains those updates (`drainLinks`, bounded) once disposed, before its
-  host closes the database; `links.ts` is the one routine a rebuild and
+  drains those updates (`drainLinks`, giving up after a bound only what
+  waits: updates not begun, or waiting for a links lock) once disposed,
+  before its host closes the database; `links.ts` is the one routine a rebuild and
   an update share, which reconciles disk with the database under
   `.marbles/.lock`, reading the database there, and checks each directory
   (`lstat` and `realpath` inside `.marbles`) right before each change and

@@ -12,7 +12,11 @@ import {
 } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { hasErrorCode } from "@foundry/lib/atomic-file";
-import { withFileLock } from "@foundry/lib/file-lock";
+import {
+  FileLockTimeoutError,
+  tryFileLock,
+  withFileLock,
+} from "@foundry/lib/file-lock";
 import type { ArtifactFile, ResourceView } from "~/database/resources";
 import { artifactBlobs } from "~/database/stores";
 import { workspaceLinks } from "~/layout";
@@ -89,6 +93,8 @@ const SHARED_PREFIX = "@";
 const NAME_BYTES = 255;
 /** How long a rebuild or update waits for another to finish with the links. */
 const LOCK_WAIT_MS = 60_000;
+/** How often an update that can be stopped tries the links lock again. */
+const LOCK_RETRY_MS = 10;
 /** How many times a link is tried again when a concurrent cleanup removed its directory. */
 const ATTEMPTS = 3;
 /** Characters `encodeURIComponent` leaves as they are, but for uppercase letters. */
@@ -184,6 +190,12 @@ export interface RelinkArtifactOptions {
   readonly ref: ResourceRef;
   /** The workspace's root. */
   readonly root: string;
+  /**
+   * Gives up waiting for the links lock once it aborts, rejecting with its
+   * reason: nothing is changed then, and what was made ahead is removed.
+   * Work already holding the lock runs to its end.
+   */
+  readonly signal?: AbortSignal;
   /** The workspace's id. */
   readonly workspace: string;
 }
@@ -196,7 +208,7 @@ export interface RelinkArtifactOptions {
 export async function relinkArtifact(
   options: RelinkArtifactOptions
 ): Promise<LinksReport | undefined> {
-  const { artifacts, files, ref, root, workspace } = options;
+  const { artifacts, files, ref, root, signal, workspace } = options;
   const tree = new LinkTree(root, artifacts);
   if (!(await tree.open(false))) {
     return;
@@ -207,12 +219,14 @@ export async function relinkArtifact(
   const ahead = linksOf(place, artifacts, ref, await read());
   const prepared = await tree.prepare(ahead.links);
   try {
-    return await tree.locked(async () =>
-      tree.reconcile(
-        place,
-        linksOf(place, artifacts, ref, await read()),
-        prepared
-      )
+    return await tree.locked(
+      async () =>
+        tree.reconcile(
+          place,
+          linksOf(place, artifacts, ref, await read()),
+          prepared
+        ),
+      signal
     );
   } finally {
     await tree.discard(prepared);
@@ -377,12 +391,34 @@ class LinkTree {
     return true;
   }
 
-  /** Run `work` holding the workspace's links lock, which every process takes. */
-  locked<T>(work: () => Promise<T>): Promise<T> {
-    return withFileLock(join(this.#top, LOCK_FILE), work, {
-      breakStale: true,
-      waitMs: LOCK_WAIT_MS,
-    });
+  /**
+   * Run `work` holding the workspace's links lock, which every process
+   * takes. With `signal`, waiting for it stops once that aborts.
+   */
+  async locked<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const path = join(this.#top, LOCK_FILE);
+    if (signal === undefined) {
+      return withFileLock(path, work, {
+        breakStale: true,
+        waitMs: LOCK_WAIT_MS,
+      });
+    }
+    const deadline = performance.now() + LOCK_WAIT_MS;
+    for (;;) {
+      signal.throwIfAborted();
+      const attempt = tryFileLock(path, { breakStale: true });
+      if ("release" in attempt) {
+        try {
+          return await work();
+        } finally {
+          attempt.release();
+        }
+      }
+      if (performance.now() >= deadline) {
+        throw new FileLockTimeoutError(path, attempt.holder);
+      }
+      await pause(LOCK_RETRY_MS, signal);
+    }
   }
 
   /**
@@ -797,6 +833,19 @@ function byCodeUnit(a: string, b: string): number {
     return 0;
   }
   return a < b ? -1 : 1;
+}
+
+/** Wait `ms`, or less once `signal` aborts. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((done) => {
+    const timer = setTimeout(finish, ms);
+    function finish(): void {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      done();
+    }
+    signal.addEventListener("abort", finish, { once: true });
+  });
 }
 
 /** Make `path` alone, not its parents; whether this call made it. */

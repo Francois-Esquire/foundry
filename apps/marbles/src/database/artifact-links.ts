@@ -49,10 +49,14 @@ export interface Touched {
 /** What `keepingLinks` adds to the store it keeps links for. */
 export interface LinksKept {
   /**
-   * Resolve once every link update queued so far has finished, or once
-   * `withinMs` has passed. On giving up, report the updates still waiting
-   * as `marbles relink` repairs them: none of them reads the database
-   * again, the one waiting on a links lock included, and each ends quietly.
+   * Resolve once no link update is under way or queued, so nothing of this
+   * store's link keeping is in a database call or will begin one: the
+   * database may close then. After `withinMs`, give up what has no end of
+   * its own, the updates not yet begun and one waiting for a workspace's
+   * links lock, reporting them once as `marbles relink` repairs them; an
+   * update reading the database or changing links still reaches its next
+   * step, where it stops, before this resolves. One stopped changes no
+   * link: what it made ahead is removed, and the links are as they were.
    */
   drainLinks(withinMs: number): Promise<void>;
 }
@@ -184,13 +188,11 @@ function artifactLinker(options: KeptLinksOptions): {
 } {
   const { owner, report } = options;
   let queue: Promise<void> = Promise.resolve();
-  // Set once a drain gave up: the database may close at any moment, so
-  // nothing reads it again; the drain's one line tells relink to repair.
-  let abandoned = false;
+  // Aborted once a drain gave up: an update stops at its next step, before
+  // it reads the database again, and a wait for a links lock ends.
+  const giveUp = new AbortController();
   const live = (): void => {
-    if (abandoned) {
-      throw new LinksAbandoned();
-    }
+    giveUp.signal.throwIfAborted();
   };
   const failed = (what: string, error: unknown) =>
     report(
@@ -201,12 +203,34 @@ function artifactLinker(options: KeptLinksOptions): {
       return;
     }
     queue = queue
-      .then(() => relinkTouched(options, touched, { failed, live }))
+      .then(() =>
+        relinkTouched(options, touched, {
+          failed,
+          live,
+          signal: giveUp.signal,
+        })
+      )
       .catch((error: unknown) => {
         if (!(error instanceof LinksAbandoned)) {
           failed(`the links of ${owner}'s artifacts`, error);
         }
       });
+  };
+  /** Whether the queue settled before `timedOut` did. */
+  const settled = async (timedOut?: Promise<"timed out">) => {
+    // An update may queue another while it runs: wait until none is left.
+    for (;;) {
+      const waited = queue;
+      const outcome = await (timedOut === undefined
+        ? waited
+        : Promise.race([waited, timedOut]));
+      if (outcome === "timed out") {
+        return false;
+      }
+      if (queue === waited) {
+        return true;
+      }
+    }
   };
   const drain = async (withinMs: number): Promise<void> => {
     let timer: NodeJS.Timeout | undefined;
@@ -214,26 +238,22 @@ function artifactLinker(options: KeptLinksOptions): {
       timer = setTimeout(() => done("timed out"), withinMs);
     });
     try {
-      // An update may queue another while it runs: wait until none is left.
-      for (;;) {
-        const waited = queue;
-        if ((await Promise.race([waited, timedOut])) === "timed out") {
-          abandoned = true;
-          failed(
-            `the links of ${owner}'s artifacts`,
-            new Error(
-              `an update was still under way after ${String(withinMs)} ms, waiting on a workspace's .marbles/.lock, when the host closed`
-            )
-          );
-          return;
-        }
-        if (queue === waited) {
-          return;
-        }
+      if (giveUp.signal.aborted || (await settled(timedOut))) {
+        await settled();
+        return;
       }
     } finally {
       clearTimeout(timer);
     }
+    giveUp.abort(new LinksAbandoned());
+    failed(
+      `the links of ${owner}'s artifacts`,
+      new Error(
+        `updates were still waiting after ${String(withinMs)} ms, for a workspace's .marbles/.lock or their turn, when the host closed`
+      )
+    );
+    // What reads the database or changes links now reaches its next step.
+    await settled();
   };
   return { drain, follow };
 }
@@ -247,12 +267,14 @@ interface Relinking {
   readonly failed: (what: string, error: unknown) => void;
   /** Throws `LinksAbandoned` once a drain gave up; called before each read of the database. */
   readonly live: () => void;
+  /** Aborts, with a `LinksAbandoned`, once a drain gave up: ends a wait for a links lock. */
+  readonly signal: AbortSignal;
 }
 
 async function relinkTouched(
   options: KeptLinksOptions,
   touched: Touched,
-  { failed, live }: Relinking
+  { failed, live, signal }: Relinking
 ): Promise<void> {
   const { artifacts, database, owner, report, state } = options;
   const ids = await changedArtifacts(
@@ -290,6 +312,7 @@ async function relinkTouched(
           files,
           ref,
           root: record.root,
+          signal,
           workspace: record.id,
         });
         for (const path of done?.refused ?? []) {

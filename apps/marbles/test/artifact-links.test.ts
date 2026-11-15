@@ -15,8 +15,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { keepingLinks } from "~/database/artifact-links";
-import { artifactPlace, linkName } from "~/database/links";
-import { resourceAssociations } from "~/database/resources";
+import { artifactPlace, linkName, rebuildLinks } from "~/database/links";
+import { readResourceView, resourceAssociations } from "~/database/resources";
 import { artifactBlobs, workspaceStores } from "~/database/stores";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { resourceLinks, workspaceLinks } from "~/layout";
@@ -80,6 +80,42 @@ function holdLinks(root: string): Promise<() => Promise<void>> {
 }
 
 const REPAIRS = /marbles relink repairs it/;
+
+/** The links an update made beside where they go and has not yet put in place. */
+function temporaries(root: string): string[] {
+  return readdirSync(workspaceLinks(root), { recursive: true })
+    .map(String)
+    .filter((path) => path.endsWith(".link"))
+    .sort();
+}
+
+/**
+ * `query` as it resolves, but holding its rows until `gate` opens: a read
+ * of the database still under way, as its caller sees it.
+ */
+function heldUntil<T extends object>(query: T, gate: Promise<void>): T {
+  return new Proxy(query, {
+    get(target, property) {
+      if (property === "then") {
+        return (
+          resolved: (value: unknown) => unknown,
+          rejected: (reason: unknown) => unknown
+        ) =>
+          Promise.resolve(target)
+            .then(async (rows) => {
+              await gate;
+              return rows;
+            })
+            .then(resolved, rejected);
+      }
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === "function"
+        ? (...args: unknown[]) =>
+            heldUntil(Reflect.apply(value, target, args) as object, gate)
+        : value;
+    },
+  }) as T;
+}
 
 const NOTES = {
   id: "artifact#notes",
@@ -344,6 +380,130 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     await store.drainLinks(30_000);
     expect(readsAfterClose).toEqual([]);
     expect(lines).toHaveLength(1);
+  });
+
+  it("wait, when a drain gives up, for a read of the database under way, and begin none once it resolves", async () => {
+    const { artifacts, machine, one } = await arranged();
+    // Closed here, once the drain has resolved.
+    machines.splice(machines.indexOf(machine), 1);
+    const lines: string[] = [];
+    const callsAfterDrain: string[] = [];
+    let drained = false;
+    let hold = false;
+    let open = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    let entered = (): void => undefined;
+    const reading = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const database = new Proxy(machine.database.database, {
+      get(target, property) {
+        const value: unknown = Reflect.get(target, property, target);
+        if (typeof value !== "function") {
+          return value;
+        }
+        if (drained) {
+          callsAfterDrain.push(String(property));
+        }
+        if (property === "select" && hold) {
+          hold = false;
+          return (...args: unknown[]) => {
+            entered();
+            return heldUntil(Reflect.apply(value, target, args), gate);
+          };
+        }
+        return value.bind(target);
+      },
+    });
+    // The writes go to the database itself; only the link keeping reads
+    // through the one whose first read is held.
+    const store = keepingLinks(
+      workspaceStores(machine.database.database, one.id).artifacts,
+      {
+        artifacts,
+        database,
+        owner: one.id,
+        report: (line) => lines.push(line),
+        state: machine.root,
+      }
+    );
+    hold = true;
+    await new ArtifactManager({
+      files: blobFiles(artifactBlobs(artifacts, one.id)),
+      store,
+    }).create({
+      entries: { "a.md": { bytes: "# A\n", mime: "text/markdown" } },
+      name: "reading",
+      type: "text/markdown",
+    });
+    await reading;
+    const drain = store.drainLinks(10).then(() => {
+      drained = true;
+    });
+    // It has given up, and still waits for the read under way.
+    await vi.waitFor(() => expect(lines).toHaveLength(1));
+    expect(drained).toBe(false);
+    open();
+    await drain;
+    machine.close();
+    await store.drainLinks(1000);
+    expect(callsAfterDrain).toEqual([]);
+    expect(lines).toEqual([expect.stringMatching(REPAIRS)]);
+  });
+
+  it("leave no link half made when a drain stops an update waiting on the lock, and relink makes what it left right", async () => {
+    const { artifacts, machine, one } = await arranged();
+    const lines: string[] = [];
+    const store = keeping(machine, artifacts, one, lines);
+    const kept = new ArtifactManager({
+      files: blobFiles(artifactBlobs(artifacts, one.id)),
+      store,
+    });
+    const id = artifactIdSchema.parse("artifact#halfway");
+    const ref = { id, kind: "artifact", owner: one.id } as const;
+    const place = join(
+      resourceLinks(one.root, "artifact"),
+      ...artifactPlace(ref, one.id)
+    );
+    await kept.create({
+      entries: { "a.md": { bytes: "# First\n", mime: "text/markdown" } },
+      id,
+      name: "halfway",
+      type: "text/markdown",
+    });
+    await settled(async () =>
+      expect(await readFile(join(place, "a.md"), "utf8")).toBe("# First\n")
+    );
+    const first = readlinkSync(join(place, "a.md"));
+    const release = await holdLinks(one.root);
+    try {
+      await kept.write({
+        artifactId: id,
+        changes: {
+          put: {
+            "a.md": { bytes: "# Second\n", mime: "text/markdown" },
+            "b.md": { bytes: "# B\n", mime: "text/markdown" },
+          },
+        },
+      });
+      // The update makes its links beside where they go, then waits.
+      await settled(() => expect(temporaries(one.root)).toHaveLength(2));
+      // Resolves though the lock is still held: the wait is given up.
+      await store.drainLinks(50);
+      expect(temporaries(one.root)).toEqual([]);
+      expect(readlinkSync(join(place, "a.md"))).toBe(first);
+      expect(existsSync(join(place, "b.md"))).toBe(false);
+      expect(lines).toEqual([expect.stringMatching(REPAIRS)]);
+    } finally {
+      await release();
+    }
+    await readResourceView(machine.root, { workspace: one.id }, (view) =>
+      rebuildLinks({ artifacts, root: one.root, view, workspace: one.id })
+    );
+    expect(await readFile(join(place, "a.md"), "utf8")).toBe("# Second\n");
+    expect(await readFile(join(place, "b.md"), "utf8")).toBe("# B\n");
   });
 
   it("drain an engine's link updates as it is disposed, giving up on a lock that does not free", async () => {

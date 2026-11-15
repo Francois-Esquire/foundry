@@ -370,10 +370,11 @@ function recordsFor(
 }
 
 /**
- * How long a disposed engine waits for its link updates before the host
- * closes the database: an update holds a workspace's `.marbles/.lock`
- * for moments, so this outlasts a rebuild in another process, and stays
- * well inside a generation's stop deadline.
+ * How long a disposed engine waits for its link updates before it gives
+ * up those with no end of their own (not begun, or waiting for a
+ * workspace's `.marbles/.lock`): an update holds the lock for moments, so
+ * this outlasts a rebuild in another process, and stays well inside a
+ * generation's stop deadline.
  */
 const LINK_DRAIN_MS = 5000;
 
@@ -393,9 +394,10 @@ function engineOver(
 
 /**
  * The published `Engine` whose artifact commits keep links: once disposed,
- * and so writing none, it waits for the link updates they queued, so the
- * host closes the database only after them, or after `LINK_DRAIN_MS`,
- * reporting what is left to `marbles relink`.
+ * and so writing none, it drains the link updates they queued, so the host
+ * closes the database only once none is in a database call or will begin
+ * one; after `LINK_DRAIN_MS` it gives up those still waiting, reporting
+ * them to `marbles relink`.
  */
 class LinkKeepingEngine extends PublishedEngine {
   readonly #links: LinksKept;
