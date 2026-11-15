@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { initializeDatabase } from "~/database/open";
 import {
   ALL_WORKSPACES,
+  associationTransaction,
   readResourceView,
   resourceAssociations,
 } from "~/database/resources";
@@ -16,7 +17,10 @@ import { DatabaseSessionStore } from "~/database/sessions";
 import { workspaceStores } from "~/database/stores";
 import { stateDatabase } from "~/layout";
 import type { ResourceRef } from "~/lib/resources";
-import { ResourceAssociationError } from "~/lib/resources";
+import {
+  ResourceAssociationError,
+  ResourceAssociations,
+} from "~/lib/resources";
 import { seedWorkspace } from "./helpers/registry";
 import { seedRuns } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
@@ -264,6 +268,68 @@ describe("the resource views", () => {
         associations.sharedWith({ id: "rn-1", kind: "run", owner: "ws1" })
       )
     ).toEqual([]);
+  });
+
+  it("share a resource deleted during the share either not at all or with the delete taking the share, never leaving it for a new one of the same id", async () => {
+    const { artifact, state } = await machine();
+    const opened = await initializeDatabase(stateDatabase(state));
+    try {
+      const { database } = opened;
+      const real = associationTransaction(database, state);
+      let checked: () => void = () => undefined;
+      let resume: () => void = () => undefined;
+      const wasChecked = new Promise<void>((settle) => {
+        checked = settle;
+      });
+      const resumed = new Promise<void>((settle) => {
+        resume = settle;
+      });
+      // The share pauses inside its transaction, right after its check.
+      const paused = new ResourceAssociations({
+        transact: (work) =>
+          real((unit) =>
+            work({
+              ...unit,
+              directory: {
+                ...unit.directory,
+                has: async (ref) => {
+                  const found = await unit.directory.has(ref);
+                  checked();
+                  await resumed;
+                  return found;
+                },
+              },
+            })
+          ),
+      });
+      const artifacts = new ArtifactManager({
+        store: workspaceStores(database, "ws1").artifacts,
+      });
+      const sharing = paused.share(artifact, "ws2");
+      await wasChecked;
+      let deleted = false;
+      const deleting = artifacts
+        .delete(artifactIdSchema.parse(artifact.id))
+        .then(() => {
+          deleted = true;
+        });
+      await new Promise((settle) => setTimeout(settle, 50));
+      expect(deleted).toBe(false);
+      resume();
+      expect(await sharing).toBe(true);
+      await deleting;
+      const associations = resourceAssociations(database, state);
+      expect(await associations.sharedWith(artifact)).toEqual([]);
+      await artifacts.create({
+        entries: { "notes.md": { bytes: "# New\n", mime: "text/markdown" } },
+        id: artifactIdSchema.parse(artifact.id),
+        name: "new notes",
+        type: "text/markdown",
+      });
+      expect(await associations.sharedWith(artifact)).toEqual([]);
+    } finally {
+      opened.close();
+    }
   });
 
   it("read nothing, and make no database, under an empty state root", async () => {

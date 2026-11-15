@@ -19,8 +19,8 @@ import { marblesWorkflowRuns } from "~/database/tables";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import type {
+  AssociationTransaction,
   ResourceAssociation,
-  ResourceDirectory,
   ResourceKind,
   ResourceRef,
 } from "~/lib/resources";
@@ -380,16 +380,40 @@ export function resourceAssociations(
   database: StoreDatabase,
   state: string
 ): ResourceAssociations {
-  const view = new ResourceView({ database, scope: ALL_WORKSPACES, state });
-  const registry = new WorkspaceRegistry({ database, state });
-  const directory: ResourceDirectory = {
-    has: (ref) => view.has(ref),
-    registered: async (id) => (await registry.read(id)) !== undefined,
-  };
   return new ResourceAssociations({
-    directory,
-    store: new DatabaseAssociationStore({ database }),
+    transact: associationTransaction(database, state),
   });
+}
+
+/**
+ * One write transaction over `database`, taken before it reads, with the
+ * associations, the resources' stores and the workspace registry all
+ * read and written through it: a delete of a resource, in this process or
+ * another, lands before it or after it, never between a check and a
+ * write.
+ */
+export function associationTransaction(
+  database: StoreDatabase,
+  state: string
+): AssociationTransaction {
+  return (work) =>
+    asBusy(() =>
+      database.transaction((tx) => {
+        const view = new ResourceView({
+          database: tx,
+          scope: ALL_WORKSPACES,
+          state,
+        });
+        const registry = new WorkspaceRegistry({ database: tx, state });
+        return work({
+          directory: {
+            has: (ref) => view.has(ref),
+            registered: async (id) => (await registry.read(id)) !== undefined,
+          },
+          store: new DatabaseAssociationStore({ database: tx }),
+        });
+      })
+    );
 }
 
 /**

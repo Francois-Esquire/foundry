@@ -87,70 +87,90 @@ export class ResourceAssociationError extends Error {
   override readonly name = "ResourceAssociationError";
 }
 
-export interface ResourceAssociationsOptions {
+/**
+ * What the rules read and write in one go: the associations and what
+ * exists, both inside one transaction, so nothing another writer does
+ * lands between a check and the write it allows.
+ */
+export interface AssociationUnit {
   readonly directory: ResourceDirectory;
-  readonly now?: () => Date;
   readonly store: AssociationStore;
+}
+
+/**
+ * Run `work` in one transaction over the associations and the stores the
+ * resources are kept in, holding off every other writer until it ends, and
+ * keep what it wrote only if it resolves.
+ */
+export type AssociationTransaction = <T>(
+  work: (unit: AssociationUnit) => Promise<T>
+) => Promise<T>;
+
+export interface ResourceAssociationsOptions {
+  readonly now?: () => Date;
+  readonly transact: AssociationTransaction;
 }
 
 /** The rules of which workspaces a resource belongs to. */
 export class ResourceAssociations {
-  readonly #directory: ResourceDirectory;
   readonly #now: () => Date;
-  readonly #store: AssociationStore;
+  readonly #transact: AssociationTransaction;
 
   constructor(options: ResourceAssociationsOptions) {
-    this.#directory = options.directory;
     this.#now = options.now ?? (() => new Date());
-    this.#store = options.store;
+    this.#transact = options.transact;
   }
 
   /**
    * Show `ref` in `workspace` too. Refused for a kind that belongs to its
    * owner alone, for a resource or workspace that does not exist, and for
    * the owner itself, which the resource always belongs to. Whether it was
-   * newly shared: sharing it again changes nothing.
+   * newly shared: sharing it again changes nothing. The checks and the
+   * write are one transaction: a resource deleted meanwhile is either
+   * refused or deleted after, taking its share with it.
    */
-  async share(ref: ResourceRef, workspace: string): Promise<boolean> {
+  share(ref: ResourceRef, workspace: string): Promise<boolean> {
     refuseUnshareable(ref.kind);
     this.#refuseOwner(ref, workspace, "shared with");
-    if (!(await this.#directory.has(ref))) {
-      throw new ResourceAssociationError(
-        `no ${ref.kind} ${ref.id} in workspace ${ref.owner}`
-      );
-    }
-    if (!(await this.#directory.registered(workspace))) {
-      throw new ResourceAssociationError(`no workspace ${workspace}`);
-    }
-    if ((await this.sharedWith(ref)).includes(workspace)) {
-      return false;
-    }
-    await this.#store.commit({
-      put: [{ associatedAt: this.#now().toISOString(), ref, workspace }],
+    return this.#transact(async ({ directory, store }) => {
+      if (!(await directory.has(ref))) {
+        throw new ResourceAssociationError(
+          `no ${ref.kind} ${ref.id} in workspace ${ref.owner}`
+        );
+      }
+      if (!(await directory.registered(workspace))) {
+        throw new ResourceAssociationError(`no workspace ${workspace}`);
+      }
+      if ((await sharedWithIn(store, ref)).includes(workspace)) {
+        return false;
+      }
+      await store.commit({
+        put: [{ associatedAt: this.#now().toISOString(), ref, workspace }],
+      });
+      return true;
     });
-    return true;
   }
 
   /**
    * Stop showing `ref` in `workspace`. The resource itself is untouched,
    * whether it still exists or not. Refused for the owner. Whether there
-   * was an association to remove.
+   * was an association to remove; the check and the removal are one
+   * transaction.
    */
-  async unshare(ref: ResourceRef, workspace: string): Promise<boolean> {
+  unshare(ref: ResourceRef, workspace: string): Promise<boolean> {
     this.#refuseOwner(ref, workspace, "unshared from");
-    if (!(await this.sharedWith(ref)).includes(workspace)) {
-      return false;
-    }
-    await this.#store.commit({ remove: [{ ref, workspace }] });
-    return true;
+    return this.#transact(async ({ store }) => {
+      if (!(await sharedWithIn(store, ref)).includes(workspace)) {
+        return false;
+      }
+      await store.commit({ remove: [{ ref, workspace }] });
+      return true;
+    });
   }
 
   /** The workspaces other than its owner `ref` is shared with, by id. */
-  async sharedWith(ref: ResourceRef): Promise<readonly string[]> {
-    return (await this.#store.list(ref.kind))
-      .filter((association) => sameResource(association.ref, ref))
-      .map((association) => association.workspace)
-      .sort();
+  sharedWith(ref: ResourceRef): Promise<readonly string[]> {
+    return this.#transact(({ store }) => sharedWithIn(store, ref));
   }
 
   #refuseOwner(ref: ResourceRef, workspace: string, verb: string): void {
@@ -172,6 +192,16 @@ export function refuseUnshareable(kind: ResourceKind): void {
       `a ${kind} belongs to the workspace that started it and cannot be shared`
     );
   }
+}
+
+async function sharedWithIn(
+  store: AssociationStore,
+  ref: ResourceRef
+): Promise<readonly string[]> {
+  return (await store.list(ref.kind))
+    .filter((association) => sameResource(association.ref, ref))
+    .map((association) => association.workspace)
+    .sort();
 }
 
 export function sameResource(a: ResourceRef, b: ResourceRef): boolean {
