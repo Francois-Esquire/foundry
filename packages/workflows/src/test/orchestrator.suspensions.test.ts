@@ -4,26 +4,23 @@ import {
   SuspensionAlreadySettledError,
   SuspensionOccurrenceMismatchError,
 } from "../errors";
+import type { UpdateRunInput } from "../index";
+import { ExecutionCoordinator } from "../index";
 import type { RunExecutionContext } from "../orchestrator";
 import { Orchestrator } from "../orchestrator";
+import type { RunRecord, SuspensionRecord } from "../schema";
 import { Step } from "../step";
-import type {
-  RunFrame,
-  RunRecord,
-  SuspensionRecord,
-  UpdateRunInput,
-} from "../store";
-import { InMemoryOrchestratorStore } from "../store";
 import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
 import { makeInMemoryStore } from "./helpers/store";
+import { FaultyWorkflowStore } from "./helpers/workflow-stores";
 
 const JSON_VALUE_PATTERN = /JSON value/;
 const ORCHESTRATOR_RESOLVE_PATTERN = /Orchestrator\.resolve/;
 const RESTART_RECOVERY_PATTERN = /restart recovery/;
 const RESTART_RECOVERY_PATTERN_2 = /restart recovery/;
 
-class FailingParkingStore extends InMemoryOrchestratorStore {
+class FailingParkingStore extends ExecutionCoordinator {
   failParking = false as boolean;
   failTerminalUpdate = false as boolean;
   #terminalUpdateGate: Promise<void> | null = null;
@@ -62,45 +59,59 @@ class FailingParkingStore extends InMemoryOrchestratorStore {
     return super.updateRun(id, patch);
   }
 
-  protected override writeSuspensionParking(input: {
-    suspension: SuspensionRecord;
-    run: RunRecord;
-  }): Promise<void> {
-    if (this.failParking) {
-      return Promise.reject(new Error("injected parking failure"));
-    }
-    return super.writeSuspensionParking(input);
+  constructor() {
+    const store = new FaultyWorkflowStore();
+    super({ store });
+    store.before = (write) => {
+      // Parking files a pending Suspension with its suspended Run.
+      if (
+        this.failParking &&
+        write.putSuspensions?.some((record) => record.status === "pending") &&
+        write.putRuns?.some((record) => record.status === "suspended")
+      ) {
+        throw new Error("injected parking failure");
+      }
+    };
   }
 }
 
-class FailingCancellationStore extends InMemoryOrchestratorStore {
+class FailingCancellationStore extends ExecutionCoordinator {
   failCancellation = false as boolean;
 
-  protected override writeSuspensionCancellation(input: {
-    previousRun: RunRecord;
-    nextRun: RunRecord;
-    previousSuspensions: readonly SuspensionRecord[];
-    nextSuspensions: readonly SuspensionRecord[];
-  }): Promise<void> {
-    if (this.failCancellation) {
-      return Promise.reject(new Error("injected cancellation failure"));
-    }
-    return super.writeSuspensionCancellation(input);
+  constructor() {
+    const store = new FaultyWorkflowStore();
+    super({ store });
+    store.before = (write) => {
+      // Cancelling a Run files it cancelled with its cancelled Suspensions.
+      if (
+        this.failCancellation &&
+        write.putRuns?.some((record) => record.status === "cancelled") &&
+        write.putSuspensions !== undefined
+      ) {
+        throw new Error("injected cancellation failure");
+      }
+    };
   }
 }
 
-class FailingResolvedFrameStore extends InMemoryOrchestratorStore {
+class FailingResolvedFrameStore extends ExecutionCoordinator {
   failResolvedFrame = false as boolean;
 
-  protected override writeFrame(frame: RunFrame): Promise<void> {
-    if (
-      this.failResolvedFrame &&
-      frame.payload.kind === "suspension" &&
-      frame.payload.value.status === "resolved"
-    ) {
-      return Promise.reject(new Error("injected frame failure"));
-    }
-    return super.writeFrame(frame);
+  constructor() {
+    const store = new FaultyWorkflowStore();
+    super({ store });
+    store.before = (write) => {
+      if (
+        this.failResolvedFrame &&
+        write.putFrames?.some(
+          (frame) =>
+            frame.payload.kind === "suspension" &&
+            frame.payload.value.status === "resolved"
+        )
+      ) {
+        throw new Error("injected frame failure");
+      }
+    };
   }
 }
 

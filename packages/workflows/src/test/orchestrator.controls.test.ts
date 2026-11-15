@@ -6,20 +6,22 @@ import {
   RunNotFoundError,
   SuspensionAlreadySettledError,
 } from "../errors";
-import type { RunExecutionContext } from "../orchestrator";
-import { Orchestrator } from "../orchestrator";
-import { createInMemoryExecutionPersistence } from "../persistence";
 import type {
   CreateJobRunInput,
-  JobRecord,
   JobRunClaim,
+  UpdateJobInput,
+  UpdateRunInput,
+} from "../index";
+import { ExecutionCoordinator } from "../index";
+import type { RunExecutionContext } from "../orchestrator";
+import { Orchestrator } from "../orchestrator";
+import type {
+  JobRecord,
   RunFrame,
   RunRecord,
   SuspensionRecord,
-  UpdateJobInput,
-  UpdateRunInput,
-} from "../store";
-import { InMemoryOrchestratorStore } from "../store";
+} from "../schema";
+import { MemoryWorkflowStore } from "../store/memory";
 import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
 import { makeInMemoryStore } from "./helpers/store";
@@ -76,7 +78,7 @@ async function startedOrchestrator(store = makeInMemoryStore()) {
   return { orchestrator, store };
 }
 
-class DelayedCompletionStore extends InMemoryOrchestratorStore {
+class DelayedCompletionStore extends ExecutionCoordinator {
   readonly completionWriteStarted: Promise<void>;
   readonly #completionWriteGate: Gate;
   #announceCompletionWrite = (): void => undefined;
@@ -105,7 +107,7 @@ class DelayedCompletionStore extends InMemoryOrchestratorStore {
   }
 }
 
-class DelayedRunCancellationStore extends InMemoryOrchestratorStore {
+class DelayedRunCancellationStore extends ExecutionCoordinator {
   readonly cancellationStarted: Promise<void>;
   readonly #cancellationGate: Gate;
   #announceCancellation = (): void => undefined;
@@ -129,7 +131,7 @@ class DelayedRunCancellationStore extends InMemoryOrchestratorStore {
   }
 }
 
-class DelayedJobClaimStore extends InMemoryOrchestratorStore {
+class DelayedJobClaimStore extends ExecutionCoordinator {
   readonly claimStarted: Promise<void>;
   readonly #claimGate: Gate;
   #announceClaim = (): void => undefined;
@@ -156,7 +158,7 @@ class DelayedJobClaimStore extends InMemoryOrchestratorStore {
   }
 }
 
-class DelayedPendingProjectionStore extends InMemoryOrchestratorStore {
+class DelayedPendingProjectionStore extends ExecutionCoordinator {
   readonly pendingProjectionStarted: Promise<void>;
   readonly #projectionGate: Gate;
   #announceProjection = (): void => undefined;
@@ -397,17 +399,20 @@ describe("Orchestrator explicit controls", () => {
     await orchestrator.stop();
   });
 
-  test.each(["store", "persistence"])(
-    "a refused context cannot affect a shared %s run",
+  test.each(["coordinator", "workflow store"])(
+    "a refused context cannot affect a Run in a shared %s",
     async (boundary) => {
       const store = makeInMemoryStore();
-      const persistence = createInMemoryExecutionPersistence();
+      const shared = new MemoryWorkflowStore();
       const executed: string[] = [];
       const contexts = new Map<string, RunExecutionContext | undefined>();
       const open = async (tag: string) => {
         const orchestrator = new Orchestrator({
           config: makeOrchestratorConfig(),
-          ...(boundary === "store" ? { store } : { persistence }),
+          store:
+            boundary === "coordinator"
+              ? store
+              : new ExecutionCoordinator({ store: shared }),
         });
         await orchestrator.setup();
         orchestrator.register<string, string>("shared", (input, context) => {
@@ -442,9 +447,9 @@ describe("Orchestrator explicit controls", () => {
       expect(executed).toHaveLength(1);
       expect(
         (
-          await (boundary === "store"
+          await (boundary === "coordinator"
             ? store.getRun("rn-shared")
-            : persistence.repository.getRun("rn-shared"))
+            : shared.getRun("rn-shared"))
         )?.input
       ).toBe(executed[0] === "a" ? "A" : "B");
       const refused = contexts.get(fromA.status === "rejected" ? "a" : "b");

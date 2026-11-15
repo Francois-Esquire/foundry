@@ -6,6 +6,10 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts"
+    },
     "./approval": {
       "types": "./dist/approval.d.ts",
       "import": "./src/approval.ts"
@@ -59,8 +63,8 @@
       "import": "./src/executable-public.ts"
     },
     "./store": {
-      "types": "./dist/store.d.ts",
-      "import": "./src/store.ts"
+      "types": "./dist/store/index.d.ts",
+      "import": "./src/store/index.ts"
     },
     "./schema": {
       "types": "./dist/schema.d.ts",

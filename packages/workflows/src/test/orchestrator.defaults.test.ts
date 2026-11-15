@@ -1,29 +1,30 @@
 import { Config } from "@foundry/lib/config";
 import { describe, expect, test } from "vitest";
-
+import { ExecutionCoordinator } from "../index";
 import { Orchestrator } from "../orchestrator";
-import { createInMemoryExecutionPersistence } from "../persistence";
-import { InMemoryOrchestratorStore } from "../store";
+import { MemoryWorkflowStore } from "../store/memory";
 import { Workflow } from "../workflow";
+import { withoutTransaction } from "./helpers/workflow-stores";
 
-const EITHER_PERSISTENCE_OR_STORE_PATTERN = /either persistence or store/;
+const TRANSACTIONS_PATTERN = /store that offers transactions/;
 
 describe("Orchestrator defaults", () => {
-  test("accepts composed persistence without exposing a Store escape hatch", () => {
-    const persistence = createInMemoryExecutionPersistence();
+  test("refuses participants over a store without transactions", () => {
     const config = new Config();
-    const orchestrator = new Orchestrator({ config, persistence });
+    const store = new ExecutionCoordinator({
+      store: withoutTransaction(new MemoryWorkflowStore()),
+    });
 
-    expect("store" in persistence).toBe(false);
-    expect(orchestrator.store).toBeDefined();
+    expect(store.transaction).toBeUndefined();
     expect(
       () =>
         new Orchestrator({
+          cancellationParticipant: () => Promise.resolve(null),
           config,
-          persistence,
-          store: new InMemoryOrchestratorStore(),
+          store,
         })
-    ).toThrow(EITHER_PERSISTENCE_OR_STORE_PATTERN);
+    ).toThrow(TRANSACTIONS_PATTERN);
+    expect(new Orchestrator({ config, store }).store).toBe(store);
   });
   test("uses an in-memory store that carries namespaced queue and run extensions", async () => {
     const extensions = {
@@ -35,7 +36,7 @@ describe("Orchestrator defaults", () => {
       queueExtensions: extensions,
     });
 
-    expect(orchestrator.store).toBeInstanceOf(InMemoryOrchestratorStore);
+    expect(orchestrator.store).toBeInstanceOf(ExecutionCoordinator);
 
     await orchestrator.setup();
     orchestrator.register("zero-config", (input: { message: string }) =>

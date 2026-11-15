@@ -124,7 +124,7 @@ export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
 }
 
 /** Every table `SqliteWorkflowStore` reads and writes. */
-export const WORKFLOW_TABLES = [
+const WORKFLOW_TABLES = [
   workflowQueues,
   workflowJobs,
   workflowRuns,

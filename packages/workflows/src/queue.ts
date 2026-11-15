@@ -19,6 +19,9 @@ import {
   RunNotFoundError,
 } from "./errors";
 import type { BaseContext } from "./executable";
+import type { UpdateRunInput } from "./execution-commands";
+import type { OrchestratorStore } from "./execution-coordinator";
+import { ExecutionCoordinator } from "./execution-coordinator";
 import { errorToShape } from "./helpers";
 import { workflowEffectAccess } from "./internal/workflow-effect-access";
 import type { OrchestratorLogger, RunLifecycleEvent } from "./logger";
@@ -41,9 +44,7 @@ import type {
   QueueSize,
   RecoverableRun,
 } from "./queue-types";
-import type { PersistedWorkflow } from "./schema";
-import type { OrchestratorStore, RunLinks, UpdateRunInput } from "./store";
-import { InMemoryOrchestratorStore } from "./store";
+import type { PersistedWorkflow, RunLinks } from "./schema";
 import type { TelemetryState } from "./telemetry";
 import { Telemetry } from "./telemetry";
 import type { QueueStatus, RunStatus, Unsubscribe } from "./types";
@@ -157,7 +158,7 @@ export class Queue {
   constructor(opts: QueueOptions) {
     this.#opts = opts;
     this.id = opts.id ?? generateId("qu");
-    this.#store = opts.store ?? new InMemoryOrchestratorStore();
+    this.#store = opts.store ?? new ExecutionCoordinator();
     this.#queueInsertPromise = this.#store.ensureQueue({
       extensions: opts.extensions,
       id: this.id,

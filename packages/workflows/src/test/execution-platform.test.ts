@@ -1,11 +1,13 @@
 import { describe, expect, test } from "vitest";
 import { JobAlreadySettledError } from "../errors";
+import type { OrchestratorStore } from "../index";
+import { ExecutionCoordinator } from "../index";
 import type { RunObservation } from "../orchestrator";
 import { Orchestrator } from "../orchestrator";
-import type { OrchestratorStore, RunFrame, SuspensionRecord } from "../store";
-import { InMemoryOrchestratorStore } from "../store";
+import type { RunFrame, SuspensionRecord } from "../schema";
 import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
+import { restoredStore } from "./helpers/store";
 
 interface Gate {
   readonly promise: Promise<void>;
@@ -91,7 +93,7 @@ async function expectSingleTerminal(
 
 describe("Workflows execution platform", () => {
   test("proves live Run observation, Suspension, Job attempts, and explicit Job cancellation", async () => {
-    const store = new InMemoryOrchestratorStore();
+    const store = new ExecutionCoordinator();
     const orchestrator = new Orchestrator({
       config: makeOrchestratorConfig({ concurrency: 1 }),
       store,
@@ -320,7 +322,7 @@ describe("Workflows execution platform", () => {
 
   test("round-trips the full store and recovers only non-terminal Runs exactly once", async () => {
     const defaultName = "execution-platform-recovery";
-    const source = new InMemoryOrchestratorStore();
+    const source = new ExecutionCoordinator();
     const queue = await source.ensureQueue({
       extensions: { "host.queue": { region: "test" } },
       id: "qu-execution-platform",
@@ -411,11 +413,11 @@ describe("Workflows execution platform", () => {
       step: "platform.recover-job",
     });
 
-    const captured = source.snapshot();
-    const restored = new InMemoryOrchestratorStore({
-      snapshot: JSON.parse(JSON.stringify(captured)) as unknown,
-    });
-    expect(restored.snapshot()).toEqual(captured);
+    const captured = await source.snapshot();
+    const restored = await restoredStore(
+      JSON.parse(JSON.stringify(captured)) as unknown
+    );
+    expect(await restored.snapshot()).toEqual(captured);
     expect(captured).toMatchObject({
       jobs: [{ id: recoveryJob.id }],
       queues: [{ id: queue.id }],

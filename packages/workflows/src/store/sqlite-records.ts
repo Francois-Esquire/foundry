@@ -325,11 +325,7 @@ function keyPath(at: string, key: string): string {
  * it out). Strings need no check: JSON escapes U+0000 and lone surrogates,
  * and reads them back intact. A key named `__proto__` stays an own key.
  */
-export function jsonOf(
-  at: string,
-  value: unknown,
-  ancestors: Set<object>
-): unknown {
+function jsonOf(at: string, value: unknown, ancestors: Set<object>): unknown {
   switch (typeof value) {
     case "boolean":
     case "string":

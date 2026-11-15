@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { decodeRunRecord } from "../execution-records";
-import { createInMemoryExecutionPersistence } from "../persistence";
+import { decodeRunRecord } from "../index";
 import {
   ChannelEventSchema,
   ORCHESTRATOR_STORE_SNAPSHOT_VERSION,
@@ -15,6 +14,7 @@ import {
   WorkflowStepNodeSchema,
 } from "../schema";
 import { validateOrchestratorStoreSnapshot } from "../store-snapshot";
+import { restoredStore } from "./helpers/store";
 
 const run = {
   error: null,
@@ -242,7 +242,7 @@ describe("a Run is admitted unchanged", () => {
     expect(restored?.metadata).toHaveProperty("kept", 1);
   });
 
-  test("an exported store snapshot restores with its Runs intact", () => {
+  test("an exported store snapshot restores with its Runs intact", async () => {
     const entry = { nested: true };
     const stored = {
       ...run,
@@ -251,12 +251,12 @@ describe("a Run is admitted unchanged", () => {
       snapshot: { ...run.snapshot, custom: 456 },
       tags: withProtoEntry({ kept: "yes" }, "tag"),
     };
-    const exported = createInMemoryExecutionPersistence({
-      snapshot: restore([stored]),
-    }).snapshot();
-    const [restored] = createInMemoryExecutionPersistence({
-      snapshot: JSON.parse(JSON.stringify(exported)),
-    }).snapshot().runs;
+    const exported = await (await restoredStore(restore([stored]))).snapshot();
+    const [restored] = (
+      await (
+        await restoredStore(JSON.parse(JSON.stringify(exported)))
+      ).snapshot()
+    ).runs;
 
     expect(restored).toMatchObject({ extra: 123, snapshot: { custom: 456 } });
     expect(hasOwnEntry(restored?.metadata, "__proto__", entry)).toBe(true);

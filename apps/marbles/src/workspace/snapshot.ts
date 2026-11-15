@@ -1,11 +1,11 @@
 import { realpathSync } from "node:fs";
 import { basename, isAbsolute, relative, sep } from "node:path";
+import type { RunRecord } from "@foundry/workflows/schema";
 import type {
   StepSnapshot as ObservedStep,
   WorkflowStepNode,
 } from "@foundry/workflows/snapshot";
 import { SnapshotStateSchema } from "@foundry/workflows/snapshot";
-import type { RunRecord } from "@foundry/workflows/store";
 import { z } from "zod";
 import type { AutomationRecord } from "~/lib/automation/service";
 import type { ExecutionRun } from "~/lib/executions";

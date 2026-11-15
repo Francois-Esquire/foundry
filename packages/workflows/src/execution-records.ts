@@ -11,8 +11,6 @@ export type {
   JobLinks,
   JobRecord,
   JobStatus,
-  RunFrame,
-  RunFramePayload,
   RunLinks,
   RunRecord,
   RunTimestamps,
