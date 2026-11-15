@@ -962,6 +962,130 @@ describe("engine generations", () => {
     fixture.client.close();
   }, 150_000);
 
+  it("lets other work through while a detach waits for a retired generation, refusing new work for the detaching workspace", async () => {
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: { print: (line) => lines.push(line) },
+    });
+    const first = fixture.summary.pid ?? 0;
+    const workspace = fixture.client.workspace(fixture.summary);
+    const runId = await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    await switchFrom(fixture, first, 1);
+    const detaching = fixture.client.detach(fixture.summary.id);
+    detaching.catch(() => undefined);
+    await vi.waitFor(
+      () =>
+        expect(
+          lines.some((line) =>
+            line.includes("detaching · waiting for engine generation 1")
+          )
+        ).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    // New work for it is refused, and so is attaching it again.
+    await expect(workspace.actions.launch("hold2", {})).rejects.toThrow(
+      "is detaching"
+    );
+    await expect(fixture.client.attach(fixture.source)).rejects.toThrow(
+      "is detaching"
+    );
+    // Another workspace attaches meanwhile: the daemon's turn is free.
+    const otherRoot = join(fixture.gates, "..", "other");
+    mkdirSync(otherRoot);
+    const otherSource = join(otherRoot, "marbles.config.ts");
+    writeFileSync(otherSource, moduleText(fixture, 0));
+    const other = await fixture.client.attach(otherSource);
+    expect(other.state).toBe("ready");
+    // Its run is still reachable where it runs, and ending it ends the detach.
+    await workspace.actions.runs.cancel(runId);
+    await detaching;
+    await gone(first);
+    expect((await fixture.client.workspaces()).map((each) => each.id)).toEqual([
+      other.id,
+    ]);
+    fixture.client.close();
+  }, 150_000);
+
+  it("switches while a detach drains the current generation, which retires leaving that workspace to the drain", async () => {
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: { print: (line) => lines.push(line) },
+    });
+    const first = fixture.summary.pid ?? 0;
+    const otherRoot = join(fixture.gates, "..", "other");
+    mkdirSync(otherRoot);
+    const otherSource = join(otherRoot, "marbles.config.ts");
+    writeFileSync(otherSource, moduleText(fixture, 0));
+    const other = await fixture.client.attach(otherSource);
+    const workspace = fixture.client.workspace(fixture.summary);
+    const runId = await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    const detaching = fixture.client.detach(fixture.summary.id);
+    detaching.catch(() => undefined);
+    await vi.waitFor(
+      () =>
+        expect(
+          lines.some((line) =>
+            line.includes(
+              `[${fixture.summary.id}] detaching · waiting for engine generation 1`
+            )
+          )
+        ).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    // A switch while the current generation drains it: the next one loads
+    // only the other workspace, and the first retires.
+    await fixture.client.reload(other.id);
+    const now = (await fixture.client.workspaces()).find(
+      (each) => each.id === other.id
+    );
+    expect(now?.state).toBe("ready");
+    expect(now?.pid).not.toBe(first);
+    // The drain still reaches its run, and ends with it.
+    await workspace.actions.runs.cancel(runId);
+    await detaching;
+    await gone(first);
+    const rows = await executions(fixture, fixture.summary.id);
+    expect(rows.find((row) => row.name === "hold1")?.status).toBe("cancelled");
+    expect((await fixture.client.workspaces()).map((each) => each.id)).toEqual([
+      other.id,
+    ]);
+    fixture.client.close();
+  }, 150_000);
+
+  it("completes a daemon stop while a detach waits for a retired generation", async () => {
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: { print: (line) => lines.push(line) },
+    });
+    const first = fixture.summary.pid ?? 0;
+    const workspace = fixture.client.workspace(fixture.summary);
+    await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    const second = await switchFrom(fixture, first, 1);
+    const detaching = fixture.client.detach(fixture.summary.id);
+    const settled = detaching.then(
+      () => "detached",
+      () => "refused"
+    );
+    await vi.waitFor(
+      () =>
+        expect(
+          lines.some((line) =>
+            line.includes("detaching · waiting for engine generation 1")
+          )
+        ).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    // Within the stop's bounds: each generation is asked, then killed.
+    await daemons.pop()?.close();
+    expect(processAlive(first)).toBe(false);
+    expect(processAlive(second)).toBe(false);
+    expect(["detached", "refused"]).toContain(await settled);
+    fixture.client.close();
+  }, 150_000);
+
   it("reports a workspace that did not load at boot as not running, and the one that did with its generation", async () => {
     const fixture = await setUp();
     const otherRoot = join(fixture.gates, "..", "other");

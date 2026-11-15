@@ -220,6 +220,11 @@ interface Generation {
 
 /** A workspace the Marbles process hosts, as clients see it. */
 interface Hosted {
+  /**
+   * Set while it is being detached: its generations drain it, its runs
+   * stay reachable, and no new work or attach of it is let in.
+   */
+  detaching?: Promise<void>;
   /** Handed to the generation that next starts it: it posts the setup milestone. */
   setup?: SetupDraftParams;
   /** Where its source is, or would be. */
@@ -1588,6 +1593,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         );
       }
       const existing = hosted.get(workspace.id);
+      if (existing?.detaching !== undefined) {
+        throw new Error(
+          `workspace ${workspace.id} is detaching; attach it again once it has`
+        );
+      }
       if (existing !== undefined && existing.summary.state !== "stopped") {
         const again = await attachAgain(existing, configPath, setup);
         if (again !== undefined) {
@@ -1723,23 +1733,26 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   }
 
   /**
-   * Drains a workspace in every live generation that hosts it, a retired
-   * one too, before its routing goes: until then its runs stay reachable.
+   * Drain workspace `id` in each of `hosting`, current first: until
+   * then its runs stay reachable. A generation that exits as it drains,
+   * or whose daemon stops meanwhile, has drained.
    */
-  async function drainEverywhere(id: string): Promise<void> {
-    for (const generation of hostsOf(id)) {
-      if (generation !== current) {
-        print(
-          `[${id}] detaching · waiting for engine generation ${String(generation.number)} to finish its work`
-        );
-      }
+  async function drainEverywhere(
+    id: string,
+    hosting: readonly Generation[]
+  ): Promise<void> {
+    for (const generation of hosting) {
+      print(
+        `[${id}] detaching · waiting for engine generation ${String(generation.number)} to finish its work`
+      );
       try {
         await ask(generation, GENERATION_METHODS.unhost, { id });
       } catch (error) {
-        // A retired generation that exits as it drains has drained.
         const going =
-          generation.exit !== undefined || !generation.channel?.open;
-        if (generation === current || !going) {
+          stopping ||
+          generation.exit !== undefined ||
+          !generation.channel?.open;
+        if (!going) {
           throw error;
         }
       }
@@ -1749,27 +1762,60 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   }
 
   /**
-   * Stop hosting workspace `id`: its running work in the current
-   * generation finishes, then it closes there, and it is recorded as not
-   * hosted. A detach that finds it gone already has nothing to do.
+   * Stop hosting workspace `id`, in three steps. In the daemon's turn it
+   * is marked detaching and recorded as not hosted, so no switch loads it
+   * again. Out of the turn, every generation hosting it drains it: its
+   * running work finishes, reachable meanwhile, and a switch or an attach
+   * of another workspace is not held up however long that takes. Then, in
+   * the turn again, its routing goes. A drain that fails leaves it hosted,
+   * for the detach to be tried again. A detach that finds it gone already
+   * has nothing to do; one that finds it detaching waits for that one.
    */
-  function detach(id: string): Promise<void> {
-    return inTurn(async () => {
+  async function detach(id: string): Promise<void> {
+    const begun = await inTurn(async () => {
       const workspace = hosted.get(id);
       if (workspace === undefined) {
         return;
       }
-      await drainEverywhere(id);
-      // The record first: a write that fails leaves it listed, so the
-      // detach can be retried, rather than hosted again at the next boot.
+      if (workspace.detaching !== undefined) {
+        return { done: workspace.detaching };
+      }
+      // The record first: a write that fails detaches nothing, so the
+      // detach can be tried again; once written, no boot hosts it again.
       await registry.unhost(id);
-      hosted.delete(id);
       if (current !== undefined) {
         // It no longer loads this one: no switch for it.
         current.fingerprint = withSource(current.fingerprint, id, undefined);
       }
-      setState(workspace, "stopped");
+      const done = finishDetach(workspace, hostsOf(id));
+      workspace.detaching = done;
+      return { done };
     });
+    await begun?.done;
+  }
+
+  async function finishDetach(
+    workspace: Hosted,
+    hosting: readonly Generation[]
+  ): Promise<void> {
+    const { id } = workspace.summary;
+    let failure: { readonly error: unknown } | undefined;
+    try {
+      await drainEverywhere(id, hosting);
+    } catch (error) {
+      failure = { error };
+    }
+    await inTurn(() => {
+      workspace.detaching = undefined;
+      if (failure === undefined) {
+        hosted.delete(id);
+        setState(workspace, "stopped");
+      }
+      return Promise.resolve();
+    });
+    if (failure !== undefined) {
+      throw failure.error;
+    }
   }
 
   /**
@@ -1952,6 +1998,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     const method = `${WORKSPACE_PREFIX}${name}`;
     const params = { ...rest, id };
+    // Its runs stay reachable while it drains; nothing new begins.
+    if (workspace.detaching !== undefined && DISPATCHING.has(name)) {
+      throw new Error(`workspace ${id} is detaching; it starts no new work`);
+    }
     if (RUN_METHODS.has(name)) {
       const answered = await askOwner(id, name, method, rest.runId, params);
       if (answered !== NO_OWNER_HERE) {
