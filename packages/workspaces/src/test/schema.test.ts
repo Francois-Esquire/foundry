@@ -3,7 +3,6 @@ import { join } from "node:path";
 import type { FileRepresentation, StorageEntry } from "@foundry/core/storage";
 import type { FileClassification } from "@foundry/lib/file-classification";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { MemoryWorkspaceStore } from "../memory-store";
 import {
   type WorkspaceEntry,
   type WorkspaceEntryId,
@@ -13,14 +12,15 @@ import {
   workspaceFileSchema,
   workspaceRegistrationSchema,
 } from "../schema";
-import { directorySystem } from "./helpers/directory-system";
+import { MemoryWorkspaceStore } from "../store/memory";
 import {
   artifactWorkspace,
   directoryRecord,
   fileRecord,
   hostWorkspace,
   newRoot,
-} from "./helpers/fixtures";
+} from "../testing/records";
+import { directorySystem } from "./helpers/directory-system";
 import { makeRoot } from "./helpers/temp-roots";
 
 async function cataloged() {

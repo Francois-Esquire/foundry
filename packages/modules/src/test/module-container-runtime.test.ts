@@ -7,8 +7,8 @@ import type {
   Containers,
 } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { SandboxError } from "@foundry/sandbox/errors";
+import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { SandboxService } from "@foundry/sandbox/types";
 import { describe, expect, it, vi } from "vitest";
