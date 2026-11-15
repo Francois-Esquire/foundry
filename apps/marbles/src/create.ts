@@ -1,10 +1,10 @@
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts } from "@foundry/artifacts";
 import { ArtifactManager } from "@foundry/artifacts";
-import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
+import { blobFiles } from "@foundry/artifacts/node";
 import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { showArgv } from "@foundry/lib/argv";
 import type { Provider } from "@foundry/models";
@@ -172,23 +172,20 @@ export function readTriggers(
 }
 
 /**
- * The artifact system without the database: JSON records and blob files
- * under `dir`, or memory.
+ * The artifact system without the database: in memory, records and
+ * bytes alike, for as long as the engine lasts. Nothing outside the
+ * database could read records kept anywhere else.
  */
-function artifactsAt(dir: string | undefined): Artifacts {
-  return dir === undefined
-    ? new ArtifactManager({ store: new InMemoryArtifactStore() })
-    : new ArtifactManager({
-        files: blobFiles(join(dir, "blobs")),
-        store: new JsonArtifactStore({ path: join(dir, "records.json") }),
-      });
+function artifactsInMemory(): Artifacts {
+  return new ArtifactManager({ store: new InMemoryArtifactStore() });
 }
 
 /**
  * The engine's artifacts, and what `--dry-run` reads through to: in the
  * database's stores when the host gave one, their blob files in the
- * workspace's directory of the artifact store at `dir`. A dry run writes
- * to memory and reads what real runs left in the database, read only.
+ * workspace's directory of the artifact store at `dir`; in memory
+ * without one. A dry run writes to memory and reads what real runs left
+ * in the database, read only.
  */
 function artifactsFor(
   stores: WorkspaceStores | undefined,
@@ -197,7 +194,7 @@ function artifactsFor(
   const { artifacts: dir, dry, workspaceId } = options;
   if (dry) {
     return {
-      artifacts: artifactsAt(undefined),
+      artifacts: artifactsInMemory(),
       ...(dir === undefined
         ? {}
         : {
@@ -210,7 +207,7 @@ function artifactsFor(
     };
   }
   if (stores === undefined) {
-    return { artifacts: artifactsAt(dir) };
+    return { artifacts: artifactsInMemory() };
   }
   return {
     artifacts: new ArtifactManager({
@@ -424,9 +421,9 @@ export function createEngine(options: CreateEngineOptions): Engine {
 
 /**
  * The runtime a definition's instance uses in a script no host loaded: the
- * detected CLI harnesses, the current directory as the workspace, the
- * shared artifact store, and nothing else persisted. Not started; no run is
- * launched through it.
+ * detected CLI harnesses, the machine's provider configuration, and the
+ * current directory as the workspace; its artifacts are in memory, and
+ * nothing is persisted. Not started; no run is launched through it.
  */
 export function createDefaultEngine(): Engine {
   const machine = layout();

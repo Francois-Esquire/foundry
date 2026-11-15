@@ -1,24 +1,18 @@
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Sessions } from "@foundry/agents/session";
 import { act } from "react";
 import { afterEach, expect, test } from "vitest";
 import { step } from "../src/authoring/builder";
 import { catalog } from "../src/authoring/catalog";
 import { agent } from "../src/authoring/resources";
-import { JsonSessionStore } from "../src/lib/sessions/json-store";
 import type { SessionRef } from "../src/lib/types";
 import { MemoryUsageStore } from "../src/lib/usage-store";
 import { DashboardView } from "../src/views/dashboard";
 import type { DashboardSnapshot } from "../src/views/dashboard-model";
 import { dashboardSnapshot } from "../src/workspace/snapshot";
+import { durableSessions, transcriptOf } from "./helpers/durable-sessions";
 import { startEngine } from "./helpers/engine";
 import { flush, mount, press, unmount } from "./helpers/render";
 import {
@@ -65,7 +59,7 @@ async function damagedSnapshot(): Promise<DashboardSnapshot> {
   // Durable sessions beside durable state, as the host builds an engine.
   const durable = () => ({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(dir, "sessions")),
+    sessions: durableSessions(dir),
     state: dir,
   });
   const first = await startEngine(durable());
@@ -155,7 +149,7 @@ test("a workflow with no valid facts shows unowned unreadable usage in its Catal
   const dir = state;
   const durable = () => ({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(dir, "sessions")),
+    sessions: durableSessions(dir),
     state: dir,
   });
   step("healthy").do(() => "no agents here");
@@ -164,8 +158,14 @@ test("a workflow with no valid facts shows unowned unreadable usage in its Catal
   await launched.result;
   await first.dispose();
   // A transcript nothing names, which cannot be read: no one's for sure.
-  mkdirSync(join(dir, "sessions"), { recursive: true });
-  writeFileSync(join(dir, "sessions", "mystery.json"), "{broken");
+  const mystery = new Sessions({ store: durableSessions(dir) });
+  await mystery.createSession({ id: "mystery" });
+  await mystery.appendMessage({
+    parts: [{ text: "?", type: "text" }],
+    role: "user",
+    sessionId: "mystery",
+  });
+  await transcriptOf(dir, "mystery").damage();
   const second = await startEngine(durable());
   const snapshot = dashboardSnapshot(await second.runs(), {
     definitions: second.definitions(),
@@ -202,7 +202,7 @@ test("a known workflow whose running run the reader cannot load shows an unattri
   const dir = state;
   const durable = () => ({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(dir, "sessions")),
+    sessions: durableSessions(dir),
     state: dir,
   });
   const helper = agent({ name: "helper", prompt: "Help." });
@@ -229,8 +229,7 @@ test("a known workflow whose running run the reader cannot load shows an unattri
   const direct = await host.agents.session(helper);
   await direct.generate("saved direct turn");
   ({ ref } = direct);
-  const transcript = join(dir, "sessions", `${direct.ref.id}.json`);
-  const { mode } = statSync(transcript);
+  const transcript = transcriptOf(dir, direct.ref.id);
   // Both the fact and its marker of the consumer's turn cannot be written.
   const writer = await startEngine({
     ...durable(),
@@ -275,9 +274,9 @@ test("a known workflow whose running run the reader cannot load shows an unattri
     );
     expect(frame).not.toContain("no usage recorded");
     // Only direct facts name the unreadable transcript; its loss is not theirs alone.
-    chmodSync(transcript, 0o000);
+    await transcript.damage();
     const blind = await catalogDetails();
-    chmodSync(transcript, mode);
+    await transcript.restore();
     expect(blind).toContain("consumer");
     expect(blind).toContain(
       "Cost : unknown · 1 unreadable usage record may belong here"
@@ -286,7 +285,7 @@ test("a known workflow whose running run the reader cannot load shows an unattri
     release();
     await running.result;
   } finally {
-    chmodSync(transcript, mode);
+    await transcript.restore();
     release();
     await writer.dispose();
     await host.dispose();

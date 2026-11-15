@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { SessionStore } from "@foundry/agents/store";
 import { Workflow } from "@foundry/workflows/workflow";
 import { expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
@@ -14,7 +13,6 @@ import { parseStored } from "~/lib/execution-record";
 import type { ExecutionStore } from "~/lib/execution-store";
 import { MemoryExecutionStore } from "~/lib/execution-store";
 import { type ExecutionRun, Executions } from "~/lib/executions";
-import { JsonSessionStore } from "~/lib/sessions/json-store";
 import type { TaskContext } from "~/lib/tasks";
 import type { Context } from "~/lib/types";
 import { dashboardSnapshot } from "~/workspace/snapshot";
@@ -406,13 +404,6 @@ it("subscribes with a snapshot and every change after, reconcilable by revision"
       type: "save",
     }),
   ]);
-});
-
-it("keeps JsonSessionStore usable through the Agents SessionStore seam", () => {
-  const store: SessionStore = new JsonSessionStore(
-    join(fixture.root, "sessions")
-  );
-  expect(typeof store.commit).toBe("function");
 });
 
 it("skips observations that are not ones, without failing the start", async () => {

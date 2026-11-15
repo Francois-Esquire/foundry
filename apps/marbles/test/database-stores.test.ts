@@ -63,6 +63,29 @@ async function arranged() {
   return { artifacts, engine, machine, root };
 }
 
+describe("an engine with no database handle", () => {
+  it("keeps its artifacts in memory, writing nothing to the artifact store", async () => {
+    const { artifacts, machine, root } = await arranged();
+    const built = createEngine({
+      artifacts,
+      catalog: new Catalog(),
+      dry: false,
+      print: () => undefined,
+      providers: [],
+      root,
+      stateRoot: machine.root,
+      workspaceId: "ws",
+    });
+    engines.push(built);
+    const engine = await built.start();
+    await engine.artifacts.write(NOTES, { "a.md": "# Notes" });
+    expect(await (await engine.artifacts.latest(NOTES))?.text("a.md")).toBe(
+      "# Notes"
+    );
+    expect(existsSync(artifacts)).toBe(false);
+  });
+});
+
 describe("an engine over the Marbles database", () => {
   it("keeps its artifacts' records there under its workspace id, and their bytes in its own blob directory", async () => {
     const { artifacts, engine, machine } = await arranged();

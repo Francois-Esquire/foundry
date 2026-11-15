@@ -1,12 +1,4 @@
-import {
-  chmod,
-  mkdtemp,
-  readFile,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionMessage } from "@foundry/agents/session";
@@ -27,11 +19,14 @@ import { DatabaseSessionStore } from "~/database/sessions";
 import { DatabaseUsageStore } from "~/database/usage";
 import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
-import { JsonSessionStore } from "~/lib/sessions/json-store";
 import type { SessionRef } from "~/lib/types";
 import type { PriceLookup, TurnSource, UsageFact } from "~/lib/usage";
 import { RECOVERED, UsageLedger, usageFact } from "~/lib/usage";
-import type { ReconciledRun } from "~/lib/usage-evidence";
+import type {
+  ListedSessionStore,
+  ReconciledRun,
+  SessionStamp,
+} from "~/lib/usage-evidence";
 import {
   ledgerNames,
   transcriptTurn,
@@ -45,6 +40,7 @@ import { registerSetupStep, SETUP_STEP } from "~/workspace/setup-step";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { DEFAULT_DRAFT } from "~/workspace/templates";
 import { totalOf, workspaceUsage } from "~/workspace/usage";
+import { durableSessions, transcriptOf } from "./helpers/durable-sessions";
 import { startEngine, testEngine } from "./helpers/engine";
 import { testMachine } from "./helpers/records";
 import { temporaryDirectory } from "./helpers/temporary";
@@ -426,7 +422,7 @@ it("a run read while it settles, before its file is written, is never counted as
       }),
     }),
     print: () => undefined,
-    sessions: new JsonSessionStore(join(state, "sessions")),
+    sessions: durableSessions(state),
     state,
   });
   registerSetupStep(built);
@@ -503,7 +499,7 @@ it("a second turn whose usage cannot be saved leaves a marker, so the first turn
 });
 
 it("when the fact and its marker both fail, a new engine over the same disk finds the turn in the durable transcript, claims it for no run, and says the run's total may be incomplete", async () => {
-  const sessions = join(state, "sessions");
+  const sessions = state;
   const reviewer = agent({ name: "reviewer", prompt: "Review." });
   let sessionId = "";
   step("two").do(async ({ agents }) => {
@@ -515,7 +511,7 @@ it("when the fact and its marker both fail, a new engine over the same disk find
   });
   const first = await startEngine({
     print: () => undefined,
-    sessions: new JsonSessionStore(sessions),
+    sessions: durableSessions(sessions),
     state,
     usageStore: await failingUsage((write) => write === 2 || write === 3),
   });
@@ -537,7 +533,7 @@ it("when the fact and its marker both fail, a new engine over the same disk find
   catalog.reset();
   const second = await startEngine({
     print: () => undefined,
-    sessions: new JsonSessionStore(sessions),
+    sessions: durableSessions(sessions),
     state,
   });
   engines.push(second);
@@ -593,11 +589,11 @@ const NO_RECORDS = {
 };
 
 /** A new engine over `state`, as a new process builds it: nothing in memory from the writer. */
-async function reader() {
+async function reader(sessions: SessionStore = durableSessions(state)) {
   catalog.reset();
   const engine = await startEngine({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(state, "sessions")),
+    sessions,
     state,
   });
   engines.push(engine);
@@ -625,7 +621,7 @@ function snapshotOf(
 it("a separate reader sees a direct session's committed but unrecorded turn at once, unattributed, and a turn appended after it cached the transcript on its next read", async () => {
   const writer = await startEngine({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(state, "sessions")),
+    sessions: durableSessions(state),
     state,
     usageStore: await failingUsage((write) => write >= 2),
   });
@@ -739,7 +735,7 @@ it("an unreadable or missing transcript a settled run names is owned by nothing:
   });
   const writer = await startEngine({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(state, "sessions")),
+    sessions: durableSessions(state),
     state,
     usageStore: await failingUsage((write) => write === 2 || write === 3),
   });
@@ -747,7 +743,8 @@ it("an unreadable or missing transcript a settled run names is owned by nothing:
   await expect(launched.result).resolves.toBe("done");
   await writer.dispose();
   await reportStored(launched.id);
-  await writeFile(join(state, "sessions", `${sessionId}.json`), "{broken");
+  const transcript = transcriptOf(state, sessionId);
+  await transcript.damage();
 
   const second = await reader();
   const records = await second.readUsage();
@@ -773,7 +770,7 @@ it("an unreadable or missing transcript a settled run names is owned by nothing:
   );
 
   // A missing transcript cannot be verified either, and is no one's.
-  await rm(join(state, "sessions", `${sessionId}.json`));
+  await transcript.remove();
   const third = await reader();
   expect((await third.readUsage()).unreadableAt).toEqual({
     direct: 0,
@@ -799,7 +796,7 @@ it("an unreadable or missing transcript a settled run names is owned by nothing:
 it("a direct session none of whose usage was saved is found through the store's listing, as unattributed consumption beside other direct sessions", async () => {
   const writer = await startEngine({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(state, "sessions")),
+    sessions: durableSessions(state),
     state,
     usageStore: await failingUsage((write) => write === 2 || write === 3),
   });
@@ -840,7 +837,7 @@ it("a direct session none of whose usage was saved is found through the store's 
     catalog.reset();
     const other = await startEngine({
       print: () => undefined,
-      sessions: new JsonSessionStore(join(elsewhere, "sessions")),
+      sessions: durableSessions(elsewhere),
       state: elsewhere,
     });
     engines.push(other);
@@ -918,7 +915,7 @@ it("a direct turn in a session a workflow only continued is not claimed by the o
   });
   const writer = await startEngine({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(state, "sessions")),
+    sessions: durableSessions(state),
     state,
     usageStore: await failingUsage((write) => write === 2 || write === 3),
   });
@@ -981,7 +978,7 @@ it("a saved marker's own attribution goes to the recovered leaf, which replaces 
   // Writes 2 and 4 are the facts that fail; their markers (3 and 5) save.
   const writer = await startEngine({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(state, "sessions")),
+    sessions: durableSessions(state),
     state,
     usageStore: await failingUsage((write) => write === 2 || write === 4),
   });
@@ -1200,7 +1197,7 @@ it("a one-turn call whose usage was lost is recovered for its own agent and its 
   step("docs.v2").do(async () => (await writer.generate("one turn")).text);
   const first = await startEngine({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(state, "sessions")),
+    sessions: durableSessions(state),
     state,
     usageStore: await failingUsage(() => true),
   });
@@ -1233,7 +1230,7 @@ it("a turn the host takes directly in a session a run opened is not claimed by t
   // Write 1 is the run's fact; every later fact and marker fails.
   const writer = await startEngine({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(state, "sessions")),
+    sessions: durableSessions(state),
     state,
     usageStore: await failingUsage((write) => write >= 2),
   });
@@ -1292,7 +1289,7 @@ it("a workflow continuing another workflow's session keeps its unrecorded turn: 
     await session.generate("the consumer's turn, fact and marker both fail");
     return "consumed";
   });
-  const sessions = new JsonSessionStore(join(state, "sessions"));
+  const sessions = durableSessions(state);
   const usageStore = await failingUsage(() => failing);
   const first = await startEngine({
     print: () => undefined,
@@ -1362,18 +1359,17 @@ it("a direct session a workflow continues in another engine, whose fact and mark
       return "consumed";
     });
   consumer();
-  const sessions = new JsonSessionStore(join(state, "sessions"));
+  const sessions = durableSessions(state);
   const host = await started({ sessions, state });
   const direct = await host.agents.session(helper);
   await direct.generate("saved direct turn");
   ({ ref } = direct);
-  const transcript = join(state, "sessions", `${direct.ref.id}.json`);
-  const { mode } = await stat(transcript);
+  const transcript = transcriptOf(state, direct.ref.id);
   const fresh = async () => {
     catalog.reset();
     consumer();
     return await started({
-      sessions: new JsonSessionStore(join(state, "sessions")),
+      sessions: durableSessions(state),
       state,
     });
   };
@@ -1443,7 +1439,7 @@ it("a direct session a workflow continues in another engine, whose fact and mark
 
     // The transcript cannot be read: its lost turn's tokens are gone, but
     // only direct facts naming the session does not make the loss theirs.
-    await chmod(transcript, 0o000);
+    await transcript.damage();
     const blind = await fresh();
     const unread = await blind.readUsage();
     expect(unread).toMatchObject({ recovered: 0, unreadable: 1 });
@@ -1466,7 +1462,7 @@ it("a direct session a workflow continues in another engine, whose fact and mark
     expect(labelOf(blindSnapshot, "consumer")).toBe(
       "unknown · 1 unreadable usage record may belong here"
     );
-    await chmod(transcript, mode);
+    await transcript.restore();
 
     wait.release();
     await expect(consuming.result).resolves.toBe("consumed");
@@ -1488,7 +1484,7 @@ it("a direct session a workflow continues in another engine, whose fact and mark
       "unknown · 1 unattributed turn may belong here"
     );
   } finally {
-    await chmod(transcript, mode);
+    await transcript.restore();
     wait.release();
   }
 });
@@ -1517,20 +1513,19 @@ it("a session one settled run names, which a workflow in another engine continue
     });
   };
   define();
-  const sessions = new JsonSessionStore(join(state, "sessions"));
+  const sessions = durableSessions(state);
   const host = await started({ sessions, state });
   const producing = await host.launch<string>("producer", {});
   await expect(producing.result).resolves.toBe("produced");
   if (!ref) {
     throw new Error("the producer opened no session");
   }
-  const transcript = join(state, "sessions", `${ref.id}.json`);
-  const { mode } = await stat(transcript);
+  const transcript = transcriptOf(state, ref.id);
   const fresh = async () => {
     catalog.reset();
     define();
     return await started({
-      sessions: new JsonSessionStore(join(state, "sessions")),
+      sessions: durableSessions(state),
       state,
     });
   };
@@ -1547,10 +1542,8 @@ it("a session one settled run names, which a workflow in another engine continue
         fact.scope === "run" ? fact.runId : undefined
       )
     ).toEqual([producing.id]);
-    await chmod(transcript, 0o000);
-    await expect(readFile(transcript)).rejects.toMatchObject({
-      code: "EACCES",
-    });
+    await transcript.damage();
+    await expect(durableSessions(state).listMessages(ref.id)).rejects.toThrow();
 
     const blind = await fresh();
     // Only the producer's settled run is loaded; it alone names the session.
@@ -1586,11 +1579,11 @@ it("a session one settled run names, which a workflow in another engine continue
     );
     expect(snapshot.usage?.total).toMatchObject({ turns: 1, unreadable: 1 });
 
-    await chmod(transcript, mode);
+    await transcript.restore();
     wait.release();
     await expect(consuming.result).resolves.toBe("consumed");
   } finally {
-    await chmod(transcript, mode);
+    await transcript.restore();
     wait.release();
   }
 });
@@ -1607,7 +1600,7 @@ it("damaged stored facts stay with the owner they are filed under: a run's with 
   };
   define();
   const writer = await started({
-    sessions: new JsonSessionStore(join(state, "sessions")),
+    sessions: durableSessions(state),
     state,
   });
   const launched = await writer.launch<string>("priced", {});
@@ -1623,7 +1616,7 @@ it("damaged stored facts stay with the owner they are filed under: a run's with 
   catalog.reset();
   define();
   const second = await started({
-    sessions: new JsonSessionStore(join(state, "sessions")),
+    sessions: durableSessions(state),
     state,
   });
   const records = await second.readUsage();
@@ -1646,10 +1639,16 @@ it("damaged stored facts stay with the owner they are filed under: a run's with 
 });
 
 it("one damaged session entry does not hide a healthy orphan already found, or for a new reader, and the totals say they may be incomplete", async () => {
-  const sessionsDir = join(state, "sessions");
+  const damage: { on: boolean } = { on: false };
+  // Once damaged, the listing names a session that cannot be read.
+  const damaged = () =>
+    new ListingSessions(state, async (inner) => [
+      ...(await inner.stamps()),
+      ...(damage.on ? [{ id: "broken-loop", stamp: null }] : []),
+    ]);
   const writer = await startEngine({
     print: () => undefined,
-    sessions: new JsonSessionStore(sessionsDir),
+    sessions: durableSessions(state),
     state,
     usageStore: await failingUsage((write) => write === 2 || write === 3),
   });
@@ -1660,18 +1659,12 @@ it("one damaged session entry does not hide a healthy orphan already found, or f
   await orphan.generate("fact and marker both fail");
   await writer.dispose();
 
-  const second = await reader();
+  const second = await reader(damaged());
   const before = await second.readUsage();
   expect(before).toMatchObject({ recovered: 1, unreadable: 0 });
-  // A self-referencing link: statting it fails with ELOOP, not ENOENT.
-  await symlink("broken-loop.json", join(sessionsDir, "broken-loop.json"));
-  expect(
-    new JsonSessionStore(sessionsDir)
-      .stamps()
-      .find((entry) => entry.id === "broken-loop")
-  ).toEqual({ id: "broken-loop", stamp: null });
+  damage.on = true;
   const cached = await second.readUsage();
-  const fresh = await (await reader()).readUsage();
+  const fresh = await (await reader(damaged())).readUsage();
   for (const records of [cached, fresh]) {
     expect(records).toMatchObject({ recovered: 1, unreadable: 1 });
     expect(records.unreadableAt.unowned).toBe(1);
@@ -1686,10 +1679,45 @@ it("one damaged session entry does not hide a healthy orphan already found, or f
   }
 });
 
-/** A disk session store whose directory cannot be listed, though its files can be read. */
-class UnlistableSessions extends JsonSessionStore {
-  override stamps(): never {
-    throw new Error("EACCES: permission denied, scandir");
+/** Durable sessions whose listing is `listing`'s, over the store's own. */
+class ListingSessions implements ListedSessionStore {
+  readonly #inner: ListedSessionStore;
+  readonly #listing: (
+    inner: ListedSessionStore
+  ) => readonly SessionStamp[] | Promise<readonly SessionStamp[]>;
+
+  constructor(
+    root: string,
+    listing: (
+      inner: ListedSessionStore
+    ) => readonly SessionStamp[] | Promise<readonly SessionStamp[]>
+  ) {
+    this.#inner = durableSessions(root);
+    this.#listing = listing;
+  }
+
+  commit(write: SessionStoreWrite) {
+    return this.#inner.commit(write);
+  }
+
+  getMessage(id: string) {
+    return this.#inner.getMessage(id);
+  }
+
+  getSession(id: string) {
+    return this.#inner.getSession(id);
+  }
+
+  listMessages(sessionId: string) {
+    return this.#inner.listMessages(sessionId);
+  }
+
+  stamps() {
+    return this.#listing(this.#inner);
+  }
+
+  transaction<T>(work: (view: SessionStore) => Promise<T>) {
+    return this.#inner.transaction?.(work) ?? work(this.#inner);
   }
 }
 
@@ -1698,7 +1726,7 @@ it("a listing that fails on a new reader's first read still reads the named sess
   step("idle").do(() => "no compute");
   const writer = await startEngine({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(state, "sessions")),
+    sessions: durableSessions(state),
     state,
     usageStore: await failingUsage((write) => write === 2 || write === 3),
   });
@@ -1713,7 +1741,10 @@ it("a listing that fails on a new reader's first read still reads the named sess
   step("idle").do(() => "no compute");
   const second = await startEngine({
     print: () => undefined,
-    sessions: new UnlistableSessions(join(state, "sessions")),
+    // A listing that fails, though each session can be read.
+    sessions: new ListingSessions(state, () => {
+      throw new Error("EACCES: permission denied, scandir");
+    }),
     state,
   });
   engines.push(second);
@@ -1770,7 +1801,7 @@ it("labels a priced total with a lost turn as partial, never as whole", async ()
 it("a settled run's record that could not be read is read again, so a repair counts on the next read of the same engine", async () => {
   step("settles").do(() => "done");
   const writer = await started({
-    sessions: new JsonSessionStore(join(state, "sessions")),
+    sessions: durableSessions(state),
     state,
   });
   const launched = await writer.launch<string>("settles", {});
@@ -1808,10 +1839,10 @@ async function recordLedger(runId: string, ledger: SQL): Promise<void> {
  * wrapping its own store hands the engine.
  */
 class UnlistedSessions implements SessionStore {
-  readonly #inner: JsonSessionStore;
+  readonly #inner: SessionStore;
 
-  constructor(dir: string) {
-    this.#inner = new JsonSessionStore(dir);
+  constructor(root: string) {
+    this.#inner = durableSessions(root);
   }
 
   commit(write: SessionStoreWrite) {
@@ -1831,12 +1862,12 @@ class UnlistedSessions implements SessionStore {
   }
 
   transaction<T>(work: (view: SessionStore) => Promise<T>) {
-    return this.#inner.transaction(work);
+    return this.#inner.transaction?.(work) ?? work(this.#inner);
   }
 }
 
 it("a store that cannot list sessions and outlives the process says every total may be incomplete, since a session only a lost marker named is never found", async () => {
-  const sessions = join(state, "sessions");
+  const sessions = state;
   const helper = agent({ name: "helper", prompt: "Help." });
   // Writes 1 and 2: the only turn's fact and its marker.
   const writer = await started({
@@ -1893,11 +1924,11 @@ it("a session store or a ledger kept in memory loses nothing a restart could hid
 });
 
 it("a running run continuing a session recovers an earlier engine's lost turn immediately without claiming it", async () => {
-  const sessions = join(state, "sessions");
+  const sessions = state;
   const helper = agent({ name: "helper", prompt: "Help." });
   // Writes 1 and 2: the direct turn's fact and its marker.
   const writer = await started({
-    sessions: new JsonSessionStore(sessions),
+    sessions: durableSessions(sessions),
     state,
     usageStore: await failingUsage((write) => write <= 2),
   });
@@ -1917,7 +1948,7 @@ it("a running run continuing a session recovers an earlier engine's lost turn im
     return "done";
   });
   const second = await started({
-    sessions: new JsonSessionStore(sessions),
+    sessions: durableSessions(sessions),
     state,
   });
   const launched = await second.launch<string>("continues", {});

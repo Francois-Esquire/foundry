@@ -69,8 +69,6 @@ export type { Launched, LaunchOptions } from "./launcher";
 export type { RecordedScope } from "./run-scope";
 export type { RunStore, StoredScope } from "./run-store";
 export { MemoryRunStore } from "./run-store";
-export type { JsonSessionStoreOptions } from "./sessions/json-store";
-export { JsonSessionStore } from "./sessions/json-store";
 export type { TaskContext, TaskDefinition, TaskObservation } from "./tasks";
 export type {
   MonitorState,

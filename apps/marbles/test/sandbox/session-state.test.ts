@@ -2,7 +2,7 @@ import { normalizeMessageMetadata, Sessions } from "@foundry/agents/session";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { expect, it } from "vitest";
 import { assertGuestSessionState } from "~/lib/sandbox/session-state";
-import { JsonSessionStore } from "~/lib/sessions/json-store";
+import { durableSessions } from "../helpers/durable-sessions";
 
 it("adopts a fresh session and preserves same-instance native resume", async () => {
   const store = new InMemorySessionStore();
@@ -117,7 +117,7 @@ it("preserves environment identity through canonical metadata normalization", ()
 it("keeps instance identity across a durable store reopen", async () => {
   const directory = await mkdtemp(join(tmpdir(), "guest-session-state-"));
   try {
-    const store = new JsonSessionStore(directory);
+    const store = durableSessions(directory);
     const sessions = new Sessions({ store });
     await assertGuestSessionState(store, "conversation", "codex", "guest-1");
     await sessions.appendMessage({
@@ -131,7 +131,7 @@ it("keeps instance identity across a durable store reopen", async () => {
       role: "system",
       sessionId: "conversation",
     });
-    const reopened = new JsonSessionStore(directory);
+    const reopened = durableSessions(directory);
     await assertGuestSessionState(reopened, "conversation", "codex", "guest-1");
     await expect(
       assertGuestSessionState(reopened, "conversation", "codex", "guest-2")
