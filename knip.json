@@ -34,6 +34,7 @@
         "ai-sdk-provider-codex-cli",
         "ai-sdk-provider-claude-code",
         "ai-sdk-provider-pi",
+        "effect",
         "evlog",
         "ignore",
         "simple-git"

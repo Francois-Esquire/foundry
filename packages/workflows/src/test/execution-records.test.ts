@@ -1,5 +1,5 @@
-import { Schema } from "effect";
 import { describe, expect, test } from "vitest";
+import type { z } from "zod";
 
 import {
   DefinitionNotRegisteredError,
@@ -24,10 +24,12 @@ import {
   RunFrameSchema,
   RunRecordSchema,
   SuspensionRecordSchema,
-} from "../execution-records";
+} from "../schema";
 
-const decode = <A, I>(schema: Schema.Schema<A, I>) =>
-  Schema.decodeUnknownSync(schema);
+const decode =
+  <T extends z.ZodType>(schema: T) =>
+  (value: unknown): z.output<T> =>
+    schema.parse(value);
 
 const representativeJob = {
   definition: { name: "documents.generate", version: "1" },
