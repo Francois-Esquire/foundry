@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import type { LinksReport } from "~/database/links";
+import { rebuildLinks } from "~/database/links";
 import { writeDatabase } from "~/database/open";
 import type { ViewScope } from "~/database/resources";
 import {
@@ -13,8 +15,6 @@ import type { ResourceKind, ResourceRef } from "~/lib/resources";
 import { ResourceAssociationError, refuseUnshareable } from "~/lib/resources";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
-import type { LinksReport } from "~/resources/links";
-import { rebuildLinks } from "~/resources/links";
 import { resourceLines } from "~/resources/text";
 
 /**

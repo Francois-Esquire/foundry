@@ -10,9 +10,10 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { hasErrorCode } from "@foundry/lib/atomic-file";
-import type { ResourceView } from "~/database/resources";
+import type { ArtifactFile, ResourceView } from "~/database/resources";
 import { artifactBlobs } from "~/database/stores";
 import { resourceLinks, workspaceLinks } from "~/layout";
+import type { ResourceRef } from "~/lib/resources";
 
 /**
  * A workspace's links to the resources it shows, made from the Marbles
@@ -59,47 +60,108 @@ export async function rebuildLinks(
   options: RebuildLinksOptions
 ): Promise<LinksReport> {
   const { artifacts, root, view } = options;
+  const dir = await linksDirectory(root);
+  const kept: string[] = [];
+  await unlinkUnder(dir, root, kept);
+  const made = { kept, linked: 0, unlinkable: 0 };
+  for (const { ref } of await view.artifacts()) {
+    await linkArtifact(
+      dir,
+      root,
+      artifactBlobs(artifacts, ref.owner),
+      ref.id,
+      await view.artifactFiles(ref),
+      made
+    );
+  }
+  return made;
+}
+
+export interface RelinkArtifactOptions {
+  /** The shared artifact store, whose blob files the links point at. */
+  readonly artifacts: string;
+  /** The artifact's files, as the database holds them now; none to only unlink it. */
+  readonly files: readonly ArtifactFile[];
+  readonly ref: ResourceRef;
+  /** The workspace's root. */
+  readonly root: string;
+}
+
+/**
+ * Make the links of one artifact in the workspace at `root` again: remove
+ * those it has, and link `files`. For a workspace whose links directory is
+ * there: one that has none was never linked, and nothing makes it here.
+ * Whether the workspace was linked.
+ */
+export async function relinkArtifact(
+  options: RelinkArtifactOptions
+): Promise<boolean> {
+  const { artifacts, files, ref, root } = options;
+  if ((await lstatOrUndefined(workspaceLinks(root))) === undefined) {
+    return false;
+  }
+  const dir = await linksDirectory(root);
+  const base = join(dir, encodeURIComponent(ref.id));
+  const kept: string[] = [];
+  if (dirname(base) === dir && (await lstatOrUndefined(base))?.isDirectory()) {
+    await unlinkUnder(base, root, kept);
+    if ((await readdir(base)).length === 0) {
+      await rmdir(base);
+    }
+  }
+  await linkArtifact(
+    dir,
+    root,
+    artifactBlobs(artifacts, ref.owner),
+    ref.id,
+    files,
+    { kept, linked: 0, unlinkable: 0 }
+  );
+  return true;
+}
+
+/** `<root>/.marbles/artifacts`, made if missing, refused if it or `.marbles` is not a real directory. */
+async function linksDirectory(root: string): Promise<string> {
   const top = workspaceLinks(root);
   const dir = resourceLinks(root, "artifact");
   await realDirectory(top);
   await realDirectory(dir);
-  const kept: string[] = [];
-  await unlinkUnder(dir, root, kept);
   await ignoredByGit(top);
-  let linked = 0;
-  let unlinkable = 0;
-  for (const { ref } of await view.artifacts()) {
-    const blobs = artifactBlobs(artifacts, ref.owner);
-    const base = join(dir, encodeURIComponent(ref.id));
-    const files = await view.artifactFiles(ref);
-    // An id of `.` or `..` would name no directory of its own.
-    if (dirname(base) !== dir) {
-      unlinkable += files.length;
+  return dir;
+}
+
+/** Link each of an artifact's files held by one blob file, counting into `made`. */
+async function linkArtifact(
+  dir: string,
+  root: string,
+  blobs: string,
+  id: string,
+  files: readonly ArtifactFile[],
+  made: { kept: string[]; linked: number; unlinkable: number }
+): Promise<void> {
+  const base = join(dir, encodeURIComponent(id));
+  // An id of `.` or `..` would name no directory of its own.
+  if (dirname(base) !== dir) {
+    made.unlinkable += files.length;
+    return;
+  }
+  for (const file of files) {
+    const link = resolve(base, file.path);
+    if (file.blob === null || !link.startsWith(`${base}${sep}`)) {
+      made.unlinkable += 1;
       continue;
     }
-    for (const file of files) {
-      if (file.blob === null) {
-        unlinkable += 1;
-        continue;
+    await mkdir(dirname(link), { recursive: true });
+    try {
+      await symlink(join(blobs, file.blob), link);
+      made.linked += 1;
+    } catch (error) {
+      if (!hasErrorCode(error, "EEXIST")) {
+        throw error;
       }
-      const link = resolve(base, file.path);
-      if (!link.startsWith(`${base}${sep}`)) {
-        unlinkable += 1;
-        continue;
-      }
-      await mkdir(dirname(link), { recursive: true });
-      try {
-        await symlink(join(blobs, file.blob), link);
-        linked += 1;
-      } catch (error) {
-        if (!hasErrorCode(error, "EEXIST")) {
-          throw error;
-        }
-        kept.push(relative(root, link));
-      }
+      made.kept.push(relative(root, link));
     }
   }
-  return { kept, linked, unlinkable };
 }
 
 /** Make `path` a directory, or refuse one that is anything else. */

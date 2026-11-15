@@ -18,6 +18,7 @@ import type { GitRun } from "@foundry/workspaces/git";
 import { Catalog } from "~/authoring/catalog";
 import { DatabaseActivityStore } from "~/database/activities";
 import { DatabaseDeferredApprovalStore } from "~/database/approvals";
+import { keepingLinks } from "~/database/artifact-links";
 import {
   DatabaseAutomationStore,
   readAutomations,
@@ -185,8 +186,9 @@ function artifactsInMemory(): Artifacts {
 /**
  * The engine's artifacts, and what `--dry-run` reads through to: in the
  * database's stores when the host gave one, their blob files in the
- * workspace's directory of the artifact store at `dir`; in memory
- * without one. A dry run writes to memory and reads what real runs left
+ * workspace's directory of the artifact store at `dir`, every linked
+ * workspace's links to them kept current after each commit
+ * (`keepingLinks`); in memory without one. A dry run writes to memory and reads what real runs left
  * in the database, read only.
  */
 function artifactsFor(
@@ -211,12 +213,23 @@ function artifactsFor(
   if (stores === undefined) {
     return { artifacts: artifactsInMemory() };
   }
+  const { database, print } = options;
   return {
     artifacts: new ArtifactManager({
       ...(dir === undefined
         ? {}
         : { files: blobFiles(artifactBlobs(dir, workspaceId)) }),
-      store: stores.artifacts,
+      // Each workspace's links to these artifacts follow every commit.
+      store:
+        dir === undefined || database === undefined
+          ? stores.artifacts
+          : keepingLinks(stores.artifacts, {
+              artifacts: dir,
+              database,
+              owner: workspaceId,
+              report: print,
+              state: options.stateRoot ?? layout().state,
+            }),
     }),
   };
 }
