@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { Page } from "@foundry/core/pagination";
 import type { CommitEffects } from "@foundry/core/storage";
 import { runAfterCommit } from "@foundry/core/storage";
+import { ReentrantCallError } from "@foundry/lib/turns";
 
 import type { BlobFiles } from "./blob";
 import { readBlob, requireBlob } from "./blob-repository";
@@ -101,6 +102,24 @@ interface TransactionScope {
  * with {@link TransactionRolledBackError}, even if the operation caught the
  * failure and went on.
  */
+/**
+ * A store transaction a manager runs, as the async context of its work sees
+ * it. `held` turns false once the work settles, so work it scheduled to run
+ * later is not mistaken for a call from inside it.
+ */
+interface StoreTurn {
+  held: boolean;
+  readonly outer: StoreTurn | undefined;
+  readonly store: ArtifactStore;
+}
+
+/** The store transactions managers hold, shared by every manager. */
+const storeTurns = new AsyncLocalStorage<StoreTurn>();
+
+/** Why a call from inside a transaction over the manager's own store is refused. */
+const REENTRY =
+  "[artifacts] The Artifact store was called from inside its own transaction, through another manager over it; use the operations passed to that transaction's work instead";
+
 export class ArtifactManager implements Artifacts {
   readonly #store: ArtifactStore;
   readonly #limits: TransactionLimits;
@@ -160,6 +179,10 @@ export class ArtifactManager implements Artifacts {
         joined.failed ??= { error };
         throw error;
       }
+    }
+    const refused = this.#reentry();
+    if (refused) {
+      throw refused;
     }
     return this.#change(operation, this.#staging());
   }
@@ -457,6 +480,10 @@ export class ArtifactManager implements Artifacts {
   }
 
   async recover(): Promise<void> {
+    const refused = this.#reentry();
+    if (refused) {
+      throw refused;
+    }
     const { files } = this.#limits;
     if (files) {
       // Staging whose owner is gone; live owners' bytes stay where they wait.
@@ -507,6 +534,10 @@ export class ArtifactManager implements Artifacts {
     const joined = this.#joined();
     if (joined) {
       return operation(joined);
+    }
+    const refused = this.#reentry();
+    if (refused) {
+      return Promise.reject(refused);
     }
     // One consistent state for every record the read takes.
     return this.#exclusive(async (store) => {
@@ -575,6 +606,10 @@ export class ArtifactManager implements Artifacts {
     if (joined) {
       return this.transaction(() => operation(joined));
     }
+    const refused = this.#reentry();
+    if (refused) {
+      return Promise.reject(refused);
+    }
     const staging = this.#staging();
     const streaming = staging.streamsAhead(entries);
     return this.#inOrder(id, streaming, (settled) =>
@@ -619,6 +654,10 @@ export class ArtifactManager implements Artifacts {
     streams: boolean,
     start: (settled: () => void) => Promise<T>
   ): Promise<T> {
+    const refused = this.#reentry();
+    if (refused) {
+      return Promise.reject(refused);
+    }
     if (this.#lookups === 0 || this.#joined()) {
       return this.#register([id], streams, start);
     }
@@ -693,6 +732,10 @@ export class ArtifactManager implements Artifacts {
     start: () => Promise<T>,
     also?: ArtifactId
   ): Promise<T> {
+    const refused = this.#reentry();
+    if (refused) {
+      return Promise.reject(refused);
+    }
     if (this.#joined() || (this.#ordered.size === 0 && this.#lookups === 0)) {
       return start();
     }
@@ -736,7 +779,7 @@ export class ArtifactManager implements Artifacts {
     const store = this.#store;
     return store.transaction === undefined
       ? this.#checkOver(store, check, staging)
-      : store.transaction((view) => this.#checkOver(view, check, staging));
+      : this.#inStoreTurn((view) => this.#checkOver(view, check, staging));
   }
 
   /**
@@ -782,8 +825,52 @@ export class ArtifactManager implements Artifacts {
       const store = this.#store;
       return store.transaction === undefined
         ? work(store)
-        : store.transaction(work);
+        : this.#inStoreTurn(work);
     });
+  }
+
+  /**
+   * `work` in the store's transaction, marked as held for as long as it
+   * runs, so a call on any manager over this store from inside it is
+   * refused at once (see `#reentry`).
+   */
+  #inStoreTurn<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T> {
+    const store = this.#store;
+    if (store.transaction === undefined) {
+      throw new Error("The Artifact store offers no transaction");
+    }
+    return store.transaction(async (view) => {
+      const turn: StoreTurn = {
+        held: true,
+        outer: storeTurns.getStore(),
+        store,
+      };
+      try {
+        return await storeTurns.run(turn, () => work(view));
+      } finally {
+        turn.held = false;
+      }
+    });
+  }
+
+  /**
+   * A call made from inside a store transaction that some manager over this
+   * manager's store holds, and that this manager did not open, could wait in
+   * this manager's turn or call order behind a call that itself waits for
+   * that transaction, and never run. It is refused at once instead, before
+   * any of those waits. A call joined to this manager's own transaction, or
+   * made by work it scheduled, is not refused: the first joins it and the
+   * second waits its turn behind it.
+   */
+  #reentry(): ReentrantCallError | undefined {
+    if (this.#scope.getStore() !== undefined) {
+      return;
+    }
+    for (let turn = storeTurns.getStore(); turn; turn = turn.outer) {
+      if (turn.held && turn.store === this.#store) {
+        return new ReentrantCallError(REENTRY);
+      }
+    }
   }
 
   #serialized<T>(work: () => Promise<T>): Promise<T> {
