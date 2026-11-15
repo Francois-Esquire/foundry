@@ -18,6 +18,8 @@ import { Launcher } from "~/lib/launcher";
  */
 class GatedStore extends MemoryExecutionStore {
   holding = false;
+  /** How many transactions pass before the one `holding` gates. */
+  skip = 0;
   counting = false;
   failing: (index: number) => boolean = () => false;
   #index = 0;
@@ -28,7 +30,10 @@ class GatedStore extends MemoryExecutionStore {
     work: (view: ExecutionView) => Promise<T>
   ): Promise<T> {
     // biome-ignore lint/suspicious/noUnnecessaryConditions: the test sets it before the handover it gates.
-    if (this.holding) {
+    if (this.holding && this.skip > 0) {
+      this.skip -= 1;
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: the test sets it before the handover it gates.
+    } else if (this.holding) {
       this.holding = false;
       this.entered.resolve();
       await this.gate.promise;
@@ -149,6 +154,26 @@ describe("an engine that has begun to retire", () => {
         .list()
         .map((run) => (run.input as { n?: number } | undefined)?.n)
     ).not.toContain(4);
+  });
+
+  it("hands over without waiting on a launch admitted before it began whose start is still being written", async () => {
+    const store = new GatedStore();
+    const { executions, launcher } = launcherOver(store);
+    await executions.load();
+    launcher.task({ name: "quick", run: () => undefined });
+    // The launch's record is written; its start is held.
+    store.skip = 1;
+    store.holding = true;
+    const launching = launcher.launch("quick", {}, {});
+    await store.entered.promise;
+    const handing = launcher.handOver({
+      pid: thisProcess().pid + 1,
+      started: null,
+    });
+    // Released from a timer: a hand-over that never yields never sees it.
+    setTimeout(() => store.gate.resolve(), 20);
+    expect(await handing).toEqual([]);
+    await (await launching).result;
   });
 
   it("keeps a run whose hand-over failed queued and unstarted, and hands it over on the next try", async () => {

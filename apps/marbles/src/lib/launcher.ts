@@ -258,12 +258,15 @@ export class Launcher {
     // Until it is admitted, a hand-over that begins meanwhile waits for it,
     // and hands it over with the rest of the queue.
     const admitted = Promise.withResolvers<void>();
-    this.#launching.add(admitted.promise);
-    try {
-      return await this.#launch<O>(name, input, options, admitted.resolve);
-    } finally {
+    const done = () => {
       this.#launching.delete(admitted.promise);
       admitted.resolve();
+    };
+    this.#launching.add(admitted.promise);
+    try {
+      return await this.#launch<O>(name, input, options, done);
+    } finally {
+      done();
     }
   }
 
@@ -362,14 +365,13 @@ export class Launcher {
         new Error(`run ${id} was handed to the next engine generation`)
       );
     };
+    // Every launch past its check is admitted, or refused, once these
+    // settle, and none passes it from now on: one pass takes them all.
+    await Promise.all(this.#launching);
     for (let tried = 1; ; tried += 1) {
-      await Promise.all(this.#launching);
       const { failed } = await this.executions.handOverAll(successor, told);
       if (failed.length === 0) {
-        if (this.#launching.size === 0) {
-          return handed;
-        }
-        continue;
+        return handed;
       }
       const last = tried >= HAND_OVER_TRIES;
       for (const { error, id } of failed) {
