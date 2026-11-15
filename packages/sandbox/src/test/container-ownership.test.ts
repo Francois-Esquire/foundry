@@ -382,6 +382,7 @@ describe("an old VM whose stop fails", () => {
     await containers.shutdown();
     const next = createContainers({ instanceLabel: "a", runtime, store });
     expect(await next.recover(() => true)).toEqual({
+      conflicts: [],
       kept: [],
       removed: [id],
       swept: [],
