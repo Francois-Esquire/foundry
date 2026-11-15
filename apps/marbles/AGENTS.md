@@ -138,7 +138,11 @@ Five buckets, each importing only what sits below it:
   commits, after they land, nested transactions included, to keep each
   linked workspace's links (`links.ts`) current; `links.ts` is the one
   routine a rebuild and an update share, which reconciles disk with the
-  database, follows no link, and tolerates a concurrent one. Shares are
+  database under `.marbles/.lock`, reading the database there, and checks
+  each directory (`lstat` and `realpath` inside `.marbles`) right before
+  each change and again after each creation; a writer in the workspace can
+  still win the window between a check and a call. `keepingLinks` refuses
+  a host-bound store. Shares are
   checked and written in one transaction (`associationTransaction`). Artifact blob files stay on disk, under
   `<artifacts>/workspaces/<id>/blobs`; `readArtifacts` is the read-only
   view of them a dry run reads through to. `runs.ts` is a workspace's workflow Runs: the package's

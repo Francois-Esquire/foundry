@@ -314,13 +314,22 @@ no two collide, case-insensitively too. Nothing reads them back.
 `marbles relink [--all]` makes them match the database: it removes the
 links Marbles made that no longer should be there and makes the missing
 ones, leaving anything else (a file, a link of your own) and reporting it.
-Nothing is followed: a directory on the way that is a link or a file
-refuses that link, reported, and nothing is made through it. Once a
-workspace has links, they follow each artifact write after it lands, in
-the artifact's owner and every workspace it is shared with; a link that
-cannot be made is reported, never failing the write, and `relink` repairs
-it. Concurrent updates converge. A file the database holds inline (or in
-chunks) has no link. `.marbles/.gitignore` keeps the directory out of git.
+Before each change, the directory it is made in or removed from is checked
+to be a real directory inside the real `.marbles`; one that is a link, a
+file or elsewhere refuses that link, reported, and what was just made
+through a directory that moved meanwhile is removed again. A process that
+can write in your workspace can still swap a directory in the moment
+between a check and the change after it; nothing in the runtime closes
+that window. Once a workspace has links, they follow each artifact write
+after it lands, in the artifact's owner and every workspace it is shared
+with; a link that cannot be made is reported, never failing the write,
+and `relink` repairs it. Every rebuild and update, in any process, holds
+`.marbles/.lock` and reads what each link should be from the database
+under it, so concurrent ones converge on what the database holds. A file
+the database holds inline (or in chunks), or whose name is too long for
+the file system, has no link. `.marbles/.gitignore` keeps the directory
+out of git. An artifact store inside a transaction the host owns cannot
+keep links (`HostBoundStoreError`).
 
 ## Embedding and execution
 

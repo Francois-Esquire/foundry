@@ -286,21 +286,34 @@ its store deletes takes its shares with it in the same transaction.
 Links are derived, never read: `<workspace root>/.marbles/artifacts/<id>/<path>`
 for an artifact the workspace owns, and `artifacts/@<owner>/<id>/<path>` for
 one shared with it, point at the blob file holding each of its files. Each
-id and owner is percent-encoded, uppercase letters and a bare `.` or `..`
-included, so no two names collide on any file system and none starts with
-`@`. A file the database holds inline, or in chunks, has no link.
+id and owner is percent-encoded as UTF-8, uppercase letters and a bare `.`
+or `..` included, so no two names collide on any file system, none starts
+with `@`, and `decodeURIComponent` gives the name back. A file the database holds inline, or in chunks, has no link.
 `marbles relink` reconciles the directory with the database: it removes
 the links Marbles made (those pointing into the artifact store) that should
 not be there and makes the missing ones; anything else is left and
-reported, and `.marbles/.gitignore` keeps the directory out of git. Every
-directory from `.marbles` down is checked to be a real directory, never
-followed; one that is a link or a file refuses the links under it, which
-are reported. Once a workspace has a `.marbles/` directory, each artifact
-write is followed after it lands (a write inside a transaction once the
-outermost one commits): the artifact is relinked in its owner and every
-workspace it is shared with, and unlinked elsewhere, each workspace on its
-own. A link that cannot be made is reported and never fails the write.
-Concurrent rebuilds and updates converge.
+reported, and `.marbles/.gitignore` keeps the directory out of git. Before
+each call that makes or removes anything, its directory is checked with
+`lstat` to be a directory and not a link, and with `realpath` to be inside
+the real `.marbles`; one that is not refuses the links under it, which are
+reported. Directories are made one level at a time and entries removed one
+at a time, never a tree, and after each one is made its parent is checked
+again and what was made removed if the parent has left `.marbles`. The
+runtime has no calls relative to an open directory, so a process that can
+write inside the workspace can still swap a checked directory for a link
+between a check and the call after it: a creation through it is undone, a
+removal cannot be. Once a workspace has a `.marbles/` directory, each
+artifact write is followed after it lands (a write inside a transaction
+once the outermost one commits): the artifact is relinked in its owner and
+every workspace it is shared with, and unlinked elsewhere, each workspace
+on its own. A link that cannot be made, or whose name is too long, is
+reported and never fails the write. Every rebuild and update of a
+workspace's links, in any process, holds `.marbles/.lock` and reads what
+each link should be from the database under it, right before it renames a
+new link into place, so a keeper held up never puts back what a newer
+commit replaced. A store whose commits land only with a transaction its
+host owns is refused (`HostBoundStoreError`), since nothing says when that
+transaction commits or rolls back.
 
 ### Execution Runs
 
