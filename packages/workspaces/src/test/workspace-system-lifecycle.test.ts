@@ -5,10 +5,9 @@ import {
   WorkspaceNotFoundError,
   WorkspaceSourceUnsupportedError,
 } from "../errors";
-import { MemoryWorkspaceStore } from "../memory-store";
-
+import { MemoryWorkspaceStore } from "../store/memory";
+import { artifactWorkspace, seed } from "../testing/records";
 import { directorySystem } from "./helpers/directory-system";
-import { artifactWorkspace, seed } from "./helpers/fixtures";
 import { makeRoot } from "./helpers/temp-roots";
 
 describe("remove", () => {
