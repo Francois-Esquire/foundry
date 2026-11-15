@@ -161,11 +161,16 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     const child = marbles("tasks", "create", "Child", "--parent", parent.id);
     expect(child.status, child.stderr).toBe(0);
     // Stat and bytes, read here, where no connection has the file open.
+    // A reader takes part in SQLite's locking through the shared-memory
+    // index, and may rebuild it; it holds no data.
     const look = async () =>
       await Promise.all(
         (await files(state)).map(async (file) => {
           const path = join(state, file);
           const { ino, mtimeMs, size } = await stat(path);
+          if (file.endsWith("-shm")) {
+            return { file, ino, size };
+          }
           const bytes = await readFile(path, "base64");
           return { bytes, file, ino, mtimeMs, size };
         })

@@ -70,7 +70,12 @@ async function stored(state: string): Promise<z.infer<typeof records>> {
   return records.parse(read);
 }
 
-/** The database's files, byte for byte, read where no connection has them open. */
+/**
+ * The database's files, byte for byte, read where no connection has them
+ * open. A reader takes part in SQLite's locking through the shared-memory
+ * index, and may rebuild it, so of that only its size counts; it holds no
+ * data.
+ */
 async function files(state: string) {
   const names = (await readdir(state)).filter((name) =>
     name.startsWith("marbles.db")
@@ -79,7 +84,9 @@ async function files(state: string) {
     names.sort().map(async (name) => {
       const path = join(state, name);
       const { mtimeMs, size } = await stat(path);
-      return { bytes: await readFile(path, "base64"), mtimeMs, name, size };
+      return name.endsWith("-shm")
+        ? { name, size }
+        : { bytes: await readFile(path, "base64"), mtimeMs, name, size };
     })
   );
 }

@@ -175,8 +175,12 @@ export async function writeDatabase<T>(
  *
  * With both side files beside it, the database may be open in another
  * process: the read takes part in SQLite's WAL locking through the
- * shared-memory file already there, opened read-only (`readonly_shm=1`) so
- * the read cannot make one. Without them, or with only an empty WAL file,
+ * shared-memory file already there. It opens that file read-write, as a
+ * writer does. SQLite maps one shared-memory file per database once per
+ * process, for every connection there, and libSQL closes a connection
+ * only once its statements are collected; mapped read-only
+ * (`readonly_shm=1`), every writer this process opened afterwards, until
+ * then, would be refused (`SQLITE_READONLY`). Without them, or with only an empty WAL file,
  * everything is in the main file and no connection has it open, so it is
  * read as immutable, which takes no lock and makes no side file; a file
  * that changes while it is read that way (a process opened it meanwhile)
@@ -185,11 +189,11 @@ export async function writeDatabase<T>(
  *
  * One race is narrowed, not closed. When the last writer closes between
  * this connection opening and its first read, it takes the side files with
- * it. The read then fails for want of the shared-memory file and is made
- * again as immutable, but SQLite has by then left an empty WAL file. libSQL
- * offers no supported way to stop that short of a VFS of its own. The
- * empty file holds nothing: the next reader reads past it as immutable, and
- * the next writer opens and migrates as usual.
+ * it. SQLite then makes an empty WAL file and a shared-memory file for the
+ * read, which no process holds once it closes. libSQL offers no supported
+ * way to stop that short of a VFS of its own. Neither holds anything: the
+ * next reader reads past them, and the next writer opens and migrates as
+ * usual.
  */
 export async function readDatabase<T>(
   file: string,
@@ -231,7 +235,7 @@ async function readOnce<T>(
   const before = live ? undefined : fingerprint(path);
   const client = existing(
     path,
-    live ? "mode=ro&readonly_shm=1" : "mode=ro&immutable=1",
+    live ? "mode=ro" : "mode=ro&immutable=1",
     options
   );
   let value: T | undefined;
@@ -242,7 +246,8 @@ async function readOnce<T>(
       : undefined;
   } catch (error) {
     // The last writer closed after this one opened and took the side files
-    // along: read again, now as immutable.
+    // along, and none could be made for the read (a directory this process
+    // cannot write): read again, now as immutable.
     if (live && !existsSync(`${path}-shm`)) {
       return { done: false };
     }

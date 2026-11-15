@@ -114,8 +114,8 @@ it("survives the last writer closing between its open and its first read", async
   // The reader returns what was committed.
   expect(await readDatabase(file, ids)).toEqual(["a"]);
   expect(raced).toBe(true);
-  // What the race may leave is an empty WAL file and nothing else.
-  expect(existsSync(`${file}-shm`)).toBe(false);
+  // What the race may leave is an empty WAL file and the shared-memory
+  // index of it, which no process has open, and nothing else.
   expect(statSync(`${file}-wal`, { throwIfNoEntry: false })?.size ?? 0).toBe(0);
 
   // The next reader reads past it.

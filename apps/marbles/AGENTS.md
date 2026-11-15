@@ -86,8 +86,10 @@ Five buckets, each importing only what sits below it:
   and current; `readDatabase` reads through a read-only connection and never
   creates the database file, migrates it, or changes its content. It
   makes no side file either, but for one narrow race, described on
-  `readDatabase`, that can leave an empty WAL file, which holds nothing
-  and which readers and writers pass over. `client.ts` makes everything this
+  `readDatabase`, that can leave an empty WAL file and its shared-memory
+  file, which hold nothing and which readers and writers pass over. A
+  reader opens the shared-memory file read-write: SQLite maps it once per
+  process, so a read-only mapping would refuse this process's writers. `client.ts` makes everything this
   process does on the file take turns, keyed by the file's device and
   inode (a link or another spelling of its name shares the queue), since
   the native driver blocks the thread while it waits for a lock. Nothing
