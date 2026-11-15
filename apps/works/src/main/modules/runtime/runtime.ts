@@ -15,7 +15,7 @@ import {
 import { createModuleSystem } from "@foundry/modules/platform/system";
 import { InMemoryModuleStore } from "@foundry/modules/store/memory";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { moduleDirectory } from "../local-library";
 import { type ModuleRuntime, ModuleRuntimeError } from "./controller";
 import { WORKS_MODULE_SETTINGS, worksModuleLaunch } from "./launch";

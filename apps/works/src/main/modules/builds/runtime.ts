@@ -4,7 +4,7 @@ import {
   type Container,
   createContainers,
 } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import type { SandboxProcessesFacet } from "@foundry/sandbox/types";
 import type { BuildRuntime } from "./controller";
 import { auditBuildWorkspace } from "./workspace";

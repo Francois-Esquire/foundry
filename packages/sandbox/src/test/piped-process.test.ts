@@ -1,9 +1,9 @@
 import { once } from "node:events";
 import { expect, it } from "vitest";
 import { createContainers } from "../container/containers";
-import { createMemoryContainerStore } from "../container/store";
 import { prepareSandboxProcess } from "../process";
 import { ProcessController } from "../process-controller";
+import { createMemoryContainerStore } from "../store/memory";
 import { createFakeContainerRuntime } from "../testing";
 
 it("exchanges binary input and separate output through the container process facet", async () => {
