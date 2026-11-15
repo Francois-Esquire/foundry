@@ -99,6 +99,13 @@ and commits inside the store's optional `transaction`, so a second system over
 the same store cannot write between them; `MemoryWorkspaceStore` offers one.
 Over a store without it, a second system can still interleave.
 
+A store reads a write once, when `commit` is called. `MemoryWorkspaceStore`
+takes one `structuredClone` of the whole write then, before the commit waits
+its turn, and keeps only that copy, through a transaction's view as well. A
+caller that changes its write after the call changes nothing, even while the
+commit is still queued. A write the clone refuses, such as one holding a
+function, rejects and writes nothing.
+
 Storage observation is optional. `directory({ filesystem, observer })` uses an
 explicit `StorageObserver`, or the filesystem's own `watch` capability when
 present. Its signals request reconciliation; only committed differences emit

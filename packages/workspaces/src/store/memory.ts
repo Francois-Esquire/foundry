@@ -19,8 +19,16 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
   private storage = new Storage();
   private tail: Promise<void> = Promise.resolve();
 
+  /**
+   * Takes the write as it stands now: one `structuredClone` of it, made
+   * before the commit waits its turn, so a caller changing the write later
+   * changes nothing. A write the clone refuses rejects whole and changes
+   * nothing. A transaction's view takes its writes the same way.
+   */
   commit(write: WorkspaceStoreWrite): Promise<void> {
-    return this.queued(() => this.storage.apply(write));
+    return withOwnCopy(write, (copy) =>
+      this.queued(() => this.storage.apply(copy))
+    );
   }
 
   transaction<T>(work: (view: WorkspaceStore) => Promise<T>): Promise<T> {
@@ -29,12 +37,16 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
       let open = true;
       const view: WorkspaceStore = {
         commit: (write) =>
-          new Promise((resolve) => {
-            if (!open) {
-              throw new Error("This transaction has ended");
-            }
-            resolve(staged.apply(write));
-          }),
+          withOwnCopy(
+            write,
+            (copy) =>
+              new Promise((resolve) => {
+                if (!open) {
+                  throw new Error("This transaction has ended");
+                }
+                resolve(staged.apply(copy));
+              })
+          ),
         findWorkspaceByPath: (path) =>
           Promise.resolve(staged.findWorkspaceByPath(path)),
         findWorkspaceBySourceId: (sourceId) =>
@@ -127,19 +139,15 @@ class Storage {
     return new Storage(new Map(this.workspaces), new Map(this.entries));
   }
 
-  /** Clones first, so a write holding a value that cannot be cloned changes nothing. */
+  /** Applies `write`, the store's own copy, which the maps then hold. */
   apply(write: WorkspaceStoreWrite): void {
-    const workspace =
-      write.workspace === undefined ? null : structuredClone(write.workspace);
+    const workspace = write.workspace ?? null;
     const workspaceId =
       write.workspace === undefined
         ? write.removeWorkspace
         : write.workspace.id;
     const puts = (write.putEntries ?? []).map(
-      (entry): [WorkspaceEntryId, WorkspaceEntry] => [
-        entry.id,
-        structuredClone(entry),
-      ]
+      (entry): [WorkspaceEntryId, WorkspaceEntry] => [entry.id, entry]
     );
     const entries = new Map(this.entries.get(workspaceId));
     for (const id of write.deleteEntries ?? []) {
@@ -211,6 +219,23 @@ class Storage {
   private ordered(): WorkspaceRegistration[] {
     return [...this.workspaces.values()].sort(byCreatedAtThenId);
   }
+}
+
+/**
+ * `take` with the store's own copy of `write`, or a rejection when the
+ * write cannot be cloned.
+ */
+function withOwnCopy(
+  write: WorkspaceStoreWrite,
+  take: (copy: WorkspaceStoreWrite) => Promise<void>
+): Promise<void> {
+  let copy: WorkspaceStoreWrite;
+  try {
+    copy = structuredClone(write);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  return take(copy);
 }
 
 const byId = byCodeUnit((workspace: WorkspaceRegistration) => workspace.id);
