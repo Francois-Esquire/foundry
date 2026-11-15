@@ -324,10 +324,7 @@ export class MemoryChangeLog implements ChangeLog {
  * Facts there of other sources or types it would have passed over anyway,
  * so a range may name some it would never have been handed.
  */
-export function missedBy(
-  move: ObserverMove,
-  compacted: number
-): MissedRange | null {
+function missedBy(move: ObserverMove, compacted: number): MissedRange | null {
   const through = Math.min(compacted, move.handed ? move.to - 1 : move.to);
   return through > move.from ? { from: move.from + 1, through } : null;
 }
