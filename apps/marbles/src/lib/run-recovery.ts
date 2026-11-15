@@ -182,6 +182,14 @@ function abandonedBecause(execution: ExecutionRun): {
 }
 
 export interface AbandonedRunsOptions {
+  /**
+   * The Run's Execution Run as this engine holds it, once the launcher has
+   * settled those of exited processes: what decides when the run store
+   * keeps no Execution Runs, or none for this Run, to read in the claim
+   * itself. A settled one stays settled, so one this engine holds settled
+   * is, wherever it is kept.
+   */
+  readonly execution: (runId: string) => ExecutionRun | undefined;
   /** Told of each Run closed out. */
   readonly print: (line: string) => void;
   readonly runs: RunStore;
@@ -195,8 +203,11 @@ export interface AbandonedRunsOptions {
  * settles those of processes that have exited first), under a claim no
  * live engine holds. Decided in the claim's own atomic step, so a Run
  * live anywhere, this engine's included, is left alone: its Execution Run
- * has not settled. Safe to run again: a Run closed out is settled, and a
- * claim a crash left is a gone process's, which owns nothing. The run
+ * has not settled. From a run store that keeps no Execution Runs, or holds
+ * none for the Run (the host keeps them elsewhere), the one this engine
+ * holds decides, and the Run is claimed only if that one has settled.
+ * Safe to run again: a Run closed out is settled, and a claim a crash
+ * left is a gone process's, which owns nothing. The run
  * store keeps no Execution Runs in memory, and nothing there outlives a
  * process, so this does nothing there. Returns the ids closed out.
  */
@@ -208,17 +219,19 @@ export async function closeAbandonedRuns(
     return closed;
   }
   for (const run of await unsettled(options.store)) {
-    // Whatever the claim's step read the Execution Run as.
+    // Whatever the claim's step read the Execution Run as. `null` is no
+    // Execution Run beside the Run, which says nothing of one the host
+    // keeps in another store: then the one this engine holds decides,
+    // read first, since a settled one stays settled. A Run whose
+    // Execution Run is open is never claimed, so one this engine runs
+    // keeps its claim.
+    const held = options.execution(run.id);
     const read: { settled?: ExecutionRun } = {};
     const claimed = await options.runs.claim(run.id, (stored, execution) => {
       const open = stored?.status === "queued" || stored?.status === "running";
-      if (
-        open &&
-        execution !== null &&
-        execution !== undefined &&
-        SETTLED_EXECUTION_STATUSES.has(execution.status)
-      ) {
-        read.settled = execution;
+      const seen = execution ?? held;
+      if (open && seen && SETTLED_EXECUTION_STATUSES.has(seen.status)) {
+        read.settled = seen;
         return true;
       }
       return false;

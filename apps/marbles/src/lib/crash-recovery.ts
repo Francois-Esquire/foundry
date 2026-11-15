@@ -146,7 +146,13 @@ export class CrashRecovery {
       await this.#step("processes", () => this.#processes()),
       await this.#step("containers", () => this.#containers()),
       await this.#step("runs", async () => {
-        closed = await closeAbandonedRuns({ print, runs, store });
+        closed = await closeAbandonedRuns({
+          execution: (runId) =>
+            this.#options.executions().find((run) => run.id === runId),
+          print,
+          runs,
+          store,
+        });
         return done(closed.length, "run(s) closed out");
       }),
       await this.#step("activities", async () =>
