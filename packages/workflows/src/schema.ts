@@ -536,6 +536,42 @@ export const RunFrameSchema = z
   );
 export type RunFrame = z.infer<typeof RunFrameSchema>;
 
+// ── Run facts ──
+
+/**
+ * What happened to a Run, one past-tense name per change of its lifecycle:
+ * filed (`queued`), set running (`started`), suspended on a Suspension
+ * (`parked`), queued again once its Suspension resolved (`resumed`), ended
+ * (`completed`, `failed`, `cancelled`), and deleted (`removed`).
+ */
+export const RUN_FACT_TYPES = [
+  "run.queued",
+  "run.started",
+  "run.parked",
+  "run.resumed",
+  "run.completed",
+  "run.failed",
+  "run.cancelled",
+  "run.removed",
+] as const;
+export const RunFactTypeSchema = z.enum(RUN_FACT_TYPES);
+export type RunFactType = z.infer<typeof RunFactTypeSchema>;
+
+/**
+ * A change fact: one change `ExecutionCoordinator` made to a Run, carried in
+ * the store write that makes it (`WorkflowStoreWrite.facts`). `id` names the
+ * fact itself and `at` is when the coordinator built it, an ISO time. A
+ * handler reads the Run by `runId` for anything more.
+ */
+export const RunFactSchema = z.strictObject({
+  at: z.iso.datetime(),
+  id: z.string().min(1),
+  queueId: z.string(),
+  runId: RunIdSchema,
+  type: RunFactTypeSchema,
+});
+export type RunFact = z.infer<typeof RunFactSchema>;
+
 export const ORCHESTRATOR_STORE_SNAPSHOT_VERSION = 1 as const;
 
 /** Complete in-memory store image: every record, before cross-checks. */

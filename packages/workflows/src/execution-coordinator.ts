@@ -46,6 +46,7 @@ import { createExtensions, mergeExtensions } from "./extensions";
 import type { JsonValue } from "./json-value";
 import { rowToRecoverable } from "./metadata-codec";
 import { defineOwnEntry } from "./own-entry";
+import { runFact, withFacts } from "./run-facts";
 import type {
   AppendRunFrameInput,
   ClaimRunEffectInput,
@@ -139,6 +140,12 @@ let claimOn: (
  * atomic aggregates (a managed Job attempt, a cancellation, a parked or
  * settled Suspension), first-writer Queues, unique ids, and the frame
  * sequence of each Run's journal. The store enforces none of these.
+ *
+ * Each change to a Run's lifecycle also builds a change fact (`RunFact`:
+ * `run.queued`, `run.started`, ...) and carries it in the same write
+ * (`WorkflowStoreWrite.facts`), so a host's hook inside the commit records
+ * it with the change or not at all. A change that leaves every Run's status
+ * as it was carries none.
  *
  * Each change is one read-modify-write ending in one `commit`. When the
  * store offers `transaction`, each runs inside one, so coordinators sharing
@@ -332,11 +339,16 @@ export class ExecutionCoordinator implements OrchestratorStore {
       const suspensions = pending.map((record) =>
         cancelSuspensionRecord(record, cancelledAt)
       );
-      await store.commit({
-        putJobs: [nextJob],
-        ...(nextRun ? { putRuns: [nextRun] } : {}),
-        putSuspensions: suspensions,
-      });
+      await store.commit(
+        withFacts(
+          {
+            putJobs: [nextJob],
+            ...(nextRun ? { putRuns: [nextRun] } : {}),
+            putSuspensions: suspensions,
+          },
+          active && nextRun ? runFact(active, nextRun) : undefined
+        )
+      );
       return { job: nextJob, run: nextRun, suspensions };
     });
   }
@@ -354,7 +366,9 @@ export class ExecutionCoordinator implements OrchestratorStore {
         );
       }
       const record = buildRunRecord(id, input);
-      await store.commit({ putRuns: [record] });
+      await store.commit(
+        withFacts({ putRuns: [record] }, runFact(null, record))
+      );
       return record;
     });
   }
@@ -419,7 +433,9 @@ export class ExecutionCoordinator implements OrchestratorStore {
         ...input,
         links: { ...(input.links ?? {}), jobId },
       });
-      await store.commit({ putJobs: [nextJob], putRuns: [run] });
+      await store.commit(
+        withFacts({ putJobs: [nextJob], putRuns: [run] }, runFact(null, run))
+      );
       return { claim: { job: nextJob, run }, status: "claimed" };
     });
   }
@@ -444,7 +460,9 @@ export class ExecutionCoordinator implements OrchestratorStore {
         return existing;
       }
       const updated = normalizeRunRecord(applyRunPatch(existing, patch));
-      await store.commit({ putRuns: [updated] });
+      await store.commit(
+        withFacts({ putRuns: [updated] }, runFact(existing, updated))
+      );
       return updated;
     });
   }
@@ -471,14 +489,21 @@ export class ExecutionCoordinator implements OrchestratorStore {
 
   deleteRun(id: string): Promise<void> {
     return this.#exclusive(async (store) => {
-      const [suspensions, frames] = await Promise.all([
+      const [run, suspensions, frames] = await Promise.all([
+        store.getRun(id),
         store.listSuspensions({ limit: 1, runId: id }),
         canonicalFrames(store, id),
       ]);
       if (suspensions.items.length > 0 || frames.length > 0) {
         throw new RecordInUseError("run", id);
       }
-      await store.commit({ deleteRuns: [id] });
+      // A Run that is not filed is not removed: the delete changes nothing.
+      await store.commit(
+        withFacts(
+          { deleteRuns: [id] },
+          runFact(run && hydrateRunRecord(run), null)
+        )
+      );
     });
   }
 
@@ -552,7 +577,12 @@ export class ExecutionCoordinator implements OrchestratorStore {
       const nextRun = normalizeRunRecord(
         applyRunPatch(run, { ...runPatch, status: "suspended" })
       );
-      await store.commit({ putRuns: [nextRun], putSuspensions: [suspension] });
+      await store.commit(
+        withFacts(
+          { putRuns: [nextRun], putSuspensions: [suspension] },
+          runFact(run, nextRun)
+        )
+      );
       return { created: true, suspension };
     });
   }
@@ -634,10 +664,12 @@ export class ExecutionCoordinator implements OrchestratorStore {
           status: input.outcome.status === "resolved" ? "queued" : "cancelled",
         })
       );
-      await store.commit({
-        putRuns: [nextRun],
-        putSuspensions: [nextSuspension],
-      });
+      await store.commit(
+        withFacts(
+          { putRuns: [nextRun], putSuspensions: [nextSuspension] },
+          runFact(run, nextRun)
+        )
+      );
       return { run: nextRun, suspension: nextSuspension };
     });
   }
@@ -876,7 +908,12 @@ export class ExecutionCoordinator implements OrchestratorStore {
       const nextRun = normalizeRunRecord(
         applyRunPatch(run, { ...runPatch, status: "cancelled" })
       );
-      await store.commit({ putRuns: [nextRun], putSuspensions: suspensions });
+      await store.commit(
+        withFacts(
+          { putRuns: [nextRun], putSuspensions: suspensions },
+          runFact(run, nextRun)
+        )
+      );
       return { run: nextRun, suspensions };
     });
   }

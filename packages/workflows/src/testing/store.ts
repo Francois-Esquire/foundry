@@ -3,6 +3,8 @@ import { describe, expect, test } from "vitest";
 import type {
   JobRecord,
   QueueRecord,
+  RunFact,
+  RunFactType,
   RunFrame,
   RunRecord,
   SuspensionRecord,
@@ -174,6 +176,48 @@ export function describeWorkflowStore(
       });
 
       expect(await contents(target)).toStrictEqual(records);
+    });
+
+    test("a write's facts change no record, with records or alone", async () => {
+      const target = await store();
+      const records = everyKind();
+      await target.commit({
+        ...putAll(records),
+        facts: [fact("run.queued", "rn-a"), fact("run.started", "rn-a")],
+      });
+      await target.commit({ facts: [fact("run.removed", "rn-gone")] });
+
+      expect(await contents(target)).toStrictEqual(records);
+    });
+
+    test("refuses a fact a copy would read less of, and keeps nothing of its write", async () => {
+      const target = await store();
+      class Fact {
+        readonly type = "run.queued";
+      }
+      const refusals: [WorkflowStoreWrite, string][] = [
+        [
+          { facts: fact("run.queued", "rn-a") as unknown as RunFact[] },
+          "facts must be an array",
+        ],
+        [
+          {
+            facts: [
+              fact("run.queued", "rn-a"),
+              new Fact() as unknown as RunFact,
+            ],
+            putRuns: [run("rn-a")],
+          },
+          "facts[1] must be a plain object",
+        ],
+      ];
+      for (const [write, message] of refusals) {
+        await expect(target.commit(write)).rejects.toThrow(message);
+        await expect(
+          transactionOf(target)((view) => view.commit(write))
+        ).rejects.toThrow(message);
+      }
+      expect(await contents(target)).toStrictEqual(EMPTY);
     });
 
     test("a failing commit leaves nothing behind", async () => {
@@ -908,6 +952,16 @@ function job(id: string, overrides: Partial<JobRecord> = {}): JobRecord {
       failedAt: null,
     },
     ...overrides,
+  };
+}
+
+function fact(type: RunFactType, runId: string): RunFact {
+  return {
+    at: "2026-11-15T00:00:00.000Z",
+    id: `rf-${type}-${runId}`,
+    queueId: "default",
+    runId,
+    type,
   };
 }
 

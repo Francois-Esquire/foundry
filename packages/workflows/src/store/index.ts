@@ -2,6 +2,7 @@ import type {
   JobRecord,
   JobStatus,
   QueueRecord,
+  RunFact,
   RunFrame,
   RunRecord,
   RunStatus,
@@ -24,6 +25,14 @@ export interface WorkflowStoreWrite {
   readonly deleteRunFrames?: readonly string[];
   readonly deleteRuns?: readonly string[];
   readonly deleteSuspensions?: readonly string[];
+  /**
+   * What the write does to Runs, in the order the coordinator built them;
+   * present whenever it changes a Run's lifecycle, left out otherwise. A
+   * store keeps no record of them: it hands them, with the rest of its copy
+   * of the write, to a host's hook that runs inside the commit (the SQLite
+   * store's `onCommit`), and ignores them otherwise.
+   */
+  readonly facts?: readonly RunFact[];
   readonly putFrames?: readonly RunFrame[];
   readonly putJobs?: readonly JobRecord[];
   readonly putQueues?: readonly QueueRecord[];
