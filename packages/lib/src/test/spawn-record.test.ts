@@ -222,3 +222,26 @@ it("keeps, as a child exits, a recovery record that names another process", asyn
   expect(existsSync(path)).toBe(true);
   expect(JSON.parse(readFileSync(path, "utf8")).started).toBe(NEWER.started);
 });
+
+it("reports, and writes no record of, a process the listing leaves out while a signal still reaches it", async () => {
+  vi.resetModules();
+  const fresh = await import("../spawn-record");
+  const dir = scratch();
+  const stderr = vi
+    .spyOn(process.stderr, "write")
+    .mockImplementation(() => true);
+  let written = "";
+  try {
+    fresh.recordSpawned(
+      4_200_190,
+      false,
+      { [SPAWN_RECORD_ENV]: dir },
+      { alive: () => true, look: () => new Map() }
+    );
+  } finally {
+    written = stderr.mock.calls.flat().join("");
+    stderr.mockRestore();
+  }
+  expect(readdirSync(dir)).toEqual([]);
+  expect(written).toContain("not listed, yet a signal reaches it");
+});

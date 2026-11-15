@@ -652,3 +652,136 @@ it("forgets a record left aside by a removal cut short, by the file it read it f
   expect(running.sent).toEqual([[orphan.pid, "SIGTERM"]]);
   expect(readdirSync(dir)).toEqual([]);
 });
+
+/**
+ * A table where each listed process is as given, and a signal reaches
+ * each pid in `answering` (and every listed one); nothing is signalled.
+ */
+function judged(
+  listed: Map<number, SeenProcess>,
+  answering: ReadonlySet<number>
+): { readonly sent: unknown[]; readonly table: ProcessTable } {
+  const sent: unknown[] = [];
+  return {
+    sent,
+    table: {
+      alive: (pid) => listed.has(pid) || answering.has(pid),
+      kill: (...args) => {
+        sent.push(args);
+        throw new Error("nothing here may be signalled");
+      },
+      look: (pids) =>
+        new Map([...listed].filter(([pid]) => pids.includes(pid))),
+      members: (pgid) =>
+        new Map([...listed].filter(([, seen]) => seen.pgid === pgid)),
+      sleep: () => Promise.resolve(),
+    },
+  };
+}
+
+it("keeps, and reports, the record of a process the listing leaves out that a signal still reaches, whoever it is: child, leader or member", async () => {
+  const child = 4_200_150;
+  const leader = 4_200_151;
+  const member = 4_200_152;
+  const owner = { pid: 4_200_159, started: MADE_UP };
+  const cases: [string, SpawnRecord, number][] = [
+    ["child", { group: false, owner, pid: child, started: MADE_UP }, child],
+    ["leader", { group: true, owner, pid: leader, started: MADE_UP }, leader],
+    [
+      "member",
+      {
+        group: true,
+        members: [{ pid: member, started: MADE_UP }],
+        owner,
+        pid: leader,
+        started: MADE_UP,
+      },
+      member,
+    ],
+  ];
+  for (const [kind, entry, answering] of cases) {
+    const dir = scratch();
+    record(dir, entry);
+    const { sent, table } = judged(new Map(), new Set([answering]));
+    const stop = await stopOrphans(dir, {
+      graceMs: 0,
+      killMs: 0,
+      system: table,
+    });
+    expect({ kind, sent, stopped: stop.stopped }).toEqual({
+      kind,
+      sent: [],
+      stopped: [],
+    });
+    expect({ kind, problems: stop.problems }).toEqual({
+      kind,
+      problems: [expect.stringContaining("a signal still reaches it")],
+    });
+    expect({ kept: existsSync(recordPath(dir, entry.pid)), kind }).toEqual({
+      kept: true,
+      kind,
+    });
+  }
+});
+
+it("forgets the record of a process gone on proof: unlisted with no signal reaching it, or listed exited and unreaped though a signal reaches it", async () => {
+  const pid = 4_200_160;
+  const owner = { pid: 4_200_169, started: MADE_UP };
+  for (const [kind, listed] of [
+    ["unlisted", new Map<number, SeenProcess>()],
+    [
+      "zombie",
+      new Map<number, SeenProcess>([
+        [pid, { exited: true, pgid: pid, started: MADE_UP }],
+      ]),
+    ],
+  ] as const) {
+    for (const group of [false, true]) {
+      const dir = scratch();
+      record(dir, { group, owner, pid, started: MADE_UP });
+      const { sent, table } = judged(listed, new Set());
+      expect({
+        group,
+        kind,
+        stop: await stopOrphans(dir, { system: table }),
+      }).toEqual({ group, kind, stop: { problems: [], stopped: [] } });
+      expect(sent).toEqual([]);
+      expect({ group, kept: existsSync(recordPath(dir, pid)), kind }).toEqual({
+        group,
+        kept: false,
+        kind,
+      });
+    }
+  }
+});
+
+it("does not take an orphan for gone, once signalled, while it is unlisted but a signal still reaches it", async () => {
+  const dir = scratch();
+  const pid = 4_200_170;
+  record(dir, { group: false, owner: OWNER, pid, started: MADE_UP });
+  let listed = true;
+  const sent: unknown[] = [];
+  const table: ProcessTable = {
+    // Signalled, it drops out of the listing but still answers.
+    alive: (each) => each === pid,
+    kill: (...args) => {
+      sent.push(args);
+      listed = false;
+    },
+    look: (pids) =>
+      new Map(
+        listed && pids.includes(pid)
+          ? [[pid, { pgid: pid, started: MADE_UP }]]
+          : []
+      ),
+    members: () => new Map(),
+    sleep: () => Promise.resolve(),
+  };
+  const stop = await stopOrphans(dir, { graceMs: 0, killMs: 0, system: table });
+  expect(sent).toEqual([[pid, "SIGTERM"]]);
+  expect(stop.stopped).toEqual([]);
+  expect(stop.problems).toEqual([
+    expect.stringContaining("a signal still reaches it"),
+  ]);
+  expect(existsSync(recordPath(dir, pid))).toBe(true);
+});

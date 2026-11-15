@@ -326,8 +326,10 @@ const LOOKUP: ProcessLookup = {
 
 /**
  * The start of the process `pid` (see above); `null` when no process has
- * the pid, or the one that has it has exited and waits to be reaped (a
- * zombie), which runs nothing; `undefined` when the system cannot say.
+ * the pid (none is listed, and no signal reaches it), or the one that has
+ * it has exited and waits to be reaped (a zombie), which runs nothing;
+ * `undefined` when the system cannot say, as when the listing leaves out
+ * a pid a signal still reaches.
  */
 export function startedAt(
   pid: number,
@@ -338,7 +340,11 @@ export function startedAt(
     return;
   }
   const found = seen.get(pid);
-  return found === undefined || found.exited === true ? null : found.started;
+  if (found === undefined) {
+    // Absence from a listing is no proof while a signal still reaches it.
+    return lookup.alive(pid) ? undefined : null;
+  }
+  return found.exited === true ? null : found.started;
 }
 
 /**
@@ -381,59 +387,82 @@ export function compareStarts(
 }
 
 /**
- * Whether the process `owner` names is gone: no process has its pid, the
- * one that has it has exited and waits to be reaped (a zombie: a signal
- * still reaches it, but it runs nothing), or the one that has it now
- * started at another time. When the starts cannot be compared, the pid
- * alone decides, so a live owner is never taken for gone; nor is one the
- * system cannot say anything of, or lists nothing for while a signal
- * still reaches it.
+ * What can be said of the process `identity` names now, by the one rule
+ * for every pid Foundry reasons about (an owner, a recorded child, a
+ * group's leader or member):
+ *
+ * - `gone`, only on positive evidence: no signal reaches its pid; or the
+ *   process with it is listed as exited and waiting to be reaped (a
+ *   zombie: a signal still reaches it, but it runs nothing); or it is
+ *   listed with a start of the same kind that differs.
+ * - `running`: listed, not exited, with the same start.
+ * - `unknown`, for anything else: the listing failed; or it leaves the pid
+ *   out while a signal still reaches it (absence from a listing is no
+ *   proof); or the starts cannot be compared (another kind, or none).
  */
-export function isGone(
-  owner: ProcessIdentity,
+export function processState(
+  identity: ProcessIdentity,
   lookup: ProcessLookup = LOOKUP
-): boolean {
-  if (owner.pid === SELF.pid) {
+): ProcessState {
+  if (identity.pid === SELF.pid) {
     // A process before this one that had its pid, as after a reboot.
-    return compareStarts(owner.started, SELF.started) === "different";
+    return compareStarts(identity.started, SELF.started) === "different"
+      ? "gone"
+      : "running";
   }
-  if (!lookup.alive(owner.pid)) {
-    return true;
+  if (!lookup.alive(identity.pid)) {
+    return "gone";
   }
-  // A start read a moment ago may only confirm the owner: anything else
+  // A start read a moment ago may only confirm the process: anything else
   // is decided on a fresh read, since the pid may be another's by now.
   // Only this system's own reads are kept, and only they confirm: what a
   // lookup a caller hands in says is never taken for what the system said.
   const cached = lookup === LOOKUP;
   if (
     cached &&
-    owner.started !== null &&
-    confirmedRecently(owner.pid, owner.started)
+    identity.started !== null &&
+    confirmedRecently(identity.pid, identity.started)
   ) {
-    return false;
+    return "running";
   }
   const remember = cached ? rememberSeen : () => undefined;
-  const seen = lookup.look([owner.pid]);
+  const seen = lookup.look([identity.pid]);
   if (seen === undefined) {
-    remember(owner.pid, undefined);
-    return false;
+    remember(identity.pid, undefined);
+    return "unknown";
   }
-  const found = seen.get(owner.pid);
+  const found = seen.get(identity.pid);
   if (found?.exited === true) {
-    remember(owner.pid, null);
-    return true;
+    remember(identity.pid, null);
+    return "gone";
   }
   if (found === undefined) {
-    remember(owner.pid, null);
+    remember(identity.pid, null);
     // Listed as no process, yet a signal reached it a moment ago: the
     // listing is not trusted over the signal.
-    return !lookup.alive(owner.pid);
+    return lookup.alive(identity.pid) ? "unknown" : "gone";
   }
-  remember(owner.pid, found.started);
-  return (
-    owner.started !== null &&
-    compareStarts(found.started, owner.started) === "different"
-  );
+  remember(identity.pid, found.started);
+  const start = compareStarts(found.started, identity.started);
+  if (start === "same") {
+    return "running";
+  }
+  return start === "different" ? "gone" : "unknown";
+}
+
+export type ProcessState = "gone" | "running" | "unknown";
+
+/**
+ * Whether the process `owner` names is gone, by `processState`'s rule:
+ * never on absence from a listing while a signal still reaches its pid,
+ * nor when the starts cannot be compared, so a live owner is never taken
+ * for gone.
+ */
+export function isGone(
+  owner: ProcessIdentity,
+  lookup: ProcessLookup = LOOKUP
+): boolean {
+  return processState(owner, lookup) === "gone";
 }
 
 /** Whether `one` and `other` name the same process, as far as either says. */

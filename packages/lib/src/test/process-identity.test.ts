@@ -10,6 +10,7 @@ import {
   lookProcesses,
   ownerOf,
   type ProcessLookup,
+  processState,
   procStat,
   psLine,
   psListing,
@@ -341,4 +342,39 @@ it("reads a /proc stat line only with a boot id and a state of their shapes", ()
   expect(procStat(`4243 (sleep) S ${rest}`, BOOT)?.started).toBe(
     `linux:${BOOT}:987654`
   );
+});
+
+it("says a process is gone only on proof, running only on its start, and cannot tell otherwise", () => {
+  const at = { pid: 4_200_301, started: AT };
+  const cases: [string, ProcessLookup, string][] = [
+    ["no signal reaches it", madeUp(false, "absent"), "gone"],
+    [
+      "listed exited, a signal reaching it",
+      madeUp(true, { exited: true, pgid: 1, started: AT }),
+      "gone",
+    ],
+    [
+      "listed with another start",
+      madeUp(true, { pgid: 1, started: "ps:Sun Nov 15 09:00:00 2026" }),
+      "gone",
+    ],
+    [
+      "listed with its start",
+      madeUp(true, { pgid: 1, started: AT }),
+      "running",
+    ],
+    ["unlisted, a signal reaching it", madeUp(true, "absent"), "unknown"],
+    ["the listing failed", madeUp(true, undefined), "unknown"],
+    [
+      "a start of another kind",
+      madeUp(true, { pgid: 1, started: "linux:x:1" }),
+      "unknown",
+    ],
+  ];
+  for (const [what, lookup, state] of cases) {
+    expect({ state: processState(at, lookup), what }).toEqual({ state, what });
+  }
+  // A start read for a pid the listing leaves out while it answers is unknown.
+  expect(startedAt(4_200_302, madeUp(true, "absent"))).toBeUndefined();
+  expect(startedAt(4_200_303, madeUp(false, "absent"))).toBeNull();
 });

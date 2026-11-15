@@ -58,6 +58,7 @@ import {
   type ProcessIdentity,
   type ProcessLookup,
   processAlive,
+  processState,
   type SeenProcess,
 } from "./process-identity";
 import {
@@ -97,6 +98,15 @@ export interface ProcessTable {
   sleep(ms: number): Promise<void>;
 }
 
+/**
+ * The table a stop works with: exited processes left out of what it
+ * lists (`running`), and the table as it is (`lookup`), which every
+ * judgement that a process is gone goes through (`processState`).
+ */
+interface Table extends ProcessTable {
+  readonly lookup: ProcessLookup;
+}
+
 /** A record, and the file it was read from: what it is forgotten by. */
 interface ReadRecord extends SpawnRecord {
   readonly path: string;
@@ -115,13 +125,6 @@ export async function stopOrphans(
 ): Promise<OrphanStop> {
   const table = options.system ?? SYSTEM;
   const system = running(table);
-  // Whether an owner is gone is the one rule's (`isGone`), asked of the
-  // table as it is: an exited, unreaped owner is listed so, and one the
-  // listing leaves out is not gone while a signal still reaches it.
-  const owners: ProcessLookup = {
-    alive: (pid) => table.alive(pid),
-    look: (pids) => table.look(pids),
-  };
   const limits = {
     graceMs: options.graceMs ?? GRACE_MS,
     killMs: options.killMs ?? KILL_MS,
@@ -129,7 +132,7 @@ export async function stopOrphans(
   const stopped: number[] = [];
   const problems = new Set<string>();
   for (let pass = 0; pass < MAX_PASSES; pass += 1) {
-    const found = orphansIn(dir, system, owners);
+    const found = orphansIn(dir, system);
     for (const problem of found.problems) {
       problems.add(problem);
     }
@@ -170,11 +173,7 @@ interface OrphanGroup {
 }
 
 /** The orphans `dir` records now; the records of processes that are gone go. */
-function orphansIn(
-  dir: string,
-  system: ProcessTable,
-  owners: ProcessLookup
-): Found {
+function orphansIn(dir: string, system: Table): Found {
   const { problems, records } = readRecords(dir);
   const pids = records.flatMap((record) =>
     record.owner === undefined ? [record.pid] : [record.pid, record.owner.pid]
@@ -190,7 +189,7 @@ function orphansIn(
   const orphans: ReadRecord[] = [];
   const groups: OrphanGroup[] = [];
   for (const record of records) {
-    const verdict = judge(record, seen, system, owners);
+    const verdict = judge(record, seen, system);
     if (verdict === "gone") {
       forget(record);
     } else if (verdict === "orphan") {
@@ -215,34 +214,28 @@ type Verdict =
 function judge(
   record: ReadRecord,
   seen: ReadonlyMap<number, SeenProcess>,
-  system: ProcessTable,
-  owners: ProcessLookup
+  system: Table
 ): Verdict {
   if (record.pid === process.pid) {
     return "kept";
   }
-  const found = seen.get(record.pid);
-  const start =
-    found === undefined
-      ? "absent"
-      : compareStarts(found.started, record.started);
-  if (start === "unknown") {
-    return {
-      problem: `process ${String(record.pid)} runs, and its record names a start of another kind than this system reads; not signalled, its record kept`,
-    };
+  const state = processState(record, system.lookup);
+  if (state === "unknown") {
+    return { problem: `${cannotTell(record, system)}, its record kept` };
   }
-  if (record.owner !== undefined && !isGone(record.owner, owners)) {
-    return start === "same" || record.group ? "kept" : "gone";
-  }
-  if (record.owner === undefined) {
-    // Never an orphan's: nothing says whose it was.
-    return start === "same" ? "kept" : "gone";
+  const ownerThere =
+    record.owner !== undefined && !isGone(record.owner, system.lookup);
+  if (record.owner === undefined || ownerThere) {
+    // Never an orphan's: its owner is there, or nothing says whose it was.
+    return state === "running" || (record.group && ownerThere)
+      ? "kept"
+      : "gone";
   }
   if (!record.group) {
-    return start === "same" ? "orphan" : "gone";
+    return state === "running" ? "orphan" : "gone";
   }
-  if (start === "same") {
-    return found?.pgid === record.pid
+  if (state === "running") {
+    return seen.get(record.pid)?.pgid === record.pid
       ? "group"
       : {
           problem: `process ${String(record.pid)} was recorded leading its own group and no longer does; not signalled`,
@@ -252,11 +245,43 @@ function judge(
 }
 
 /**
+ * Why `identity` cannot be told gone or running: the listing leaves it
+ * out while a signal still reaches it, the listing failed, or its start
+ * is of another kind than this system reads.
+ */
+function cannotTell(identity: ProcessIdentity, system: Table): string {
+  const pid = String(identity.pid);
+  const seen = system.lookup.look([identity.pid]);
+  if (seen === undefined) {
+    return `process ${pid} could not be listed; not signalled`;
+  }
+  return seen.has(identity.pid)
+    ? `process ${pid} runs, and its record names a start of another kind than this system reads; not signalled`
+    : `process ${pid} is not listed but a signal still reaches it; not signalled`;
+}
+
+/**
+ * Why the group `record` leads cannot be told empty: each of its leader
+ * and recorded members that is not gone on proof; `undefined` when every
+ * one is.
+ */
+function untold(record: ReadRecord, system: Table): string | undefined {
+  const reasons = [record, ...(record.members ?? [])]
+    .filter(
+      (member, index, all) =>
+        all.findIndex((other) => other.pid === member.pid) === index &&
+        processState(member, system.lookup) === "unknown"
+    )
+    .map((member) => cannotTell(member, system));
+  return reasons.length === 0 ? undefined : reasons.join("; ");
+}
+
+/**
  * What is left of a group whose leader is gone: nothing (`gone`), members
  * its record names that can be proved (`members`), or members it cannot
  * prove, which keep the record, reported.
  */
-function leftMembers(record: ReadRecord, system: ProcessTable): Verdict {
+function leftMembers(record: ReadRecord, system: Table): Verdict {
   const members = system.members(record.pid);
   if (members === undefined) {
     return {
@@ -264,7 +289,13 @@ function leftMembers(record: ReadRecord, system: ProcessTable): Verdict {
     };
   }
   if (members.size === 0) {
-    return "gone";
+    // Empty only once its leader and every member it records is gone on proof.
+    const reasons = untold(record, system);
+    return reasons === undefined
+      ? "gone"
+      : {
+          problem: `group ${String(record.pid)}: ${reasons}; pending, its record kept`,
+        };
   }
   return (record.members ?? []).some((member) => proved(member, members))
     ? "members"
@@ -292,7 +323,7 @@ function proved(
 /** SIGTERM, a grace period, SIGKILL, a last wait; each signal on a fresh proof. */
 async function stopAll(
   orphans: readonly ReadRecord[],
-  system: ProcessTable,
+  system: Table,
   limits: { readonly graceMs: number; readonly killMs: number }
 ): Promise<OrphanStop> {
   signal(orphans, "SIGTERM", system);
@@ -311,8 +342,10 @@ async function stopAll(
     }
   }
   return {
-    problems: left.map(
-      ({ pid }) => `process ${String(pid)} would not stop; its record is kept`
+    problems: left.map((record) =>
+      processState(record, system.lookup) === "running"
+        ? `process ${String(record.pid)} would not stop; its record is kept`
+        : `${cannotTell(record, system)}, its record kept`
     ),
     stopped,
   };
@@ -334,20 +367,20 @@ function signal(
   }
 }
 
-/** Poll until none of `records` runs as recorded, or `ms` pass; those still running. */
+/**
+ * Poll until each of `records` is gone on proof (`processState`), or `ms`
+ * pass; those that are not: still running, or not to be told gone.
+ */
 async function waitGone(
   records: readonly ReadRecord[],
   ms: number,
-  system: ProcessTable
+  system: Table
 ): Promise<ReadRecord[]> {
   const deadline = Date.now() + ms;
   for (;;) {
-    const seen = system.look(records.map(({ pid }) => pid));
-    // A table that cannot say proves nothing gone.
-    const left =
-      seen === undefined
-        ? [...records]
-        : records.filter((record) => proved(record, seen));
+    const left = records.filter(
+      (record) => processState(record, system.lookup) !== "gone"
+    );
     if (left.length === 0 || Date.now() >= deadline) {
       return left;
     }
@@ -374,7 +407,7 @@ async function waitGone(
  */
 async function stopGroup(
   group: OrphanGroup,
-  system: ProcessTable,
+  system: Table,
   limits: { readonly graceMs: number; readonly killMs: number }
 ): Promise<string | undefined> {
   const pgid = group.record.pid;
@@ -423,12 +456,15 @@ async function stopGroup(
     ["SIGKILL", limits.killMs],
   ] as const) {
     send(name);
-    if (await emptied(pgid, ms, system)) {
+    if (await emptied(record, ms, system)) {
       forget(record);
       return;
     }
   }
-  return `group ${String(pgid)} still has members after SIGKILL; pending, its record kept`;
+  const reasons = untold(record, system);
+  return reasons === undefined
+    ? `group ${String(pgid)} still has members after SIGKILL; pending, its record kept`
+    : `group ${String(pgid)}: ${reasons}; pending, its record kept`;
 }
 
 /**
@@ -461,13 +497,18 @@ function withMembers(
 
 /** Poll until no process of the group `pgid` is left, or `ms` pass. */
 async function emptied(
-  pgid: number,
+  record: ReadRecord,
   ms: number,
-  system: ProcessTable
+  system: Table
 ): Promise<boolean> {
   const deadline = Date.now() + ms;
   for (;;) {
-    if (system.members(pgid)?.size === 0) {
+    // No member listed in it, and its leader and every member it records
+    // gone on proof: absence from the listing alone proves none gone.
+    if (
+      system.members(record.pid)?.size === 0 &&
+      untold(record, system) === undefined
+    ) {
       return true;
     }
     if (Date.now() >= deadline) {
@@ -485,7 +526,7 @@ async function emptied(
  * keep its record, and its group's, pending forever where no one reaps it,
  * as in a container whose first process does not.
  */
-function running(table: ProcessTable): ProcessTable {
+function running(table: ProcessTable): Table {
   const live = (
     seen: ReadonlyMap<number, SeenProcess> | undefined
   ): ReadonlyMap<number, SeenProcess> | undefined =>
@@ -496,6 +537,12 @@ function running(table: ProcessTable): ProcessTable {
     alive: (pid) => table.alive(pid),
     kill: (target, name) => table.kill(target, name),
     look: (pids) => live(table.look(pids)),
+    // Whether a process is gone is asked of the table as it is, by the one
+    // rule (`processState`): exited, unreaped processes listed so.
+    lookup: {
+      alive: (pid) => table.alive(pid),
+      look: (pids) => table.look(pids),
+    },
     members: (pgid) => live(table.members(pgid)),
     sleep: (ms) => table.sleep(ms),
   };

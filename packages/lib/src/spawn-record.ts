@@ -57,6 +57,8 @@ import {
   groupMembers,
   lookProcesses,
   type ProcessIdentity,
+  type ProcessLookup,
+  processAlive,
   type SeenProcess,
   thisProcess,
 } from "./process-identity";
@@ -159,16 +161,18 @@ export function notPrivate(
 export function recordSpawned(
   pid: number | undefined,
   group: boolean,
-  env: Readonly<Record<string, string | undefined>> = process.env
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  lookup?: ProcessLookup
 ): void {
-  recordInto(pid, group, env);
+  recordInto(pid, group, env, lookup);
 }
 
 /** `recordSpawned`, giving back the start its records name, if it wrote them. */
 function recordInto(
   pid: number | undefined,
   group: boolean,
-  env: Readonly<Record<string, string | undefined>>
+  env: Readonly<Record<string, string | undefined>>,
+  lookup: ProcessLookup = RECORD_LOOKUP
 ): string | undefined {
   const all = named(env[SPAWN_RECORD_ENV]);
   const recovery = named(env[SPAWN_RECOVERY_ENV]);
@@ -176,7 +180,7 @@ function recordInto(
     return;
   }
   try {
-    return write(pid, group, all, recovery);
+    return write(pid, group, all, recovery, lookup);
   } catch (error) {
     if (!reported) {
       reported = true;
@@ -249,6 +253,12 @@ export interface RecordGroupOptions {
 const GROUP_GRACE_MS = 2000;
 const GROUP_KILL_MS = 1000;
 const GROUP_POLL_MS = 50;
+
+/** How a record reads the process it records: this system. */
+const RECORD_LOOKUP: ProcessLookup = {
+  alive: (pid) => processAlive(pid),
+  look: (pids) => lookProcesses(pids),
+};
 
 const GROUP_SYSTEM: GroupSystem = {
   kill: (target, signal) => process.kill(target, signal),
@@ -352,11 +362,13 @@ async function stopGroup(
   if (!groupSignal(system, pgid, 0)) {
     return true;
   }
-  let known = running(system.members(pgid));
-  if (known?.size === 0 || reused(known, pgid, stop)) {
-    return true;
+  const listed = system.members(pgid);
+  let known = running(listed);
+  const first = listing(listed, known, pgid, system, stop);
+  if (first !== undefined) {
+    return first;
   }
-  if (known !== undefined) {
+  if (known !== undefined && known.size > 0) {
     // Before any signal, so a stop cut short leaves its proof behind.
     stop.save(known);
   }
@@ -365,9 +377,11 @@ async function stopGroup(
     ["SIGKILL", stop.killMs],
   ] as const) {
     if (signal === "SIGKILL") {
-      const now = running(system.members(pgid));
-      if (now?.size === 0 || reused(now, pgid, stop)) {
-        return true;
+      const listedNow = system.members(pgid);
+      const now = running(listedNow);
+      const settled = listing(listedNow, now, pgid, system, stop);
+      if (settled !== undefined) {
+        return settled;
       }
       if (now === undefined || !(stop.held() || provedIn(known, now))) {
         // Nothing proves the id still this group's: the next start decides.
@@ -393,14 +407,67 @@ async function emptiedWithin(
   ms: number
 ): Promise<boolean> {
   const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    await system.sleep(GROUP_POLL_MS);
+  for (;;) {
+    // Asked at least once, however short the wait.
     if (!groupSignal(system, pgid, 0)) {
       return true;
     }
+    if (Date.now() >= deadline) {
+      break;
+    }
+    await system.sleep(GROUP_POLL_MS);
   }
-  // It answers a signal; whether only exited, unreaped members (zombies) do.
-  return running(system.members(pgid))?.size === 0;
+  // It answers a signal: empty only if the listing shows members, every
+  // one exited and unreaped (zombies). A listing that shows none while a
+  // signal reaches the group proves nothing gone.
+  return onlyExited(system.members(pgid));
+}
+
+/**
+ * What the group's listing settles before a signal: `true`, emptied (only
+ * exited members, or its id another group's); `false`, not to be told
+ * (a signal reaches the group, the leader is reaped, and the listing
+ * shows none of it: nothing is sent, the record stays, reported);
+ * `undefined`, nothing yet.
+ */
+function listing(
+  listed: ReadonlyMap<number, SeenProcess> | undefined,
+  known: ReadonlyMap<number, SeenProcess> | undefined,
+  pgid: number,
+  system: GroupSystem,
+  stop: GroupStop
+): boolean | undefined {
+  if (onlyExited(listed) || reused(known, pgid, stop)) {
+    return true;
+  }
+  if (unlisted(listed) && !stop.held()) {
+    reportUntold(system, pgid);
+    return false;
+  }
+}
+
+/** Whether `members` lists the group, and every one in it has exited and waits to be reaped. */
+function onlyExited(
+  members: ReadonlyMap<number, SeenProcess> | undefined
+): boolean {
+  return (
+    members !== undefined &&
+    members.size > 0 &&
+    [...members.values()].every((seen) => seen.exited === true)
+  );
+}
+
+/** Whether `members` lists no process of a group a signal still reaches. */
+function unlisted(
+  members: ReadonlyMap<number, SeenProcess> | undefined
+): boolean {
+  return members !== undefined && members.size === 0;
+}
+
+function reportUntold(system: GroupSystem, pgid: number): void {
+  (system.report ?? reportLine)(
+    `group ${String(pgid)} is not listed but a signal still reaches it; not signalled, its recovery record kept for the next start`
+  );
 }
 
 /**
@@ -519,14 +586,15 @@ function write(
   pid: number,
   group: boolean,
   all: string | undefined,
-  recovery: string | undefined
+  recovery: string | undefined,
+  lookup: ProcessLookup
 ): string | undefined {
   for (const dir of [all, recovery]) {
     if (dir !== undefined) {
       privateDirectory(dir);
     }
   }
-  const seen = lookProcesses([pid]);
+  const seen = lookup.look([pid]);
   if (seen === undefined) {
     throw new Error("ps could not say when it started");
   }
@@ -534,6 +602,10 @@ function write(
   // a group it led may still hold what it started.
   const started = seen.get(pid)?.started;
   if (started === undefined) {
+    if (lookup.alive(pid)) {
+      // Absence from a listing is no proof: it may run, unrecorded.
+      throw new Error("it is not listed, yet a signal reaches it");
+    }
     // It has already exited and been reaped: nothing is left to record.
     return;
   }

@@ -298,6 +298,10 @@ it("tries writing the members again once, and saves them when the second write g
   const read: (readonly unknown[] | undefined)[] = [];
   const system: GroupSystem = {
     kill(_target, signal) {
+      if (signal === 0 && members.size === 0) {
+        // Emptied: no process of the group answers a signal any more.
+        throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+      }
       if (signal === "SIGTERM") {
         read.push(
           (JSON.parse(readFileSync(path, "utf8")) as SpawnRecord).members
@@ -341,6 +345,10 @@ it("reports members it could not save, says so, and stops its group all the same
   let writes = 0;
   const system: GroupSystem = {
     kill(target, signal) {
+      if (signal === 0 && members.size === 0) {
+        // Emptied: no process of the group answers a signal any more.
+        throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+      }
       sent.push([target, signal]);
       if (signal === "SIGTERM") {
         members = new Map();
@@ -371,5 +379,35 @@ it("reports members it could not save, says so, and stops its group all the same
   expect(reports[0]).toContain("read-only file system");
   expect(sent.filter(([, signal]) => signal !== 0)).toEqual([
     [-pgid, "SIGTERM"],
+  ]);
+});
+
+it("keeps the record of a group the listing shows empty while a signal still reaches it, once its leader is reaped, and reports it", async () => {
+  const pgid = 4_200_180;
+  const { dir, path } = recordedIn(pgid);
+  const { child, exit } = madeUpChild(pgid);
+  const reports: string[] = [];
+  const sent: [number, NodeJS.Signals | 0][] = [];
+  const system: GroupSystem = {
+    kill(target, signal) {
+      // Something in the group still answers a signal.
+      sent.push([target, signal]);
+    },
+    members: () => new Map(),
+    report: (line) => reports.push(line),
+    sleep: () => Promise.resolve(),
+  };
+  const stop = recordGroup(child, {
+    env: { [SPAWN_RECOVERY_ENV]: dir },
+    graceMs: 0,
+    killMs: 0,
+    system,
+  });
+  exit();
+  expect((await stop()).emptied).toBe(false);
+  expect(sent.filter(([, signal]) => signal !== 0)).toEqual([]);
+  expect(existsSync(path)).toBe(true);
+  expect(reports).toEqual([
+    expect.stringContaining("a signal still reaches it"),
   ]);
 });
