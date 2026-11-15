@@ -83,8 +83,8 @@ const STALE_PARTIAL_MS = 60_000;
 /** How long `ps` gets to answer, so a stop takes a bounded time. */
 const PS_TIMEOUT_MS = 5000;
 const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
-const LOOK_LINE = /^\s*(\d+)\s+(\d+)\s+(.+)$/;
-const PID_PAIR = /^\s*(\d+)\s+(\d+)\s*$/;
+const LOOK_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/;
+const MEMBER_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s*$/;
 const COMMAND_LINE = /^\s*(\d+) (.*)$/;
 const PID = /^\d+$/;
 const SPACES = /\s+/g;
@@ -498,31 +498,58 @@ const SYSTEM: ProcessSystem = {
   },
   kill: (target, signal) => process.kill(target, signal),
   look(pids) {
-    const seen = new Map<number, Seen>();
-    if (pids.length === 0) {
-      return seen;
-    }
-    const listed = ps(["-o", "pid=,pgid=,lstart=", "-p", pids.join(",")]);
-    for (const line of listed.split("\n")) {
-      const parsed = LOOK_LINE.exec(line);
-      if (parsed) {
-        seen.set(Number(parsed[1]), {
-          pgid: Number(parsed[2]),
-          started: normal(parsed[3] ?? ""),
-        });
-      }
-    }
-    return seen;
+    return pids.length === 0
+      ? new Map()
+      : parseLook(
+          ps(["-o", "pid=,pgid=,state=,lstart=", "-p", pids.join(",")])
+        );
   },
   members(pgid) {
-    return ps(["-A", "-o", "pid=,pgid="])
-      .split("\n")
-      .map((line) => PID_PAIR.exec(line))
-      .filter((parsed) => parsed !== null && Number(parsed[2]) === pgid)
-      .map((parsed) => Number(parsed?.[1]));
+    return parseMembers(ps(["-A", "-o", "pid=,pgid=,state="]), pgid);
   },
   sleep: (ms) => sleep(ms),
 };
+
+/**
+ * A process that has exited and is waiting to be reaped (state `Z`, a
+ * zombie) runs nothing and no signal reaches it: it is gone, as far as a
+ * stop goes. Its pid cannot be given to another process until it is
+ * reaped, so taking it for gone frees nothing early; counting it as
+ * running would wait on it forever where no one reaps it, as in a Linux
+ * container whose first process does not.
+ */
+function exited(state: string): boolean {
+  return state.startsWith("Z");
+}
+
+/** `ps -o pid=,pgid=,state=,lstart=`, read: the processes that still run. */
+export function parseLook(listed: string): Map<number, Seen> {
+  const seen = new Map<number, Seen>();
+  for (const line of listed.split("\n")) {
+    const parsed = LOOK_LINE.exec(line);
+    if (parsed && !exited(parsed[3] ?? "")) {
+      seen.set(Number(parsed[1]), {
+        pgid: Number(parsed[2]),
+        started: normal(parsed[4] ?? ""),
+      });
+    }
+  }
+  return seen;
+}
+
+/** `ps -A -o pid=,pgid=,state=`, read: the processes of `pgid` that still run. */
+export function parseMembers(listed: string, pgid: number): number[] {
+  return listed
+    .split("\n")
+    .map((line) => MEMBER_LINE.exec(line))
+    .filter(
+      (parsed) =>
+        parsed !== null &&
+        Number(parsed[2]) === pgid &&
+        !exited(parsed[3] ?? "")
+    )
+    .map((parsed) => Number(parsed?.[1]));
+}
 
 /** `ps` with its output; it exits 1 when a pid it was given is not running. */
 function ps(args: readonly string[]): string {

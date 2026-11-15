@@ -22,6 +22,8 @@ import { RecordedStdioTransport } from "./helpers/mcp-stdio";
 import {
   type Marker,
   type ProcessSystem,
+  parseLook,
+  parseMembers,
   recordProcess,
   stopRecorded,
   unrecordedMarked,
@@ -263,6 +265,28 @@ it("keeps the records directory while a record is still being written there, and
     await stopRecorded(writing, marker, { graceMs: 0, killMs: 0 }, system)
   ).toEqual([expect.stringContaining("still held new records")]);
   expect(existsSync(join(writing, ".2.json.live.tmp"))).toBe(true);
+});
+
+it("takes a process that has exited but is not reaped (a zombie) for gone", () => {
+  const listed = [
+    "  101   101 Ss   Sun Nov 15 08:00:00 2026",
+    "  102   101 Z    Sun Nov 15 08:00:01 2026",
+    "  103   101 ZN   Sun Nov 15 08:00:02 2026",
+    "  104   101 S+   Sun Nov 15 08:00:03 2026",
+  ].join("\n");
+  expect([...parseLook(listed)]).toEqual([
+    [101, { pgid: 101, started: "Sun Nov 15 08:00:00 2026" }],
+    [104, { pgid: 101, started: "Sun Nov 15 08:00:03 2026" }],
+  ]);
+  const members = [
+    "  101   101 Ss",
+    "  102   101 Z",
+    "  103   101 ZN",
+    "  104   101 S+",
+    "  105   202 S",
+  ].join("\n");
+  expect(parseMembers(members, 101)).toEqual([101, 104]);
+  expect(parseMembers("  102   101 Z", 101)).toEqual([]);
 });
 
 it("does not signal a recorded process whose pid now names one that started later", async () => {
