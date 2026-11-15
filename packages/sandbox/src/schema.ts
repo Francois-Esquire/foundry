@@ -44,3 +44,29 @@ const containerRowObjectSchema = z.object({
 export const containerRowSchema = containerRowObjectSchema.readonly();
 
 export type ContainerRow = z.infer<typeof containerRowSchema>;
+
+/** What every change event carries: its own id, when, and the container. */
+const changeEventFields = {
+  /** When the change happened, as the row it changed stamps it, in ISO form. */
+  at: z.iso.datetime(),
+  containerId: z.string(),
+  /** Unique to this event. */
+  id: z.string().min(1),
+};
+
+/**
+ * One past change to a container, built by the containers registry and
+ * carried in the store write that makes it (`ContainerStoreWrite.events`),
+ * so a host's `onCommit` can record it with the change:
+ *
+ * - `sandbox.created`: a container's row was inserted, by `start`.
+ * - `sandbox.failed`: its VM did not come up, and the row records `failed`.
+ * - `sandbox.destroyed`: its row was deleted, by `remove`.
+ */
+export const sandboxEventSchema = z.discriminatedUnion("type", [
+  z.object({ ...changeEventFields, type: z.literal("sandbox.created") }),
+  z.object({ ...changeEventFields, type: z.literal("sandbox.failed") }),
+  z.object({ ...changeEventFields, type: z.literal("sandbox.destroyed") }),
+]);
+
+export type SandboxEvent = z.infer<typeof sandboxEventSchema>;

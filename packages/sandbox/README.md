@@ -174,7 +174,36 @@ clone refuses, such as one holding a function, rejects and writes nothing.
 | `@foundry/sandbox/store/tables`  | The Drizzle table it uses: `sandbox_containers`.                   |
 | `@foundry/sandbox/testing/store` | `describeContainerStore`, the suite every store passes.            |
 
+`describeContainerStore(name, open, recording?)` takes, for a store with a
+host hook, a third argument that opens storage whose hook records each
+write's events in the commit's own transaction (`RecordingContainerStores`);
+the suite then also proves the hook gets every kept commit's events once, in
+order, and none for a commit that fails.
+
 `CONTAINER_ROW_STATUSES` lives in `@foundry/sandbox/container/constants`.
+
+### Change events
+
+Each registry write that changes a container's life carries the events that
+say so, in `events` on the write, so a host can record them in the same
+transaction as the change (the SQLite store's `onCommit`). The registry
+builds them; a store keeps none, refuses one its clone refuses, and hands
+them to `onCommit` unchanged and in order. The schema is
+`sandboxEventSchema` on `@foundry/sandbox/schema`, which also exports the
+type, `SandboxEvent` (re-exported from `@foundry/sandbox/store`). Every event
+has `type`, `id` (unique to it, made once per registry call, so work a store
+runs again keeps it), `at` (an ISO time, the stamp of the row it changed)
+and `containerId`:
+
+| `type`              | Emitted by                                                                 |
+| ------------------- | -------------------------------------------------------------------------- |
+| `sandbox.created`   | `start`, in the write that inserts the row                                 |
+| `sandbox.failed`    | a boot that does not come up, in the write that records the row `failed`    |
+| `sandbox.destroyed` | `remove`, in the write that deletes the row; none if it was already gone   |
+
+The other writes (`starting`, `running`, `restarting` and `stopped`, a new
+native name, a spec recorded for the next boot) carry no event, and a row
+already `failed` that is recorded `failed` again carries none.
 
 Both stores take their calls in turns: a call made while a transaction runs
 waits for it, and a call to the store from inside its own transaction's work
@@ -207,7 +236,8 @@ const containers = createContainers({ instanceLabel, runtime, store });
 ```
 
 Each `commit` is one database transaction, and a throwing `onCommit` rolls
-it back. `onCommit` uses the `transaction` it is given. `get` and `list` are
+it back. `onCommit` receives the store's copy of the write, its `events`
+included, and uses the `transaction` it is given. `get` and `list` are
 one query each. `transaction(work)` runs `work` in one database transaction;
 a commit through its view that fails rolls back only itself. Across
 connections, each transaction takes SQLite's write lock at its first

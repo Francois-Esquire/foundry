@@ -1,6 +1,6 @@
 import { SandboxError } from "../errors";
 import { assertNotAborted } from "../sandbox";
-import type { ContainerRow } from "../schema";
+import type { ContainerRow, SandboxEvent } from "../schema";
 import type { ContainerStore } from "../store/index";
 import { createMemoryContainerStore } from "../store/memory";
 import {
@@ -258,6 +258,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
     entry: { row: ContainerRow },
     patch: RowPatch | ((current: ContainerRow) => RowPatch)
   ): Promise<void> => {
+    const eventId = globalThis.crypto.randomUUID();
     entry.row = await serialized(async (view) => {
       const current = await rowOrThrow(entry.row.id, view);
       const next: ContainerRow = Object.freeze({
@@ -265,14 +266,24 @@ export function createContainers(options: CreateContainersOptions): Containers {
         ...(typeof patch === "function" ? patch(current) : patch),
         updatedAt: Date.now(),
       });
-      await view.commit({ putContainers: [next] });
+      // A row's VM failing is the one change an update records as an event;
+      // a row already failed records it once.
+      const failed =
+        next.status === "failed" && current.status !== "failed"
+          ? [sandboxEvent("sandbox.failed", eventId, next.id, next.updatedAt)]
+          : [];
+      await view.commit({
+        ...(failed.length === 0 ? {} : { events: failed }),
+        putContainers: [next],
+      });
       return next;
     });
   };
 
   /** A new row in `starting` under its first native name, refused if the id is taken. */
-  const insert = (constraints: ContainerSandboxConstraints) =>
-    serialized(async (view): Promise<ContainerRow> => {
+  const insert = (constraints: ContainerSandboxConstraints) => {
+    const eventId = globalThis.crypto.randomUUID();
+    return serialized(async (view): Promise<ContainerRow> => {
       const id = globalThis.crypto.randomUUID();
       if ((await view.get(id)) !== undefined) {
         throw new SandboxError(
@@ -289,9 +300,13 @@ export function createContainers(options: CreateContainersOptions): Containers {
         status: "starting",
         updatedAt: now,
       });
-      await view.commit({ putContainers: [row] });
+      await view.commit({
+        events: [sandboxEvent("sandbox.created", eventId, id, now)],
+        putContainers: [row],
+      });
       return row;
     });
+  };
 
   /**
    * Boot a VM under the native name the row already records, then record
@@ -513,7 +528,20 @@ export function createContainers(options: CreateContainersOptions): Containers {
         if (row.nativeId !== undefined) {
           await removeNative(row.nativeId);
         }
-        await serialized((view) => view.commit({ deleteContainers: [id] }));
+        const eventId = globalThis.crypto.randomUUID();
+        await serialized(async (view) => {
+          // Another registry over the store may have deleted it meanwhile:
+          // then there is nothing to delete, and nothing destroyed here.
+          if ((await view.get(id)) === undefined) {
+            return;
+          }
+          await view.commit({
+            deleteContainers: [id],
+            events: [
+              sandboxEvent("sandbox.destroyed", eventId, id, Date.now()),
+            ],
+          });
+        });
       } finally {
         removing.delete(id);
       }
@@ -617,6 +645,16 @@ export function createContainers(options: CreateContainersOptions): Containers {
     },
   };
   return Object.freeze(containers);
+}
+
+/** The event of `type` on container `containerId`, at epoch milliseconds `at`. */
+function sandboxEvent(
+  type: SandboxEvent["type"],
+  id: string,
+  containerId: string,
+  at: number
+): SandboxEvent {
+  return { at: new Date(at).toISOString(), containerId, id, type };
 }
 
 function parseSpec(input: unknown): ContainerSandboxConstraints {
