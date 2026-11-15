@@ -3,11 +3,9 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TaskEvent } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
@@ -17,6 +15,7 @@ import { WorkspaceRecords } from "~/lib/events/records";
 import type { Handler } from "~/lib/events/source";
 import { TASKS } from "~/lib/events/source";
 import { testEngine } from "./helpers/engine";
+import { temporaryDirectory } from "./helpers/temporary";
 
 const IN_USE = /in use by/;
 const NOT_RECORDS = /does not hold Marbles task records/;
@@ -42,7 +41,7 @@ afterEach(async () => {
 });
 
 function stateDir(): string {
-  return mkdtempSync(join(tmpdir(), "marbles-events-"));
+  return temporaryDirectory("marbles-events-");
 }
 
 /** An engine over `state` (memory without one) with these observers of tasks. */
