@@ -424,3 +424,14 @@ export const marblesContainerOwners = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.scope, table.containerId] })]
 );
+
+/**
+ * What a workspace's last engine start put right after a crash, step by
+ * step (`RecoveryReport`): one row per workspace, replaced at each start,
+ * which `marbles status` shows. Written by `database/recoveries.ts`.
+ */
+export const marblesRecoveries = sqliteTable("marbles_recoveries", {
+  at: text().notNull(),
+  scope: text().primaryKey(),
+  steps: text({ mode: "json" }).$type<unknown>().notNull(),
+});

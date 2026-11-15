@@ -30,7 +30,12 @@ import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { Bindings } from "~/lib/bindings";
 import { harnessOf } from "~/lib/cli-harnesses";
 import { commandRunner } from "~/lib/command";
-import { type ContainerOwners, CrashRecovery } from "~/lib/crash-recovery";
+import {
+  type ContainerOwners,
+  CrashRecovery,
+  type RecoveryLog,
+  type RecoveryReport,
+} from "~/lib/crash-recovery";
 import type { AnyDefinition } from "~/lib/definition";
 import { Delivery } from "~/lib/events/delivery";
 import type { WorkspaceRecords } from "~/lib/events/records";
@@ -234,6 +239,12 @@ export interface EngineOptions {
    * decides (Works fails them as abandoned), rather than leave it queued.
    */
   readonly recoverQueued?: boolean;
+  /**
+   * Where the last start's recovery report is kept (`RecoveryReport`), for
+   * `marbles status`. Only the engine holds it when omitted; the `Engine`
+   * the package publishes keeps it in a Marbles database when `state` is set.
+   */
+  readonly recoveryLog?: RecoveryLog;
   /** The workspace root: where definitions resolve paths from. */
   readonly root: string;
   /**
@@ -429,6 +440,8 @@ export class Engine {
   readonly #extra = new Map<string, (orchestrator: Orchestrator) => void>();
   readonly #executions: Executions;
   readonly #crashRecovery: CrashRecovery;
+  readonly #recoveryLog: RecoveryLog | undefined;
+  #lastRecovery: RecoveryReport | undefined;
   readonly #launcher: Launcher;
   readonly #records: WorkspaceRecords;
   readonly #runs: RunStore;
@@ -546,6 +559,7 @@ export class Engine {
       feed: this.#publisher,
       ...(options.activityStore ? { store: options.activityStore } : {}),
     });
+    this.#recoveryLog = options.recoveryLog;
     this.#crashRecovery = new CrashRecovery({
       activities: this.activities,
       artifacts: options.artifacts,
@@ -950,10 +964,17 @@ export class Engine {
       );
       // Once the Execution Runs of exited processes have settled, and
       // before the host schedules anything: what a crash left.
-      for (const runId of await this.#crashRecovery.recover(store)) {
+      const recovery = await this.#crashRecovery.recover(store);
+      for (const runId of recovery.closed) {
         // Settled now, after the listing read the settled ones.
         listing.add(runId);
       }
+      this.#lastRecovery = recovery.report;
+      await this.#recoveryLog
+        ?.record(recovery.report)
+        .catch((error: unknown) =>
+          print(`[recovery] its report was not kept: ${String(error)}`)
+        );
       this.#delivery.wake();
     } catch (error) {
       this.#phase = "failed";
@@ -1232,6 +1253,11 @@ export class Engine {
    * this engine dispatched or adopted since, oldest first (see
    * `RunListing`), each one still held here as it stands now.
    */
+  /** What this engine's start put right after a crash, step by step; `undefined` before it started. */
+  get lastRecovery(): RecoveryReport | undefined {
+    return this.#lastRecovery;
+  }
+
   async runs(): Promise<readonly RunRecord[]> {
     const { held, listing } = this.#live();
     return (await listing.list()).map((record) => {

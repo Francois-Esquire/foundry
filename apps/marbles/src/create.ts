@@ -28,6 +28,7 @@ import type { WorkspaceDatabase } from "~/database/managed";
 import { defaultWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
 import { DatabaseProviderStore, stateProviders } from "~/database/providers";
+import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import type { WorkspaceStores } from "~/database/stores";
@@ -292,6 +293,7 @@ function recordsFor(
   | "executionStore"
   | "grants"
   | "records"
+  | "recoveryLog"
   | "runs"
   | "sessions"
   | "triggers"
@@ -308,6 +310,7 @@ function recordsFor(
       executionStore: new DatabaseExecutionStore({ database, scope }),
       grants: new DatabaseGrantStorage({ database, scope }),
       records: new DatabaseWorkspaceRecords({ database, scope }),
+      recoveryLog: new DatabaseRecoveryLog({ database, scope }),
       runs: new DatabaseRunStore({ database, scope }),
       sessions: new DatabaseSessionStore({ database, scope }),
       triggers: new DatabaseTriggerStore({ database, scope }),

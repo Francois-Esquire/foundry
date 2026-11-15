@@ -1,12 +1,14 @@
 import { join } from "node:path";
 
 import { isGone } from "@foundry/lib/process-identity";
+import { readLastRecovery } from "~/database/recoveries";
 import type { StoredRun } from "~/database/runs";
 import { readStoredRuns } from "~/database/runs";
 import { sessionCounts } from "~/database/sessions";
 import type { StoredTick } from "~/database/triggers";
 import { readStoredTicks } from "~/database/triggers";
 import { recordedWorkspaces } from "~/database/workspaces";
+import type { RecoveryReport } from "~/lib/crash-recovery";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import type { WorkspaceRecord } from "~/lib/state/workspace";
 import type { ProcessHost, ProcessStatus } from "~/process/instance";
@@ -29,6 +31,8 @@ export interface WorkspaceStatus {
   readonly id: string;
   readonly lastSeen: string | null;
   readonly pid: number | null;
+  /** What its last engine start put right after a crash; `null` when none is kept. */
+  readonly recovery: RecoveryReport | null;
   readonly root: string;
   readonly runs: RunsStatus;
   readonly schedules: readonly ScheduleStatus[];
@@ -82,7 +86,8 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
           record,
           sessions.get(record.id) ?? 0,
           await readStoredRuns(stateRoot, record.id),
-          await readStoredTicks(stateRoot, record.id)
+          await readStoredTicks(stateRoot, record.id),
+          await readLastRecovery(stateRoot, record.id)
         )
       )
     ),
@@ -94,7 +99,8 @@ function readWorkspaceStatus(
   record: WorkspaceRecord,
   sessions: number,
   runs: readonly StoredRun[],
-  ticks: readonly StoredTick[]
+  ticks: readonly StoredTick[],
+  recovery: RecoveryReport | null
 ): WorkspaceStatus {
   const owner = readProcess(dir);
   return {
@@ -105,6 +111,7 @@ function readWorkspaceStatus(
     id: record.id,
     lastSeen: record.lastSeen,
     pid: owner?.pid ?? null,
+    recovery,
     root: record.root,
     runs: runsStatus(runs),
     schedules: ticks.map(scheduleStatus),

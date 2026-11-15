@@ -19,6 +19,7 @@ import { thisProcess } from "@foundry/lib/process-identity";
 import { eq } from "drizzle-orm";
 import { expect, it } from "vitest";
 import { writeDatabase } from "~/database/open";
+import { readLastRecovery } from "~/database/recoveries";
 import { readStoredRuns } from "~/database/runs";
 import { marblesExecutions, marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
@@ -220,7 +221,8 @@ function inspection(home: TestHome, name: string, runId: string): string {
     `const id = ${JSON.stringify(runId)};
 report.execution = engine.executions.get(id);
 report.run = (await engine.runs()).find((run) => run.id === id);
-report.activities = engine.activities.list().map((record) => record.event);`
+report.activities = engine.activities.list().map((record) => record.event);
+report.recovery = engine.lastRecovery;`
   );
 }
 
@@ -268,9 +270,10 @@ it(
     await expectRecovered(home, recovered, command, runId);
     expect(recovered.lines).toEqual(
       expect.arrayContaining([
-        "[recovery] stopped 1 process(es) a gone engine left running",
+        "[recovery] processes: done, 1 process(es) stopped",
         `[run] hold ${runId} closed out: its process exited while it was running`,
-        "[recovery] closed out 1 harness activity(ies)",
+        "[recovery] runs: done, 1 run(s) closed out",
+        "[recovery] activities: done, 1 harness activity(ies) closed out",
       ])
     );
 
@@ -284,12 +287,29 @@ it(
     expect(again.execution).toEqual(recovered.execution);
     expect(again.run).toEqual(recovered.run);
     expect(again.activities).toEqual(recovered.activities);
+    // What each start did is kept for `marbles status`: the last one's.
+    expect(recovered.recovery).toMatchObject({
+      steps: [
+        { detail: "1 process(es) stopped", outcome: "done", step: "processes" },
+        { outcome: "skipped", step: "containers" },
+        { detail: "1 run(s) closed out", outcome: "done", step: "runs" },
+        {
+          detail: "1 harness activity(ies) closed out",
+          outcome: "done",
+          step: "activities",
+        },
+        { outcome: "done", step: "artifacts" },
+      ],
+    });
+    expect(await readLastRecovery(join(home.path, "state"), "test")).toEqual(
+      again.recovery
+    );
   },
   TEST_TIMEOUT
 );
 
 it.each([
-  ["once its orphans are stopped, the Run still open", "[recovery] stopped"],
+  ["once its orphans are stopped, the Run still open", "[recovery] processes:"],
   ["once its Run is closed out, the activity still open", "[run] hold"],
 ])(
   "a start killed during recovery, %s, is finished by the next",

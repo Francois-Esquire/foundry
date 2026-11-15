@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b1d08ada-e722-413b-b9d6-0a65c2127a4e",
+  "id": "724dd4f8-3db6-4102-9df8-9bd2bd3e0a09",
   "prevId": "63972cbe-690d-4b5a-ae1e-cd1e2edc7547",
   "tables": {
     "agent_messages": {
@@ -2611,6 +2611,37 @@
           "isUnique": false
         }
       },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "marbles_recoveries": {
+      "name": "marbles_recoveries",
+      "columns": {
+        "at": {
+          "name": "at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "steps": {
+          "name": "steps",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

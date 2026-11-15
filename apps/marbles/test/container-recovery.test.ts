@@ -102,7 +102,7 @@ it("takes back the container rows a gone process holds, with their VMs, and keep
   await recovery.recover(store);
 
   expect(lines).toEqual([
-    "[recovery] removed 1 container(s) and swept 0 VM(s) a gone engine left",
+    "[recovery] containers: done, 1 container(s) removed, 0 VM(s) swept",
   ]);
   expect((await stores.containers.list()).map((row) => row.id)).toEqual([
     held.id,

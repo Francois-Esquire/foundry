@@ -17,6 +17,21 @@ function report(orphaned = false): StatusReport {
         id: "ws1",
         lastSeen: null,
         pid: 123,
+        recovery: {
+          at: "2026-11-15T12:00:00.000Z",
+          steps: [
+            {
+              detail: "1 process(es) stopped",
+              outcome: "done",
+              step: "processes",
+            },
+            {
+              detail: "Error: disk is gone",
+              outcome: "failed",
+              step: "artifacts",
+            },
+          ],
+        },
         root: "/repo/one",
         runs: {
           recent: [
@@ -103,5 +118,24 @@ describe("OpenTUI status", () => {
     expect(output).toContain("orphaned (pid gone)");
     expect(output).toContain("pid 123");
     expect(output).not.toContain("\u001b");
+  });
+});
+
+describe("the last recovery", () => {
+  test("is shown step by step, a failed step counted first", () => {
+    const text = statusText(report());
+    expect(text).toContain(
+      "last recovery: 2026-11-15T12:00:00.000Z · 1 step(s) failed"
+    );
+    expect(text).toContain("  processes  [done] 1 process(es) stopped");
+    expect(text).toContain("  artifacts  [failed] Error: disk is gone");
+    const none = report();
+    const [only] = none.workspaces;
+    expect(
+      statusText({
+        ...none,
+        workspaces: [{ ...(only as NonNullable<typeof only>), recovery: null }],
+      })
+    ).toContain("last recovery: none recorded");
   });
 });

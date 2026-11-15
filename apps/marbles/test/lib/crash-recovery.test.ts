@@ -55,12 +55,32 @@ it("reports a part that fails and goes on to the next", async () => {
     print: (line) => lines.push(line),
     runs: new MemoryRunStore(),
   });
-  await recovery.recover({
+  const { report } = await recovery.recover({
     abandonRun: () => Promise.reject(new Error("never asked")),
     listRuns: () => Promise.reject(new Error("never asked")),
   });
   expect(lines).toEqual([
     "ended: true",
-    "[recovery] artifacts not recovered: Error: disk is gone",
+    "[recovery] artifacts: failed, Error: disk is gone",
+  ]);
+  // Every step is in the report, whatever it did.
+  expect(report.steps).toEqual([
+    {
+      detail: "no recovery records kept here",
+      outcome: "skipped",
+      step: "processes",
+    },
+    {
+      detail: "no container holders kept here",
+      outcome: "skipped",
+      step: "containers",
+    },
+    { detail: "0 run(s) closed out", outcome: "done", step: "runs" },
+    {
+      detail: "0 harness activity(ies) closed out",
+      outcome: "done",
+      step: "activities",
+    },
+    { detail: "Error: disk is gone", outcome: "failed", step: "artifacts" },
   ]);
 });
