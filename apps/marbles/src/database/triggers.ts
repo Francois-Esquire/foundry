@@ -147,18 +147,33 @@ export class DatabaseTriggerStore implements TriggerStore {
     return this.#call(async () => {
       const recorded =
         tick === undefined ? {} : scheduleHistorySchema.parse(tick);
-      await this.#database
-        .update(marblesScheduleTicks)
-        .set({
-          ...recorded,
-          ...(tick === undefined
-            ? {}
-            : { kind: tick.kind ?? null, label: tick.label ?? null }),
-          ...NO_OWNER,
-        })
-        .where(
-          and(this.#key(key), eq(marblesScheduleTicks.ownerId, this.#owner))
-        );
+      await this.#database.transaction(async (transaction) => {
+        const finished = await transaction
+          .update(marblesScheduleTicks)
+          .set({
+            ...recorded,
+            ...(tick === undefined
+              ? {}
+              : { kind: tick.kind ?? null, label: tick.label ?? null }),
+            ...NO_OWNER,
+          })
+          .where(
+            and(this.#key(key), eq(marblesScheduleTicks.ownerId, this.#owner))
+          )
+          .returning({ key: marblesScheduleTicks.key });
+        // A schedule's tick, recorded: nothing a monitor left under the key
+        // is its, nor will be a later monitor's there.
+        if (finished.length > 0 && tick?.kind === "schedule") {
+          await transaction
+            .delete(marblesMonitorStates)
+            .where(
+              and(
+                eq(marblesMonitorStates.scope, this.#scope),
+                eq(marblesMonitorStates.key, key)
+              )
+            );
+        }
+      });
     });
   }
 
@@ -261,21 +276,25 @@ export interface StoredTick {
   readonly key: string;
   /** Its last tick; `undefined` before its first. */
   readonly last?: ScheduleHistory;
-  /** The workflow a monitor handed a launch to that no tick has started yet. */
+  /**
+   * The workflow a monitor handed a launch to that no tick has started
+   * yet; never set for a trigger whose history says it is a schedule.
+   */
   readonly pending?: string;
   /** The process whose tick of it is under way, if one is. */
   readonly running: number | null;
 }
 
 /**
- * Whether a stored trigger is a monitor: its history says so, or a launch
- * it handed over waits, which only a monitor does, history or not. The
- * one rule every reader of stored ticks shows a trigger's kind by.
+ * Whether a stored trigger is a monitor: its history decides when it names
+ * a kind; else a launch it handed over says so, which only a monitor does.
+ * The one rule every reader of stored ticks shows a trigger's kind by.
  */
 export function isMonitorTick(
   tick: Pick<StoredTick, "last" | "pending">
 ): boolean {
-  return tick.last?.kind === "monitor" || tick.pending !== undefined;
+  const named = tick.last?.kind;
+  return named === undefined ? tick.pending !== undefined : named === "monitor";
 }
 
 /**
@@ -329,7 +348,9 @@ export async function storedTicks(
       last = undefined;
     }
     const running = heldBy(row)?.pid ?? null;
-    const launch = pending.get(row.key);
+    // A launch a monitor left is none of a trigger whose history says it
+    // is a schedule (a database from before a schedule's tick dropped it).
+    const launch = last?.kind === "schedule" ? undefined : pending.get(row.key);
     // A claim its dead owner left, on a trigger that never ticked and has no
     // launch waiting, is nothing.
     if (last === undefined && running === null && launch === undefined) {

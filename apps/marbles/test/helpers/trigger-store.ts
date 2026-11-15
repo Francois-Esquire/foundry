@@ -129,6 +129,23 @@ export function describeTriggerStore(
       });
     });
 
+    it("drops what a monitor left under a key once a schedule's tick is recorded there, and keeps it for a monitor's", async () => {
+      const triggers = await store();
+      const left: MonitorState = {
+        observed: { files: { "a.md": "hash" } },
+        pending: { input: null, workflow: "ship" },
+      };
+      for (const key of ["watched", "rescheduled"]) {
+        await triggers.saveMonitorState(key, left);
+        expect(await triggers.claimTick(key)).toEqual({ claimed: true });
+      }
+      await triggers.finishTick("watched", TICK);
+      await triggers.finishTick("rescheduled", { ...TICK, kind: "schedule" });
+      expect(await triggers.monitorState("watched")).toEqual(left);
+      expect(await triggers.monitorState("rescheduled")).toBeUndefined();
+      expect((await triggers.lastTick("rescheduled"))?.kind).toBe("schedule");
+    });
+
     it("refuses, keeping what it had, a monitor state JSON would not give back as it is", async () => {
       const triggers = await store();
       const kept = { observed: { hash: "first" } };

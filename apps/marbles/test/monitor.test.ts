@@ -326,6 +326,57 @@ describe("files detector", () => {
     await engine.stop();
   });
 
+  it.each([
+    ["the database", true],
+    ["memory", false],
+  ])(
+    "drops a launch a monitor left once its key ticks as a schedule, so it never goes out, kept in %s",
+    async (_where, persisted) => {
+      const root = temporaryDirectory("marbles-mon-");
+      const state = temporaryDirectory("marbles-mon-state-");
+      writeFileSync(join(root, "guide.md"), "one\n");
+      let shipped = 0;
+      step("ship").do(() => {
+        shipped += 1;
+      });
+      step("tidy").do(() => "tidied");
+      monitor("**/*.md").do(() => undefined);
+      hostIn(root, persisted ? state : undefined);
+      const [key] = [...catalog.monitors.keys()] as [string];
+      const watching = declared().schedules.get(key);
+      if (!watching) {
+        throw new Error("expected the monitor's schedule");
+      }
+      // The monitor handed a launch over and stopped before starting it.
+      await hosted.triggers.saveMonitorState(key, {
+        observed: {},
+        pending: { input: null, workflow: "ship" },
+      });
+      const engine = await startEngine({
+        ...hosted,
+        print: () => undefined,
+      });
+      // The key is a schedule now: its tick runs its own workflow alone.
+      const scheduled = {
+        ...watching,
+        kind: "schedule" as const,
+        workflow: "tidy",
+      };
+      await expect(
+        tick(engine, scheduled, { print: () => undefined })
+      ).resolves.toEqual({ value: "tidied" });
+      expect(shipped).toBe(0);
+      expect(await hosted.triggers.monitorState(key)).toBeUndefined();
+      // A monitor under the key again starts from nothing: the first sight of
+      // the file is a change, and the old launch does not go out.
+      await expect(
+        tick(engine, watching, { print: () => undefined })
+      ).resolves.toEqual({ value: { changed: true } });
+      expect(shipped).toBe(0);
+      await engine.stop();
+    }
+  );
+
   it("a pending launch whose target is gone fails one tick, not every tick", async () => {
     const root = temporaryDirectory("marbles-mon-");
     const state = temporaryDirectory("marbles-mon-state-");

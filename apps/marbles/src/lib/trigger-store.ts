@@ -42,7 +42,10 @@ export interface TriggerStore {
   close(): Promise<void>;
   /**
    * Give up the key's tick, recording how it went when it ran, in one
-   * write; a claim someone else holds now is left alone.
+   * write; a claim someone else holds now is left alone. A tick recorded
+   * for a schedule drops, in the same write, whatever a monitor under the
+   * key left (what it saw, a launch it handed over): the key is no longer
+   * a monitor's, and a monitor declared there again starts from nothing.
    */
   finishTick(key: string, tick?: ScheduleHistory): Promise<void>;
   /** The key's last recorded tick; `undefined` before its first. */
@@ -165,6 +168,9 @@ export class MemoryTriggerStore implements TriggerStore {
     return this.#gate.run(async () => {
       if (tick !== undefined) {
         this.#ticks.set(key, scheduleHistorySchema.parse(tick));
+        if (tick.kind === "schedule") {
+          this.#monitors.delete(key);
+        }
       }
       this.#claimed.delete(key);
     });
