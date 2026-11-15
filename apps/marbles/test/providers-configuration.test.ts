@@ -678,6 +678,26 @@ describe("a store that could not be reached", () => {
     }
   }, 15_000);
 
+  it("reports a stored identity key that is not one once, though asking for it failed before, and asks no more until the revision changes", async () => {
+    store.put(MACHINE_SCOPE, codex);
+    store.key = "not a key";
+    store.refusing.key = [busy()];
+    const { config } = configuration();
+    await expect(config.refresh()).rejects.toThrow("the database is locked");
+    const { problems, stop } = watched(config);
+    try {
+      await vi.waitFor(() => expect(problems).toHaveLength(1), {
+        timeout: 5000,
+      });
+      expect(problems[0]).toContain("the identity key");
+      await new Promise((settle) => setTimeout(settle, 1650));
+      expect(store.keyAsks).toBe(2);
+      expect(problems).toHaveLength(1);
+    } finally {
+      stop();
+    }
+  }, 15_000);
+
   it("reports a stored identity key that is not one once, and asks for it again only once the configuration changes", async () => {
     store.put(MACHINE_SCOPE, codex);
     store.key = "not a key";
