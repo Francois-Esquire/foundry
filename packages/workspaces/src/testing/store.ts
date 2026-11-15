@@ -193,6 +193,57 @@ const UNPLAIN_EVENTS: [
         length: 1,
       }) as unknown as WorkspaceEvent[],
   ],
+  [
+    "an Array subclass",
+    (workspaceId) => {
+      class Events extends Array<WorkspaceEvent> {}
+      return Events.from([createdEvent(workspaceId)]);
+    },
+  ],
+  [
+    "an array holding an Array subclass",
+    (workspaceId) => {
+      class Ids extends Array<string> {}
+      return [
+        {
+          ...createdEvent(workspaceId),
+          extra: Ids.from(["a"]),
+        } as unknown as WorkspaceEvent,
+      ];
+    },
+  ],
+  [
+    "an array holding an array with a hidden function",
+    (workspaceId) => {
+      const items = ["a"];
+      Object.defineProperty(items, "hidden", { value: () => undefined });
+      return [
+        {
+          ...createdEvent(workspaceId),
+          extra: items,
+        } as unknown as WorkspaceEvent,
+      ];
+    },
+  ],
+  [
+    "an array holding an array with a symbol key",
+    (workspaceId) => {
+      const items = Object.assign(["a"], { [Symbol("extra")]: 1 });
+      return [
+        {
+          ...createdEvent(workspaceId),
+          extra: items,
+        } as unknown as WorkspaceEvent,
+      ];
+    },
+  ],
+  [
+    "an array with an own property beyond its items",
+    (workspaceId) =>
+      Object.assign([createdEvent(workspaceId)], {
+        "-1": createdEvent(workspaceId),
+      }),
+  ],
 ];
 
 /** An entry whose `name` throws when read, so no store can copy it. */

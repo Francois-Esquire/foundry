@@ -1100,6 +1100,48 @@ const UNPLAIN_EVENTS: [string, () => SessionChangeEvent[]][] = [
     "not an array",
     () => ({ 0: created("s"), length: 1 }) as unknown as SessionChangeEvent[],
   ],
+  [
+    "an Array subclass",
+    () => {
+      class Events extends Array<SessionChangeEvent> {}
+      return Events.from([created("s")]);
+    },
+  ],
+  [
+    "an array holding an Array subclass",
+    () => {
+      class Ids extends Array<string> {}
+      return [
+        {
+          ...created("s"),
+          extra: Ids.from(["a"]),
+        } as unknown as SessionChangeEvent,
+      ];
+    },
+  ],
+  [
+    "an array holding an array with a hidden function",
+    () => {
+      const items = ["a"];
+      Object.defineProperty(items, "hidden", { value: () => undefined });
+      return [
+        { ...created("s"), extra: items } as unknown as SessionChangeEvent,
+      ];
+    },
+  ],
+  [
+    "an array holding an array with a symbol key",
+    () => {
+      const items = Object.assign(["a"], { [Symbol("extra")]: 1 });
+      return [
+        { ...created("s"), extra: items } as unknown as SessionChangeEvent,
+      ];
+    },
+  ],
+  [
+    "an array with an own property beyond its items",
+    () => Object.assign([created("s")], { "-1": created("s") }),
+  ],
 ];
 
 function created(sessionId: string): SessionChangeEvent {

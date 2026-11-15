@@ -102,6 +102,57 @@ const UNPLAIN_EVENTS: [string, () => SandboxEvent[]][] = [
         length: 1,
       }) as unknown as SandboxEvent[],
   ],
+  [
+    "an Array subclass",
+    () => {
+      class Events extends Array<SandboxEvent> {}
+      return Events.from([event("sandbox.created", "c1")]);
+    },
+  ],
+  [
+    "an array holding an Array subclass",
+    () => {
+      class Ids extends Array<string> {}
+      return [
+        {
+          ...event("sandbox.created", "c1"),
+          extra: Ids.from(["a"]),
+        } as unknown as SandboxEvent,
+      ];
+    },
+  ],
+  [
+    "an array holding an array with a hidden function",
+    () => {
+      const items = ["a"];
+      Object.defineProperty(items, "hidden", { value: () => undefined });
+      return [
+        {
+          ...event("sandbox.created", "c1"),
+          extra: items,
+        } as unknown as SandboxEvent,
+      ];
+    },
+  ],
+  [
+    "an array holding an array with a symbol key",
+    () => {
+      const items = Object.assign(["a"], { [Symbol("extra")]: 1 });
+      return [
+        {
+          ...event("sandbox.created", "c1"),
+          extra: items,
+        } as unknown as SandboxEvent,
+      ];
+    },
+  ],
+  [
+    "an array with an own property beyond its items",
+    () =>
+      Object.assign([event("sandbox.created", "c1")], {
+        "-1": event("sandbox.created", "c1"),
+      }),
+  ],
 ];
 
 function row(id: string, fields: Partial<ContainerRow> = {}): ContainerRow {
