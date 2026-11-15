@@ -14,6 +14,7 @@ import type { BaseContext } from "./executable";
 import type {
   DirectRunLinks,
   JobQuery,
+  RecoverableRun,
   RunQuery,
   SuspensionQuery,
 } from "./execution-commands";
@@ -227,6 +228,15 @@ export interface OrchestratorOptions {
   readonly logger?: OrchestratorLogger;
   /** Host-owned JSON-safe annotations persisted with the default queue. */
   readonly queueExtensions?: Extensions;
+  /**
+   * Which of the live Runs in its queue this Orchestrator takes on when it
+   * starts: each queued, running or suspended Run the store holds is asked
+   * once, before its definition is looked up. One it refuses is left in the
+   * store exactly as it is, for another Orchestrator over the same store or
+   * for the host to settle; no definition is needed for it. Every live Run
+   * is taken on when this is absent.
+   */
+  readonly recovers?: (run: RecoverableRun) => boolean;
   /** Pre-populated registry, or omit to start empty. */
   readonly registry?: Registry;
   /**
@@ -284,6 +294,7 @@ export class Orchestrator {
   readonly #jobs: JobLifecycle;
   readonly #suspensions: SuspensionLifecycle;
   readonly #participants: ExecutionParticipants;
+  readonly #recovers: (run: RecoverableRun) => boolean;
 
   // Initialized by setup(); accessed via #requireQueue.
   #queue: Queue | null = null;
@@ -310,6 +321,7 @@ export class Orchestrator {
       opts.admissionParticipant,
       opts.cancellationParticipant
     );
+    this.#recovers = opts.recovers ?? (() => true);
     this.#logger = opts.logger ?? new BaseOrchestratorLogger();
     this.#queueExtensions = createExtensions(opts.queueExtensions);
     this.#journal = new RunObservationJournal(this.store);
@@ -812,7 +824,7 @@ export class Orchestrator {
   }
 
   async #recoverColdStart(queue: Queue): Promise<readonly string[]> {
-    const rows = await queue.findRecoverableRuns();
+    const rows = (await queue.findRecoverableRuns()).filter(this.#recovers);
     this.#throwIfStopped();
     for (const row of rows) {
       const definition = row.definition?.name ?? row.step;
