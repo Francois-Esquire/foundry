@@ -64,8 +64,9 @@ export interface Containers {
    * removal, in one store transaction and only while its holder and last
    * write are still the ones `left` was shown, so a registry that opened
    * it meanwhile keeps it. A claimed row is marked `removing` under this
-   * registry, its VM removed, and the row deleted only once the runtime
-   * no longer lists the VM; one whose VM would not go stays `removing`,
+   * registry, its VMs removed (every one labelled with its id), and the
+   * row deleted only once the runtime lists none of them, so a deleted
+   * row leaves no VM behind; one whose VM would not go stays `removing`,
    * listed in `kept`, for a later recovery to take over and retry. Then
    * every VM with this instance's labels and no row is swept. A row live
    * here, or being opened or removed here, is never offered.
@@ -76,8 +77,9 @@ export interface Containers {
   ): Promise<ContainerRecovery>;
   /**
    * Delete a row whose VM is not live here, removing whatever the runtime
-   * still holds under its native name. The row is marked `removing` first,
-   * and deleted only once the runtime no longer lists the VM; one that
+   * still holds under its native name or labelled with its id. The row is
+   * marked `removing` first, and deleted only once the runtime lists no
+   * VM of it; one that
    * would not go rejects, its row kept `removing` so a later recovery
    * retries it. Refuses while a handle is open; an `open` or `restart`
    * that begins before the delete commits is refused.
@@ -567,10 +569,33 @@ export function createContainers(options: CreateContainersOptions): Containers {
       }
     });
 
-  /** A claimed row's VM removed and the row deleted; whether both went. */
+  /**
+   * A claimed row's VMs removed and the row deleted; whether both went.
+   * Every VM labelled with the row's id goes first, not only the one its
+   * native name names: an `open` commits the next native name before it
+   * removes the VM under the last, so a process that died between the two
+   * left that VM under the row. Once the row is deleted, no VM of it is
+   * left for a start to find, so none needs a sweep after it. An
+   * inventory that cannot be read keeps the row, to retry.
+   */
   const removeClaimed = async (row: ContainerRow): Promise<boolean> => {
-    if (row.nativeId !== undefined && !(await removeVm(row.nativeId))) {
+    const names = new Set<string>();
+    if (row.nativeId !== undefined) {
+      names.add(row.nativeId);
+    }
+    try {
+      for (const resource of await enumerate(runtime, selection, undefined)) {
+        if (resource.labels[CONTAINER_ID_LABEL] === row.id) {
+          names.add(resource.name);
+        }
+      }
+    } catch {
       return false;
+    }
+    for (const name of names) {
+      if (!(await removeVm(name))) {
+        return false;
+      }
     }
     await deleteHeld(row.id);
     return true;

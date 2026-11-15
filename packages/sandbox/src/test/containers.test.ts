@@ -517,6 +517,78 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     await next.shutdown();
   });
 
+  it("removes every VM of a row it deletes, so a start cut short after the delete leaves none for the next to miss", async () => {
+    const runtime = createFakeContainerRuntime();
+    const store = newStore();
+    const gone = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const left = await gone.start(SPEC);
+    // An `open` that committed the next native name, then died before it
+    // removed the VM under the last.
+    const row = await store.get(left.id);
+    if (row === undefined) {
+      throw new Error("no row");
+    }
+    await store.commit({
+      putContainers: [{ ...row, nativeId: `${left.id}-2`, status: "starting" }],
+    });
+
+    const next = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    // A start that dies right after the row's delete, before its sweep.
+    const dies = new AbortController();
+    await expect(
+      next.recover(() => {
+        dies.abort();
+        return true;
+      }, dies.signal)
+    ).rejects.toThrow("cancelled");
+
+    expect(await store.list()).toEqual([]);
+    expect(
+      runtime.instances.find((i) => i.id === `${left.id}-1`)?.removed
+    ).toBe(true);
+    await next.shutdown();
+  });
+
+  it("remove deletes a row only with every VM labelled with its id", async () => {
+    const runtime = createFakeContainerRuntime();
+    const store = newStore();
+    const gone = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const left = await gone.start(SPEC);
+    // As above: the next native name committed, the last VM still there.
+    const row = await store.get(left.id);
+    if (row === undefined) {
+      throw new Error("no row");
+    }
+    await store.commit({
+      putContainers: [{ ...row, nativeId: `${left.id}-2`, status: "starting" }],
+    });
+    const next = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+
+    await next.remove(left.id);
+
+    expect(await store.list()).toEqual([]);
+    expect(
+      runtime.instances.find((i) => i.id === `${left.id}-1`)?.removed
+    ).toBe(true);
+    await next.shutdown();
+  });
+
   it("keeps the row of a VM a recovery could not remove, removing, and the next recovery takes it over and removes it", async () => {
     const runtime = createFakeContainerRuntime();
     const store = newStore();

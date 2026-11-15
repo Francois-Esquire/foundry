@@ -93,7 +93,10 @@ export interface CrashRecoveryOptions {
  *    so none of them changes what the later parts put right.
  * 2. Container rows a gone process left are removed, with their VMs, and
  *    VMs with no row swept (`Containers.recover`); the runtime is started
- *    for it only when there is such a row.
+ *    for it only when there is such a row. A row is deleted only once
+ *    every VM labelled with its id is gone, so a start that dies after
+ *    the delete, before the sweep, leaves no VM that a later start,
+ *    finding no row, would miss.
  * 3. Runs a gone process left `queued` or `running` are closed out, once
  *    the launcher has settled their Execution Runs (`closeAbandonedRuns`).
  *    Parked Runs stay parked, for whoever can answer them, and queued
@@ -206,7 +209,8 @@ export class CrashRecovery {
       };
     }
     // Judged here, outside any transaction; the registry's claim checks
-    // the holder it was judged by still holds each row.
+    // the holder it was judged by still holds each row. With none left
+    // behind, no VM is either: a row goes only with all of its VMs.
     if (!(await rows.list()).some(leftBehind)) {
       return done(0, "container(s) removed");
     }

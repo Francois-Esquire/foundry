@@ -463,8 +463,9 @@ Limits:
 
 - The list of VMs the registry could not remove is in memory. If the process
   is lost first, their cleanup is not guaranteed: the next process's `open`
-  or `remove` of the row removes a VM whose name the row still records, but
-  nothing removes one whose row has moved on to a later name.
+  removes a VM whose name the row still records, but not one whose row has
+  moved on to a later name. `remove` and `recover` delete a row only once
+  every VM labelled with its id is gone, whatever its name.
 - `sweep` removes VMs; it does not repair rows. A row left `starting`,
   `restarting` or `running` with no VM (after a commit that failed while a
   VM was removed) stays so until a later `open` or `remove` of it.
