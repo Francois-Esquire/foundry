@@ -180,7 +180,7 @@ export class HostedWorkspaces {
     }
   ): Promise<WorkspaceHost> {
     const root = args.directory;
-    let host: WorkspaceHost;
+    let host: WorkspaceHost | undefined;
     try {
       if (this.#database !== undefined) {
         await new WorkspaceRegistry({
@@ -198,6 +198,14 @@ export class HostedWorkspaces {
         ...(this.#options.env === undefined ? {} : { env: this.#options.env }),
         directory: root,
         dry: args.dry,
+        // However its close is started, it leaves the hosts here at once,
+        // and the database outlives it.
+        onClose: (closing) => {
+          if (host !== undefined && this.#hosts.get(host.id) === host) {
+            this.#hosts.delete(host.id);
+          }
+          this.#track(closing);
+        },
         print: (line) => this.#options.print?.(root, line),
         source: found.configPath,
         state: args.state,
@@ -206,7 +214,7 @@ export class HostedWorkspaces {
       throw new WorkspaceLoadError(root, { cause: error });
     }
     if (this.#phase === "closed") {
-      await this.#track(host.close());
+      await host.close();
       throw new WorkspaceLoadError(root, {
         cause: new Error("these hosted workspaces closed while it loaded"),
       });
@@ -369,9 +377,7 @@ export class HostedWorkspaces {
     await Promise.allSettled([...this.#pending.values()]);
     const hosts = this.list();
     this.#hosts.clear();
-    const closed = await Promise.allSettled(
-      hosts.map((host) => this.#track(host.close()))
-    );
+    const closed = await Promise.allSettled(hosts.map((host) => host.close()));
     // An unregister reports its own failure; here it is only waited for.
     while (this.#inFlight.size > 0) {
       await Promise.allSettled([...this.#inFlight]);

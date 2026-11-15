@@ -817,3 +817,46 @@ it("lets a reading of the registered workspaces finish before the database close
   expect(report.after).toBe("these hosted workspaces are closed");
   expect(report.unregisterAfter).toBe("these hosted workspaces are closed");
 }, 120_000);
+
+it("lets go of a host closed directly, hosts its workspace again on the next register, and waits for that close before closing the database", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const report = await inProcess(
+    root,
+    `const registration = { config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} };
+  const alpha = await hosted.register(registration);
+  await alpha.close();
+  report.listed = hosted.list().length;
+  report.get = (() => { try { hosted.get(alpha.id); return "returned"; } catch (error) { return error.message; } })();
+  const again = await hosted.register(registration);
+  report.fresh = again !== alpha && !again.engine.disposed;
+  // Its close is held inside, where stopping runs and saving sessions take time.
+  let release;
+  const held = new Promise((settle) => { release = settle; });
+  const dispose = again.engine.dispose.bind(again.engine);
+  again.engine.dispose = async () => {
+    await held;
+    report.lastWrite = await hostTasks(again.engine).create({ title: "last write" }).then(() => "kept", (error) => String(error));
+    return await dispose();
+  };
+  const direct = again.close();
+  report.sameClose = again.close() === direct;
+  report.listedWhileClosing = hosted.list().length;
+  let closed = false;
+  const closing = hosted.close().then(() => { closed = true; });
+  await new Promise((settle) => setTimeout(settle, 100));
+  report.closedWhileHostClosing = closed;
+  release();
+  await direct;
+  await closing;`
+  );
+  expect(report).toMatchObject({
+    closedWhileHostClosing: false,
+    fresh: true,
+    get: expect.stringContaining("is hosted here"),
+    lastWrite: "kept",
+    listed: 0,
+    listedWhileClosing: 0,
+    sameClose: true,
+  });
+}, 120_000);

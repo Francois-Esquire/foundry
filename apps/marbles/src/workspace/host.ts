@@ -65,6 +65,11 @@ export interface HostWorkspaceOptions {
   readonly dry?: boolean;
   /** What a `.env.schema` that does not resolve does; `warn` when omitted. */
   readonly env?: "require" | "warn";
+  /**
+   * Told once the host begins to close, however its close was started,
+   * with the close it can wait for: what holds the host lets go of it.
+   */
+  readonly onClose?: (closing: Promise<void>) => void;
   /** Nothing is at the source: offer to create it. Resolves true once something loads there. */
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   /** Runs on the built engine before it starts: host steps registered beside the source. */
@@ -78,7 +83,10 @@ export interface HostWorkspaceOptions {
 }
 
 export interface WorkspaceHost extends WorkspaceConnection {
-  /** Stop the engine, cancelling live runs, and close what it opened. */
+  /**
+   * Stop the engine, cancelling live runs, and close what it opened. Every
+   * call shares the first one's close, and `onClose` hears it begin.
+   */
   close(): Promise<void>;
   /** Where the source is, or would be created. */
   readonly configPath: string;
@@ -203,6 +211,7 @@ export async function hostWorkspace(
           diagnostics.add(line, "error");
         },
         lastFinish: await lastFinishes(engine),
+        ...(options.onClose === undefined ? {} : { onClose: options.onClose }),
         print,
         setStatus: (line) => {
           status = line;
@@ -230,6 +239,8 @@ interface Status {
   readonly fail: (line: string) => void;
   /** When each trigger last finished a tick, as the host started. */
   readonly lastFinish: ReadonlyMap<string, number>;
+  /** Told once the host begins to close. */
+  readonly onClose?: (closing: Promise<void>) => void;
   readonly print: (line: string) => void;
   readonly setStatus: (line: string) => void;
   readonly status: () => string;
@@ -306,6 +317,7 @@ function hosted(
     diagnostics,
     fail,
     lastFinish,
+    onClose,
     print,
     setStatus,
     status,
@@ -375,19 +387,28 @@ function hosted(
     return { lines, value };
   }
 
+  // One close, however often or by whom it is asked for.
+  let closing: Promise<void> | undefined;
+  const shutDown = async () => {
+    try {
+      await dispatches.close();
+    } finally {
+      try {
+        await engine.dispose();
+      } finally {
+        database?.close();
+      }
+    }
+  };
   return {
     actions,
     cancelRun: (runId) => dispatches.cancel(runId),
-    async close() {
-      try {
-        await dispatches.close();
-      } finally {
-        try {
-          await engine.dispose();
-        } finally {
-          database?.close();
-        }
+    close() {
+      if (closing === undefined) {
+        closing = shutDown();
+        onClose?.(closing);
       }
+      return closing;
     },
     config,
     configPath,
