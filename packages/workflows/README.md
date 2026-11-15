@@ -566,7 +566,12 @@ A cursor stays valid however many records are deleted around it: a store
 never hands a position out twice in a scope, so a record put after the
 cursor was taken lists after it. The memory store counts positions for its
 whole life; the SQLite store keeps the count in `workflow_positions`, so it
-survives deletes, other connections and reopening.
+survives deletes, other connections and reopening. A scope that has no
+counter row yet (rows written before the table existed) gets one in its
+first commit that puts or deletes anything: it starts past every position
+any of the scope's tables holds before that commit's deletes, so neither a
+delete in the same commit nor a delete-only commit lets a position come
+back.
 
 ### Tables
 
@@ -759,26 +764,50 @@ metadata). Over SQLite that holds the write lock for the read of the whole
 ### Ownership
 
 A store takes its own copy of a write when `commit` is called, before it
-waits for its turn: one read of each of the write's properties, and of every
-record in it, which is what it checks, writes and hands to `onCommit`. A
-getter that answers differently a second time changes nothing. List queries
-are copied the same way. The memory store copies with `structuredClone` and
-then moves any bytes in shared memory (a `SharedArrayBuffer`, which
-`structuredClone` keeps shared on Node) into memory of their own, on every
-write and on every read: `get*`, `list*`, `snapshot()` and a transaction's
-view. The SQLite store refuses bytes in a record, naming the field, so it
-holds none.
+waits for its turn. Both stores start from one capture of it: each property
+the write's type names is read once, by name, so one given as a getter on a
+prototype or as an own property that is not enumerable counts like any
+other, and nothing else on the object is read. That capture, and one read of
+every record in it, is what the store checks, writes and hands to
+`onCommit`; a getter that answers differently a second time changes
+nothing. The capture refuses, with a `TypeError` naming the property and
+before anything is written, a list that is not an array, a delete id that
+is not text, and a record that is not a plain object (made by `{}` or
+`Object.create(null)`) with every own property enumerable: a copy of
+anything else could keep less than the record shows, and differently in
+each store. List queries are captured the same way, by name, with `status`
+an array of text and `queueId` and `runId` text.
+
+The memory store then copies with `structuredClone` and moves every
+`SharedArrayBuffer` in the copy (which `structuredClone` keeps shared on
+Node), bare or behind a view, into a fresh `ArrayBuffer`, on every write and
+on every read: `get*`, `list*`, `snapshot()` and a transaction's view. Each
+shared buffer becomes one fresh buffer; each view onto it (every typed-array
+kind and `DataView`, a view onto part of it included) a view of the same
+kind, offset and length onto that buffer, so views that shared a buffer
+still share one. The walk reaches all `structuredClone` keeps: object and
+array entries, `Map` keys and values, `Set` values, and an `Error`'s own
+properties, its non-enumerable `cause` (nested) included, and an
+`AggregateError`'s `errors` on a runtime whose clone keeps them (Node's
+clones it as a plain `Error` without them). The SQLite store refuses bytes
+and Errors in a record, naming the field, so it holds none.
 
 `ExecutionCoordinator` takes every command's arguments as they stand when the
 command is called: one deep copy, bytes unshared, taken before anything
 else runs, and the only one the command reads. Every public method gets it
 in one place, so a command added later does too. An argument the copy
-refuses (a function, say) rejects the call.
+refuses (a function, say) rejects the call, and so does an argument object
+the copy would read less of than it shows: one made by a class or another
+prototype, or one with an own property that is not enumerable.
 
-Inside `ExecutionCoordinator.transaction`, a claim of a Job whose earlier
-attempt completed settles the Job as complete and then refuses: the
-transaction commits that settlement, and the refusal reaches the caller once
-it has. Any other failure of the work rolls everything back.
+`ExecutionCoordinator.transaction` rolls back whenever its work throws,
+whatever it throws. A direct `claimJobRun` of a Job whose earlier attempt
+completed writes the Job as complete and then rejects with
+`JobAlreadySettledError`; inside a transaction that rejection rolls the
+write back with everything else, as any throw does. Admission does not
+claim that way: inside its transaction the settled Job is an outcome, not a
+throw, so the transaction commits the Job as complete, and the claim is
+refused once it has.
 
 ---
 
