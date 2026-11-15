@@ -51,6 +51,20 @@ export interface Containers {
   /** Join a row: another handle if its VM runs here, else a restart under the same row. */
   open(id: string, signal?: AbortSignal): Promise<Container>;
   /**
+   * Take back what processes that are gone left, after a crash: each row
+   * not live here that `left` says a gone process left is removed,
+   * as `remove` removes one (its VM, when the runtime still has one, and
+   * the row), and then every VM with this instance's labels and no row is
+   * swept. A row live here, or being opened or removed, is never offered.
+   * Safe to run again: what it removed is gone, and what it could not
+   * remove is kept to retry, as `sweep` keeps it. Rejects, once every row
+   * has had its turn, when one would not go.
+   */
+  recover(
+    left: (row: ContainerRow) => boolean | Promise<boolean>,
+    signal?: AbortSignal
+  ): Promise<ContainerRecovery>;
+  /**
    * Delete a row whose VM is not live here, removing whatever the runtime
    * still holds under its native name. Refuses while a handle is open; an
    * `open` or `restart` that begins before the delete commits is refused.
@@ -84,6 +98,12 @@ export interface Containers {
    * Returns the native names swept.
    */
   sweep(signal?: AbortSignal): Promise<readonly string[]>;
+}
+
+/** What `recover` took back: the rows it removed and the native names it swept. */
+export interface ContainerRecovery {
+  readonly removed: readonly string[];
+  readonly swept: readonly string[];
 }
 
 /**
@@ -493,6 +513,38 @@ export function createContainers(options: CreateContainersOptions): Containers {
         pending.set(id, inflight);
       }
       return handleFor(await inflight);
+    },
+
+    async recover(left, signal) {
+      assertOpen();
+      const removed: string[] = [];
+      let failure: { readonly error: unknown } | undefined;
+      for (const row of await store.list()) {
+        assertNotAborted(signal, "container recovery was cancelled");
+        const { id } = row;
+        if (
+          live.has(id) ||
+          pending.has(id) ||
+          removing.has(id) ||
+          !(await left(row))
+        ) {
+          continue;
+        }
+        try {
+          await containers.remove(id);
+          removed.push(id);
+        } catch (error: unknown) {
+          failure ??= { error };
+        }
+      }
+      const swept = await containers.sweep(signal);
+      if (failure !== undefined) {
+        throw failure.error;
+      }
+      return Object.freeze({
+        removed: Object.freeze(removed),
+        swept,
+      });
     },
 
     async remove(id) {
