@@ -386,16 +386,3 @@ function checkJsonObject(item: object, at: string, seen: Set<object>): void {
 export function bySequence(a: ExecutionRun, b: ExecutionRun): number {
   return a.sequence - b.sequence || a.id.localeCompare(b.id);
 }
-
-/** The next revision of a run with `patch` applied. */
-export function nextRevision(
-  run: ExecutionRun,
-  patch: Partial<Omit<ExecutionRun, "id" | "revision">>
-): ExecutionRun {
-  return {
-    ...run,
-    ...patch,
-    revision: run.revision + 1,
-    timestamps: { ...run.timestamps, ...patch.timestamps, updatedAt: now() },
-  };
-}

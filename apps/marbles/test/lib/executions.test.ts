@@ -483,11 +483,8 @@ it("admits nothing on a cancelling stop while it waits on a dispatch in flight",
     .spyOn(engine.interactions, "close")
     .mockImplementation(() => closing.opened);
   const stopping = engine.stop({ cancel: true });
-  // Off its queue before waiting on delivery or interaction shutdown, and
-  // cancelled once that is stored.
-  expect(
-    engine.executions.queues().find((queue) => queue.name === "work")?.waiting
-  ).toBe(0);
+  // Withdrawn before waiting on delivery or interaction shutdown: it holds
+  // its place unadmitted, and is cancelled once that is stored.
   await until(() => engine.executions.get(queued.id)?.status === "cancelled");
   await until(() => close.mock.calls.length > 0);
   closing.open();

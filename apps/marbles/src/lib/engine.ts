@@ -1355,6 +1355,7 @@ export class Engine {
     await close(() => this.#automationStore.close());
     await close(() => this.#executions.flush());
     await close(() => this.#executions.retrySettlements());
+    this.#executions.stopRetrying();
     await close(() => this.#executionStore.close());
     await close(() => this.interactions.close());
     await close(() => this.workspaces.close());

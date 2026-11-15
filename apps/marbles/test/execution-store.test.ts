@@ -58,15 +58,18 @@ it("keeps one workspace's runs, observations and gaps apart from another's", asy
       status: "queued" as const,
       timestamps: { queuedAt: "t", updatedAt: "t" },
     };
-    await mine.put(run);
-    await theirs.put({ ...run, revision: 9 });
+    await mine.create(run);
+    await theirs.create({ ...run, revision: 9 });
     await mine.putGap({
       removed: 1,
       scope: "host",
       through: "t",
       updatedAt: "t",
     });
-    expect(await mine.put({ ...run, revision: 2 })).toBe(true);
+    expect(
+      (await mine.advise("rn-1", { progress: { n: 1 }, updatedAt: "t2" }))
+        .record
+    ).toMatchObject({ progress: { n: 1 }, revision: 2 });
     expect(await theirs.gaps()).toEqual([]);
     await theirs.remove("rn-1");
     expect((await mine.list()).map(({ id }) => id)).toEqual(["rn-1"]);

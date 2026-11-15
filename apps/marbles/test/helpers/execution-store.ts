@@ -4,7 +4,7 @@ import type {
   ExecutionRun,
 } from "~/lib/execution-record";
 import { parseStored } from "~/lib/execution-record";
-import type { ExecutionStore } from "~/lib/execution-store";
+import type { ExecutionStore, LifecycleChange } from "~/lib/execution-store";
 
 /**
  * Where an execution store under test comes from: `store()` makes another
@@ -47,6 +47,24 @@ function effect(id: string, status: "running" | "complete" = "complete") {
     status,
     type: "write",
   } satisfies ExecutionObservation;
+}
+
+/** A process that does not own the runs here. */
+const OTHER = 2_147_483_646;
+const AT = "2026-11-01T09:00:01.000Z";
+const LATER = "2026-11-01T09:00:09.000Z";
+
+/** A start of a run this process owns: from queued, its input dropped. */
+function start(extra: Partial<LifecycleChange> = {}): LifecycleChange {
+  return {
+    dropInput: true,
+    from: ["queued"],
+    owner: process.pid,
+    startedAt: AT,
+    status: "running",
+    updatedAt: AT,
+    ...extra,
+  };
 }
 
 /** The run `id` as `store` gives it back, read as the domain reads it. */
@@ -104,9 +122,9 @@ export function describeExecutionStore(
       };
       const { input: _input, ...settledRun } = settled;
       const nullInput = queued("c", { input: null, sequence: 20 });
-      expect(await executions.put(queued("a"))).toBe(true);
-      expect(await executions.put(settledRun)).toBe(true);
-      expect(await executions.put(nullInput)).toBe(true);
+      expect(await executions.create(queued("a"))).toBe(true);
+      expect(await executions.create(settledRun)).toBe(true);
+      expect(await executions.create(nullInput)).toBe(true);
       expect(await read(executions, "a")).toEqual(queued("a"));
       expect(await read(executions, "b")).toEqual(settledRun);
       expect(await read(executions, "c")).toEqual(nullInput);
@@ -114,62 +132,153 @@ export function describeExecutionStore(
       expect(
         (await executions.list()).map((stored) => parseStored(stored)?.id)
       ).toEqual(["b", "a", "c"]);
+      // A run of an id kept already is never created over it.
+      expect(await executions.create(queued("a", { status: "running" }))).toBe(
+        false
+      );
+      expect((await read(executions, "a"))?.status).toBe("queued");
     });
 
-    it("keeps a record only over a lower revision of itself, and its observations with it", async () => {
+    it("makes a lifecycle change only from a status it allows and for the owner it names, writing only the lifecycle fields", async () => {
       const executions = await store();
-      await executions.put(queued("a", { revision: 2 }));
-      await executions.observe("a", effect("o"), {
-        revision: 3,
-        updatedAt: "2026-11-01T09:00:02.000Z",
-      });
+      await executions.create(queued("a", { progress: { step: 1 } }));
+      await executions.observe("a", effect("o"), "2026-11-01T09:00:01.000Z");
+      // A status it does not allow, and an owner that does not own it.
       expect(
-        await executions.put(queued("a", { revision: 3, status: "running" }))
-      ).toBe(false);
-      expect(await read(executions, "a")).toMatchObject({
-        revision: 3,
-        status: "queued",
-      });
+        await executions.transition("a", start({ from: ["running"] }))
+      ).toMatchObject({ applied: false, record: { status: "queued" } });
       expect(
-        await executions.put(queued("a", { revision: 4, status: "running" }))
-      ).toBe(true);
-      expect(await read(executions, "a")).toMatchObject({
+        await executions.transition("a", start({ owner: OTHER }))
+      ).toMatchObject({ applied: false, record: { status: "queued" } });
+      expect(await read(executions, "a")).toMatchObject({ revision: 2 });
+
+      const started = await executions.transition("a", start());
+      expect(started).toMatchObject({
+        applied: true,
+        record: { revision: 3, status: "running" },
+      });
+      const running = await read(executions, "a");
+      expect(running).toMatchObject({
         observations: [effect("o")],
-        revision: 4,
+        progress: { step: 1 },
+        revision: 3,
         status: "running",
+        timestamps: { startedAt: AT },
+      });
+      expect(running).not.toHaveProperty("input");
+
+      const settled = await executions.transition("a", {
+        error: { code: "Error", message: "it broke" },
+        from: ["running"],
+        newOwner: OTHER,
+        owner: process.pid,
+        settledAt: LATER,
+        startedAt: LATER,
+        status: "failed",
+        updatedAt: LATER,
+      });
+      expect(settled.applied).toBe(true);
+      expect(await read(executions, "a")).toMatchObject({
+        error: { code: "Error", message: "it broke" },
+        owner: { pid: OTHER },
+        progress: { step: 1 },
+        revision: 4,
+        status: "failed",
+        // A start is recorded once.
+        timestamps: { settledAt: LATER, startedAt: AT, updatedAt: LATER },
+      });
+      expect(await executions.transition("none", start())).toEqual({
+        applied: false,
+        record: undefined,
       });
     });
 
-    it("records an observation by id, moving one recorded again last, and raises its run's revision only upward", async () => {
+    it("lets advisory changes between a transition's read and its write not block it", async () => {
       const executions = await store();
-      await executions.put(queued("a", { revision: 5 }));
-      const at = (revision: number) => ({
-        revision,
-        updatedAt: `2026-11-01T09:00:0${String(revision)}.000Z`,
+      await executions.create(queued("a"));
+      await executions.transition("a", start());
+      // What a settler last read of it, then progress and an observation land.
+      const read1 = await read(executions, "a");
+      await executions.advise("a", { progress: { n: 1 }, updatedAt: LATER });
+      await executions.observe("a", effect("o"), LATER);
+      const settled = await executions.transition("a", {
+        dropInput: true,
+        from: ["queued", "running", "suspended"],
+        owner: process.pid,
+        settledAt: LATER,
+        status: "complete",
+        updatedAt: LATER,
       });
-      expect(await executions.observe("a", effect("x", "running"), at(6))).toBe(
+      expect(settled).toMatchObject({
+        applied: true,
+        record: { progress: { n: 1 }, status: "complete" },
+      });
+      expect((read1?.revision ?? 0) + 3).toBe(
+        (await read(executions, "a"))?.revision
+      );
+    });
+
+    it("drops an advisory change on a settled run, and never writes a lifecycle field with one", async () => {
+      const executions = await store();
+      await executions.create(queued("a"));
+      expect(
+        await executions.advise("a", { progress: { n: 1 }, updatedAt: LATER })
+      ).toMatchObject({
+        applied: true,
+        record: { progress: { n: 1 }, revision: 2, status: "queued" },
+      });
+      await executions.transition("a", {
+        dropInput: true,
+        from: ["queued"],
+        owner: process.pid,
+        settledAt: LATER,
+        status: "complete",
+        updatedAt: LATER,
+      });
+      const settled = await read(executions, "a");
+      expect(
+        await executions.advise("a", { progress: { n: 2 }, updatedAt: "late" })
+      ).toMatchObject({ applied: false, record: { status: "complete" } });
+      expect(
+        await executions.observe("a", effect("late"), "late")
+      ).toMatchObject({ applied: false, record: { status: "complete" } });
+      expect(await read(executions, "a")).toEqual(settled);
+      expect(
+        await executions.advise("none", { progress: 1, updatedAt: "late" })
+      ).toEqual({ applied: false, record: undefined });
+    });
+
+    it("records an observation by id, moving one recorded again last, each raising its run's revision by one", async () => {
+      const executions = await store();
+      await executions.create(queued("a", { revision: 5 }));
+      const at = (second: number) => `2026-11-01T09:00:0${String(second)}.000Z`;
+      expect(
+        (await executions.observe("a", effect("x", "running"), at(6))).applied
+      ).toBe(true);
+      expect((await executions.observe("a", effect("y"), at(7))).applied).toBe(
         true
       );
-      expect(await executions.observe("a", effect("y"), at(7))).toBe(true);
-      expect(await executions.observe("a", effect("x"), at(8))).toBe(true);
-      // An observation recorded with a revision behind the record's.
-      expect(await executions.observe("a", effect("z"), at(2))).toBe(true);
+      expect((await executions.observe("a", effect("x"), at(8))).applied).toBe(
+        true
+      );
       const run = await read(executions, "a");
       expect(
         run?.observations.map(({ id, status }) => `${id}:${status}`)
-      ).toEqual(["y:complete", "x:complete", "z:complete"]);
+      ).toEqual(["y:complete", "x:complete"]);
       expect(run).toMatchObject({
         revision: 8,
-        timestamps: { updatedAt: at(8).updatedAt },
+        timestamps: { updatedAt: at(8) },
       });
-      expect(await executions.observe("none", effect("x"), at(9))).toBe(false);
-      expect(await read(executions, "none")).toBeUndefined();
+      expect(await executions.observe("none", effect("x"), at(9))).toEqual({
+        applied: false,
+        record: undefined,
+      });
     });
 
     it("finds a run by its name and source, and forgets a run with its observations", async () => {
       const executions = await store();
-      await executions.put(queued("a", { source: "request-1" }));
-      await executions.put(
+      await executions.create(queued("a", { source: "request-1" }));
+      await executions.create(
         queued("b", { name: "publish", source: "request-1" })
       );
       expect((await executions.withSource("save", "request-1"))?.id).toBe("a");
@@ -177,14 +286,11 @@ export function describeExecutionStore(
         "b"
       );
       expect(await executions.withSource("save", "request-2")).toBeUndefined();
-      await executions.observe("a", effect("o"), {
-        revision: 2,
-        updatedAt: "x",
-      });
+      await executions.observe("a", effect("o"), "x");
       await executions.remove("a");
       await executions.remove("none");
       expect(await executions.get("a")).toBeUndefined();
-      await executions.put(queued("a"));
+      await executions.create(queued("a"));
       expect((await read(executions, "a"))?.observations).toEqual([]);
     });
 
@@ -212,34 +318,36 @@ export function describeExecutionStore(
 
     it("keeps what a transaction wrote once it resolves, and nothing of one that rejects", async () => {
       const executions = await store();
-      await executions.put(queued("a"));
+      await executions.create(queued("a"));
       await expect(
         executions.transaction(async (view) => {
           await view.remove("a");
-          await view.put(queued("b"));
+          await view.create(queued("b"));
           throw new Error("changed its mind");
         })
       ).rejects.toThrow("changed its mind");
       expect((await executions.list()).map(({ id }) => id)).toEqual(["a"]);
       await executions.transaction(async (view) => {
         expect(await view.get("a")).toBeDefined();
-        await view.put(queued("b"));
+        await view.create(queued("b"));
+        await view.transition("a", start());
       });
       expect((await executions.list()).map(({ id }) => id).sort()).toEqual([
         "a",
         "b",
       ]);
+      expect((await read(executions, "a"))?.status).toBe("running");
     });
 
     it("owns what it is handed from the call, and refuses what it cannot copy", async () => {
       const executions = await store();
       const run = queued("a") as { status: string };
-      const putting = executions.put(run as unknown as ExecutionRun);
+      const creating = executions.create(run as unknown as ExecutionRun);
       run.status = "running";
-      await putting;
+      await creating;
       expect((await read(executions, "a"))?.status).toBe("queued");
       await expect(
-        executions.put({
+        executions.create({
           ...queued("b"),
           input: (() => 1) as unknown as ExecutionRun["input"],
         })
@@ -248,16 +356,16 @@ export function describeExecutionStore(
 
     it("keeps a run, its observations and gaps as JSON gives them back, and refuses what JSON would not", async () => {
       const executions = await store();
-      await executions.put(
+      await executions.create(
         queued("a", {
           input: { gone: undefined, n: -0 } as unknown as ExecutionRun["input"],
-          progress: { at: -0 },
         })
       );
+      await executions.advise("a", { progress: { at: -0 }, updatedAt: "t" });
       await executions.observe(
         "a",
         { ...effect("o"), data: { bytes: -0 }, errorCode: undefined },
-        { revision: 2, updatedAt: "2026-11-01T09:00:02.000Z" }
+        "2026-11-01T09:00:02.000Z"
       );
       await executions.putGap({
         removed: -0,
@@ -275,40 +383,55 @@ export function describeExecutionStore(
         { removed: 0, scope: "host", through: "t", updatedAt: "t" },
       ]);
       await expect(
-        executions.put(queued("b", { input: { n: Number.NaN } }))
+        executions.create(queued("b", { input: { n: Number.NaN } }))
       ).rejects.toThrow("NaN");
       await expect(
         executions.observe(
           "a",
           { ...effect("p"), data: { n: Number.NEGATIVE_INFINITY } },
-          { revision: 3, updatedAt: "x" }
+          "x"
         )
       ).rejects.toThrow("Infinity");
       await expect(
-        executions.transaction((view) =>
-          view.put(queued("c", { progress: [undefined] as never }))
-        )
+        executions.advise("a", {
+          progress: [undefined] as never,
+          updatedAt: "x",
+        })
       ).rejects.toThrow("undefined");
       expect((await executions.list()).map(({ id }) => id)).toEqual(["a"]);
-      expect((await read(executions, "a"))?.observations).toHaveLength(1);
+      expect(await read(executions, "a")).toMatchObject({
+        observations: [{ id: "o" }],
+        progress: { at: 0 },
+      });
     });
 
     it.runIf(shared)(
-      "lets one transaction at a time read and write, across every store over the same state",
+      "lets one of two engines racing to make the same lifecycle change make it, and the other's advisory changes never block or undo it",
       async () => {
         const first = await store();
         const second = await store();
-        await first.put(queued("a"));
-        const taking = (over: ExecutionStore) =>
-          over.transaction(async (view) => {
-            const run = (await view.get("a"))?.value as ExecutionRun;
-            await new Promise((resolve) => setTimeout(resolve, 20));
-            return await view.put({ ...run, revision: run.revision + 1 });
-          });
-        const taken = await Promise.all([taking(first), taking(second)]);
-        // Each read what the other wrote: both landed, one after the other.
-        expect(taken).toEqual([true, true]);
-        expect((await read(second, "a"))?.revision).toBe(3);
+        await first.create(queued("a"));
+        const [one, two] = await Promise.all([
+          first.transition("a", start()),
+          second.transition("a", start()),
+        ]);
+        expect([one.applied, two.applied].sort()).toEqual([false, true]);
+        // The other engine reports progress while the owner settles.
+        await second.advise("a", { progress: { n: 1 }, updatedAt: LATER });
+        const settled = await first.transition("a", {
+          dropInput: true,
+          from: ["running"],
+          owner: process.pid,
+          settledAt: LATER,
+          status: "complete",
+          updatedAt: LATER,
+        });
+        await second.advise("a", { progress: { n: 2 }, updatedAt: LATER });
+        expect(settled.applied).toBe(true);
+        expect(await read(second, "a")).toMatchObject({
+          progress: { n: 1 },
+          status: "complete",
+        });
       }
     );
 
@@ -316,7 +439,7 @@ export function describeExecutionStore(
       const executions = await store();
       await executions.close();
       await expect(executions.list()).rejects.toThrow();
-      await expect(executions.put(queued("a"))).rejects.toThrow();
+      await expect(executions.create(queued("a"))).rejects.toThrow();
       await expect(
         executions.transaction(() => Promise.resolve())
       ).rejects.toThrow();

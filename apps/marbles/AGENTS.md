@@ -129,7 +129,9 @@ Five buckets, each importing only what sits below it:
   and each monitor's state by the trigger's key, and the claim that keeps
   two ticks of one trigger apart, a transaction on the tick's row.
   `executions.ts` is a workspace's Execution Runs: each record a row of
-  `marbles_executions`, landing only over a lower revision of itself; each
+  `marbles_executions`, its lifecycle changed only from a status the
+  change allows and by the owner it names, and its progress patched only
+  while it is unsettled (`ExecutionStore`); each
   observation a row of `marbles_execution_observations`, so recording one
   costs the same however many its run has; and what pruning removed,
   `marbles_execution_gaps`. The run store's `onCommit` hook writes a

@@ -83,7 +83,7 @@ it("neither cancels nor prunes a run another process took over and is running, f
     scope: "ws",
   });
   const at = new Date().toISOString();
-  await store.put({
+  await store.create({
     correlation: {},
     id: "rn-shared",
     kind: "task",
@@ -125,4 +125,100 @@ it("neither cancels nor prunes a run another process took over and is running, f
     stored: "running",
   });
   expect(await other.exited).toBe(0);
+});
+
+/**
+ * Another engine, in a process of its own, that reports progress on the
+ * run `rn-owned` until its stdin ends, then says how many it reported and
+ * how many the store dropped.
+ */
+function reporter(file: string) {
+  const script = `
+    const { openDatabase } = await import(${JSON.stringify(join(SOURCE, "database/open.ts"))});
+    const { DatabaseExecutionStore } = await import(${JSON.stringify(join(SOURCE, "database/executions.ts"))});
+    const opened = await openDatabase(${JSON.stringify(file)});
+    const store = new DatabaseExecutionStore({ database: opened.database, scope: "ws" });
+    let ended = false;
+    (async () => { for await (const _ of Bun.stdin.stream()) {} ended = true; })();
+    let made = 0;
+    let dropped = 0;
+    console.log("reporting");
+    while (!ended) {
+      const written = await store.advise("rn-owned", { progress: { n: made + dropped }, updatedAt: new Date().toISOString() });
+      if (written.applied) made += 1; else dropped += 1;
+      await Bun.sleep(1);
+    }
+    console.log(JSON.stringify({ dropped, made }));
+    opened.close();
+  `;
+  const child = spawn("bun", ["-e", script], {
+    cwd: resolve(import.meta.dirname, "../.."),
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  const lines = createInterface({ input: child.stdout })[
+    Symbol.asyncIterator
+  ]();
+  const next = async () => String((await lines.next()).value);
+  const exited = new Promise<number | null>((done) =>
+    child.on("exit", (code) => done(code))
+  );
+  return { child, exited, next };
+}
+
+it("settles a run its owner finished while another process keeps reporting progress on it, and drops what that process reports after", {
+  timeout: 30_000,
+}, async () => {
+  const root = mkdtempSync(join(tmpdir(), "marbles-progress-race-"));
+  roots.push(root);
+  const file = stateDatabase(root);
+  const opened = await initializeDatabase(file);
+  handles.push(opened);
+  const store = new DatabaseExecutionStore({
+    database: opened.database,
+    scope: "ws",
+  });
+  const owner = new Executions({ store, warn: () => undefined });
+  const { run } = await owner.enqueue({
+    kind: "task",
+    name: "work",
+    queue: "q",
+  });
+  // Recorded under a fixed id the other process names.
+  const at = new Date().toISOString();
+  await store.create({
+    ...run,
+    id: "rn-owned",
+    timestamps: { queuedAt: at, updatedAt: at },
+  });
+  await owner.load();
+  const held = Promise.withResolvers<void>();
+  const started = Promise.withResolvers<void>();
+  owner.admit(
+    "rn-owned",
+    async () => {
+      started.resolve();
+      await held.promise;
+    },
+    () => undefined
+  );
+  await started.promise;
+
+  const other = reporter(file);
+  expect(await other.next()).toBe("reporting");
+  await new Promise((wake) => setTimeout(wake, 50));
+  held.resolve();
+  const settled = await owner.settle("rn-owned", "complete");
+  expect(settled?.status).toBe("complete");
+  await new Promise((wake) => setTimeout(wake, 50));
+  other.child.stdin.end();
+  const counts = JSON.parse(await other.next()) as {
+    dropped: number;
+    made: number;
+  };
+  expect(await other.exited).toBe(0);
+
+  expect(counts.made).toBeGreaterThan(0);
+  expect(counts.dropped).toBeGreaterThan(0);
+  const kept = await store.get("rn-owned");
+  expect(kept && parseStored(kept)?.status).toBe("complete");
 });

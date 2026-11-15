@@ -1,3 +1,4 @@
+import type { JsonValue } from "@foundry/lib/json";
 import { RecordsGate } from "~/lib/events/records";
 import { storableJson } from "~/lib/state/json";
 import type {
@@ -5,19 +6,30 @@ import type {
   ExecutionRun,
   RetentionGap,
 } from "./execution-record";
+import type { ExecutionStatus } from "./execution-statuses";
+import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
 
 /**
  * Where a workspace's Execution Runs are kept: each run's record by id,
  * its observations one row each beside it, and what pruning removed, by
  * host scope (`RetentionGap`).
  *
- * The store keeps what it is told; `ExecutionRecords`
- * (`lib/execution-records.ts`) holds every rule of the domain. Two
- * storage rules are the store's own, so that engines sharing it never
- * undo one another: a record put is kept only over a lower revision of
- * itself (`put` says whether it was), and an observation recorded again by
- * its id replaces the one before and moves last, raising its run's
- * revision, at the same cost however many the run has. A read inside
+ * `ExecutionRecords` (`lib/execution-records.ts`) holds every rule of the
+ * domain; the store keeps two kinds of write apart, so engines sharing it
+ * never undo one another:
+ *
+ * - A lifecycle change (`transition`: started, parked, resumed, settled,
+ *   cancelled, taken over, interrupted) is made only on a run stored in
+ *   one of the statuses it allows and owned by the process it names, and
+ *   writes only the lifecycle fields: status, owner, error, start and
+ *   settle times, and the queued input it drops. Nothing else blocks it.
+ * - An advisory change (`advise`, a run's progress, and `observe`, one
+ *   observation, replacing one of its id and moving it last, at the same
+ *   cost however many the run has) is made only on a run not settled, and
+ *   writes only its own field: one that comes after a settle is dropped.
+ *
+ * Every write that is made raises the run's revision by one, so a reader
+ * orders what it is told; the revision guards nothing. A read inside
  * `transaction` sees no other engine's write until it settles.
  *
  * `MemoryExecutionStore` keeps everything in this process, for one
@@ -36,6 +48,16 @@ export interface ExecutionStore extends ExecutionView {
 
 /** The Execution Runs, as a store or a transaction in progress sees them. */
 export interface ExecutionView {
+  /** Set `progress` on the run `id`, unless it is settled or not kept. */
+  advise(
+    id: string,
+    change: { readonly progress: JsonValue; readonly updatedAt: string }
+  ): Promise<Written>;
+  /**
+   * Keep a new run's record whole, its observations aside; `false`,
+   * keeping nothing, when a run of its id is kept already.
+   */
+  create(run: ExecutionRun): Promise<boolean>;
   /** What pruning has removed so far, by host scope. */
   gaps(): Promise<readonly RetentionGap[]>;
   /** The run `id` with its observations; `undefined` when none is kept. */
@@ -44,29 +66,57 @@ export interface ExecutionView {
   list(): Promise<readonly StoredExecution[]>;
   /**
    * Record `observation` on the run `id`, or replace the one of its id,
-   * which then comes last; the run's record takes `revision` and
-   * `updatedAt` unless it has a higher revision already. `false`, keeping
-   * nothing, when the run is not kept.
+   * which then comes last, unless the run is settled or not kept.
    */
   observe(
     id: string,
     observation: ExecutionObservation,
-    at: { readonly revision: number; readonly updatedAt: string }
-  ): Promise<boolean>;
-  /**
-   * Keep `run`'s record, its observations aside, unless a revision of it as
-   * high or higher is kept: whether this one is kept now.
-   */
-  put(run: ExecutionRun): Promise<boolean>;
+    updatedAt: string
+  ): Promise<Written>;
   /** Keep `gap` as its scope's, whole. */
   putGap(gap: RetentionGap): Promise<void>;
   /** Forget the run `id` and its observations; nothing when none is kept. */
   remove(id: string): Promise<void>;
+  /** Make the lifecycle change on the run `id`, when it allows the run as stored. */
+  transition(id: string, change: LifecycleChange): Promise<Written>;
   /** The run kept for the definition `name` and caller's `source`, if one is. */
   withSource(
     name: string,
     source: string
   ): Promise<StoredExecution | undefined>;
+}
+
+/**
+ * A change of a run's lifecycle, made only when the run is stored in one
+ * of `from` and owned by `owner`. Its fields are the only ones it writes.
+ */
+export interface LifecycleChange {
+  /** Drop the queued input: a run that has started keeps none. */
+  readonly dropInput?: boolean;
+  /** Why it failed or was interrupted; the stored one stays without. */
+  readonly error?: ExecutionRun["error"];
+  /** The statuses the run must be stored in. */
+  readonly from: readonly ExecutionStatus[];
+  /** Its owner from now on; `owner` stays when omitted. */
+  readonly newOwner?: number;
+  /** The process that must own it as stored. */
+  readonly owner: number;
+  /** When it settled; set once, by a settle. */
+  readonly settledAt?: string;
+  /** When it started; set once, by a start. */
+  readonly startedAt?: string;
+  readonly status: ExecutionStatus;
+  readonly updatedAt: string;
+}
+
+/** What a write found: whether it was made, and the run's record as stored after it. */
+export interface Written {
+  readonly applied: boolean;
+  /**
+   * The record as stored once the write settled, its observations aside,
+   * unchecked; `undefined` when the run is not kept.
+   */
+  readonly record: unknown;
 }
 
 /**
@@ -109,6 +159,25 @@ export function storedObservation(
   ) as unknown as ExecutionObservation;
 }
 
+/** The copy of a run's progress every store keeps, as `storedExecutionRun` keeps a record. */
+export function storedProgress(runId: string, progress: JsonValue): JsonValue {
+  return storableJson(
+    `execution run ${JSON.stringify(runId)} progress`,
+    progress
+  );
+}
+
+/** The copy of a lifecycle change every store keeps, as `storedExecutionRun` keeps a record. */
+export function storedChange(
+  runId: string,
+  change: LifecycleChange
+): LifecycleChange {
+  return storableJson(
+    `execution run ${JSON.stringify(runId)} change`,
+    change
+  ) as unknown as LifecycleChange;
+}
+
 /** The copy of a retention gap every store keeps, as `storedExecutionRun` keeps a record. */
 export function storedRetentionGap(gap: RetentionGap): RetentionGap {
   return storableJson(
@@ -117,15 +186,55 @@ export function storedRetentionGap(gap: RetentionGap): RetentionGap {
   ) as unknown as RetentionGap;
 }
 
-/** A run's record as it is kept: everything but its observations. */
-function recordOf(run: ExecutionRun): Omit<ExecutionRun, "observations"> {
-  const { observations: _observations, ...record } = storedExecutionRun(run);
-  return record;
+/** Whether a lifecycle change allows `record`, as stored. */
+export function allows(
+  change: LifecycleChange,
+  record: { readonly owner: { readonly pid: number }; readonly status: string }
+): boolean {
+  return (
+    (change.from as readonly string[]).includes(record.status) &&
+    record.owner.pid === change.owner
+  );
+}
+
+/** Whether an advisory change may still be made on a run stored as `status`. */
+export function advisable(status: string): boolean {
+  return !SETTLED_EXECUTION_STATUSES.has(status as ExecutionStatus);
+}
+
+/** A run's record as it is kept, its observations aside. */
+type KeptRecord = Omit<ExecutionRun, "observations">;
+
+/** `record` with `change` made, its revision raised: the lifecycle fields alone. */
+export function changed(
+  record: KeptRecord,
+  change: LifecycleChange
+): KeptRecord {
+  const { input, error, ...rest } = record;
+  const timestamps = {
+    ...record.timestamps,
+    ...(change.startedAt === undefined || record.timestamps.startedAt
+      ? {}
+      : { startedAt: change.startedAt }),
+    ...(change.settledAt === undefined ? {} : { settledAt: change.settledAt }),
+    updatedAt: change.updatedAt,
+  };
+  return {
+    ...rest,
+    ...(change.dropInput || input === undefined ? {} : { input }),
+    ...((change.error ?? error) === undefined
+      ? {}
+      : { error: change.error ?? error }),
+    owner: { pid: change.newOwner ?? record.owner.pid },
+    revision: record.revision + 1,
+    status: change.status,
+    timestamps,
+  };
 }
 
 interface Kept {
   readonly observations: Map<string, ExecutionObservation>;
-  record: Omit<ExecutionRun, "observations">;
+  record: KeptRecord;
 }
 
 /**
@@ -164,6 +273,26 @@ export class MemoryExecutionStore implements ExecutionStore {
     });
   }
 
+  advise(
+    id: string,
+    change: { readonly progress: JsonValue; readonly updatedAt: string }
+  ): Promise<Written> {
+    return this.#owning(
+      change,
+      (value) => ({
+        progress: storedProgress(id, value.progress),
+        updatedAt: value.updatedAt,
+      }),
+      (owned) => this.transaction((view) => view.advise(id, owned))
+    );
+  }
+
+  create(run: ExecutionRun): Promise<boolean> {
+    return this.#owning(run, storedExecutionRun, (owned) =>
+      this.transaction((view) => view.create(owned))
+    );
+  }
+
   get(id: string): Promise<StoredExecution | undefined> {
     return this.#read((view) => view.get(id));
   }
@@ -176,28 +305,15 @@ export class MemoryExecutionStore implements ExecutionStore {
     return this.#read((view) => view.list());
   }
 
-  withSource(
-    name: string,
-    source: string
-  ): Promise<StoredExecution | undefined> {
-    return this.#read((view) => view.withSource(name, source));
-  }
-
   observe(
     id: string,
     observation: ExecutionObservation,
-    at: { readonly revision: number; readonly updatedAt: string }
-  ): Promise<boolean> {
+    updatedAt: string
+  ): Promise<Written> {
     return this.#owning(
       observation,
       (value) => storedObservation(id, value),
-      (owned) => this.transaction((view) => view.observe(id, owned, at))
-    );
-  }
-
-  put(run: ExecutionRun): Promise<boolean> {
-    return this.#owning(run, storedExecutionRun, (owned) =>
-      this.transaction((view) => view.put(owned))
+      (owned) => this.transaction((view) => view.observe(id, owned, updatedAt))
     );
   }
 
@@ -209,6 +325,21 @@ export class MemoryExecutionStore implements ExecutionStore {
 
   remove(id: string): Promise<void> {
     return this.transaction((view) => view.remove(id));
+  }
+
+  transition(id: string, change: LifecycleChange): Promise<Written> {
+    return this.#owning(
+      change,
+      (value) => storedChange(id, value),
+      (owned) => this.transaction((view) => view.transition(id, owned))
+    );
+  }
+
+  withSource(
+    name: string,
+    source: string
+  ): Promise<StoredExecution | undefined> {
+    return this.#read((view) => view.withSource(name, source));
   }
 
   #read<T>(read: (view: ExecutionView) => Promise<T>): Promise<T> {
@@ -244,6 +375,32 @@ class MemoryView implements ExecutionView {
     this.#gaps = gaps;
   }
 
+  advise(
+    id: string,
+    change: { readonly progress: JsonValue; readonly updatedAt: string }
+  ): Promise<Written> {
+    const kept = this.#runs.get(id);
+    if (!(kept && advisable(kept.record.status))) {
+      return Promise.resolve(writtenOf(false, kept));
+    }
+    kept.record = {
+      ...kept.record,
+      progress: storedProgress(id, change.progress),
+      revision: kept.record.revision + 1,
+      timestamps: { ...kept.record.timestamps, updatedAt: change.updatedAt },
+    };
+    return Promise.resolve(writtenOf(true, kept));
+  }
+
+  create(run: ExecutionRun): Promise<boolean> {
+    if (this.#runs.has(run.id)) {
+      return Promise.resolve(false);
+    }
+    const { observations: _observations, ...record } = storedExecutionRun(run);
+    this.#runs.set(run.id, { observations: new Map(), record });
+    return Promise.resolve(true);
+  }
+
   get(id: string): Promise<StoredExecution | undefined> {
     const kept = this.#runs.get(id);
     return Promise.resolve(kept && storedOf(id, kept));
@@ -264,49 +421,23 @@ class MemoryView implements ExecutionView {
     );
   }
 
-  withSource(
-    name: string,
-    source: string
-  ): Promise<StoredExecution | undefined> {
-    for (const [id, kept] of this.#runs) {
-      if (kept.record.name === name && kept.record.source === source) {
-        return Promise.resolve(storedOf(id, kept));
-      }
-    }
-    return Promise.resolve(undefined);
-  }
-
   observe(
     id: string,
     observation: ExecutionObservation,
-    at: { readonly revision: number; readonly updatedAt: string }
-  ): Promise<boolean> {
+    updatedAt: string
+  ): Promise<Written> {
     const kept = this.#runs.get(id);
-    if (kept === undefined) {
-      return Promise.resolve(false);
+    if (!(kept && advisable(kept.record.status))) {
+      return Promise.resolve(writtenOf(false, kept));
     }
     kept.observations.delete(observation.id);
     kept.observations.set(observation.id, storedObservation(id, observation));
-    if (kept.record.revision < at.revision) {
-      kept.record = {
-        ...kept.record,
-        revision: at.revision,
-        timestamps: { ...kept.record.timestamps, updatedAt: at.updatedAt },
-      };
-    }
-    return Promise.resolve(true);
-  }
-
-  put(run: ExecutionRun): Promise<boolean> {
-    const kept = this.#runs.get(run.id);
-    if (kept && kept.record.revision >= run.revision) {
-      return Promise.resolve(false);
-    }
-    this.#runs.set(run.id, {
-      observations: kept?.observations ?? new Map(),
-      record: recordOf(run),
-    });
-    return Promise.resolve(true);
+    kept.record = {
+      ...kept.record,
+      revision: kept.record.revision + 1,
+      timestamps: { ...kept.record.timestamps, updatedAt },
+    };
+    return Promise.resolve(writtenOf(true, kept));
   }
 
   putGap(gap: RetentionGap): Promise<void> {
@@ -318,6 +449,31 @@ class MemoryView implements ExecutionView {
     this.#runs.delete(id);
     return Promise.resolve();
   }
+
+  transition(id: string, change: LifecycleChange): Promise<Written> {
+    const kept = this.#runs.get(id);
+    if (!(kept && allows(change, kept.record))) {
+      return Promise.resolve(writtenOf(false, kept));
+    }
+    kept.record = changed(kept.record, storedChange(id, change));
+    return Promise.resolve(writtenOf(true, kept));
+  }
+
+  withSource(
+    name: string,
+    source: string
+  ): Promise<StoredExecution | undefined> {
+    for (const [id, kept] of this.#runs) {
+      if (kept.record.name === name && kept.record.source === source) {
+        return Promise.resolve(storedOf(id, kept));
+      }
+    }
+    return Promise.resolve(undefined);
+  }
+}
+
+function writtenOf(applied: boolean, kept: Kept | undefined): Written {
+  return { applied, record: kept && structuredClone(kept.record) };
 }
 
 function storedOf(id: string, kept: Kept): StoredExecution {

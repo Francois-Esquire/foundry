@@ -24,6 +24,7 @@ import {
   exitedPid,
   gate,
   orphan,
+  seedExecution,
   storedExecution,
   until,
   withExecutions,
@@ -238,19 +239,19 @@ it("records a running run's observations one at a time, beside its record, and k
   const dead = exitedPid();
   await withExecutions(state, async (store) => {
     const stored = await store.get(launched.id);
-    await store.remove(launched.id);
     const record = stored?.value as ExecutionRun;
-    await store.put({
+    await seedExecution(store, {
       ...record,
       observations: [],
       owner: { pid: dead },
       status: "running",
     });
     for (const observation of live?.observations ?? []) {
-      await store.observe(launched.id, observation, {
-        revision: record.revision,
-        updatedAt: record.timestamps.updatedAt,
-      });
+      await store.observe(
+        launched.id,
+        observation,
+        record.timestamps.updatedAt
+      );
     }
   });
   const next = engineWith({ state });
@@ -275,11 +276,12 @@ it("records an observation at the same cost however many its run has", async () 
     written.push(observation);
     return observed(id, observation, at);
   };
-  const put = store.put.bind(store);
+  // Nothing but the observation is written: no lifecycle change, no progress.
+  const transition = store.transition.bind(store);
   let puts = 0;
-  store.put = (record) => {
+  store.transition = (id, change) => {
     puts += 1;
-    return put(record);
+    return transition(id, change);
   };
   for (let index = 0; index < 50; index += 1) {
     await executions.observe(run.id, {
@@ -422,7 +424,7 @@ it("skips observations that are not ones, without failing the start", async () =
       name: "save",
       status: "running",
     });
-    const at = { revision: 3, updatedAt: "x" };
+    const at = "x";
     for (const observation of [
       { id: "half" },
       {
@@ -674,7 +676,7 @@ it("accumulates retention across stale engines without counting the same removal
       if (!settled) {
         throw new Error("settled run missing");
       }
-      await store.put({
+      await seedExecution(store, {
         ...settled,
         revision: settled.revision + 1,
         timestamps: { ...settled.timestamps, settledAt },
@@ -735,15 +737,15 @@ it("parks a workflow's Execution Run with its Run, in one write, and warns of no
     database: opened.database,
     scope: "test",
   });
-  // Each write of a suspended record the engine makes itself.
+  // Each park the engine makes itself, and whether it was made.
   const parks: boolean[] = [];
-  const put = store.put.bind(store);
-  store.put = async (run) => {
-    const kept = await put(run);
-    if (run.status === "suspended") {
-      parks.push(kept);
+  const transition = store.transition.bind(store);
+  store.transition = async (runId, change) => {
+    const written = await transition(runId, change);
+    if (change.status === "suspended") {
+      parks.push(written.applied);
     }
-    return kept;
+    return written;
   };
   const engine = engineWith({
     askable: true,
@@ -768,7 +770,7 @@ it("parks a workflow's Execution Run with its Run, in one write, and warns of no
       status: "suspended",
     })
   );
-  // The Run's commit wrote it: the engine's own write found it there.
+  // The Run's commit made it: the engine's own park found it made.
   expect(parks).toEqual([false]);
   expect(lines.filter((line) => line.startsWith("[state]"))).toEqual([]);
   await engine.dispose();

@@ -9,6 +9,7 @@ import {
   exitedPid,
   leftBehind,
   orphan,
+  seedExecution,
   storedExecution,
   until,
   withExecutions,
@@ -107,8 +108,7 @@ it("keeps queued work across a stop and admits it in the next process's order", 
   const dead = exitedPid();
   await withExecutions(state, async (store) => {
     for (const record of left) {
-      await store.remove(record.id);
-      await store.put({ ...record, owner: { pid: dead } });
+      await seedExecution(store, { ...record, owner: { pid: dead } });
     }
   });
 
@@ -147,8 +147,11 @@ it("re-admits a queued workflow under its recorded id, and trusts a settled run 
     throw new Error("the run was not stored");
   }
   await withExecutions(state, async (store) => {
-    await store.remove(finished.id);
-    await store.put({ ...record, owner: { pid: dead }, status: "running" });
+    await seedExecution(store, {
+      ...record,
+      owner: { pid: dead },
+      status: "running",
+    });
   });
   await leftBehind(state, dead, [
     {

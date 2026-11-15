@@ -648,7 +648,8 @@ export class Launcher {
   /**
    * Record how a run ended, then pay its caller what it ended with, once
    * the settlement is stored: a run is never acknowledged as ended before
-   * its record says so. One whose settlement cannot be stored pays its
+   * its record says so, and one stored settled otherwise already pays what
+   * is stored. One whose settlement cannot be stored pays its
    * caller a `RunNotRecordedError` instead, and the settlement is kept to
    * try again (`ExecutionRecords.settle`). With no `ending` (a run left
    * parked) nothing is recorded, and the caller is paid at once.
@@ -659,14 +660,26 @@ export class Launcher {
     outcome: { readonly error?: unknown; readonly value?: unknown }
   ): Promise<void> {
     if (ending !== undefined) {
+      let stored: ExecutionRun | undefined;
       try {
-        await this.executions.settle(
+        stored = await this.executions.settle(
           id,
           ending,
           ending === "failed" ? this.#failure(id, outcome.error) : undefined
         );
       } catch (failure) {
         this.#pay(id, new RunNotRecordedError(id, failure));
+        return;
+      }
+      if (stored && stored.status !== ending) {
+        // Settled otherwise already: the caller gets what is stored.
+        this.#pay(
+          id,
+          stored.status === "complete"
+            ? undefined
+            : new Error(`run ${id} was ${stored.status} already`),
+          undefined
+        );
         return;
       }
     }

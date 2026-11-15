@@ -121,6 +121,19 @@ export async function storedExecution(
   return stored ? parseStored(stored) : undefined;
 }
 
+/**
+ * `run`'s record put straight into `store`, whatever it held of the run,
+ * as another process, or one that crashed, left it: for a test to set the
+ * stage, never what the engine does.
+ */
+export async function seedExecution(
+  store: ExecutionStore,
+  run: ExecutionRun
+): Promise<void> {
+  await store.remove(run.id);
+  await store.create(run);
+}
+
 /** Records as a crashed process would have left them. */
 export async function leftBehind(
   state: string,
@@ -130,7 +143,7 @@ export async function leftBehind(
   await withExecutions(state, async (store) => {
     for (const [index, run] of runs.entries()) {
       const at = new Date(Date.now() - 1000 + index).toISOString();
-      await store.put({
+      await seedExecution(store, {
         correlation: {},
         id: `rn-left-${index}`,
         kind: "task",
@@ -154,7 +167,7 @@ export async function orphan(
   run: Partial<ExecutionRun> & { readonly id: string }
 ): Promise<void> {
   const at = new Date().toISOString();
-  await store.put({
+  await seedExecution(store, {
     correlation: {},
     kind: "workflow",
     name: "flow",

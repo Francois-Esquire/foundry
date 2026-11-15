@@ -65,10 +65,15 @@ it("writes the Execution Run a Run's commit follows with in that commit's own tr
       status: "running",
       timestamps: { queuedAt: at, startedAt: at, updatedAt: at },
     };
-    await executions.put(running);
+    await executions.create(running);
     let follows: RunFollower = (runId, status) =>
       runId === "rn-1" && status === "suspended"
-        ? { ...running, revision: 3, status: "suspended" }
+        ? {
+            from: ["running"],
+            owner: process.pid,
+            status: "suspended",
+            updatedAt: at,
+          }
         : undefined;
     const workflows = await new DatabaseRunStore({
       database,

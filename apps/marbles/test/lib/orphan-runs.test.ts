@@ -21,7 +21,11 @@ import { Executions } from "~/lib/executions";
 import { ANY_STORED_RUN } from "~/lib/run-store";
 import type { Context } from "~/lib/types";
 import { testEngine } from "../helpers/engine";
-import { storedExecution, withExecutions } from "../helpers/executions";
+import {
+  seedExecution,
+  storedExecution,
+  withExecutions,
+} from "../helpers/executions";
 
 let root: string;
 let state: string;
@@ -74,7 +78,7 @@ async function leftBehind(
 ): Promise<void> {
   const at = new Date().toISOString();
   await withExecutions(state, async (store) => {
-    await store.put({
+    await seedExecution(store, {
       correlation: {},
       kind: "task",
       name: "save",
@@ -275,7 +279,11 @@ async function rewriteRecord(
     throw new Error(`${id} is not stored`);
   }
   await withExecutions(state, async (store) => {
-    await store.put({ ...record, ...patch, revision: record.revision + 1 });
+    await seedExecution(store, {
+      ...record,
+      ...patch,
+      revision: record.revision + 1,
+    });
   });
 }
 
@@ -379,13 +387,13 @@ it("reads an orphan's record again once its Run is claimed, and leaves one an ad
     status: "suspended",
     timestamps: { queuedAt: at, updatedAt: at },
   };
-  await store.put(left);
+  await store.create(left);
   const adopted = { ...left, owner: { pid: process.ppid }, revision: 2 };
   const executions = new Executions({
     runs: {
       claim: async () => {
         // Between the look and the claim: a live process adopts it.
-        await store.put(adopted);
+        await seedExecution(store, adopted);
         return true;
       },
       release: () => Promise.resolve(),
