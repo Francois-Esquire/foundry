@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { directory, WorkspaceSystem } from "@foundry/workspaces";
@@ -51,4 +51,11 @@ export async function fixture(
     store,
     system,
   };
+}
+
+/** The published blob files under a fixture's root, staging aside. */
+export async function publishedFiles(root: string): Promise<string[]> {
+  return (await readdir(join(root, ".blobs"))).filter(
+    (name) => name !== ".staging"
+  );
 }

@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
 import type { DefinitionGraphBuilder } from "../definitions";
+import { ExecutionCoordinator } from "../index";
 import {
   decodeMetadataValue,
   encodePersistedMetadata,
@@ -11,7 +12,6 @@ import { Queue } from "../queue";
 import type { StepSnapshot } from "../schema";
 import { Snapshot } from "../snapshot";
 import { Step } from "../step";
-import { InMemoryOrchestratorStore } from "../store";
 import type { WorkflowState } from "../workflow";
 import { Workflow } from "../workflow";
 
@@ -151,7 +151,7 @@ describe("entries named __proto__ stay own entries", () => {
   });
 
   test("stored Run data and persisted results keep the entry", async () => {
-    const store = new InMemoryOrchestratorStore();
+    const store = new ExecutionCoordinator();
     const created = await store.createRun({
       input: withProtoEntry<unknown>({ kept: 1 }, { nested: true }),
       metadata: { workflow: { steps: withProtoEntry({}, completedStep) } },

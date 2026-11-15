@@ -275,19 +275,54 @@ take the filter, cursor and limit, so a page never loads the catalogue. An optio
 change's reads and its commit; a plain commit waits for it, and a failed `work` keeps
 none of its commits. Inside `work`, call the view: a `commit` or `transaction` on the
 store itself from there rejects at once rather than waiting on itself. The manager runs
-every change, and every read of several records, through it, and then queues nothing of
-its own: the store orders every manager's changes. So a call on a second manager over the
-same store, made from inside the first manager's `transaction`, reaches the store and is
-refused there at once instead of waiting forever. Over a store without `transaction`, a
-manager runs its own changes one at a time and no further.
+every change, and every read of several records, through it. A manager also takes its
+own changes one at a time, since its turn keeps each Artifact's changes in call order
+while their bytes are checked and staged (below). A call on a second manager over the
+same store, made from inside the first manager's `transaction`, could wait in that turn
+behind the second manager's own call, which waits for the transaction; the manager
+refuses such a call at once instead, before any wait of its own. It sees only
+transactions a manager opened over the same store object. A call made from inside a
+`transaction` opened on the store directly, or on another wrapper of it, is not caught,
+and waits forever when that manager already has a call waiting for the transaction.
+Over a store without `transaction`, a manager runs its own changes one at a time and no
+further.
 
-Known limit: a change ingests blob bytes inside that exclusion, so a slow or stalled
-blob source holds the store (and, with `JsonArtifactStore`, the cross-process file
-lock) until it finishes. A follow-up change stages the bytes before entering the
-transaction.
+`create`, `write` and `revise` take their bytes in before the change enters that
+exclusion when `files` offers staging (`BlobFiles.staging`, an optional capability that
+`blobFiles` implements): every input is read, hashed and written to the staging area
+(`.staging/` under the blob root, which listing never reaches), so a slow or stalled
+source holds neither the manager's queue nor the store, nor the JSON file lock. A
+`BlobFiles` without `staging` keeps publishing the bytes inside the change. Before any
+byte is staged, the change is checked against a consistent view that includes every
+change this manager queued before it: names, ids, paths, blob references, fences, and
+which objects an in-place write would rewrite. Inside the transaction the change checks
+again, refuses with `StaleContentError` if a fence or the ownership of an object it would
+rewrite changed meanwhile, resolves deduplication, promotes the staged files it keeps to
+published names, and commits. Staging stops as soon as the bytes taken in exceed the tree
+limit, and one manager reads at most eight streams ahead at once.
+
+Changes one manager makes to the same Artifact commit in call order: a later change to
+an Artifact waits for an earlier stream change to it to settle. A stalled stream
+therefore delays later changes to that Artifact only; other Artifacts, reads and other
+managers go on. Changes named by Content (`freeze`, `tag`, `setMetadata`, `deleteContent`, `fork`)
+take their place in their Artifact's order while a stream change is pending. Order
+across managers is not promised, nor for calls made inside `transaction(work)`. A stream that never ends holds back later
+changes to its own Artifact through that manager for as long as it is pending; there is no
+timeout, and the caller ends it by ending or erroring the source.
+
+Staged files a change does not keep are discarded when it settles. Each `blobFiles`
+instance stages under its own directory and refreshes it whenever it stages a file; a
+directory no owner in this process holds is abandoned once it has gone 24 hours
+unchanged, and removed the first time an instance stages and by `recover`. A single
+chunk that takes longer than that to arrive can have its staging removed; its promotion
+then fails and the change rejects, with nothing published.
+
+Known limits: a stream is still read inside the exclusion when it is passed to a handle
+inside `transaction(work)`, or when `files` has no `staging`. Pass streams to `create`,
+`write` or `revise` directly.
 
 Blob bytes commit as records: inline bytes inside the blob, or the name of an
-immutable file `blobFiles` published before the commit. When a commit fails, the
+immutable file `blobFiles` promoted or published before the commit. When a commit fails, the
 manager removes those files only once the store shows the write absent; a commit that
 failed after its write landed (a failed directory sync, say) keeps them.
 `JsonArtifactStore` from `@foundry/artifacts/node` keeps every record in one JSON file,

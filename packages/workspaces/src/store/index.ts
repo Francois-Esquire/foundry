@@ -31,9 +31,13 @@ export interface WorkspaceStore {
   getWorkspace: (
     workspaceId: WorkspaceId
   ) => Promise<WorkspaceRegistration | null>;
-  /** One Workspace's entries in code-unit path order. */
+  /** One Workspace's entries in code-unit path order, then by id. */
   listEntries: (workspaceId: WorkspaceId) => Promise<readonly WorkspaceEntry[]>;
-  /** Registrations ordered by creation time, then id. */
+  /**
+   * Registrations ordered by creation time, then by id in code-point order
+   * (the order of their UTF-8 bytes). The cursor is the offset of the next page;
+   * anything but a nonnegative safe integer is refused with a `RangeError`.
+   */
   listWorkspaces: (
     input?: PageInput<number>
   ) => Promise<Page<WorkspaceRegistration, number>>;
@@ -48,13 +52,14 @@ export interface WorkspaceStore {
   transaction?: <T>(work: (view: WorkspaceStore) => Promise<T>) => Promise<T>;
 }
 
-/**
- * One atomic write to one Workspace: a save or a removal. Entry deletes apply
- * before entry puts.
- */
+/** One atomic write to one Workspace: a save or a removal. */
 export type WorkspaceStoreWrite = WorkspaceRemoval | WorkspaceSave;
 
-/** A registration as it now stands, and the entry changes beside it. */
+/**
+ * A registration as it now stands, and the entry changes beside it. Entry
+ * deletes apply before entry puts. A delete names an entry of the saved
+ * Workspace; a put files the entry under its own `workspaceId`.
+ */
 export interface WorkspaceSave {
   readonly deleteEntries?: readonly WorkspaceEntryId[];
   readonly putEntries?: readonly WorkspaceEntry[];
@@ -63,11 +68,11 @@ export interface WorkspaceSave {
 }
 
 /**
- * Deletes a registration and the entries it names. The store deletes only
- * what the write names; the catalog names every entry the Workspace owns.
+ * Deletes a registration and every entry filed under it, whatever wrote
+ * them. It names no entries; a store ignores any it is handed.
  */
 export interface WorkspaceRemoval {
-  readonly deleteEntries: readonly WorkspaceEntryId[];
+  readonly deleteEntries?: never;
   readonly putEntries?: never;
   readonly removeWorkspace: WorkspaceId;
   readonly workspace?: never;

@@ -1,5 +1,5 @@
 import type { Orchestrator } from "@foundry/workflows/orchestrator";
-import type { InMemoryOrchestratorStore } from "@foundry/workflows/store";
+import type { MemoryWorkflowStore } from "@foundry/workflows/store/memory";
 
 import type { Executions } from "~/lib/executions";
 import type { FeedRouter } from "~/lib/feed/route";
@@ -82,7 +82,7 @@ export interface HeldRunsOptions {
   readonly scopes: RunScopes;
   /** Where run files go; without one, nothing is written. */
   readonly state: string | undefined;
-  readonly store: InMemoryOrchestratorStore;
+  readonly store: MemoryWorkflowStore;
 }
 
 export class HeldRuns {

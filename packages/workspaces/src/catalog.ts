@@ -209,10 +209,7 @@ export class WorkspaceCatalog {
         return { result: { kind: "not-found" } };
       }
       const entries = await store.listEntries(workspaceId);
-      await store.commit({
-        deleteEntries: entries.map((entry) => entry.id),
-        removeWorkspace: workspaceId,
-      });
+      await store.commit({ removeWorkspace: workspaceId });
       return {
         changes: entries.map((entry) => ({ action: "delete", entry })),
         result: { kind: "removed" },

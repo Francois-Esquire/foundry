@@ -1,8 +1,11 @@
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { processAlive } from "@foundry/lib/file-lock";
-import type { RunRecord } from "@foundry/workflows/store";
-import { InMemoryOrchestratorStore } from "@foundry/workflows/store";
+import { validateOrchestratorStoreSnapshot } from "@foundry/workflows";
+import type {
+  OrchestratorStoreSnapshot,
+  RunRecord,
+} from "@foundry/workflows/schema";
 
 import { isRecord, writeJson } from "~/lib/state/json";
 import type { Lock } from "~/lib/state/locks";
@@ -20,7 +23,7 @@ import { acquireLock } from "~/lib/state/locks";
  * both resume it.
  */
 
-type Snapshot = ReturnType<InMemoryOrchestratorStore["snapshot"]>;
+type Snapshot = OrchestratorStoreSnapshot;
 
 export interface RunExtras {
   readonly ledger: Readonly<Record<string, unknown>>;
@@ -154,9 +157,7 @@ export function loadRuns(
     return {
       locks,
       recovered,
-      snapshot: new InMemoryOrchestratorStore({
-        snapshot: assembled,
-      }).snapshot(),
+      snapshot: validateOrchestratorStoreSnapshot(assembled),
       statuses,
     };
   } catch (error) {
@@ -209,16 +210,14 @@ function readRun(
   if (!isRecord(file)) {
     throw new Error("not a run file");
   }
-  const snapshot = new InMemoryOrchestratorStore({
-    snapshot: {
-      frames: file.frames,
-      jobs: file.jobs,
-      queues: [file.queue],
-      runs: [file.run],
-      suspensions: file.suspensions,
-      version: 1,
-    },
-  }).snapshot();
+  const snapshot = validateOrchestratorStoreSnapshot({
+    frames: file.frames,
+    jobs: file.jobs,
+    queues: [file.queue],
+    runs: [file.run],
+    suspensions: file.suspensions,
+    version: 1,
+  });
   const [run] = snapshot.runs;
   if (run === undefined) {
     throw new Error("run is missing");
