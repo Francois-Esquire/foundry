@@ -160,6 +160,10 @@ test("the tarball installs and shares the library registry with the CLI", async 
     );
     expect(readFileSync(join(installed, "LICENSE"), "utf8")).toContain("MIT");
     expect(readdirSync(installed)).not.toContain("src");
+    // Opening the database applies the migrations the package ships.
+    expect(
+      readdirSync(join(installed, "dist", "migrations", "meta"))
+    ).toContain("_journal.json");
     for (const file of readdirSync(join(installed, "dist"))) {
       if (file.endsWith(".js") || file.endsWith(".d.ts")) {
         expect(
@@ -378,11 +382,18 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       const status = run(cli, ["status", "--state", state], consumer);
       expect(status).toContain("marbles process: pid");
       expect(status).toContain("(worker)");
+      // The daemon recorded the workspace in the database it opened.
+      expect(readdirSync(state)).toContain("marbles.db");
+      expect(status).toContain(consumer);
     } finally {
       expect(run(cli, ["stop", "--state", state], consumer)).toContain(
         "stopped Marbles process"
       );
     }
+    // With no process holding it, the database still reads, read-only.
+    expect(run(cli, ["status", "--state", state], consumer)).toContain(
+      consumer
+    );
     // The installed bin serves MCP over STDIO, stdout carries only frames,
     // and serving starts no Marbles process.
     const mcpState = mkdtempSync(join(tmpdir(), "mp-"));

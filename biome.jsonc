@@ -64,6 +64,14 @@
       "assist": { "enabled": false }
     },
     {
+      // Generated migrations; `bun run db:generate` in apps/marbles owns their
+      // shape, and the snapshots are its input for the next one.
+      "includes": ["apps/marbles/src/database/migrations/**"],
+      "formatter": { "enabled": false },
+      "linter": { "enabled": false },
+      "assist": { "enabled": false }
+    },
+    {
       "includes": [
         "apps/spyglass/test/lib/fixtures/**",
         "apps/spyglass/test/fixtures/spyglass.json"

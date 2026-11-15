@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { cpSync, readFileSync } from "node:fs";
 import { defineConfig } from "tsup";
 
 const INTERNAL = [
@@ -84,6 +84,11 @@ export default defineConfig({
   external: [/^(?!@foundry(?:\.sh)?\/)[^./~]/],
   format: ["esm"],
   noExternal: [/^@foundry(?:\.sh)?\//],
+  // Opening the database applies these; `src/database/migrate.ts` finds
+  // them beside the chunk it is bundled into.
+  onSuccess: async () => {
+    cpSync("src/database/migrations", "dist/migrations", { recursive: true });
+  },
   platform: "node",
   sourcemap: true,
   splitting: true,
