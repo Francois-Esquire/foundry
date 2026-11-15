@@ -324,9 +324,11 @@ Retained queued Jobs use the admission participant too.
 
 Job admission returns its handle before behavior starts on a later host turn.
 Committed handles are already indexed and counted by `drain`. Dispatch and
-cancellation signals follow the store transaction's commit. Cancellation
-participants serialize their decision with settlement; already-settled
-success stays intact.
+cancellation signals follow the store call that committed them; over a
+`SqliteWorkflowStore` whose `database` is a host's own transaction, that is
+before the host commits (see [Storage](#storage)). Cancellation participants
+serialize their decision with settlement; already-settled success stays
+intact.
 
 The Run journal retains one terminal lifecycle frame. Explicit output receipts
 and named effect claims can follow it for reconciliation, presentation changes
@@ -616,9 +618,36 @@ change shows as the Run put whole. The write does not say which domain
 command made it, and a host transaction handed in as `database` commits only
 with the host.
 
-Each coordinator command is one commit, so one `onCommit` per command. A
-participant's own commands inside a transaction each commit through the
-transaction's view, and each calls `onCommit` inside the one transaction.
+Each coordinator command that changes anything is one commit, so one
+`onCommit` per command; a command that changes nothing, or that is refused,
+commits nothing and the hook does not run. A participant's own commands
+inside a transaction each commit through the transaction's view, and each
+calls `onCommit` inside the one transaction. Per command, the write holds:
+
+| Command                                  | The write                                                                 | No commit when                                   |
+| ---------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------ |
+| `ensureQueue`                            | `putQueues`: the new Queue                                                | the Queue exists                                 |
+| `updateQueue`                            | `putQueues`: the Queue                                                    | the Queue is missing                             |
+| `createJob`                              | `putJobs`: the new Job                                                    |                                                  |
+| `updateJob`                              | `putJobs`: the Job                                                        | it is missing, or ended and the status differs  |
+| `claimJobRun`                            | `putJobs`: the Job, active; `putRuns`: the new Run                        |                                                  |
+| `claimJobRun`, an earlier attempt done   | `putJobs`: the Job, complete. The call then rejects with `JobAlreadySettledError` |                                          |
+| `cancelJob`                              | `putJobs`, `putRuns` (its live Run, if any), `putSuspensions` (each pending one, cancelled) |                                |
+| `deleteJob`                              | `deleteJobs`: its id                                                      |                                                  |
+| `createRun`                              | `putRuns`: the new Run                                                    |                                                  |
+| `updateRun`                              | `putRuns`: the Run                                                        | it is missing, or ended and the status differs  |
+| `deleteRun`                              | `deleteRuns`: its id                                                      |                                                  |
+| `createSuspension`                       | `putSuspensions`: the new Suspension                                      |                                                  |
+| `parkSuspension`                         | `putRuns`: the Run, suspended; `putSuspensions`: the new Suspension      | the occurrence is parked already                 |
+| `settleSuspension`                       | `putRuns`: the Run, queued or cancelled; `putSuspensions`: the Suspension |                                                  |
+| `cancelRun`, `cancelRunSuspensions`      | `putRuns`: the Run, cancelled; `putSuspensions`: each pending one, cancelled | `cancelRunSuspensions` finds it ended otherwise |
+| `deleteSuspension`                       | `deleteSuspensions`: its id                                               |                                                  |
+| `appendRunFrame`, `claimRunEffect`       | `putFrames`: the new frame                                                | a terminal frame or the claim exists already     |
+| `deleteRunFrames`                        | `deleteRunFrames`: the Run id                                             |                                                  |
+| `restore`                                | every record of the snapshot, put                                         |                                                  |
+
+The write names no command; a host that needs one tells the commands apart by
+the shape above.
 
 ### Exclusion and host requirements
 
@@ -657,6 +686,14 @@ The same holds a level up: a participant that calls the Orchestrator's own
 `Turns` tells the two apart by asynchronous context, so it does not detect
 wait cycles: a transaction that awaits a continuation registered outside it
 while that continuation calls the outer store still deadlocks.
+
+The coordinator's own queue of changes, and the signals it gives the
+runtime, assume a store transaction that commits when it resolves. A
+`SqliteWorkflowStore` handed a host's transaction as its `database` joins
+that transaction instead: its commits land only when the host commits, and a
+host rollback undoes them. The runtime does not wait for that outer commit,
+so a dispatch or a cancellation it signals may outlive a rollback. Run the
+Orchestrator over a store on the database itself.
 
 The package ships table definitions only. It owns no migrations and opens no
 database; the host composes the tables into its own schema. `drizzle-orm` is

@@ -1,5 +1,6 @@
 import type { z } from "zod";
 
+import { runCheckedAs } from "../execution-records";
 import { defineOwnEntry } from "../own-entry";
 import type {
   JobRecord,
@@ -74,6 +75,11 @@ type FieldKind = "integer" | "json" | "optional" | "text";
 /** A record kind: its fields, how each is kept, and its schema. */
 export interface RecordKind<T> {
   /**
+   * The record as `schema` checks it, when that differs from the record
+   * itself: a legacy Run id is checked as the coordinator checks it.
+   */
+  readonly checkedAs?: (record: Readonly<Record<string, unknown>>) => unknown;
+  /**
    * A schema that names the field at fault when `schema` refuses a record
    * without saying which, as `RunRecordSchema` does.
    */
@@ -116,6 +122,7 @@ export const JOB: RecordKind<JobRecord> = {
 
 /** Every field `RunRecordShapeSchema` declares; the rest go in `undeclared`. */
 export const RUN: RecordKind<RunRecord> = {
+  checkedAs: runCheckedAs,
   explain: RunRecordShapeSchema,
   fields: {
     definition: "optional",
@@ -235,12 +242,16 @@ function splitFields(
 }
 
 /** Refuses a record its schema refuses, naming the field where it can. */
-function accepted(kind: RecordKind<unknown>, record: unknown): void {
-  const checked = kind.schema.safeParse(record);
+function accepted(
+  kind: RecordKind<unknown>,
+  record: Readonly<Record<string, unknown>>
+): void {
+  const candidate = kind.checkedAs?.(record) ?? record;
+  const checked = kind.schema.safeParse(candidate);
   if (checked.success) {
     return;
   }
-  const explained = kind.explain?.safeParse(record);
+  const explained = kind.explain?.safeParse(candidate);
   const [issue] =
     explained?.success === false
       ? explained.error.issues

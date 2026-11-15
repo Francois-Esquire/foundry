@@ -230,6 +230,21 @@ for (const [name, open] of STORES) {
       });
     });
 
+    test("keeps a Run whose id predates the rn- prefix", async () => {
+      const coordinator = new ExecutionCoordinator({ store: await open() });
+      const run = await coordinator.createRun({
+        id: "legacy-1",
+        input: null,
+        queueId: "q",
+        step: "s",
+      });
+
+      expect(await coordinator.getRun("legacy-1")).toStrictEqual(run);
+      expect(
+        await coordinator.updateRun("legacy-1", { status: "running" })
+      ).toMatchObject({ id: "legacy-1", status: "running" });
+    });
+
     test("settles a Job whose attempt completed, then refuses the claim", async () => {
       const coordinator = new ExecutionCoordinator({ store: await open() });
       const job = await coordinator.createJob({

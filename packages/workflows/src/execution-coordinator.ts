@@ -39,6 +39,7 @@ import {
   decodeJobRecord,
   decodeRunRecord,
   decodeSuspensionRecord,
+  runCheckedAs,
 } from "./execution-records";
 import { createExtensions, mergeExtensions } from "./extensions";
 import type { JsonValue } from "./json-value";
@@ -1307,10 +1308,7 @@ function normalizeRunRecord(record: RunRecord): RunRecord {
       : { definition: definedEntries(definition) }),
     ...(links === undefined ? {} : { links: definedEntries(links) }),
   };
-  const schemaCandidate = normalized.id.startsWith("rn-")
-    ? normalized
-    : { ...normalized, id: "rn-legacy" };
-  decodeRunRecord(schemaCandidate);
+  decodeRunRecord(runCheckedAs(normalized));
   return normalized;
 }
 

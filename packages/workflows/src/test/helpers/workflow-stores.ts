@@ -26,6 +26,8 @@ export class FaultyWorkflowStore implements WorkflowStore {
   before: (write: WorkflowStoreWrite) => void | Promise<void> = () => undefined;
   /** Every write that went through, as it was when committed. */
   readonly commits: WorkflowStoreWrite[] = [];
+  /** Every error the inner store rejected a commit with. */
+  readonly failures: unknown[] = [];
   readonly #inner: WorkflowStore;
   readonly #owner: FaultyWorkflowStore;
 
@@ -40,7 +42,12 @@ export class FaultyWorkflowStore implements WorkflowStore {
   async commit(write: WorkflowStoreWrite): Promise<void> {
     await this.#owner.before(write);
     this.#owner.commits.push(structuredClone(write));
-    await this.#inner.commit(write);
+    try {
+      await this.#inner.commit(write);
+    } catch (error) {
+      this.#owner.failures.push(error);
+      throw error;
+    }
   }
 
   transaction<T>(work: (view: WorkflowStore) => Promise<T>): Promise<T> {
