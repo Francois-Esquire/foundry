@@ -60,6 +60,8 @@ interface TransactionScope {
    */
   failed?: { readonly error: unknown };
   open: boolean;
+  /** Resolves once the store transaction it runs in has settled. */
+  readonly settled: Promise<void>;
   readonly transaction: ArtifactTransaction;
 }
 
@@ -147,9 +149,10 @@ export class ArtifactManager implements Artifacts {
     const effects = operationEffects();
     const callbacks: (() => Promise<void>)[] = [() => this.#settle(effects)];
     let attempted: ArtifactStoreWrite | undefined;
+    const settled = Promise.withResolvers<void>();
     let result: T;
     try {
-      result = await this.#exclusive(async (store) => {
+      const exclusive = this.#exclusive(async (store) => {
         const change = new ArtifactChange(store, {});
         try {
           const transaction = new ArtifactTransaction(
@@ -165,6 +168,7 @@ export class ArtifactManager implements Artifacts {
               },
             },
             open: true,
+            settled: settled.promise,
             transaction,
           };
           let value: T;
@@ -188,6 +192,9 @@ export class ArtifactManager implements Artifacts {
           change.settle();
         }
       });
+      const release = () => settled.resolve();
+      exclusive.then(release, release);
+      result = await exclusive;
     } catch (error) {
       // Published files go only once the store shows the write absent. A
       // commit can fail after its write landed (syncing the replaced file);
@@ -460,9 +467,18 @@ export class ArtifactManager implements Artifacts {
    */
   #exclusive<T>(work: (store: ArtifactStore) => Promise<T>): Promise<T> {
     const store = this.#store;
-    return store.transaction === undefined
-      ? this.#serialized(() => work(store))
-      : store.transaction(work);
+    if (store.transaction === undefined) {
+      return this.#serialized(() => work(store));
+    }
+    // Work this manager's transaction scheduled, running once its operation
+    // returned but while it still commits: it runs after that transaction,
+    // as it would have queued behind it, rather than being refused as a
+    // call from inside it.
+    const enter = store.transaction.bind(store);
+    const ending = this.#scope.getStore();
+    return ending && !ending.open
+      ? ending.settled.then(() => enter(work))
+      : enter(work);
   }
 
   /**

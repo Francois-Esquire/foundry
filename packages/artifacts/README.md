@@ -173,7 +173,8 @@ however deep in the call stack. Reads see its uncommitted writes, and a nested
 `transaction` commits with the outer one. Joined calls are not savepoints: if one fails
 and the callback still returns, the whole transaction rolls back with
 `TransactionRolledBackError` (its `cause` is the failure). Work scheduled during the
-callback but run after it returns starts its own transaction.
+callback but run after it returns starts its own transaction, once the callback's
+transaction has settled.
 
 The callback's second argument is a transaction-scoped effects handle:
 `effects.afterCommit(async () => ...)` registers work with the outermost commit.

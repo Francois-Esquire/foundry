@@ -17,6 +17,7 @@ import {
   StaleContentError,
 } from "../index";
 import type { ArtifactStore } from "../store";
+import { interceptCommits } from "./index";
 import { isTransactional } from "./transactional";
 
 const text = (value: string, mime = "text/html") => ({ bytes: value, mime });
@@ -670,6 +671,40 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
       expect(order).toEqual(["outer write", "nested write"]);
       expect((await artifacts.list()).total).toBe(2);
     }, 2000);
+
+    test("runs a call made by work a transaction scheduled, while that transaction commits, once it settles", async () => {
+      const reached = Promise.withResolvers<undefined>();
+      const held = Promise.withResolvers<undefined>();
+      let holding = true;
+      const store = interceptCommits(createStore(), async (write, commit) => {
+        if (holding) {
+          holding = false;
+          reached.resolve(undefined);
+          await held.promise;
+        }
+        await commit(write);
+      });
+      const artifacts = new ArtifactManager({ store });
+      const trigger = Promise.withResolvers<undefined>();
+      let later: Promise<ArtifactResolved> | undefined;
+      const outer = artifacts.transaction(async (transaction) => {
+        await transaction.create({ name: "Outer", type: "text/plain" });
+        // Runs once the callback has returned, while its commit is held.
+        trigger.promise.then(() => {
+          later = artifacts.create({ name: "Later", type: "text/plain" });
+        });
+      });
+      await reached.promise;
+      trigger.resolve(undefined);
+      await settle();
+      held.resolve(undefined);
+      await outer;
+
+      expect((await within(later ?? Promise.reject(), 1000)).name).toBe(
+        "Later"
+      );
+      expect((await artifacts.list()).total).toBe(2);
+    });
 
     test("discards after-commit work when the change rolls back", async () => {
       const { artifacts } = harness();
