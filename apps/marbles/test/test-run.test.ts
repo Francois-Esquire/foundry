@@ -6,6 +6,7 @@ import {
   readdirSync,
   readFileSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
@@ -175,6 +176,93 @@ it("proves a recorded process again before every signal, so a reused pid gets no
     await stopRecorded(records, marker, { graceMs: 0, killMs: 0 }, system)
   ).toEqual([]);
   expect(sent).toEqual([[-4242, "SIGTERM"]]);
+});
+
+/**
+ * A system of made-up processes: each pid in `running` runs, started at
+ * `started`, until it is signalled; `onKill` runs on each signal. No
+ * signal reaches a real process.
+ */
+function madeUpSystem(
+  marker: Marker,
+  running: Set<number>,
+  started: string,
+  onKill: (target: number) => void = () => undefined
+): {
+  readonly sent: [number, NodeJS.Signals][];
+  readonly system: ProcessSystem;
+} {
+  const sent: [number, NodeJS.Signals][] = [];
+  return {
+    sent,
+    system: {
+      environment: (pid) => (running.has(pid) ? [entry(marker)] : undefined),
+      kill(target, signal) {
+        sent.push([target, signal]);
+        running.delete(Math.abs(target));
+        onKill(target);
+      },
+      look: (pids) =>
+        new Map(
+          pids
+            .filter((pid) => running.has(pid))
+            .map((pid) => [pid, { pgid: 1, started }])
+        ),
+      members: () => [],
+      sleep: () => Promise.resolve(),
+    },
+  };
+}
+
+it("stops a process recorded while the stop runs, and keeps its record until it is gone", async () => {
+  const marker = uniqueMarker();
+  const records = temporaryDirectory("rec-");
+  const started = "Sun Nov 15 08:00:00 2026";
+  const record = (pid: number) =>
+    writePrivateFile(
+      join(records, `${String(pid)}.json`),
+      JSON.stringify({ group: false, pid, started })
+    );
+  record(5151);
+  const running = new Set([5151]);
+  // As 5151 stops, it starts and records 5252: after the records were read.
+  const { sent, system } = madeUpSystem(marker, running, started, (target) => {
+    if (target === 5151) {
+      running.add(5252);
+      record(5252);
+    }
+  });
+  expect(
+    await stopRecorded(records, marker, { graceMs: 0, killMs: 0 }, system)
+  ).toEqual([]);
+  expect(sent).toEqual([
+    [5151, "SIGTERM"],
+    [5252, "SIGTERM"],
+  ]);
+  expect(existsSync(records)).toBe(false);
+});
+
+it("keeps the records directory while a record is still being written there, and removes a dead writer's", async () => {
+  const marker = uniqueMarker();
+  const records = temporaryDirectory("rec-");
+  const nested = join(records, "home");
+  mkdirPrivate(nested);
+  const dead = join(nested, ".1.json.dead.tmp");
+  writePrivateFile(dead, "{");
+  const old = new Date(Date.now() - 3_600_000);
+  utimesSync(dead, old, old);
+  const { system } = madeUpSystem(marker, new Set(), "");
+  expect(
+    await stopRecorded(records, marker, { graceMs: 0, killMs: 0 }, system)
+  ).toEqual([]);
+  expect(existsSync(records)).toBe(false);
+
+  const writing = temporaryDirectory("rec-");
+  writePrivateFile(join(writing, ".2.json.live.tmp"), "{");
+  expect(
+    await stopRecorded(writing, marker, { graceMs: 0, killMs: 0 }, system)
+  ).toEqual([expect.stringContaining("still held new records")]);
+  expect(existsSync(join(writing, ".2.json.live.tmp"))).toBe(true);
 });
 
 it("does not signal a recorded process whose pid now names one that started later", async () => {

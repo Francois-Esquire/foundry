@@ -1,5 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  type Dirent,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  rmdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
@@ -68,6 +76,10 @@ export interface ProcessSystem {
 
 const LIMITS: StopLimits = { graceMs: 5000, killMs: 2000 };
 const POLL_MS = 100;
+/** Each pass stops what the processes of the last one recorded meanwhile. */
+const MAX_PASSES = 8;
+/** A partial record this old is a dead writer's: a write takes a moment. */
+const STALE_PARTIAL_MS = 60_000;
 /** How long `ps` gets to answer, so a stop takes a bounded time. */
 const PS_TIMEOUT_MS = 5000;
 const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
@@ -85,8 +97,12 @@ export function recordProcess(dir: string, pid: number, group: boolean): void {
 /**
  * Stop every process recorded under `dir`, proving each one before every
  * signal: SIGTERM, a grace period, SIGKILL, a last wait. Resolves with
- * what went wrong, empty when every recorded process is confirmed gone;
- * the records of those go with them.
+ * what went wrong, empty when every recorded process is confirmed gone.
+ * A process still running may record another meanwhile, so the records
+ * are read again after each stop, and a new one is stopped in turn; the
+ * record of each process confirmed gone is removed, and `dir` goes only
+ * once that leaves it empty, so a record written after the last read
+ * keeps it, and is stopped by the next pass or the next sweep.
  */
 export async function stopRecorded(
   dir: string,
@@ -94,15 +110,113 @@ export async function stopRecorded(
   limits: StopLimits = LIMITS,
   system: ProcessSystem = SYSTEM
 ): Promise<string[]> {
-  const stop = new RecordedStop(readRecords(dir), marker, system);
-  stop.round("SIGTERM");
-  await stop.waitGone(limits.graceMs);
-  stop.round("SIGKILL");
-  const report = stop.report(await stop.waitGone(limits.killMs));
-  if (report.length === 0) {
-    rmSync(dir, { force: true, recursive: true });
+  const problems = new Set<string>();
+  /** The records already stopped, by path and start: a reused pid's is new. */
+  const handled = new Set<string>();
+  for (let pass = 0; pass < MAX_PASSES; pass += 1) {
+    const read = readRecords(dir);
+    for (const problem of read.problems) {
+      problems.add(problem);
+    }
+    const fresh = read.records.filter(
+      (record) => !handled.has(handledKey(record))
+    );
+    if (fresh.length === 0) {
+      if (problems.size > 0 || removeEmpty(dir)) {
+        return [...problems];
+      }
+      // Something new is there, or is being written: read it next pass.
+      await system.sleep(POLL_MS);
+      continue;
+    }
+    const stop = new RecordedStop(
+      { problems: [], records: fresh },
+      marker,
+      system
+    );
+    stop.round("SIGTERM");
+    await stop.waitGone(limits.graceMs);
+    stop.round("SIGKILL");
+    const report = stop.report(await stop.waitGone(limits.killMs));
+    for (const record of fresh) {
+      handled.add(handledKey(record));
+    }
+    for (const problem of report) {
+      problems.add(problem);
+    }
+    if (report.length === 0) {
+      for (const record of fresh) {
+        forget(record);
+      }
+    }
   }
-  return report;
+  problems.add(
+    `${dir} still held new records after ${String(MAX_PASSES)} passes; kept`
+  );
+  return [...problems];
+}
+
+function handledKey(record: ReadRecord): string {
+  return `${record.path}\n${record.started}`;
+}
+
+/** Remove `record`'s file, unless a later process's record has replaced it. */
+function forget(record: ReadRecord): void {
+  try {
+    const now = JSON.parse(readFileSync(record.path, "utf8")) as SpawnRecord;
+    if (now.pid === record.pid && now.started === record.started) {
+      rmSync(record.path, { force: true });
+    }
+  } catch {
+    // Gone already, or not a record now: either way, not this one's.
+  }
+}
+
+/**
+ * Remove `dir` and the directories under it, without removing any file
+ * but a stale partial record (`.tmp`), which a writer that died left:
+ * whether all of it went. A record, or a partial one still being written,
+ * keeps its directory.
+ */
+function removeEmpty(dir: string): boolean {
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    if (gone(error)) {
+      return true;
+    }
+    throw error;
+  }
+  let empty = true;
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      empty = removeEmpty(path) && empty;
+    } else if (entry.name.endsWith(".tmp") && stale(path)) {
+      rmSync(path, { force: true });
+    } else {
+      empty = false;
+    }
+  }
+  if (!empty) {
+    return false;
+  }
+  try {
+    rmdirSync(dir);
+    return true;
+  } catch (error) {
+    // Not empty: an entry arrived after it was listed.
+    return gone(error);
+  }
+}
+
+function stale(path: string): boolean {
+  try {
+    return Date.now() - statSync(path).mtimeMs > STALE_PARTIAL_MS;
+  } catch {
+    return true;
+  }
 }
 
 /** One stop of a set of records: what has been proved, and what went wrong. */
@@ -284,10 +398,15 @@ function signalIfThere(
   }
 }
 
+/** A record, and the file it was read from. */
+interface ReadRecord extends SpawnRecord {
+  readonly path: string;
+}
+
 interface Records {
   /** The records that could not be read: what they name cannot be stopped. */
   readonly problems: readonly string[];
-  readonly records: readonly SpawnRecord[];
+  readonly records: readonly ReadRecord[];
 }
 
 /**
@@ -295,7 +414,7 @@ interface Records {
  * of the same root, is skipped; one that cannot be read is a problem.
  */
 function readRecords(dir: string): Records {
-  const records: SpawnRecord[] = [];
+  const records: ReadRecord[] = [];
   const problems: string[] = [];
   let entries: string[];
   try {
@@ -316,7 +435,7 @@ function readRecords(dir: string): Records {
         typeof record.group === "boolean" &&
         typeof record.started === "string"
       ) {
-        records.push(record);
+        records.push({ ...record, path });
       } else {
         problems.push(`${path} is not a process record`);
       }
