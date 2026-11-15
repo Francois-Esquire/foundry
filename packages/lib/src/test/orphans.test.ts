@@ -2,7 +2,9 @@ import { type ChildProcess, spawn } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -16,6 +18,7 @@ import {
   startedAt,
 } from "../process-identity";
 import {
+  forgetRecord,
   recordChild,
   recordPath,
   SPAWN_RECOVERY_ENV,
@@ -468,6 +471,7 @@ function madeUpTable(
 }
 
 const MADE_UP = "ps:Sun Nov 15 08:00:00 2026";
+const FORGET_ASIDE = /^\.\d+\.json\..+\.forget\.json$/;
 const OWNER = { pid: 4_200_000, started: MADE_UP };
 
 it("takes a recorded process that has exited and is not reaped (a zombie) for gone, and signals nothing", async () => {
@@ -604,4 +608,48 @@ it("never takes an owner a signal still reaches for gone because the listing lef
   ).toEqual({ problems: [], stopped: [] });
   expect(sent).toEqual([]);
   expect(existsSync(recordPath(dir, child))).toBe(true);
+});
+
+it("forgets a record left aside by a removal cut short, by the file it read it from", async () => {
+  const dir = scratch();
+  const gone = { group: false, owner: OWNER, pid: 4_200_140, started: MADE_UP };
+  const path = recordPath(dir, gone.pid);
+  record(dir, gone);
+  // Cut short right after the move aside: the record is there under its
+  // aside name only.
+  expect(() =>
+    forgetRecord(path, gone, {
+      link: () => {
+        throw new Error("the host stopped");
+      },
+      read: () => {
+        throw new Error("the host stopped");
+      },
+      remove: () => {
+        throw new Error("the host stopped");
+      },
+      rename: (from, to) => renameSync(from, to),
+    })
+  ).toThrow("the host stopped");
+  expect(readdirSync(dir)).toEqual([expect.stringMatching(FORGET_ASIDE)]);
+  const { sent, table } = madeUpTable(new Map());
+  expect(await stopOrphans(dir, { system: table })).toEqual({
+    problems: [],
+    stopped: [],
+  });
+  expect(sent).toEqual([]);
+  expect(readdirSync(dir)).toEqual([]);
+
+  // One left aside that still names an orphan is stopped, then forgotten.
+  const orphan = { ...gone, pid: 4_200_141 };
+  const aside = join(dir, `.${String(orphan.pid)}.json.left.forget.json`);
+  writePrivate(aside, JSON.stringify(orphan));
+  const running = madeUpTable(
+    new Map([[orphan.pid, { pgid: orphan.pid, started: MADE_UP }]])
+  );
+  expect(
+    await stopOrphans(dir, { graceMs: 0, killMs: 0, system: running.table })
+  ).toEqual({ problems: [], stopped: [orphan.pid] });
+  expect(running.sent).toEqual([[orphan.pid, "SIGTERM"]]);
+  expect(readdirSync(dir)).toEqual([]);
 });

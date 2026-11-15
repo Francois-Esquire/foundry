@@ -63,7 +63,6 @@ import {
 import {
   forgetRecord,
   notPrivate,
-  recordPath,
   type SpawnRecord,
   writePrivate,
 } from "./spawn-record";
@@ -96,6 +95,11 @@ export interface ProcessTable {
   /** Every process in the group `pgid`; `undefined` when it cannot say. */
   members(pgid: number): ReadonlyMap<number, SeenProcess> | undefined;
   sleep(ms: number): Promise<void>;
+}
+
+/** A record, and the file it was read from: what it is forgotten by. */
+interface ReadRecord extends SpawnRecord {
+  readonly path: string;
 }
 
 const GRACE_MS = 5000;
@@ -132,13 +136,13 @@ export async function stopOrphans(
     if (found.orphans.length === 0 && found.groups.length === 0) {
       break;
     }
-    const result = await stopAll(dir, found.orphans, system, limits);
+    const result = await stopAll(found.orphans, system, limits);
     const passStopped = [...result.stopped];
     for (const problem of result.problems) {
       problems.add(problem);
     }
     for (const group of found.groups) {
-      const kept = await stopGroup(dir, group, system, limits);
+      const kept = await stopGroup(group, system, limits);
       if (kept === undefined) {
         passStopped.push(group.record.pid);
       } else {
@@ -155,14 +159,14 @@ export async function stopOrphans(
 
 interface Found {
   readonly groups: readonly OrphanGroup[];
-  readonly orphans: readonly SpawnRecord[];
+  readonly orphans: readonly ReadRecord[];
   readonly problems: readonly string[];
 }
 
 /** A group's record, and whether its leader was proved in this look. */
 interface OrphanGroup {
   readonly leader: boolean;
-  readonly record: SpawnRecord;
+  readonly record: ReadRecord;
 }
 
 /** The orphans `dir` records now; the records of processes that are gone go. */
@@ -183,12 +187,12 @@ function orphansIn(
       problems: [...problems, "ps could not list the recorded processes"],
     };
   }
-  const orphans: SpawnRecord[] = [];
+  const orphans: ReadRecord[] = [];
   const groups: OrphanGroup[] = [];
   for (const record of records) {
     const verdict = judge(record, seen, system, owners);
     if (verdict === "gone") {
-      forget(dir, record);
+      forget(record);
     } else if (verdict === "orphan") {
       orphans.push(record);
     } else if (verdict === "group" || verdict === "members") {
@@ -209,7 +213,7 @@ type Verdict =
   | { readonly problem: string };
 
 function judge(
-  record: SpawnRecord,
+  record: ReadRecord,
   seen: ReadonlyMap<number, SeenProcess>,
   system: ProcessTable,
   owners: ProcessLookup
@@ -252,7 +256,7 @@ function judge(
  * its record names that can be proved (`members`), or members it cannot
  * prove, which keep the record, reported.
  */
-function leftMembers(record: SpawnRecord, system: ProcessTable): Verdict {
+function leftMembers(record: ReadRecord, system: ProcessTable): Verdict {
   const members = system.members(record.pid);
   if (members === undefined) {
     return {
@@ -287,8 +291,7 @@ function proved(
 
 /** SIGTERM, a grace period, SIGKILL, a last wait; each signal on a fresh proof. */
 async function stopAll(
-  dir: string,
-  orphans: readonly SpawnRecord[],
+  orphans: readonly ReadRecord[],
   system: ProcessTable,
   limits: { readonly graceMs: number; readonly killMs: number }
 ): Promise<OrphanStop> {
@@ -304,7 +307,7 @@ async function stopAll(
     .map(({ pid }) => pid);
   for (const record of orphans) {
     if (!survivors.has(record.pid)) {
-      forget(dir, record);
+      forget(record);
     }
   }
   return {
@@ -317,7 +320,7 @@ async function stopAll(
 
 /** Signal each of `records` still running as recorded. */
 function signal(
-  records: readonly SpawnRecord[],
+  records: readonly ReadRecord[],
   name: NodeJS.Signals,
   system: ProcessTable
 ): void {
@@ -333,10 +336,10 @@ function signal(
 
 /** Poll until none of `records` runs as recorded, or `ms` pass; those still running. */
 async function waitGone(
-  records: readonly SpawnRecord[],
+  records: readonly ReadRecord[],
   ms: number,
   system: ProcessTable
-): Promise<SpawnRecord[]> {
+): Promise<ReadRecord[]> {
   const deadline = Date.now() + ms;
   for (;;) {
     const seen = system.look(records.map(({ pid }) => pid));
@@ -370,7 +373,6 @@ async function waitGone(
  * start, proves the id is still this group's at that moment.
  */
 async function stopGroup(
-  dir: string,
   group: OrphanGroup,
   system: ProcessTable,
   limits: { readonly graceMs: number; readonly killMs: number }
@@ -384,14 +386,14 @@ async function stopGroup(
       return `the members of group ${String(pgid)} could not be listed; its record is kept`;
     }
     if (proved(record, members)) {
-      record = withMembers(dir, record, members);
+      record = withMembers(record, members);
     } else {
       // The leader is gone since, or its pid is another's: what is left
       // is judged by the members its record names, as a later stop would.
       whole = false;
       const left = leftMembers(record, system);
       if (left === "gone") {
-        forget(dir, record);
+        forget(record);
         return;
       }
       if (typeof left === "object") {
@@ -406,7 +408,7 @@ async function stopGroup(
     }
     const known = record.members ?? [];
     if (whole && known.some((member) => proved(member, members))) {
-      record = withMembers(dir, record, members);
+      record = withMembers(record, members);
       signalTarget(system, -pgid, name);
       return;
     }
@@ -422,7 +424,7 @@ async function stopGroup(
   ] as const) {
     send(name);
     if (await emptied(pgid, ms, system)) {
-      forget(dir, record);
+      forget(record);
       return;
     }
   }
@@ -434,10 +436,9 @@ async function stopGroup(
  * as well as those it named already; written when that adds one.
  */
 function withMembers(
-  dir: string,
-  record: SpawnRecord,
+  record: ReadRecord,
   members: ReadonlyMap<number, SeenProcess>
-): SpawnRecord {
+): ReadRecord {
   const known = record.members ?? [];
   const added = [...members]
     .filter(([pid, seen]) =>
@@ -452,7 +453,9 @@ function withMembers(
     return record;
   }
   const next = { ...record, members: [...known, ...added] };
-  writePrivate(recordPath(dir, record.pid), JSON.stringify(next));
+  const { path, ...stored } = next;
+  // Into the file it was read from, which replaces it whole.
+  writePrivate(path, JSON.stringify(stored));
   return next;
 }
 
@@ -517,7 +520,7 @@ function signalTarget(
 
 interface Records {
   readonly problems: string[];
-  readonly records: readonly SpawnRecord[];
+  readonly records: readonly ReadRecord[];
 }
 
 /**
@@ -527,7 +530,7 @@ interface Records {
  */
 function readRecords(dir: string): Records {
   const problems: string[] = [];
-  const records: SpawnRecord[] = [];
+  const records: ReadRecord[] = [];
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -556,7 +559,7 @@ function readRecords(dir: string): Records {
     try {
       const record: unknown = JSON.parse(readFileSync(path, "utf8"));
       if (isRecord(record)) {
-        records.push(record);
+        records.push({ ...record, path });
       } else {
         problems.push(`${path} is not a process record`);
       }
@@ -587,9 +590,13 @@ function isRecord(value: unknown): value is SpawnRecord {
   );
 }
 
-/** Remove `record`'s file, only if it still names `record`'s process. */
-function forget(dir: string, record: SpawnRecord): void {
-  forgetRecord(recordPath(dir, record.pid), record);
+/**
+ * Remove the file `record` was read from, only if it still names
+ * `record`'s process: whatever its name, so one left aside by a removal
+ * cut short goes too.
+ */
+function forget(record: ReadRecord): void {
+  forgetRecord(record.path, record);
 }
 
 function gone(error: unknown): boolean {
