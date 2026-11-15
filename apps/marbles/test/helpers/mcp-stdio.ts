@@ -50,11 +50,12 @@ export class RecordedStdioTransport extends StdioClientTransport {
     this.#env = params.env?.[SPAWN_RECORD_ENV] ? params.env : process.env;
   }
 
-  override start(): Promise<void> {
-    // The SDK spawns before its first await: the pid is there already.
-    const started = super.start();
+  override async start(): Promise<void> {
+    // Recorded once the SDK says the server has spawned (its `spawn`
+    // event settles `start`): its pid is there then, and it cannot have
+    // been reaped yet, since its exit comes after.
+    await super.start();
     recordSpawned(this.pid ?? undefined, false, this.#env);
-    return started;
   }
 }
 
