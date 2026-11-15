@@ -12,6 +12,7 @@ import {
   type ProcessLookup,
   procStat,
   psLine,
+  psListing,
   psStart,
   type SeenProcess,
   sameProcess,
@@ -275,4 +276,69 @@ it("never takes a running owner for gone when the system cannot say, or lists no
     )
   ).toBe(true);
   expect(startedAt(4_200_118, running)).toBe(AT);
+});
+
+it("reads a ps line only in its exact shape: anything truncated, reordered or extra is not one", () => {
+  const good = "  4200201   4200201 Ss   Sun Nov  5 08:00:00 2026  ";
+  expect(psLine(good)).toEqual([
+    4_200_201,
+    { pgid: 4_200_201, started: "ps:Sun Nov 5 08:00:00 2026" },
+  ]);
+  // A state ps could not read, as while a process starts or exits.
+  expect(psLine("12768 11558 ?NE  Sun Nov 15 22:33:54 2026    ")?.[0]).toBe(
+    12_768
+  );
+  for (const line of [
+    "",
+    "   ",
+    "4200201 4200201 S Sun Nov 15 08:00:00",
+    "4200201 4200201 S Sun Nov 15 08:00",
+    "4200201 4200201 S Sun Nov 15",
+    "4200201 S 4200201 Sun Nov 15 08:00:00 2026",
+    "4200201 4200201 Sun Nov 15 08:00:00 2026",
+    "4200201 4200201 S Sun Nov 15 08:00:00 2026 extra",
+    "4200201 4200201 S 4200201 Sun Nov 15 08:00:00 2026",
+    "4200201 4200201 S Sun Foo 15 08:00:00 2026",
+    "4200201 4200201 S Nov Sun 15 08:00:00 2026",
+    "4200201 4200201 S Sun Nov 32 08:00:00 2026",
+    "4200201 4200201 S Sun Nov 15 25:00:00 2026",
+    "4200201 4200201 S Sun Nov 15 08:61:00 2026",
+    "4200201 4200201 S Sun Nov 15 08:00:00 26",
+    "4200201 4200201 - Sun Nov 15 08:00:00 2026",
+    "4200201 4200201 s Sun Nov 15 08:00:00 2026",
+  ]) {
+    expect({ line, parsed: psLine(line) }).toEqual({ line, parsed: undefined });
+  }
+});
+
+it("takes a listing with any line it cannot read for one it cannot tell anything from", () => {
+  const good = "  4200211   4200211 Ss   Sun Nov 15 08:00:00 2026";
+  expect(psListing("")?.size).toBe(0);
+  expect(psListing(`${good}\n\n`)?.size).toBe(1);
+  expect(
+    psListing(`${good}\n  4200212   4200211 S    Sun Nov 15 08:00:00\n`)
+  ).toBeUndefined();
+  expect(psListing("ps: something went wrong\n")).toBeUndefined();
+  // A running owner whose listing came back truncated is not taken for gone.
+  const truncated: ProcessLookup = {
+    alive: () => true,
+    look: () => psListing("4200213 1 S Sun Nov 15 08:00:00\n"),
+  };
+  expect(
+    isGone(
+      { pid: 4_200_213, started: "ps:Sun Nov 15 08:00:00 2026" },
+      truncated
+    )
+  ).toBe(false);
+});
+
+it("reads a /proc stat line only with a boot id and a state of their shapes", () => {
+  const rest =
+    "1 4242 4242 0 -1 4194560 120 0 0 0 3 1 0 0 20 0 1 0 987654 1000 200";
+  expect(procStat(`4243 (sleep) S ${rest}`, "not-a-boot-id")).toBeUndefined();
+  expect(procStat(`4243 (sleep) S ${rest}`, "")).toBeUndefined();
+  expect(procStat(`4243 (sleep) ?? ${rest}`, BOOT)).toBeUndefined();
+  expect(procStat(`4243 (sleep) S ${rest}`, BOOT)?.started).toBe(
+    `linux:${BOOT}:987654`
+  );
 });

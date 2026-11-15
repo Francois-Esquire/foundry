@@ -52,7 +52,20 @@ const PS_TIMEOUT_MS = 5000;
 const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
 const SPACES = /\s+/g;
 const DIGITS = /^\d+$/;
-const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/;
+const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.+?)\s*$/;
+/** `ps -o lstart` in the C locale: `Sun Nov  5 08:00:00 2026`. */
+const LSTART =
+  /^(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) +(\d{1,2}) (\d{2}):(\d{2}):(\d{2}) \d{4}$/;
+/**
+ * A process state as `ps` prints it: a letter, or `?` when it could not
+ * read one (as while a process starts or exits), then its flags.
+ */
+const PS_STATE = /^[A-Z?][A-Za-z<>+]*$/;
+/** A process state as `/proc/<pid>/stat` holds it: one letter. */
+const PROC_STATE = /^[A-Za-z]$/;
+/** `/proc/sys/kernel/random/boot_id`: a UUID. */
+const BOOT_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** What `ps` is asked for each process: `psLine` reads it back. */
 const PS_COLUMNS = "pid=,pgid=,state=,lstart=";
 /** How long a start read for a live pid is trusted. */
@@ -92,25 +105,38 @@ export function procStat(
     .split(" ");
   const pgid = Number(fields[STAT_PGID]);
   const ticks = fields[STAT_START];
-  if (!Number.isInteger(pgid) || ticks === undefined || !DIGITS.test(ticks)) {
+  const boot = bootId.trim();
+  if (
+    !Number.isInteger(pgid) ||
+    ticks === undefined ||
+    !DIGITS.test(ticks) ||
+    !PROC_STATE.test(fields[STAT_STATE] ?? "") ||
+    !BOOT_ID.test(boot)
+  ) {
     return;
   }
   return {
     ...(exitedState(fields[STAT_STATE]) ? { exited: true as const } : {}),
     pgid,
-    started: `${LINUX}${bootId.trim()}:${ticks}`,
+    started: `${LINUX}${boot}:${ticks}`,
   };
 }
 
 /**
  * One line `ps -o pid=,pgid=,state=,lstart=` printed: the pid, and how
- * it runs; `undefined` for a line that is not one.
+ * it runs; `undefined` for a line that is not one, in exactly that shape:
+ * a start cut short, a column out of place or one too many is not taken
+ * for a start, since a start that is not one would read as another.
  */
 export function psLine(
   line: string
 ): readonly [number, SeenProcess] | undefined {
   const parsed = PS_LINE.exec(line);
-  if (parsed === null) {
+  if (
+    parsed === null ||
+    !PS_STATE.test(parsed[3] ?? "") ||
+    !validStart(normalStart(parsed[4] ?? ""))
+  ) {
     return;
   }
   return [
@@ -125,7 +151,50 @@ export function psLine(
 
 /** A start `ps -o lstart` printed, as this module keeps it. */
 export function psStart(lstart: string): string {
-  return `${PS}${lstart.trim().replace(SPACES, " ")}`;
+  return `${PS}${normalStart(lstart)}`;
+}
+
+function normalStart(lstart: string): string {
+  return lstart.trim().replace(SPACES, " ");
+}
+
+/** Whether `lstart`, its spaces made single, is a start `ps` prints. */
+function validStart(lstart: string): boolean {
+  const parsed = LSTART.exec(lstart);
+  if (parsed === null) {
+    return false;
+  }
+  const [day, hours, minutes, seconds] = parsed.slice(1).map(Number);
+  return (
+    day !== undefined &&
+    day >= 1 &&
+    day <= 31 &&
+    (hours ?? 24) < 24 &&
+    (minutes ?? 60) < 60 &&
+    (seconds ?? 61) < 61
+  );
+}
+
+/**
+ * What a `ps -o pid=,pgid=,state=,lstart=` listing says of each process
+ * it lists; `undefined` when any line in it is not one (`psLine`), since
+ * then it says nothing certain, of the processes it leaves out included.
+ */
+export function psListing(
+  listed: string
+): Map<number, SeenProcess> | undefined {
+  const seen = new Map<number, SeenProcess>();
+  for (const line of listed.split("\n")) {
+    if (line.trim() === "") {
+      continue;
+    }
+    const parsed = psLine(line);
+    if (parsed === undefined) {
+      return;
+    }
+    seen.set(...parsed);
+  }
+  return seen;
 }
 
 let knownBoot: string | undefined;
@@ -193,11 +262,12 @@ function lookPs(
   if (listed.error !== undefined || (listed.status ?? 2) > 1) {
     return;
   }
-  for (const line of listed.stdout.split("\n")) {
-    const parsed = psLine(line);
-    if (parsed) {
-      seen.set(...parsed);
-    }
+  const read = psListing(listed.stdout);
+  if (read === undefined) {
+    return;
+  }
+  for (const [pid, entry] of read) {
+    seen.set(pid, entry);
   }
   return seen;
 }
@@ -238,14 +308,7 @@ function allPs(): ReadonlyMap<number, SeenProcess> | undefined {
   if (listed.error !== undefined || listed.status !== 0) {
     return;
   }
-  const seen = new Map<number, SeenProcess>();
-  for (const line of listed.stdout.split("\n")) {
-    const parsed = psLine(line);
-    if (parsed) {
-      seen.set(...parsed);
-    }
-  }
-  return seen;
+  return psListing(listed.stdout);
 }
 
 /** How a process's identity is read from the system; a test replaces it. */
