@@ -301,6 +301,24 @@ model-turn, tool-call and host observations. Task sessions and borrowed sandbox
 handles stop with the task; closing a borrowed handle leaves its container with
 its owner.
 
+## Loading workspace source
+
+Marbles loads a workspace's source with `oxc-parser`, which finds the
+imports it points at that load's own copies. `oxc-parser` ships a native
+binding per platform as an optional dependency, installed with
+`@foundry.sh/marbles` on macOS, Linux and Windows. Installing with optional
+dependencies left out, or on a platform with no binding, leaves Marbles
+unable to load any workspace: the load fails with an error naming the
+platform and what to install. The WebAssembly binding,
+`@oxc-parser/binding-wasm32-wasi`, is used only once it is installed and
+`NAPI_RS_FORCE_WASI=1` is set. Commands that load no source, such as
+`status`, `tasks` and `mcp`, work without it.
+
+Every load evaluates again each module and data file its source reaches
+by path. Bun cannot unload a module, so the copies an earlier load made
+stay in the process for as long as anything refers to them; a worker of
+the Marbles process restarts on a source edit, which gives them back.
+
 ## Documentation
 
 | Need | Read |

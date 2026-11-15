@@ -216,13 +216,14 @@ Five buckets, each importing only what sits below it:
   into a `Catalog` of its own (`loadSource`, through `loadInto` in
   `authoring/runtime.ts`; loads may overlap), and its Varlock values into
   the engine's execution context, never `process.env`. Each load imports
-  copies of its own of every module its source imports by path
-  (`copies.ts`: anything but packages and Marbles' own code; it rewrites
-  only import specifiers, found with `oxc-parser`), and those
+  copies of its own of every module and data file its source imports by
+  path (`copies.ts`: anything but packages and Marbles' own code; it
+  rewrites only import specifiers, found with `oxc-parser`, and a file
+  that does not parse fails the load), and those
   copies import a library bound to the load (`authoring/bound.ts`): every
   word that declares or routes runs in the load's scope (`inLoad`), and
-  builders and instances keep the scope they were made in
-  (`captureScope`). So a call names its workspace by its run or observer
+  builders and instances keep whom they answer to (`captureScope`: the
+  load, or the workspace of the run that made them, never that run). So a call names its workspace by its run or observer
   (`lib/execution-context.ts`), else by the load whose library it came
   from; work naming a workspace whose host closed here is refused, and
   only work naming none may fall to the one workspace hosted. Nothing
@@ -231,7 +232,9 @@ Five buckets, each importing only what sits below it:
   names no workspace, shares one registration of a workspace between
   callers, addresses what each declared by workspace id and local name
   (`run`, `roll`), and loads every registered (`hosted`) workspace again,
-  reporting each that fails (`loadRegistered`). The Marbles process still
+  reporting each that fails (`loadRegistered`; a registration whose source
+  is gone fails, one made without a source is its root alone), and drops
+  a registration (`unregister`). The Marbles process still
   runs one worker per workspace. It imports `lib/`,
   `authoring/`, `database/`, `layout.ts` and `model/`; never views, `args`, or
   `process/`.

@@ -515,3 +515,69 @@ it("refuses what a package declares while a workspace loads, since every workspa
   );
   expect(report.load).toContain("comes from a package");
 }, 120_000);
+
+it("fails a registered workspace whose source is gone, loads one registered without a source, and forgets an unregistered one", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const bare = join(root, "bare");
+  await mkdir(bare);
+  const report = await inProcess(
+    root,
+    `const alpha = await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  await hosted.register({ config: null, root: ${JSON.stringify(bare)} });
+  await hosted.close();
+  const { rmSync } = await import("node:fs");
+  rmSync(${JSON.stringify(a.source)});
+  const open = () => HostedWorkspaces.open({
+    artifacts: ${JSON.stringify(join(root, "artifacts"))},
+    state: ${JSON.stringify(join(root, "state"))},
+  });
+  const again = await open();
+  try {
+    report.loads = (await again.loadRegistered()).map((load) =>
+      load.loaded ? { loaded: true, root: load.root } : { error: load.error.message, loaded: false, root: load.root }
+    );
+    report.unregistered = await again.unregister(alpha.id);
+  } finally {
+    await again.close();
+  }
+  const last = await open();
+  try {
+    report.after = (await last.loadRegistered()).map((load) => load.root);
+  } finally {
+    await last.close();
+  }`
+  );
+  const loads = report.loads as Record<string, unknown>[];
+  expect(loads).toContainEqual({ loaded: true, root: realpathSync(bare) });
+  const gone = loads.find((load) => load.root === a.dir);
+  expect(gone).toMatchObject({ loaded: false });
+  expect(gone?.error).toContain(`its registered source ${a.source} is gone`);
+  expect(report.unregistered).toBe(true);
+  expect(report.after).toEqual([realpathSync(bare)]);
+}, 120_000);
+
+it("declares what a package's function makes with the words a workspace's source hands it", async () => {
+  const root = await scratch();
+  const a = await workspace(
+    root,
+    "alpha",
+    'import { make } from "word-taking-package";\nexport const made = make({ step });\n'
+  );
+  const pkg = join(a.dir, "node_modules", "word-taking-package");
+  await mkdir(pkg, { recursive: true });
+  await writeFile(
+    join(pkg, "package.json"),
+    '{ "name": "word-taking-package", "type": "module", "main": "index.js" }\n'
+  );
+  await writeFile(
+    join(pkg, "index.js"),
+    'export const make = ({ step }) => step("made-by-package").do(() => "made");\n'
+  );
+  const report = await inProcess(
+    root,
+    `const alpha = await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  report.helper = await hosted.run({ name: "made-by-package", workspace: alpha.id });`
+  );
+  expect(report.helper).toBe("made");
+}, 120_000);

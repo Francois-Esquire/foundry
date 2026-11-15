@@ -57,6 +57,16 @@ function snapshot(dir: string): Record<string, string> {
   );
 }
 
+/**
+ * The data files under `dir` and what they hold: everything but the
+ * shared-memory index, which a read may rebuild without touching any data.
+ */
+function dataFiles(dir: string): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(snapshot(dir)).filter(([name]) => !name.endsWith("-shm"))
+  );
+}
+
 function row(id: string) {
   return { firstSeen: "x", id, lastSeen: "x", root: `/r/${id}` };
 }
@@ -257,7 +267,7 @@ describe("reading the Marbles database", () => {
     const next = withProbeMigration(work);
     const older = join(scratch(), "marbles.db");
     await exited(await processWith(work, older, "a", "exit"));
-    const olderBefore = snapshot(join(older, ".."));
+    const olderBefore = dataFiles(join(older, ".."));
     // This build ships one more migration than the database has.
     await expect(
       readDatabase(older, ids, { migrations: next })
@@ -265,13 +275,13 @@ describe("reading the Marbles database", () => {
     await expect(
       readDatabase(older, ids, { migrations: next })
     ).rejects.toBeInstanceOf(IncompatibleDatabaseError);
-    expect(snapshot(join(older, ".."))).toEqual(olderBefore);
+    expect(dataFiles(join(older, ".."))).toEqual(olderBefore);
 
     const newer = join(scratch(), "marbles.db");
     await exited(await processWith(work, newer, "a", "exit", next));
-    const newerBefore = snapshot(join(newer, ".."));
+    const newerBefore = dataFiles(join(newer, ".."));
     await expect(readDatabase(newer, ids)).rejects.toThrow(NEWER);
-    expect(snapshot(join(newer, ".."))).toEqual(newerBefore);
+    expect(dataFiles(join(newer, ".."))).toEqual(newerBefore);
   });
 
   it("refuses a WAL file it would have to recover, creating nothing", async () => {

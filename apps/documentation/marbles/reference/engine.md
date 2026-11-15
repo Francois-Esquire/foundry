@@ -319,7 +319,13 @@ promise or a listener, still belongs to that workspace, and is refused once
 its host has closed. Every module a workspace's source imports by path,
 under its root or not, is loaded for that workspace alone; a package,
 imported by name or from `node_modules`, is shared by every workspace in
-the process, and what it declares while a workspace loads is refused. A relative `source`, or a
+the process, and what it declares while a workspace loads is refused: a
+package that makes definitions exports a function taking the words it
+uses (`export const make = ({ step }) => step("helper").do(…)`), which the
+workspace's source calls with its own (`make({ step })`). Loading a
+workspace again in the same process costs a whole load: every module and
+data file its source reaches by path is read and evaluated again, and Bun
+keeps each earlier load's copies for as long as anything refers to them. A relative `source`, or a
 workspace with no source at all, needs `directory`: the directory the
 source is relative to, which is the workspace's root without one. `cwd`
 sets where the workspace's runs start and its commands run, the root when
