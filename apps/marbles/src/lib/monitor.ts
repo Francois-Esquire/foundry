@@ -161,20 +161,6 @@ export function handlerResponse(
   };
 }
 
-/**
- * The tick that started (or gave up on) a monitor's pending launch clears
- * it, so the next poll reads the source again.
- */
-export async function acknowledgeLaunch(
-  triggers: TriggerStore,
-  key: string
-): Promise<void> {
-  const state = await triggers.monitorState(key);
-  if (state?.pending !== undefined) {
-    await triggers.saveMonitorState(key, { observed: state.observed });
-  }
-}
-
 function triggersOf(key: string, host: MonitorHost): TriggerStore {
   if (!host.triggers) {
     throw new Error(`monitor "${key}" needs a host with a trigger store`);

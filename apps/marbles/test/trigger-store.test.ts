@@ -15,21 +15,15 @@ import { stateDatabase } from "~/layout";
 import { MemoryTriggerStore } from "~/lib/trigger-store";
 import { describeTriggerStore } from "./helpers/trigger-store";
 
-describeTriggerStore("MemoryTriggerStore", () => {
-  const shared = new MemoryTriggerStore();
-  // Every store from one fixture is the same one, as engines share it.
-  return Promise.resolve({
-    close: () => Promise.resolve(),
-    store: () => ({
-      claimTick: (key) => shared.claimTick(key),
-      close: () => shared.close(),
-      finishTick: (key, tick) => shared.finishTick(key, tick),
-      lastTick: (key) => shared.lastTick(key),
-      monitorState: (key) => shared.monitorState(key),
-      saveMonitorState: (key, state) => shared.saveMonitorState(key, state),
+describeTriggerStore(
+  "MemoryTriggerStore",
+  () =>
+    Promise.resolve({
+      close: () => Promise.resolve(),
+      store: () => new MemoryTriggerStore(),
     }),
-  });
-});
+  { shared: false }
+);
 
 async function database() {
   const root = mkdtempSync(join(tmpdir(), "marbles-trigger-store-"));
@@ -46,7 +40,7 @@ async function database() {
   };
 }
 
-describeTriggerStore("DatabaseTriggerStore", database);
+describeTriggerStore("DatabaseTriggerStore", database, { shared: true });
 
 it("lets a tick an exited process held be claimed, and says which live process holds one", async () => {
   const fixture = await database();

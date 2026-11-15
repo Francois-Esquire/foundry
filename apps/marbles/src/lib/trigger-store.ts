@@ -29,7 +29,15 @@ export interface TriggerStore {
    * exited holds nothing.
    */
   claimTick(key: string): Promise<TickClaim>;
-  /** Refuse every call from now on, once those under way have settled. */
+  /**
+   * Clear the monitor `key`'s pending launch, in one write, once a tick
+   * has started it or given up on it; what it last saw stays.
+   */
+  clearPendingLaunch(key: string): Promise<void>;
+  /**
+   * Refuse every call from now on, once those under way have settled, and
+   * give up every tick this store has claimed.
+   */
   close(): Promise<void>;
   /**
    * Give up the key's tick, recording how it went when it ran, in one
@@ -90,10 +98,10 @@ export function finishedAt(
 }
 
 /**
- * The trigger store held in this process. One store may be shared by
- * several engines, as one database is: a tick one of them claimed is held
- * for all of them. Records are copied in and out, so no caller shares a
- * reference with the store.
+ * The trigger store held in this process, for one engine, as
+ * `MemoryRunStore` is: nothing outlives the process. A tick claimed
+ * through it is held for every caller of it. Records are copied in and
+ * out, so no caller shares a reference with the store.
  */
 export class MemoryTriggerStore implements TriggerStore {
   readonly #gate = new RecordsGate("the trigger store is closed");
@@ -111,8 +119,18 @@ export class MemoryTriggerStore implements TriggerStore {
     });
   }
 
-  close(): Promise<void> {
-    return this.#gate.close();
+  clearPendingLaunch(key: string): Promise<void> {
+    return this.#gate.run(async () => {
+      const state = this.#monitors.get(key);
+      if (state !== undefined) {
+        this.#monitors.set(key, { observed: state.observed });
+      }
+    });
+  }
+
+  async close(): Promise<void> {
+    await this.#gate.close();
+    this.#claimed.clear();
   }
 
   finishTick(key: string, tick?: ScheduleHistory): Promise<void> {

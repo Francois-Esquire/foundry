@@ -22,7 +22,7 @@ import type {
   MonitorHost,
   MonitorSpec,
 } from "~/lib/monitor";
-import { acknowledgeLaunch, detector, handlerResponse } from "~/lib/monitor";
+import { detector, handlerResponse } from "~/lib/monitor";
 import { tick } from "~/lib/schedule";
 import { isRecord } from "~/lib/state/json";
 import type { TriggerStore } from "~/lib/trigger-store";
@@ -283,7 +283,7 @@ describe("files detector", () => {
     // without asking the handler.
     await expect(detect(context)).resolves.toEqual(expected);
     expect(handled).toBe(1);
-    await acknowledgeLaunch(hosted.triggers, "m");
+    await hosted.triggers.clearPendingLaunch("m");
     expect((await hosted.triggers.monitorState("m"))?.pending).toBeUndefined();
     await expect(detect(context)).resolves.toEqual({ changed: false });
   });

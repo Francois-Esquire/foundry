@@ -2,9 +2,8 @@ import { Cron } from "croner";
 import type { Engine } from "~/lib/engine";
 import type { Launch } from "~/lib/launch";
 import { isLaunch } from "~/lib/launch";
-import { acknowledgeLaunch } from "~/lib/monitor";
 import { isRecord } from "~/lib/state/json";
-import type { ScheduleHistory } from "~/lib/trigger-store";
+import type { ScheduleHistory, TriggerStore } from "~/lib/trigger-store";
 import { finishedAt } from "~/lib/trigger-store";
 import type { CalendarSlot, Schedule, Trigger, Weekday } from "~/lib/triggers";
 
@@ -169,11 +168,28 @@ export async function tick(
     status = "complete";
     return { value };
   } finally {
-    // The tick is recorded and its claim given up in one write.
-    await triggers.finishTick(
-      schedule.key,
+    await finishTick(triggers, schedule.key, () =>
       dispatched ? history(schedule, start, now(), status) : undefined
     );
+  }
+}
+
+/**
+ * Record a tick and give up its claim, in one write. A record that cannot
+ * be made or written still gives the claim up, so the next tick of the
+ * trigger is not refused for as long as this process lives; the failure
+ * is the tick's.
+ */
+async function finishTick(
+  triggers: TriggerStore,
+  key: string,
+  record: () => ScheduleHistory | undefined
+): Promise<void> {
+  try {
+    await triggers.finishTick(key, record());
+  } catch (error) {
+    await triggers.finishTick(key).catch(() => undefined);
+    throw error;
   }
 }
 
@@ -229,13 +245,14 @@ async function startPending(
   signal: AbortSignal | undefined
 ): Promise<unknown> {
   if (!engine.has(launch.workflow)) {
-    await acknowledgeLaunch(engine.triggers, key);
+    await engine.triggers.clearPendingLaunch(key);
     throw new Error(
       `${key}: launch target "${launch.workflow}" is not registered`
     );
   }
   const started = await engine.launch(launch.workflow, launch.input, key);
-  await acknowledgeLaunch(engine.triggers, key);
+  // Started is delivered: the next tick polls the source again.
+  await engine.triggers.clearPendingLaunch(key);
   return await awaitRun(engine, started, signal);
 }
 

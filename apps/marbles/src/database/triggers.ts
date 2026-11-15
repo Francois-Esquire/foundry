@@ -72,8 +72,38 @@ export class DatabaseTriggerStore implements TriggerStore {
     );
   }
 
-  close(): Promise<void> {
-    return this.#gate.close();
+  clearPendingLaunch(key: string): Promise<void> {
+    return this.#call(async () => {
+      await this.#database
+        .update(marblesMonitorStates)
+        .set({ pending: null })
+        .where(
+          and(
+            eq(marblesMonitorStates.scope, this.#scope),
+            eq(marblesMonitorStates.key, key)
+          )
+        );
+    });
+  }
+
+  /**
+   * Refuse every call from now on, once those under way have settled, then
+   * give up every tick this store still holds: one cut short by a stop is
+   * claimed by the next engine at once, not once this process exits.
+   */
+  async close(): Promise<void> {
+    await this.#gate.close();
+    await asBusy(() =>
+      this.#database
+        .update(marblesScheduleTicks)
+        .set({ ownerId: null, ownerPid: null })
+        .where(
+          and(
+            eq(marblesScheduleTicks.scope, this.#scope),
+            eq(marblesScheduleTicks.ownerId, this.#owner)
+          )
+        )
+    );
   }
 
   finishTick(key: string, tick?: ScheduleHistory): Promise<void> {

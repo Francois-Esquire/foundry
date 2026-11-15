@@ -495,6 +495,10 @@ class ManagedTriggerStore implements TriggerStore {
     return this.#run((store) => store.claimTick(key));
   }
 
+  clearPendingLaunch(key: string): Promise<void> {
+    return this.#run((store) => store.clearPendingLaunch(key));
+  }
+
   async close(): Promise<void> {
     await this.#gate.close();
     try {

@@ -17,6 +17,7 @@ import { acquireLock } from "~/lib/state/locks";
 import type { StateStore } from "~/lib/state/store";
 import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 import { workspaceState } from "~/lib/state/workspace";
+import type { TriggerStore } from "~/lib/trigger-store";
 import { MemoryTriggerStore } from "~/lib/trigger-store";
 import type { Schedule } from "~/lib/triggers";
 import { testEngine } from "./helpers/engine";
@@ -244,6 +245,48 @@ describe("schedule state", () => {
     await other.finishTick("s");
     await other.close();
     await engine.dispose();
+  });
+
+  it("gives a tick's claim up when its record cannot be written, so the next tick runs", async () => {
+    const memory = new MemoryTriggerStore();
+    let refusals = 1;
+    const triggers: TriggerStore = {
+      claimTick: (key) => memory.claimTick(key),
+      clearPendingLaunch: (key) => memory.clearPendingLaunch(key),
+      close: () => memory.close(),
+      finishTick: (key, history) => {
+        if (history !== undefined && refusals > 0) {
+          refusals -= 1;
+          return Promise.reject(new Error("the database is busy"));
+        }
+        return memory.finishTick(key, history);
+      },
+      lastTick: (key) => memory.lastTick(key),
+      monitorState: (key) => memory.monitorState(key),
+      saveMonitorState: (key, state) => memory.saveMonitorState(key, state),
+    };
+    let launches = 0;
+    const engine = {
+      cancel: () => Promise.resolve(),
+      has: () => true,
+      launch: () => {
+        launches += 1;
+        return Promise.resolve({ id: "run", result: Promise.resolve("ok") });
+      },
+      schedules: () => [schedule],
+      triggers,
+    } as ScheduledEngine;
+
+    await expect(
+      tick(engine, schedule, { print: () => undefined })
+    ).rejects.toThrow("the database is busy");
+    await expect(
+      tick(engine, schedule, { print: () => undefined })
+    ).resolves.toEqual({ value: "ok" });
+    expect(launches).toBe(2);
+    expect(await memory.lastTick("s")).toMatchObject({
+      lastStatus: "complete",
+    });
   });
 
   it("seeds the loop from the recorded finish so a restart keeps cadence", async () => {
