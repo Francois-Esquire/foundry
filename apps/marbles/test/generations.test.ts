@@ -105,7 +105,7 @@ schedule(tick).every("1s");`
     note("picky");
     return await ask.question({ title: "Picky?", choices: ["yes", "no"] });
   });`,
-    `observe(tasks, (payload) => {
+    `observe(tasks, function seen(payload) {
   for (const change of payload.tasks) {
     note("seen-" + (change.after?.title ?? "-"));
   }
