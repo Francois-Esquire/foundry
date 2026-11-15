@@ -64,8 +64,11 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
   readonly #idle = new Set<() => void>();
   /** Runs whose cancellation is being written: each holds its queue's place. */
   readonly #withdrawing = new Set<string>();
-  /** Set while every waiting run is handed over: no queue lets anything in. */
-  #frozen = false;
+  /**
+   * Set once the engine has begun to retire (`closeAdmission`), and kept:
+   * no queue lets a run in here again, on success or failure.
+   */
+  #closed = false;
   constructor(
     options: ExecutionRecordsOptions & {
       readonly queues?: Readonly<Record<string, QueueSettings>>;
@@ -182,31 +185,44 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
   }
 
   /**
-   * Take every run waiting in this process's queues off them and make each
-   * `successor`'s, still queued (`handQueued`), in their order; resolves
-   * with the ids handed over. No queue lets a run in from the moment this
-   * begins until every one is handed over, so a slot that frees meanwhile
-   * (a run that parks, a task that gives its slot up) starts none of them
-   * here. One no longer queued here stays as it is, and is let in
-   * afterwards if it is still waiting.
+   * Let no queue admit a run here again. For an engine that has begun to
+   * retire: what waits here from now on waits to be handed over
+   * (`handOverAll`), and nothing reopens the queues.
    */
-  async handOverAll(successor: ProcessIdentity): Promise<readonly string[]> {
-    this.#frozen = true;
-    const handed: string[] = [];
-    try {
-      for (const id of this.waiting()) {
+  closeAdmission(): void {
+    this.#closed = true;
+  }
+
+  /**
+   * Take every run waiting in this process's queues off them and make each
+   * `successor`'s, still queued (`handQueued`), in their order, with
+   * admission closed for good first (`closeAdmission`). `onHanded` is told
+   * of each as it is handed over, whatever happens to the runs after it. A
+   * run whose hand-over fails is reported in `failed` and stays queued
+   * here, unstarted, holding `drained` back, for another try. One no
+   * longer queued here stays as it is.
+   */
+  async handOverAll(
+    successor: ProcessIdentity,
+    onHanded: (id: string) => void
+  ): Promise<{
+    readonly failed: readonly {
+      readonly error: unknown;
+      readonly id: string;
+    }[];
+  }> {
+    this.closeAdmission();
+    const failed: { readonly error: unknown; readonly id: string }[] = [];
+    for (const id of this.waiting()) {
+      try {
         if (await this.#handOver(id, successor)) {
-          handed.push(id);
+          onHanded(id);
         }
+      } catch (error) {
+        failed.push({ error, id });
       }
-    } finally {
-      this.#frozen = false;
-      for (const lane of this.#lanes.values()) {
-        this.#pump(lane);
-      }
-      this.#checkIdle();
     }
-    return handed;
+    return { failed };
   }
 
   /**
@@ -272,8 +288,8 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
    * one being withdrawn holds its place, and nothing behind it goes first.
    */
   #pump(lane: Lane): void {
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `handOverAll` sets it.
-    while (!this.#frozen && lane.active.size < lane.concurrency) {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `closeAdmission` sets it.
+    while (!this.#closed && lane.active.size < lane.concurrency) {
       const [next] = lane.waiting;
       if (!next || this.#withdrawing.has(next.id)) {
         return;

@@ -299,8 +299,15 @@ const NO_OWNER_HERE: unique symbol = Symbol("no generation here owns the run");
 
 /** Whether `error` says a question is on its way to another generation with its run. */
 function isMoving(error: unknown): boolean {
-  return error instanceof Error && error.name === "QuestionMovingError";
+  return error instanceof Error && MOVING_ERRORS.has(error.name);
 }
+
+/**
+ * What an engine refuses with when the work belongs to the next generation:
+ * a question moving with its run, or a launch that reached an engine that
+ * has begun to retire.
+ */
+const MOVING_ERRORS = new Set(["QuestionMovingError", "EngineRetiringError"]);
 
 /** Resolves once `generation` has started, or failed to; at once without one. */
 function settledStart(generation: Generation | undefined): Promise<void> {
@@ -1924,22 +1931,59 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       await handovers.get(id);
       return await askEach(id, method, params);
     }
+    return await askCurrent(workspace, method, params);
+  }
+
+  /**
+   * The current generation, once it has started, when it hosts `workspace`
+   * and the workspace is up; else why not, thrown.
+   */
+  async function startedCurrent(workspace: Hosted): Promise<Generation> {
     const target = current;
     // A generation current but still starting answers once it has started.
     await settledStart(target);
+    const { error, id, state } = workspace.summary;
     if (
       target === undefined ||
       target !== current ||
       !target.hosts.has(id) ||
-      workspace.summary.state === "failed" ||
-      workspace.summary.state === "starting" ||
-      workspace.summary.state === "stopped"
+      state === "failed" ||
+      state === "starting" ||
+      state === "stopped"
     ) {
       throw new Error(
-        `workspace ${id} is ${workspace.summary.state}${workspace.summary.error ? `: ${workspace.summary.error}` : ""}`
+        `workspace ${id} is ${state}${error ? `: ${error}` : ""}`
       );
     }
-    return await ask(target, method, params);
+    return target;
+  }
+
+  /**
+   * Ask the current generation, once it has started, about workspace
+   * `workspace`. A launch that reached a generation as it began to retire
+   * is refused there, recording nothing, and asked of the one current now.
+   */
+  async function askCurrent(
+    workspace: Hosted,
+    method: string,
+    params: unknown
+  ): Promise<unknown> {
+    const { id } = workspace.summary;
+    const deadline = Date.now() + HELD_WAIT_MS;
+    for (;;) {
+      const target = await startedCurrent(workspace);
+      try {
+        return await ask(target, method, params);
+      } catch (error) {
+        const left = deadline - Date.now();
+        if (!isMoving(error) || left <= 0) {
+          throw error;
+        }
+        if (current === target) {
+          await nextChange(id, Math.min(left, HANDOVER_RETRY_MS * 10));
+        }
+      }
+    }
   }
 
   async function answer(

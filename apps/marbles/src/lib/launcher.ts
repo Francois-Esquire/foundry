@@ -152,6 +152,27 @@ export class RunNotRecordedError extends Error {
 }
 
 /**
+ * A launch that reached an engine that has begun to retire: nothing is
+ * recorded or started here, and the Marbles process launches it again on
+ * the engine generation current now, as it does with a question moving
+ * with its run (its name is what it tells them apart by).
+ */
+class EngineRetiringError extends Error {
+  override readonly name = "EngineRetiringError";
+
+  constructor(name: string) {
+    super(
+      `${name} was not launched: this engine is retiring; launch it on the next engine generation`
+    );
+  }
+}
+
+/** How many times a queued run's hand-over is tried before it is left queued here. */
+const HAND_OVER_TRIES = 5;
+/** The wait before the second try of a hand-over; it doubles for each try after. */
+const HAND_OVER_RETRY_MS = 100;
+
+/**
  * A run its queue has let in or is about to, until it settles: its abort
  * controller exists before any lifecycle update is published, so a cancel
  * a subscriber sends from that update reaches it before its body starts.
@@ -180,6 +201,13 @@ export class Launcher {
    * starts while a cancelling stop runs never gets to its body.
    */
   #halting: Halting;
+  /**
+   * Set when the engine begins to retire (`handOver`), and kept: no launch
+   * is recorded here from then on.
+   */
+  #retiring = false;
+  /** Launches between their check and their admission, which a hand-over waits for. */
+  readonly #launching = new Set<Promise<void>>();
 
   constructor(options: LauncherOptions) {
     this.#options = options;
@@ -223,6 +251,28 @@ export class Launcher {
     if (!this.#runnable(name)) {
       throw new Error(`Definition is not registered: ${name}`);
     }
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `handOver` sets it.
+    if (this.#retiring) {
+      throw new EngineRetiringError(name);
+    }
+    // Until it is admitted, a hand-over that begins meanwhile waits for it,
+    // and hands it over with the rest of the queue.
+    const admitted = Promise.withResolvers<void>();
+    this.#launching.add(admitted.promise);
+    try {
+      return await this.#launch<O>(name, input, options, admitted.resolve);
+    } finally {
+      this.#launching.delete(admitted.promise);
+      admitted.resolve();
+    }
+  }
+
+  async #launch<O>(
+    name: string,
+    input: unknown,
+    options: LaunchOptions,
+    admitted: () => void
+  ): Promise<Launched<O>> {
     const task = this.#tasks.get(name);
     const { existing, run } = await this.executions.enqueue({
       correlation: {
@@ -238,11 +288,13 @@ export class Launcher {
       ...(options.source === undefined ? {} : { source: options.source }),
     });
     if (existing) {
+      admitted();
       return { id: run.id, result: this.#resultOf<O>(run) };
     }
     const owed = this.#owe(run.id, options.recordErrorMessage ?? true);
     // A subscriber told it is queued may have cancelled it already.
     const started = this.#admit(run.id);
+    admitted();
     if (started) {
       await started;
     }
@@ -289,20 +341,49 @@ export class Launcher {
   }
 
   /**
-   * Hand every run waiting in this process's queues to `successor`, in
-   * their order, still queued, for it to let in when it starts: none of
-   * them starts here. Whoever awaits one here is told it was handed over.
-   * Resolves with the ids handed over.
+   * Begin to retire: no launch is recorded here again and no queue admits a
+   * run here again, whatever happens next. Then hand every run waiting in
+   * this process's queues to `successor`, in their order, still queued, for
+   * it to let in when it starts, launches already under way among them;
+   * whoever awaits one here is told it was handed over as soon as it is.
+   * A run whose hand-over fails is reported and tried again, a bounded
+   * number of times; one that never moves stays queued here, unstarted,
+   * and the queues are not drained while it does. Resolves with the ids
+   * handed over.
    */
   async handOver(successor: ProcessIdentity): Promise<readonly string[]> {
-    const handed = await this.executions.handOverAll(successor);
-    for (const id of handed) {
+    this.#retiring = true;
+    this.executions.closeAdmission();
+    const handed: string[] = [];
+    const told = (id: string) => {
+      handed.push(id);
       this.#pay(
         id,
         new Error(`run ${id} was handed to the next engine generation`)
       );
+    };
+    for (let tried = 1; ; tried += 1) {
+      await Promise.all(this.#launching);
+      const { failed } = await this.executions.handOverAll(successor, told);
+      if (failed.length === 0) {
+        if (this.#launching.size === 0) {
+          return handed;
+        }
+        continue;
+      }
+      const last = tried >= HAND_OVER_TRIES;
+      for (const { error, id } of failed) {
+        this.#options.print(
+          `[run] ${id} not handed to the next engine generation (try ${String(tried)} of ${String(HAND_OVER_TRIES)}): ${error instanceof Error ? error.message : String(error)}${last ? "; it stays queued here, unstarted" : ""}`
+        );
+      }
+      if (last) {
+        return handed;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, HAND_OVER_RETRY_MS * 2 ** (tried - 1))
+      );
     }
-    return handed;
   }
 
   /**
