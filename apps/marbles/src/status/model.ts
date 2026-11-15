@@ -2,12 +2,13 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { lockHolder, processAlive } from "@foundry/lib/file-lock";
+import type { StoredRun } from "~/database/runs";
+import { readStoredRuns } from "~/database/runs";
 import { sessionCounts } from "~/database/sessions";
 import { recordedWorkspaces } from "~/database/workspaces";
-
+import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import { isRecord, readJson } from "~/lib/state/json";
 import { scheduleKeyOfLock } from "~/lib/state/locks";
-import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
 import type { WorkspaceRecord } from "~/lib/state/workspace";
 import type { ProcessHost, ProcessStatus } from "~/process/instance";
 import { readProcess } from "~/process/instance";
@@ -75,11 +76,14 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
   return {
     process: readProcess(stateRoot) ?? null,
     root: stateRoot,
-    workspaces: records.map((record) =>
-      readWorkspaceStatus(
-        join(stateRoot, record.id),
-        record,
-        sessions.get(record.id) ?? 0
+    workspaces: await Promise.all(
+      records.map(async (record) =>
+        readWorkspaceStatus(
+          join(stateRoot, record.id),
+          record,
+          sessions.get(record.id) ?? 0,
+          await readStoredRuns(stateRoot, record.id)
+        )
       )
     ),
   };
@@ -88,7 +92,8 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
 function readWorkspaceStatus(
   dir: string,
   record: WorkspaceRecord,
-  sessions: number
+  sessions: number,
+  runs: readonly StoredRun[]
 ): WorkspaceStatus {
   const owner = readProcess(dir);
   return {
@@ -100,7 +105,7 @@ function readWorkspaceStatus(
     lastSeen: record.lastSeen,
     pid: owner?.pid ?? null,
     root: record.root,
-    runs: readRuns(join(dir, "runs")),
+    runs: runsStatus(runs),
     schedules: readSchedules(dir),
     sessions,
   };
@@ -142,39 +147,21 @@ function readSchedules(dir: string): ScheduleStatus[] {
   });
 }
 
-function readRuns(dir: string): RunsStatus {
-  const runs = jsonFiles(dir)
-    .map((file) => readRun(join(dir, file)))
-    .filter((run) => run !== undefined)
+function runsStatus(stored: readonly StoredRun[]): RunsStatus {
+  const runs = stored
+    .map(
+      (run): RunSummary => ({
+        createdAt: run.createdAt,
+        id: run.id,
+        orphaned:
+          !TERMINAL_RUN_STATUSES.has(run.status) &&
+          (run.owner === null || !processAlive(run.owner)),
+        status: run.status,
+        step: run.step,
+      })
+    )
     .sort((a, b) => b.createdAt - a.createdAt);
   return { recent: runs.slice(0, RECENT), total: runs.length };
-}
-
-function readRun(path: string): RunSummary | undefined {
-  const file = readJson(path);
-  if (!(isRecord(file) && isRecord(file.run))) {
-    return undefined;
-  }
-  const { run } = file;
-  if (
-    typeof run.id !== "string" ||
-    typeof run.step !== "string" ||
-    typeof run.status !== "string" ||
-    !isRecord(run.timestamps) ||
-    typeof run.timestamps.createdAt !== "number"
-  ) {
-    return undefined;
-  }
-  const owner = typeof file.pid === "number" ? file.pid : undefined;
-  return {
-    createdAt: run.timestamps.createdAt,
-    id: run.id,
-    orphaned:
-      !TERMINAL_RUN_STATUSES.has(run.status) &&
-      (owner === undefined || !processAlive(owner)),
-    status: run.status,
-    step: run.step,
-  };
 }
 
 function listFiles(dir: string): string[] {

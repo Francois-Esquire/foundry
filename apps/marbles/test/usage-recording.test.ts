@@ -16,11 +16,15 @@ import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { ArtifactManager } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
+import type { SQL } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
+import { openDatabase } from "~/database/open";
 import { DatabaseSessionStore } from "~/database/sessions";
+import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import type { StateCollection } from "~/lib/state/store";
@@ -677,9 +681,10 @@ it("a transcript that failed to read is read again at the same stamp, keeps only
   const sessions = new InMemorySessionStore();
   await new Sessions({ store: sessions }).createSession({ id: "s" });
   const evidence = new UsageEvidence({
-    recordedOf: () => ({
-      ledger: { "marbles:flow|agents.session|0": { id: "deleted" } },
-    }),
+    recordedOf: () =>
+      Promise.resolve({
+        ledger: { "marbles:flow|agents.session|0": { id: "deleted" } },
+      }),
     sessions: Object.assign(sessions, {
       // The first read fails, and later failures can occur without a stamp.
       listMessages: () => {
@@ -791,7 +796,7 @@ it("an unreadable or missing transcript a settled run names is owned by nothing:
   });
   // A settled run's own file that cannot be read is that run's.
   const evidence = new UsageEvidence({
-    recordedOf: () => "unreadable",
+    recordedOf: () => Promise.resolve("unreadable"),
     sessions: new InMemorySessionStore(),
   });
   const run2: ReconciledRun = {
@@ -1126,7 +1131,7 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
       stamp: null,
     }));
   const evidence = new UsageEvidence({
-    recordedOf: () => recorded,
+    recordedOf: () => Promise.resolve(recorded),
     sessions,
     stamps,
   });
@@ -1167,7 +1172,7 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
   // Even a newest turn committed after the reader started must be visible.
   // An active run naming its session is not proof that it will record it.
   const running = new UsageEvidence({
-    recordedOf: () => recorded,
+    recordedOf: () => Promise.resolve(recorded),
     sessions,
     stamps,
   });
@@ -1785,7 +1790,7 @@ it("labels a priced total with a lost turn as partial, never as whole", () => {
   );
 });
 
-it("a settled run's file that could not be read is read again, so a repair counts on the next read of the same engine", async () => {
+it("a settled run's record that could not be read is read again, so a repair counts on the next read of the same engine", async () => {
   step("settles").do(() => "done");
   const writer = await started({
     sessions: new JsonSessionStore(join(state, "sessions")),
@@ -1796,16 +1801,30 @@ it("a settled run's file that could not be read is read again, so a repair count
   await writer.dispose();
 
   const second = await reader();
-  const file = join(state, "runs", `${launched.id}.json`);
-  const original = await readFile(file, "utf8");
-  await writeFile(file, "{ not json");
+  // What its scope recorded, as nothing Marbles writes would leave it.
+  await recordLedger(launched.id, sql`'[1]'`);
   const damaged = await second.readUsage();
   expect(damaged.unreadableAt.runs.get(launched.id)).toBe(1);
-  await writeFile(file, original);
+  await recordLedger(launched.id, sql`'{}'`);
   const repaired = await second.readUsage();
   expect(repaired).toMatchObject({ unreadable: 0 });
   expect(repaired.unreadableAt.runs.has(launched.id)).toBe(false);
 });
+
+/** Set the ledger the database keeps beside the test workspace's Run. */
+async function recordLedger(runId: string, ledger: SQL): Promise<void> {
+  const opened = await openDatabase(stateDatabase(state));
+  if (opened === undefined) {
+    throw new Error("no Marbles database");
+  }
+  try {
+    await opened.database.run(
+      sql`UPDATE marbles_workflow_runs SET ledger = ${ledger} WHERE scope = 'test' AND run_id = ${runId}`
+    );
+  } finally {
+    opened.close();
+  }
+}
 
 /**
  * Sessions kept on disk behind a store that cannot list them, as a host

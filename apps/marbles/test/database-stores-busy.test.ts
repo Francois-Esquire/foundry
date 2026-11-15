@@ -8,6 +8,7 @@ import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { WorkspaceId } from "@foundry/workspaces";
 import { afterEach, expect, it } from "vitest";
 import { DatabaseBusyError } from "~/database/client";
 import type { MarblesDatabase } from "~/database/open";
@@ -53,7 +54,7 @@ it("surfaces a lock held too long as a DatabaseBusyError from each store, and wo
   const holder = await holdWriteLock(file, children);
 
   await expect(
-    stores.workspaces.commit({ deleteEntries: [] })
+    stores.workspaces.commit({ removeWorkspace: "gone" as WorkspaceId })
   ).rejects.toBeInstanceOf(DatabaseBusyError);
   await expect(
     stores.artifacts.transaction(() => Promise.resolve())

@@ -19,6 +19,7 @@ import { Catalog } from "~/authoring/catalog";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { defaultWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
+import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import type { WorkspaceStores } from "~/database/stores";
 import {
@@ -59,12 +60,12 @@ export interface CreateEngineOptions {
   readonly catalog: Catalog;
   /**
    * The Marbles database the host keeps open, which holds this workspace's
-   * tasks, their recorded changes, its agent sessions, its artifacts'
-   * records (their blob files stay under `artifacts`), its sandbox
+   * tasks, their recorded changes, its agent sessions, its workflow Runs,
+   * its artifacts' records (their blob files stay under `artifacts`), its sandbox
    * containers and its workspace catalogue; the host closes it once the
    * engine is disposed. Without it, an engine given a state dir opens a
-   * handle of its own at its first task or session call and closes it when
-   * disposed, and keeps the rest as it would with no database: artifacts
+   * handle of its own at its first task, session or run call and closes it
+   * when disposed, and keeps the rest as it would with no database: artifacts
    * in JSON under `artifacts`, containers and the catalogue in memory.
    * Under `dry` the engine gets neither and keeps everything in memory.
    */
@@ -252,22 +253,23 @@ function modelsFor(options: CreateEngineOptions): {
 }
 
 /**
- * Where the engine keeps the workspace's tasks and agent sessions: in the
- * host's database, scoped by the workspace id; without one but with a
- * state dir, in a handle on the database the engine opens itself (`own`),
- * which it closes once disposed; with neither, in memory.
+ * Where the engine keeps the workspace's tasks, agent sessions and workflow
+ * Runs: in the host's database, scoped by the workspace id; without one
+ * but with a state dir, in a handle on the database the engine opens
+ * itself (`own`), which it closes once disposed; with neither, in memory.
  */
 function recordsFor(
   state: string | undefined,
   database: StoreDatabase | undefined,
   { root, workspaceId }: CreateEngineOptions
-): Pick<EngineOptions, "records" | "sessions"> & {
+): Pick<EngineOptions, "records" | "runs" | "sessions"> & {
   readonly own?: WorkspaceDatabase;
 } {
   if (database !== undefined) {
     const scope = workspaceId;
     return {
       records: new DatabaseWorkspaceRecords({ database, scope }),
+      runs: new DatabaseRunStore({ database, scope }),
       sessions: new DatabaseSessionStore({ database, scope }),
     };
   }
@@ -275,7 +277,12 @@ function recordsFor(
     return { sessions: new InMemorySessionStore() };
   }
   const own = defaultWorkspaceDatabase(state, root, workspaceId);
-  return { own, records: own.records, sessions: own.sessions };
+  return {
+    own,
+    records: own.records,
+    runs: own.runs,
+    sessions: own.sessions,
+  };
 }
 
 /**

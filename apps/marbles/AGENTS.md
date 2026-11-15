@@ -51,14 +51,18 @@ Five buckets, each importing only what sits below it:
   (`database/tasks.ts`), and without one the `lib/` class keeps them in
   memory, whatever `state` is. The class the package publishes is
   `entries/engine.ts`, a tier above `lib/` and `database/`: given `state`
-  and no `records`, it opens the database's (`database/managed.ts`). Each manager has the plain operation as a
+  and no `records` or no `runs`, it opens the database's
+  (`database/managed.ts`). Each manager has the plain operation as a
   method, usable on the engine directly, and `scoped(frame)` for the view a
   step body gets, which adds replay, cancellation, and cleanup on top; new
   manager behavior goes in the plain method. The engine owns its registry
   and is told what can run through `define`, `schedule`, `monitor`, and `task`. Every launch goes through
   `lib/launcher.ts`, which owns queue admission, host tasks, and live runs.
   `lib/executions.ts` owns durable execution records and retention.
-  `lib/held-runs.ts` owns held workflow runs and their run files.
+  `lib/held-runs.ts` follows held workflow runs to their end;
+  `lib/run-store.ts` is where their Runs are kept (`RunStore`, in memory
+  by default), and `lib/run-recovery.ts` is the one rule for which parked
+  Runs a starting engine adopts.
   `lib/cli-harnesses.ts` describes each CLI harness once (ids in
   preference order, executor, guest artifact and environment). Provider
   plugins (`lib/providers/plugins.ts`) build instances from configuration
@@ -108,9 +112,14 @@ Five buckets, each importing only what sits below it:
   scoped by the workspace id, handed over as the package makes it, with no
   hook. Artifact blob files stay on disk, under
   `<artifacts>/workspaces/<id>/blobs`; `readArtifacts` is the read-only
-  view of them a dry run reads through to. The modules and workflows
-  tables are composed and migrated, but nothing in Marbles uses them yet:
-  workflow runs are still the in-memory store and `runs/*.json`. Every writer handle goes through `guard.ts`, which
+  view of them a dry run reads through to. `runs.ts` is a workspace's workflow Runs: the package's
+  `SqliteWorkflowStore` scoped by the workspace id, whose `onCommit` hook
+  files beside each Run it puts Marbles' row in `marbles_workflow_runs`,
+  what the run's scope recorded and the engine that owns it, so a parked
+  run is adopted by the next process that can answer it; a claim on a Run
+  is a transaction on that row, not a lock file. Each run's output stays
+  a log file on disk, `<state>/<id>/output/<run>.jsonl`. The modules
+  tables are composed and migrated, but nothing in Marbles uses them yet. Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no worker opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
@@ -128,10 +137,10 @@ Five buckets, each importing only what sits below it:
   become dynamic children in that run. `createEngine` in `src/create.ts`
   is the one place the Marbles defaults and `--dry-run` are decided; it
   builds the instances, constructs the engine, and copies the catalog in.
-  Given the host's `database`, it keeps the tasks, sessions, artifacts,
-  sandbox containers and workspace catalogue there;
+  Given the host's `database`, it keeps the tasks, sessions, workflow
+  runs, artifacts, sandbox containers and workspace catalogue there;
   given only a state dir, the engine opens one handle of its own for its
-  tasks and sessions (`openWorkspaceDatabase` in `database/managed.ts`),
+  tasks, sessions and runs (`openWorkspaceDatabase` in `database/managed.ts`),
   keeps the rest as it would with no database, and closes it after
   everything else it holds, since its agents may write a session after its
   records close.

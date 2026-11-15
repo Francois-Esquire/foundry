@@ -1,5 +1,6 @@
 /**
- * Run recovery across real processes over one JSON state dir. Each phase is
+ * Run recovery across real processes over one state dir and its Marbles
+ * database. Each phase is
  * its own `bun` process hosting one step on a test engine: a run paused, or
  * parked on a question, is adopted by the next process and resumed or
  * answered there, and a run whose new owner is killed with SIGKILL after it
@@ -12,6 +13,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { readStoredRuns } from "~/database/runs";
 
 const SRC = resolve("src");
 const HELPERS = resolve("test/helpers");
@@ -88,6 +90,12 @@ function run(
   return JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
 }
 
+/** The status the run's Run was left with in the Marbles database. */
+async function storedStatus(root: string, runId: string) {
+  const stored = await readStoredRuns(join(root, "state"), "test");
+  return stored.find((entry) => entry.id === runId)?.status;
+}
+
 function lines(root: string, file: string): string[] {
   const path = join(root, file);
   return existsSync(path)
@@ -96,7 +104,7 @@ function lines(root: string, file: string): string[] {
 }
 
 /** The first process: `hold` launched, paused mid-body, and the host quit. */
-function pausedRun(root: string): string {
+async function pausedRun(root: string): Promise<string> {
   const pause = phase(
     root,
     "pause",
@@ -112,16 +120,12 @@ await engine.stop({ cancel: true });`
   const paused = run(pause, { MARBLES_TEST_HOLD: "1" });
   expect(paused.paused).toBe(true);
   const runId = paused.runId as string;
-  expect(
-    JSON.parse(
-      readFileSync(join(root, "state", "runs", `${runId}.json`), "utf8")
-    ).run.status
-  ).toBe("suspended");
+  expect(await storedStatus(root, runId)).toBe("suspended");
   return runId;
 }
 
 /** The first process: `hold` launched, parked on its question, and the host quit. */
-function parkedRun(root: string): string {
+async function parkedRun(root: string): Promise<string> {
   const park = phase(
     root,
     "park",
@@ -135,11 +139,7 @@ await engine.stop({ cancel: true });`
   const parked = run(park, ASK);
   expect(parked.questions).toEqual(["Go on?"]);
   const runId = parked.runId as string;
-  expect(
-    JSON.parse(
-      readFileSync(join(root, "state", "runs", `${runId}.json`), "utf8")
-    ).run.status
-  ).toBe("suspended");
+  expect(await storedStatus(root, runId)).toBe("suspended");
   expect(lines(root, "entries.log")).toHaveLength(1);
   expect(lines(root, "answers.log")).toEqual([]);
   return runId;
@@ -150,7 +150,7 @@ it(
   async () => {
     const root = await mkdtemp(join(tmpdir(), "marbles-recovery-paused-"));
     roots.push(root);
-    const runId = pausedRun(root);
+    const runId = await pausedRun(root);
 
     const resume = phase(
       root,
@@ -182,7 +182,7 @@ it(
   async () => {
     const root = await mkdtemp(join(tmpdir(), "marbles-recovery-crashed-"));
     roots.push(root);
-    const runId = pausedRun(root);
+    const runId = await pausedRun(root);
 
     // The second process adopts and resumes the run, which kills it.
     const resume = phase(
@@ -227,7 +227,7 @@ it(
   async () => {
     const root = await mkdtemp(join(tmpdir(), "marbles-recovery-parked-"));
     roots.push(root);
-    const runId = parkedRun(root);
+    const runId = await parkedRun(root);
 
     const answer = phase(
       root,
@@ -260,7 +260,7 @@ it(
   async () => {
     const root = await mkdtemp(join(tmpdir(), "marbles-recovery-answered-"));
     roots.push(root);
-    const runId = parkedRun(root);
+    const runId = await parkedRun(root);
 
     // The second process answers the question, and the resumed run kills it.
     const answer = phase(

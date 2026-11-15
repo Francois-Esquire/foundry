@@ -5,12 +5,11 @@
  * scope closing when the run settles.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
@@ -20,6 +19,7 @@ import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { bindMock } from "../helpers/bindings";
 import { startEngine } from "../helpers/engine";
 import { openFeed } from "../helpers/feed";
+import { storedRun } from "../helpers/runs";
 
 const NOT_RUNNING_PATTERN = /not running here/;
 const CANCELLED_PATTERN = /cancelled/;
@@ -167,41 +167,24 @@ describe("lib2 through the engine", () => {
     const recordedSession = scope?.ledger.toJSON();
     const runSession = scope?.session.id;
     expect(Object.keys(recordedSession ?? {})).toHaveLength(1);
-    // Written when it parked, not only at stop: a crash leaves the file too.
-    interface ParkedFile {
-      run: { status: string };
-      suspensions: unknown[];
-    }
-    const parked = await openEntry(
-      async () =>
-        (existsSync(join(state, "runs"))
-          ? readdirSync(join(state, "runs")).map(
-              (name) =>
-                JSON.parse(
-                  readFileSync(join(state, "runs", name), "utf8")
-                ) as ParkedFile
-            )
-          : []) as never,
-      (entry) => (entry as unknown as ParkedFile).run.status === "suspended"
+    // Committed when it parked, not only at stop: a crash leaves it too,
+    // with its Suspension, or the next process adopts a run it can never
+    // answer.
+    await vi.waitFor(async () =>
+      expect(await storedRun(state, launched.id)).toMatchObject({
+        status: "suspended",
+        suspensions: ["pending"],
+      })
     );
-    expect(parked).toBeDefined();
-    // The suspension record must be in the file too, or the next process
-    // adopts a run it can never answer.
-    expect((parked as unknown as ParkedFile).suspensions).toHaveLength(1);
     await one.stop();
     await first.dispose();
-    const [file] = readdirSync(join(state, "runs"));
-    const saved = JSON.parse(
-      readFileSync(join(state, "runs", file as string), "utf8")
-    ) as {
-      marbles: { ledger: unknown; session: { id: string } };
-      run: { status: string };
-    };
-    expect(saved.run.status).toBe("suspended");
-    expect(saved.marbles).toEqual({
-      ledger: recordedSession,
-      literals: { release: {} },
-      session: { id: runSession },
+    expect(await storedRun(state, launched.id)).toMatchObject({
+      recorded: {
+        ledger: recordedSession,
+        literals: { release: {} },
+        session: runSession,
+      },
+      status: "suspended",
     });
     expect((await feedOne.read())[0]?.input?.status).toBe("open");
 
@@ -246,7 +229,7 @@ describe("lib2 through the engine", () => {
     // session the first opened instead of a new one.
     expect(bodies).toHaveLength(2);
     expect(two.scopes.has(launched.id)).toBe(false);
-    expect(existsSync(join(state, "runs", file as string))).toBe(true);
+    expect((await storedRun(state, launched.id))?.status).toBe("complete");
     await two.stop();
     await second.dispose();
   });
@@ -524,7 +507,7 @@ describe("lib2 through the engine", () => {
     await mock.dispose();
   });
 
-  it("writes the answer to the run file before the run goes on", async () => {
+  it("commits the answer before the run goes on", async () => {
     const state = join(root, "state");
     let release: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => {
@@ -558,29 +541,28 @@ describe("lib2 through the engine", () => {
     if (!question) {
       throw new Error("expected an open approval");
     }
-    const file = join(state, "runs", `${launched.id}.json`);
-    const read = () =>
-      JSON.parse(readFileSync(file, "utf8")) as {
-        run: { status: string };
-        suspensions: { status: string }[];
-      };
-    expect(read().run.status).toBe("suspended");
+    const read = async () => {
+      const stored = await storedRun(state, launched.id);
+      if (stored === undefined) {
+        throw new Error("the run is not stored");
+      }
+      return stored;
+    };
+    expect((await read()).status).toBe("suspended");
     await engine.answer(question.id, "approve");
-    // The body is still held at its gate; the file already says the
+    // The body is still held at its gate; the store already says the
     // question is answered and the run is under way.
-    const moved = await openEntry(
-      async () => (read().run.status === "suspended" ? [] : [{}]) as never,
-      () => true
+    await vi.waitFor(async () =>
+      expect((await read()).status).not.toBe("suspended")
     );
-    expect(moved).toBeDefined();
-    expect(read().suspensions.map((item) => item.status)).toEqual(["resolved"]);
+    expect((await read()).suspensions).toEqual(["resolved"]);
     release?.();
     await expect(launched.result).resolves.toBe(true);
-    expect(read().run.status).toBe("complete");
+    expect((await read()).status).toBe("complete");
     await engine.stop();
   });
 
-  it("adopting a parked run claims it: the file names the new owner and a lock is held", async () => {
+  it("adopting a parked run claims it until it settles, and no other engine takes it meanwhile", async () => {
     const state = join(root, "state");
     const feedRoot = join(root, "feed");
     const define = () =>
@@ -615,28 +597,23 @@ describe("lib2 through the engine", () => {
       root,
       state,
     });
-    const file = join(state, "runs", `${launched.id}.json`);
-    const lock = join(state, "locks", `run-${launched.id}`);
-    expect(JSON.parse(readFileSync(file, "utf8")).pid).toBe(process.pid);
-    expect(readFileSync(lock, "utf8")).toBe(String(process.pid));
+    expect(two.scopes.has(launched.id)).toBe(true);
+    expect((await storedRun(state, launched.id))?.owner).toBe(process.pid);
 
-    // A second process that finds the same file cannot take the run too.
-    const lines: string[] = [];
+    // Another engine that finds the same parked Run cannot take it too.
     const three = await startEngine({
       ...rebound.instances,
       askable: true,
-      print: (line) => lines.push(line),
+      print: () => undefined,
       root,
       state,
     });
+    expect(three.scopes.has(launched.id)).toBe(false);
     expect((await three.runs()).map((run) => run.id)).not.toContain(
       launched.id
     );
-    expect(lines.join("\n")).toContain(
-      `run is suspended in pid ${String(process.pid)}`
-    );
     await three.stop();
-    expect(existsSync(lock)).toBe(true);
+    expect((await storedRun(state, launched.id))?.owner).toBe(process.pid);
 
     if (!question) {
       throw new Error("expected an open approval");
@@ -649,7 +626,8 @@ describe("lib2 through the engine", () => {
           .map(() => ({})) as never,
       () => true
     );
-    expect(existsSync(lock)).toBe(false);
+    // Settled: nothing owns it any more.
+    expect((await storedRun(state, launched.id))?.owner).toBeNull();
     await two.stop();
     await rebound.dispose();
   });
@@ -683,10 +661,9 @@ describe("lib2 through the engine", () => {
       (entry) => entry.input?.status === "open"
     );
     await one.stop();
-    const file = JSON.parse(
-      readFileSync(join(state, "runs", `${launched.id}.json`), "utf8")
-    ) as { marbles: { literals: Record<string, unknown> } };
-    expect(file.marbles.literals).toEqual({ counting: { n: 1 } });
+    expect((await storedRun(state, launched.id))?.recorded.literals).toEqual({
+      counting: { n: 1 },
+    });
 
     // The setup would now lock a different value; the recovered run keeps its own.
     seed = 2;

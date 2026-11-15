@@ -239,7 +239,7 @@ interface Known {
 
 export class UsageEvidence {
   readonly #sessions: SessionStore;
-  readonly #recordedOf: (runId: string) => RunRecorded | undefined;
+  readonly #recordedOf: (runId: string) => Promise<RunRecorded | undefined>;
   readonly #stamps: SessionListing | undefined;
   /** A settled run's readable file, read once per run status. */
   readonly #runs = new Map<
@@ -256,7 +256,7 @@ export class UsageEvidence {
 
   constructor(deps: {
     /** What a run recorded; `undefined` when nothing durable is kept for runs. */
-    readonly recordedOf: (runId: string) => RunRecorded | undefined;
+    readonly recordedOf: (runId: string) => Promise<RunRecorded | undefined>;
     readonly sessions: SessionStore;
     /**
      * Every session the store holds, when it can list them; absent when
@@ -269,16 +269,16 @@ export class UsageEvidence {
     this.#stamps = deps.stamps;
   }
 
-  #recorded(run: ReconciledRun): RunRecorded | undefined {
+  async #recorded(run: ReconciledRun): Promise<RunRecorded | undefined> {
     if (run.active) {
-      return this.#recordedOf(run.id);
+      return await this.#recordedOf(run.id);
     }
     const key = `${run.status}:${String(run.endedAt)}`;
     const cached = this.#runs.get(run.id);
     if (cached?.key === key) {
       return cached.recorded;
     }
-    const recorded = this.#recordedOf(run.id);
+    const recorded = await this.#recordedOf(run.id);
     // An unreadable file is read again, so one repaired in place counts at once.
     if (recorded === "unreadable") {
       this.#runs.delete(run.id);
@@ -324,36 +324,32 @@ export class UsageEvidence {
   }
 
   /** Each run's file, with what it names; an unreadable settled run's file counted. */
-  #readable(
+  async #readable(
     runs: readonly ReconciledRun[],
     unreadable: Unverified
-  ): RunEvidence[] {
-    return runs.flatMap((run) => {
-      const recorded = this.#recorded(run);
+  ): Promise<RunEvidence[]> {
+    const evidence: RunEvidence[] = [];
+    for (const run of runs) {
+      const recorded = await this.#recorded(run);
       if (recorded === "unreadable" && !run.active) {
         unreadable.runs.set(run.id, (unreadable.runs.get(run.id) ?? 0) + 1);
       }
-      if (recorded === undefined || recorded === "unreadable") {
-        return [];
+      if (recorded !== undefined && recorded !== "unreadable") {
+        evidence.push({ names: ledgerNames(recorded.ledger), run });
       }
-      return [
-        {
-          names: ledgerNames(recorded.ledger),
-          run,
-        },
-      ];
-    });
+    }
+    return evidence;
   }
 
   /** What the runs' files name: settled runs' sessions and one-turn calls, and what running runs hold. */
-  #runsKnown(
+  async #runsKnown(
     runs: readonly ReconciledRun[],
     named: Set<string>,
     unreadable: Unverified
-  ): Pick<Known, "activeNamed" | "turnOwner"> {
+  ): Promise<Pick<Known, "activeNamed" | "turnOwner">> {
     const activeNamed = new Set<string>();
     const turnOwner = new Map<string, OneTurn & { run: ReconciledRun }>();
-    for (const { names, run } of this.#readable(runs, unreadable)) {
+    for (const { names, run } of await this.#readable(runs, unreadable)) {
       if (run.active) {
         for (const sessionId of names.sessions) {
           activeNamed.add(sessionId);
@@ -371,11 +367,11 @@ export class UsageEvidence {
   }
 
   /** What the records and runs' files say, before any transcript is read. */
-  #known(
+  async #known(
     records: UsageRecords,
     runs: readonly ReconciledRun[],
     unreadable: Unverified
-  ): Known {
+  ): Promise<Known> {
     const named = new Set<string>();
     const markers = new Map<string, RecordedUsageFact>();
     for (const fact of records.facts) {
@@ -388,7 +384,7 @@ export class UsageEvidence {
       named.add(fact.sessionId);
     }
     return {
-      ...this.#runsKnown(runs, named, unreadable),
+      ...(await this.#runsKnown(runs, named, unreadable)),
       markers,
       named,
     };
@@ -471,7 +467,7 @@ export class UsageEvidence {
     workspaceId: string
   ): Promise<Reconciled> {
     const unreadable: Unverified = { runs: new Map(), unowned: 0 };
-    const known = this.#known(records, runs, unreadable);
+    const known = await this.#known(records, runs, unreadable);
     const saved = new Set(
       records.facts
         .filter((fact) => fact.lost === undefined)

@@ -3,7 +3,9 @@ import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
+import type { WorkflowStore } from "@foundry/workflows/store";
 import type { MarblesDatabase } from "~/database/open";
+import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import type { HostDatabaseOptions } from "~/database/workspaces";
@@ -14,6 +16,8 @@ import type {
   WorkspaceRecords,
 } from "~/lib/events/records";
 import { EmitListeners, RecordsGate } from "~/lib/events/records";
+import type { RecordedScope } from "~/lib/run-scope";
+import type { RunStore, StoredScope } from "~/lib/run-store";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
@@ -54,6 +58,8 @@ export function openWorkspaceRecords(
 export interface WorkspaceDatabase {
   close(): Promise<void>;
   readonly records: WorkspaceRecords;
+  /** The workspace's workflow Runs over the same handle. */
+  readonly runs: RunStore;
   readonly sessions: ListedSessionStore;
 }
 
@@ -68,16 +74,21 @@ export function openWorkspaceDatabase(
     () => Promise.resolve()
   );
   const sessions = new ManagedSessionStore(database, options.workspaceId);
+  const runs = new ManagedRunStore(database, options.workspaceId, () =>
+    Promise.resolve()
+  );
   return {
     async close() {
       try {
         await records.close();
+        await runs.close();
         await sessions.close();
       } finally {
         await database.close();
       }
     },
     records,
+    runs,
     sessions,
   };
 }
@@ -116,6 +127,24 @@ export function defaultWorkspaceDatabase(
     state: defaultStateRoot(state, root, workspaceId),
     workspaceId,
   });
+}
+
+/**
+ * The run store an engine given `state` and no `runs` keeps its workflow
+ * Runs in: the database `defaultWorkspaceRecords` chooses, over a handle of
+ * its own, opened at the engine's start under the rule a host keeps and
+ * closed with the store.
+ */
+export function defaultWorkspaceRuns(
+  state: string,
+  root: string,
+  workspaceId: string
+): RunStore {
+  const database = new LazyDatabase({
+    state: defaultStateRoot(state, root, workspaceId),
+    workspaceId,
+  });
+  return new ManagedRunStore(database, workspaceId, () => database.close());
 }
 
 /** The state root whose database an engine given `state` keeps its records in (`defaultWorkspaceRecords`). */
@@ -340,6 +369,69 @@ class ManagedSessionStore implements ListedSessionStore {
   }
 
   #run<T>(call: (store: DatabaseSessionStore) => Promise<T>): Promise<T> {
+    return this.#gate.run(async () => call(await this.#store.get()));
+  }
+}
+
+/**
+ * A workspace's workflow Runs over a `LazyDatabase`: each call waits for the
+ * database to open, and `close` refuses later calls once those made have
+ * settled, then runs `release`.
+ */
+class ManagedRunStore implements RunStore {
+  readonly durable = true;
+  readonly #gate = new RecordsGate("the run store is closed");
+  readonly #release: () => Promise<void>;
+  readonly #store: OverDatabase<DatabaseRunStore>;
+
+  constructor(
+    database: LazyDatabase,
+    workspaceId: string,
+    release: () => Promise<void>
+  ) {
+    this.#release = release;
+    this.#store = new OverDatabase(
+      database,
+      (opened) =>
+        new DatabaseRunStore({
+          database: opened.database,
+          scope: workspaceId,
+        })
+    );
+  }
+
+  claim(runId: string): Promise<boolean> {
+    return this.#run((store) => store.claim(runId));
+  }
+
+  async close(): Promise<void> {
+    await this.#gate.close();
+    try {
+      await (await this.#store.built())?.close();
+    } finally {
+      await this.#release();
+    }
+  }
+
+  open(
+    recorded: (runId: string) => RecordedScope | undefined
+  ): Promise<WorkflowStore> {
+    return this.#run((store) => store.open(recorded));
+  }
+
+  recorded(runId: string): Promise<StoredScope> {
+    return this.#run((store) => store.recorded(runId));
+  }
+
+  release(runId?: string): Promise<void> {
+    return this.#run((store) => store.release(runId));
+  }
+
+  remove(runId: string): Promise<void> {
+    return this.#run((store) => store.remove(runId));
+  }
+
+  #run<T>(call: (store: DatabaseRunStore) => Promise<T>): Promise<T> {
     return this.#gate.run(async () => call(await this.#store.get()));
   }
 }

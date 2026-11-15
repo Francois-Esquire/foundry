@@ -1,22 +1,19 @@
 import type { Orchestrator } from "@foundry/workflows/orchestrator";
-import type { MemoryWorkflowStore } from "@foundry/workflows/store/memory";
 
 import type { Executions } from "~/lib/executions";
 import type { FeedRouter } from "~/lib/feed/route";
 import type { DispatchedRun } from "~/lib/launcher";
 import { observeSteps } from "~/lib/observe";
 import type { RunScopes } from "~/lib/run-scope";
-import type { Lock } from "~/lib/state/locks";
+import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import { RunOutput } from "~/lib/state/output";
-import type { RunExtras } from "~/lib/state/runs";
-import { saveRun, TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
 
 /**
  * Held runs: the workflow runs a started engine dispatched or adopted, from
  * then until they settle. Each is followed to its end (its steps printed,
- * its posts routed, where it has got to recorded as progress) and written
- * back to its run file when it parks, resumes and settles, so the next
- * process can adopt a parked one.
+ * its posts routed, where it has got to recorded as progress, its parks and
+ * resumes on its Execution Run). The Run itself is in the run store, which
+ * every change commits to as it is made.
  */
 
 /** A run that ended without completing; the message says how and why. */
@@ -51,26 +48,13 @@ interface HeldWorkflow {
 }
 
 interface HeldRun {
-  /** Execution, publication, cleanup, and persistence, owned together. */
+  /** Execution, publication and cleanup, owned together. */
   finalized?: Promise<unknown>;
-  /** Ownership of an adopted run's file; released once it settles or the process stops. */
-  lock?: Lock;
-  /**
-   * Not yet written since it was dispatched. Persisting is not the run: a
-   * failed write warns and the value still returns.
-   */
-  unsaved: boolean;
   /**
    * None of it depends on the run's output type, which the workflow's
    * private runtime holds invariantly.
    */
   readonly workflow: HeldWorkflow;
-}
-
-/** Give up a held run's file, once: another process may take it from here. */
-function release(held: HeldRun): void {
-  held.lock?.release();
-  held.lock = undefined;
 }
 
 export interface HeldRunsOptions {
@@ -80,9 +64,8 @@ export interface HeldRunsOptions {
   readonly print: (line: string) => void;
   readonly router: FeedRouter;
   readonly scopes: RunScopes;
-  /** Where run files go; without one, nothing is written. */
+  /** Where each run's output file goes; without one, nothing is written. */
   readonly state: string | undefined;
-  readonly store: MemoryWorkflowStore;
 }
 
 export class HeldRuns {
@@ -92,20 +75,13 @@ export class HeldRuns {
   constructor(options: HeldRunsOptions) {
     this.#options = options;
     const { executions, orchestrator } = options;
-    // A parked run is written as soon as it parks, so a crash or a quit while
-    // it waits leaves a file the next process can adopt. It is written again
-    // as soon as its answer is in, before the run goes on: a crash after that
-    // finds a run that was mid-flight, which is skipped, not a stale question
-    // that would be asked again over work already done.
     orchestrator.on("suspended", ({ runId }) => {
       if (this.#held.has(runId)) {
-        this.save(runId);
         executions.suspend(runId);
       }
     });
     orchestrator.on("resumed", ({ runId }) => {
       if (this.#held.has(runId)) {
-        this.save(runId);
         executions.resume(runId);
       }
     });
@@ -123,33 +99,12 @@ export class HeldRuns {
       .map(([runId]) => runId);
   }
 
-  /** Write a run's file; a failed write warns. */
-  save(runId: string, extras = this.#extrasOf(runId)): void {
-    const { print, state, store } = this.#options;
-    const held = this.#held.get(runId);
-    if (state === undefined) {
-      return;
-    }
-    try {
-      saveRun(state, store.snapshot(), runId, extras);
-      if (held) {
-        held.unsaved = false;
-      }
-    } catch (error) {
-      print(`[state] run ${runId} not saved: ${String(error)}`);
-    }
-  }
-
   /**
    * Hold a dispatched or adopted run until it ends, for the launcher to
    * settle. A run left parked when the process stops has not ended: its
    * record stays suspended.
    */
-  follow(
-    name: string,
-    dispatched: Dispatched<unknown>,
-    lock?: Lock
-  ): DispatchedRun {
+  follow(name: string, dispatched: Dispatched<unknown>): DispatchedRun {
     const { orchestrator } = this.#options;
     return {
       cancel: async () => {
@@ -162,18 +117,14 @@ export class HeldRuns {
         }
         return TERMINAL_RUN_STATUSES.has(status) ? "failed" : undefined;
       },
-      result: this.#track(name, dispatched, lock),
+      result: this.#track(name, dispatched),
     };
   }
 
-  /** Follow a run to its end: print its steps, route its posts, write it back. */
-  #track<O>(name: string, dispatched: Dispatched<O>, lock?: Lock): Promise<O> {
+  /** Follow a run to its end: print its steps, route its posts, close what it opened. */
+  #track<O>(name: string, dispatched: Dispatched<O>): Promise<O> {
     const { executions, print, router, scopes, state } = this.#options;
-    const held: HeldRun = {
-      workflow: dispatched.workflow,
-      ...(lock === undefined ? {} : { lock }),
-      unsaved: true,
-    };
+    const held: HeldRun = { workflow: dispatched.workflow };
     this.#held.set(dispatched.id, held);
     const output = new RunOutput(state, dispatched.id, name, print);
     const routed = router.observe(name, dispatched.id);
@@ -221,13 +172,10 @@ export class HeldRuns {
         }
         return settled.value;
       } finally {
-        const extras = this.#extrasOf(dispatched.id);
         try {
           await scopes.settle(dispatched.id);
-          this.save(dispatched.id, extras);
         } finally {
           this.#held.delete(dispatched.id);
-          release(held);
         }
       }
     };
@@ -241,38 +189,12 @@ export class HeldRuns {
     return result;
   }
 
-  /**
-   * At a stop, once the Orchestrator has drained: wait for every run that
-   * ended to be finalized, then write each one not yet written.
-   */
+  /** At a stop, once the Orchestrator has drained: wait for every run that ended to be finalized. */
   async settle(): Promise<void> {
     await Promise.allSettled(
       [...this.#held.values()]
         .filter((held) => TERMINAL_RUN_STATUSES.has(held.workflow.state.status))
         .map((held) => held.finalized)
     );
-    for (const [runId, held] of this.#held) {
-      if (held.unsaved) {
-        this.save(runId);
-      }
-    }
-  }
-
-  /** Give up every held run's file, as the process stops. */
-  releaseAll(): void {
-    for (const held of this.#held.values()) {
-      release(held);
-    }
-  }
-
-  #extrasOf(runId: string): RunExtras | undefined {
-    const scope = this.#options.scopes.get(runId);
-    return scope
-      ? {
-          ledger: scope.ledger.toJSON(),
-          literals: Object.fromEntries(scope.literals),
-          session: scope.session,
-        }
-      : undefined;
   }
 }

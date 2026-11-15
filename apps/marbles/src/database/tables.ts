@@ -85,3 +85,33 @@ export const marblesSessionRevisions = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.scope, table.sessionId] })]
 );
+
+/**
+ * What Marbles keeps beside each workflow Run of a workspace, the
+ * `@foundry/workflows` rows of the same scope and id: what the run's scope
+ * recorded (its ledger, each node's literal input, the run's session), so
+ * a parked run rebuilt in a later process finds the same sessions and
+ * artifacts, and the engine that owns the Run (`owner_id`, unique per
+ * engine, and its process, `owner_pid`), null once no engine does. Written
+ * by the workflow store's `onCommit` hook in the commit's own transaction
+ * (`database/runs.ts`), and by a claim in a transaction of its own. A row
+ * goes with its Run.
+ */
+export const marblesWorkflowRuns = sqliteTable(
+  "marbles_workflow_runs",
+  {
+    ledger: text({ mode: "json" }).$type<Record<string, unknown>>().notNull(),
+    literals: text({ mode: "json" })
+      .$type<Record<string, Record<string, unknown>>>()
+      .notNull(),
+    ownerId: text("owner_id"),
+    ownerPid: integer("owner_pid"),
+    runId: text("run_id").notNull(),
+    scope: text().notNull(),
+    sessionId: text("session_id"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scope, table.runId] }),
+    index("marbles_workflow_runs_scope_owner").on(table.scope, table.ownerId),
+  ]
+);

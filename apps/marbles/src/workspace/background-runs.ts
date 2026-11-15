@@ -5,7 +5,7 @@ import type { Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import { AGENT_DEFINITION } from "~/lib/handles";
 import { buildDefinition } from "~/lib/managers/agents";
-import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
+import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import type {
   AgentDefinition,
   AgentLike,

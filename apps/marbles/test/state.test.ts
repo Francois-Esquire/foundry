@@ -10,6 +10,7 @@ import {
 import { join } from "node:path";
 import { Step } from "@foundry/workflows/step";
 import { describe, expect, it } from "vitest";
+import { readStoredRuns } from "~/database/runs";
 import type { ScheduledEngine } from "~/lib/schedule";
 import { runSchedules, tick } from "~/lib/schedule";
 import { acquireLock } from "~/lib/state/locks";
@@ -20,10 +21,6 @@ import type { Schedule } from "~/lib/triggers";
 import { testEngine } from "./helpers/engine";
 import { temporaryDirectory } from "./helpers/temporary";
 
-const SKIPPED_RUNS_RN_BAD_JSON_PATTERN =
-  /^\[state\] skipped runs\/rn-bad\.json: /;
-const SKIPPED_RUNS_RN_HOLLOW_JSON_PATTERN =
-  /^\[state\] skipped runs\/rn-hollow\.json: /;
 const SHORT_HEX_ID_PATTERN = /^[0-9a-f]{12}$/;
 const BOOM_PATTERN = /boom/;
 const PLAIN_NAME = /must be a plain name/;
@@ -73,31 +70,32 @@ function readJson(path: string): Record<string, unknown> {
   return { ...parsed };
 }
 
-describe("run files", () => {
-  it("writes one file per settled run and lists them across processes", async () => {
+describe("stored runs", () => {
+  it("keeps every settled run in the database and lists them across processes", async () => {
     const state = temporaryDirectory("marbles-state-");
     const { lines, print } = collector();
 
     const first = await engineIn(state, print);
     await first.run<string>("shout", "one");
     await expect(first.run<never>("explode", undefined)).rejects.toThrow();
-    await first.stop();
-    expect(readdirSync(join(state, "runs"))).toHaveLength(2);
+    await first.dispose();
+    expect(await readStoredRuns(state, "test")).toHaveLength(2);
 
     const second = await engineIn(state, print);
     await second.run<string>("shout", "two");
     const runs = await second.runs();
-    await second.stop();
+    await second.dispose();
 
     expect(runs.map((run) => run.status).sort()).toEqual([
       "complete",
       "complete",
       "failed",
     ]);
-    expect(readdirSync(join(state, "runs"))).toHaveLength(3);
+    const stored = await readStoredRuns(state, "test");
+    expect(stored).toHaveLength(3);
+    // Settled: no engine owns any of them.
+    expect(stored.map((run) => run.owner)).toEqual([null, null, null]);
     expect(lines.filter((line) => line.startsWith("[state]"))).toEqual([]);
-    const file = readJson(join(state, "runs", `${runs[0]?.id ?? ""}.json`));
-    expect(file).toMatchObject({ pid: process.pid });
   });
 
   it("survives a run that returns nothing", async () => {
@@ -105,12 +103,12 @@ describe("run files", () => {
     const { lines, print } = collector();
     const engine = await engineIn(state, print);
     await engine.run<undefined>("quiet", undefined);
-    await engine.stop();
+    await engine.dispose();
     expect(lines.filter((line) => line.startsWith("[state]"))).toEqual([]);
-    expect(readdirSync(join(state, "runs"))).toHaveLength(1);
+    expect(await readStoredRuns(state, "test")).toHaveLength(1);
   });
 
-  it("skips a corrupt file with a warning instead of failing to start", async () => {
+  it("ignores run files an earlier Marbles left in the state dir", async () => {
     const state = temporaryDirectory("marbles-state-");
     mkdirSync(join(state, "runs"));
     writeFileSync(join(state, "runs", "rn-bad.json"), "{ not json");
@@ -120,13 +118,10 @@ describe("run files", () => {
     const engine = await engineIn(state, print);
     await engine.run<string>("shout", "one");
     const runs = await engine.runs();
-    await engine.stop();
+    await engine.dispose();
 
     expect(runs).toHaveLength(1);
-    expect(lines.filter((line) => line.startsWith("[state] skipped"))).toEqual([
-      expect.stringMatching(SKIPPED_RUNS_RN_BAD_JSON_PATTERN),
-      expect.stringMatching(SKIPPED_RUNS_RN_HOLLOW_JSON_PATTERN),
-    ]);
+    expect(lines.filter((line) => line.startsWith("[state]"))).toEqual([]);
   });
 });
 

@@ -5,30 +5,35 @@
  * published class is composed here, a tier above both.
  */
 
-import { defaultWorkspaceRecords } from "~/database/managed";
+import {
+  defaultWorkspaceRecords,
+  defaultWorkspaceRuns,
+} from "~/database/managed";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine as LibEngine } from "~/lib/engine";
 
 /**
- * The engine, keeping the workspace's tasks durably whenever it is given a
- * `state`: with no `records`, in the Marbles database (see
- * `defaultWorkspaceRecords` for which), opened at the first task call
- * under the state root's lock rule and closed on `dispose`. `records`
- * chooses otherwise, `new MemoryWorkspaceRecords()` for memory on purpose.
- * Without `state`, the tasks are in memory, as before.
+ * The engine, keeping the workspace's tasks and workflow Runs durably
+ * whenever it is given a `state`: with no `records`, or no `runs`, in the
+ * Marbles database (see `defaultWorkspaceRecords` for which), each opened
+ * at its first call under the state root's lock rule and closed on
+ * `dispose`. `records` and `runs` choose otherwise:
+ * `new MemoryWorkspaceRecords()` and `new MemoryRunStore()` for memory on
+ * purpose. Without `state`, both are in memory, as before.
  */
 export class Engine extends LibEngine {
   constructor(options: EngineOptions) {
+    const { root, state, workspaceId } = options;
     super(
-      options.records !== undefined || options.state === undefined
+      state === undefined
         ? options
         : {
             ...options,
-            records: defaultWorkspaceRecords(
-              options.state,
-              options.root,
-              options.workspaceId
-            ),
+            records:
+              options.records ??
+              defaultWorkspaceRecords(state, root, workspaceId),
+            runs:
+              options.runs ?? defaultWorkspaceRuns(state, root, workspaceId),
           }
     );
   }

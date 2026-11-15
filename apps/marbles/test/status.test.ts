@@ -9,14 +9,8 @@ import { stateDatabase } from "~/layout";
 import { writeJson } from "~/lib/state/json";
 import { readStatus } from "~/status/model";
 import { seedWorkspace } from "./helpers/registry";
+import { seedRuns } from "./helpers/runs";
 import { temporaryDirectory } from "./helpers/temporary";
-
-function run(id: string, status: string, createdAt: number, pid: number) {
-  return {
-    pid,
-    run: { id, status, step: "guides", timestamps: { createdAt } },
-  };
-}
 
 async function layout() {
   const state = temporaryDirectory("marbles-status-");
@@ -68,13 +62,18 @@ describe("readStatus", () => {
 
   it("reads workspace, schedules, runs and sessions", async () => {
     const { state, dir } = await layout();
-    for (let i = 0; i < 7; i += 1) {
-      writeJson(
-        join(dir, "runs", `rn-${String(i)}.json`),
-        run(`rn-${String(i)}`, "complete", i, process.pid)
-      );
-    }
+    await seedRuns(
+      state,
+      "ws1",
+      Array.from({ length: 7 }, (_, i) => ({
+        createdAt: i,
+        id: `rn-${String(i)}`,
+        owner: null,
+        status: "complete" as const,
+      }))
+    );
     mkdirSync(join(state, "stray"));
+    expect(dir).toBe(join(state, "ws1"));
 
     const [workspace, ...rest] = (await readStatus(state)).workspaces;
     expect(rest).toEqual([]);
@@ -158,27 +157,31 @@ describe("readStatus", () => {
   });
 
   it("flags an unsettled run whose pid is dead as orphaned", async () => {
-    const { state, dir } = await layout();
+    const { state } = await layout();
     const dead = spawnSync("true").pid;
-    writeJson(join(dir, "runs", "rn-a.json"), run("rn-a", "running", 1, dead));
-    writeJson(
-      join(dir, "runs", "rn-b.json"),
-      run("rn-b", "running", 2, process.pid)
-    );
-    writeJson(join(dir, "runs", "rn-c.json"), run("rn-c", "failed", 3, dead));
+    await seedRuns(state, "ws1", [
+      { createdAt: 1, id: "rn-a", owner: dead, status: "running" },
+      { createdAt: 2, id: "rn-b", owner: process.pid, status: "running" },
+      { createdAt: 3, id: "rn-c", owner: null, status: "failed" },
+      { createdAt: 4, id: "rn-d", owner: null, status: "running" },
+    ]);
 
     const recent = (await readStatus(state)).workspaces[0]?.runs.recent;
     expect(recent?.map((r) => [r.id, r.orphaned])).toEqual([
+      ["rn-d", true],
       ["rn-c", false],
       ["rn-b", false],
       ["rn-a", true],
     ]);
   });
 
-  it("skips corrupt files, and dirs the registry does not record", async () => {
+  it("skips corrupt files and old run files, and dirs the registry does not record", async () => {
     const { state, dir } = await layout();
-    writeJson(join(dir, "runs", "rn-ok.json"), run("rn-ok", "complete", 1, 1));
-    writeJson(join(dir, "runs", "rn-hollow.json"), { pid: 1 });
+    await seedRuns(state, "ws1", [
+      { createdAt: 1, id: "rn-ok", owner: null, status: "complete" },
+    ]);
+    // Run files an earlier Marbles left are not read.
+    writeJson(join(dir, "runs", "rn-old.json"), { pid: 1 });
     writeFileSync(join(dir, "runs", "rn-bad.json"), "{ not json");
     writeFileSync(join(dir, "schedules", "bad.json"), "{");
     writeJson(join(state, "ws2", "workspace.json"), { id: "ws2", root: "/r" });
