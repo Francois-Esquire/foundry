@@ -223,11 +223,16 @@ Five buckets, each importing only what sits below it:
   copies import a library bound to the load (`authoring/bound.ts`): every
   word that declares or routes runs in the load's scope (`inLoad`), and
   builders and instances keep whom they answer to (`captureScope`: the
-  load, or the workspace of the run that made them, never that run). So a call names its workspace by its run or observer
-  (`lib/execution-context.ts`), else by the load whose library it came
-  from; work naming a workspace whose host closed here is refused, and
-  only work naming none may fall to the one workspace hosted. Nothing
-  reads the stack for it. `hosted.ts` (`HostedWorkspaces`) hosts several
+  load, or the binding of the engine whose run made them, never that run). Each engine bound to its workspace (`setHost`) is a
+  binding, keyed by the execution context its runs and observers run in
+  (`Engine.context`, `lib/execution-context.ts`); a load takes the
+  binding of the engine that takes its catalog. Work answers to its own
+  binding's engine and catalog until that engine is disposed, whatever
+  engine is bound to the workspace after it, and is refused
+  (`WorkspaceReleasedError`) once it is; only work that names a
+  workspace and no binding reaches the engine bound last, and only work
+  naming none may fall to the one workspace hosted. Nothing reads the
+  stack for it. `hosted.ts` (`HostedWorkspaces`) hosts several
   workspaces in one process over one database handle, refuses work that
   names no workspace, shares one registration of a workspace between
   callers, addresses what each declared by workspace id and local name
