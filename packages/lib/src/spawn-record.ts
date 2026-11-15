@@ -45,13 +45,17 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readFileSync,
   renameSync,
   rmSync,
   writeSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import {
+  compareStarts,
+  groupMembers,
   type ProcessIdentity,
+  type SeenProcess,
   startedAt,
   thisProcess,
 } from "./process-identity";
@@ -197,6 +201,8 @@ export function recordChild(
 export interface GroupSystem {
   /** Signal `target` (a negative pid: the group); throws as `process.kill` does. */
   kill(target: number, signal: NodeJS.Signals | 0): void;
+  /** Every process in the group `pgid`; `undefined` when the system cannot say. */
+  members(pgid: number): ReadonlyMap<number, SeenProcess> | undefined;
   sleep(ms: number): Promise<void>;
 }
 
@@ -217,6 +223,7 @@ const GROUP_POLL_MS = 50;
 
 const GROUP_SYSTEM: GroupSystem = {
   kill: (target, signal) => process.kill(target, signal),
+  members: groupMembers,
   sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
 };
 
@@ -227,6 +234,19 @@ const GROUP_SYSTEM: GroupSystem = {
  * SIGTERM, a grace period, SIGKILL, a last wait. Its recovery record goes
  * only once the group is empty; one that would not empty keeps it, so the
  * next start's orphan stop finds the group (`@foundry/lib/orphans`).
+ * Before the first signal, the group's members, each with its start, are
+ * written into that record, so a start after this process died mid-stop
+ * can prove each one once the leader is gone.
+ *
+ * The group's id is this one's while the leader is not yet reaped, and
+ * the stop that follows its exit runs in the same turn as its reaping.
+ * The SIGKILL comes a grace period later, so it goes to the group only
+ * while a member recorded at the start is proved still in it (a group id
+ * cannot go to another group while any of its processes lives); else
+ * nothing is sent, and the record stays for the next start. A process
+ * that has exited and waits to be reaped (a zombie) is not left in the
+ * group as far as the stop goes.
+ *
  * Returns the stop, which resolves with whether the group emptied.
  */
 export function recordGroup(
@@ -241,11 +261,14 @@ export function recordGroup(
   }
   const recovery = named(env[SPAWN_RECOVERY_ENV]);
   const system = options.system ?? GROUP_SYSTEM;
+  let reaped = false;
   let stopping: Promise<boolean> | undefined;
   const stop = (): Promise<boolean> => {
     stopping ??= stopGroup(pid, system, {
       graceMs: options.graceMs ?? GROUP_GRACE_MS,
+      held: () => !reaped,
       killMs: options.killMs ?? GROUP_KILL_MS,
+      ...(recovery === undefined ? {} : { record: recordPath(recovery, pid) }),
     }).then((emptied) => {
       if (emptied && recovery !== undefined) {
         rmSync(recordPath(recovery, pid), { force: true });
@@ -259,33 +282,141 @@ export function recordGroup(
   });
   // Its exit is its reaping; what it started may still run in its group.
   child.once("exit", () => {
+    reaped = true;
     stop().catch(() => false);
   });
   return stop;
 }
 
-/** SIGTERM the group `pgid`, wait, SIGKILL it, wait; whether it emptied. */
+interface GroupStop {
+  readonly graceMs: number;
+  /** Whether the leader is not yet reaped, so its pid, the group's id, is still this process's. */
+  readonly held: () => boolean;
+  readonly killMs: number;
+  /** The group's recovery record, which its members are written into. */
+  readonly record?: string;
+}
+
+/**
+ * SIGTERM the group `pgid`, wait, SIGKILL it if it is still proved this
+ * one, wait; whether it emptied.
+ */
 async function stopGroup(
   pgid: number,
   system: GroupSystem,
-  limits: { readonly graceMs: number; readonly killMs: number }
+  stop: GroupStop
 ): Promise<boolean> {
+  if (!groupSignal(system, pgid, 0)) {
+    return true;
+  }
+  let known = running(system.members(pgid));
+  if (known?.size === 0) {
+    return true;
+  }
+  if (known !== undefined) {
+    // Before any signal, so a stop cut short leaves its proof behind.
+    saveMembers(stop.record, known);
+  }
   for (const [signal, ms] of [
-    ["SIGTERM", limits.graceMs],
-    ["SIGKILL", limits.killMs],
+    ["SIGTERM", stop.graceMs],
+    ["SIGKILL", stop.killMs],
   ] as const) {
+    if (signal === "SIGKILL") {
+      const now = running(system.members(pgid));
+      if (now?.size === 0) {
+        return true;
+      }
+      if (now === undefined || !(stop.held() || provedIn(known, now))) {
+        // Nothing proves the id still this group's: the next start decides.
+        return false;
+      }
+      known = now;
+      saveMembers(stop.record, now);
+    }
     if (!groupSignal(system, pgid, signal)) {
       return true;
     }
-    const deadline = Date.now() + ms;
-    while (Date.now() < deadline) {
-      await system.sleep(GROUP_POLL_MS);
-      if (!groupSignal(system, pgid, 0)) {
-        return true;
-      }
+    if (await emptiedWithin(system, pgid, ms)) {
+      return true;
     }
   }
   return false;
+}
+
+/** Poll the group `pgid` until it has no process left that runs, or `ms` pass. */
+async function emptiedWithin(
+  system: GroupSystem,
+  pgid: number,
+  ms: number
+): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    await system.sleep(GROUP_POLL_MS);
+    if (!groupSignal(system, pgid, 0)) {
+      return true;
+    }
+  }
+  // It answers a signal; whether only exited, unreaped members (zombies) do.
+  return running(system.members(pgid))?.size === 0;
+}
+
+/** `members`, without those that have exited and wait to be reaped (zombies). */
+function running(
+  members: ReadonlyMap<number, SeenProcess> | undefined
+): ReadonlyMap<number, SeenProcess> | undefined {
+  return members === undefined
+    ? undefined
+    : new Map([...members].filter(([, seen]) => seen.exited !== true));
+}
+
+/** Whether a process of `known` is in `now`, with the same start. */
+function provedIn(
+  known: ReadonlyMap<number, SeenProcess> | undefined,
+  now: ReadonlyMap<number, SeenProcess>
+): boolean {
+  return [...(known ?? [])].some(([pid, seen]) => {
+    const found = now.get(pid);
+    return (
+      found !== undefined &&
+      compareStarts(found.started, seen.started) === "same"
+    );
+  });
+}
+
+/**
+ * Write `members` into the group's record at `path`, with those it
+ * names already. Best effort: a stop goes on without it, as without a
+ * record at all.
+ */
+function saveMembers(
+  path: string | undefined,
+  members: ReadonlyMap<number, SeenProcess>
+): void {
+  if (path === undefined) {
+    return;
+  }
+  try {
+    const record = JSON.parse(readFileSync(path, "utf8")) as SpawnRecord;
+    const known = record.members ?? [];
+    const added = [...members]
+      .filter(([pid, seen]) =>
+        known.every(
+          (member) =>
+            member.pid !== pid ||
+            compareStarts(member.started, seen.started) !== "same"
+        )
+      )
+      .map(([pid, seen]): ProcessIdentity => ({ pid, started: seen.started }));
+    if (added.length > 0 || record.members === undefined) {
+      writePrivate(
+        path,
+        JSON.stringify({ ...record, members: [...known, ...added] })
+      );
+    }
+  } catch {
+    // No record to add them to (none was made, or it is gone), or one
+    // that cannot be written: the stop goes on, as it would without one.
+  }
 }
 
 /** Signal the group `pgid`; `false` once it has no process left. */

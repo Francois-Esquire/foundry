@@ -9,8 +9,19 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { startedAt } from "../process-identity";
-import { recordGroup, recordPath, SPAWN_RECOVERY_ENV } from "../spawn-record";
+import {
+  groupMembers,
+  type SeenProcess,
+  startedAt,
+  thisProcess,
+} from "../process-identity";
+import {
+  type GroupSystem,
+  recordGroup,
+  recordPath,
+  SPAWN_RECOVERY_ENV,
+  type SpawnRecord,
+} from "../spawn-record";
 
 /**
  * A group leader recorded as a group is stopped with everything it
@@ -112,23 +123,42 @@ it("stops what the leader left in its group when it exits on its own", async () 
   expect(records(dir)).toEqual([]);
 });
 
-it("keeps the record of a group that would not empty, for the next start", async () => {
+it("keeps the record of a group that would not empty, its members written before the first signal, for the next start", async () => {
   const signalled: (NodeJS.Signals | 0)[] = [];
-  const { child, dir, stop } = await group("wait", (spawned, at) =>
+  let recordedAtTerm: SpawnRecord | undefined;
+  const { child, dir, sleep, stop } = await group("wait", (spawned, at) =>
     recordGroup(spawned, {
       env: { [SPAWN_RECOVERY_ENV]: join(at, "records") },
       graceMs: 30,
       killMs: 30,
-      // A system whose group never empties, whatever it is sent.
+      // A system whose group never empties, whatever it is sent: no
+      // signal is sent for real; its members are read for real.
       system: {
         kill: (_target, signal) => {
           signalled.push(signal);
+          if (signal === "SIGTERM") {
+            recordedAtTerm = JSON.parse(
+              readFileSync(
+                recordPath(join(at, "records"), spawned.pid ?? 0),
+                "utf8"
+              )
+            ) as SpawnRecord;
+          }
         },
+        members: groupMembers,
         sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
       },
     })
   );
   expect(await stop()).toBe(false);
+  // What a start after this process died mid-stop proves each member by.
+  expect(recordedAtTerm?.members).toEqual(
+    expect.arrayContaining([
+      { pid: child.pid, started: startedAt(child.pid ?? 0) },
+      { pid: sleep, started: startedAt(sleep) },
+    ])
+  );
+  expect(recordedAtTerm?.owner).toEqual(thisProcess());
   expect(signalled).toContain("SIGTERM");
   expect(signalled).toContain("SIGKILL");
   expect(records(dir)).toEqual([`${String(child.pid)}.json`]);
@@ -137,4 +167,76 @@ it("keeps the record of a group that would not empty, for the next start", async
   );
   // Stopped for real here, as the next start would.
   process.kill(-(child.pid ?? 0), "SIGKILL");
+});
+
+/**
+ * A made-up child, leading a made-up group: its pid is above any
+ * system's limit, and no signal reaches a real process. `exit` reaps it.
+ */
+function madeUpChild(pid: number): {
+  readonly child: Pick<ChildProcess, "once" | "pid">;
+  readonly exit: () => void;
+} {
+  let onExit: (() => void) | undefined;
+  return {
+    child: {
+      once(event: string, listener: () => void) {
+        if (event === "exit") {
+          onExit = listener;
+        }
+        return this;
+      },
+      pid,
+    } as Pick<ChildProcess, "once" | "pid">,
+    exit: () => onExit?.(),
+  };
+}
+
+const MADE_UP = "ps:Sun Nov 15 08:00:00 2026";
+const LATER = "ps:Sun Nov 15 09:00:00 2026";
+
+it("sends no SIGKILL to a group id that went to another group during the grace period", async () => {
+  const pgid = 4_200_040;
+  const { child, exit } = madeUpChild(pgid);
+  let members = new Map<number, SeenProcess>([
+    [4_200_041, { pgid, started: MADE_UP }],
+  ]);
+  const sent: [number, NodeJS.Signals | 0][] = [];
+  const system: GroupSystem = {
+    kill(target, signal) {
+      sent.push([target, signal]);
+      if (signal === "SIGTERM") {
+        // The group empties, and its id goes to another group.
+        members = new Map([[4_200_042, { pgid, started: LATER }]]);
+      }
+    },
+    members: () => members,
+    sleep: () => Promise.resolve(),
+  };
+  const stop = recordGroup(child, { env: {}, graceMs: 0, killMs: 0, system });
+  exit();
+  expect(await stop()).toBe(false);
+  expect(sent.filter(([, signal]) => signal !== 0)).toEqual([
+    [-pgid, "SIGTERM"],
+  ]);
+});
+
+it("takes a group left only with exited, unreaped members (zombies) for empty", async () => {
+  const pgid = 4_200_050;
+  const { child, exit } = madeUpChild(pgid);
+  const sent: [number, NodeJS.Signals | 0][] = [];
+  const system: GroupSystem = {
+    kill(target, signal) {
+      sent.push([target, signal]);
+      // A group of exited members not yet reaped answers EPERM on macOS.
+      throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+    },
+    members: () =>
+      new Map([[4_200_051, { exited: true, pgid, started: MADE_UP }]]),
+    sleep: () => Promise.resolve(),
+  };
+  const stop = recordGroup(child, { env: {}, system });
+  exit();
+  expect(await stop()).toBe(true);
+  expect(sent).toEqual([[-pgid, 0]]);
 });
