@@ -10,6 +10,7 @@ import {
 } from "~/database/managed";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
+import { DatabaseUsageStore } from "~/database/usage";
 import { MemoryAutomationStore } from "~/lib/automation/store";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import { MemoryExecutionStore } from "~/lib/execution-store";
@@ -236,6 +237,74 @@ describe("the stores an engine keeps beside its records", () => {
     await database.close();
     expect(firstDone).toBe(true);
     await first;
+  });
+
+  it("close every store of a workspace's own database whatever another's close does, then the handle, and report each failure", async () => {
+    const database = openWorkspaceDatabase({
+      state: join(scratch(), "drain"),
+      workspaceId: "drain",
+    });
+    const { close } = DatabaseWorkspaceRecords.prototype;
+    const { facts } = DatabaseUsageStore.prototype;
+    const held = Promise.withResolvers<undefined>();
+    const reading = Promise.withResolvers<undefined>();
+    // A read still under way as the close begins, and a store whose
+    // cleanup fails.
+    DatabaseUsageStore.prototype.facts = async function (
+      this: DatabaseUsageStore
+    ) {
+      reading.resolve(undefined);
+      await held.promise;
+      return await facts.call(this);
+    };
+    DatabaseWorkspaceRecords.prototype.close = () =>
+      Promise.reject(new Error("records cleanup failed"));
+    try {
+      await database.records.taskStore.snapshot();
+      const read = database.usage.facts().catch((error: unknown) => error);
+      await reading.promise;
+      const closing = database.close();
+      expect(database.close()).toBe(closing);
+      const closed = closing.then(
+        () => "closed",
+        (error: unknown) => error
+      );
+      await new Promise((settle) => setTimeout(settle, 50));
+      held.resolve(undefined);
+      expect(await read).toEqual({ facts: [], revision: 0 });
+      const failure = (await closed) as AggregateError;
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(failure.errors.map((error: Error) => error.message)).toEqual([
+        "records cleanup failed",
+      ]);
+      // Every other store closed: what each refuses now says so.
+      await expect(database.usage.facts()).rejects.toThrow("closed");
+      await expect(database.triggers.lastTick("tick")).rejects.toThrow(
+        "closed"
+      );
+    } finally {
+      held.resolve(undefined);
+      DatabaseWorkspaceRecords.prototype.close = close;
+      DatabaseUsageStore.prototype.facts = facts;
+    }
+  });
+
+  it("hand every caller of a session store's close the one close", async () => {
+    const database = openWorkspaceDatabase({
+      state: join(scratch(), "sessions"),
+      workspaceId: "sessions",
+    });
+    // The engine's own close of it, which its type does not show.
+    const sessions = database.sessions as unknown as {
+      close(): Promise<void>;
+    };
+    try {
+      const first = sessions.close();
+      expect(sessions.close()).toBe(first);
+      await first;
+    } finally {
+      await database.close();
+    }
   });
 
   it("finish an overlapping close of a store that owns its handle before either resolves", async () => {

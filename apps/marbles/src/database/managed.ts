@@ -153,18 +153,33 @@ export function openWorkspaceDatabase(
   const side = new RecordsGate("the workspace database is closed");
   // One close, however often it is asked for.
   let closing: Promise<void> | undefined;
+  // Every store closes, whatever another's close does, each waiting for
+  // its calls under way; the handle closes only once all have settled and
+  // given up their claims, and every failure is reported together.
   const shutDown = async () => {
+    const closed = await Promise.allSettled([
+      records.close(),
+      runs.close(),
+      triggers.close(),
+      usage.close(),
+      automations.close(),
+      executions.close(),
+      sessions.close(),
+      side.close(),
+    ]);
+    const errors = closed.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : []
+    );
     try {
-      await records.close();
-      await runs.close();
-      await triggers.close();
-      await usage.close();
-      await automations.close();
-      await executions.close();
-      await sessions.close();
-      await side.close();
-    } finally {
       await database.close();
+    } catch (error) {
+      errors.push(error);
+    }
+    if (errors.length > 0) {
+      throw new AggregateError(
+        errors,
+        "Failed to close the workspace's database"
+      );
     }
   };
   return {
@@ -604,6 +619,7 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
  */
 class ManagedSessionStore implements ListedSessionStore {
   readonly #gate = new RecordsGate();
+  #closing: Promise<void> | undefined;
   readonly #store: OverDatabase<DatabaseSessionStore>;
 
   constructor(database: LazyDatabase, workspaceId: string) {
@@ -617,8 +633,10 @@ class ManagedSessionStore implements ListedSessionStore {
     );
   }
 
+  /** One close, waiting for the calls under way, for every caller. */
   close(): Promise<void> {
-    return this.#gate.close();
+    this.#closing ??= this.#gate.close();
+    return this.#closing;
   }
 
   commit(write: SessionStoreWrite): Promise<void> {
