@@ -59,10 +59,13 @@ export class RunListing {
     const live: RunRecord[] = [];
     for (const runId of [...this.#live]) {
       const run = await this.#store.getRun(runId);
-      if (run === null) {
+      // Asked again after the read: while it was under way, a listing
+      // that overlapped this one may have found the Run settled, and
+      // `#settled` lists it, or it was pruned, and nothing does.
+      if (run === null || !this.#live.has(runId)) {
         continue;
       }
-      if (TERMINAL_RUN_STATUSES.has(run.status) && this.#live.has(runId)) {
+      if (TERMINAL_RUN_STATUSES.has(run.status)) {
         this.#live.delete(runId);
         this.#settled.set(runId, run);
       } else {

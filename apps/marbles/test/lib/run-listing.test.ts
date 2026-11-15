@@ -65,3 +65,35 @@ it("reads a settled Run once, and only its live Runs on every listing after", as
   // Twice while it was live, then never: it is settled now.
   expect(getRun).toHaveBeenCalledTimes(2);
 });
+
+it("lists each Run once when listings overlap, whichever finds it settled", async () => {
+  const { put, store } = await arranged();
+  await put("rn-a", "running", 1);
+  await put("rn-b", "running", 2);
+  const listing = new RunListing(store);
+  await listing.load();
+  listing.add("rn-a");
+  listing.add("rn-b");
+  await store.updateRun("rn-a", { status: "complete" });
+
+  const listed = await Promise.all([listing.list(), listing.list()]);
+  for (const runs of listed) {
+    expect(runs.map((run) => run.id)).toEqual(["rn-a", "rn-b"]);
+  }
+});
+
+it("lists no Run pruned while a listing was reading it", async () => {
+  const { put, store } = await arranged();
+  await put("rn-a", "running", 1);
+  const listing = new RunListing(store);
+  await listing.load();
+  listing.add("rn-a");
+  const getRun = store.getRun.bind(store);
+  vi.spyOn(store, "getRun").mockImplementation(async (id) => {
+    const run = await getRun(id);
+    listing.remove(id);
+    return run;
+  });
+
+  expect(await listing.list()).toEqual([]);
+});
