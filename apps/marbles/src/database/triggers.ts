@@ -224,11 +224,13 @@ function tickOf(row: TickRow): ScheduleHistory | undefined {
   });
 }
 
-/** A trigger as `status` lists it. */
+/** A trigger as `status` and the dashboard list it. */
 export interface StoredTick {
   readonly key: string;
   /** Its last tick; `undefined` before its first. */
   readonly last?: ScheduleHistory;
+  /** The workflow a monitor handed a launch to that no tick has started yet. */
+  readonly pending?: string;
   /** The process whose tick of it is under way, if one is. */
   readonly running: number | null;
 }
@@ -243,16 +245,40 @@ export async function readStoredTicks(
   state: string,
   scope: string
 ): Promise<readonly StoredTick[]> {
-  const rows = await asBusy(() =>
-    readDatabase(stateDatabase(state), (database) =>
-      database
-        .select()
-        .from(marblesScheduleTicks)
-        .where(eq(marblesScheduleTicks.scope, scope))
-        .orderBy(asc(marblesScheduleTicks.key))
+  return (
+    (await asBusy(() =>
+      readDatabase(stateDatabase(state), (database) =>
+        storedTicks(database, scope)
+      )
+    )) ?? []
+  );
+}
+
+/** Every trigger the workspace `scope` has ticked or is ticking, in `database`, by key. */
+export async function storedTicks(
+  database: StoreDatabase,
+  scope: string
+): Promise<readonly StoredTick[]> {
+  const [rows, monitors] = await asBusy(async () => [
+    await database
+      .select()
+      .from(marblesScheduleTicks)
+      .where(eq(marblesScheduleTicks.scope, scope))
+      .orderBy(asc(marblesScheduleTicks.key)),
+    await database
+      .select({
+        key: marblesMonitorStates.key,
+        pending: marblesMonitorStates.pending,
+      })
+      .from(marblesMonitorStates)
+      .where(eq(marblesMonitorStates.scope, scope)),
+  ]);
+  const pending = new Map(
+    monitors.flatMap((row) =>
+      row.pending === null ? [] : [[row.key, row.pending.workflow] as const]
     )
   );
-  return (rows ?? []).flatMap((row): StoredTick[] => {
+  return rows.flatMap((row): StoredTick[] => {
     let last: ScheduleHistory | undefined;
     try {
       last = tickOf(row);
@@ -265,6 +291,14 @@ export async function readStoredTicks(
     if (last === undefined && running === null) {
       return [];
     }
-    return [{ key: row.key, ...(last === undefined ? {} : { last }), running }];
+    const launch = pending.get(row.key);
+    return [
+      {
+        key: row.key,
+        ...(last === undefined ? {} : { last }),
+        ...(launch === undefined ? {} : { pending: launch }),
+        running,
+      },
+    ];
   });
 }

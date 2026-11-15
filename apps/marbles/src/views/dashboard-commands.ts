@@ -21,6 +21,7 @@ import type { CatalogSelection } from "./dashboard-tree";
 import type { OperatingLogEntry } from "./operating-model";
 import type { RunActions } from "./run-actions";
 import type { AnswerState, FeedState } from "./use-feed";
+import { ownedElsewhere } from "./workspace-scope";
 
 export interface KeyPress {
   readonly name: string;
@@ -64,6 +65,11 @@ export interface CommandContext {
     readonly current: SettingsSnapshot;
   };
   readonly state: DashboardState;
+  /** Whether every workspace's runs and triggers are shown, and whether there are others to show. */
+  readonly workspaces: {
+    readonly everywhere: boolean;
+    readonly others: boolean;
+  };
 }
 
 interface CommandEffects {
@@ -74,6 +80,8 @@ interface CommandEffects {
   readonly send: (event: DashboardEvent) => void;
   /** Show the next workspace the Marbles process hosts. */
   readonly switchWorkspace: () => void;
+  /** Show every workspace's runs and triggers, or this workspace's again. */
+  readonly toggleWorkspaces: () => void;
 }
 
 export type Dashboard = CommandContext & CommandEffects;
@@ -222,9 +230,13 @@ function feedReader(context: CommandContext): boolean {
 }
 
 /** The run or step under the run controls, and its status. */
+/** The run or step a control acts on; none on another workspace's run, which is shown read only. */
 function controlled(context: CommandContext) {
   const { actions, resolved } = context;
-  if (!(onDashboard(context) && actions && resolved.kind === "run")) {
+  if (
+    !(onDashboard(context) && actions && resolved.kind === "run") ||
+    ownedElsewhere(resolved.run)
+  ) {
     return;
   }
   return { actions, run: resolved.run, ...actionTarget(resolved) };
@@ -235,7 +247,7 @@ function managedTrigger(context: CommandContext) {
   if (!(onDashboard(context) && actions && resolved.kind === "trigger")) {
     return;
   }
-  return resolved.trigger.managed
+  return resolved.trigger.managed && !ownedElsewhere(resolved.trigger)
     ? { actions, trigger: resolved.trigger }
     : undefined;
 }
@@ -912,6 +924,19 @@ const COMMANDS: readonly Command[] = [
     run: (dashboard) => dashboard.switchWorkspace(),
     section: "Dashboard",
     when: (context) => onDashboard(context) && context.canSwitchWorkspace,
+  },
+
+  {
+    help: "Show every workspace's runs and triggers, or this workspace's again; another workspace's are shown, not controlled",
+    key: "g",
+    keys: ["g"],
+    label: (context) =>
+      context.workspaces.everywhere ? "g this workspace" : "g all workspaces",
+    run: (dashboard) => dashboard.toggleWorkspaces(),
+    section: "Dashboard",
+    when: (context) =>
+      onDashboard(context) &&
+      (context.workspaces.others || context.workspaces.everywhere),
   },
 
   {

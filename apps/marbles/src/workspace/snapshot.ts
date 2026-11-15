@@ -55,6 +55,11 @@ function attentionOf(
   return values.includes("question") ? "question" : undefined;
 }
 
+/** A run as the dashboard shows another workspace's: its record alone, no live feed, activity or usage. */
+export function storedRunSnapshot(record: RunRecord, now: number): RunSnapshot {
+  return runSnapshot(record, now, [], [], undefined);
+}
+
 function runSnapshot(
   record: RunRecord,
   now: number,
@@ -260,6 +265,12 @@ function description(
   return `${schedule.workflow} · ${describeTrigger(schedule.trigger)}`;
 }
 
+/** What other workspaces show the dashboard: their runs and triggers, read only. */
+export interface OtherWorkspaces {
+  readonly runs: readonly RunSnapshot[];
+  readonly triggers: readonly TriggerSnapshot[];
+}
+
 export interface SnapshotOptions {
   readonly activities?: readonly ActivityRecord[];
   readonly automationErrors?: Readonly<Record<string, string>>;
@@ -274,6 +285,8 @@ export interface SnapshotOptions {
   /** What each monitor watches, by trigger key: the engine's `monitors()`. */
   readonly monitors: ReadonlyMap<string, { readonly source: MonitorSpec }>;
   readonly now?: number;
+  /** Other workspaces' runs and triggers, from the Marbles database. */
+  readonly others?: OtherWorkspaces;
   /**
    * The engine's `executions`: those queued, and workflows let in but not
    * yet dispatched, are shown beside the Orchestrator's runs.
@@ -336,19 +349,22 @@ export function dashboardSnapshot(
         workflows: options.definitions.map((entry) => entry.name),
       })
     : undefined;
+  const own = sorted.map((record) =>
+    runSnapshot(
+      record,
+      now,
+      feed,
+      options.activities ?? [],
+      usage && {
+        facts: usage.byRun.get(record.id) ?? [],
+        mayBelong: usage.mayBelongTo(record.id),
+      }
+    )
+  );
   const runs = [
     ...queued,
-    ...sorted.map((record) =>
-      runSnapshot(
-        record,
-        now,
-        feed,
-        options.activities ?? [],
-        usage && {
-          facts: usage.byRun.get(record.id) ?? [],
-          mayBelong: usage.mayBelongTo(record.id),
-        }
-      )
+    ...[...own, ...(options.others?.runs ?? [])].sort(
+      (a, b) => (b.timing?.createdAt ?? 0) - (a.timing?.createdAt ?? 0)
     ),
   ];
   const managed = new Map(
@@ -419,6 +435,7 @@ export function dashboardSnapshot(
       targetId: automation.workflow,
     });
   }
+  triggers.push(...(options.others?.triggers ?? []));
   return {
     definitions: options.definitions.map((entry) => {
       const origin = catalogOrigin(

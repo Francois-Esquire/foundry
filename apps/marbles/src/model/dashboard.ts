@@ -20,6 +20,14 @@ export interface TriggerSnapshot {
   readonly owner?: string;
   readonly status: "waiting" | "watching" | "running" | "failed" | "paused";
   readonly targetId: string;
+  /** The workspace that owns it, when not this one: shown, never controlled, here. */
+  readonly workspace?: OwnerWorkspace;
+}
+
+/** A workspace by id and the name the dashboard shows it by. */
+export interface OwnerWorkspace {
+  readonly id: string;
+  readonly name: string;
 }
 
 /**
@@ -106,6 +114,10 @@ export interface RunSnapshot {
   readonly triggerId?: string;
   /** Every agent turn recorded in the run, nested steps included. */
   readonly usage?: UsageTotal;
+  /** The workspace that owns it, when not this one: shown, never controlled, here. */
+  readonly workspace?: OwnerWorkspace;
+  /** Every workspace it belongs to, by id, its owner first: set when it is shared. */
+  readonly workspaces?: readonly string[];
 }
 
 /** Presentation data only. No runtime handles, stores, or API clients. */

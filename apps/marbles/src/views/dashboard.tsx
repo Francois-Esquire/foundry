@@ -246,11 +246,11 @@ export function DashboardView({
   /** Narrower than the terminal, for the preview's small-screen scenarios. */
   readonly viewportWidth?: number;
 }) {
-  const { snapshot, onClose, onLaunch, actions, hosted } = options;
+  const { onClose, onLaunch, actions, hosted } = options;
   const dimensions = useTerminalDimensions();
   const width = Math.min(viewportWidth ?? dimensions.width, dimensions.width);
   const ui = useDashboard(options);
-  const { state } = ui;
+  const { snapshot, state } = ui;
   if (ui.form && onLaunch) {
     return (
       <LaunchView

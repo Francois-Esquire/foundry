@@ -32,6 +32,8 @@ import {
   openWorkspace,
   touchWorkspace,
 } from "~/workspace/open";
+import { otherWorkspaces } from "~/workspace/others";
+import type { OtherWorkspaces } from "~/workspace/snapshot";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { runTaskCommand } from "~/workspace/tasks";
 
@@ -214,6 +216,15 @@ export async function hostWorkspace(
                 state: hostOptions.state,
                 workspace: opened.workspace.id,
               }),
+        ...(database === undefined
+          ? {}
+          : {
+              others: otherWorkspaces({
+                database: database.database,
+                state: hostOptions.state,
+                workspace: opened.workspace.id,
+              }),
+            }),
         lastFinish: await lastFinishes(engine),
         print,
         setStatus: (line) => {
@@ -244,6 +255,8 @@ interface Status {
   readonly feed: FeedReader;
   /** When each trigger last finished a tick, as the host started. */
   readonly lastFinish: ReadonlyMap<string, number>;
+  /** Other workspaces' runs and triggers, with a database. */
+  readonly others?: (now: number) => Promise<OtherWorkspaces>;
   readonly print: (line: string) => void;
   readonly setStatus: (line: string) => void;
   readonly status: () => string;
@@ -321,6 +334,7 @@ function hosted(
     fail,
     feed,
     lastFinish,
+    others,
     print,
     setStatus,
     status,
@@ -463,6 +477,7 @@ function hosted(
     async snapshot(): Promise<DashboardSnapshot> {
       // First, so a failure it logs is in this snapshot's diagnostics.
       const usage = await readUsage(engine, usageRead);
+      const now = Date.now();
       return dashboardSnapshot(await engine.runs(), {
         activities: activities.list(),
         automationErrors: await automations.errors(),
@@ -472,6 +487,8 @@ function hosted(
         feed: await feed(),
         lastFinish,
         monitors: engine.monitors(),
+        now,
+        ...(others === undefined ? {} : { others: await others(now) }),
         queued: engine.executions.list(),
         root: workspace.root,
         schedules: await engine.schedules(),

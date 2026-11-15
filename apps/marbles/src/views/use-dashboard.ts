@@ -37,6 +37,7 @@ import {
 } from "./operating-model";
 import type { Launcher, RunActions } from "./run-actions";
 import { type AnswerHandler, useFeed } from "./use-feed";
+import { showsOthers, workspaceScoped } from "./workspace-scope";
 
 /** The workspace shown, among those the Marbles process hosts. */
 export interface HostedWorkspace {
@@ -98,8 +99,10 @@ export function useDashboard({
   onSettings,
   onShortcut,
   onSwitchWorkspace,
-  snapshot,
+  snapshot: whole,
 }: DashboardOptions) {
+  const [everywhere, setEverywhere] = useState(false);
+  const snapshot = workspaceScoped(whole, everywhere);
   const [state, setState] = useState(() => initialState(snapshot));
   const send = (event: DashboardEvent) =>
     setState((previous) => reduce(previous, event, snapshot));
@@ -165,6 +168,7 @@ export function useDashboard({
         }
       : {}),
     state,
+    workspaces: { everywhere, others: showsOthers(whole) },
   };
   useKeyboard((key) => {
     // The argument form has the keyboard, quitting included.
@@ -183,6 +187,7 @@ export function useDashboard({
         quit: quit.ask,
         send,
         switchWorkspace: () => onSwitchWorkspace?.(),
+        toggleWorkspaces: () => setEverywhere((all) => !all),
       },
       key
     );
@@ -236,6 +241,8 @@ export function useDashboard({
     setQuery: (value: string) => send({ type: "query", value }),
     setView: (view: DashboardViewKey) => send({ type: "view", view }),
     showRun: (id: string) => send({ id, type: "show-run" }),
+    /** The host's snapshot, its runs and triggers narrowed to the workspaces shown. */
+    snapshot,
     /** A direct launch in flight, and its failure. */
     starting,
     state,
