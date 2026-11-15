@@ -718,4 +718,15 @@ describe("engine generations", () => {
     await readyOn(fixture, (pid) => pid !== third);
     fixture.client.close();
   }, 180_000);
+
+  it("starts no other generation after an attach when nothing changed", async () => {
+    const fixture = await setUp();
+    // Several polls of the fingerprint: none may see a change.
+    await new Promise((resolve) => setTimeout(resolve, 4000));
+    const generations = await readLiveGenerations(fixture.machine.state);
+    expect(generations.map((generation) => generation.pid)).toEqual([
+      fixture.summary.pid,
+    ]);
+    fixture.client.close();
+  }, 60_000);
 });
