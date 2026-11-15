@@ -689,6 +689,51 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     expect((await store.get(c.id))?.status).toBe("stopped");
   });
 
+  it("stops a restart whose last handle closes while it boots", async () => {
+    const { hold, store } = gatedStore({ transactional: true });
+    const runtime = createFakeContainerRuntime();
+    const containers = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const c = await containers.start(SPEC);
+
+    const gate = hold((write) => {
+      const row = write.putContainers?.[0];
+      return row?.nativeId === `${c.id}-2` && row.status === "running";
+    });
+    const restarting = containers.restart(c.id);
+    await gate.caught;
+    const closing = c.close();
+    gate.release();
+
+    await expect(restarting).rejects.toThrow(CLOSED_DURING_RESTART_ERROR);
+    await closing;
+    expect(runtime.instances).toHaveLength(2);
+    expect(runtime.instances.every((instance) => instance.removed)).toBe(true);
+    expect((await store.get(c.id))?.status).toBe("stopped");
+  });
+
+  it("boots the spec a queued restart left stored when given none", async () => {
+    const { runtime, store, containers } = fixture();
+    const c = await containers.start(SPEC);
+
+    await Promise.all([
+      containers.restart(c.id, { ...SPEC, ports: [5173] }),
+      containers.restart(c.id),
+    ]);
+
+    expect(runtime.instances).toHaveLength(3);
+    for (const instance of runtime.instances.slice(1)) {
+      expect(instance.spec.ports.map((p) => p.guestPort)).toEqual([5173]);
+    }
+    expect(JSON.parse((await store.get(c.id))?.spec ?? "")).toMatchObject({
+      ports: [5173],
+    });
+    await c.close();
+  });
+
   it("remove deletes a closed row and refuses a live one", async () => {
     const { runtime, store, containers } = fixture();
     const c = await containers.start(SPEC);

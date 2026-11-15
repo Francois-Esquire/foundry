@@ -6,15 +6,16 @@ import type {
   StorageNode,
 } from "@foundry/core/storage";
 
-import type { ContentTree } from "./blob";
-import type {
-  ArtifactLifecycleStatus,
-  ArtifactMetadata,
-  ContentMetadata,
-  ContentState,
-} from "./content";
 import type { ArtifactCursor } from "./listing";
 import type { ArtifactId, BlobId, ContentId } from "./ref";
+import type {
+  Artifact,
+  Content,
+  ContentMetadata,
+  ContentState,
+} from "./schema";
+
+export type { Artifact, Content } from "./schema";
 
 /**
  * The Artifact substrate: a thing people point at, and the versions of what
@@ -23,32 +24,6 @@ import type { ArtifactId, BlobId, ContentId } from "./ref";
  * Vocabulary: a Content is one version. Its bytes are the tree, the files,
  * the blobs; never "content".
  */
-
-export interface Artifact {
-  readonly archivedAt: Date | null;
-  readonly contentId: ContentId | null;
-  readonly createdAt: Date;
-  readonly id: ArtifactId;
-  readonly metadata: ArtifactMetadata;
-  readonly name: string;
-  readonly publishedAt: Date | null;
-  readonly status: ArtifactLifecycleStatus;
-  readonly type: string;
-  readonly updatedAt: Date;
-}
-
-export interface Content {
-  readonly artifactId: ArtifactId;
-  readonly createdAt: Date;
-  readonly digest: string;
-  readonly frozenAt: Date | null;
-  readonly id: ContentId;
-  readonly metadata: ContentMetadata;
-  readonly state: ContentState;
-  readonly tag: string | null;
-  readonly tree: ContentTree;
-  readonly updatedAt: Date;
-}
 
 export interface ArtifactResolved extends Artifact {
   readonly content: Content | null;

@@ -1,6 +1,9 @@
 import type { ModelMessage, Tool, ToolSet } from "ai";
 
 import type { Capability, ToolSource } from "../authorization/capability";
+import type { ToolEffectLocation } from "../schema";
+
+export type { ToolEffectLocation } from "../schema";
 
 /**
  * Who a tool call runs as: the agent preset (the authorization Subject), the
@@ -134,8 +137,6 @@ export interface RegisteredToolCall<TInput = unknown> extends AgentIdentity {
   toolCallId: string;
   toolName: string;
 }
-
-export type ToolEffectLocation = "runtime" | "host" | "executor";
 
 /**
  * The boundary an approved runtime-owned tool effect runs through (design:
