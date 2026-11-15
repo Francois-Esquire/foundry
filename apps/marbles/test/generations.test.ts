@@ -822,6 +822,34 @@ describe("engine generations", () => {
     fixture.client.close();
   }, 120_000);
 
+  it("asks for no switch while one is under way, however long its load takes", async () => {
+    const clock = handClock();
+    const lines: string[] = [];
+    const home = testHome({ providers: false });
+    const root = join(home.path, "project");
+    mkdirSync(root);
+    const source = join(root, "marbles.config.ts");
+    // Loads for longer than a poll of the fingerprint takes to come round.
+    writeFileSync(
+      source,
+      'await new Promise((resolve) => setTimeout(resolve, 2500));\nimport { step } from "@foundry.sh/marbles";\nexport const where = step("where").do(() => process.pid);\n'
+    );
+    const daemon = await startDaemon({
+      clock,
+      layout: home.layout,
+      print: (line) => lines.push(line),
+    });
+    daemons.push(daemon);
+    const client = await connect({ layout: home.layout, start: false });
+    const attached = await client.attach(source);
+    expect(attached.state).toBe("ready");
+    expect(await daemon.idle(), lines.join("\n")).toEqual({
+      reasons: [],
+      scheduled: false,
+    });
+    client.close();
+  }, 120_000);
+
   it("hands a released run to the current generation from the database when the notice is lost", async () => {
     const fixture = await setUp({
       daemon: {

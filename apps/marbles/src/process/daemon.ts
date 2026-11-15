@@ -412,6 +412,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   let switchForced = false;
   /** Why the switch `switchTimer` starts was asked for, each ask a line. */
   const switchReasons: string[] = [];
+  /**
+   * Set while a switch runs: what is current is being decided, so the
+   * poll asks for nothing until it is, and then compares with that.
+   */
+  let switchRunning = false;
   /** How long the next replacement of a dead generation waits. */
   let replaceDelay = REPLACE_MIN_MS;
 
@@ -1078,6 +1083,18 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     reason: string,
     setups: Readonly<Record<string, SetupDraftParams>>
   ): Promise<void> {
+    switchRunning = true;
+    try {
+      await switchOnce(reason, setups);
+    } finally {
+      switchRunning = false;
+    }
+  }
+
+  async function switchOnce(
+    reason: string,
+    setups: Readonly<Record<string, SetupDraftParams>>
+  ): Promise<void> {
     const previous = current;
     const fingerprint = await announceSwitch(previous);
     // Numbered before its spawn, so a crash in between leaves a row.
@@ -1376,7 +1393,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
    */
   async function pollOnce(): Promise<void> {
     const target = current;
-    if (target === undefined && hosted.size === 0) {
+    if (switchRunning || (target === undefined && hosted.size === 0)) {
       return;
     }
     const now =
@@ -1389,20 +1406,33 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (refused !== undefined && (await unchanged(refused))) {
       return;
     }
+    // Looked at again after the reads: a switch that began meanwhile
+    // decides what is current, and the next poll compares with that.
+    if (switchRunning || current !== target) {
+      return;
+    }
     if (target !== undefined && now !== undefined) {
       sayChanged(target.fingerprint, now);
     }
     scheduleSwitch("a source or the installation changed", {
-      because:
-        target === undefined || now === undefined
-          ? [
-              "no generation is current, and the registered workspaces are not what a candidate refused",
-            ]
-          : differences(target.fingerprint, now).map(
-              (line) =>
-                `engine generation ${String(target.number)}'s fingerprint: ${line}`
-            ),
+      because: whyNow(target, now),
     });
+  }
+
+  /** Why the poll asks for a switch: what differs from what `target` recorded, or that none is current. */
+  function whyNow(
+    target: Generation | undefined,
+    now: Fingerprint | undefined
+  ): string[] {
+    if (target === undefined || now === undefined) {
+      return [
+        "no generation is current, and the registered workspaces are not what a candidate refused",
+      ];
+    }
+    return differences(target.fingerprint, now).map(
+      (line) =>
+        `engine generation ${String(target.number)}'s fingerprint: ${line}`
+    );
   }
 
   /** A line for each workspace whose part of `now` differs from `was`. */
@@ -1422,7 +1452,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   /** Poll what the current generation loaded; a change asks for a switch. */
   let polling = false;
   const poll = setInterval(() => {
-    if (polling || stopping || switchTimer !== undefined) {
+    if (polling || stopping || switchRunning || switchTimer !== undefined) {
       return;
     }
     polling = true;
