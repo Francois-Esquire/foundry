@@ -408,6 +408,33 @@ describe("the resource views", () => {
     }
   });
 
+  it("read a resource's shares without a write transaction, and check and write a share in one", async () => {
+    const { artifact, state } = await machine();
+    const opened = await initializeDatabase(stateDatabase(state));
+    try {
+      let transactions = 0;
+      const counted = new Proxy(opened.database, {
+        get(target, property) {
+          const value: unknown = Reflect.get(target, property, target);
+          if (property === "transaction" && typeof value === "function") {
+            return (...args: unknown[]) => {
+              transactions += 1;
+              return Reflect.apply(value, target, args);
+            };
+          }
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      const associations = resourceAssociations(counted, state);
+      expect(await associations.sharedWith(artifact)).toEqual([]);
+      expect(transactions).toBe(0);
+      await associations.share(artifact, "ws2");
+      expect(transactions).toBe(1);
+    } finally {
+      opened.close();
+    }
+  });
+
   it("read nothing, and make no database, under an empty state root", async () => {
     const state = temporaryDirectory("marbles-resources-");
     expect(

@@ -388,6 +388,21 @@ const store = new SqliteSessionStore({
 const sessions = new Sessions({ store });
 ```
 
+Beyond `SessionStore`, the SQLite store reads many sessions at once, for a
+host that lists them:
+
+- `getSessions(ids)` returns the sessions with those ids, in no particular
+  order, one statement per batch of ids the parameter limit allows. An id
+  no row holds, or none can (an empty string, or text with U+0000 or a lone
+  surrogate), is left out; a repeated id is read once.
+- `messageTallies(sessionIds)` returns, by session id, how many messages
+  each holds and whether one of them is a summary (`MessageTally`), reading
+  no message itself, in the same batches. A session with no messages, or
+  one no row holds, is left out.
+
+Both read through the store's own queue, as every call does, and see one
+state per statement.
+
 Each record field is one column, as the record holds it. A message's `parts`
 and `metadata` are JSON text: no read filters or orders by anything inside
 them, and they are read back whole. The other fields are plain columns. A

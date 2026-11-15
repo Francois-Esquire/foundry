@@ -1488,3 +1488,30 @@ describe("SqliteSessionStore batch reads", () => {
     );
   });
 });
+
+describe("SqliteSessionStore batch reads, as its public entry gives them", () => {
+  it("are on the store `@foundry/agents/store/sqlite` exports, and leave out what no row holds", async () => {
+    const entry = await import("@foundry/agents/store/sqlite");
+    const { store } = await storeOn();
+    expect(store).toBeInstanceOf(entry.SqliteSessionStore);
+    expectTypeOf<
+      import("@foundry/agents/store/sqlite").MessageTally
+    >().toEqualTypeOf<{
+      readonly messages: number;
+      readonly summarized: boolean;
+    }>();
+    await store.commit({
+      putMessages: [message("only", "listed")],
+      putSessions: [session("listed"), session("quiet")],
+    });
+    expect(await store.getSessions([])).toEqual([]);
+    expect(
+      (await store.getSessions(["listed", "listed", "", "\uD800"])).map(
+        (found) => found.id
+      )
+    ).toEqual(["listed"]);
+    expect(await store.messageTallies(["listed", "quiet", "missing"])).toEqual(
+      new Map([["listed", { messages: 1, summarized: false }]])
+    );
+  });
+});

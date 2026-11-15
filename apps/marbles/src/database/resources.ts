@@ -545,6 +545,7 @@ export function resourceAssociations(
   state: string
 ): ResourceAssociations {
   return new ResourceAssociations({
+    read: (work) => asBusy(() => work(associationUnit(database, state))),
     transact: associationTransaction(database, state),
   });
 }
@@ -562,22 +563,24 @@ export function associationTransaction(
 ): AssociationTransaction {
   return (work) =>
     asBusy(() =>
-      database.transaction((tx) => {
-        const view = new ResourceView({
-          database: tx,
-          scope: ALL_WORKSPACES,
-          state,
-        });
-        const registry = new WorkspaceRegistry({ database: tx, state });
-        return work({
-          directory: {
-            has: (ref) => view.has(ref),
-            registered: async (id) => (await registry.read(id)) !== undefined,
-          },
-          store: new DatabaseAssociationStore({ database: tx }),
-        });
-      })
+      database.transaction((tx) => work(associationUnit(tx, state)))
     );
+}
+
+/** The associations, and what exists, read and written through `database`, the database or one transaction. */
+function associationUnit(
+  database: StoreDatabase,
+  state: string
+): Parameters<Parameters<AssociationTransaction>[0]>[0] {
+  const view = new ResourceView({ database, scope: ALL_WORKSPACES, state });
+  const registry = new WorkspaceRegistry({ database, state });
+  return {
+    directory: {
+      has: (ref) => view.has(ref),
+      registered: async (id) => (await registry.read(id)) !== undefined,
+    },
+    store: new DatabaseAssociationStore({ database }),
+  };
 }
 
 /**

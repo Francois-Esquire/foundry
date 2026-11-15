@@ -108,17 +108,21 @@ export type AssociationTransaction = <T>(
 
 export interface ResourceAssociationsOptions {
   readonly now?: () => Date;
+  /** Run `work` that only reads, with no write transaction; `transact` when omitted. */
+  readonly read?: AssociationTransaction;
   readonly transact: AssociationTransaction;
 }
 
 /** The rules of which workspaces a resource belongs to. */
 export class ResourceAssociations {
   readonly #now: () => Date;
+  readonly #read: AssociationTransaction;
   readonly #transact: AssociationTransaction;
 
   constructor(options: ResourceAssociationsOptions) {
     this.#now = options.now ?? (() => new Date());
     this.#transact = options.transact;
+    this.#read = options.read ?? options.transact;
   }
 
   /**
@@ -170,7 +174,8 @@ export class ResourceAssociations {
 
   /** The workspaces other than its owner `ref` is shared with, by id. */
   sharedWith(ref: ResourceRef): Promise<readonly string[]> {
-    return this.#transact(({ store }) => sharedWithIn(store, ref));
+    // One statement: a read sees one state, and takes no write lock.
+    return this.#read(({ store }) => sharedWithIn(store, ref));
   }
 
   #refuseOwner(ref: ResourceRef, workspace: string, verb: string): void {
