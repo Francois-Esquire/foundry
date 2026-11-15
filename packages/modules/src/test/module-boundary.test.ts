@@ -270,7 +270,7 @@ describe("Modules boundary", () => {
       "@foundry/sandbox",
       "@foundry/sandbox/container",
       "@foundry/sandbox/container/microsandbox-runtime",
-      "@foundry/sandbox/container/store",
+      "@foundry/sandbox/store/memory",
       "@foundry/sandbox/testing",
       "@foundry/sandbox/types",
     ]) {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { taskChangeSchema } from "../operations";
 import type { Task } from "../schema";
-import { MemoryTaskStore } from "../store";
+import { MemoryTaskStore } from "../store/memory";
 import { Tasks } from "../tasks";
 import { taskId } from "../types";
 

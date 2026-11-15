@@ -13,8 +13,8 @@
  *
  * Invariants that span records or fields (a pointer naming the Artifact's own
  * Content, a blob's inline bytes matching its `byteLength`, a tree entry's
- * parent directory) stay with the store, `validateBlob` and Core's
- * `validateStorageTree`.
+ * parent directory) stay with the package's `ArtifactChange`, `validateBlob`
+ * and Core's `validateStorageTree`; a store enforces none of them.
  */
 
 import type { FileNode, StorageNode } from "@foundry/core/storage";
