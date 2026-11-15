@@ -75,7 +75,7 @@ export interface AssociationStore {
 }
 
 /** What the associations are checked against: what exists. */
-export interface ResourceDirectory {
+interface ResourceDirectory {
   /** Whether the owner's store keeps `ref`. */
   has(ref: ResourceRef): Promise<boolean>;
   /** Whether `id` is a workspace this machine has registered. */
@@ -92,7 +92,7 @@ export class ResourceAssociationError extends Error {
  * exists, both inside one transaction, so nothing another writer does
  * lands between a check and the write it allows.
  */
-export interface AssociationUnit {
+interface AssociationUnit {
   readonly directory: ResourceDirectory;
   readonly store: AssociationStore;
 }
