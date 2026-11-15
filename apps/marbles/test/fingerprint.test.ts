@@ -1,7 +1,11 @@
 import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { fingerprintOf, installationDigest } from "~/process/fingerprint";
+import {
+  fingerprintOf,
+  installationDigest,
+  sourceDigests,
+} from "~/process/fingerprint";
 import { temporaryDirectory } from "./helpers/temporary";
 
 /** A built installation: its generation entry, a chunk, a migration and a dot file. */
@@ -48,6 +52,48 @@ describe("installationDigest", () => {
     const before = installationDigest(entry, "1.0.0");
     writeFileSync(join(src, "lib", "engine.ts"), "export const changed = 1;\n");
     expect(installationDigest(entry, "1.0.0")).not.toBe(before);
+  });
+});
+
+describe("sourceDigests", () => {
+  it("covers every file the workspace's load read, wherever it is, beside its entries", () => {
+    const dir = temporaryDirectory("marbles-fingerprint-");
+    const root = join(dir, "project");
+    const shared = join(dir, "shared");
+    mkdirSync(root);
+    mkdirSync(shared);
+    const config = join(root, "marbles.config.ts");
+    const helper = join(shared, "helper.ts");
+    const data = join(shared, "values.json");
+    writeFileSync(config, 'import "../shared/helper.ts";\n');
+    writeFileSync(helper, "export const value = 1;\n");
+    writeFileSync(data, '{ "value": 1 }\n');
+    const records = [{ config, id: "w", root }];
+    const read = new Map([["w", [config, helper, data]]]);
+    const digest = () => sourceDigests(records, read).get("w");
+
+    const before = digest();
+    writeFileSync(helper, "export const value = 200;\n");
+    const helped = digest();
+    expect(helped).not.toBe(before);
+    writeFileSync(data, '{ "value": 200 }\n');
+    expect(digest()).not.toBe(helped);
+    // Not read by its load: not part of it.
+    const unread = join(shared, "unread.ts");
+    const now = digest();
+    writeFileSync(unread, "export {};\n");
+    expect(digest()).toBe(now);
+  });
+
+  it("is its entries alone before any load read it", () => {
+    const root = join(temporaryDirectory("marbles-fingerprint-"), "project");
+    mkdirSync(root);
+    const config = join(root, "marbles.config.ts");
+    writeFileSync(config, "export {};\n");
+    const records = [{ config, id: "w", root }];
+    const before = sourceDigests(records, new Map()).get("w");
+    writeFileSync(config, "export const changed = 1;\n");
+    expect(sourceDigests(records, new Map()).get("w")).not.toBe(before);
   });
 });
 
