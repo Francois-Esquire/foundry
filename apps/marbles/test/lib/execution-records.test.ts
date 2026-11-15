@@ -5,8 +5,9 @@ import { Workflow } from "@foundry/workflows/workflow";
 import { expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { DatabaseExecutionStore } from "~/database/executions";
-import { initializeDatabase } from "~/database/open";
+import { initializeDatabase, readDatabase } from "~/database/open";
 import { readStoredRuns } from "~/database/runs";
+import { marblesExecutions } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import { parseStored } from "~/lib/execution-record";
@@ -767,8 +768,8 @@ it("parks a workflow's Execution Run with its Run, in one write, and warns of no
       status: "suspended",
     })
   );
-  // The Run's commit wrote it: the engine never wrote a park itself.
-  expect(parks).toEqual([]);
+  // The Run's commit wrote it: the engine's own write found it there.
+  expect(parks).toEqual([false]);
   expect(lines.filter((line) => line.startsWith("[state]"))).toEqual([]);
   await engine.dispose();
   opened.close();
@@ -803,3 +804,47 @@ async function storedOf(
   const stored = await store.get(id);
   return stored && parseStored(stored);
 }
+
+it("parks into the store the engine was handed, and writes no Execution Run to a database it keeps none in", async () => {
+  const state = join(fixture.root, "state");
+  const store = new MemoryExecutionStore();
+  const engine = engineWith({ askable: true, executionStore: store, state });
+  engine.define({
+    fn: ({ ask }: Context) => ask.question({ title: "continue?" }),
+    kind: "step",
+    name: "probe",
+  });
+  await engine.start();
+  const { id } = await engine.launch("probe", {});
+  await vi.waitFor(async () =>
+    expect(await storedOf(store, id)).toMatchObject({ status: "suspended" })
+  );
+  const rows = await readDatabase(stateDatabase(state), (database) =>
+    database.select().from(marblesExecutions)
+  );
+  expect(rows).toEqual([]);
+});
+
+it("has every change on disk once it is disposed, those it never waited for included", async () => {
+  const state = join(fixture.root, "state");
+  const engine = engineWith({ state });
+  const started: string[] = [];
+  const gates = new Map<string, () => void>();
+  blockingTask(engine, "build", started, gates);
+  await engine.start();
+  const running = await engine.launch("build", { label: "one" });
+  running.result.catch(() => undefined);
+  const queued = await engine.launch("build", { label: "two" });
+  queued.result.catch(() => undefined);
+  await until(() => started.length === 1);
+  // Withdrawn and recorded cancelled here at once; written in its turn.
+  const cancelling = engine.cancel(queued.id);
+  await engine.dispose();
+  await cancelling;
+  expect(await storedExecution(state, queued.id)).toMatchObject({
+    status: "cancelled",
+  });
+  expect(await storedExecution(state, running.id)).toMatchObject({
+    status: "cancelled",
+  });
+});

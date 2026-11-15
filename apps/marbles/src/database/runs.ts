@@ -9,7 +9,7 @@ import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { aroundCalls, asBusy } from "~/database/busy";
-import { putExecution } from "~/database/executions";
+import { followExecution } from "~/database/executions";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { marblesWorkflowRuns } from "~/database/tables";
@@ -234,7 +234,7 @@ export class DatabaseRunStore implements RunStore {
     for (const run of follows === undefined ? [] : (write.putRuns ?? [])) {
       const execution = follows?.(run.id, run.status);
       if (execution !== undefined) {
-        await putExecution(transaction, this.#scope, execution);
+        await followExecution(transaction, this.#scope, execution);
       }
     }
   }

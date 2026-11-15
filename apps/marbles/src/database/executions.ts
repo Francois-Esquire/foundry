@@ -122,16 +122,30 @@ export class DatabaseExecutionStore implements ExecutionStore {
 }
 
 /**
- * Keep `run`'s record in the Execution Runs of `scope` on `database`, or a
- * transaction on it, unless as high a revision is kept: whether it is kept
- * now. For a store whose commit carries a run's record with its own.
+ * Replace the record of `run` kept in the Execution Runs of `scope` on
+ * `database`, or a transaction on it, when a lower revision of it is
+ * kept there: whether it was. A run this database does not keep (its
+ * engine keeps Execution Runs elsewhere) is left alone. For a store whose
+ * commit carries a run's record with its own.
  */
-export function putExecution(
+export async function followExecution(
   database: Queries,
   scope: string,
   run: ExecutionRun
 ): Promise<boolean> {
-  return new DatabaseView(database, scope).put(run);
+  const { id: _id, scope: _scope, ...fields } = rowOf(run, scope);
+  const replaced = await database
+    .update(marblesExecutions)
+    .set(fields)
+    .where(
+      and(
+        eq(marblesExecutions.scope, scope),
+        eq(marblesExecutions.id, run.id),
+        sql`${marblesExecutions.revision} < ${run.revision}`
+      )
+    )
+    .returning({ id: marblesExecutions.id });
+  return replaced.length > 0;
 }
 
 type ExecutionRow = typeof marblesExecutions.$inferSelect;

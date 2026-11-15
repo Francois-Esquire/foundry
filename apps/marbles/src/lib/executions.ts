@@ -123,10 +123,12 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
   /**
    * Parked on a question or a pause: its slot goes to the next run. A
    * record its Run's commit parked already (`follows`) is not changed
-   * again.
+   * again, only written.
    */
   suspend(id: string): void {
-    if (this.get(id)?.status !== "suspended") {
+    if (this.get(id)?.status === "suspended") {
+      this.keepRecord(id);
+    } else {
       this.changeRecord(id, { status: "suspended" });
     }
     this.release(id);
@@ -138,7 +140,9 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     if (!run || SETTLED_EXECUTION_STATUSES.has(run.status)) {
       return;
     }
-    if (run.status !== "running") {
+    if (run.status === "running") {
+      this.keepRecord(id);
+    } else {
       this.changeRecord(id, { status: "running" });
     }
     this.#lane(run.queue).active.add(id);

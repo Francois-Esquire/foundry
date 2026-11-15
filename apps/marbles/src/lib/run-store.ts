@@ -39,10 +39,11 @@ export interface RunStore {
    * The workflow records, once per engine. Every commit that puts a Run
    * files beside it, in the same transaction, what `recorded` answers for
    * it, and makes this store its owner until a commit settles it. A store
-   * that outlives the process also writes, in that transaction, the
-   * Execution Run `follows` answers for each Run the commit puts, so the
-   * two land together or not at all; one held in memory, which no crash
-   * can split, leaves that to the engine.
+   * that outlives the process also replaces, in that transaction, the
+   * Execution Run `follows` answers for each Run the commit puts, where
+   * it keeps Execution Runs itself, so the two land together or not at
+   * all; one held in memory, which no crash can split, leaves that to the
+   * engine.
    */
   open(
     recorded: (runId: string) => RecordedScope | undefined,

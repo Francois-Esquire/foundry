@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { processAlive } from "@foundry/lib/file-lock";
 import type { JsonValue } from "@foundry/lib/json";
+import { canonicalizeJson } from "@foundry/lib/json";
 import {
   bySequence,
   DEFAULT_QUEUE,
@@ -425,9 +426,10 @@ export class ExecutionRecords {
    * launch records it), so the launcher writes it, and a crash between is
    * repaired from the Run's status (`recover`). The change is published
    * here at once, so every later change builds on it and none is written
-   * over it; the park or resume that follows finds it made. Should the
-   * Run's commit fail, this process says the run parked or resumed until
-   * its next change: the Orchestrator fails a run whose commit fails.
+   * over it; the park or resume that follows writes it to this engine's
+   * own store, where the Run's commit has written it already when the two
+   * share a database. Should the Run's commit fail, this process says the
+   * run parked or resumed until its next change.
    */
   follows(runId: string, status: string): ExecutionRun | undefined {
     const run = this.#records.get(runId);
@@ -561,6 +563,19 @@ export class ExecutionRecords {
   }
 
   /**
+   * Write what this process holds of a known, unsettled run, in its turn;
+   * a failed write warns. For a change already published (`follows`).
+   */
+  protected keepRecord(id: string): void {
+    const run = this.#records.get(id);
+    if (run && !SETTLED_EXECUTION_STATUSES.has(run.status)) {
+      this.#put(run).catch((error: unknown) => {
+        this.#warn(`[state] execution ${id} not saved: ${String(error)}`);
+      });
+    }
+  }
+
+  /**
    * Apply a change to a known, unsettled run, at once here and on disk in
    * its turn; a failed write warns and the change still holds here. A
    * settled run never changes.
@@ -677,7 +692,7 @@ function sameRecord(a: ExecutionRun, b: ExecutionRun): boolean {
     revision: _revision,
     timestamps: { updatedAt: _updatedAt, ...timestamps },
     ...record
-  }: ExecutionRun) => JSON.stringify({ ...record, timestamps });
+  }: ExecutionRun) => canonicalizeJson({ ...record, timestamps });
   return said(a) === said(b);
 }
 
