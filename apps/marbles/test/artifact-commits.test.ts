@@ -1,8 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ArtifactEvent } from "@foundry/artifacts";
 import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
+import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { describeArtifactStore } from "@foundry/artifacts/testing/store";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Touched } from "~/database/artifact-links";
 import { followingCommits, keepingLinks } from "~/database/artifact-links";
@@ -34,26 +37,85 @@ afterAll(async () => {
   rmSync(dir, { force: true, recursive: true });
 });
 
-describeArtifactStore("Marbles' link-keeping", async () => {
-  const { dir, opened } = await shared;
-  openings += 1;
-  const opening = String(openings);
-  const scopes = new Map<string, ReturnType<typeof keepingLinks>>();
-  return (scope: string) => {
-    const owner = `${opening}-${scope}`;
-    const store =
-      scopes.get(scope) ??
-      keepingLinks(workspaceStores(opened.database, owner).artifacts, {
-        artifacts: join(dir, "artifacts"),
-        database: opened.database,
-        owner,
-        report: () => undefined,
-        state: dir,
-      });
-    scopes.set(scope, store);
-    return store;
-  };
-});
+describeArtifactStore(
+  "Marbles' link-keeping",
+  async () => {
+    const { dir, opened } = await shared;
+    openings += 1;
+    const opening = String(openings);
+    const scopes = new Map<string, ReturnType<typeof keepingLinks>>();
+    return (scope: string) => {
+      const owner = `${opening}-${scope}`;
+      const store =
+        scopes.get(scope) ??
+        keepingLinks(workspaceStores(opened.database, owner).artifacts, {
+          artifacts: join(dir, "artifacts"),
+          database: opened.database,
+          owner,
+          report: () => undefined,
+          state: dir,
+        });
+      scopes.set(scope, store);
+      return store;
+    };
+  },
+  {
+    hooked: true,
+    recording: async () => {
+      const { dir, opened } = await shared;
+      openings += 1;
+      const opening = String(openings);
+      const table = `recorded_events_${opening}`;
+      await opened.database.run(
+        sql.raw(`CREATE TABLE "${table}" ("event" text NOT NULL)`)
+      );
+      let failNext = false;
+      const scopes = new Map<string, ReturnType<typeof keepingLinks>>();
+      return {
+        failNextCommit: () => {
+          failNext = true;
+        },
+        recorded: async () =>
+          (
+            await opened.database.all<{ event: string }>(
+              sql.raw(`SELECT "event" FROM "${table}" ORDER BY rowid`)
+            )
+          ).map((row) => JSON.parse(row.event) as ArtifactEvent),
+        stores: (scope: string) => {
+          const owner = `${opening}-${scope}`;
+          const store =
+            scopes.get(scope) ??
+            keepingLinks(
+              new SqliteArtifactStore({
+                database: opened.database,
+                onCommit: async (transaction, write) => {
+                  for (const event of write.events ?? []) {
+                    await transaction.run(
+                      sql`INSERT INTO ${sql.identifier(table)} ("event") VALUES (${JSON.stringify(event)})`
+                    );
+                  }
+                  if (failNext) {
+                    failNext = false;
+                    throw new Error("the host refused the commit");
+                  }
+                },
+                scope: owner,
+              }),
+              {
+                artifacts: join(dir, "artifacts"),
+                database: opened.database,
+                owner,
+                report: () => undefined,
+                state: dir,
+              }
+            );
+          scopes.set(scope, store);
+          return store;
+        },
+      };
+    },
+  }
+);
 
 describe("a store that follows its commits", () => {
   async function followed() {

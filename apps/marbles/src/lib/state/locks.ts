@@ -2,7 +2,8 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { FileLockHolder } from "@foundry/lib/file-lock";
-import { processAlive, tryFileLock } from "@foundry/lib/file-lock";
+import { tryFileLock } from "@foundry/lib/file-lock";
+import { isGone } from "@foundry/lib/process-identity";
 
 /**
  * `<dir>/locks/<name>` holds the pid of the process that has it: the state
@@ -42,7 +43,7 @@ export function acquireLock(dir: string, name: string): Lock | HeldLock {
 
 function describeHolder(
   path: string,
-  { empty, holder }: FileLockHolder
+  { empty, holder, owner }: FileLockHolder
 ): string {
   if (empty) {
     return "a process that is taking it now; retry";
@@ -50,7 +51,7 @@ function describeHolder(
   if (holder === undefined) {
     return `an unknown process (if none is running, remove ${path})`;
   }
-  if (processAlive(holder)) {
+  if (!isGone(owner ?? { pid: holder, started: null })) {
     return `pid ${String(holder)}`;
   }
   // Only while another process has the turn to break it, or a crashed one

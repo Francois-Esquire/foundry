@@ -19,13 +19,14 @@ import { CONTAINER_ROW_STATUSES } from "../container/constants";
  *   rows by it, as the memory store lists its rows, and a row put again
  *   keeps its position.
  *
- * `native_id` is NULL for a row whose `nativeId` is `undefined`; the row has
- * no `null` to confuse it with.
+ * `native_id` and `holder` are NULL for a row whose `nativeId` or `holder`
+ * is `undefined`; the row has no `null` to confuse it with.
  */
 
 /** One row per container. */
 export const sandboxContainers = sqliteTable(
   "sandbox_containers",
+  // biome-ignore assist/source/useSortedKeys: columns in the order a table gets them, `holder` added last to one that existed before it.
   {
     /** Epoch milliseconds; see the SQLite store for the numbers it refuses. */
     createdAt: integer("created_at").notNull(),
@@ -36,6 +37,7 @@ export const sandboxContainers = sqliteTable(
     spec: text("spec").notNull(),
     status: text("status", { enum: CONTAINER_ROW_STATUSES }).notNull(),
     updatedAt: integer("updated_at").notNull(),
+    holder: text("holder"),
   },
   (table) => [
     primaryKey({ columns: [table.scope, table.id] }),

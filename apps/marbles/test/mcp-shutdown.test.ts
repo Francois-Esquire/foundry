@@ -166,7 +166,7 @@ it("exits when a shutdown outlives its deadline", async () => {
   const spinning = join(root, "spinning");
   let started: Started | undefined;
   try {
-    // A worker busy in a step answers no task call. Bounded, so a missed
+    // A generation busy in a step answers no task call. Bounded, so a missed
     // cleanup still ends it.
     await writeFile(
       source,
@@ -194,7 +194,7 @@ workflow("spin").do(() => spin({}));`
     await vi.waitFor(() => expect(existsSync(spinning)).toBe(true), {
       timeout: 15_000,
     });
-    // The server holds the tasks for this call until the worker answers.
+    // The server holds the tasks for this call until the generation answers.
     session
       .request("tools/call", {
         arguments: {

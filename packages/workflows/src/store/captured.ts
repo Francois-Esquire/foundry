@@ -1,3 +1,5 @@
+import { isPlainObject, ownedEvents } from "@foundry/lib/plain-json";
+
 import type {
   FrameListQuery,
   JobListQuery,
@@ -22,6 +24,7 @@ const WRITE_PROPERTIES = {
   deleteRunFrames: true,
   deleteRuns: true,
   deleteSuspensions: true,
+  events: true,
   putFrames: true,
   putJobs: true,
   putQueues: true,
@@ -56,7 +59,10 @@ const QUERY_PROPERTIES = {
  * property, a list that is not an array, a delete id that is not text, and
  * a record that is not a plain object (made by `{}` or `Object.create(null)`)
  * with every own property enumerable: a copy of anything else could keep
- * less than the record shows, and differently in each store.
+ * less than the record shows, and differently in each store. Takes each
+ * event as an owned copy of plain JSON, as a host is handed it, and refuses
+ * one with any part that has none (`ownedEvents`, in
+ * `@foundry/lib/plain-json`).
  */
 export function capturedWrite(write: WorkflowStoreWrite): WorkflowStoreWrite {
   const captured: Record<string, unknown> = {};
@@ -68,6 +74,11 @@ export function capturedWrite(write: WorkflowStoreWrite): WorkflowStoreWrite {
     if (!Array.isArray(value)) {
       throw new TypeError(`${property} must be an array`);
     }
+    if (property === "events") {
+      // An event reaches a host as JSON, so the list is taken as JSON now.
+      captured[property] = ownedEvents(value);
+      continue;
+    }
     const items: unknown[] = [];
     for (let index = 0; index < value.length; index += 1) {
       // Each entry is read once; the capture holds what that read gave.
@@ -77,7 +88,7 @@ export function capturedWrite(write: WorkflowStoreWrite): WorkflowStoreWrite {
         if (typeof item !== "string") {
           throw new TypeError(`${property}[${index}] must be text`);
         }
-      } else if (!isPlainData(item)) {
+      } else if (!isPlainObject(item)) {
         throw new TypeError(
           `${property}[${index}] must be a plain object whose own properties are all enumerable`
         );
@@ -122,16 +133,4 @@ export function capturedQuery<Q extends object>(query: Q): Q {
     captured[property] = value;
   }
   return captured as Q;
-}
-
-function isPlainData(value: unknown): boolean {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const prototype: unknown = Object.getPrototypeOf(value);
-  return (
-    (prototype === Object.prototype || prototype === null) &&
-    Object.getOwnPropertyNames(value).length === Object.keys(value).length &&
-    Object.getOwnPropertySymbols(value).length === 0
-  );
 }

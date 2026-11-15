@@ -23,12 +23,14 @@ import {
   DatabaseAutomationStore,
   readAutomations,
 } from "~/database/automations";
+import type { ChangeRecorder } from "~/database/changes";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { DatabaseGrantStorage } from "~/database/grants";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { defaultWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
 import { DatabaseProviderStore, stateProviders } from "~/database/providers";
+import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import type { WorkspaceStores } from "~/database/stores";
@@ -48,6 +50,7 @@ import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot, executionEnvironment } from "~/lib/environment";
+import { sourceKey } from "~/lib/events/source";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { localCatalogue } from "~/lib/managers/workspaces";
@@ -56,6 +59,7 @@ import { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { RegisteredPlugin } from "~/lib/providers/plugins";
 import { FIRST_PARTY_PLUGINS } from "~/lib/providers/plugins";
 import { Registry } from "~/lib/registry";
+import { containerHolder } from "~/lib/sandbox/holders";
 
 /**
  * The engine as Marbles runs it. The machine is inspected and the flags are
@@ -102,6 +106,12 @@ export interface CreateEngineOptions {
   /** The workspace root: the config's directory, or the cwd without one. */
   readonly root: string;
   /**
+   * Where this process's children are recorded for recovery, so the
+   * engine's start stops what one that is gone left running. Passed over
+   * under `--dry-run`, which persists nothing.
+   */
+  readonly spawned?: string;
+  /**
    * This workspace's state dir. Under `dry` the engine gets none, so nothing
    * is written there; omit it for an engine that persists nothing either way.
    */
@@ -135,8 +145,12 @@ export function declareCatalog(target: Declarable, catalog: Catalog): void {
   for (const record of catalog.monitors.values()) {
     target.monitor(record);
   }
-  for (const { handler, source } of catalog.observers) {
-    target.observe?.(source, handler);
+  for (const { handler, name, source, timeout, types } of catalog.observers) {
+    target.observe?.(source, handler, {
+      name,
+      ...(timeout === undefined ? {} : { timeout }),
+      ...(types === undefined ? {} : { types }),
+    });
   }
 }
 
@@ -301,24 +315,31 @@ function recordsFor(
   | "executionStore"
   | "grants"
   | "records"
+  | "recoveryLog"
   | "runs"
   | "sessions"
   | "triggers"
   | "usageStore"
 > & {
+  /** What the workspace's stores in `database` record their change facts through. */
+  readonly changes?: ChangeRecorder;
   readonly own?: WorkspaceDatabase;
 } {
   if (database !== undefined) {
     const scope = workspaceId;
+    const records = new DatabaseWorkspaceRecords({ database, scope });
+    const { changes } = records;
     return {
       activityStore: new DatabaseActivityStore({ database, scope }),
       approvals: new DatabaseDeferredApprovalStore({ database, scope }),
       automationStore: new DatabaseAutomationStore({ database, scope }),
+      changes,
       executionStore: new DatabaseExecutionStore({ database, scope }),
       grants: new DatabaseGrantStorage({ database, scope }),
-      records: new DatabaseWorkspaceRecords({ database, scope }),
-      runs: new DatabaseRunStore({ database, scope }),
-      sessions: new DatabaseSessionStore({ database, scope }),
+      records,
+      recoveryLog: new DatabaseRecoveryLog({ database, scope }),
+      runs: new DatabaseRunStore({ changes, database, scope }),
+      sessions: new DatabaseSessionStore({ changes, database, scope }),
       triggers: new DatabaseTriggerStore({ database, scope }),
       usageStore: new DatabaseUsageStore({ database, scope }),
     };
@@ -387,6 +408,8 @@ function containersFor(
     const declared = [...catalog.workspaces].map((path) => resolve(root, path));
     return createContainers({
       allowedMountRoots: allowedMountRoots([root, worktreeHome, ...declared]),
+      // This process, so a later start can tell the rows it held are left.
+      holder: containerHolder(),
       instanceLabel: `marbles-${workspaceId}`,
       runtime: await runtime(),
       store: store ?? createMemoryContainerStore(),
@@ -402,14 +425,17 @@ export function createEngine(options: CreateEngineOptions): Engine {
   // Its sandboxes may mount what is cut there; see `containersFor`.
   const worktrees = Engine.worktreesFor(state);
   const database = dry ? undefined : options.database;
-  const { own, ...kept } = recordsFor(state, database, options);
+  const { changes, own, ...kept } = recordsFor(state, database, options);
   const stores =
-    database === undefined ? undefined : workspaceStores(database, workspaceId);
+    database === undefined
+      ? undefined
+      : workspaceStores(database, workspaceId, changes);
   const git = dry ? { run: echoGit(print) } : {};
   // The class the package publishes, so a host's engine is that `Engine`.
   const engineOptions: EngineOptions = {
     ...artifactsFor(stores, options),
     askable: options.askable,
+    ...(stores === undefined ? {} : { containerRows: stores.containers }),
     containers: containersFor(options, worktrees, stores?.containers),
     dry,
     git,
@@ -423,6 +449,9 @@ export function createEngine(options: CreateEngineOptions): Engine {
       ? {}
       : { environment: executionEnvironment(options.environment) }),
     root,
+    ...(dry || options.spawned === undefined
+      ? {}
+      : { spawned: options.spawned }),
     state,
     workspaceId,
     ...(stores === undefined
@@ -435,7 +464,45 @@ export function createEngine(options: CreateEngineOptions): Engine {
       ? new PublishedEngine(engineOptions)
       : new OwnDatabaseEngine(engineOptions, own);
   declareCatalog(engine, catalog);
+  unrecordedObservers(catalog, recordedSources(database, state), print);
   return engine;
+}
+
+/**
+ * The sources whose facts an engine records, by key: every one over the
+ * host's database; its tasks, Runs and sessions when it opens one of its
+ * own for a state dir, which keeps its artifacts, containers and
+ * catalogue in memory; and its tasks alone in memory.
+ */
+function recordedSources(
+  database: StoreDatabase | undefined,
+  state: string | undefined
+): ReadonlySet<string> | "all" {
+  if (database !== undefined) {
+    return "all";
+  }
+  return new Set(
+    state === undefined ? ["tasks"] : ["runs", "sessions", "tasks"]
+  );
+}
+
+/** Say, once at build, which declared observers this engine hands nothing. */
+function unrecordedObservers(
+  catalog: Catalog,
+  recorded: ReadonlySet<string> | "all",
+  print: (line: string) => void
+): void {
+  if (recorded === "all") {
+    return;
+  }
+  for (const observer of catalog.observers) {
+    const key = sourceKey(observer.source);
+    if (key !== undefined && !recorded.has(key)) {
+      print(
+        `[observe] ${observer.name} (${key}) receives nothing here: this engine keeps its ${key} without recording their changes`
+      );
+    }
+  }
 }
 
 /**

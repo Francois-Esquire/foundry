@@ -7,6 +7,7 @@
 export type {
   MessageMetadata,
   MessageStatus,
+  SessionChangeEvent,
   SessionMessage,
   SessionPart,
   SessionRecord,

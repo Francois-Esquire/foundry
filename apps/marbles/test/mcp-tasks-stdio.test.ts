@@ -13,13 +13,11 @@ import { join, resolve } from "node:path";
 import { tasks as taskRows } from "@foundry/tasks/store/tables";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import { eq } from "drizzle-orm";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { readDatabase } from "~/database/open";
-import {
-  marblesTaskChangeDeliveries,
-  marblesTaskChanges,
-} from "~/database/tables";
+import { marblesChanges, marblesObservers } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { cliArgs } from "./helpers/cli";
 import { stopDaemon } from "./helpers/daemon";
@@ -27,47 +25,56 @@ import { testHome } from "./helpers/home";
 import { RecordedStdioTransport } from "./helpers/mcp-stdio";
 
 const change = z.object({
-  delivered: z.number(),
   payload: z.object({
     tasks: z.array(
       z.object({ after: z.object({ tags: z.array(z.string()) }).loose() })
     ),
+    type: z.literal("tasks.changed"),
   }),
+  position: z.number(),
 });
 const records = z.object({
   changes: z.array(change),
   tasks: z.array(z.object({ tags: z.array(z.string()), title: z.string() })),
 });
 
-/**
- * Every task and recorded change under the state root, with how many
- * observers completed each change, read as a reader does.
- */
+/** Every task and logged task fact under the state root, read as a reader does. */
 async function stored(state: string): Promise<z.infer<typeof records>> {
   const read = await readDatabase(stateDatabase(state), async (database) => {
     const changes = await database
-      .select()
-      .from(marblesTaskChanges)
-      .orderBy(marblesTaskChanges.position);
-    const deliveries = await database
-      .select()
-      .from(marblesTaskChangeDeliveries);
+      .select({
+        payload: marblesChanges.payload,
+        position: marblesChanges.position,
+      })
+      .from(marblesChanges)
+      .where(eq(marblesChanges.source, "tasks"))
+      .orderBy(marblesChanges.position);
     const tasks = await database
       .select({ tags: taskRows.tags, title: taskRows.title })
       .from(taskRows)
       .orderBy(taskRows.position);
-    return {
-      changes: changes.map((row) => ({
-        delivered: deliveries.filter(
-          (delivery) =>
-            delivery.scope === row.scope && delivery.changeId === row.id
-        ).length,
-        payload: row.payload,
-      })),
-      tasks,
-    };
+    return { changes, tasks };
   });
   return records.parse(read);
+}
+
+/** Each observer's name and place, and whether it is failing. */
+async function observers(state: string) {
+  const read = await readDatabase(stateDatabase(state), (database) =>
+    database
+      .select({
+        failures: marblesObservers.failures,
+        name: marblesObservers.name,
+        position: marblesObservers.position,
+      })
+      .from(marblesObservers)
+      .orderBy(marblesObservers.name)
+  );
+  return (read ?? []).map((row) => ({
+    failing: row.failures > 0,
+    name: row.name,
+    position: row.position,
+  }));
 }
 
 /**
@@ -101,7 +108,7 @@ function text(value: unknown): string {
   return block.text;
 }
 
-it("serves the workspace's tasks: a CLI change kept for later observers, tags, delivery, reads that change nothing, and kept after exit", async () => {
+it("serves the workspace's tasks: a CLI change logged before any observer, tags, delivery from the observer's start, reads that change nothing, and kept after exit", async () => {
   const root = await mkdtemp(join(tmpdir(), "mt-"));
   const home = testHome({ providers: false });
   const { state } = home.layout;
@@ -113,11 +120,11 @@ it("serves the workspace's tasks: a CLI change kept for later observers, tags, d
 import { observe, step, tasks } from "@foundry.sh/marbles";
 observe(tasks, (payload) => {
   appendFileSync(${JSON.stringify(seen)}, JSON.stringify(payload) + "\\n");
-});
-// Stays undelivered, so the item stays in the stream.
+}, { name: "seen" });
+// Keeps failing, so it stays where it started.
 observe(tasks, () => {
   throw new Error("not yet");
-});
+}, { name: "failing" });
 step("titles").do(async () => (await tasks.list()).items.map((task) => task.title));`
   );
   const transport = new RecordedStdioTransport({
@@ -140,8 +147,9 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       timeout: 15_000,
     });
   // A CLI change, made where no source runs and nothing observes, is kept
-  // undelivered for the observers a later host declares. No Marbles process
-  // runs yet, so the CLI opens the tasks itself and starts none.
+  // in the change log; an observer a later host declares starts from then,
+  // so it is not handed this one. No Marbles process runs yet, so the CLI
+  // opens the tasks itself and starts none.
   const fromCli = cli("create", "From CLI", "--tag", "cli", "--json");
   expect(fromCli.status, fromCli.stderr).toBe(0);
   // In the Marbles database; the workspace has no state dir of its own yet.
@@ -153,7 +161,6 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
   const kept = await stored(state);
   expect(kept.changes).toEqual([
     expect.objectContaining({
-      delivered: 0,
       payload: expect.objectContaining({
         tasks: [
           expect.objectContaining({
@@ -161,11 +168,12 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
           }),
         ],
       }),
+      position: 1,
     }),
   ]);
   try {
     // The CLI hosts the workspace in the Marbles process; the server only
-    // joins the worker that now owns the tasks.
+    // joins the engine generation that now owns the tasks.
     const attached = spawnSync("bun", cliArgs("attach", "--source", source), {
       cwd: root,
       encoding: "utf8",
@@ -213,13 +221,24 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       expect(status).toContain('["From CLI","From MCP"]');
     });
 
-    // The worker delivers the CLI's change and the server's, oldest first:
-    // one observer completes each, the other keeps failing.
+    // The observers started at the CLI's change, so the generation delivers
+    // the server's alone: one observer completes it, the other keeps failing.
     await vi.waitFor(
       async () => {
         expect(existsSync(seen)).toBe(true);
-        const now = await stored(state);
-        expect(now.changes.map((entry) => entry.delivered)).toEqual([1, 1]);
+        const { changes } = await stored(state);
+        expect(await observers(state)).toEqual([
+          { failing: true, name: "failing", position: 1 },
+          // Past the server's change, the last task fact logged.
+          {
+            failing: false,
+            name: "seen",
+            position: expect.toSatisfy(
+              (position: number) =>
+                position >= (changes.at(-1)?.position ?? Number.NaN)
+            ),
+          },
+        ]);
       },
       { timeout: 10_000 }
     );
@@ -228,10 +247,9 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       .split("\n")
       .map((line) => JSON.parse(line));
     expect(payloads).toMatchObject([
-      { tasks: [{ after: { tags: ["cli"] }, before: null }] },
       {
-        kind: "tasks.changed",
         tasks: [{ after: { tags: ["review", "api"] }, before: null }],
+        type: "tasks.changed",
       },
     ]);
 
@@ -253,7 +271,7 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     expect(before.tasks).toHaveLength(2);
     expect(await stored(state)).toEqual(before);
 
-    // The worker hosting the workspace answers for its tasks: a separate
+    // The generation hosting the workspace answers for its tasks: a separate
     // CLI process asks it, reads the same store, and changes nothing; a
     // refusal keeps its code across the process boundary.
     const routed = cli("list", "--tag", "review", "--json");
@@ -287,7 +305,11 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       total: 1,
     });
     const { changes } = await stored(state);
-    expect(changes.map((entry) => entry.delivered)).toEqual([1, 1]);
+    expect(changes).toHaveLength(2);
+    expect(changes[0]?.position).toBe(1);
+    const [failing, seenBy] = await observers(state);
+    expect(failing?.position).toBe(1);
+    expect(seenBy?.position).toBeGreaterThanOrEqual(changes[1]?.position ?? 0);
     const settled = await files(state);
     const [first] = JSON.parse(after.stdout).items;
     for (const argv of [

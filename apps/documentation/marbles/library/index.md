@@ -17,7 +17,7 @@ application that runs a step on demand, a test, or a service of your own.
 | `@foundry.sh/marbles` | Write definitions: `step`, `workflow`, `agent`, `workspace`, `sandbox`, `artifact`, `schedule`, `monitor`, and the workspace's `tasks`. Every host reads these. | [API reference](/marbles/reference/api) |
 | `@foundry.sh/marbles/prebuilt` | Register ready-made read-only review steps. | [Prebuilt steps](/marbles/reference/project#prebuilt-steps) |
 | `@foundry.sh/marbles/lib` | Build an `Engine` from explicit instances, register definitions, and run them in your process. | [Embedding the engine](/marbles/reference/engine) |
-| `@foundry.sh/marbles/workspace` | Host one `.foundry/marbles` source the way the CLI's worker does: discovery, environment, modules, triggers. | [Host a workspace](/marbles/library/host-a-workspace) |
+| `@foundry.sh/marbles/workspace` | Host one `.foundry/marbles` source the way an engine generation of the Marbles process does: discovery, environment, modules, triggers. | [Host a workspace](/marbles/library/host-a-workspace) |
 | `@foundry.sh/marbles/process` | Start the machine's Marbles process, or join it as a client, as the dashboard and the MCP server do. | [Host a workspace](/marbles/library/host-a-workspace#start-or-join-the-marbles-process) |
 
 The Foundry libraries underneath, such as Workflows, Agents, and Tasks, are

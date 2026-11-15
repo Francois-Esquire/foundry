@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { processAlive } from "@foundry/lib/file-lock";
 import type { JsonValue } from "@foundry/lib/json";
+import {
+  isGone,
+  type ProcessIdentity,
+  sameProcess,
+  thisProcess,
+} from "@foundry/lib/process-identity";
 import {
   bySequence,
   DEFAULT_QUEUE,
@@ -33,13 +38,14 @@ import { ANY_STORED_RUN } from "./run-store";
 /** Unsettled, and this process's to settle. */
 function ownedHere(run: ExecutionRun): boolean {
   return (
-    run.owner.pid === process.pid && !SETTLED_EXECUTION_STATUSES.has(run.status)
+    sameProcess(run.owner, thisProcess()) &&
+    !SETTLED_EXECUTION_STATUSES.has(run.status)
   );
 }
 
-/** Another process that has exited; this process is never one. */
-function exited(pid: number): boolean {
-  return pid !== process.pid && !processAlive(pid);
+/** Whether two records name one owner, start and all, exactly as stored. */
+function sameOwner(one: ProcessIdentity, other: ProcessIdentity): boolean {
+  return one.pid === other.pid && one.started === other.started;
 }
 
 /** How a settled run ends. */
@@ -60,10 +66,10 @@ const UNSETTLED: readonly ExecutionStatus[] = EXECUTION_STATUSES.filter(
  * owned from then on by `newOwner` when that is given.
  */
 function settling(
-  owner: number,
+  owner: ProcessIdentity,
   status: Ending,
   error?: Failure,
-  newOwner?: number
+  newOwner?: ProcessIdentity
 ): LifecycleChange {
   const at = now();
   return {
@@ -354,7 +360,7 @@ export class ExecutionRecords {
       kind: request.kind,
       name: request.name,
       observations: [],
-      owner: { pid: process.pid },
+      owner: thisProcess(),
       queue: request.queue,
       revision: 1,
       sequence: this.#sequence,
@@ -453,7 +459,7 @@ export class ExecutionRecords {
       kind: "workflow",
       name: run.name,
       observations: [],
-      owner: { pid: process.pid },
+      owner: thisProcess(),
       queue: DEFAULT_QUEUE,
       revision: 1,
       sequence,
@@ -478,7 +484,7 @@ export class ExecutionRecords {
       this.#store.transition(id, {
         dropInput: true,
         from: ["queued"],
-        owner: process.pid,
+        owner: thisProcess(),
         startedAt: at,
         status: "running",
         updatedAt: at,
@@ -505,7 +511,7 @@ export class ExecutionRecords {
         id,
         await this.#store.transition(id, {
           from: [status === "running" ? "suspended" : "running"],
-          owner: process.pid,
+          owner: thisProcess(),
           status,
           updatedAt: at,
         })
@@ -513,6 +519,66 @@ export class ExecutionRecords {
     ).catch((error: unknown) => {
       this.#warn(`[state] execution ${id} not saved: ${String(error)}`);
     });
+  }
+
+  /**
+   * Take over a parked run another live process let go once this one held
+   * its Run's claim (`Engine.adopt`): owned here from now on, still parked.
+   * Decided on the stored record in the transaction that writes it: `false`,
+   * changing nothing, when it is no longer parked. Rejects when the store
+   * cannot be read or written, taking nothing.
+   */
+  async takeReleased(id: string): Promise<boolean> {
+    const written = await this.#persist(() =>
+      this.#store.transaction(async (view): Promise<Written> => {
+        const stored = this.#parse(await view.get(id));
+        if (stored?.status !== "suspended") {
+          return { applied: false, record: stored };
+        }
+        return await view.transition(id, {
+          from: ["suspended"],
+          newOwner: thisProcess(),
+          owner: stored.owner,
+          status: "suspended",
+          updatedAt: now(),
+        });
+      })
+    );
+    this.#took(id, written);
+    return written.applied;
+  }
+
+  /**
+   * Make a queued run of this process's `successor`'s, still queued, for it
+   * to let in when it starts (`recover`). Decided on the stored record in
+   * the transaction that writes it: `false`, changing nothing, when it is
+   * no longer queued or no longer this process's. Rejects when the store
+   * cannot be read or written, handing over nothing.
+   */
+  protected async handQueued(
+    id: string,
+    successor: ProcessIdentity
+  ): Promise<boolean> {
+    const written = await this.#persist(() =>
+      this.#store.transaction(async (view): Promise<Written> => {
+        const stored = this.#parse(await view.get(id));
+        if (
+          stored?.status !== "queued" ||
+          !sameProcess(stored.owner, thisProcess())
+        ) {
+          return { applied: false, record: stored };
+        }
+        return await view.transition(id, {
+          from: ["queued"],
+          newOwner: successor,
+          owner: stored.owner,
+          status: "queued",
+          updatedAt: now(),
+        });
+      })
+    );
+    this.#took(id, written);
+    return written.applied;
   }
 
   /**
@@ -524,17 +590,25 @@ export class ExecutionRecords {
    * cannot be read or written, cancelling nothing.
    */
   protected async cancelQueued(id: string): Promise<boolean> {
+    // Whether its owner is gone is judged before the transaction, which
+    // only checks the owner is still the one judged: no process is asked
+    // while the store's write lock is held.
+    const before = this.#parse(await this.#store.get(id));
+    const mayCancel =
+      before !== undefined &&
+      (sameProcess(before.owner, thisProcess()) || isGone(before.owner));
     const written = await this.#persist(() =>
       this.#store.transaction(async (view): Promise<Written> => {
         const stored = this.#parse(await view.get(id));
         if (
           stored?.status !== "queued" ||
-          !(stored.owner.pid === process.pid || exited(stored.owner.pid))
+          !mayCancel ||
+          !sameOwner(stored.owner, before.owner)
         ) {
           return { applied: false, record: stored };
         }
         return await view.transition(id, {
-          ...settling(stored.owner.pid, "cancelled", undefined, process.pid),
+          ...settling(stored.owner, "cancelled", undefined, thisProcess()),
           from: ["queued"],
         });
       })
@@ -564,7 +638,7 @@ export class ExecutionRecords {
     return moves
       ? {
           from: [run.status],
-          owner: process.pid,
+          owner: thisProcess(),
           status,
           updatedAt: now(),
         }
@@ -593,7 +667,7 @@ export class ExecutionRecords {
     if (
       !known ||
       SETTLED_EXECUTION_STATUSES.has(known.status) ||
-      !exited(known.owner.pid)
+      !isGone(known.owner)
     ) {
       return false;
     }
@@ -607,16 +681,17 @@ export class ExecutionRecords {
       const written = await this.#persist(() =>
         this.#store.transaction(async (view): Promise<Written> => {
           const stored = this.#parse(await view.get(id));
+          // Judged gone above, outside the transaction: still that owner.
           if (
             !stored ||
             SETTLED_EXECUTION_STATUSES.has(stored.status) ||
-            !exited(stored.owner.pid)
+            !sameOwner(stored.owner, known.owner)
           ) {
             return { applied: false, record: stored };
           }
           return await view.transition(
             id,
-            settling(stored.owner.pid, "cancelled", undefined, process.pid)
+            settling(stored.owner, "cancelled", undefined, thisProcess())
           );
         })
       );
@@ -650,10 +725,14 @@ export class ExecutionRecords {
     readonly readmit: (run: ExecutionRun) => boolean;
   }): Promise<readonly ExecutionRun[]> {
     const readmitted: ExecutionRun[] = [];
+    // A queued run already this process's as it starts was handed to it by
+    // the process it succeeds (`handQueued`): taken on as an orphan is.
     const orphans = this.list().filter(
       (run) =>
         !SETTLED_EXECUTION_STATUSES.has(run.status) &&
-        (options.adopted.has(run.id) || exited(run.owner.pid))
+        (options.adopted.has(run.id) ||
+          isGone(run.owner) ||
+          (run.status === "queued" && sameProcess(run.owner, thisProcess())))
     );
     for (const orphan of orphans) {
       let taken: { readonly readmit: boolean; readonly written: Written };
@@ -661,7 +740,10 @@ export class ExecutionRecords {
         taken = await this.#persist(() =>
           this.#store.transaction(async (view) => {
             const run = this.#parse(await view.get(orphan.id));
-            const next = run && recovered(run, options);
+            // Judged before the transaction; here only checked unchanged.
+            const next =
+              run &&
+              recovered(run, options, sameOwner(run.owner, orphan.owner));
             if (!next) {
               return {
                 readmit: false,
@@ -719,7 +801,7 @@ export class ExecutionRecords {
     let written: Written;
     try {
       written = await this.#persist(() =>
-        this.#store.transition(id, settling(process.pid, status, error))
+        this.#store.transition(id, settling(thisProcess(), status, error))
       );
     } catch (failure) {
       this.#unsettled.set(id, {
@@ -917,24 +999,22 @@ async function removing(
  */
 function recovered(
   run: ExecutionRun,
-  options: Parameters<ExecutionRecords["recover"]>[0]
+  options: Parameters<ExecutionRecords["recover"]>[0],
+  judgedGone: boolean
 ): { readonly change: LifecycleChange; readonly readmit: boolean } | undefined {
   const ours = options.adopted.has(run.id);
-  if (
-    SETTLED_EXECUTION_STATUSES.has(run.status) ||
-    !(ours || exited(run.owner.pid))
-  ) {
+  if (SETTLED_EXECUTION_STATUSES.has(run.status) || !(ours || judgedGone)) {
     return;
   }
   const at = now();
   const from = [run.status];
-  const owner = run.owner.pid;
+  const { owner } = run;
   if (ours) {
     // Its Run is parked: the record may have missed the park.
     return {
       change: {
         from,
-        newOwner: process.pid,
+        newOwner: thisProcess(),
         owner,
         status: run.status === "running" ? "suspended" : run.status,
         updatedAt: at,
@@ -947,7 +1027,7 @@ function recovered(
       ? {
           change: {
             from,
-            newOwner: process.pid,
+            newOwner: thisProcess(),
             owner,
             status: "queued",
             updatedAt: at,
@@ -972,7 +1052,7 @@ function recovered(
         owner,
         ending,
         ending === "interrupted" ? INTERRUPTED : undefined,
-        process.pid
+        thisProcess()
       ),
       from,
     },

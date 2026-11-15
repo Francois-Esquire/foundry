@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { compareStarts } from "@foundry/lib/process-identity";
 import {
   notPrivate,
   SPAWN_OWNER_ENV,
@@ -154,7 +155,9 @@ function isOver(root: string): boolean {
   }
   const started = startedAt(owner.pid);
   return (
-    started === null || (started !== undefined && started !== owner.started)
+    started === null ||
+    (started !== undefined &&
+      compareStarts(started, owner.started) === "different")
   );
 }
 

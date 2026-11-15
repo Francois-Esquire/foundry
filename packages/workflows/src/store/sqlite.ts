@@ -18,6 +18,7 @@ import type {
 } from "drizzle-orm/sqlite-core";
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 
+import { detached } from "../detached";
 import { defineOwnEntry } from "../own-entry";
 import type {
   JobRecord,
@@ -618,6 +619,7 @@ function owned(write: WorkflowStoreWrite): OwnedWrite {
     deleteRunFrames,
     deleteRuns,
     deleteSuspensions,
+    events,
     putFrames,
     putJobs,
     putQueues,
@@ -660,6 +662,8 @@ function owned(write: WorkflowStoreWrite): OwnedWrite {
       deleteRunFrames: [...(deleteRunFrames ?? [])],
       deleteRuns: [...(deleteRuns ?? [])],
       deleteSuspensions: [...(deleteSuspensions ?? [])],
+      // Kept for `onCommit` only; no row holds them.
+      ...(events === undefined ? {} : { events: detached(events) }),
       ...(putFrames === undefined ? {} : { putFrames: records(frames) }),
       ...(putJobs === undefined ? {} : { putJobs: records(jobs) }),
       ...(putQueues === undefined ? {} : { putQueues: records(queues) }),

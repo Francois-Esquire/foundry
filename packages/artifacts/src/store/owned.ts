@@ -1,3 +1,5 @@
+import { ownedWrite as withOwnedEvents } from "@foundry/lib/plain-json";
+
 import type { ArtifactRecords, Blob } from "../schema";
 import type { ArtifactStoreWrite } from "./index";
 
@@ -10,10 +12,14 @@ import type { ArtifactStoreWrite } from "./index";
  * handed out, would change what the store holds. Inline bytes are the one
  * place the record schema admits a byte buffer; metadata is plain JSON.
  *
- * Throws what the clone throws, for a write holding a value it refuses.
+ * Throws what the clone throws, for a write holding a value it refuses, and
+ * a `TypeError` for events that are not plain JSON (`ownedEvents` in
+ * `@foundry/lib/plain-json`).
  */
 export function ownedWrite(write: ArtifactStoreWrite): ArtifactStoreWrite {
-  const copy = structuredClone(write);
+  // Events are taken first, as the plain JSON a host is handed, since the
+  // clone would turn a class instance into a plain object.
+  const copy = withOwnedEvents(write);
   return copy.putBlobs === undefined
     ? copy
     : { ...copy, putBlobs: copy.putBlobs.map(ownedBlob) };

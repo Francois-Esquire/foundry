@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { lockHolder } from "@foundry/lib/file-lock";
+import { holdsLock } from "@foundry/lib/file-lock";
 
 import { and, asc, eq } from "drizzle-orm";
 import { IncompatibleDatabaseError } from "~/database/migrate";
@@ -169,9 +169,9 @@ const HOST_WAIT_MS = 5000;
 const HOST_RETRY_MS = 50;
 
 /**
- * The database for a program that writes a workspace's state: a worker of
- * the Marbles process, a program hosting a workspace itself, or a command
- * changing a workspace's tasks with no worker hosting it. Such a writer may
+ * The database for a program that writes a workspace's state: an engine
+ * generation of the Marbles process, a program hosting a workspace itself,
+ * or a command changing a workspace's tasks with no generation hosting it. Such a writer may
  * make and migrate the database, but only while it holds the state root's
  * process lock, the one the Marbles process claims for its lifetime
  * (`PROCESS_LOCK`). It takes it atomically, makes or migrates the database
@@ -204,7 +204,7 @@ export async function openHostDatabase(
     }
     // This process holds the lock already (a host that claimed it as
     // `claimProcess` does), so it is the one that may migrate.
-    if (lockHolder(join(root, "locks", PROCESS_LOCK)) === process.pid) {
+    if (holdsLock(join(root, "locks", PROCESS_LOCK))) {
       return await initializeDatabase(file, options);
     }
     let opened: MarblesDatabase | undefined;

@@ -9,6 +9,7 @@ import type {
   ClaudeCodeSettings,
 } from "ai-sdk-provider-claude-code";
 import { createClaudeCode } from "ai-sdk-provider-claude-code";
+import { spawnRecordedCli, withCliStderr } from "./claude-code-spawn";
 import { CLAUDE_CODE_FRESH } from "./cost";
 import { liveEnvironmentOverlay } from "./environment";
 import type { Provider } from "./provider";
@@ -91,6 +92,8 @@ export function claudeCodeProvider(
       return markFreshCalls(
         vendor.client.languageModel(modelId, {
           env: liveEnvironmentOverlay(options.env, undefined),
+          // Recorded, so a start after this host died stops a CLI it left.
+          spawnClaudeCodeProcess: spawnRecordedCli,
           ...(opts?.workingDirectory ? { cwd: opts.workingDirectory } : {}),
           ...(limit === undefined ? {} : { maxTurns: limit }),
         })
@@ -138,7 +141,9 @@ function marked(
 }
 
 /**
- * Mark the call that resumed no session (see `CLAUDE_CODE_FRESH`). The
+ * Mark the call that resumed no session (see `CLAUDE_CODE_FRESH`), and
+ * give each call's error what the CLI it started wrote to stderr
+ * (`withCliStderr`). The
  * settings are the instance's own, default settings merged in. Only the
  * first call on an instance can be fresh: once a call has started, the
  * instance resumes the session the CLI opened for it. Every other call is
@@ -159,17 +164,15 @@ function markFreshCalls(model: LanguageModelV4): LanguageModelV4 {
       specificationVersion: "v4",
       async wrapGenerate({ doGenerate }) {
         const own = fresh();
-        const result = await doGenerate();
+        const result = await withCliStderr(doGenerate).result;
         return own
           ? { ...result, providerMetadata: marked(result.providerMetadata) }
           : result;
       },
       async wrapStream({ doStream }) {
         const own = fresh();
-        const result = await doStream();
-        if (!own) {
-          return result;
-        }
+        const call = withCliStderr(doStream);
+        const result = await call.result;
         return {
           ...result,
           stream: result.stream.pipeThrough(
@@ -178,14 +181,19 @@ function markFreshCalls(model: LanguageModelV4): LanguageModelV4 {
               LanguageModelV4StreamPart
             >({
               transform(part, controller) {
-                controller.enqueue(
-                  part.type === "finish"
-                    ? {
-                        ...part,
-                        providerMetadata: marked(part.providerMetadata),
-                      }
-                    : part
-                );
+                if (part.type === "error") {
+                  controller.enqueue({
+                    ...part,
+                    error: call.explain(part.error),
+                  });
+                } else if (own && part.type === "finish") {
+                  controller.enqueue({
+                    ...part,
+                    providerMetadata: marked(part.providerMetadata),
+                  });
+                } else {
+                  controller.enqueue(part);
+                }
               },
             })
           ),

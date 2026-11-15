@@ -335,3 +335,38 @@ export const summarySchema = z.object({
   subjectSessionId: recordId,
 });
 export type Summary = z.infer<typeof summarySchema>;
+
+// ---------------------------------------------------------------------------
+// Change events: what `Sessions` records that it changed, carried in the
+// store write that changes it.
+// ---------------------------------------------------------------------------
+
+/** What every change event carries: its own id, and when the change happened. */
+const changeEventFields = {
+  /** When the change happened, as the record it changed stamps it. */
+  at: z.iso.datetime(),
+  /** Unique to this event. */
+  id: recordId,
+  sessionId: recordId,
+};
+
+/**
+ * One past change to a session, built by `Sessions` and carried in the
+ * store write that makes it (`SessionStoreWrite.events`), so a host's
+ * `onCommit` can record it with the change. Ids only, never message bodies:
+ *
+ * - `session.created`: a session was filed.
+ * - `session.updated`: its title or status changed.
+ * - `session.messages.appended`: one commit filed these new messages in it,
+ *   in order (a message appended, or a summary folding the history).
+ */
+export const sessionChangeEventSchema = z.discriminatedUnion("type", [
+  z.object({ ...changeEventFields, type: z.literal("session.created") }),
+  z.object({ ...changeEventFields, type: z.literal("session.updated") }),
+  z.object({
+    ...changeEventFields,
+    messageIds: z.array(recordId).min(1),
+    type: z.literal("session.messages.appended"),
+  }),
+]);
+export type SessionChangeEvent = z.infer<typeof sessionChangeEventSchema>;

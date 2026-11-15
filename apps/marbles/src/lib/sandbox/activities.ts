@@ -58,6 +58,11 @@ export interface ActivityStore {
   put(key: string, record: ActivityRecord): Promise<void>;
 }
 
+/** What an activity is while its harness may still change it. */
+const OPEN_STATUSES: ReadonlySet<string> = new Set(["running", "waiting"]);
+/** What an activity closed out after its process exited says. */
+const CLOSED_OUT = "its process exited while it was running";
+
 /** A dashboard projection. The complete activity history remains in the session store. */
 export class HarnessActivities {
   readonly #records = new Map<string, ActivityRecord>();
@@ -166,11 +171,48 @@ export class HarnessActivities {
     }
   }
 
+  /**
+   * Close out what a process that is gone left running: each activity kept
+   * `running` or `waiting` whose run has ended (`ended`), and that no
+   * session here reports, is kept `failed`, saying why, at its next
+   * revision, with nothing left to stop. Nothing is published: there is no
+   * change to tell, only a stale record put right. A store that cannot
+   * take one rejects, keeping those closed out so far; running it again
+   * closes the rest. Returns how many it closed out.
+   */
+  async closeOut(ended: (runId: string) => boolean): Promise<number> {
+    let closed = 0;
+    for (const [key, record] of this.#records) {
+      const { event, source } = record;
+      if (
+        !OPEN_STATUSES.has(event.status) ||
+        this.#observed.get(event.sessionId)?.has(event.id) ||
+        !ended(source.runId)
+      ) {
+        continue;
+      }
+      const next: ActivityRecord = {
+        event: {
+          ...event,
+          actions: [],
+          revision: event.revision + 1,
+          status: "failed",
+          summary: CLOSED_OUT,
+        },
+        source,
+      };
+      await this.#store?.put(key, next);
+      this.#records.set(key, next);
+      closed += 1;
+    }
+    return closed;
+  }
+
   list(): readonly ActivityRecord[] {
     return [...this.#records.values()].map((record) => {
       if (
         this.#observed.get(record.event.sessionId)?.has(record.event.id) ||
-        !["running", "waiting"].includes(record.event.status)
+        !OPEN_STATUSES.has(record.event.status)
       ) {
         return record;
       }

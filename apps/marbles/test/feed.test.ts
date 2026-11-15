@@ -360,7 +360,7 @@ describe("abandoned questions", () => {
     const sweeper = feedPublisher(
       reopened.artifacts,
       { ...workspace(), name: "a" },
-      { isAlive: () => false }
+      { gone: () => true }
     );
     expect(await sweeper.cancelAbandoned()).toBe(1);
     expect(
@@ -384,19 +384,15 @@ describe("abandoned questions", () => {
       title: key,
     });
     const source = { definition: "d", path: ["d"], runId: "rn-1" };
-    await feedPublisher(artifacts, site, { pid: 111 }).publishInput(
-      question("crashed"),
-      source,
-      { status: "open" }
-    );
-    await feedPublisher(artifacts, site, { pid: 222 }).publishInput(
-      question("running"),
-      source,
-      { status: "open" }
-    );
+    await feedPublisher(artifacts, site, {
+      owner: { pid: 111, started: null },
+    }).publishInput(question("crashed"), source, { status: "open" });
+    await feedPublisher(artifacts, site, {
+      owner: { pid: 222, started: null },
+    }).publishInput(question("running"), source, { status: "open" });
 
     const sweeper = feedPublisher(artifacts, site, {
-      isAlive: (pid) => pid === 222,
+      gone: (owner) => owner.pid !== 222,
     });
     await expect(sweeper.cancelAbandoned()).resolves.toBe(1);
     await expect(sweeper.cancelAbandoned()).resolves.toBe(0);

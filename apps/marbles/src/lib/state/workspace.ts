@@ -23,7 +23,7 @@ export interface WorkspaceRecord {
   /** Where the workspace's runs start and its commands run: its root unless registered otherwise. */
   readonly cwd: string;
   readonly firstSeen: string;
-  /** The Marbles process starts a worker for it. */
+  /** Registered with the Marbles process, whose engine generations host it. */
   readonly hosted: boolean;
   readonly id: string;
   readonly lastSeen: string;

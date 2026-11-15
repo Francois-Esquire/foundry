@@ -10,8 +10,12 @@ import type {
 } from "@foundry/artifacts";
 import { artifactIdSchema } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
-import { processAlive } from "@foundry/lib/file-lock";
 import { collectPages } from "@foundry/lib/pagination";
+import {
+  isGone,
+  type ProcessIdentity,
+  thisProcess,
+} from "@foundry/lib/process-identity";
 import { z } from "zod";
 import {
   ASK_MODES,
@@ -83,9 +87,10 @@ const feedMetadataSchema = z.object({
       /** Approval requests permission; a question requests input. Absent on old entries. */
       mode: z.enum(ASK_MODES).optional(),
       note: z.string().optional(),
-      /** While open: the process that can answer it. */
+      /** While open: the process that can answer it, by pid and start time. */
       pid: z.number().int().optional(),
       sessionId: z.string().optional(),
+      started: z.string().nullable().optional(),
       status: z.enum(INPUT_STATUSES),
     })
     .optional(),
@@ -130,11 +135,12 @@ export function feedPublisher(
   workspace: FeedWorkspace,
   options: {
     /** Recorded on open questions; defaults to this process. */
-    readonly pid?: number;
-    readonly isAlive?: (pid: number) => boolean;
+    readonly owner?: ProcessIdentity;
+    /** Whether an owner recorded on a question is gone; `isGone` by default. */
+    readonly gone?: (owner: ProcessIdentity) => boolean;
   } = {}
 ): FeedPublisher {
-  const { pid = process.pid, isAlive = processAlive } = options;
+  const { gone = isGone, owner = thisProcess() } = options;
   let queue: Promise<unknown> = Promise.resolve();
   function serialized<T>(write: () => Promise<T>): Promise<T> {
     const next = queue.then(write);
@@ -198,11 +204,12 @@ export function feedPublisher(
         !saved ||
         input?.status !== "open" ||
         input.delivery === "deferred" ||
-        (input.pid !== undefined && isAlive(input.pid))
+        (input.pid !== undefined &&
+          !gone({ pid: input.pid, started: input.started ?? null }))
       ) {
         continue;
       }
-      const { pid: _owner, ...rest } = input;
+      const { pid: _owner, started: _started, ...rest } = input;
       const feed: FeedMetadata = {
         ...saved,
         input: { ...rest, status: "cancelled" },
@@ -244,7 +251,7 @@ export function feedPublisher(
         ...(question.delivery ? { delivery: question.delivery } : {}),
         mode: question.mode,
         ...(state.status === "open" && question.delivery !== "deferred"
-          ? { pid }
+          ? { pid: owner.pid, started: owner.started }
           : {}),
       };
       return serialized(() =>

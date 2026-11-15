@@ -1,3 +1,4 @@
+import { thisProcess } from "@foundry/lib/process-identity";
 /**
  * A starting engine decides to adopt a parked Run in the same atomic step
  * as its claim on it: a Run that moved on after the scan that found it,
@@ -81,7 +82,7 @@ async function parkedByAnOwner() {
     kind: "workflow",
     name: "flow",
     observations: [],
-    owner: { pid: spawnSync("true").pid ?? 0 },
+    owner: { pid: spawnSync("true").pid ?? 0, started: null },
     queue: "marbles",
     revision: 3,
     sequence: 1,
@@ -167,8 +168,8 @@ it("does not adopt a parked Run whose Execution Run settled after the scan", asy
       // A canceller settles it between the scan and the claim.
       await executions.transition("rn-1", {
         from: ["suspended"],
-        newOwner: process.pid,
-        owner: execution.owner.pid,
+        newOwner: thisProcess(),
+        owner: execution.owner,
         settledAt: execution.timestamps.updatedAt,
         status: "cancelled",
         updatedAt: execution.timestamps.updatedAt,

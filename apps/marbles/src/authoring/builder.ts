@@ -12,6 +12,7 @@ import type {
   StepFn,
 } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
+import { observable, RUNS } from "~/lib/events/source";
 import type { Input, Output } from "~/lib/schema";
 import { inputKeysOf } from "~/lib/schema";
 import { timeoutMs } from "~/lib/tree";
@@ -338,3 +339,6 @@ export function workflow(
   }
   return finishWorkflow(identity, undefined, undefined, () => tree);
 }
+
+// The word is also the source of its Runs' change facts, for `observe`.
+observable(workflow, RUNS);

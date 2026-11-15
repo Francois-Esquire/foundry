@@ -1,3 +1,4 @@
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { ExecutionCoordinator } from "@foundry/workflows";
 import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { and, eq } from "drizzle-orm";
@@ -161,10 +162,13 @@ export async function seedTicks(
 
 /** A workspace's Run as the Marbles database keeps it, for a test to count. */
 export interface ListedRun {
+  /** In ms since the epoch. */
+  readonly createdAt: number;
   readonly id: string;
   /** The process of the engine that owns it; `null` when none does. */
-  readonly owner: number | null;
+  readonly owner: ProcessIdentity | null;
   readonly status: string;
+  readonly step: string;
 }
 
 /**
@@ -179,8 +183,10 @@ export async function readStoredRuns(
     view.runs()
   );
   return (runs ?? []).map(({ value }) => ({
+    createdAt: value.record.timestamps.createdAt,
     id: value.record.id,
-    owner: value.ownerPid,
+    owner: value.owner,
     status: value.record.status,
+    step: value.record.step,
   }));
 }

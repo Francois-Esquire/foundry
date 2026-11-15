@@ -13,13 +13,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
+import { startedAt } from "../process-identity";
 import {
   execFileRecorded,
   notPrivate,
   recordSpawned,
   SPAWN_OWNER_ENV,
   SPAWN_RECORD_ENV,
-  startedAt,
 } from "../spawn-record";
 
 const made: string[] = [];

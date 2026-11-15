@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "486aa13d-b7f3-4229-a93a-3c23ba4a98be",
+  "id": "19bbeee3-8966-4779-b80e-6efb616ec785",
   "prevId": "d129c632-4bbd-4ce9-89f7-5511b7c06eb1",
   "tables": {
     "agent_messages": {
@@ -951,6 +951,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "holder": {
+          "name": "holder",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },
@@ -2109,6 +2116,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "owner_started": {
+          "name": "owner_started",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "scope": {
           "name": "scope",
           "type": "text",
@@ -2297,6 +2311,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "owner_started": {
+          "name": "owner_started",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "progress": {
@@ -2556,67 +2577,34 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "marbles_resource_workspaces": {
-      "name": "marbles_resource_workspaces",
+    "marbles_recoveries": {
+      "name": "marbles_recoveries",
       "columns": {
-        "associated_at": {
-          "name": "associated_at",
+        "at": {
+          "name": "at",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "kind": {
-          "name": "kind",
+        "scope": {
+          "name": "scope",
           "type": "text",
-          "primaryKey": false,
+          "primaryKey": true,
           "notNull": true,
           "autoincrement": false
         },
-        "owner": {
-          "name": "owner",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "resource_id": {
-          "name": "resource_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workspace": {
-          "name": "workspace",
+        "steps": {
+          "name": "steps",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         }
       },
-      "indexes": {
-        "marbles_resource_workspaces_kind_workspace": {
-          "name": "marbles_resource_workspaces_kind_workspace",
-          "columns": [
-            "kind",
-            "workspace"
-          ],
-          "isUnique": false
-        }
-      },
+      "indexes": {},
       "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "marbles_resource_workspaces_owner_kind_resource_id_workspace_pk": {
-          "columns": [
-            "owner",
-            "kind",
-            "resource_id",
-            "workspace"
-          ],
-          "name": "marbles_resource_workspaces_owner_kind_resource_id_workspace_pk"
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -2682,6 +2670,13 @@
         "owner_pid": {
           "name": "owner_pid",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "owner_started": {
+          "name": "owner_started",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -2931,6 +2926,13 @@
         "owner_pid": {
           "name": "owner_pid",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "owner_started": {
+          "name": "owner_started",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

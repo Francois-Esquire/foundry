@@ -12,7 +12,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { processAlive } from "@foundry/lib/file-lock";
+import { lockContents } from "@foundry/lib/file-lock";
+import { processAlive } from "@foundry/lib/process-identity";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { WorkspaceState } from "../../src/lib/state";
 import {
@@ -73,7 +74,7 @@ it("refuses a lock held by another live process, and says which file to remove",
 it("takes over a lock whose process has exited", () => {
   writeFileSync(lock, String(exitedProcess()));
   const release = lockState(state);
-  expect(readFileSync(lock, "utf8")).toBe(String(process.pid));
+  expect(readFileSync(lock, "utf8")).toBe(lockContents());
   release();
   expect(existsSync(lock)).toBe(false);
 });
@@ -218,8 +219,8 @@ it("locks every workspace of a collection, and releases them all once", async ()
   );
   const release = lockStates(collection);
   expect(locks.map((path) => readFileSync(path, "utf8"))).toEqual([
-    String(process.pid),
-    String(process.pid),
+    lockContents(),
+    lockContents(),
   ]);
   release();
   expect(locks.some((path) => existsSync(path))).toBe(false);

@@ -157,11 +157,12 @@ export function formatPosted(at: Date, now: Date): string {
 
 /**
  * The input entry's state for a reader: the stored metadata without the
- * question body (the article carries it) and the owning pid (bookkeeping).
+ * question body (the article carries it) and the owning process (bookkeeping).
  */
 function inputSnapshot({
   body: _body,
   pid: _pid,
+  started: _started,
   ...input
 }: NonNullable<FeedMetadata["input"]>): NonNullable<
   FeedEntrySnapshot["input"]

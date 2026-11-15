@@ -42,9 +42,10 @@ when their source must not load at startup.
 ```
 
 Keep top-level code to declarations. Start servers and other work in step
-bodies, rather than during module import. Discovery runs when the
-workspace's worker starts, and the worker restarts itself when anything
-under the folder changes.
+bodies, rather than during module import. Discovery runs when an engine
+generation loads the workspace, and the Marbles process starts the next
+generation when anything under the folder, or any module or data file the
+load read elsewhere, changes.
 
 ## Setup
 
@@ -98,13 +99,13 @@ from the Keychain:
 FIGMA_TOKEN=exec(`security find-generic-password -s figma -w`)
 ```
 
-The workspace's worker in the Marbles process, and `list`, load the schema
+The Marbles process's engine generation, and `list`, load the schema
 before importing authoring modules, using the workspace's own `varlock` or
 one on `PATH`. Resolved values become the workspace's environment: every
 run of the workspace carries it, and the commands its steps run (`exec`),
 its CLI harnesses and its sandboxes inherit it, beneath values already set
-in the Marbles process, which win. A worker starts from the environment of
-the Marbles process, not of the command that attached it. Marbles resolves
+in the Marbles process, which win. A generation starts from the environment
+of the Marbles process, not of the command that attached it. Marbles resolves
 secrets each time a workspace loads, so after every source reload, and does
 not persist the loaded values. Without a schema, the workspace's
 environment is the Marbles process's.
@@ -117,7 +118,7 @@ in the Marbles process and reads `process.env` for its keys, such as Pi's.
 Pass a value to a command through `exec`, or set it in the environment the
 Marbles process starts with.
 
-A value that does not resolve is a warning in the worker and in `list`:
+A value that does not resolve is a warning in the engine generation and in `list`:
 what is missing is printed and loading continues; work that needs the value
 can still fail. `roll --dry-run` stops instead. `help`, `init`, `mcp`,
 `status`, `sessions`, `tasks`, `watch`, `daemon`, and `stop` do not load

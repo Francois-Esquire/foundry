@@ -132,18 +132,25 @@ export const taskDeltaSchema = z
 export type TaskDelta = z.infer<typeof taskDeltaSchema>;
 
 /**
- * What one committed write changed: each task it put or removed, once, with
- * the record before and after the whole write, and the dependency edges it
- * added or removed. A task an operation only named is not in it, and an
- * edge added and removed again in one batch is in neither list.
+ * What one committed write changed, as the change fact `Tasks` builds and
+ * carries in the write (`TaskStoreWrite.events`): each task it put or
+ * removed, once, with the record before and after the whole write, and the
+ * dependency edges it added or removed. A task an operation only named is
+ * not in it, and an edge added and removed again in one batch is in
+ * neither list. `id` is unique to the fact; `at` is when it was built, an
+ * ISO time, which cannot order commits.
  */
 export const taskEventSchema = z
   .strictObject({
+    /** When the change was built, in ISO form. */
+    at: z.iso.datetime(),
     dependencies: z
       .strictObject({ added: dependencies, removed: dependencies })
       .readonly(),
-    kind: z.literal("tasks.changed"),
+    /** Unique to this fact. */
+    id: z.string().min(1),
     tasks: z.array(taskDeltaSchema).readonly(),
+    type: z.literal("tasks.changed"),
   })
   .readonly();
 export type TaskEvent = z.infer<typeof taskEventSchema>;
@@ -163,11 +170,13 @@ export const taskStoreWriteSchema = z
     deleteDependencies: dependencies.exactOptional(),
     deleteTasks: z.array(taskIdSchema).readonly().exactOptional(),
     /**
-     * What the write changes, present whenever it changes anything. A store
-     * that records changes keeps it in the same atomic write; one that does
-     * not ignores it.
+     * What the write changes, one fact, present whenever it changes
+     * anything. A store keeps none; every store takes them when `commit` is
+     * called as plain JSON (`ownedEvents` in `@foundry/lib/plain-json`),
+     * refusing a write whose events are not, and `SqliteTaskStore` hands
+     * them to `onCommit`, so a host records them in the same atomic write.
      */
-    event: taskEventSchema.exactOptional(),
+    events: z.array(taskEventSchema).readonly().exactOptional(),
     putDependencies: dependencies.exactOptional(),
     putTasks: z.array(storedTask).readonly().exactOptional(),
   })

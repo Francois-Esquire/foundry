@@ -1,5 +1,5 @@
+import { ownedEvents } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
-
 import type { SessionMessage, SessionRecord } from "../schema";
 import type { SessionStore, SessionStoreWrite } from "./index";
 
@@ -129,6 +129,9 @@ interface Copied {
 }
 
 function copyOf(write: SessionStoreWrite): Copied {
+  // The store keeps no event, but takes them by the rule every store does,
+  // so a write whose events break it is refused whole.
+  ownedEvents(write.events);
   return {
     messages: (write.putMessages ?? []).map((m) => structuredClone(m)),
     sessions: (write.putSessions ?? []).map((s) => structuredClone(s)),

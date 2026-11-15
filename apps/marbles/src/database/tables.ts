@@ -1,4 +1,3 @@
-import type { TaskEvent } from "@foundry/tasks";
 import {
   index,
   integer,
@@ -39,45 +38,81 @@ export const marblesWorkspaces = sqliteTable("marbles_workspaces", {
 });
 
 /**
- * Every change a workspace's tasks committed, as the `TaskEvent` the write
- * carried, for the workspace's observers: written by the task store's
- * `onCommit` hook in the commit's own transaction, so a change and its row
- * land together or not at all. `scope` is the workspace id, as on the
- * tasks' own rows; `position` is the order the changes were committed in.
- * Nothing removes a row.
+ * The workspace's change log: every change fact a store of the workspace
+ * committed, whatever package built it (`source`: tasks, runs, artifacts,
+ * sandboxes, sessions, workspaces), as the fact the write carried, for the
+ * workspace's observers. Written by each store's `onCommit` hook in the
+ * commit's own transaction (`database/changes.ts`), so a change and its
+ * fact land together or not at all. `scope` is the workspace id;
+ * `position` is the order the facts were committed in, taken from the
+ * workspace's counter (`marbles_change_logs`), never reused, so a fact
+ * compaction removed leaves a gap. `run_id` is the run whose work made the
+ * change, when one did; `recorded_at` is when it committed, in epoch ms,
+ * which compaction ages it by.
  */
-export const marblesTaskChanges = sqliteTable(
-  "marbles_task_changes",
+export const marblesChanges = sqliteTable(
+  "marbles_changes",
   {
     id: text().notNull(),
-    payload: text({ mode: "json" }).$type<TaskEvent>().notNull(),
+    payload: text({ mode: "json" }).$type<unknown>().notNull(),
     position: integer().notNull(),
+    recordedAt: integer("recorded_at").notNull(),
+    runId: text("run_id"),
     scope: text().notNull(),
+    source: text().notNull(),
+    type: text().notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.scope, table.id] }),
-    index("marbles_task_changes_scope_position").on(
+    primaryKey({ columns: [table.scope, table.position] }),
+    index("marbles_changes_scope_source_position").on(
       table.scope,
+      table.source,
       table.position
     ),
   ]
 );
 
 /**
- * Which observers completed which change: one row per change and the hash
- * of the handler that completed it (see `lib/events/delivery.ts`). Nothing
- * removes a row.
+ * Each workspace's change counter: the last position given to a fact
+ * (`position`) and the highest position compaction removed (`compacted`,
+ * 0 before any), one row per workspace. Positions come from here, not from
+ * the facts that survive, so none is given twice.
  */
-export const marblesTaskChangeDeliveries = sqliteTable(
-  "marbles_task_change_deliveries",
+export const marblesChangeLogs = sqliteTable("marbles_change_logs", {
+  compacted: integer().notNull().default(0),
+  position: integer().notNull().default(0),
+  scope: text().primaryKey(),
+});
+
+/**
+ * Each observer of a workspace's changes, by its identity (workspace,
+ * source, name), and how far it has got: `position` is the last fact of
+ * its source it completed, or passed over; a new observer starts at the
+ * counter, so from now. A failing observer keeps its position and counts
+ * its `failures` since the last success, with the error and when it is
+ * tried again (`retry_at`, epoch ms); one that fell behind compaction says
+ * which facts it missed (`missed_from`..`missed_through`). One whose call
+ * passed its time limit and has not settled says since when
+ * (`stuck_since`, epoch ms). `seen_at` is
+ * when an engine last declared it, in epoch ms: only an observer seen
+ * within the retention holds compaction back.
+ */
+export const marblesObservers = sqliteTable(
+  "marbles_observers",
   {
-    changeId: text("change_id").notNull(),
-    handler: text().notNull(),
+    failures: integer().notNull().default(0),
+    lastError: text("last_error"),
+    missedFrom: integer("missed_from"),
+    missedThrough: integer("missed_through"),
+    name: text().notNull(),
+    position: integer().notNull(),
+    retryAt: integer("retry_at"),
     scope: text().notNull(),
+    seenAt: integer("seen_at").notNull(),
+    source: text().notNull(),
+    stuckSince: integer("stuck_since"),
   },
-  (table) => [
-    primaryKey({ columns: [table.scope, table.changeId, table.handler] }),
-  ]
+  (table) => [primaryKey({ columns: [table.scope, table.source, table.name] })]
 );
 
 /**
@@ -104,7 +139,7 @@ export const marblesSessionRevisions = sqliteTable(
  * recorded (its ledger, each node's literal input, the run's session), so
  * a parked run rebuilt in a later process finds the same sessions and
  * artifacts, and the engine that owns the Run (`owner_id`, unique per
- * engine, and its process, `owner_pid`), null once no engine does. Written
+ * engine, and its process, `owner_pid` and `owner_started`), null once no engine does. Written
  * by the workflow store's `onCommit` hook in the commit's own transaction
  * (`database/runs.ts`), and by a claim in a transaction of its own. A row
  * goes with its Run.
@@ -118,6 +153,7 @@ export const marblesWorkflowRuns = sqliteTable(
       .notNull(),
     ownerId: text("owner_id"),
     ownerPid: integer("owner_pid"),
+    ownerStarted: text("owner_started"),
     runId: text("run_id").notNull(),
     scope: text().notNull(),
     sessionId: text("session_id"),
@@ -132,7 +168,7 @@ export const marblesWorkflowRuns = sqliteTable(
  * Each schedule's and monitor's tick, by the trigger's key, as a newer
  * engine declaring the same trigger finds it: how its last tick went (all
  * null until the first one has run), and the engine whose tick is under
- * way (`owner_id`, unique per engine, and its process, `owner_pid`), null
+ * way (`owner_id`, unique per engine, and its process, `owner_pid` and `owner_started`), null
  * between ticks. Written by `database/triggers.ts`, a claim and a finished
  * tick each in a transaction of its own.
  */
@@ -148,6 +184,7 @@ export const marblesScheduleTicks = sqliteTable(
     nextDue: text("next_due"),
     ownerId: text("owner_id"),
     ownerPid: integer("owner_pid"),
+    ownerStarted: text("owner_started"),
     scope: text().notNull(),
   },
   (table) => [primaryKey({ columns: [table.scope, table.key] })]
@@ -232,7 +269,7 @@ export const marblesAutomations = sqliteTable(
  * Every Execution Run a workspace retains, one per id: what launched it
  * (`kind`, `name`, `queue`, the caller's `source` and `correlation`), where
  * it is (`status`, `progress`, `error_*`, the times), the process that owns
- * it while it is unsettled (`owner_pid`), its admission order
+ * it while it is unsettled (`owner_pid` and `owner_started`), its admission order
  * (`sequence`), and the `revision` every change raises. `input` and
  * `progress` are JSON text, `null` included; SQL NULL when the run has
  * none. Its observations are rows of their own
@@ -254,6 +291,7 @@ export const marblesExecutions = sqliteTable(
     kind: text({ enum: ["workflow", "task"] }).notNull(),
     name: text().notNull(),
     ownerPid: integer("owner_pid").notNull(),
+    ownerStarted: text("owner_started"),
     progress: text(),
     queue: text().notNull(),
     queuedAt: text("queued_at").notNull(),
@@ -401,14 +439,17 @@ export const marblesHarnessActivities = sqliteTable(
 );
 
 /**
- * Which engine delivers a workspace's task changes to its observers: the
- * engine (`owner_id`, unique per engine) and its process (`owner_pid`),
+ * Which engine delivers a workspace's changes to its observers: the
+ * engine (`owner_id`, unique per engine) and its process (`owner_pid` and
+ * `owner_started`, its start time, so a pid given to another since is not
+ * taken for it),
  * null once it let go. A claim is a transaction that reads the row and
  * takes it; an owner whose process has exited holds nothing.
  */
 export const marblesDeliveryClaims = sqliteTable("marbles_delivery_claims", {
   ownerId: text("owner_id"),
   ownerPid: integer("owner_pid"),
+  ownerStarted: text("owner_started"),
   scope: text().primaryKey(),
 });
 
@@ -438,4 +479,47 @@ export const marblesResourceWorkspaces = sqliteTable(
       table.workspace
     ),
   ]
+);
+
+/**
+ * What a workspace's last engine start put right after a crash, step by
+ * step (`RecoveryReport`): one row per workspace, replaced at each start,
+ * which `marbles status` shows. Written by `database/recoveries.ts`.
+ */
+export const marblesRecoveries = sqliteTable("marbles_recoveries", {
+  at: text().notNull(),
+  scope: text().primaryKey(),
+  steps: text({ mode: "json" }).$type<unknown>().notNull(),
+});
+
+/**
+ * Every engine generation the Marbles process has started: one engine
+ * subprocess hosting every registered workspace. Owners in the other
+ * tables are process identities, and a generation is one process, so the
+ * runs, tick claims and delivery claims a generation owns are those whose
+ * owner is its `pid` and `started`; this row is what numbers it and says
+ * how it is doing. `state` is `loading` while it loads every registered
+ * workspace, `current` once it took over, `retiring` while it finishes
+ * the runs it had when the next took over, `failed` when it did not load,
+ * and `exited` once its process is gone. `fingerprint` is what it loaded:
+ * the installation and every workspace's source.
+ */
+export const marblesGenerations = sqliteTable(
+  "marbles_generations",
+  {
+    createdAt: text("created_at").notNull(),
+    /** Why it failed, or died. */
+    error: text(),
+    fingerprint: text().notNull(),
+    number: integer().primaryKey({ autoIncrement: true }),
+    /** Its process; 0 until spawned. */
+    pid: integer().notNull(),
+    /** Its process's start, as `ProcessIdentity` keeps it; null until it said. */
+    started: text(),
+    state: text({
+      enum: ["loading", "current", "retiring", "failed", "exited"],
+    }).notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [index("marbles_generations_state_idx").on(table.state)]
 );

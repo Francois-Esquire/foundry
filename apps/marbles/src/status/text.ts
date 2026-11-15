@@ -26,13 +26,78 @@ export function workspaceLines(workspace: WorkspaceStatus): string[] {
           ]),
     ]),
     ...(workspace.runs.recent.length === 0 ? ["none recorded"] : []),
+    ...observerLines(workspace.observers),
+    ...recoveryLines(workspace.recovery),
+  ];
+}
+
+/**
+ * Each observer, a line, and a second for one that is failing or missed
+ * changes: `name (source)  [caught up | N behind | failing | stuck in a
+ * call since]`.
+ */
+function observerLines(observers: WorkspaceStatus["observers"]): string[] {
+  return [
+    "observers",
+    ...observers.flatMap((observer) => {
+      const state = observerState(observer);
+      return [
+        `${observer.name} (${observer.source})  [${state}] at ${String(observer.position)}`,
+        ...(observer.failures > 0
+          ? [
+              `  ${observer.lastError ?? "failed"} · next try ${observer.retryAt === null ? "unknown" : new Date(observer.retryAt).toISOString()}`,
+            ]
+          : []),
+        ...(observer.missed === null
+          ? []
+          : [
+              `  missed ${String(observer.missed.from)} to ${String(observer.missed.through)}: removed before it received them`,
+            ]),
+      ];
+    }),
+    ...(observers.length === 0 ? ["none recorded"] : []),
+  ];
+}
+
+/** How an observer is faring, in a word or two. */
+function observerState(observer: WorkspaceStatus["observers"][number]): string {
+  if (observer.stuckSince !== null) {
+    return `stuck in a call since ${new Date(observer.stuckSince).toISOString()}`;
+  }
+  if (observer.failures > 0) {
+    return `failing ×${String(observer.failures)}`;
+  }
+  return observer.behind === 0
+    ? "caught up"
+    : `${String(observer.behind)} behind`;
+}
+
+/** The last start's recovery, a line per step; a failed step says so first. */
+function recoveryLines(recovery: WorkspaceStatus["recovery"]): string[] {
+  if (recovery === null) {
+    return ["last recovery: none recorded"];
+  }
+  const failed = recovery.steps.filter((step) => step.outcome === "failed");
+  return [
+    `last recovery: ${recovery.at}${failed.length === 0 ? "" : ` · ${String(failed.length)} step(s) failed`}`,
+    ...recovery.steps.map(
+      (step) => `  ${step.step}  [${step.outcome}] ${step.detail}`
+    ),
   ];
 }
 
 function processLine(report: StatusReport): string {
   const { process: daemon } = report;
   if (daemon?.alive) {
-    return `marbles process: pid ${daemon.pid}${daemon.version === null ? "" : ` · v${daemon.version}`}${daemon.socket === null ? "" : ` · ${daemon.socket}`}`;
+    return [
+      `marbles process: pid ${daemon.pid}${daemon.version === null ? "" : ` · v${daemon.version}`}${daemon.socket === null ? "" : ` · ${daemon.socket}`}`,
+      ...report.generations
+        .filter((generation) => generation.alive)
+        .map(
+          (generation) =>
+            `  engine generation ${String(generation.number)}: pid ${String(generation.pid)} · ${generation.state}`
+        ),
+    ].join("\n");
   }
   return "marbles process: not running";
 }

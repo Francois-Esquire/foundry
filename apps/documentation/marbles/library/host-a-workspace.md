@@ -7,8 +7,8 @@ These entries are available in the `0.0.3` npm release. See
 [release status](/marbles/library#release-status).
 
 Use `@foundry.sh/marbles/workspace` when your program should load a
-`.foundry/marbles` source and run its triggers itself, as the CLI's worker
-does. Use `@foundry.sh/marbles/process` when your program should be a client
+`.foundry/marbles` source and run its triggers itself, as each engine
+generation of the Marbles process does. Use `@foundry.sh/marbles/process` when your program should be a client
 of the one Marbles process on the machine, as the dashboard, the CLI, and the
 MCP server are. Use the [engine](/marbles/reference/engine) directly when you
 want neither discovery nor a daemon.
@@ -95,9 +95,12 @@ source is relative to, which is the workspace's root without one. `cwd`
 sets where the workspace's runs start and its commands run, the root when
 omitted. Claim the workspace's state directory
 (`engine.state`, which is `<state>/<workspace-id>`) inside `prepare`, so
-the engine starts only once the claim holds: a worker of the Marbles
-process hosting the same workspace claims the same `locks/process`, and the
-claim is what keeps two engines from adopting the same parked runs. A live
+the engine starts only once the claim holds, and two programs hosting the
+same workspace themselves never adopt the same parked runs. The Marbles
+process claims no workspace directory: its engine generations take each
+parked run by a claim on its row in the Marbles database instead, and one
+of them hosting the workspace while your program does is not refused by
+the lock. A live
 holder throws `ProcessHeldError`, naming who has it; a lock left by an
 exited process is taken over. Pass `dry: true` to persist nothing, and
 `env: "require"` to refuse a `.env.schema` that does not resolve (the
@@ -110,8 +113,9 @@ host restarts itself on one, since loaded modules cannot be unloaded.
 
 `@foundry.sh/marbles/process` is the one Marbles process for a machine, and
 how to be its client. Neither side imports an authoring module: the daemon
-hosts each attached workspace in a worker it spawns, and a client reaches
-the workers through it.
+hosts every attached workspace in one engine subprocess, its current
+generation, and a client reaches them through the daemon, its
+subscriptions kept there across every switch to the next generation.
 
 ```ts
 import { connect, layout } from "@foundry.sh/marbles/process";
@@ -147,18 +151,24 @@ layout })` is what `marbles stop` does: it stops the daemon whatever its
 version, calls `onStopping` once the daemon has agreed, and resolves with
 that daemon's `hello` once it has exited, or `undefined` when none ran.
 `attach` hosts the source's workspace, records it as `hosted` in the
-Marbles database, and resolves once its worker is ready, or rejects with the
-load error when its source throws; attaching another source under a root
-that is already hosted rejects until that workspace is detached. During a
-reload, `attach` and `reload` resolve with the fresh worker.
+Marbles database, and resolves once the current engine generation hosts it,
+or rejects with the load error when its source throws, leaving it
+unregistered unless it was registered before; attaching another source
+under a root that is already hosted rejects until that workspace is
+detached. Attaches, detaches and switches take turns, so an attach during
+a reload resolves once the reload's generation is current.
 `workspace(summary)` is the same `WorkspaceConnection` as above, each call a
-request to the worker; `workspaces()` lists every hosted workspace with its
-state (`starting`, `ready`, `reloading`, `failed` with `error`, `stopped`);
-`reload(id)` drains a workspace's worker and starts a fresh one, which is
-also what revives a `failed` one; `detach(id)` stops hosting it and clears
-`hosted`, and rejects when an attach landed while it drained, since that
-attach hosts the workspace again; `shutdown()` asks the daemon to stop and
-resolves once it has answered, while it drains its workers and exits. From
+request the daemon routes: a call about a run to the generation that owns
+it, an answer or an activity's stop to the one holding it, anything else
+to the current generation. `workspaces()` lists every hosted workspace with
+its state (`starting`, `ready`, `reloading`, `failed` with `error`,
+`stopped`) and the pid of the generation hosting it; a `ready` workspace
+with an `error` runs as it was because a change to it did not load.
+`reload(id)` starts the next engine generation, which takes over once it
+has loaded every registered workspace, and is also what revives a `failed`
+one; `detach(id)` stops hosting it, its running work drained first, and
+clears `hosted`; `shutdown()` asks the daemon to stop and resolves once it
+has answered, while it drains its generations and exits. From
 then on it refuses `attach`, `reload`, and the workspace calls that start
 work, while reads, answers, and cancels go through. `close()` detaches,
 and the daemon keeps hosting; `closed` resolves once the connection is
@@ -202,9 +212,10 @@ try {
 `startDaemon` claims `locks/process` at the state root, writes
 `process.json` beside it, listens on `layout.socket`, hosts every workspace
 recorded as `hosted` whose source still exists, and returns once it
-answers. `close` drains every worker (30 seconds, then SIGKILL) and releases
-the claim; `closed` resolves after that, including when a `shutdown`
+answers. `close` drains every engine generation (30 seconds to answer and
+as long to exit, then SIGKILL to its process group once its pid is proved
+to be the process it spawned) and releases the claim; `closed` resolves after that, including when a `shutdown`
 request or a lost claim ended it. After a lost claim it leaves the socket
 path alone, since a successor may listen there by then. `readProcess(dir)` reads a claim back from
-its files, which is what `marbles status` shows for the state root and for
-each workspace directory.
+its files, which is what `marbles status` shows for the state root; the
+engine generations are in the Marbles database (`marbles_generations`).

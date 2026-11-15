@@ -289,10 +289,49 @@ interface SessionStore {
 }
 
 interface SessionStoreWrite {
+  events?: readonly SessionChangeEvent[]; // what the write changes; kept by no store
   putMessages?: readonly SessionMessage[]; // new ids go last; known ids keep their place
   putSessions?: readonly SessionRecord[];
 }
 ```
+
+#### Change events
+
+Each write `Sessions` makes that changes what a reader of a session sees
+carries the events that say so, in `events`, so a host can record them in
+the same transaction as the change (`SqliteSessionStore`'s `onCommit`).
+`Sessions` builds them from the records as stored against those it puts. A
+store keeps none, and one with a host hook hands them to it unchanged and in
+order. Every store takes the events when `commit` is
+called, by one rule: each is copied as plain JSON, and a write holding one
+that is not (anything but plain objects whose own properties are all
+enumerable, arrays without holes, text, finite numbers other than `-0`,
+booleans and `null`) is refused whole with a `TypeError` naming it, through
+a transaction's view too. `ownedEvents` on `@foundry/agents/store` is that rule, for a store outside
+this package; it is the rule the workflows and artifacts stores
+take their events by. The schema is `sessionChangeEventSchema` in
+`@foundry/agents/schema`; the type is `SessionChangeEvent`, also exported from
+`@foundry/agents/session`. Every event has `type`, `id` (unique to it, made
+once per call, before its transaction, so work a store runs again keeps it), `at` (an ISO time, the
+stamp of the record it changed) and `sessionId`:
+
+| `type`                      | Emitted by                                                | Also carries |
+| --------------------------- | --------------------------------------------------------- | ------------ |
+| `session.created`           | `createSession`, when it files a new session              |              |
+| `session.updated`           | `updateSession`, when the title or status changes         |              |
+| `session.messages.appended` | `appendMessage` (the message), `summarize` (its summary)  | `messageIds` |
+
+Nothing finer is emitted: `updateMessage`, the folded messages' flags in a
+`summarize`, an `updateSession` that changes neither field, and a
+`createSession` over a session already filed carry no event. Messages travel
+as ids only, never as bodies. No `Sessions` call removes a session, so there
+is no removal event.
+
+`at` is the stamp of the record a change wrote, or the time the event was
+built where the change stamps none; it is not the commit time, and two
+writers' events can commit in the other order from their `at`. It cannot
+establish commit order: a host that needs one orders events by its own
+sequence, assigned in `onCommit`.
 
 A transaction's `work` may read and commit through its `view` across any
 sessions, any number of times. A plain `commit` from outside queues behind it;
@@ -307,11 +346,23 @@ scope:
 ```typescript
 import { describeSessionStore } from "@foundry/agents/testing/store";
 
-describeSessionStore("MyStore", () => {
-  const database = freshDatabase();
-  return (scope) => new MyStore({ database, scope });
-});
+describeSessionStore(
+  "MyStore",
+  () => {
+    const database = freshDatabase();
+    return (scope) => new MyStore({ database, scope });
+  },
+  { hooked: false }
+);
 ```
+
+The third argument, `mode` (`SessionStoreMode`), says whether the storage
+has a host hook: `{ hooked: false }`, or `{ hooked: true, recording }`, where
+`recording` opens storage whose hook records each write's events in the
+commit's own transaction (`RecordingSessionStorage`). Every store is held to
+the event rule; a hooked one is also proven to hand its hook every kept
+commit's events once, in order, as they were when `commit` was called, and
+none for a commit that fails.
 
 A session keeps every message in its JSON form, the form every durable
 store writes and a model is sent, so every store keeps and gives back the
@@ -355,7 +406,7 @@ writes. Every store does the same with a write: it takes its own copy when
 
 | Path                            | Holds                                                     |
 | ------------------------------- | --------------------------------------------------------- |
-| `@foundry/agents/store`         | `SessionStore` and `SessionStoreWrite`.                   |
+| `@foundry/agents/store`         | `SessionStore`, `SessionStoreWrite`, and `ownedEvents`, the rule every store takes events by. |
 | `@foundry/agents/store/memory`  | `InMemorySessionStore`, the default `Sessions` uses.      |
 | `@foundry/agents/store/sqlite`  | `SqliteSessionStore`, over a host's Drizzle database, and `capturedSessionWrite`, the copy its `commit` takes. |
 | `@foundry/agents/store/tables`  | Its Drizzle tables: `agent_sessions`, `agent_messages`.   |
@@ -411,7 +462,10 @@ so a put under another session moves the message in the same commit.
 `agent_messages.position` is a message's place in its session. The commit
 assigns it in its transaction by replaying the write's puts in order. A put
 again in the same session keeps its place. A new message, or one moved to
-another session, goes after the last message there. The index
+another session, goes after the last message there, so the place a message
+left as a session's last may be given to the next one: only the order of a
+session's messages is promised, and nothing reads a position but that order.
+No record, event or reader outside the store sees one. The index
 `(scope, session_id, position)` serves `listMessages` and the commit's
 lookup of a session's last position, which reads one entry. Neither scans
 other sessions or sorts.
@@ -432,7 +486,7 @@ session, message and field. One such row rejects its session's whole
 Each `commit` is one transaction, and a throwing `onCommit` rolls it back.
 `onCommit` receives the store's own copy of the write, taken when `commit` was
 called: exactly what the store wrote, every session and message put, whole,
-in order. It does not learn which put filed a record and which replaced one,
+in order, with its `events`. It does not learn which put filed a record and which replaced one,
 what a replaced record held, or which session a moved message left; the store
 has written by the time the hook runs.
 

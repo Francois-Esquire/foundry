@@ -228,8 +228,8 @@ async function runLocal(
 
 /**
  * Attach the workspace to the Marbles process and show it from there. The
- * dashboard polls the worker's snapshot while it is ready and shows the
- * worker's state otherwise; `w` moves to the next hosted workspace. Closing
+ * dashboard polls the workspace's snapshot while it is ready and shows its
+ * state otherwise; `w` moves to the next hosted workspace. Closing
  * the client detaches: the process keeps hosting every workspace.
  */
 async function runRemote(
@@ -248,7 +248,7 @@ async function runRemote(
     }
     let attached: WorkspaceSummary | undefined;
     if (sourceFiles(configPath) === undefined) {
-      // The worker posts the setup milestone; a starter that will not load
+      // Its engine generation posts the setup milestone; a starter that will not load
       // fails the attach, and the onboarding view shows why.
       await terminal.onboard(configPath, async (draft) => {
         await createStarter(configPath, draft);
@@ -452,7 +452,7 @@ function remoteSession(
       if (polled !== connection) {
         return;
       }
-      // The daemon's answer names the state the worker is in; the list
+      // The daemon's answer names the state the workspace is in; the list
       // catches the header up with it.
       publish({
         ...(lastSnapshot ?? placeholderSnapshot(summary, [])),

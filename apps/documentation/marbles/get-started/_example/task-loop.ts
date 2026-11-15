@@ -1,6 +1,6 @@
 import { observe, tasks } from "@foundry.sh/marbles";
 
-observe(tasks, async (event) => {
+observe(tasks, async function recordIntake(event) {
   for (const change of event.tasks) {
     const entered =
       change.after?.tags.includes("intake") &&

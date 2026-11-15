@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { compareStarts, lookProcesses } from "@foundry/lib/process-identity";
 import {
   notPrivate,
   recordSpawned,
@@ -71,11 +72,9 @@ const POLL_MS = 100;
 /** How long `ps` gets to answer, so a stop takes a bounded time. */
 const PS_TIMEOUT_MS = 5000;
 const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
-const LOOK_LINE = /^\s*(\d+)\s+(\d+)\s+(.+)$/;
 const PID_PAIR = /^\s*(\d+)\s+(\d+)\s*$/;
 const COMMAND_LINE = /^\s*(\d+) (.*)$/;
 const PID = /^\d+$/;
-const SPACES = /\s+/g;
 
 /** Record `pid`, which the caller has just started, in `dir`; see `recordSpawned`. */
 export function recordProcess(dir: string, pid: number, group: boolean): void {
@@ -246,7 +245,11 @@ function prove(
   environment: readonly string[] | undefined,
   marker: Marker
 ): Proof {
-  if (seen === undefined || seen.started !== normal(record.started)) {
+  // The recorder's own proof: the same start, of the same kind.
+  if (
+    seen === undefined ||
+    compareStarts(seen.started, record.started) !== "same"
+  ) {
     return "gone";
   }
   const pid = String(record.pid);
@@ -367,10 +370,6 @@ function gone(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
-function normal(started: string): string {
-  return started.trim().replace(SPACES, " ");
-}
-
 const SYSTEM: ProcessSystem = {
   environment(pid) {
     return process.platform === "linux"
@@ -379,19 +378,9 @@ const SYSTEM: ProcessSystem = {
   },
   kill: (target, signal) => process.kill(target, signal),
   look(pids) {
-    const seen = new Map<number, Seen>();
-    if (pids.length === 0) {
-      return seen;
-    }
-    const listed = ps(["-o", "pid=,pgid=,lstart=", "-p", pids.join(",")]);
-    for (const line of listed.split("\n")) {
-      const parsed = LOOK_LINE.exec(line);
-      if (parsed) {
-        seen.set(Number(parsed[1]), {
-          pgid: Number(parsed[2]),
-          started: normal(parsed[3] ?? ""),
-        });
-      }
+    const seen = lookProcesses(pids);
+    if (seen === undefined) {
+      throw new Error(`the system could not say how ${pids.join(", ")} run`);
     }
     return seen;
   },

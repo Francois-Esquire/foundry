@@ -1,22 +1,43 @@
-import { randomUUID } from "node:crypto";
-import type { TaskEvent, TaskStore, TaskStoreWrite } from "@foundry/tasks";
+import { ownedWrite } from "@foundry/lib/plain-json";
+import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import { MemoryTaskStore } from "@foundry/tasks/store/memory";
-import { TASKS } from "~/lib/events/source";
+import type { ChangeLog, RecordedFact } from "~/lib/events/log";
+import { MemoryChangeLog } from "~/lib/events/log";
+import { sourceKey, TASKS } from "~/lib/events/source";
+import { current } from "~/lib/run-scope";
 
 /**
  * A workspace's durable records, as the engine reads and writes them: its
- * tasks, and every change they committed, each with the hashes of the
- * observers that completed it. A commit through `taskStore` that changes
- * something records its change with it, atomically, whether or not
- * anything observes it; delivery (`delivery.ts`) reads them back later,
- * after a restart too. Nothing removes a change or a recorded hash.
+ * tasks, and its change log (`log`), which every store of the workspace
+ * writes its change facts to as it commits them, atomically, whether or
+ * not anything observes them; delivery (`delivery.ts`) reads them back
+ * later, after a restart too.
  *
  * The engine is handed one (`EngineOptions.records`); Marbles hands it the
  * workspace's rows in the Marbles database (`database/tasks.ts`). Without
  * one it keeps them in memory (`MemoryWorkspaceRecords`), which lasts as
- * long as the engine.
+ * long as the engine, and only its tasks' facts reach that log.
  */
-export interface WorkspaceRecords {
+export interface WorkspaceRecords extends DeliveryLease {
+  /** Refuse every later call, once the calls already made have settled; give up a delivery claim still held. */
+  close(): Promise<void>;
+  /** The workspace's change log. */
+  readonly log: ChangeLog;
+  /** The tasks, through the `@foundry/tasks` store seam. */
+  readonly taskStore: TaskStore;
+  /**
+   * Call `listener` soon after a commit in this process recorded a fact,
+   * never inside the commit; the function returned stops that.
+   */
+  watch(listener: () => void): () => void;
+}
+
+/**
+ * Who delivers a workspace's changes: one engine at a time, the one whose
+ * claim was granted, until it gives it up or its process is gone. The one
+ * seam a lease of another kind replaces.
+ */
+export interface DeliveryLease {
   /**
    * Make this engine the one that delivers the workspace's changes to its
    * observers, unless another engine is: who that is, for people, then
@@ -24,56 +45,16 @@ export interface WorkspaceRecords {
    * claim kept.
    */
   claimDelivery(): Promise<string | undefined>;
-  /** Refuse every later call, once the calls already made have settled; give up a delivery claim still held. */
-  close(): Promise<void>;
-  /** Record that the handler with `hash` completed the change `id`, beside every hash already there. */
-  deliver(id: string, hash: string): Promise<void>;
-  /**
-   * The position of the newest recorded change, 0 before the first: a
-   * cheap read for noticing a change another process recorded.
-   */
-  latest(): Promise<number>;
-  /**
-   * The recorded changes after `query.after` that a handler in
-   * `query.handlers` has not completed, oldest first, at most
-   * `query.limit`, detached. A handler with no completion yet (one declared
-   * later) is handed the whole history this way.
-   */
-  pending(query: PendingQuery): Promise<readonly StreamItem[]>;
   /** Stop being the engine that delivers the workspace's changes, if this one is. */
   releaseDelivery(): Promise<void>;
-  /** The tasks, through the `@foundry/tasks` store seam. */
-  readonly taskStore: TaskStore;
-  /**
-   * Call `listener` after each call through `taskStore` that recorded a
-   * change, once that call has settled, never inside it; the function
-   * returned stops that.
-   */
-  watch(listener: () => void): () => void;
 }
 
-/** Which recorded changes `pending` reads. */
-export interface PendingQuery {
-  /** Only changes after this position; from the first when omitted. */
-  readonly after?: number;
-  /** The hashes of the handlers that are to complete each change. */
-  readonly handlers: readonly string[];
-  /** At most this many; `PENDING_BATCH` when omitted. */
-  readonly limit?: number;
-}
-
-/** How many changes one `pending` read returns by default. */
-export const PENDING_BATCH = 100;
-
-/** A recorded change as delivery reads it: detached, with its source resolved. */
-export interface StreamItem {
-  /** Hashes of the handlers, among those asked about, that completed it. */
-  readonly delivered: readonly string[];
-  readonly id: string;
-  readonly payload: unknown;
-  /** Its place among the workspace's changes, in the order they were committed. */
-  readonly position: number;
-  readonly source: symbol;
+/**
+ * The run whose work is calling, read when a store is handed a write: the
+ * run its facts are recorded as made by. `null` outside any run.
+ */
+export function causingRun(): string | null {
+  return current.getStore()?.scope.id ?? null;
 }
 
 const CLOSED = "workspace records are closed";
@@ -115,7 +96,10 @@ export class RecordsGate {
 
 /**
  * Run `work` on a copy of `write` taken now, when the caller hands it
- * over; a write the copy refuses rejects without running `work`.
+ * over, by the rule every task store takes a write by (`ownedWrite`: its
+ * events as plain JSON, the rest cloned), so a write a store would refuse
+ * is refused here, before anything clones it into one the store accepts;
+ * a write the copy refuses rejects without running `work`.
  */
 function owning(
   write: TaskStoreWrite,
@@ -123,7 +107,7 @@ function owning(
 ): Promise<void> {
   let owned: TaskStoreWrite;
   try {
-    owned = structuredClone(write);
+    owned = ownedWrite(write);
   } catch (error) {
     return Promise.reject(error);
   }
@@ -146,44 +130,47 @@ export class EmitListeners {
   }
 }
 
-interface MemoryChange {
-  readonly delivered: string[];
-  readonly id: string;
-  readonly payload: TaskEvent;
-}
+const TASKS_KEY = sourceKey(TASKS) ?? "tasks";
 
 /**
  * The records in this process's memory: a `MemoryTaskStore` for the tasks,
- * and the changes beside it. A transaction's changes are kept only if it
- * succeeds, as its tasks are.
+ * and a `MemoryChangeLog` their facts are recorded in. A transaction's
+ * facts are kept only if it succeeds, as its tasks are.
  */
 export class MemoryWorkspaceRecords implements WorkspaceRecords {
   readonly taskStore: TaskStore;
-  readonly #changes: MemoryChange[] = [];
+  readonly log: ChangeLog;
   readonly #gate = new RecordsGate();
   readonly #listeners = new EmitListeners();
 
   constructor() {
     const store = new MemoryTaskStore();
+    const log = new MemoryChangeLog();
+    this.log = gated(log, this.#gate);
     /**
-     * Commit `owned`, then keep its change in `into`: both from the one
-     * copy each `commit` takes when it is called (`owning`), so a caller
-     * changing its write later, while the commit waits its turn or after,
-     * changes neither.
+     * Commit `owned`, then keep its facts in `into`: both from the one
+     * copy each `commit` takes when it is called (`owning`), with the run
+     * calling then, so a caller changing its write later, while the commit
+     * waits its turn or after, changes neither.
      */
     const recorded =
-      (target: TaskStore, into: TaskEvent[]) =>
-      async (owned: TaskStoreWrite): Promise<void> => {
-        await target.commit(owned);
-        if (owned.event !== undefined) {
-          into.push(owned.event);
-        }
+      (target: TaskStore, into: RecordedFact[]) =>
+      (owned: TaskStoreWrite): Promise<void> => {
+        const runId = causingRun();
+        return target.commit(owned).then(() => {
+          for (const fact of owned.events ?? []) {
+            into.push({
+              fact,
+              recordedAt: Date.now(),
+              runId,
+              source: TASKS_KEY,
+            });
+          }
+        });
       };
-    const settle = (events: readonly TaskEvent[]): void => {
-      for (const payload of events) {
-        this.#changes.push({ delivered: [], id: randomUUID(), payload });
-      }
-      if (events.length > 0) {
+    const settle = (facts: readonly RecordedFact[]): void => {
+      log.record(facts);
+      if (facts.length > 0) {
         this.#listeners.emit();
       }
     };
@@ -191,24 +178,24 @@ export class MemoryWorkspaceRecords implements WorkspaceRecords {
       commit: (write) =>
         owning(write, (owned) =>
           this.#gate.run(async () => {
-            const events: TaskEvent[] = [];
-            await recorded(store, events)(owned);
-            settle(events);
+            const facts: RecordedFact[] = [];
+            await recorded(store, facts)(owned);
+            settle(facts);
           })
         ),
       get: (id) => this.#gate.run(() => store.get(id)),
       snapshot: () => this.#gate.run(() => store.snapshot()),
       transaction: (work) =>
         this.#gate.run(async () => {
-          const events: TaskEvent[] = [];
+          const facts: RecordedFact[] = [];
           const result = await store.transaction((view) =>
             work({
-              commit: (write) => owning(write, recorded(view, events)),
+              commit: (write) => owning(write, recorded(view, facts)),
               get: (id) => view.get(id),
               snapshot: () => view.snapshot(),
             })
           );
-          settle(events);
+          settle(facts);
           return result;
         }),
     };
@@ -227,47 +214,21 @@ export class MemoryWorkspaceRecords implements WorkspaceRecords {
     return this.#gate.run(() => Promise.resolve());
   }
 
-  deliver(id: string, hash: string): Promise<void> {
-    return this.#gate.run(() => {
-      const change = this.#changes.find((candidate) => candidate.id === id);
-      if (change !== undefined && !change.delivered.includes(hash)) {
-        change.delivered.push(hash);
-      }
-      return Promise.resolve();
-    });
-  }
-
-  latest(): Promise<number> {
-    return this.#gate.run(() => Promise.resolve(this.#changes.length));
-  }
-
-  pending(query: PendingQuery): Promise<readonly StreamItem[]> {
-    const after = query.after ?? 0;
-    const limit = query.limit ?? PENDING_BATCH;
-    return this.#gate.run(() =>
-      Promise.resolve(
-        this.#changes
-          .map((change, index) => ({ change, position: index + 1 }))
-          .filter(
-            ({ change, position }) =>
-              position > after &&
-              query.handlers.some((hash) => !change.delivered.includes(hash))
-          )
-          .slice(0, limit)
-          .map(({ change, position }) => ({
-            delivered: change.delivered.filter((hash) =>
-              query.handlers.includes(hash)
-            ),
-            id: change.id,
-            payload: structuredClone(change.payload),
-            position,
-            source: TASKS,
-          }))
-      )
-    );
-  }
-
   watch(listener: () => void): () => void {
     return this.#listeners.add(listener);
   }
+}
+
+/** `log`, each call refused once `gate` is closed. */
+function gated(log: ChangeLog, gate: RecordsGate): ChangeLog {
+  return {
+    compact: (bound) => gate.run(() => log.compact(bound)),
+    declare: (key, now) => gate.run(() => log.declare(key, now)),
+    fail: (key, failure) => gate.run(() => log.fail(key, failure)),
+    head: () => gate.run(() => log.head()),
+    move: (key, move) => gate.run(() => log.move(key, move)),
+    observers: () => gate.run(() => log.observers()),
+    read: (query) => gate.run(() => log.read(query)),
+    unstick: (key) => gate.run(() => log.unstick(key)),
+  };
 }

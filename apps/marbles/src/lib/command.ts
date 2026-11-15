@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { showArgv } from "@foundry/lib/argv";
-import { recordSpawned } from "@foundry/lib/spawn-record";
+import { recordChild } from "@foundry/lib/spawn-record";
 
 import type { SandboxHandle, SandboxInstance } from "./types";
 
@@ -104,7 +104,7 @@ function onHost(
     child.stdout?.on("data", (chunk: string) => site.write?.(chunk));
     child.stderr?.on("data", (chunk: string) => site.write?.(chunk));
     // Once the child is this call's; it never throws.
-    recordSpawned(child.pid, false);
+    recordChild(child);
   });
 }
 

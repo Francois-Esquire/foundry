@@ -1,4 +1,8 @@
 import type { JsonValue } from "@foundry/lib/json";
+import {
+  type ProcessIdentity,
+  sameProcess,
+} from "@foundry/lib/process-identity";
 import { RecordsGate } from "~/lib/events/records";
 import { storableJson } from "~/lib/state/json";
 import type {
@@ -98,9 +102,9 @@ export interface LifecycleChange {
   /** The statuses the run must be stored in. */
   readonly from: readonly ExecutionStatus[];
   /** Its owner from now on; `owner` stays when omitted. */
-  readonly newOwner?: number;
+  readonly newOwner?: ProcessIdentity;
   /** The process that must own it as stored. */
-  readonly owner: number;
+  readonly owner: ProcessIdentity;
   /** When it settled; set once, by a settle. */
   readonly settledAt?: string;
   /** When it started; set once, by a start. */
@@ -189,11 +193,17 @@ export function storedRetentionGap(gap: RetentionGap): RetentionGap {
 /** Whether a lifecycle change allows `record`, as stored. */
 export function allows(
   change: LifecycleChange,
-  record: { readonly owner: { readonly pid: number }; readonly status: string }
+  record: {
+    readonly owner: { readonly pid: number; readonly started?: string | null };
+    readonly status: string;
+  }
 ): boolean {
   return (
     (change.from as readonly string[]).includes(record.status) &&
-    record.owner.pid === change.owner
+    sameProcess(
+      { pid: record.owner.pid, started: record.owner.started ?? null },
+      change.owner
+    )
   );
 }
 
@@ -225,7 +235,7 @@ export function changed(
     ...((change.error ?? error) === undefined
       ? {}
       : { error: change.error ?? error }),
-    owner: { pid: change.newOwner ?? record.owner.pid },
+    owner: change.newOwner ?? record.owner,
     revision: record.revision + 1,
     status: change.status,
     timestamps,

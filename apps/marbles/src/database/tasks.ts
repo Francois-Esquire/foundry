@@ -1,44 +1,43 @@
 import { randomUUID } from "node:crypto";
-import { processAlive } from "@foundry/lib/file-lock";
-import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
+import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
+import type { TaskStore } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
-import type { TaskTransaction } from "@foundry/tasks/store/sqlite";
 import { SqliteTaskStore } from "@foundry/tasks/store/sqlite";
-import { and, asc, eq, gt, inArray, max, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { aroundCalls } from "~/database/busy";
+import { ChangeRecorder, DatabaseChangeLog } from "~/database/changes";
 import { busyError } from "~/database/client";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import {
-  marblesDeliveryClaims,
-  marblesTaskChangeDeliveries,
-  marblesTaskChanges,
-} from "~/database/tables";
+  CHANGED,
+  claimJudged,
+  heldBy,
+  NO_OWNER,
+  ownedHere,
+  sameOwnerColumns,
+} from "~/database/owner";
+import { marblesDeliveryClaims } from "~/database/tables";
 import type { HostDatabaseOptions } from "~/database/workspaces";
 import { writeAsHost } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
-import type {
-  PendingQuery,
-  StreamItem,
-  WorkspaceRecords,
-} from "~/lib/events/records";
-import {
-  EmitListeners,
-  PENDING_BATCH,
-  RecordsGate,
-} from "~/lib/events/records";
-import { TASKS } from "~/lib/events/source";
+import type { ChangeLog } from "~/lib/events/log";
+import type { WorkspaceRecords } from "~/lib/events/records";
+import { RecordsGate } from "~/lib/events/records";
+import { sourceKey, TASKS } from "~/lib/events/source";
 
 /**
  * A workspace's tasks in the Marbles database: the `@foundry/tasks` rows
- * scoped by the workspace id, and Marbles' record of every change they
- * committed (`marbles_task_changes`), which delivery reads back for the
- * workspace's observers.
+ * scoped by the workspace id, and the workspace's change log
+ * (`database/changes.ts`), which every store of the workspace writes its
+ * change facts to and delivery reads back for the workspace's observers.
  *
- * The change is written by `SqliteTaskStore`'s `onCommit` hook, on the
- * transaction the hook is handed, so a change and its row commit or roll
- * back together. That hook (`recordChange`) is the one seam where anything
- * that keeps a record of task changes, such as an outbox, belongs.
+ * A task write's facts are recorded by `SqliteTaskStore`'s `onCommit`
+ * hook, on the transaction the hook is handed, so a change and its facts
+ * commit or roll back together, as every other store's do.
  */
+
+const TASKS_KEY = sourceKey(TASKS) ?? "tasks";
 
 /** A change the Marbles database cannot store as it is. */
 export class TaskStorageError extends Error {
@@ -46,6 +45,12 @@ export class TaskStorageError extends Error {
 }
 
 export interface DatabaseWorkspaceRecordsOptions {
+  /**
+   * What the workspace's stores in this process record their facts
+   * through, shared by all of them; one of these records' own when
+   * omitted. Its scope is the workspace id.
+   */
+  readonly changes?: ChangeRecorder;
   /** The database or one of its transactions; the host opens and closes it. */
   readonly database: StoreDatabase;
   /** The workspace id. */
@@ -61,6 +66,9 @@ export interface DatabaseWorkspaceRecordsOptions {
  */
 export class DatabaseWorkspaceRecords implements WorkspaceRecords {
   readonly taskStore: TaskStore;
+  readonly log: ChangeLog;
+  /** What every store of the workspace records its facts through. */
+  readonly changes: ChangeRecorder;
   readonly #database: StoreDatabase;
   readonly #scope: string;
   /** These records' identity as the delivery claim's owner: one per engine. */
@@ -68,34 +76,32 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
   /** Whether these records took the delivery claim and have not given it up. */
   #claimed = false;
   readonly #gate = new RecordsGate();
-  readonly #listeners = new EmitListeners();
 
   constructor(options: DatabaseWorkspaceRecordsOptions) {
     const { database, scope } = options;
     this.#database = database;
     this.#scope = scope;
-    let recorded = false;
-    const store = new SqliteTaskStore({
-      database,
-      onCommit: async (transaction, write) => {
-        if (await recordChange(transaction, scope, write)) {
-          recorded = true;
-        }
-      },
-      scope,
-    });
-    /** Run a call that may commit, then tell the watchers once it settles. */
+    const changes = options.changes ?? new ChangeRecorder(scope);
+    if (changes.scope !== scope) {
+      throw new Error(
+        `the change recorder of workspace ${changes.scope} cannot record workspace ${scope}'s tasks`
+      );
+    }
+    this.changes = changes;
+    this.log = aroundCalls(
+      new DatabaseChangeLog(database, scope, this.#owner),
+      (call) => this.#call(call)
+    );
+    const store = changes.causing(
+      new SqliteTaskStore({
+        database,
+        onCommit: (transaction, write) =>
+          changes.record(transaction, TASKS_KEY, write.events),
+        scope,
+      })
+    );
     const committing = <T>(call: () => Promise<T>): Promise<T> =>
-      this.#call(async () => {
-        try {
-          return await call();
-        } finally {
-          if (recorded) {
-            recorded = false;
-            this.#listeners.emit();
-          }
-        }
-      });
+      this.#call(call);
     this.taskStore = {
       commit: (write) => committing(() => storing(store.commit(write))),
       get: (id) => this.#call(() => store.get(id)),
@@ -137,35 +143,46 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
 
   /** The claim's transaction: who holds it instead, or undefined once these records do. */
   #claim(): Promise<string | undefined> {
-    return this.#database.transaction(
-      async (transaction): Promise<string | undefined> => {
-        const [row] = await transaction
-          .select({
-            ownerId: marblesDeliveryClaims.ownerId,
-            ownerPid: marblesDeliveryClaims.ownerPid,
-          })
-          .from(marblesDeliveryClaims)
-          .where(eq(marblesDeliveryClaims.scope, this.#scope));
-        const holder = row?.ownerPid ?? null;
-        if (
-          holder !== null &&
-          row?.ownerId !== this.#owner &&
-          processAlive(holder)
-        ) {
-          return holder === process.pid
-            ? "another engine in this process"
-            : `pid ${String(holder)}`;
-        }
-        const owner = { ownerId: this.#owner, ownerPid: process.pid };
-        await transaction
-          .insert(marblesDeliveryClaims)
-          .values({ ...owner, scope: this.#scope })
-          .onConflictDoUpdate({
-            set: owner,
-            target: marblesDeliveryClaims.scope,
-          });
-        return undefined;
-      }
+    const look = (database: StoreDatabase) =>
+      database
+        .select({
+          ownerId: marblesDeliveryClaims.ownerId,
+          ownerPid: marblesDeliveryClaims.ownerPid,
+          ownerStarted: marblesDeliveryClaims.ownerStarted,
+        })
+        .from(marblesDeliveryClaims)
+        .where(eq(marblesDeliveryClaims.scope, this.#scope))
+        .then(([row]) => row);
+    return claimJudged(
+      () => look(this.#database),
+      // Asked outside the transaction: no process is asked under its lock.
+      (seen) =>
+        seen === undefined || seen.ownerId === this.#owner
+          ? null
+          : heldBy(seen),
+      (seen, holder) =>
+        this.#database.transaction(
+          async (transaction): Promise<string | undefined | typeof CHANGED> => {
+            if (!sameOwnerColumns(await look(transaction), seen)) {
+              return CHANGED;
+            }
+            if (holder !== null) {
+              return sameProcess(holder, thisProcess())
+                ? "another engine in this process"
+                : `pid ${String(holder.pid)}`;
+            }
+            const owner = ownedHere(this.#owner);
+            await transaction
+              .insert(marblesDeliveryClaims)
+              .values({ ...owner, scope: this.#scope })
+              .onConflictDoUpdate({
+                set: owner,
+                target: marblesDeliveryClaims.scope,
+              });
+            return undefined;
+          }
+        ),
+      "an owner that kept changing"
     );
   }
 
@@ -182,7 +199,7 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     try {
       await this.#database
         .update(marblesDeliveryClaims)
-        .set({ ownerId: null, ownerPid: null })
+        .set(NO_OWNER)
         .where(
           and(
             eq(marblesDeliveryClaims.scope, this.#scope),
@@ -196,58 +213,8 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     this.#claimed = false;
   }
 
-  /** Only for a change that is recorded; a hash already there stays one row. */
-  deliver(id: string, hash: string): Promise<void> {
-    return this.#call(() =>
-      this.#database.transaction(async (transaction) => {
-        const [change] = await transaction
-          .select({ id: marblesTaskChanges.id })
-          .from(marblesTaskChanges)
-          .where(
-            and(
-              eq(marblesTaskChanges.scope, this.#scope),
-              eq(marblesTaskChanges.id, id)
-            )
-          );
-        if (change === undefined) {
-          return;
-        }
-        await transaction
-          .insert(marblesTaskChangeDeliveries)
-          .values({ changeId: id, handler: hash, scope: this.#scope })
-          .onConflictDoNothing();
-      })
-    );
-  }
-
-  latest(): Promise<number> {
-    return this.#call(async () => {
-      const [last] = await this.#database
-        .select({ position: max(marblesTaskChanges.position) })
-        .from(marblesTaskChanges)
-        .where(eq(marblesTaskChanges.scope, this.#scope));
-      return last?.position ?? 0;
-    });
-  }
-
-  pending(query: PendingQuery): Promise<readonly StreamItem[]> {
-    if (query.handlers.length === 0) {
-      return this.#call(() => Promise.resolve([]));
-    }
-    return this.#call(async () => {
-      const rows = await pendingChanges(this.#database, this.#scope, query);
-      return rows.map((row) => ({
-        delivered: JSON.parse(row.delivered) as string[],
-        id: row.id,
-        payload: row.payload,
-        position: row.position,
-        source: TASKS,
-      }));
-    });
-  }
-
   watch(listener: () => void): () => void {
-    return this.#listeners.add(listener);
+    return this.changes.watch(listener);
   }
 
   /** Run `call` unless closed, and say what went wrong in the database's terms. */
@@ -260,77 +227,6 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
       }
     });
   }
-}
-
-/**
- * The query `pending` runs: one statement, so it reads one state without a
- * transaction, and holds no lock another writer waits for. It walks the
- * workspace's changes by position from `query.after` (the
- * `marbles_task_changes_scope_position` index), keeps those that fewer of
- * `query.handlers` completed than there are handlers (the deliveries'
- * primary key, scope first, answers each count), and stops at
- * `query.limit`. A change every handler completed is passed over but still
- * walked, so the work is the span from `query.after` to the last change
- * returned: delivery passes the position below which its observers have
- * completed everything (`Delivery`'s floor), which keeps that span to
- * what is left to deliver.
- */
-export function pendingChanges(
-  database: StoreDatabase,
-  scope: string,
-  query: PendingQuery
-) {
-  const handlers = [...new Set(query.handlers)];
-  const changes = marblesTaskChanges;
-  const deliveries = marblesTaskChangeDeliveries;
-  const completedBy = and(
-    eq(deliveries.scope, changes.scope),
-    eq(deliveries.changeId, changes.id),
-    inArray(deliveries.handler, handlers)
-  );
-  return database
-    .select({
-      delivered: sql<string>`(SELECT json_group_array(${deliveries.handler}) FROM ${deliveries} WHERE ${completedBy})`,
-      id: changes.id,
-      payload: changes.payload,
-      position: changes.position,
-    })
-    .from(changes)
-    .where(
-      and(
-        eq(changes.scope, scope),
-        gt(changes.position, query.after ?? 0),
-        sql`(SELECT count(*) FROM ${deliveries} WHERE ${completedBy}) < ${handlers.length}`
-      )
-    )
-    .orderBy(asc(changes.position))
-    .limit(query.limit ?? PENDING_BATCH);
-}
-
-/**
- * Record the change `write` carries, if it carries one, in the commit's own
- * `transaction`: never through a store, which would wait on the commit
- * that is running this. Whether a change was recorded.
- */
-async function recordChange(
-  transaction: TaskTransaction,
-  scope: string,
-  write: TaskStoreWrite
-): Promise<boolean> {
-  if (write.event === undefined) {
-    return false;
-  }
-  const [last] = await transaction
-    .select({ position: max(marblesTaskChanges.position) })
-    .from(marblesTaskChanges)
-    .where(eq(marblesTaskChanges.scope, scope));
-  await transaction.insert(marblesTaskChanges).values({
-    id: randomUUID(),
-    payload: write.event,
-    position: (last?.position ?? 0) + 1,
-    scope,
-  });
-  return true;
 }
 
 /**

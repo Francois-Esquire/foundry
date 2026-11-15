@@ -1,3 +1,4 @@
+import { thisProcess } from "@foundry/lib/process-identity";
 /**
  * Nothing about a run is acknowledged before the store holds it: a
  * settlement or a cancellation the store has not taken is never paid to
@@ -209,7 +210,7 @@ it("never prunes a run the store holds unsettled, whatever this process last saw
     kind: "task",
     name: "save",
     observations: [],
-    owner: { pid: process.pid },
+    owner: thisProcess(),
     queue: "q",
     revision: 3,
     sequence: 1,

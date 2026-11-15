@@ -15,7 +15,7 @@ import {
  * Requests and notifications over one connection, a Unix socket carrying
  * newline-delimited JSON. The channel matches responses to the requests it
  * sent and hands incoming requests to the handler it was given; both sides
- * can ask and both can tell. Clients and workers use it alike.
+ * can ask and both can tell. Clients and engine generations use it alike.
  */
 
 export interface Transport {

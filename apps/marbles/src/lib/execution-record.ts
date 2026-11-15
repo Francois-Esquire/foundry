@@ -1,4 +1,5 @@
 import type { JsonValue } from "@foundry/lib/json";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { z } from "zod";
 import { EXECUTION_STATUSES, type ExecutionStatus } from "./execution-statuses";
 import type { StoredExecution } from "./execution-store";
@@ -82,8 +83,8 @@ export interface ExecutionRun {
   /** The definition or task name it was launched by. */
   readonly name: string;
   readonly observations: readonly ExecutionObservation[];
-  /** The process that owns it while it is unsettled. */
-  readonly owner: { readonly pid: number };
+  /** The process that owns it while it is unsettled, by pid and start time. */
+  readonly owner: ProcessIdentity;
   /** The latest progress it reported. */
   readonly progress?: JsonValue;
   readonly queue: string;
@@ -233,7 +234,11 @@ const recordSchema = z.looseObject({
   input: z.unknown().optional(),
   kind: z.enum(["workflow", "task"]),
   name: z.string(),
-  owner: z.object({ pid: z.number() }),
+  // A record from before start times were kept names its owner by pid alone.
+  owner: z.object({
+    pid: z.number(),
+    started: z.string().nullable().default(null),
+  }),
   progress: z.unknown().optional(),
   queue: z.string(),
   revision: z.number(),

@@ -267,9 +267,12 @@ export class Tasks {
     const event = changeEvent(
       [{ after: null, before: task, id: task.id }],
       [],
-      dropped
+      dropped,
+      this.#now()
     );
-    await store.commit(event === undefined ? write : { ...write, event });
+    await store.commit(
+      event === undefined ? write : { ...write, events: [event] }
+    );
     return task;
   }
 

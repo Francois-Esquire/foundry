@@ -73,6 +73,8 @@ class Batch {
   private readonly putEdges = new Map<string, TaskDependency>();
   private readonly deletedEdges = new Map<string, TaskDependency>();
   private readonly now: () => string;
+  /** The last time the batch stamped on a record: when the change was made. */
+  private stamped: string | undefined;
   private readonly availability: AvailabilityOptions;
 
   constructor(
@@ -86,7 +88,10 @@ class Batch {
     this.edges = new Map(
       snapshot.dependencies.map((edge) => [edgeKey(edge), edge])
     );
-    this.now = now;
+    this.now = () => {
+      this.stamped = now();
+      return this.stamped;
+    };
   }
 
   apply(operation: TaskOperation): void {
@@ -127,7 +132,7 @@ class Batch {
         ...(putTasks.length > 0 ? { putTasks } : {}),
         ...(putDependencies.length > 0 ? { putDependencies } : {}),
         ...(deleteDependencies.length > 0 ? { deleteDependencies } : {}),
-        ...(event === undefined ? {} : { event }),
+        ...(event === undefined ? {} : { events: [event] }),
       },
     };
   }
@@ -152,7 +157,7 @@ class Batch {
     const removed = [...this.deletedEdges.values()].filter((edge) =>
       existed.has(edgeKey(edge))
     );
-    return changeEvent(tasks, added, removed);
+    return changeEvent(tasks, added, removed, this.stamped ?? this.now());
   }
 
   private create(operation: Operation<"task.create">): void {
@@ -422,18 +427,25 @@ class Batch {
 }
 
 /**
- * A `tasks.changed` event over these deltas and edges, or nothing when the
- * write changes nothing.
+ * A `tasks.changed` fact over these deltas and edges, built at `at` (an ISO
+ * time) with an id of its own, or nothing when the write changes nothing.
  */
 export function changeEvent(
   tasks: readonly TaskDelta[],
   added: readonly TaskDependency[],
-  removed: readonly TaskDependency[]
+  removed: readonly TaskDependency[],
+  at: string
 ): TaskEvent | undefined {
   if (tasks.length === 0 && added.length === 0 && removed.length === 0) {
     return;
   }
-  return { dependencies: { added, removed }, kind: "tasks.changed", tasks };
+  return {
+    at,
+    dependencies: { added, removed },
+    id: crypto.randomUUID(),
+    tasks,
+    type: "tasks.changed",
+  };
 }
 
 /**

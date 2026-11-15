@@ -89,7 +89,7 @@ it("neither cancels nor prunes a run another process took over and is running, f
     kind: "task",
     name: "work",
     observations: [],
-    owner: { pid: exitedPid() },
+    owner: { pid: exitedPid(), started: null },
     queue: "q",
     revision: 1,
     sequence: 1,

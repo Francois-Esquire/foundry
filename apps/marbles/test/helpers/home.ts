@@ -13,7 +13,7 @@ import { outlast, RUN_ENV, runRecords } from "./runs";
  * A Foundry home of the current test's own. Everything the test starts
  * gets it through `env`, which names the home in `FOUNDRY_HOME` and a
  * directory of its own in `MARBLES_SPAWN_RECORD`, where Marbles records
- * the daemon, workers and MCP servers it starts in the background. What
+ * the daemon, engine generations and MCP servers it starts in the background. What
  * the test starts itself, and that outlives the call that started it, it
  * records with `track` in the same turn as the spawn.
  *

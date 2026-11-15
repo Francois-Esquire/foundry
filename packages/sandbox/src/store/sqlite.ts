@@ -1,3 +1,4 @@
+import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
 import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
 import { and, eq, getTableColumns, inArray, max, sql } from "drizzle-orm";
@@ -6,7 +7,6 @@ import type {
   SQLiteColumn,
   SQLiteTransaction,
 } from "drizzle-orm/sqlite-core";
-
 import type { ContainerRow } from "../schema";
 import type { ContainerStore, ContainerStoreWrite } from "./index";
 import { sandboxContainers } from "./tables";
@@ -116,6 +116,7 @@ export function createSqliteContainerStore(
     const stored = rows.map(
       (row, index): StoredRow => ({
         ...row,
+        holder: row.holder ?? null,
         nativeId: row.nativeId ?? null,
         position: first + index,
         scope,
@@ -145,9 +146,8 @@ export function createSqliteContainerStore(
 
   return {
     /**
-     * Takes the write as it stands when `commit` is called: one
-     * `structuredClone` of the whole write, as the memory store takes it,
-     * made before the commit waits its turn. That copy alone is checked,
+     * Takes the write as it stands when `commit` is called, as the memory
+     * store takes it (see `./events`), before the commit waits its turn. That copy alone is checked,
      * made into every row, and handed to `onCommit`, so a caller changing
      * its write later changes nothing. A write the clone refuses rejects
      * with the clone's error, as in the memory store. A delete of an id no
@@ -156,7 +156,7 @@ export function createSqliteContainerStore(
     commit: (write) => {
       let owned: ContainerStoreWrite;
       try {
-        owned = structuredClone(write);
+        owned = ownedWrite(write);
       } catch (error: unknown) {
         return Promise.reject(error);
       }
@@ -228,15 +228,20 @@ export function createSqliteContainerStore(
   };
 }
 
-/** A stored row as the record: NULL `native_id` is `nativeId: undefined`. */
+/** A stored row as the record: a NULL `native_id` or `holder` is `undefined`, and left out. */
 function containerRow(
   row: Omit<typeof sandboxContainers.$inferSelect, "position" | "scope">
 ): ContainerRow {
-  return Object.freeze({ ...row, nativeId: row.nativeId ?? undefined });
+  const { holder, ...rest } = row;
+  return Object.freeze({
+    ...rest,
+    ...(holder === null ? {} : { holder }),
+    nativeId: row.nativeId ?? undefined,
+  });
 }
 
 /** The row fields kept as plain text; each is checked by {@link storableText}. */
-const TEXT_FIELDS = ["id", "nativeId", "spec", "status"] as const;
+const TEXT_FIELDS = ["holder", "id", "nativeId", "spec", "status"] as const;
 
 /** The row fields kept as integers; each is checked by {@link storableNumber}. */
 const NUMBER_FIELDS = ["createdAt", "updatedAt"] as const;

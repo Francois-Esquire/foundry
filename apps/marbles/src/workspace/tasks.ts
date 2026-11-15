@@ -18,7 +18,7 @@ import type {
 
 /**
  * Runs the task commands of `model/tasks.ts` against one backlog. The host
- * runs them over its engine's store; the worker answers them for the
+ * runs them over its engine's store; an engine generation answers them for the
  * Marbles process, as outcomes.
  */
 

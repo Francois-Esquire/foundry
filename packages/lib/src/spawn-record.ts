@@ -1,14 +1,22 @@
 /**
  * Records of the processes Foundry starts in the background, for whoever
  * has to find them again after the process that started them is gone:
- * today the Marbles test suite, which stops exactly what its runs started.
+ * the Marbles test suite, which stops exactly what its runs started, and
+ * the next start of a Marbles engine, which stops what an engine that is
+ * gone left running (`@foundry/lib/orphans`).
  *
  * The contract:
  *
- * - Active only while `MARBLES_SPAWN_RECORD` names a directory in the
- *   environment the caller passes (by default this process's). Unset,
- *   `recordSpawned` returns at once and runs nothing.
- * - The directory must be private: a real directory (not a link), owned
+ * - Active only while `MARBLES_SPAWN_RECORD` (every record, for a test
+ *   run) or `MARBLES_SPAWN_RECOVERY` (the records a later start recovers
+ *   from) names a directory in the environment the caller passes (by
+ *   default this process's). Neither set, `recordSpawned` returns at once
+ *   and runs nothing.
+ * - A recovery record also names its owner, the process that recorded it,
+ *   by pid and start time. It is removed when the child exits, if the
+ *   caller handed the child itself over (`recordChild`), so the directory
+ *   holds only what may still be running.
+ * - Each directory must be private: a real directory (not a link), owned
  *   by this user, with no permission for group or others. A missing one
  *   is created so. Anything else is refused.
  * - Each record is one file, `<pid>.json`, holding the pid, whether the
@@ -25,7 +33,11 @@
  * Node-bound: import it from main-process code only.
  */
 
-import { type ExecFileOptions, execFile, spawnSync } from "node:child_process";
+import {
+  type ChildProcess,
+  type ExecFileOptions,
+  execFile,
+} from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -38,27 +50,41 @@ import {
   writeSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import {
+  type ProcessIdentity,
+  startedAt,
+  thisProcess,
+} from "./process-identity";
 
 export interface SpawnRecord {
   /** It leads a process group of its own, whose id is its pid. */
   readonly group: boolean;
+  /**
+   * On a group's record: its members as a stop found them while it could
+   * still prove the group by its leader, so a later stop can prove each
+   * one after the leader is gone.
+   */
+  readonly members?: readonly ProcessIdentity[];
+  /** The process that started it, on a recovery record. */
+  readonly owner?: ProcessIdentity;
   readonly pid: number;
   /** As `startedAt` reads it. */
   readonly started: string;
 }
 
-/** The directory records go to. */
+/** The directory every record goes to: a test run's. */
 export const SPAWN_RECORD_ENV = "MARBLES_SPAWN_RECORD";
+/**
+ * The directory recovery records go to: what a later start reads to stop
+ * the children of a process that is gone (`@foundry/lib/orphans`).
+ */
+export const SPAWN_RECOVERY_ENV = "MARBLES_SPAWN_RECOVERY";
 /**
  * An owner's mark, carried to every child, that a reader of the records
  * can check a process's environment for.
  */
 export const SPAWN_OWNER_ENV = "MARBLES_SPAWN_OWNER";
 
-/** How long `ps` gets to answer. */
-const PS_TIMEOUT_MS = 5000;
-/** `ps` prints a start time in its caller's zone and language: one for every caller. */
-const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
 /** Create a new file, never an existing one, and never through a link. */
 const CREATE =
   // biome-ignore lint/suspicious/noBitwiseOperators: open(2) takes its flags as one bit set.
@@ -70,26 +96,6 @@ const CREATE =
 let reported = false;
 
 /**
- * When the process `pid` started, as `ps -o lstart=` prints it in UTC;
- * `null` when no process has the pid, `undefined` when `ps` cannot tell.
- */
-export function startedAt(pid: number): string | null | undefined {
-  const listed = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
-    encoding: "utf8",
-    env: PS_ENV,
-    timeout: PS_TIMEOUT_MS,
-  });
-  const started = listed.stdout?.trim();
-  if (listed.status === 0 && started) {
-    return started;
-  }
-  // `ps` exits 1, printing nothing, when no process has the pid.
-  return listed.error === undefined && listed.status === 1 && !started
-    ? null
-    : undefined;
-}
-
-/**
  * The recorder's own variables in `env`, for a child started with an
  * environment of its own choosing, so what it starts is recorded and
  * marked too. Empty when recording is off.
@@ -98,7 +104,7 @@ export function spawnRecordEnvironment(
   env: Readonly<Record<string, string | undefined>> = process.env
 ): Record<string, string> {
   const carried: Record<string, string> = {};
-  for (const name of [SPAWN_RECORD_ENV, SPAWN_OWNER_ENV]) {
+  for (const name of [SPAWN_RECORD_ENV, SPAWN_RECOVERY_ENV, SPAWN_OWNER_ENV]) {
     const value = env[name];
     if (value !== undefined && value !== "") {
       carried[name] = value;
@@ -142,33 +148,180 @@ export function notPrivate(
  * records (see the contract above). Call it in the same turn as the
  * spawn, once the child is the caller's: until this process reaps it,
  * which waits for its event loop, no other process can be given that pid.
+ * Prefer `recordChild` when the child itself is at hand: its recovery
+ * record then goes when it exits.
  */
 export function recordSpawned(
   pid: number | undefined,
   group: boolean,
   env: Readonly<Record<string, string | undefined>> = process.env
 ): void {
-  const dir = env[SPAWN_RECORD_ENV];
-  if (dir === undefined || dir === "" || pid === undefined) {
+  const all = named(env[SPAWN_RECORD_ENV]);
+  const recovery = named(env[SPAWN_RECOVERY_ENV]);
+  if ((all === undefined && recovery === undefined) || pid === undefined) {
     return;
   }
   try {
-    write(dir, pid, group);
+    write(pid, group, all, recovery);
   } catch (error) {
     if (!reported) {
       reported = true;
       process.stderr.write(
-        `foundry: could not record process ${String(pid)} in ${dir}: ${error instanceof Error ? error.message : String(error)}\n`
+        `foundry: could not record process ${String(pid)} in ${[all, recovery].filter(Boolean).join(" and ")}: ${error instanceof Error ? error.message : String(error)}\n`
       );
     }
   }
 }
 
-function write(dir: string, pid: number, group: boolean): void {
-  mkdirSync(dir, { mode: 0o700, recursive: true });
-  const problem = notPrivate(dir, "directory");
-  if (problem !== undefined) {
-    throw new Error(problem);
+/**
+ * Record `child`, as `recordSpawned` does, and remove its recovery record
+ * once it exits: it is reaped then, so the record names nothing.
+ */
+export function recordChild(
+  child: Pick<ChildProcess, "once" | "pid">,
+  group = false,
+  env: Readonly<Record<string, string | undefined>> = process.env
+): void {
+  recordSpawned(child.pid, group, env);
+  const recovery = named(env[SPAWN_RECOVERY_ENV]);
+  const { pid } = child;
+  if (recovery !== undefined && pid !== undefined) {
+    child.once("exit", () => {
+      // The exit is its reaping: no later child can have had this pid yet.
+      rmSync(recordPath(recovery, pid), { force: true });
+    });
+  }
+}
+
+/** How a group stop reaches the system; a test replaces it. */
+export interface GroupSystem {
+  /** Signal `target` (a negative pid: the group); throws as `process.kill` does. */
+  kill(target: number, signal: NodeJS.Signals | 0): void;
+  sleep(ms: number): Promise<void>;
+}
+
+export interface RecordGroupOptions {
+  /** Read for the record directories; this process's environment when omitted. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  /** How long the group gets after SIGTERM, then after SIGKILL. */
+  readonly graceMs?: number;
+  readonly killMs?: number;
+  /** When it aborts, the whole group is stopped. */
+  readonly signal?: AbortSignal;
+  readonly system?: GroupSystem;
+}
+
+const GROUP_GRACE_MS = 2000;
+const GROUP_KILL_MS = 1000;
+const GROUP_POLL_MS = 50;
+
+const GROUP_SYSTEM: GroupSystem = {
+  kill: (target, signal) => process.kill(target, signal),
+  sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+};
+
+/**
+ * Record `child`, which leads a process group of its own (spawned
+ * detached), as a group, and stop the whole group, the leader and
+ * whatever it started, when `signal` aborts and once the leader exits:
+ * SIGTERM, a grace period, SIGKILL, a last wait. Its recovery record goes
+ * only once the group is empty; one that would not empty keeps it, so the
+ * next start's orphan stop finds the group (`@foundry/lib/orphans`).
+ * Returns the stop, which resolves with whether the group emptied.
+ */
+export function recordGroup(
+  child: Pick<ChildProcess, "once" | "pid">,
+  options: RecordGroupOptions = {}
+): () => Promise<boolean> {
+  const env = options.env ?? process.env;
+  const { pid } = child;
+  recordSpawned(pid, true, env);
+  if (pid === undefined) {
+    return () => Promise.resolve(true);
+  }
+  const recovery = named(env[SPAWN_RECOVERY_ENV]);
+  const system = options.system ?? GROUP_SYSTEM;
+  let stopping: Promise<boolean> | undefined;
+  const stop = (): Promise<boolean> => {
+    stopping ??= stopGroup(pid, system, {
+      graceMs: options.graceMs ?? GROUP_GRACE_MS,
+      killMs: options.killMs ?? GROUP_KILL_MS,
+    }).then((emptied) => {
+      if (emptied && recovery !== undefined) {
+        rmSync(recordPath(recovery, pid), { force: true });
+      }
+      return emptied;
+    });
+    return stopping;
+  };
+  options.signal?.addEventListener("abort", () => stop().catch(() => false), {
+    once: true,
+  });
+  // Its exit is its reaping; what it started may still run in its group.
+  child.once("exit", () => {
+    stop().catch(() => false);
+  });
+  return stop;
+}
+
+/** SIGTERM the group `pgid`, wait, SIGKILL it, wait; whether it emptied. */
+async function stopGroup(
+  pgid: number,
+  system: GroupSystem,
+  limits: { readonly graceMs: number; readonly killMs: number }
+): Promise<boolean> {
+  for (const [signal, ms] of [
+    ["SIGTERM", limits.graceMs],
+    ["SIGKILL", limits.killMs],
+  ] as const) {
+    if (!groupSignal(system, pgid, signal)) {
+      return true;
+    }
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline) {
+      await system.sleep(GROUP_POLL_MS);
+      if (!groupSignal(system, pgid, 0)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** Signal the group `pgid`; `false` once it has no process left. */
+function groupSignal(
+  system: GroupSystem,
+  pgid: number,
+  signal: NodeJS.Signals | 0
+): boolean {
+  try {
+    system.kill(-pgid, signal);
+    return true;
+  } catch (error) {
+    // A group of exited members not yet reaped answers EPERM on macOS.
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+/** Where the record of `pid` is kept in `dir`. */
+export function recordPath(dir: string, pid: number): string {
+  return join(dir, `${String(pid)}.json`);
+}
+
+function named(dir: string | undefined): string | undefined {
+  return dir === undefined || dir === "" ? undefined : dir;
+}
+
+function write(
+  pid: number,
+  group: boolean,
+  all: string | undefined,
+  recovery: string | undefined
+): void {
+  for (const dir of [all, recovery]) {
+    if (dir !== undefined) {
+      privateDirectory(dir);
+    }
   }
   const started = startedAt(pid);
   if (started === null) {
@@ -179,7 +332,25 @@ function write(dir: string, pid: number, group: boolean): void {
     throw new Error("ps could not say when it started");
   }
   const record: SpawnRecord = { group, pid, started };
-  writePrivate(join(dir, `${String(pid)}.json`), JSON.stringify(record));
+  if (all !== undefined) {
+    writePrivate(recordPath(all, pid), JSON.stringify(record));
+  }
+  if (recovery !== undefined) {
+    const owner: ProcessIdentity = thisProcess();
+    writePrivate(
+      recordPath(recovery, pid),
+      JSON.stringify({ ...record, owner })
+    );
+  }
+}
+
+/** Make `dir`, private, if it is missing; refuse one that is not private. */
+function privateDirectory(dir: string): void {
+  mkdirSync(dir, { mode: 0o700, recursive: true });
+  const problem = notPrivate(dir, "directory");
+  if (problem !== undefined) {
+    throw new Error(problem);
+  }
 }
 
 /**
@@ -234,6 +405,6 @@ export function execFileRecorded(
         }
       }
     );
-    recordSpawned(child.pid, false);
+    recordChild(child);
   });
 }

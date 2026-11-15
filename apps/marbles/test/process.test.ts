@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { lockContents } from "@foundry/lib/file-lock";
 
 import { describe, expect, it } from "vitest";
 
@@ -36,7 +37,7 @@ describe("claimProcess", () => {
     });
     expect(claim.pid).toBe(process.pid);
     expect(readFileSync(join(dir, "locks", "process"), "utf8")).toBe(
-      String(process.pid)
+      lockContents()
     );
     expect(readProcess(dir)).toEqual({
       alive: true,

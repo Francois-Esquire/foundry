@@ -2,6 +2,11 @@ import type { Engine } from "~/lib/engine";
 import { runSchedules } from "~/lib/schedule";
 
 export interface RunLoopOptions {
+  /**
+   * Cancels the run a tick under way started; the loop's own stop when
+   * omitted. Given, a stop lets that tick run to its end.
+   */
+  readonly cancel?: AbortSignal;
   readonly print?: (line: string) => void;
   /**
    * Stops the loop. Without one the loop stops on SIGINT or SIGTERM; a host
@@ -18,6 +23,7 @@ export interface RunLoopOptions {
 export async function runSchedulesUntilStopped(
   engine: Engine,
   {
+    cancel,
     print = (line) => {
       process.stdout.write(`${line}\n`);
     },
@@ -36,7 +42,11 @@ export async function runSchedulesUntilStopped(
     signal.addEventListener("abort", stop, { once: true });
   }
   try {
-    await runSchedules(engine, { print, signal: controller.signal });
+    await runSchedules(engine, {
+      ...(cancel === undefined ? {} : { cancel }),
+      print,
+      signal: controller.signal,
+    });
   } finally {
     controller.abort();
     process.removeListener("SIGINT", stop);

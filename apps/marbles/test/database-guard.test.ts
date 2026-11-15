@@ -70,10 +70,8 @@ describe("a writer's handle kept open while a newer Marbles migrates", () => {
       });
       const tasks = new Tasks({ store: records.taskStore });
       const before = await tasks.create({ title: "Before" });
-      const [change] = await records.pending({ handlers: ["h"] });
-      if (change === undefined) {
-        throw new Error("no change was recorded");
-      }
+      const observer = { name: "h", source: "tasks" };
+      const { position } = await records.log.declare(observer, Date.now());
 
       // Another Marbles, one migration ahead, migrates the file meanwhile.
       const newer = newerMigrations(root);
@@ -85,7 +83,13 @@ describe("a writer's handle kept open while a newer Marbles migrates", () => {
         () => tasks.create({ title: "After" }),
         () => tasks.update(before.id, { title: "Renamed" }),
         () => tasks.list(),
-        () => records.deliver(change.id, "h"),
+        () =>
+          records.log.move(observer, {
+            from: position,
+            handed: false,
+            now: Date.now(),
+            to: position + 1,
+          }),
         () =>
           new WorkspaceRegistry({ database: host.database, state }).touch(
             workspace,

@@ -426,12 +426,15 @@ describe("the sandbox_containers table", () => {
       Readonly<
         Omit<
           typeof sandboxContainers.$inferSelect,
-          "nativeId" | "position" | "scope"
+          "holder" | "nativeId" | "position" | "scope"
         >
       >
-    >().toEqualTypeOf<Omit<ContainerRow, "nativeId">>();
+    >().toEqualTypeOf<Omit<ContainerRow, "holder" | "nativeId">>();
     expectTypeOf<
       (typeof sandboxContainers.$inferSelect)["nativeId"]
+    >().toEqualTypeOf<string | null>();
+    expectTypeOf<
+      (typeof sandboxContainers.$inferSelect)["holder"]
     >().toEqualTypeOf<string | null>();
   });
 });

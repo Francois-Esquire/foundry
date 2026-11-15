@@ -9,9 +9,17 @@ import type { WorkspaceStore } from "@foundry/workspaces/store";
 import { SqliteWorkspaceStore } from "@foundry/workspaces/store/sqlite";
 import { removeShares } from "~/database/associations";
 import { surfacingBusy } from "~/database/busy";
+import { ChangeRecorder } from "~/database/changes";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
+import type { Fact } from "~/lib/events/source";
+import {
+  ARTIFACTS,
+  SANDBOXES,
+  sourceKey,
+  WORKSPACES,
+} from "~/lib/events/source";
 
 /**
  * A workspace's artifacts, sandbox containers and workspace catalogue in
@@ -21,9 +29,11 @@ import { stateDatabase } from "~/layout";
  * owned from the call, a value they cannot store refused, one call at a
  * time) is the package's, not Marbles' again; only a lock waited on too
  * long surfaces as Marbles says it, a `DatabaseBusyError`
- * (`surfacingBusy`). Only the artifact store has an `onCommit` hook: an
- * artifact the commit deletes takes its shares (`marbles_resource_workspaces`)
- * with it. Nothing else records their changes.
+ * (`surfacingBusy`). Each records its change facts in the workspace's
+ * change log through its `onCommit` hook (`database/changes.ts`); who
+ * holds each container row is on the row itself (`lib/sandbox/holders.ts`).
+ * An artifact the commit deletes also takes its shares
+ * (`marbles_resource_workspaces`) with it, in the same transaction.
  *
  * An artifact's records are rows; its bytes past the inline limit are blob
  * files on disk, which the package stages and names. Each workspace keeps
@@ -40,30 +50,68 @@ export interface WorkspaceStores {
   readonly workspaces: WorkspaceStore;
 }
 
-/** Every store of the workspace `scope` (its id) over `database`. */
+/**
+ * Every store of the workspace `scope` (its id) over `database`, each
+ * recording its change facts through `changes`: the recorder every store
+ * of the workspace in this process shares, so a commit wakes delivery at
+ * once; one of their own when omitted, whose commits delivery notices on
+ * its next tick.
+ */
 export function workspaceStores(
   database: StoreDatabase,
-  scope: string
+  scope: string,
+  changes: ChangeRecorder = new ChangeRecorder(scope)
 ): WorkspaceStores {
+  const recorded =
+    (source: string) =>
+    (
+      transaction: Parameters<ChangeRecorder["record"]>[0],
+      write: { readonly events?: readonly Fact[] }
+    ) =>
+      changes.record(transaction, source, write.events);
   return {
     artifacts: surfacingBusy(
-      new SqliteArtifactStore({
-        database,
-        // An artifact's shares go with it, in the same transaction.
-        onCommit: (transaction, write) =>
-          removeShares(
-            transaction,
-            "artifact",
-            scope,
-            write.deleteArtifacts ?? []
-          ),
-        scope,
-      })
+      changes.causing(
+        new SqliteArtifactStore({
+          database,
+          onCommit: async (transaction, write) => {
+            await recorded(ARTIFACTS_KEY)(transaction, write);
+            // An artifact's shares go with it, in the same transaction.
+            await removeShares(
+              transaction,
+              "artifact",
+              scope,
+              write.deleteArtifacts ?? []
+            );
+          },
+          scope,
+        })
+      )
     ),
-    containers: surfacingBusy(createSqliteContainerStore({ database, scope })),
-    workspaces: surfacingBusy(new SqliteWorkspaceStore({ database, scope })),
+    containers: surfacingBusy(
+      changes.causing(
+        createSqliteContainerStore({
+          database,
+          onCommit: recorded(SANDBOXES_KEY),
+          scope,
+        })
+      )
+    ),
+    workspaces: surfacingBusy(
+      changes.causing(
+        new SqliteWorkspaceStore({
+          database,
+          onCommit: recorded(WORKSPACES_KEY),
+          scope,
+        })
+      )
+    ),
   };
 }
+
+const ARTIFACTS_KEY = sourceKey(ARTIFACTS) ?? "artifacts";
+const SANDBOXES_KEY = sourceKey(SANDBOXES) ?? "sandboxes";
+const WORKSPACES_KEY = sourceKey(WORKSPACES) ?? "workspaces";
 
 /**
  * Where the workspace `scope` keeps its artifacts' blob files, in the

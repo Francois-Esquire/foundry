@@ -5,9 +5,10 @@ import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { isMissingPath, writeFileAtomicSync } from "@foundry/lib/atomic-file";
 import type { FileLockHolder } from "@foundry/lib/file-lock";
-import { processAlive, tryFileLock } from "@foundry/lib/file-lock";
+import { tryFileLock } from "@foundry/lib/file-lock";
 import { byCodeUnit } from "@foundry/lib/ordering";
 import { isFilesystemPathWithin } from "@foundry/lib/paths";
+import { processAlive } from "@foundry/lib/process-identity";
 import { version } from "../../package.json" with { type: "json" };
 
 /** One workspace's resolved root, and the paths of its state directory. */

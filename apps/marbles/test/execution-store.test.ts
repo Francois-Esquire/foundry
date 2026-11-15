@@ -1,3 +1,4 @@
+import { thisProcess } from "@foundry/lib/process-identity";
 /**
  * Every execution store keeps one contract: in memory, one engine's, and
  * in the Marbles database, shared by every engine over it.
@@ -51,7 +52,7 @@ it("keeps one workspace's runs, observations and gaps apart from another's", asy
       kind: "task" as const,
       name: "save",
       observations: [],
-      owner: { pid: process.pid },
+      owner: thisProcess(),
       queue: "q",
       revision: 1,
       sequence: 1,

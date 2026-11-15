@@ -4,9 +4,10 @@ import { inspect } from "node:util";
 import { refuseUnnamedWork } from "~/authoring/runtime";
 import type { MarblesDatabase } from "~/database/open";
 import { openHostDatabase, WorkspaceRegistry } from "~/database/workspaces";
+import type { Engine } from "~/lib/engine";
 import type { RollResult } from "~/model/connection";
-import type { WorkspaceHost } from "~/workspace/host";
-import { hostWorkspace } from "~/workspace/host";
+import type { StagedWorkspace, WorkspaceHost } from "~/workspace/host";
+import { stageWorkspace } from "~/workspace/host";
 import { findWorkspace } from "~/workspace/open";
 import { DEFAULT_SOURCE } from "~/workspace/source";
 
@@ -19,8 +20,9 @@ import { DEFAULT_SOURCE } from "~/workspace/source";
  * use the same one. A workspace that fails to load is reported on its
  * own, and leaves every other one as it was.
  *
- * The Marbles process still hosts each workspace in a worker of its own;
- * this is what one process holding all of them is built on.
+ * An engine generation of the Marbles process is one of these: it loads
+ * every registered workspace up to engines not yet started
+ * (`stageRegistered`), and starts them all once it is to take over.
  */
 
 /** What a workspace registers: enough, with nothing else, to load it again. */
@@ -43,6 +45,8 @@ export interface QualifiedName {
 /** How one registration's load went. */
 export type WorkspaceLoad =
   | {
+      /** Every file its source's load read. */
+      readonly files: readonly string[];
       readonly id: string;
       readonly loaded: true;
       readonly root: string;
@@ -67,17 +71,55 @@ export class WorkspaceLoadError extends Error {
   }
 }
 
+/**
+ * Every registered workspace loaded up to an engine not yet started, and
+ * how each load went. `start` starts them all and hosts them; `abandon`
+ * drops them unstarted. Either, once.
+ */
+export interface StagedWorkspaces {
+  abandon(): Promise<void>;
+  readonly loads: readonly WorkspaceLoad[];
+  /** Start every staged engine; each is reported, hosted or with why its start failed. */
+  start(): Promise<readonly WorkspaceLoad[]>;
+}
+
 export interface HostedWorkspacesOptions {
   /** The shared artifact store. */
   readonly artifacts: string;
+  /** Whether something here can answer `ask`, so parked runs are taken on. */
+  readonly askable?: boolean;
   /** Echo every model turn and git mutation, and persist nothing. */
   readonly dry?: boolean;
   /** What a `.env.schema` that does not resolve does; `warn` when omitted. */
   readonly env?: "require" | "warn";
+  /** Runs on each built engine before it starts: host steps beside its source. */
+  readonly prepare?: (engine: Engine) => void;
   /** Each workspace's status lines, with the root it was registered at. */
   readonly print?: (root: string, line: string) => void;
+  /** Each file a workspace's load reads, as it loads and as its runs import more, with its root. */
+  readonly read?: (root: string, file: string) => void;
+  /**
+   * Where this process's children are recorded for recovery
+   * (`MARBLES_SPAWN_RECOVERY`), shared by every workspace hosted here:
+   * each engine's start stops what a process that is gone left running,
+   * never what one of the others, alive in this process, started.
+   */
+  readonly spawned?: string;
   /** The Marbles state root. */
   readonly state: string;
+}
+
+/** A registration found on disk, with the arguments its load takes. */
+interface Found {
+  readonly args: {
+    readonly artifacts: string;
+    readonly config: string;
+    readonly directory: string;
+    readonly dry: boolean;
+    readonly state: string;
+  };
+  readonly found: ReturnType<typeof findWorkspace>;
+  readonly root: string;
 }
 
 export class HostedWorkspaces {
@@ -118,6 +160,32 @@ export class HostedWorkspaces {
    * registered, so the next `loadRegistered` reports it again.
    */
   register(registration: WorkspaceRegistration): Promise<WorkspaceHost> {
+    let found: Found;
+    try {
+      found = this.#find(registration);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const { id } = found.found.workspace;
+    const hosting = this.#hosts.get(id);
+    if (hosting !== undefined) {
+      return Promise.resolve(hosting);
+    }
+    const pending = this.#pending.get(id);
+    if (pending !== undefined) {
+      return pending;
+    }
+    const registering = this.#stage(registration, found)
+      .then((staged) => this.#start(staged, found.root))
+      .finally(() => {
+        this.#pending.delete(id);
+      });
+    this.#pending.set(id, registering);
+    return registering;
+  }
+
+  /** Where `registration` is and what it is, or the `WorkspaceLoadError` it fails with. */
+  #find(registration: WorkspaceRegistration): Found {
     const root = resolve(registration.root);
     const source = registration.config ?? join(root, DEFAULT_SOURCE);
     const args = {
@@ -127,14 +195,13 @@ export class HostedWorkspaces {
       dry: this.#options.dry ?? false,
       state: this.#options.state,
     };
-    let found: ReturnType<typeof findWorkspace>;
     try {
       if (this.#phase === "closed") {
         throw new Error("these hosted workspaces are closed");
       }
       // Placed before anything is awaited: a second load of a workspace
       // hosted here would take its catalog and its tasks from the first.
-      found = findWorkspace(args);
+      const found = findWorkspace(args);
       // Only a registration made without a source is its root alone: one
       // whose source is gone does not load.
       if (registration.config !== null && found.config === null) {
@@ -142,37 +209,17 @@ export class HostedWorkspaces {
           `its registered source ${found.configPath} is gone; restore it, or unregister the workspace`
         );
       }
+      return { args, found, root };
     } catch (error) {
-      return Promise.reject(new WorkspaceLoadError(root, { cause: error }));
+      throw new WorkspaceLoadError(root, { cause: error });
     }
-    const { id } = found.workspace;
-    const hosting = this.#hosts.get(id);
-    if (hosting !== undefined) {
-      return Promise.resolve(hosting);
-    }
-    const pending = this.#pending.get(id);
-    if (pending !== undefined) {
-      return pending;
-    }
-    const registering = this.#host(registration, found, args).finally(() => {
-      this.#pending.delete(id);
-    });
-    this.#pending.set(id, registering);
-    return registering;
   }
 
-  async #host(
+  /** Record the registration and load it up to an engine not yet started. */
+  async #stage(
     registration: WorkspaceRegistration,
-    found: ReturnType<typeof findWorkspace>,
-    args: {
-      readonly artifacts: string;
-      readonly directory: string;
-      readonly dry: boolean;
-      readonly state: string;
-    }
-  ): Promise<WorkspaceHost> {
-    const root = args.directory;
-    let host: WorkspaceHost;
+    { args, found, root }: Found
+  ): Promise<StagedWorkspace> {
     try {
       if (this.#database !== undefined) {
         await new WorkspaceRegistry({
@@ -183,21 +230,48 @@ export class HostedWorkspaces {
           hosted: true,
         });
       }
-      host = await hostWorkspace({
+      return await stageWorkspace({
         artifacts: args.artifacts,
+        ...(this.#options.askable === undefined
+          ? {}
+          : { askable: this.#options.askable }),
         ...(registration.cwd === undefined ? {} : { cwd: registration.cwd }),
         ...(this.#database === undefined ? {} : { database: this.#database }),
         ...(this.#options.env === undefined ? {} : { env: this.#options.env }),
         directory: root,
         dry: args.dry,
+        ...(this.#options.prepare === undefined
+          ? {}
+          : { prepare: this.#options.prepare }),
         print: (line) => this.#options.print?.(root, line),
+        read: (file) => this.#options.read?.(root, file),
         source: found.configPath,
+        ...(this.#options.spawned === undefined
+          ? {}
+          : { spawned: this.#options.spawned }),
         state: args.state,
       });
     } catch (error) {
       throw new WorkspaceLoadError(root, { cause: error });
     }
+  }
+
+  /** Start a staged workspace and host it here. */
+  async #start(staged: StagedWorkspace, root: string): Promise<WorkspaceHost> {
     if (this.#phase === "closed") {
+      await staged.abandon();
+      throw new WorkspaceLoadError(root, {
+        cause: new Error("these hosted workspaces closed while it loaded"),
+      });
+    }
+    let host: WorkspaceHost;
+    try {
+      host = await staged.start();
+    } catch (error) {
+      throw new WorkspaceLoadError(root, { cause: error });
+    }
+    // A close may have begun while the engine started.
+    if (this.#closed()) {
       await host.close();
       throw new WorkspaceLoadError(root, {
         cause: new Error("these hosted workspaces closed while it loaded"),
@@ -207,6 +281,93 @@ export class HostedWorkspaces {
     return host;
   }
 
+  /**
+   * Load every workspace registered with the Marbles process, as
+   * `loadRegistered` does, but stop short of starting their engines: a
+   * workspace taken on here takes over its parked and queued work only
+   * once `start` runs. Under `dry` nothing is read, and none is staged.
+   */
+  async stageRegistered(): Promise<StagedWorkspaces> {
+    const staged: {
+      readonly root: string;
+      readonly staged: StagedWorkspace;
+    }[] = [];
+    const loads: WorkspaceLoad[] = [];
+    for (const registration of await this.#registered()) {
+      try {
+        const found = this.#find(registration);
+        const workspace = await this.#stage(registration, found);
+        staged.push({ root: found.root, staged: workspace });
+        loads.push({
+          files: workspace.files,
+          id: workspace.id,
+          loaded: true,
+          root: found.root,
+        });
+      } catch (error) {
+        if (!(error instanceof WorkspaceLoadError)) {
+          await Promise.allSettled(staged.map((each) => each.staged.abandon()));
+          throw error;
+        }
+        loads.push({ error, loaded: false, root: error.root });
+      }
+    }
+    let used = false;
+    const once = (): void => {
+      if (used) {
+        throw new Error(
+          "these staged workspaces were started or abandoned already"
+        );
+      }
+      used = true;
+    };
+    return {
+      abandon: async () => {
+        once();
+        await Promise.allSettled(staged.map((each) => each.staged.abandon()));
+      },
+      loads,
+      start: async () => {
+        once();
+        const started: WorkspaceLoad[] = [];
+        for (const each of staged) {
+          try {
+            const host = await this.#start(each.staged, each.root);
+            started.push({
+              files: host.files,
+              id: host.id,
+              loaded: true,
+              root: host.root,
+            });
+          } catch (error) {
+            if (!(error instanceof WorkspaceLoadError)) {
+              throw error;
+            }
+            started.push({ error, loaded: false, root: error.root });
+          }
+        }
+        return started;
+      },
+    };
+  }
+
+  /** Every registration the registry says is hosted; none under `dry`. */
+  async #registered(): Promise<readonly WorkspaceRegistration[]> {
+    const database = this.#database;
+    if (database === undefined) {
+      return [];
+    }
+    const records = await new WorkspaceRegistry({
+      database: database.database,
+      state: this.#options.state,
+    }).list();
+    return records.filter((record) => record.hosted);
+  }
+
+  #closed(): boolean {
+    return this.#phase === "closed";
+  }
+
   /** Load each registration in turn; each is reported, loaded or not. */
   async load(
     registrations: readonly WorkspaceRegistration[]
@@ -214,8 +375,8 @@ export class HostedWorkspaces {
     const loads: WorkspaceLoad[] = [];
     for (const registration of registrations) {
       try {
-        const { id, root } = await this.register(registration);
-        loads.push({ id, loaded: true, root });
+        const { files, id, root } = await this.register(registration);
+        loads.push({ files, id, loaded: true, root });
       } catch (error) {
         if (!(error instanceof WorkspaceLoadError)) {
           throw error;
@@ -233,15 +394,7 @@ export class HostedWorkspaces {
    * with. Under `dry` nothing is read, and none is.
    */
   async loadRegistered(): Promise<readonly WorkspaceLoad[]> {
-    const database = this.#database;
-    if (database === undefined) {
-      return [];
-    }
-    const records = await new WorkspaceRegistry({
-      database: database.database,
-      state: this.#options.state,
-    }).list();
-    return await this.load(records.filter((record) => record.hosted));
+    return await this.load(await this.#registered());
   }
 
   /**

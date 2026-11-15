@@ -41,7 +41,7 @@ import { runTaskCommand } from "~/workspace/tasks";
  * One workspace, hosted in this process: its source loaded, its engine
  * built and started, and everything a host does with it behind the
  * `WorkspaceConnection` the dashboard, the CLI, and MCP are written
- * against. The Marbles process runs one of these per workspace in a worker;
+ * against. An engine generation of the Marbles process runs one of these per workspace;
  * a program that embeds Marbles for a single workspace runs it directly.
  */
 
@@ -75,8 +75,16 @@ export interface HostWorkspaceOptions {
   readonly prepare?: (engine: Engine) => void;
   /** Receives each status line; the last one is the host's `status`. */
   readonly print?: (line: string) => void;
+  /** Told of each file the source's load reads, as it loads and as its runs import more. */
+  readonly read?: (file: string) => void;
   /** The authoring folder or module. */
   readonly source: string;
+  /**
+   * Where this process's children are recorded for recovery
+   * (`MARBLES_SPAWN_RECOVERY`), so the engine's start stops what one that
+   * is gone left running; none is stopped without it.
+   */
+  readonly spawned?: string;
   /** The Marbles state root. */
   readonly state: string;
 }
@@ -87,8 +95,14 @@ export interface WorkspaceHost extends WorkspaceConnection {
   /** Where the source is, or would be created. */
   readonly configPath: string;
   readonly engine: Engine;
-  /** Tick the live triggers until `signal` aborts. */
-  run(signal: AbortSignal): Promise<void>;
+  /** Every file its source's load read (`OpenedWorkspace.files`). */
+  readonly files: readonly string[];
+  /**
+   * Tick the live triggers until `signal` aborts. A tick under way then is
+   * cancelled with it, unless `cancel` is given: then it runs to its end,
+   * and `cancel` cuts it short.
+   */
+  run(signal: AbortSignal, cancel?: AbortSignal): Promise<void>;
   setStatus(line: string): void;
   /** The last status line; shown in the dashboard's toolbar. */
   readonly status: string;
@@ -138,6 +152,33 @@ async function inputHint(
 export async function hostWorkspace(
   options: HostWorkspaceOptions
 ): Promise<WorkspaceHost> {
+  return await (await stageWorkspace(options)).start();
+}
+
+/**
+ * A workspace loaded up to an engine that has not started: its source,
+ * environment and catalog loaded, its engine built and prepared, nothing
+ * of the workspace's work adopted or ticked yet. `start` starts the engine,
+ * which is what takes over parked and queued work; `abandon` drops it
+ * unstarted. Either, once.
+ */
+export interface StagedWorkspace {
+  /** Give the loaded workspace up without starting its engine. */
+  abandon(): Promise<void>;
+  readonly config: string | null;
+  readonly configPath: string;
+  /** Every file its source's load read (`OpenedWorkspace.files`). */
+  readonly files: readonly string[];
+  readonly id: string;
+  readonly root: string;
+  /** Start the engine and host the workspace; a start that fails abandons it. */
+  start(): Promise<WorkspaceHost>;
+}
+
+/** Load `options`' workspace as `hostWorkspace` does, stopping short of the engine's start. */
+export async function stageWorkspace(
+  options: HostWorkspaceOptions
+): Promise<StagedWorkspace> {
   // The lines of the call printing them: overlapping rolls, and the
   // schedule loop beside them, each keep their own.
   const captured = new AsyncLocalStorage<string[]>();
@@ -156,6 +197,7 @@ export async function hostWorkspace(
       ? {}
       : { directory: options.directory }),
     dry: options.dry ?? false,
+    ...(options.spawned === undefined ? {} : { spawned: options.spawned }),
     state: options.state,
   };
   const loaded = await openWorkspace(hostOptions, {
@@ -163,85 +205,132 @@ export async function hostWorkspace(
     env: options.env,
     onMissing: options.onMissing,
     print,
+    ...(options.read === undefined ? {} : { read: options.read }),
   });
   // A host is a writer, and keeps one handle for as long as it hosts: it
   // makes and migrates the database only under the state root's process
   // lock (`openHostDatabase`). Under `--dry-run` nothing is persisted.
   const shared = hostOptions.dry ? undefined : options.database;
   let own: MarblesDatabase | undefined;
+  /** Nothing of it stays bound in this process for the next host to meet. */
+  const unbind = (): void => {
+    abandonHost(loaded.workspace.id);
+    own?.close();
+  };
+  let engine: Engine;
+  let opened: OpenedWorkspace;
+  let dispatches: BackgroundRuns;
   try {
     own =
       hostOptions.dry || shared !== undefined
         ? undefined
         : await openHostDatabase(hostOptions.state);
-    const database = shared ?? own;
-    const opened = await asRegistered(
-      database,
+    opened = await asRegistered(
+      shared ?? own,
       hostOptions,
       loaded,
       options.cwd
     );
-    const engine = await hostEngine(hostOptions, opened, {
+    engine = await hostEngine(hostOptions, opened, {
       askable: options.askable,
-      ...(database === undefined ? {} : { database }),
+      ...((shared ?? own) === undefined ? {} : { database: shared ?? own }),
       log,
       print,
     });
-    try {
-      options.prepare?.(engine);
-      // Defined before the engine starts: background agent dispatch is a step.
-      const dispatches = new BackgroundRuns(engine, opened.catalog);
-      await engine.start();
-      await touchWorkspace(
-        database,
-        hostOptions,
-        opened,
-        options.cwd === undefined ? {} : { cwd: options.cwd }
-      );
-      return hosted(engine, opened, dispatches, {
-        captured,
-        database: own,
-        diagnostics,
-        fail: (line) => {
-          report(line);
-          diagnostics.add(line, "error");
-        },
-        feed:
-          database === undefined
-            ? engine.feed
-            : workspaceFeed({
-                artifacts: hostOptions.artifacts,
-                database: database.database,
-                own: engine.feed,
-                state: hostOptions.state,
-                workspace: opened.workspace.id,
-              }),
-        ...(database === undefined
-          ? {}
-          : {
-              others: otherWorkspaces({
-                database: database.database,
-                state: hostOptions.state,
-                workspace: opened.workspace.id,
-              }),
-            }),
-        lastFinish: await lastFinishes(engine),
-        print,
-        setStatus: (line) => {
-          status = line;
-        },
-        status: () => status,
-      });
-    } catch (error) {
-      await engine.dispose();
-      throw error;
-    }
   } catch (error) {
-    // Nothing of it stays bound in this process for the next host to meet.
-    abandonHost(loaded.workspace.id);
-    own?.close();
+    unbind();
     throw error;
   }
+  try {
+    options.prepare?.(engine);
+    // Defined before the engine starts: background agent dispatch is a step.
+    dispatches = new BackgroundRuns(engine, opened.catalog);
+  } catch (error) {
+    try {
+      await engine.dispose();
+    } finally {
+      unbind();
+    }
+    throw error;
+  }
+  const database = shared ?? own;
+  let used = false;
+  const once = (): void => {
+    if (used) {
+      throw new Error(
+        `workspace ${opened.workspace.id} was started or abandoned already`
+      );
+    }
+    used = true;
+  };
+  return {
+    async abandon() {
+      once();
+      try {
+        await engine.dispose();
+      } finally {
+        unbind();
+      }
+    },
+    config: opened.config,
+    configPath: opened.configPath,
+    files: opened.files,
+    id: opened.workspace.id,
+    root: opened.workspace.root,
+    async start() {
+      once();
+      try {
+        await engine.start();
+        await touchWorkspace(
+          database,
+          hostOptions,
+          opened,
+          options.cwd === undefined ? {} : { cwd: options.cwd }
+        );
+        return hosted(engine, opened, dispatches, {
+          captured,
+          database: own,
+          diagnostics,
+          fail: (line) => {
+            report(line);
+            diagnostics.add(line, "error");
+          },
+          feed:
+            database === undefined
+              ? engine.feed
+              : workspaceFeed({
+                  artifacts: hostOptions.artifacts,
+                  database: database.database,
+                  own: engine.feed,
+                  state: hostOptions.state,
+                  workspace: opened.workspace.id,
+                }),
+          ...(database === undefined
+            ? {}
+            : {
+                others: otherWorkspaces({
+                  database: database.database,
+                  state: hostOptions.state,
+                  workspace: opened.workspace.id,
+                }),
+              }),
+          lastFinish: await lastFinishes(engine),
+          print,
+          setStatus: (line) => {
+            status = line;
+          },
+          status: () => status,
+        });
+      } catch (error) {
+        try {
+          await engine.dispose();
+        } finally {
+          unbind();
+        }
+        throw error;
+      }
+    },
+  };
 }
 
 interface Status {
@@ -446,6 +535,7 @@ function hosted(
     dispatchWorkflow: (name, input): Promise<DispatchInfo> =>
       dispatches.startWorkflow(name, input),
     engine,
+    files: opened.files,
     getRun: (runId): Promise<RunInfo> => dispatches.get(runId),
     id: workspace.id,
     async roll(name, input): Promise<RollResult> {
@@ -472,7 +562,12 @@ function hosted(
       return { lines, value };
     },
     root: workspace.root,
-    run: (signal) => runSchedulesUntilStopped(engine, { print, signal }),
+    run: (signal, cancel) =>
+      runSchedulesUntilStopped(engine, {
+        ...(cancel === undefined ? {} : { cancel }),
+        print,
+        signal,
+      }),
     setStatus,
     async snapshot(): Promise<DashboardSnapshot> {
       // First, so a failure it logs is in this snapshot's diagnostics.

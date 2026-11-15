@@ -4,14 +4,25 @@
  * it carries are defined once, in `../schema`, and imported as types only.
  */
 
-import type { ContainerRow } from "../schema";
+import type { ContainerRow, SandboxEvent } from "../schema";
 
-export type { ContainerRow, ContainerRowStatus } from "../schema";
+export type { ContainerRow, ContainerRowStatus, SandboxEvent } from "../schema";
 
 /** One atomic write. Deletes apply before puts. */
 export interface ContainerStoreWrite {
   /** Ids of rows to delete. An id with no row is not an error. */
   readonly deleteContainers?: readonly string[];
+  /**
+   * What the write changes, as the registry records it, in order. A store
+   * keeps none of them. Every store takes them when `commit` is called, by
+   * one rule (`./events`): each is copied as plain JSON, and a write holding
+   * one that is not (a class instance, a property a copy would not see, a
+   * Date, `undefined`, NaN) is refused whole with a `TypeError`. A store
+   * with a host hook passes its copy to the hook unchanged. An event's `at`
+   * is when the change was built, not when it committed: it does not order
+   * commits.
+   */
+  readonly events?: readonly SandboxEvent[];
   /** Whole rows to keep, each replacing any row with the same id. */
   readonly putContainers?: readonly ContainerRow[];
 }

@@ -275,3 +275,87 @@ export const artifactRecordsSchema = z
   })
   .readonly();
 export type ArtifactRecords = z.infer<typeof artifactRecordsSchema>;
+
+// ── Change events ──
+
+const eventFields = {
+  artifactId: artifactIdSchema,
+  /**
+   * When the manager built the event, an ISO time. Not commit order: a host
+   * orders events by its own sequence.
+   */
+  at: z.iso.datetime(),
+  /** The event's own id, unique. */
+  id: z.string().min(1),
+};
+const contentEventFields = { ...eventFields, contentId: contentIdSchema };
+
+/**
+ * A change event: one change an `ArtifactManager` operation made, carried in
+ * the store write that makes it (`ArtifactStoreWrite.events`). Each names the
+ * Artifact it changed, and the Content where the change is to one; a
+ * handler reads the records for anything more.
+ */
+export const artifactEventSchema = z.discriminatedUnion("type", [
+  z.strictObject({ ...eventFields, type: z.literal("artifact.created") }),
+  z.strictObject({
+    ...contentEventFields,
+    sourceArtifactId: artifactIdSchema,
+    sourceContentId: contentIdSchema,
+    type: z.literal("artifact.forked"),
+  }),
+  z.strictObject({
+    ...contentEventFields,
+    type: z.literal("artifact.written"),
+  }),
+  z.strictObject({
+    ...contentEventFields,
+    sourceContentId: contentIdSchema,
+    type: z.literal("artifact.revised"),
+  }),
+  z.strictObject({ ...contentEventFields, type: z.literal("artifact.frozen") }),
+  z.strictObject({
+    ...contentEventFields,
+    type: z.literal("artifact.published"),
+  }),
+  z.strictObject({
+    ...contentEventFields,
+    type: z.literal("artifact.selected"),
+  }),
+  z.strictObject({
+    ...contentEventFields,
+    type: z.literal("artifact.cleared"),
+  }),
+  z.strictObject({
+    ...contentEventFields,
+    tag: nonBlankSchema.nullable(),
+    type: z.literal("artifact.tagged"),
+  }),
+  z.strictObject({
+    ...eventFields,
+    /** The Content whose metadata changed; `null` for the Artifact's own. */
+    contentId: contentIdSchema.nullable(),
+    type: z.literal("artifact.updated"),
+  }),
+  z.strictObject({
+    ...eventFields,
+    name: nonBlankSchema,
+    type: z.literal("artifact.renamed"),
+  }),
+  z.strictObject({ ...eventFields, type: z.literal("artifact.archived") }),
+  z.strictObject({ ...eventFields, type: z.literal("artifact.unarchived") }),
+  z.strictObject({
+    ...eventFields,
+    /** The removed Artifact's `type`, as it can no longer be read. */
+    artifactType: nonBlankSchema,
+    /** The removed Artifact's name, as it can no longer be read. */
+    name: nonBlankSchema,
+    type: z.literal("artifact.removed"),
+  }),
+  z.strictObject({
+    ...contentEventFields,
+    type: z.literal("artifact.discarded"),
+  }),
+]);
+export type ArtifactEvent = z.infer<typeof artifactEventSchema>;
+export type ArtifactEventType = ArtifactEvent["type"];

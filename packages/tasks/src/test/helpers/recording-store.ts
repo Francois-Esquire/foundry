@@ -33,7 +33,7 @@ export class RecordingStore implements TaskStore {
   }
 
   events(): TaskEvent[] {
-    return this.writes.flatMap((write) => (write.event ? [write.event] : []));
+    return this.writes.flatMap((write) => write.events ?? []);
   }
 
   #recorded(store: TaskStore, write: TaskStoreWrite): Promise<void> {

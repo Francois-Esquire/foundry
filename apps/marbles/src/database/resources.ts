@@ -3,6 +3,7 @@ import type { MessageTally } from "@foundry/agents/store/sqlite";
 import type { Artifact, ArtifactId } from "@foundry/artifacts";
 import type { ArtifactCursor } from "@foundry/artifacts/listing";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import type { ModuleId } from "@foundry/modules/domain";
 import type { Module } from "@foundry/modules/schema";
 import { SqliteModuleStore } from "@foundry/modules/store/sqlite";
@@ -15,6 +16,7 @@ import { DatabaseAssociationStore } from "~/database/associations";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
+import { rowOwner } from "~/database/owner";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { marblesWorkflowRuns } from "~/database/tables";
 import { WorkspaceRegistry } from "~/database/workspaces";
@@ -54,7 +56,8 @@ export interface Shown<T> {
 
 /** A workflow Run, and the process of the engine that owns it, if any. */
 export interface RunResource {
-  readonly ownerPid: number | null;
+  /** The engine's process, pid and start; `null` when none owns it. */
+  readonly owner: ProcessIdentity | null;
   readonly record: RunRecord;
 }
 
@@ -309,11 +312,12 @@ export class ResourceView {
     const database = this.#database;
     /** The owner pids of `owner`'s runs, every one or those with `ids`, in one read each batch. */
     const ownerPids = async (owner: string, ids?: readonly string[]) => {
-      const pids = new Map<string, number | null>();
+      const pids = new Map<string, ProcessIdentity | null>();
       const read = (batch?: readonly string[]) =>
         database
           .select({
             ownerPid: marblesWorkflowRuns.ownerPid,
+            ownerStarted: marblesWorkflowRuns.ownerStarted,
             runId: marblesWorkflowRuns.runId,
           })
           .from(marblesWorkflowRuns)
@@ -329,7 +333,7 @@ export class ResourceView {
         ? [await read()]
         : await Promise.all(batches(ids).map(read))) {
         for (const row of rows) {
-          pids.set(row.runId, row.ownerPid);
+          pids.set(row.runId, rowOwner(row));
         }
       }
       return pids;
@@ -345,7 +349,7 @@ export class ResourceView {
           for (const id of ids) {
             const record = await runs.getRun(id);
             if (record !== null) {
-              found.push({ ownerPid: pids.get(id) ?? null, record });
+              found.push({ owner: pids.get(id) ?? null, record });
             }
           }
           return found;
@@ -362,7 +366,7 @@ export class ResourceView {
               ...(after === undefined ? {} : { after }),
             });
             for (const record of page.items) {
-              runs.push({ ownerPid: pids.get(record.id) ?? null, record });
+              runs.push({ owner: pids.get(record.id) ?? null, record });
             }
             after = page.next;
           } while (after !== undefined);

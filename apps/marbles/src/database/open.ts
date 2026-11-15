@@ -73,7 +73,7 @@ const READ_ATTEMPTS = 3;
  *   file, puts it in WAL mode, and migrates it. Nothing else migrates, so
  *   no two processes migrate at once.
  * - `openDatabase` and `writeDatabase`, for writes by a process without
- *   that lock (a worker hosting a workspace, a detach with no process
+ *   that lock (an engine generation hosting a workspace, a detach with no process
  *   running): open only a file that is there, never create or migrate
  *   one, and refuse a schema that is not current. `openDatabase` keeps the
  *   handle open for the caller; `writeDatabase` closes it after one piece

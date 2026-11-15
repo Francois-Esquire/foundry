@@ -1,6 +1,6 @@
 import { SandboxError } from "../errors";
 import { assertNotAborted } from "../sandbox";
-import type { ContainerRow } from "../schema";
+import type { ContainerRow, SandboxEvent } from "../schema";
 import type { ContainerStore } from "../store/index";
 import { createMemoryContainerStore } from "../store/memory";
 import {
@@ -37,6 +37,14 @@ export interface CreateContainersOptions {
    * falls back to these. The registry always assigns the native name.
    */
   readonly config?: ContainerConfig;
+  /**
+   * This registry's token as a row's holder: written on every row it
+   * writes, so a row is taken over only while the holder it was judged by
+   * is still the one stored. Opaque here; a host that can tell when a
+   * holder is gone gives one it can read back (`recover`). A fresh random
+   * token when omitted.
+   */
+  readonly holder?: string;
   /** Host-derived label separating this data directory's VMs from any other. */
   readonly instanceLabel: string;
   /** Guest directory every mount target must equal or fall under. */
@@ -51,9 +59,28 @@ export interface Containers {
   /** Join a row: another handle if its VM runs here, else a restart under the same row. */
   open(id: string, signal?: AbortSignal): Promise<Container>;
   /**
+   * Take back what processes that are gone left, after a crash: each row
+   * not live here that `left` says a gone process left is claimed for
+   * removal, in one store transaction and only while its holder and last
+   * write are still the ones `left` was shown, so a registry that opened
+   * it meanwhile keeps it. A claimed row is marked `removing` under this
+   * registry, its VM removed, and the row deleted only once the runtime
+   * no longer lists the VM; one whose VM would not go stays `removing`,
+   * listed in `kept`, for a later recovery to take over and retry. Then
+   * every VM with this instance's labels and no row is swept. A row live
+   * here, or being opened or removed here, is never offered.
+   */
+  recover(
+    left: (row: ContainerRow) => boolean | Promise<boolean>,
+    signal?: AbortSignal
+  ): Promise<ContainerRecovery>;
+  /**
    * Delete a row whose VM is not live here, removing whatever the runtime
-   * still holds under its native name. Refuses while a handle is open; an
-   * `open` or `restart` that begins before the delete commits is refused.
+   * still holds under its native name. The row is marked `removing` first,
+   * and deleted only once the runtime no longer lists the VM; one that
+   * would not go rejects, its row kept `removing` so a later recovery
+   * retries it. Refuses while a handle is open; an `open` or `restart`
+   * that begins before the delete commits is refused.
    */
   remove(id: string): Promise<void>;
   /**
@@ -84,6 +111,17 @@ export interface Containers {
    * Returns the native names swept.
    */
   sweep(signal?: AbortSignal): Promise<readonly string[]>;
+}
+
+/**
+ * What `recover` took back: the rows it removed, the rows it claimed but
+ * whose VM would not go (kept, `removing`, to retry), and the native names
+ * it swept.
+ */
+export interface ContainerRecovery {
+  readonly kept: readonly string[];
+  readonly removed: readonly string[];
+  readonly swept: readonly string[];
 }
 
 /**
@@ -122,6 +160,7 @@ interface Live {
 export function createContainers(options: CreateContainersOptions): Containers {
   const { runtime } = options;
   const store = options.store ?? createMemoryContainerStore();
+  const holder = options.holder ?? globalThis.crypto.randomUUID();
   const live = new Map<string, Live>();
   const pending = new Map<string, Promise<Live>>();
   const releasing = new Map<string, Promise<void>>();
@@ -258,21 +297,32 @@ export function createContainers(options: CreateContainersOptions): Containers {
     entry: { row: ContainerRow },
     patch: RowPatch | ((current: ContainerRow) => RowPatch)
   ): Promise<void> => {
+    const eventId = globalThis.crypto.randomUUID();
     entry.row = await serialized(async (view) => {
       const current = await rowOrThrow(entry.row.id, view);
       const next: ContainerRow = Object.freeze({
         ...current,
         ...(typeof patch === "function" ? patch(current) : patch),
+        holder,
         updatedAt: Date.now(),
       });
-      await view.commit({ putContainers: [next] });
+      const entered = enteredEvent(current, next);
+      await view.commit({
+        ...(entered === undefined
+          ? {}
+          : {
+              events: [sandboxEvent(entered, eventId, next.id, next.updatedAt)],
+            }),
+        putContainers: [next],
+      });
       return next;
     });
   };
 
   /** A new row in `starting` under its first native name, refused if the id is taken. */
-  const insert = (constraints: ContainerSandboxConstraints) =>
-    serialized(async (view): Promise<ContainerRow> => {
+  const insert = (constraints: ContainerSandboxConstraints) => {
+    const eventId = globalThis.crypto.randomUUID();
+    return serialized(async (view): Promise<ContainerRow> => {
       const id = globalThis.crypto.randomUUID();
       if ((await view.get(id)) !== undefined) {
         throw new SandboxError(
@@ -283,15 +333,20 @@ export function createContainers(options: CreateContainersOptions): Containers {
       const now = Date.now();
       const row: ContainerRow = Object.freeze({
         createdAt: now,
+        holder,
         id,
         nativeId: nextNativeId({ id, nativeId: undefined }),
         spec: JSON.stringify(constraints),
         status: "starting",
         updatedAt: now,
       });
-      await view.commit({ putContainers: [row] });
+      await view.commit({
+        events: [sandboxEvent("sandbox.created", eventId, id, now)],
+        putContainers: [row],
+      });
       return row;
     });
+  };
 
   /**
    * Boot a VM under the native name the row already records, then record
@@ -465,6 +520,85 @@ export function createContainers(options: CreateContainersOptions): Containers {
     }
   };
 
+  /**
+   * Remove the VM `name`: whether the runtime no longer lists it. A stop
+   * or remove that fails may mean it is gone already; the inventory says.
+   * One still listed is retried through its row, which stays `removing`.
+   */
+  const removeVm = async (name: string): Promise<boolean> => {
+    try {
+      await runtime.stopResource(name);
+      await runtime.removeResource(name);
+      return true;
+    } catch {
+      try {
+        const resources = await enumerate(runtime, selection, undefined);
+        if (!resources.some((resource) => resource.name === name)) {
+          return true;
+        }
+      } catch {
+        // An inventory that cannot be read proves nothing gone.
+      }
+      return false;
+    }
+  };
+
+  /**
+   * Mark the row `removing` under this registry, in one store transaction;
+   * when `judged` is given, only while the row's holder and last write are
+   * still those, so a row another registry took meanwhile is left to it.
+   * The row as claimed; `undefined` when it was not.
+   */
+  const claimForRemoval = (
+    id: string,
+    judged?: ContainerRow
+  ): Promise<ContainerRow | undefined> =>
+    serialized(async (view) => {
+      const current = await view.get(id);
+      if (
+        current === undefined ||
+        (judged !== undefined &&
+          (current.holder !== judged.holder ||
+            current.updatedAt !== judged.updatedAt))
+      ) {
+        return;
+      }
+      const claimed: ContainerRow = Object.freeze({
+        ...current,
+        holder,
+        status: "removing",
+        updatedAt: Date.now(),
+      });
+      await view.commit({ putContainers: [claimed] });
+      return claimed;
+    });
+
+  /**
+   * Delete the row `id` while this registry still holds it, recording it
+   * destroyed. Another registry that took the row meanwhile, or deleted it,
+   * keeps it: then nothing is deleted, and nothing destroyed here.
+   */
+  const deleteHeld = (id: string): Promise<void> => {
+    const eventId = globalThis.crypto.randomUUID();
+    return serialized(async (view) => {
+      if ((await view.get(id))?.holder === holder) {
+        await view.commit({
+          deleteContainers: [id],
+          events: [sandboxEvent("sandbox.destroyed", eventId, id, Date.now())],
+        });
+      }
+    });
+  };
+
+  /** A claimed row's VM removed and the row deleted; whether both went. */
+  const removeClaimed = async (row: ContainerRow): Promise<boolean> => {
+    if (row.nativeId !== undefined && !(await removeVm(row.nativeId))) {
+      return false;
+    }
+    await deleteHeld(row.id);
+    return true;
+  };
+
   const containers: Containers = {
     list: () => store.list(),
 
@@ -479,20 +613,70 @@ export function createContainers(options: CreateContainersOptions): Containers {
         assertNotRemoving(id);
         inflight = (async () => {
           await released(id);
-          const row = await rowOrThrow(id);
-          if (row.nativeId !== undefined) {
-            await removeNative(row.nativeId);
+          // Claimed before anything else: from here this registry holds the
+          // row, and a recovery that judged it by its last holder leaves it.
+          let previous: string | undefined;
+          const row = await serialized(async (view) => {
+            const current = await rowOrThrow(id, view);
+            if (current.status === "removing" && current.holder !== holder) {
+              throw new SandboxError(
+                "invalid-transition",
+                `container ${id} is being removed`
+              );
+            }
+            previous = current.nativeId;
+            const claimed: ContainerRow = Object.freeze({
+              ...current,
+              holder,
+              nativeId: nextNativeId(current),
+              status: "starting",
+              updatedAt: Date.now(),
+            });
+            await view.commit({ putContainers: [claimed] });
+            return claimed;
+          });
+          if (previous !== undefined) {
+            await removeNative(previous);
           }
-          const entry = { row };
-          await update(entry, (current) => ({
-            nativeId: nextNativeId(current),
-            status: "starting",
-          }));
-          return bringUp(entry, parseSpec(JSON.parse(row.spec)), signal);
+          return bringUp({ row }, parseSpec(JSON.parse(row.spec)), signal);
         })().finally(() => pending.delete(id));
         pending.set(id, inflight);
       }
       return handleFor(await inflight);
+    },
+
+    async recover(left, signal) {
+      assertOpen();
+      const removed: string[] = [];
+      const kept: string[] = [];
+      for (const row of await store.list()) {
+        assertNotAborted(signal, "container recovery was cancelled");
+        const { id } = row;
+        // Judged outside any transaction; the claim checks it still holds.
+        if (
+          live.has(id) ||
+          pending.has(id) ||
+          removing.has(id) ||
+          !(await left(row))
+        ) {
+          continue;
+        }
+        removing.add(id);
+        try {
+          const claimed = await claimForRemoval(id, row);
+          if (claimed !== undefined) {
+            ((await removeClaimed(claimed)) ? removed : kept).push(id);
+          }
+        } finally {
+          removing.delete(id);
+        }
+      }
+      const swept = await containers.sweep(signal);
+      return Object.freeze({
+        kept: Object.freeze(kept),
+        removed: Object.freeze(removed),
+        swept,
+      });
     },
 
     async remove(id) {
@@ -509,11 +693,19 @@ export function createContainers(options: CreateContainersOptions): Containers {
       removing.add(id);
       try {
         await released(id);
-        const row = await rowOrThrow(id);
-        if (row.nativeId !== undefined) {
-          await removeNative(row.nativeId);
+        const claimed = await claimForRemoval(id);
+        if (claimed === undefined) {
+          throw new SandboxError(
+            "invalid-contract",
+            `container ${id} does not exist`
+          );
         }
-        await serialized((view) => view.commit({ deleteContainers: [id] }));
+        if (!(await removeClaimed(claimed))) {
+          throw new SandboxError(
+            "provider-failed",
+            `container ${id}: its VM ${String(claimed.nativeId)} could not be removed; the row is kept to retry`
+          );
+        }
       } finally {
         removing.delete(id);
       }
@@ -617,6 +809,40 @@ export function createContainers(options: CreateContainersOptions): Containers {
     },
   };
   return Object.freeze(containers);
+}
+
+/**
+ * The event an update from the row as stored (`current`) to `next` records:
+ * entering `running`, `stopped` or `failed` from any other status, whatever
+ * came before (a boot after a failure, a restart). Moves to `starting` or
+ * `restarting`, a row already in its status, and changes to the native name
+ * or the spec alone record nothing.
+ */
+function enteredEvent(
+  current: ContainerRow,
+  next: ContainerRow
+): SandboxEvent["type"] | undefined {
+  if (next.status === current.status) {
+    return;
+  }
+  return ENTERED[next.status];
+}
+
+/** The event each status records when a row enters it; others record none. */
+const ENTERED: Partial<Record<ContainerRow["status"], SandboxEvent["type"]>> = {
+  failed: "sandbox.failed",
+  running: "sandbox.started",
+  stopped: "sandbox.stopped",
+};
+
+/** The event of `type` on container `containerId`, at epoch milliseconds `at`. */
+function sandboxEvent(
+  type: SandboxEvent["type"],
+  id: string,
+  containerId: string,
+  at: number
+): SandboxEvent {
+  return { at: new Date(at).toISOString(), containerId, id, type };
 }
 
 function parseSpec(input: unknown): ContainerSandboxConstraints {

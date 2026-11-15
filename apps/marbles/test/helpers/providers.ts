@@ -40,8 +40,9 @@ export async function makeProvidersTemplate(
   }
   // libSQL lets the native connection go, and so checkpoints the WAL into
   // the file and removes it, only once its statements are collected.
+  // Collected on its own time: for up to five seconds.
   for (let attempt = 0; existsSync(`${file}-wal`); attempt += 1) {
-    if (attempt === 20) {
+    if (attempt === 100) {
       throw new Error(`the template database at ${file} kept its WAL file`);
     }
     gc(true);

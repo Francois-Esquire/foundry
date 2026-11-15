@@ -6,7 +6,8 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { acquireFileLock, processAlive, tryFileLock } from "../file-lock";
+import { acquireFileLock, lockContents, tryFileLock } from "../file-lock";
+import { processAlive } from "../process-identity";
 
 /** Faults injected into the lock's own file operations. */
 const faults = vi.hoisted(() => ({
@@ -105,7 +106,7 @@ it("does not let a breaker remove the lock another breaker took", async () => {
 
   const attempt = tryFileLock(lock, { breakStale: true });
 
-  expect(other).toEqual({ holder: dead });
+  expect(other).toMatchObject({ holder: dead });
   expect("release" in attempt).toBe(true);
   if ("release" in attempt) {
     attempt.release();
@@ -127,7 +128,7 @@ it("takes a lock released between its attempt and the read of its holder", async
   const attempt = tryFileLock(lock);
 
   expect(attempt).toHaveProperty("release");
-  expect(await readFile(lock, "utf8")).toBe(String(process.pid));
+  expect(await readFile(lock, "utf8")).toBe(lockContents());
 });
 
 it("leaves a lock alone that changed hands before its breaker's turn came", async () => {
@@ -145,6 +146,8 @@ it("leaves a lock alone that changed hands before its breaker's turn came", asyn
     },
   };
 
-  expect(tryFileLock(lock, { breakStale: true })).toEqual({ holder: other });
+  expect(tryFileLock(lock, { breakStale: true })).toMatchObject({
+    holder: other,
+  });
   expect(await readFile(lock, "utf8")).toBe(String(other));
 });

@@ -11,7 +11,10 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { readLastRecovery } from "~/database/recoveries";
 import { recordedWorkspaces } from "~/database/workspaces";
+import { SPAWN_RECOVERY_ENV } from "~/process/spawned";
+import { testHome } from "./helpers/home";
 
 const SRC = resolve("src");
 const AMBIGUOUS = /names no workspace/;
@@ -68,7 +71,7 @@ export const build = step("build").do(async ({ exec }) => {
 });
 schedule(build).every("1d");
 monitor("notes/*.md").do(() => undefined);
-observe(tasks, async (payload) => {
+observe(tasks, async function pong(payload) {
   for (const change of payload.tasks) {
     if (change.after?.title === "ping") {
       await tasks.create({ title: "pong ${name}" });
@@ -580,4 +583,102 @@ it("declares what a package's function makes with the words a workspace's source
   report.helper = await hosted.run({ name: "made-by-package", workspace: alpha.id });`
   );
   expect(report.helper).toBe("made");
+}, 120_000);
+
+it("recovers each workspace on its own start, leaving what another workspace in the process runs alone", async () => {
+  const root = await scratch();
+  const home = testHome({ providers: false });
+  const a = await workspace(
+    root,
+    "alpha",
+    `export const hold = step("hold").do(async ({ exec }) => {
+  await exec(["sleep", "60"]);
+  return "held";
+});
+`
+  );
+  const b = await workspace(root, "beta");
+  const spawned = join(root, "spawned");
+  const state = join(root, "state");
+  const script = join(root, "recovering.ts");
+  await writeFile(
+    script,
+    `import { readdirSync, existsSync } from "node:fs";
+import { HostedWorkspaces } from ${JSON.stringify(join(SRC, "workspace/hosted.ts"))};
+const report = {};
+const hosted = await HostedWorkspaces.open({
+  artifacts: ${JSON.stringify(join(root, "artifacts"))},
+  env: "require",
+  spawned: ${JSON.stringify(spawned)},
+  state: ${JSON.stringify(state)},
+});
+const records = () =>
+  existsSync(${JSON.stringify(spawned)})
+    ? readdirSync(${JSON.stringify(spawned)}).filter((name) => name.endsWith(".json"))
+    : [];
+try {
+  const alpha = await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  report.alpha = alpha.id;
+  const launched = await alpha.engine.launch("hold", {});
+  launched.result.catch(() => undefined);
+  for (let tries = 0; tries < 400 && records().length === 0; tries += 1) {
+    await new Promise((settle) => setTimeout(settle, 25));
+  }
+  report.before = records();
+  // Beta starts beside it, in the same process, over the same records.
+  const beta = await hosted.register({ config: ${JSON.stringify(b.source)}, root: ${JSON.stringify(b.dir)} });
+  report.beta = beta.id;
+  report.betaRecovery = beta.engine.lastRecovery;
+  report.after = records();
+  report.holding = alpha.engine.executions.get(launched.id)?.status;
+} finally {
+  await hosted.close();
+}
+process.stdout.write(JSON.stringify(report) + "\\n");
+process.exit(0);
+`
+  );
+  const { MARBLES_TEST_VALUE: _, ...env } = home.env;
+  const report = JSON.parse(
+    execFileSync("bun", ["--no-env-file", script], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...env, [SPAWN_RECOVERY_ENV]: spawned },
+      timeout: 90_000,
+    })
+      .trim()
+      .split("\n")
+      .at(-1) ?? "{}"
+  ) as {
+    after: string[];
+    alpha: string;
+    before: string[];
+    beta: string;
+    betaRecovery: {
+      steps: { detail: string; outcome: string; step: string }[];
+    };
+    holding: string;
+  };
+  // Alpha's command is recorded, with this process as its owner, and beta's
+  // start, in the same process, neither stops it nor forgets it.
+  expect(report.before).toHaveLength(1);
+  expect(report.after).toEqual(report.before);
+  expect(report.holding).toBe("running");
+  expect(report.betaRecovery.steps).toContainEqual({
+    detail: "0 process(es) stopped",
+    outcome: "done",
+    step: "processes",
+  });
+  // A row of its own for each workspace.
+  const alpha = await readLastRecovery(state, report.alpha);
+  const beta = await readLastRecovery(state, report.beta);
+  expect(alpha?.steps.map((step) => step.step)).toEqual([
+    "processes",
+    "containers",
+    "runs",
+    "activities",
+    "artifacts",
+  ]);
+  expect(beta?.at).toBe((report.betaRecovery as unknown as { at: string }).at);
+  expect(alpha?.at).not.toBe(beta?.at);
 }, 120_000);

@@ -1,3 +1,4 @@
+import { thisProcess } from "@foundry/lib/process-identity";
 /**
  * Every run store keeps one contract: in memory, and in the Marbles
  * database, where two engines share a workspace's Runs and claim them.
@@ -58,7 +59,7 @@ it("writes the Execution Run a Run's commit follows with in that commit's own tr
       kind: "workflow",
       name: "flow",
       observations: [],
-      owner: { pid: process.pid },
+      owner: thisProcess(),
       queue: "marbles",
       revision: 2,
       sequence: 1,
@@ -70,7 +71,7 @@ it("writes the Execution Run a Run's commit follows with in that commit's own tr
       runId === "rn-1" && status === "suspended"
         ? {
             from: ["running"],
-            owner: process.pid,
+            owner: thisProcess(),
             status: "suspended",
             updatedAt: at,
           }

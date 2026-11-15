@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { processAlive } from "@foundry/lib/file-lock";
 import type {
   WorkflowStore,
   WorkflowStoreWrite,
@@ -10,10 +9,21 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { removeShares } from "~/database/associations";
 import { aroundCalls, asBusy } from "~/database/busy";
+import { ChangeRecorder } from "~/database/changes";
 import { followExecution, readExecution } from "~/database/executions";
 import type { StoreDatabase } from "~/database/open";
+import {
+  CHANGED,
+  claimJudged,
+  heldBy,
+  NO_OWNER,
+  type OwnerColumns,
+  ownedHere,
+  sameOwnerColumns,
+} from "~/database/owner";
 import { marblesWorkflowRuns } from "~/database/tables";
 import { RecordsGate } from "~/lib/events/records";
+import { RUNS, sourceKey } from "~/lib/events/source";
 import type { RecordedScope } from "~/lib/run-scope";
 import type {
   ClaimCondition,
@@ -39,7 +49,26 @@ import { filedRuns, removalOf } from "~/lib/run-store";
  * a lock waited on too long as a `DatabaseBusyError`.
  */
 
+const RUNS_KEY = sourceKey(RUNS) ?? "runs";
+
+/** A change to a Run this engine no longer holds: another took it over, or it was let go. */
+class RunMovedError extends Error {
+  override readonly name = "RunMovedError";
+
+  constructor(runId: string) {
+    super(
+      `run ${runId} is not held by this engine any more; the engine that holds it changes it`
+    );
+  }
+}
+
 export interface DatabaseRunStoreOptions {
+  /**
+   * What the workspace's stores in this process record their change facts
+   * through, so a commit wakes delivery at once; one of this store's own
+   * when omitted, whose commits delivery notices on its next tick.
+   */
+  readonly changes?: ChangeRecorder;
   /** The database the host keeps open; never one of its transactions, since a Run's commit must be there for good. */
   readonly database: StoreDatabase;
   /** The workspace id. */
@@ -57,6 +86,7 @@ export class DatabaseRunStore implements RunStore {
   readonly durable = true;
   readonly #database: StoreDatabase;
   readonly #scope: string;
+  readonly #changes: ChangeRecorder;
   /** This store's identity as an owner: one per engine, so two in one process are told apart. */
   readonly #owner = randomUUID();
   /** Every call, the workflow records' included, so `close` waits for those under way. */
@@ -65,48 +95,77 @@ export class DatabaseRunStore implements RunStore {
   constructor(options: DatabaseRunStoreOptions) {
     this.#database = options.database;
     this.#scope = options.scope;
+    this.#changes = options.changes ?? new ChangeRecorder(options.scope);
   }
 
   claim(runId: string, when: ClaimCondition): Promise<boolean> {
     return this.#call(() =>
-      this.#database.transaction(async (transaction) => {
-        // Read in the claim's own transaction, the Run and its Execution
-        // Run beside it: no write lands between them and the claim, from
-        // this process or another.
-        const stored = await new SqliteWorkflowStore({
-          database: transaction,
-          scope: this.#scope,
-        }).getRun(runId);
-        const execution = await readExecution(transaction, this.#scope, runId);
-        if (!when(stored, execution)) {
-          return false;
-        }
-        const [row] = await transaction
-          .select({
-            ownerId: marblesWorkflowRuns.ownerId,
-            ownerPid: marblesWorkflowRuns.ownerPid,
-          })
-          .from(marblesWorkflowRuns)
-          .where(this.#run(runId));
-        if (row !== undefined && this.#heldElsewhere(row)) {
-          return false;
-        }
-        await transaction
-          .insert(marblesWorkflowRuns)
-          .values({
-            ledger: {},
-            literals: {},
-            ...this.#owned(),
-            runId,
-            scope: this.#scope,
-          })
-          .onConflictDoUpdate({
-            set: this.#owned(),
-            target: [marblesWorkflowRuns.scope, marblesWorkflowRuns.runId],
-          });
-        return true;
-      })
+      claimJudged(
+        () => this.#ownerOf(this.#database, runId),
+        // Asked outside the transaction: no process is asked under its lock.
+        (seen) => seen !== undefined && this.#heldElsewhere(seen),
+        (seen, held) => this.#claimIn(runId, when, seen, held),
+        false
+      )
     );
+  }
+
+  /** The owner columns of the Run `runId`'s row, as `database` reads them now. */
+  async #ownerOf(
+    database: StoreDatabase | WorkflowTransaction,
+    runId: string
+  ): Promise<OwnerColumns | undefined> {
+    const [row] = await database
+      .select({
+        ownerId: marblesWorkflowRuns.ownerId,
+        ownerPid: marblesWorkflowRuns.ownerPid,
+        ownerStarted: marblesWorkflowRuns.ownerStarted,
+      })
+      .from(marblesWorkflowRuns)
+      .where(this.#run(runId));
+    return row;
+  }
+
+  /** The claim's transaction, on the owner `seen` and whether it was `held`. */
+  #claimIn(
+    runId: string,
+    when: ClaimCondition,
+    seen: OwnerColumns | undefined,
+    held: boolean
+  ): Promise<boolean | typeof CHANGED> {
+    return this.#database.transaction(async (transaction) => {
+      // Read in the claim's own transaction, the Run and its Execution
+      // Run beside it: no write lands between them and the claim, from
+      // this process or another.
+      const stored = await new SqliteWorkflowStore({
+        database: transaction,
+        scope: this.#scope,
+      }).getRun(runId);
+      const execution = await readExecution(transaction, this.#scope, runId);
+      if (!when(stored, execution)) {
+        return false;
+      }
+      if (!sameOwnerColumns(await this.#ownerOf(transaction, runId), seen)) {
+        return CHANGED;
+      }
+      if (held) {
+        return false;
+      }
+      await transaction
+        .insert(marblesWorkflowRuns)
+        .values({
+          ledger: {},
+          literals: {},
+          ...this.#owned(),
+          runId,
+          scope: this.#scope,
+        })
+        .onConflictDoUpdate({
+          set: this.#owned(),
+          target: [marblesWorkflowRuns.scope, marblesWorkflowRuns.runId],
+        });
+      return true;
+    });
   }
 
   /**
@@ -125,20 +184,23 @@ export class DatabaseRunStore implements RunStore {
     return this.#call(() =>
       Promise.resolve(
         aroundCalls(
-          new SqliteWorkflowStore({
-            database: this.#database,
-            onCommit: async (transaction, write) => {
-              await this.#file(transaction, write, recorded);
-              await this.#follow(transaction, write, follows);
-              await removeShares(
-                transaction,
-                "run",
-                this.#scope,
-                write.deleteRuns ?? []
-              );
-            },
-            scope: this.#scope,
-          }),
+          this.#changes.causing(
+            new SqliteWorkflowStore({
+              database: this.#database,
+              onCommit: async (transaction, write) => {
+                await this.#file(transaction, write, recorded);
+                await this.#follow(transaction, write, follows);
+                await this.#changes.record(transaction, RUNS_KEY, write.events);
+                await removeShares(
+                  transaction,
+                  "run",
+                  this.#scope,
+                  write.deleteRuns ?? []
+                );
+              },
+              scope: this.#scope,
+            })
+          ),
           (call) => this.#call(call)
         )
       )
@@ -170,7 +232,7 @@ export class DatabaseRunStore implements RunStore {
     return this.#call(async () => {
       await this.#database
         .update(marblesWorkflowRuns)
-        .set({ ownerId: null, ownerPid: null })
+        .set(NO_OWNER)
         .where(
           and(
             eq(marblesWorkflowRuns.scope, this.#scope),
@@ -200,7 +262,12 @@ export class DatabaseRunStore implements RunStore {
    * What `write` files beside its Runs, in its own `transaction`: each Run
    * it puts unsettled has this store as its owner, and the recording of
    * its scope when there is one here; each Run it settles is owned by no
-   * one; each Run it deletes loses its row.
+   * one; each Run it deletes loses its row. A Run whose row another engine
+   * owns, one that claimed it after this one let it go, is not this
+   * engine's to change: the whole commit is refused with a `RunMovedError`,
+   * read and decided in this same transaction, so an answer, a resume or
+   * any other change this engine makes after the run moved never lands. A
+   * Run no one owns is this store's again once it puts it, as before.
    */
   async #file(
     transaction: WorkflowTransaction,
@@ -208,7 +275,15 @@ export class DatabaseRunStore implements RunStore {
     recorded: (runId: string) => RecordedScope | undefined
   ): Promise<void> {
     for (const { runId, scope, settled } of filedRuns(write, recorded)) {
-      const owner = settled ? { ownerId: null, ownerPid: null } : this.#owned();
+      const held = await this.#ownerOf(transaction, runId);
+      if (
+        held !== undefined &&
+        held.ownerId !== null &&
+        held.ownerId !== this.#owner
+      ) {
+        throw new RunMovedError(runId);
+      }
+      const owner = settled ? NO_OWNER : this.#owned();
       // Without a recording, the row keeps what it had and changes owner.
       const recording =
         scope === undefined
@@ -260,21 +335,21 @@ export class DatabaseRunStore implements RunStore {
     }
   }
 
-  /** Owned by another engine whose process is alive. */
+  /** Owned by another engine whose process is still there. */
   #heldElsewhere(row: {
     readonly ownerId: string | null;
     readonly ownerPid: number | null;
+    readonly ownerStarted: string | null;
   }): boolean {
     return (
       row.ownerId !== null &&
       row.ownerId !== this.#owner &&
-      row.ownerPid !== null &&
-      processAlive(row.ownerPid)
+      heldBy(row) !== null
     );
   }
 
   #owned() {
-    return { ownerId: this.#owner, ownerPid: process.pid };
+    return ownedHere(this.#owner);
   }
 
   #run(runId: string) {
@@ -288,4 +363,52 @@ export class DatabaseRunStore implements RunStore {
   #call<T>(call: () => Promise<T>): Promise<T> {
     return this.#gate.run(() => asBusy(call));
   }
+}
+
+/**
+ * The parked Runs of the workspace `scope` that no live engine holds, by
+ * id, read through `database`: what an engine let go and none has taken
+ * over yet, for the Marbles process to offer its current generation. An
+ * owner is judged gone outside any transaction.
+ */
+export async function unheldParkedRuns(
+  database: StoreDatabase,
+  scope: string
+): Promise<readonly string[]> {
+  const store = new SqliteWorkflowStore({ database, scope });
+  const parked: string[] = [];
+  let after: number | undefined;
+  do {
+    const page = await asBusy(() =>
+      store.listRuns({
+        limit: 200,
+        status: ["suspended"],
+        ...(after === undefined ? {} : { after }),
+      })
+    );
+    parked.push(...page.items.map((run) => run.id));
+    after = page.next;
+  } while (after !== undefined);
+  if (parked.length === 0) {
+    return [];
+  }
+  const rows = await asBusy(() =>
+    database
+      .select({
+        ownerPid: marblesWorkflowRuns.ownerPid,
+        ownerStarted: marblesWorkflowRuns.ownerStarted,
+        runId: marblesWorkflowRuns.runId,
+      })
+      .from(marblesWorkflowRuns)
+      .where(
+        and(
+          eq(marblesWorkflowRuns.scope, scope),
+          inArray(marblesWorkflowRuns.runId, parked)
+        )
+      )
+  );
+  const held = new Set(
+    rows.filter((row) => heldBy(row) !== null).map((row) => row.runId)
+  );
+  return parked.filter((runId) => !held.has(runId));
 }

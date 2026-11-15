@@ -22,7 +22,7 @@ import { runTaskCommand } from "~/workspace/tasks";
  *
  * - Stored state: the workspace's rows in the Marbles database, opened
  *   for each command and closed after it. No source runs.
- * - A running instance: the worker of a Marbles process that already hosts
+ * - A running instance: the engine generation of a Marbles process that already hosts
  *   the workspace, joined without starting anything.
  * - Start and host: attach the workspace to the Marbles process, starting
  *   one when none runs, or host it in this process under `--dry-run`. Only
@@ -39,7 +39,7 @@ export class NotHostedError extends Error {
   override readonly name = "NotHostedError";
 }
 
-/** A worker is about to host the workspace whose tasks a command asked for: retry once it is ready. */
+/** The Marbles process is about to host the workspace whose tasks a command asked for: retry once it is ready. */
 export class RecordsHeldError extends Error {
   override readonly name = "RecordsHeldError";
 }
@@ -85,12 +85,12 @@ export async function joinProcess(): Promise<MarblesClient | undefined> {
 }
 
 /**
- * The worker that hosts the workspace now, when a Marbles process runs and
- * has it ready. Nothing is started or attached to find out. A worker that
+ * The engine generation that hosts the workspace now, when a Marbles process runs and
+ * has it ready. Nothing is started or attached to find out. A workspace that
  * is starting is about to host the tasks, so the command is refused rather
  * than going around it.
  */
-async function hostingWorker(
+async function hostingGeneration(
   id: string
 ): Promise<
   | { readonly client: MarblesClient; readonly workspace: WorkspaceConnection }
@@ -109,7 +109,7 @@ async function hostingWorker(
     }
     if (summary?.state === "starting" || summary?.state === "reloading") {
       throw new RecordsHeldError(
-        `the tasks of this workspace are about to be in use by Marbles process pid ${String(client.hello.pid)}, whose worker is ${summary.state}; retry once it is ready`
+        `the tasks of this workspace are about to be in use by Marbles process pid ${String(client.hello.pid)}, which has it ${summary.state}; retry once it is ready`
       );
     }
   } catch (error) {
@@ -122,9 +122,9 @@ async function hostingWorker(
 
 /**
  * The workspace's tasks, without running its source here or starting
- * anything that would. A worker that already hosts the workspace owns
+ * anything that would. A generation that already hosts the workspace owns
  * them, so each command goes to it; otherwise they come from stored state.
- * `--dry-run` never asks a worker.
+ * `--dry-run` never asks the Marbles process.
  */
 export async function withTasks<T>(
   args: HostOptions,
@@ -139,7 +139,7 @@ export async function withTasks<T>(
       `the state of workspace ${id} at ${dir} is not a directory inside ${state}`
     );
   }
-  const hosted = args.dry ? undefined : await hostingWorker(id);
+  const hosted = args.dry ? undefined : await hostingGeneration(id);
   if (hosted === undefined) {
     return withStoredTasks(args, opened, work);
   }
@@ -151,8 +151,8 @@ export async function withTasks<T>(
 }
 
 /**
- * Run `work` against the worker that hosts workspace `id` and has it ready.
- * Nothing is started or attached: without such a worker this rejects with a
+ * Run `work` against the generation that hosts workspace `id` and has it ready.
+ * Nothing is started or attached: without such a generation this rejects with a
  * `NotHostedError` that names the command that hosts it. `--dry-run` joins
  * no process, so it always rejects.
  */
@@ -163,7 +163,7 @@ export async function withRunningWorkspace<T>(
 ): Promise<T> {
   if (args.dry) {
     throw new NotHostedError(
-      `--dry-run joins no Marbles process, so no worker is reached for workspace ${id}; without --dry-run, ${ATTACH_HINT}. A dry run of a workflow goes through \`marbles roll --dry-run\`.`
+      `--dry-run joins no Marbles process, so no engine generation is reached for workspace ${id}; without --dry-run, ${ATTACH_HINT}. A dry run of a workflow goes through \`marbles roll --dry-run\`.`
     );
   }
   const client = await joinProcess();
@@ -183,12 +183,12 @@ export async function withRunningWorkspace<T>(
     }
     if (summary.state === "starting" || summary.state === "reloading") {
       throw new NotHostedError(
-        `the worker for workspace ${id} is ${summary.state}; retry once it is ready`
+        `workspace ${id} is ${summary.state} in the Marbles process; retry once it is ready`
       );
     }
     if (summary.state !== "ready") {
       throw new NotHostedError(
-        `the worker for workspace ${id} is ${summary.state}${summary.error ? `: ${summary.error}` : ""}; ${ATTACH_HINT}`
+        `workspace ${id} is ${summary.state} in the Marbles process${summary.error ? `: ${summary.error}` : ""}; ${ATTACH_HINT}`
       );
     }
     return await work(client.workspace(summary));

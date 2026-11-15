@@ -24,7 +24,7 @@ const ZOD = import.meta.resolve("zod");
 const SCREEN_MS = 8000;
 /**
  * How long the first screen gets when it waits for the Marbles process to
- * start and its worker to load the workspace. Under a loaded machine (ten
+ * start and its engine generation to load the workspace. Under a loaded machine (ten
  * of these tests at once) that took 6.7 to 7.4 seconds, against the 8 a
  * screen gets, and the test failed before the dashboard had drawn.
  */
@@ -331,7 +331,7 @@ test("a missing authoring folder onboards against the Marbles process, which pos
     await terminal.see("summarizeCodebase");
     expect(existsSync(config)).toBe(false);
     await terminal.send("\r");
-    // The workspace now attaches to the Marbles process, whose worker loads it.
+    // The workspace now attaches to the Marbles process, whose generation loads it.
     await terminal.see("Press Enter to enter", 0, STARTUP_MS);
     expect(readFileSync(file, "utf8")).toContain(
       "@foundry.sh/marbles/prebuilt"

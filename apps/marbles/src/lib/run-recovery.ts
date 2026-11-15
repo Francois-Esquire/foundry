@@ -1,4 +1,7 @@
-import type { OrchestratorStore } from "@foundry/workflows";
+import type {
+  ExecutionCoordinator,
+  OrchestratorStore,
+} from "@foundry/workflows";
 import type { RunRecord } from "@foundry/workflows/schema";
 
 import type { ExecutionRun } from "~/lib/execution-record";
@@ -22,9 +25,13 @@ import type { RunStore } from "~/lib/run-store";
  *   read once the claim is held. It is rebuilt from what its scope
  *   recorded.
  * - A Run left `queued` or `running` is never taken on at start: its
- *   process exited mid-flight, and it is not re-executed here; its
+ *   process exited mid-flight, and it is not re-executed here. `queued`
+ *   is a Run filed or resumed and not started yet (the workflows Queue
+ *   stores one it starts as `running` throughout), `running` one cut off
+ *   while it ran; either way nothing else will run it. Its
  *   Execution Run is settled by the launcher (`Launcher.recover`), and
- *   closing out the Run itself is crash recovery's.
+ *   then the Run itself is closed out (`closeAbandonedRuns`): failed, with
+ *   why, once its Execution Run has settled and no live engine owns it.
  * - A queued Execution Run is not a Run yet: it stays queued for the
  *   launcher, which lets it in again when the host asks (`recoverQueued`).
  * - Any Run a live engine owns is left alone.
@@ -57,7 +64,7 @@ export async function adoptParkedRuns(
     return adopted;
   }
   for (const run of await parked(options.store)) {
-    const scope = await adopt(run, options);
+    const scope = await adoptParkedRun(run, options);
     if (scope !== undefined) {
       adopted.set(run.id, scope);
     }
@@ -67,9 +74,10 @@ export async function adoptParkedRuns(
 
 /**
  * Claim one parked Run and read what it recorded, or `undefined`, owning
- * nothing, when it is not this engine's to take.
+ * nothing, when it is not this engine's to take: at start, and for a Run
+ * another engine let go while this one runs (`Engine.adopt`).
  */
-async function adopt(
+export async function adoptParkedRun(
   run: RunRecord,
   { askable, print, registered, runs, settled }: ParkedRunsOptions
 ): Promise<RecordedScope | undefined> {
@@ -157,4 +165,99 @@ export async function workflowStatuses(
     }
   }
   return statuses;
+}
+
+/** Why a Run its process left was closed out, by how its Execution Run settled. */
+function abandonedBecause(execution: ExecutionRun): {
+  readonly message: string;
+  readonly name: string;
+} {
+  if (execution.status === "cancelled") {
+    return {
+      message: "it was cancelled after its process exited",
+      name: "Cancelled",
+    };
+  }
+  return {
+    message:
+      execution.error?.message ?? "its process exited while it was running",
+    name: "Interrupted",
+  };
+}
+
+export interface AbandonedRunsOptions {
+  /** Told of each Run closed out. */
+  readonly print: (line: string) => void;
+  readonly runs: RunStore;
+  /** The workflow records over `runs`. */
+  readonly store: Pick<ExecutionCoordinator, "abandonRun" | "listRuns">;
+}
+
+/**
+ * Close out every Run a process that is gone left `queued` or `running`:
+ * failed, with why, once its Execution Run has settled (the launcher
+ * settles those of processes that have exited first), under a claim no
+ * live engine holds. Decided in the claim's own atomic step, so a Run
+ * live anywhere, this engine's included, is left alone: its Execution Run
+ * has not settled. Safe to run again: a Run closed out is settled, and a
+ * claim a crash left is a gone process's, which owns nothing. The run
+ * store keeps no Execution Runs in memory, and nothing there outlives a
+ * process, so this does nothing there. Returns the ids closed out.
+ */
+export async function closeAbandonedRuns(
+  options: AbandonedRunsOptions
+): Promise<readonly string[]> {
+  const closed: string[] = [];
+  if (!options.runs.durable) {
+    return closed;
+  }
+  for (const run of await unsettled(options.store)) {
+    // Whatever the claim's step read the Execution Run as.
+    const read: { settled?: ExecutionRun } = {};
+    const claimed = await options.runs.claim(run.id, (stored, execution) => {
+      const open = stored?.status === "queued" || stored?.status === "running";
+      if (
+        open &&
+        execution !== null &&
+        execution !== undefined &&
+        SETTLED_EXECUTION_STATUSES.has(execution.status)
+      ) {
+        read.settled = execution;
+        return true;
+      }
+      return false;
+    });
+    const { settled } = read;
+    if (!(claimed && settled)) {
+      continue;
+    }
+    try {
+      const why = abandonedBecause(settled);
+      await options.store.abandonRun(run.id, why);
+      options.print(`[run] ${run.step} ${run.id} closed out: ${why.message}`);
+      closed.push(run.id);
+    } finally {
+      await options.runs.release(run.id);
+    }
+  }
+  return closed;
+}
+
+/** Every Run stored `queued` or `running`, oldest first. */
+async function unsettled(
+  store: Pick<OrchestratorStore, "listRuns">
+): Promise<RunRecord[]> {
+  const runs: RunRecord[] = [];
+  let cursor: number | undefined;
+  do {
+    const page = await store.listRuns({
+      limit: 200,
+      order: "oldest",
+      status: ["queued", "running"],
+      ...(cursor === undefined ? {} : { cursor }),
+    });
+    runs.push(...page.items);
+    cursor = page.nextCursor;
+  } while (cursor !== undefined);
+  return runs;
 }

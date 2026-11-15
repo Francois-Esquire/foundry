@@ -29,6 +29,9 @@ import { testHome } from "./helpers/home";
 import { rawMcpSession, strayLines } from "./helpers/mcp-stdio";
 import { inspectDashboard } from "./helpers/terminal";
 
+/** The line `marbles status` gives the engine generation that hosts the workspace. */
+const CURRENT_GENERATION = /engine generation \d+: pid \d+ · current/;
+
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
 function privateImports(source: string): string[] {
   const imports: string[] = [];
@@ -407,7 +410,8 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       )
     ).toContain("Hello tarball");
     // Without --dry-run the packaged CLI starts the Marbles process from its
-    // own dist entries, hosts the workspace in a worker, and rolls there.
+    // own dist entries, hosts the workspace in an engine generation, and
+    // rolls there.
     const home = testHome();
     const { state } = home.layout;
     const marbles = (args: string[], env = home.env) =>
@@ -418,13 +422,14 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       ).toContain("Hello daemon");
       const status = marbles(["status"]);
       expect(status).toContain("marbles process: pid");
-      expect(status).toContain("(worker)");
+      expect(status).toContain("(generation)");
+      expect(status).toMatch(CURRENT_GENERATION);
       // The daemon recorded the workspace in the database it opened.
       expect(readdirSync(state)).toContain("marbles.db");
       expect(status).toContain(consumer);
-      // A task made through the worker that hosts the workspace.
-      expect(marbles(["tasks", "create", "Through the worker"])).toContain(
-        "Through the worker"
+      // A task made through the generation that hosts the workspace.
+      expect(marbles(["tasks", "create", "Through the generation"])).toContain(
+        "Through the generation"
       );
     } finally {
       expect(marbles(["stop"])).toContain("stopped Marbles process");
@@ -437,7 +442,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
           title: string;
         }[]
       ).map((task) => task.title);
-    expect(listedTasks(home.env)).toEqual(["Through the worker"]);
+    expect(listedTasks(home.env)).toEqual(["Through the generation"]);
     // With no Marbles process and no database yet, a task change makes and
     // migrates it from the installed migrations; a listing reads it back.
     const tasksHome = testHome();
@@ -476,6 +481,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       join(authoring, "inventory.ts"),
       `
 import { step } from "@foundry.sh/marbles";
+
 step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.current.files()).map((file) => file.path) }));
 `
     );

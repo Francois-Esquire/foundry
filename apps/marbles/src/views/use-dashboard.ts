@@ -43,7 +43,7 @@ import { showsOthers, workspaceScoped } from "./workspace-scope";
 /** The workspace shown, among those the Marbles process hosts. */
 export interface HostedWorkspace {
   readonly count: number;
-  /** Why the worker failed, when it did. */
+  /** Why the workspace failed, or why a change to it did not load. */
   readonly error?: string;
   /** Where this workspace sits in the process's list, from 1. */
   readonly position: number;

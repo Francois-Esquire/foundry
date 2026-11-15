@@ -1,6 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
+import { recordChild } from "@foundry/lib/spawn-record";
 import { createCodexAppServer } from "ai-sdk-provider-codex-cli";
 import { environmentOverlay } from "./environment";
 import { modelErrors } from "./errors";
@@ -60,6 +61,8 @@ export const CODEX_DEFAULT_MODELS: ProviderModelDefinition[] = [
 /** How long a signalled app-server gets to exit before SIGKILL, and after it. */
 const EXIT_GRACE_MS = 2000;
 const KILL_GRACE_MS = 1000;
+/** How often a call looks for the app-server its client started, to record it. */
+const RECORD_POLL_MS = 10;
 
 type AppServerClient = ReturnType<typeof createCodexAppServer>;
 
@@ -160,17 +163,18 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     const server = serverFor(environmentOverlay(options.env, ""));
     const model = server.client.languageModel(modelId, cwd ? { cwd } : {});
     const connection = (model as { client?: unknown }).client;
+    let released = false;
     if (
       typeof connection === "object" &&
       connection !== null &&
       "child" in connection
     ) {
       server.connections.add(connection);
+      recordAppServer(connection as { child?: ChildProcess }, () => released);
     } else {
       server.unobservable = true;
     }
     server.calls += 1;
-    let released = false;
     return {
       model,
       release: () => {
@@ -221,6 +225,36 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     // The CLI runs its own tool loop inside one call and takes no limit.
     turnLimit: "unsupported",
   };
+}
+
+/** App-servers recorded already: each is recorded once, however many calls it serves. */
+const recordedServers = new WeakSet<ChildProcess>();
+
+/**
+ * Record the app-server `connection` starts (`@foundry/lib/spawn-record`),
+ * so a start after this host died stops one it left: as soon as the
+ * vendor's client has started it, looked for until `done` says the call
+ * is over. The vendor offers no spawn hook; its process handle is all
+ * there is to record.
+ */
+function recordAppServer(
+  connection: { readonly child?: ChildProcess },
+  done: () => boolean
+): void {
+  const look = () => {
+    const { child } = connection;
+    if (child !== undefined) {
+      if (!recordedServers.has(child)) {
+        recordedServers.add(child);
+        recordChild(child);
+      }
+      return;
+    }
+    if (!done()) {
+      setTimeout(look, RECORD_POLL_MS).unref();
+    }
+  };
+  look();
 }
 
 function sorted(env: Record<string, string>): [string, string][] {
