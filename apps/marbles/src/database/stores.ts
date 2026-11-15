@@ -7,6 +7,7 @@ import type { ContainerStore } from "@foundry/sandbox/store";
 import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
 import { SqliteWorkspaceStore } from "@foundry/workspaces/store/sqlite";
+import { surfacingBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
@@ -17,7 +18,9 @@ import { stateDatabase } from "~/layout";
  * workspace id, over the handle the host keeps open. The stores are
  * handed over as the packages make them, so every rule of theirs (a write
  * owned from the call, a value they cannot store refused, one call at a
- * time) is the package's, not Marbles' again. Nothing records their
+ * time) is the package's, not Marbles' again; only a lock waited on too
+ * long surfaces as Marbles says it, a `DatabaseBusyError`
+ * (`surfacingBusy`). Nothing records their
  * changes yet: unlike `tasks.ts` and `sessions.ts`, none of them has an
  * `onCommit` hook here.
  *
@@ -42,9 +45,9 @@ export function workspaceStores(
   scope: string
 ): WorkspaceStores {
   return {
-    artifacts: new SqliteArtifactStore({ database, scope }),
-    containers: createSqliteContainerStore({ database, scope }),
-    workspaces: new SqliteWorkspaceStore({ database, scope }),
+    artifacts: surfacingBusy(new SqliteArtifactStore({ database, scope })),
+    containers: surfacingBusy(createSqliteContainerStore({ database, scope })),
+    workspaces: surfacingBusy(new SqliteWorkspaceStore({ database, scope })),
   };
 }
 
