@@ -39,7 +39,7 @@ describe("an engine that has begun to retire", () => {
     const observing = Promise.withResolvers<void>();
     const finishing = Promise.withResolvers<void>();
     const started: string[] = [];
-    engine.observe(TASKS, async () => {
+    engine.observe(TASKS, async function watcher() {
       entered.resolve();
       await observing.promise;
     });
@@ -77,7 +77,7 @@ describe("an engine that has begun to retire", () => {
     const entered = Promise.withResolvers<void>();
     const observing = Promise.withResolvers<void>();
     const resumed: string[] = [];
-    engine.observe(TASKS, async () => {
+    engine.observe(TASKS, async function watcher() {
       entered.resolve();
       await observing.promise;
     });
@@ -115,7 +115,7 @@ describe("an engine that has begun to retire", () => {
     const entered = Promise.withResolvers<void>();
     const observing = Promise.withResolvers<void>();
     const finishing = Promise.withResolvers<void>();
-    engine.observe(TASKS, async () => {
+    engine.observe(TASKS, async function watcher() {
       entered.resolve();
       await observing.promise;
     });
@@ -527,7 +527,7 @@ describe("an engine that has begun to retire", () => {
     const observed = Promise.withResolvers<unknown>();
     const retired = Promise.withResolvers<void>();
     engine.task({ name: "child", run: () => 42 });
-    engine.observe(TASKS, async () => {
+    engine.observe(TASKS, async function watcher() {
       await retired.promise;
       observed.resolve(await outcome(engine.launch("child", {})));
     });

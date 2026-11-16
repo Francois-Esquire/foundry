@@ -62,7 +62,7 @@ it("runs every author function as its engine's work, through every public entry"
     (recipe as unknown as { generate(i: string): Promise<unknown> }).generate(
       input
     );
-  observe(tasks, () => {
+  observe(tasks, function watcher() {
     probe("observer");
   });
   const direct = step("direct").do(() => {
