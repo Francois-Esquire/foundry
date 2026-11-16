@@ -3,12 +3,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-/**
- * A child script that runs statements, one at a time, on a SQLite file with
- * the runtime's own
- * SQLite (`bun:sqlite` on Bun, `node:sqlite` on Node) and no busy timeout,
- * printing `committed` or the error.
- */
 const SCRIPT = `const [path, statements] = process.argv.slice(2);
 const open = typeof Bun === "undefined"
   ? async () => new (await import("node:sqlite")).DatabaseSync(path, { timeout: 0 })
@@ -26,15 +20,6 @@ try {
 }
 `;
 
-/**
- * Runs `statements` in order on the SQLite file at `path` from another
- * process, and waits
- * for it synchronously, so it can act between two statements of an async
- * client in this process (from a Drizzle logger hook, which runs just before
- * a statement does). It must be another process: SQLite's file locks are
- * per process, so a second SQLite library in this one would not see this
- * process's locks. Returns `committed` or the error SQLite gave.
- */
 export function execInAnotherProcess(
   path: string,
   statements: readonly string[]

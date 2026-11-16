@@ -12,7 +12,6 @@ import { InvalidArtifactInputError } from "./errors";
 import type { BlobId } from "./ref";
 import { blobIdSchema } from "./ref";
 
-// Kept at this path, where they lived before staging moved them.
 export type { ByteInput, ReferenceInput } from "./blob-staging";
 // biome-ignore lint/performance/noBarrelFile: A compatibility re-export at the path consumers imported it from.
 export { isReferenceInput } from "./blob-staging";
@@ -102,7 +101,6 @@ export async function* readBlob(
   }
 }
 
-/** The objects behind file entries, within one change. */
 export class BlobRepository implements BlobReader {
   readonly files: BlobFiles | undefined;
   readonly #change: ArtifactChange;
@@ -116,7 +114,6 @@ export class BlobRepository implements BlobReader {
     options: {
       readonly files?: BlobFiles;
       readonly maxFileBytes: number;
-      /** The bytes staged ahead of the change; none when omitted. */
       readonly staging?: BlobStaging;
     }
   ) {
@@ -153,12 +150,6 @@ export class BlobRepository implements BlobReader {
     return blob;
   }
 
-  /**
-   * Store a file entry's bytes: those staged ahead of the change, or taken
-   * in now. `owned` names the entry's previous object when nothing else
-   * references it; the bytes rewrite that object in place. Otherwise they
-   * join an object already holding the same bytes, or a new one.
-   */
   async write(path: string, input: ByteInput, owned?: BlobId): Promise<Blob> {
     const staged =
       this.#staging.take(path, input) ??
@@ -244,7 +235,6 @@ export class BlobRepository implements BlobReader {
     return blob;
   }
 
-  /** Where a chunk's bytes are stored: promoted, already published, or inline. */
   async #place(
     chunk: StagedChunk
   ): Promise<{ readonly path: string } | { readonly bytes: Uint8Array }> {
@@ -262,7 +252,6 @@ export class BlobRepository implements BlobReader {
     return { path: await this.#publish(chunk.bytes) };
   }
 
-  /** A file written by this change; removed if the change does not land. */
   async #publish(bytes: Uint8Array): Promise<string> {
     if (!this.files) {
       throw new Error("Publishing a blob requires BlobFiles");
@@ -272,10 +261,6 @@ export class BlobRepository implements BlobReader {
     return path;
   }
 
-  /**
-   * Chunks the change does not store. A staged one is discarded with the
-   * staging; one already published is retired once the change commits.
-   */
   #unused(chunks: readonly StagedChunk[]): void {
     for (const chunk of chunks) {
       if ("published" in chunk) {

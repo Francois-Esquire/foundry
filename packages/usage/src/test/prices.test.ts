@@ -9,7 +9,6 @@ afterEach(() => {
 });
 
 it("reads history at once while models.dev hangs, unpriced, and prices it once a host has loaded it", async () => {
-  // A fresh module graph: the setup file's catalog is not loaded here.
   vi.resetModules();
   let answer: ((response: Response) => void) | undefined;
   vi.stubGlobal(

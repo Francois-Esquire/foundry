@@ -21,11 +21,6 @@ export class SessionWindow implements SessionStore {
   readonly #options: SessionWindowOptions;
   readonly #highWaterRatio: number;
   readonly #state = new Map<string, WindowState>();
-  /**
-   * The wrapped store's transaction, when it has one, run over a window on
-   * the view it gives; without it two `Sessions` over this window would
-   * lose each other's updates.
-   */
   readonly transaction?: <T>(
     work: (view: SessionStore) => Promise<T>
   ) => Promise<T>;
@@ -39,7 +34,6 @@ export class SessionWindow implements SessionStore {
       this.transaction = async <T>(
         work: (view: SessionStore) => Promise<T>
       ): Promise<T> =>
-        // Present, checked above; called on `store` so it keeps its `this`.
         (await store.transaction?.((view) =>
           work(new SessionWindow(view, options))
         )) as T;

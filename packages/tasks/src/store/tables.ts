@@ -8,19 +8,6 @@ import {
 import type { JsonObject, TaskId } from "../schema";
 import { TASK_STATUSES } from "../schema";
 
-/**
- * The tables `SqliteTaskStore` reads and writes, for a host to compose into
- * its own schema and migrations. Each holds the matching record from
- * `@foundry/tasks/schema` field for field, as the record holds it, plus
- * two columns the record has not:
- *
- * - `scope`, an opaque partition key the host chooses, first in every key.
- * - `position`, the order a row was first put in its scope. Reads list rows
- *   by it, as the memory store lists its records, and a row put again keeps
- *   its position.
- */
-
-/** One row per `Task`. */
 export const tasks = sqliteTable(
   "tasks",
   {
@@ -43,7 +30,6 @@ export const tasks = sqliteTable(
   ]
 );
 
-/** One row per `TaskDependency`: `taskId` waits on `dependsOnId`. */
 export const taskDependencies = sqliteTable(
   "task_dependencies",
   {

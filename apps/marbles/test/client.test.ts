@@ -31,10 +31,6 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-/**
- * A home of the test's own, which the daemon a test starts lives in too:
- * `connect` hands a daemon it starts this process's environment.
- */
 function machine(): Layout {
   const home = testHome({ providers: false });
   vi.stubEnv("FOUNDRY_HOME", home.path);

@@ -17,21 +17,8 @@ import {
   seed,
 } from "./records";
 
-/**
- * Fresh, empty storage, reached one scope at a time. The same scope reaches
- * the same records on every call; two scopes never see each other's. A store
- * that has no scopes keeps one store per scope name.
- */
 export type ScopedWorkspaceStores = (scope: string) => WorkspaceStore;
 
-/**
- * What every `WorkspaceStore` must do. A store enforces no catalog rule, so
- * these cases pin only persistence: every read, both writes, ordering,
- * scoping by Workspace and by scope, atomic writes, detached values, large
- * writes, and transactions. Each case calls `open` for fresh, empty storage,
- * then opens a store over one scope of it. The host's test file closes
- * whatever `open` opened.
- */
 export function describeWorkspaceStore(
   name: string,
   open: () => ScopedWorkspaceStores | Promise<ScopedWorkspaceStores>
@@ -50,10 +37,8 @@ export function describeWorkspaceStore(
   });
 }
 
-/** Opens fresh, empty storage, reached one scope at a time. */
 type Open = () => ScopedWorkspaceStores | Promise<ScopedWorkspaceStores>;
 
-/** The one scope every case works in. */
 const SCOPE = "workspaces";
 
 function describeReads(open: Open): void {
@@ -231,7 +216,6 @@ function describeReads(open: Open): void {
         newWorkspaceId(),
         newWorkspaceId(),
       ].sort();
-      // The highest id is created first, so time orders before id does.
       const first = hostWorkspace({
         createdAt: new Date(1000),
         id: high,
@@ -350,12 +334,10 @@ function describeWrites(open: Open): void {
       const other = hostWorkspace({ path: newRoot("beta") });
       const named = fileRecord(workspace.id, { path: "a.md" });
       const unnamed = fileRecord(workspace.id, { path: "b.md" });
-      // Filed under the Workspace by another Workspace's save.
       const stray = fileRecord(workspace.id, { path: "c.md" });
       await seed(store, workspace, [named, unnamed]);
       await seed(store, other, [stray]);
 
-      // A caller outside the types may still hand a removal entry ids.
       const naming = {
         deleteEntries: [named.id],
         removeWorkspace: workspace.id,
@@ -369,7 +351,6 @@ function describeWrites(open: Open): void {
       }
       expect(await store.getWorkspace(other.id)).toEqual(other);
 
-      // Naming nothing removes them all the same.
       await seed(store, workspace, [named, unnamed]);
       await store.commit({ removeWorkspace: workspace.id });
       expect(await store.listEntries(workspace.id)).toEqual([]);
@@ -410,7 +391,6 @@ function describeWrites(open: Open): void {
       expect(await store.getEntry(workspace.id, stray.id)).toBeNull();
       expect(await store.listEntries(other)).toEqual([stray]);
       expect(await store.getEntry(other, stray.id)).toEqual(stray);
-      // A delete names an entry of the write's own Workspace only.
       await store.commit({ deleteEntries: [stray.id], workspace });
       expect(await store.getEntry(other, stray.id)).toEqual(stray);
     });
@@ -559,7 +539,6 @@ function describeDetachment(open: Open): void {
   });
 }
 
-/** A store that offers no `transaction` skips these: it promises no exclusion. */
 function describeTransactions(open: Open): void {
   describe("transactions", () => {
     test("an outside commit waits for a running transaction, then lands", async ({
@@ -583,8 +562,6 @@ function describeTransactions(open: Open): void {
         return { after, before };
       });
       await read.promise;
-      // An independent caller, while the transaction sits between its reads
-      // and its commit, given time enough to land if nothing held it back.
       const outside = store.commit({
         workspace: { ...workspace, name: "outside" },
       });
@@ -693,7 +670,6 @@ function describeTransactions(open: Open): void {
       const increment = () =>
         transaction.call(store, async (view) => {
           const current = await view.getWorkspace(workspace.id);
-          // Yield so the other increment gets every chance to interleave.
           await new Promise((resolve) => setTimeout(resolve, 1));
           await view.commit({
             workspace: {
@@ -735,7 +711,6 @@ function describeOrdering(open: Open): void {
   describe("ordering", () => {
     test("break a creation-time tie by id in code-point order", async () => {
       const store = (await open())(SCOPE);
-      // U+FF21 sorts before U+1F600 by code point, after it by code unit.
       const fullwidth = hostWorkspace({
         id: "Ａ" as WorkspaceId,
         path: newRoot("fullwidth"),
@@ -765,7 +740,6 @@ function describeOrdering(open: Open): void {
     test("list entries by path in code-unit order, whatever order they were put in", async () => {
       const store = (await open())(SCOPE);
       const workspace = hostWorkspace({ path: newRoot("alpha") });
-      // By code unit: "B" < "a" < "\u{1F600}" (a surrogate) < "Ａ".
       const paths = ["Ａ.md", "a.md", "\u{1F600}.md", "B.md"];
       const [fullwidth, lower, astral, upper] = paths.map((path) =>
         fileRecord(workspace.id, { path })
@@ -792,7 +766,6 @@ function describeOrdering(open: Open): void {
       await seed(store, workspace, [second, first]);
       expect(await store.listEntries(workspace.id)).toEqual([first, second]);
 
-      // Put again, and deleted then put, neither moves an entry.
       await store.commit({ putEntries: [first], workspace });
       await store.commit({
         deleteEntries: [second.id],
@@ -825,7 +798,6 @@ function describeScopes(open: Open): void {
       expect(await second.findWorkspaceBySourceId("shared")).toBeNull();
       expect(await second.listWorkspaces()).toEqual({ items: [], total: 0 });
 
-      // The same ids in the other scope, then removed there.
       const theirs = { ...workspace, name: "theirs" };
       const theirReadme = { ...readme, bytes: 99 };
       await seed(second, theirs, [theirReadme]);
@@ -857,7 +829,6 @@ function describeLargeWrites(open: Open): void {
       expect(await store.listEntries(workspace.id)).toHaveLength(5000);
 
       const second = manyFiles(workspace.id, "b", 5000);
-      // More deletes than one statement can bind; most name nothing.
       const absent = Array.from({ length: 33_000 }, newWorkspaceEntryId);
       await store.commit({
         deleteEntries: [...absent, ...first.map((entry) => entry.id)],
@@ -866,7 +837,6 @@ function describeLargeWrites(open: Open): void {
       });
       expect(await store.listEntries(workspace.id)).toEqual(second);
 
-      // A removal names no entries, yet takes every one of them.
       await store.commit({ removeWorkspace: workspace.id });
       expect(await everything(store, workspace)).toEqual({
         entries: [],
@@ -908,7 +878,6 @@ function describeReentry(open: Open): void {
         for (const [method, call] of Object.entries(calls)) {
           outcomes[method] = await settlesWithin(call(), 1000);
         }
-        // Scheduled from inside, but run once the transaction has ended.
         later = ended.then(() =>
           store.commit({ putEntries: [readme], workspace })
         );
@@ -928,7 +897,6 @@ function describeReentry(open: Open): void {
   });
 }
 
-/** What a store's refusal of a call from inside its own transaction says. */
 const REFUSAL = /refused: .*use the view/;
 
 function pause(ms: number): Promise<void> {
@@ -937,11 +905,6 @@ function pause(ms: number): Promise<void> {
   });
 }
 
-/**
- * How `promise` settled, as `refused: <message>` or `resolved`, or
- * `still pending` after `ms`: a hang becomes a failed assertion, not a
- * stalled suite.
- */
 async function settlesWithin(
   promise: Promise<unknown>,
   ms: number
@@ -964,7 +927,6 @@ async function settlesWithin(
   }
 }
 
-/** `count` files at zero-padded paths under `prefix`, in path order. */
 function manyFiles(
   workspaceId: WorkspaceId,
   prefix: string,
@@ -977,14 +939,8 @@ function manyFiles(
   );
 }
 
-/** Every read over one Workspace, to compare before and after a write. */
 function describeOwnership(open: Open): void {
   describe("a write and a list input are the store's from the call", () => {
-    /**
-     * A store holding a Workspace with two files, and a save of it as a
-     * caller holds it, with what the store should hold once the save lands
-     * as it stood at the call.
-     */
     async function arranged() {
       const store = (await open())(SCOPE);
       const workspace = hostWorkspace({ path: newRoot("owned") });
@@ -1004,11 +960,6 @@ function describeOwnership(open: Open): void {
       return { doomed, expected, save, store, workspace };
     }
 
-    /**
-     * Changes, in place, everything `save` holds, as a caller might once
-     * `commit` has returned: every field of its registration and entries, a
-     * further entry put, `doomed` deleted, and the save made a removal.
-     */
     function scramble(
       save: Awaited<ReturnType<typeof arranged>>["save"],
       doomed: WorkspaceEntry
@@ -1131,10 +1082,6 @@ async function everything(
   };
 }
 
-/**
- * A timestamp no store can keep: it cannot be cloned, compared, or
- * serialized, so a write holding one must fail.
- */
 function unstorableDate(): Date {
   const refuse = (): never => {
     throw new Error("This timestamp cannot be stored");
@@ -1148,7 +1095,6 @@ function unstorableDate(): Date {
   } as unknown as Date;
 }
 
-/** Changes every mutable part of a registration in place. */
 function scribbleWorkspace(workspace: WorkspaceRegistration): void {
   const writable = workspace as {
     name: string;
@@ -1162,7 +1108,6 @@ function scribbleWorkspace(workspace: WorkspaceRegistration): void {
   writable.source.sourceId = "scribbled";
 }
 
-/** Changes every mutable part of an entry in place. */
 function scribbleEntry(entry: WorkspaceEntry): void {
   entry.createdAt.setTime(0);
   entry.updatedAt.setTime(0);

@@ -33,11 +33,6 @@ export interface CreateTaskInput {
 
 export interface UpdateTaskInput {
   readonly description?: string | null;
-  /**
-   * Sets each top-level key over the stored metadata; a key whose value is
-   * `null` is removed, and a key left out is kept. A nested value replaces
-   * the stored value for its key whole.
-   */
   readonly metadata?: JsonObject;
   /** Replaces every tag; `[]` clears them and omission keeps them. */
   readonly tags?: readonly string[];

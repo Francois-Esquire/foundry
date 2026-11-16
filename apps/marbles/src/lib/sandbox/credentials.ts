@@ -6,7 +6,6 @@ import { execFileRecorded } from "@foundry/lib/spawn-record";
 import { z } from "zod";
 import type { CliHarness, GuestAuth } from "~/lib/cli-harnesses";
 
-/** Host commands, recorded where the environment asks (`@foundry/lib/spawn-record`). */
 const execute = execFileRecorded;
 const claudeLogin = z.object({
   claudeAiOauth: z.object({

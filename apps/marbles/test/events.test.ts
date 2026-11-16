@@ -29,7 +29,6 @@ import { testMachine } from "./helpers/records";
 const CLOSED = /closed/;
 const REFUSED = /refused/;
 
-/** Whether `error`, or anything in its causes, has a message matching `pattern`. */
 function causedBy(pattern: RegExp): (error: unknown) => boolean {
   return (error) => {
     for (let cause = error; cause instanceof Error; cause = cause.cause) {
@@ -56,15 +55,10 @@ afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
 });
 
-/** A workspace's state dir; its rows are scoped by the dir's name. */
 function stateDir(): string {
   return machine.workspace();
 }
 
-/**
- * An engine over `state`, its tasks in the machine's database (in memory
- * without a state dir), with these observers of tasks.
- */
 function engineWith(
   state: string | undefined,
   handlers: readonly Handler<TaskEvent>[],
@@ -106,7 +100,6 @@ function titles(events: readonly TaskEvent[]): string[] {
   );
 }
 
-/** `deliver` on every database records, failing the first `fail` calls. */
 function losingDeliveries(fail: number): {
   readonly lost: () => number;
   restore(): void;
@@ -243,8 +236,6 @@ describe("observing tasks", () => {
     ]);
     const tasks = new Tasks({ store: engine.taskStore });
     await engine.start();
-    // Let the start's own pass, which finds nothing, end; the write below
-    // is then what starts the next pass.
     await new Promise((done) => setTimeout(done, 20));
     await caller.run("a command's output", () =>
       tasks.create({ title: "Woken" })
@@ -332,13 +323,11 @@ describe("observing tasks", () => {
       expect(await deliveredCounts(state)).toEqual([1])
     );
     const { database } = machine.database;
-    // The database refuses the change's row: the task must go with it.
     await database.run(
       sql.raw(
         "CREATE TRIGGER refuse_change BEFORE INSERT ON marbles_task_changes WHEN NEW.payload LIKE '%Lost change%' BEGIN SELECT RAISE(ABORT, 'refused'); END"
       )
     );
-    // The database refuses the task's row: no change may be recorded.
     await database.run(
       sql.raw(
         "CREATE TRIGGER refuse_task BEFORE INSERT ON tasks WHEN NEW.title = 'Lost task' BEGIN SELECT RAISE(ABORT, 'refused'); END"
@@ -429,8 +418,6 @@ describe("observing tasks", () => {
     const state = stateDir();
     const records = machine.records(state);
     const tasks = new Tasks({ store: records.taskStore });
-    // A quoted `__proto__` in an object literal sets the prototype; parsed
-    // JSON defines the key.
     const proto = JSON.parse(
       '{"__proto__":{"owner":"alice"},"nested":{"__proto__":{"ok":1}}}'
     );
@@ -762,7 +749,6 @@ describe("delivery lifecycle", () => {
     expect(finished).toBe(true);
     // The handler completed before the stop, so its hash was saved.
     expect(await deliveredCounts(state)).toEqual([1]);
-    // Delivery is free again, and the completed change is not handed over.
     const after: TaskEvent[] = [];
     const third = engineWith(state, [
       slow,
@@ -802,9 +788,7 @@ describe("delivery across processes", () => {
       },
     ]);
     await owner.start();
-    // Let the start's own pass end, so only noticing the change can deliver it.
     await new Promise((settle) => setTimeout(settle, 200));
-    // Another process's records, on the same workspace in the same database.
     const elsewhere = machine.records(state);
     try {
       await new Tasks({ store: elsewhere.taskStore }).create({
@@ -947,7 +931,6 @@ process.stdout.write("started\\n");
     child.stdout?.on("data", (chunk: Buffer) => {
       output += chunk.toString();
     });
-    // A process the timer keeps alive is killed, and fails the exit check.
     const deadline = setTimeout(
       () => child.kill("SIGKILL"),
       DELIVERY_POLL_MS * 10
@@ -977,7 +960,6 @@ process.stdout.write("started\\n");
     engines.push(engine);
     engine.observe(TASKS, () => undefined);
     await engine.start();
-    // Running, it polls.
     await vi.waitFor(() => expect(reads).toBeGreaterThan(1), {
       timeout: DELIVERY_POLL_MS * 5,
     });

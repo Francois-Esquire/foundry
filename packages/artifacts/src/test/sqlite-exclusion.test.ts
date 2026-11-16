@@ -15,7 +15,6 @@ import { required } from "./helpers/required";
 import { libsqlDatabases } from "./helpers/sqlite";
 import { execInAnotherProcess } from "./helpers/sqlite-process";
 
-/** What SQLite says when a lock it needs is held. */
 const LOCKED = /locked|busy/i;
 const AT = new Date("2026-01-01T00:00:00.000Z");
 const files = libsqlDatabases("file");
@@ -39,7 +38,6 @@ function artifact(id: string, name = id): Artifact {
   };
 }
 
-/** Another process's row for Artifact `id`, as SQL values. */
 function insertArtifact(id: string): string {
   const at = AT.getTime();
   const order = [...id]
@@ -60,7 +58,6 @@ describe("a listing against another process", () => {
     let attempted: string | undefined;
     const reader = files.connect(database, {
       onQuery: (query) => {
-        // Just before the page, another process adds an Artifact.
         if (
           attempted === undefined &&
           query.startsWith('select "archived_at"')
@@ -115,8 +112,6 @@ describe("a transaction against another connection to its file", () => {
   });
 
   test("another process's write is held off, then lands after it commits", async () => {
-    // A busy timeout, as a host sets one: the other process holds a shared
-    // lock now and then while it waits for the write lock.
     const database = files.connect(await files.open(), { busyTimeout: 5000 });
     const store = new SqliteArtifactStore({ database, scope: "s" });
     await store.commit({ putArtifacts: [artifact("a")] });
@@ -172,7 +167,6 @@ describe("a streamed change over SQLite", () => {
       type: "text/plain",
     });
     await arriving.promise;
-    // The check has run and released the write lock; the change has not begun.
     const meanwhile = execInAnotherProcess(files.path(database), [
       insertArtifact("other"),
     ]);
@@ -186,11 +180,6 @@ describe("a streamed change over SQLite", () => {
   });
 });
 
-/**
- * Another process's writer on an Artifact file: it tries the write lock
- * once with no busy timeout and prints `free` or the error, then takes it
- * with a busy timeout, renames Artifact `a`, and prints `written`.
- */
 const WRITER = `const [client, url, name] = process.argv.slice(2);
 const { createClient } = await import(client);
 const probe = createClient({ url });

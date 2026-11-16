@@ -98,7 +98,6 @@ function onHost(
     );
     child.stdout?.on("data", (chunk: string) => site.write?.(chunk));
     child.stderr?.on("data", (chunk: string) => site.write?.(chunk));
-    // Once the child is this call's; it never throws.
     recordSpawned(child.pid, false);
   });
 }

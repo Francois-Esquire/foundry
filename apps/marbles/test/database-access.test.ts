@@ -48,7 +48,6 @@ function scratch(): string {
   return mkdtempSync(join(tmpdir(), "marbles-access-"));
 }
 
-/** Everything in `dir`, each file's bytes as base64: what a reader must leave alone. */
 function snapshot(dir: string): Record<string, string> {
   return Object.fromEntries(
     readdirSync(dir)
@@ -67,11 +66,6 @@ const ids = (database: StoreDatabase) =>
     .from(marblesWorkspaces)
     .then((rows) => rows.map(({ id }) => id).sort());
 
-/**
- * A Bun process that opens `file` as the Marbles process, records `id`,
- * and then either holds a write transaction open until killed (`hold`), or
- * closes, lets the connection go, and exits, leaving no side file.
- */
 function processWith(
   dir: string,
   file: string,
@@ -132,7 +126,6 @@ async function exited(child: ChildProcess): Promise<void> {
   }
 }
 
-/** Migrations with one more after the committed ones, in a folder of their own. */
 function withProbeMigration(dir: string): string {
   const folder = join(dir, "migrations-next");
   cpSync(MIGRATIONS, folder, { recursive: true });
@@ -178,7 +171,6 @@ describe("reading the Marbles database", () => {
     await processWith(scratch(), file, "a", "hold");
     expect(existsSync(`${file}-wal`)).toBe(true);
     const before = snapshot(dir);
-    // The writer holds the write lock throughout: a read never asks for it.
     expect(await readDatabase(file, ids, { busyTimeout: 100 })).toEqual(["a"]);
     expect(snapshot(dir)).toEqual(before);
   });
@@ -189,7 +181,6 @@ describe("reading the Marbles database", () => {
     const holder = await processWith(scratch(), file, "a", "hold");
     holder.kill("SIGKILL");
     await exited(holder);
-    // Killed, it left its side files, and its committed row in the WAL.
     expect(readdirSync(dir).sort()).toEqual([
       "marbles.db",
       "marbles.db-shm",
@@ -203,7 +194,6 @@ describe("reading the Marbles database", () => {
       "marbles.db-shm",
       "marbles.db-wal",
     ]);
-    // The shared-memory index may be rebuilt; the data files are not touched.
     expect(readFileSync(file).equals(main)).toBe(true);
     expect(readFileSync(`${file}-wal`).equals(wal)).toBe(true);
   });
@@ -235,7 +225,6 @@ describe("reading the Marbles database", () => {
     const older = join(scratch(), "marbles.db");
     await exited(await processWith(work, older, "a", "exit"));
     const olderBefore = snapshot(join(older, ".."));
-    // This build ships one more migration than the database has.
     await expect(
       readDatabase(older, ids, { migrations: next })
     ).rejects.toThrow(OLDER);
@@ -257,7 +246,6 @@ describe("reading the Marbles database", () => {
     const holder = await processWith(scratch(), file, "a", "hold");
     holder.kill("SIGKILL");
     await exited(holder);
-    // Its committed frames are in the WAL, and the index to them is gone.
     rmSync(`${file}-shm`);
     expect(statSync(`${file}-wal`).size).toBeGreaterThan(0);
     const before = snapshot(dir);
@@ -365,7 +353,6 @@ describe("the CLI on the Marbles database", () => {
     const detached = marbles(home, root, "detach");
     expect(detached.status, detached.stderr).toBe(0);
     expect(readdirSync(outside)).toEqual([]);
-    // Read as stored, link or not: what the next boot would restore from.
     const stored = async () => {
       const opened = await initializeDatabase(stateDatabase(state));
       try {
@@ -379,7 +366,6 @@ describe("the CLI on the Marbles database", () => {
       }
     };
     expect(await stored()).toBe(false);
-    // With the link gone the record counts again, and is not hosted.
     rmSync(workspace.dir);
     expect((await readWorkspace(state, workspace.id))?.hosted).toBe(false);
   }, 60_000);

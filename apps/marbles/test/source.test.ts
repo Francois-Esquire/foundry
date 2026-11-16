@@ -30,7 +30,6 @@ afterEach(() => {
 });
 
 const CLI = resolve("src/cli.ts");
-/** The CLI in the test's home, from `root`. */
 function cli(root: string, ...args: string[]): string {
   return execFileSync("bun", [CLI, ...args], {
     cwd: root,

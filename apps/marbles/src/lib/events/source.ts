@@ -1,13 +1,5 @@
 import type { TaskEvent } from "@foundry/tasks";
 
-/**
- * Sources: what emits the items a workspace's observers receive. Each is a
- * unique symbol defined here under a fixed key, which tells a defined
- * source from any other symbol. Keys are Marbles constants, not
- * author-supplied values. One source exists, `TASKS`, and its changes are
- * recorded in the Marbles database (`database/tasks.ts`).
- */
-
 declare const payloadType: unique symbol;
 
 /** A source's identity. The payload it emits is carried in the type only. */

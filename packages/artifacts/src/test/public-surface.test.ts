@@ -95,7 +95,6 @@ describe("Artifact package public surface", () => {
     expect(isReferenceInput({ bytes: "x" })).toBe(false);
     const change = new ArtifactChange(new InMemoryArtifactStore(), {});
     const limits = { maxFileBytes: 64, maxTreeBytes: 64 };
-    // The constructors consumers called before staging existed still work.
     const transaction = new ArtifactTransaction(
       change,
       operationEffects(),
@@ -117,7 +116,6 @@ describe("Artifact package public surface", () => {
     expectTypeOf<BlobFiles["staging"]>().toEqualTypeOf<
       BlobStagingArea | undefined
     >();
-    // A BlobFiles without staging is still a BlobFiles.
     expectTypeOf<Omit<BlobFiles, "staging">>().toExtend<BlobFiles>();
     expect(blobFiles("/nonexistent/root").staging).toMatchObject({
       abandon: expect.any(Function),

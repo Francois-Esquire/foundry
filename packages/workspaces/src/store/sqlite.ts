@@ -31,18 +31,12 @@ import type {
 import { byPathThenId, pageInputOf, pageOffset } from "./order";
 import { workspaceEntries, workspaces } from "./tables";
 
-/**
- * An async Drizzle SQLite database, with or without a relational schema, or a
- * transaction on one. A `drizzle-orm/libsql` database and its transactions
- * both satisfy it, so a host can hand the store either.
- */
 export type WorkspaceDatabase = BaseSQLiteDatabase<
   "async",
   unknown,
   Record<string, unknown>
 >;
 
-/** The transaction one `commit` runs in, as `onCommit` receives it. */
 export type WorkspaceTransaction = SQLiteTransaction<
   "async",
   unknown,
@@ -51,55 +45,29 @@ export type WorkspaceTransaction = SQLiteTransaction<
 >;
 
 export interface SqliteWorkspaceStoreOptions {
-  /** Opened, migrated, and owned by the host; the store never closes it. */
   readonly database: WorkspaceDatabase;
-  /**
-   * Runs inside the commit's transaction after the store's own statements,
-   * so the host can record the change atomically with it. A throw rolls the
-   * whole commit back. It receives the store's own copy of the write, the
-   * one its rows were made from, not the caller's object: a removal names
-   * only the Workspace, not the entries it deleted, so a hook that records
-   * what a removal dropped has no entry ids from this store.
-   */
   readonly onCommit?: (
     transaction: WorkspaceTransaction,
     write: WorkspaceStoreWrite
   ) => Promise<void>;
-  /** The partition this store reads and writes; any nonempty string. */
   readonly scope: string;
 }
 
 type WorkspaceRow = typeof workspaces.$inferSelect;
 type EntryRow = typeof workspaceEntries.$inferSelect;
 
-/** Every column of a registration row but `scope`. */
 const { scope: _workspaceScope, ...workspaceColumns } =
   getTableColumns(workspaces);
 
-/** Every column of an entry row but `scope`. */
 const { scope: _entryScope, ...entryColumns } =
   getTableColumns(workspaceEntries);
 
-/** On a conflicting put, every column but the key takes the incoming value. */
 const replaceWorkspace = replacing(workspaceColumns, ["id"]);
 const replaceEntry = replacing(entryColumns, ["id", "workspaceId"]);
 
-/** Why a call from inside the store's own transaction or hook is refused. */
 const REENTRY =
   "SqliteWorkspaceStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead";
 
-/**
- * A `WorkspaceStore` over the host's SQLite database, in the tables from
- * `@foundry/workspaces/store/tables`. It behaves as `MemoryWorkspaceStore`
- * does, within its scope.
- *
- * Its calls take turns, as the memory store's do: a call made while a
- * transaction or commit runs waits for it. That keeps two catalogs over one
- * store apart in this process, and keeps a `:memory:` database, which has a
- * single connection, from refusing a call while a transaction holds it.
- * Across connections and processes, `transaction` takes the database's write
- * lock (see there).
- */
 export class SqliteWorkspaceStore implements WorkspaceStore {
   readonly #database: WorkspaceDatabase;
   readonly #scope: string;
@@ -117,20 +85,6 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     this.#onCommit = options.onCommit;
   }
 
-  /**
-   * One database transaction. A save runs its entry deletes, its entry puts,
-   * and the registration; a removal deletes every entry row of the Workspace
-   * and its registration. Then `onCommit`. Rejects, before writing anything, a write
-   * holding a value SQLite would not return intact (see
-   * {@link unstorableField}). A delete of a key no row can hold does nothing.
-   *
-   * The store takes the write as it stands when `commit` is called: one
-   * `structuredClone` of the whole write, as the memory store takes it, made
-   * before the commit waits its turn. That copy alone is checked, made into
-   * every row, and handed to `onCommit`, so a caller changing its write
-   * later changes nothing. A write the clone refuses rejects with the
-   * clone's error, as in the memory store.
-   */
   commit(write: WorkspaceStoreWrite): Promise<void> {
     let owned: WorkspaceStoreWrite;
     let unstorable: RangeError | undefined;
@@ -155,16 +109,6 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     );
   }
 
-  /**
-   * Runs `work` inside one database transaction, over a view whose reads
-   * and commits use it; a throw from `work` rolls everything back. In this
-   * process, the store's other calls wait for it. Across connections, the
-   * transaction holds SQLite's write lock from its first statement: Drizzle's
-   * libSQL driver opens every transaction with libSQL's default mode,
-   * `BEGIN IMMEDIATE`. Another connection's write then waits for it, for as
-   * long as that connection's busy timeout allows, or fails with
-   * `SQLITE_BUSY`; it never lands between `work`'s reads and its commit.
-   */
   transaction<T>(work: (view: WorkspaceStore) => Promise<T>): Promise<T> {
     return this.#turns.run(() =>
       this.#database.transaction((transaction) =>
@@ -181,7 +125,6 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     );
   }
 
-  /** `null` for an id no row can hold (see {@link storable}). */
   getWorkspace(
     workspaceId: WorkspaceId
   ): Promise<WorkspaceRegistration | null> {
@@ -209,13 +152,6 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     return this.#oldest(sourceId, workspaces.sourceId);
   }
 
-  /**
-   * One page and the total as of one moment: the two reads share one
-   * database transaction, so no commit lands between them. On libSQL that
-   * transaction begins `BEGIN IMMEDIATE`, as every Drizzle transaction there
-   * does, so a list holds the write lock while it reads. Reads `input` when
-   * called; see {@link pageInputOf}.
-   */
   listWorkspaces(
     input?: PageInput<number>
   ): Promise<Page<WorkspaceRegistration, number>> {
@@ -252,7 +188,6 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     });
   }
 
-  /** `null` for a key no row can hold (see {@link storable}). */
   getEntry(
     workspaceId: WorkspaceId,
     entryId: WorkspaceEntryId
@@ -275,7 +210,6 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     });
   }
 
-  /** Sorted here: SQLite orders text by code point, not by code unit. */
   listEntries(workspaceId: WorkspaceId): Promise<readonly WorkspaceEntry[]> {
     return this.#turns.run(async () => {
       if (!storable(workspaceId)) {
@@ -294,7 +228,6 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     });
   }
 
-  /** The first registration, in list order, whose `column` holds `value`. */
   #oldest(
     value: string,
     column: typeof workspaces.sourcePath | typeof workspaces.sourceId
@@ -313,7 +246,6 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     });
   }
 
-  /** The save's own id is storable: the pre-check refused it otherwise. */
   async #save(
     transaction: WorkspaceTransaction,
     write: WorkspaceSave
@@ -327,7 +259,6 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     await this.#putWorkspace(transaction, write.workspace);
   }
 
-  /** Every entry row of the Workspace, then its registration. */
   async #remove(
     transaction: WorkspaceTransaction,
     workspaceId: WorkspaceId
@@ -355,7 +286,6 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     workspaceId: WorkspaceId,
     ids: readonly WorkspaceEntryId[]
   ): Promise<void> {
-    // `scope` and `workspace_id` take two of the statement's parameters.
     await inOrder(batches(ids, MAX_PARAMETERS - 2), (batch) =>
       transaction
         .delete(workspaceEntries)
@@ -437,10 +367,6 @@ function rowOfWorkspace(
   };
 }
 
-/**
- * The columns each entry type keeps beyond the common ones, and which of
- * them a record of that type always has.
- */
 const ENTRY_VARIANTS: Readonly<
   Record<
     WorkspaceEntry["type"],
@@ -478,13 +404,6 @@ const VARIANT_COLUMNS: readonly VariantColumn[] = [
   "target",
 ];
 
-/**
- * The record a row holds: only the fields its `type` has. Rejects a row
- * this store would not have written, naming the scope, the Workspace, the
- * entry, and the column at fault: an unknown type, a column its type
- * always has left null, a column another type has filled, or a file kind
- * the package does not know.
- */
 function entryOf(scope: string, row: Omit<EntryRow, "scope">): WorkspaceEntry {
   const variant = Object.hasOwn(ENTRY_VARIANTS, row.type)
     ? ENTRY_VARIANTS[row.type]
@@ -506,7 +425,6 @@ function entryOf(scope: string, row: Omit<EntryRow, "scope">): WorkspaceEntry {
     updatedAt: row.updatedAt,
     workspaceId: row.workspaceId,
   };
-  // Checked by `variantFault`: each value its type requires is present.
   switch (row.type) {
     case "file":
       return {
@@ -525,7 +443,6 @@ function entryOf(scope: string, row: Omit<EntryRow, "scope">): WorkspaceEntry {
   }
 }
 
-/** What is wrong with a row of a known type, if anything. */
 function variantFault(
   row: Omit<EntryRow, "scope">,
   variant: (typeof ENTRY_VARIANTS)[WorkspaceEntry["type"]]
@@ -545,7 +462,6 @@ function variantFault(
   }
 }
 
-/** Every column, with explicit nulls for those the entry's type lacks. */
 function rowOfEntry(scope: string, entry: WorkspaceEntry): EntryRow {
   return {
     bytes: entry.type === "file" ? entry.bytes : null,
@@ -565,13 +481,6 @@ function rowOfEntry(scope: string, entry: WorkspaceEntry): EntryRow {
   };
 }
 
-/**
- * Whether SQLite gives `text` back as it was bound. It does not when the text
- * holds U+0000 (libSQL reads it back cut at the NUL) or is not well-formed
- * UTF-16: a lone surrogate is bound as U+FFFD on Node and as nothing on Bun,
- * so it reads back changed, and a key holding one would match another key's
- * row.
- */
 function storable(text: string): boolean {
   return text.isWellFormed() && !text.includes("\u0000");
 }
@@ -583,23 +492,12 @@ const TIME =
 const INTEGER =
   "SQLite keeps an integer column as a safe integer, and reads -0 back as 0";
 
-/** One value a write puts, by its path in the write, and how it is stored. */
 type Put = readonly [
   field: string,
   value: unknown,
   kind: "integer" | "text" | "time",
 ];
 
-/**
- * The refusal for the first value the store's copy of a write puts that
- * SQLite would not give back intact, naming it by its path, such as
- * `putEntries[2].path`. A storage limit of this store, not a rule of the
- * domain. The copy was taken by `structuredClone`, so a field that throws
- * when read, or holds a function, has already rejected the write before
- * any statement runs. A value that fails only when bound (an object posing
- * as a `Date`, which the clone makes a plain object) fails inside the
- * commit's transaction, which rolls back.
- */
 function refuseUnstorable(write: WorkspaceStoreWrite): RangeError | undefined {
   const field = unstorableField(write);
   return field === undefined
@@ -684,13 +582,10 @@ function entryPuts(at: string, entry: WorkspaceEntry): Put[] {
   }
 }
 
-/** SQLite's default limit on the parameters one statement binds. */
 const MAX_PARAMETERS = 32_766;
 
-/** The parameters one entry row binds in a multi-row insert. */
 const ENTRY_COLUMNS = Object.keys(getTableColumns(workspaceEntries)).length;
 
-/** `items` in order, at most `size` at a time; none when `items` is empty. */
 function batches<T>(items: readonly T[], size: number): T[][] {
   const length = Math.max(1, Math.floor(size));
   const result: T[][] = [];
@@ -700,18 +595,15 @@ function batches<T>(items: readonly T[], size: number): T[][] {
   return result;
 }
 
-/** Runs one statement per batch, each after the one before. */
 async function inOrder<T>(
   items: readonly T[],
   run: (item: T) => PromiseLike<unknown>
 ): Promise<void> {
   for (const item of items) {
-    // In sequence: deletes precede puts, and later batches follow earlier ones.
     await run(item);
   }
 }
 
-/** `set` for an upsert: each column but `key` takes the proposed value. */
 function replacing(
   columns: Record<string, SQLiteColumn>,
   key: readonly string[]
@@ -723,7 +615,6 @@ function replacing(
   );
 }
 
-/** The value an `INSERT` proposed for `column`, inside its `ON CONFLICT`. */
 function excluded(column: SQLiteColumn): SQL {
   return sql.raw(`excluded."${column.name}"`);
 }

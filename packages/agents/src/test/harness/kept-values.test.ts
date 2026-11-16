@@ -11,7 +11,6 @@ import {
   toolCallStreamResult,
 } from "../helpers/mock-language-model";
 
-/** A harness whose one tool, `probe`, returns `output`. */
 function harnessWithTool(output: unknown) {
   const store = new InMemorySessionStore();
   const harness = new SessionHarness(
@@ -81,7 +80,6 @@ describe("what a session keeps of a turn's values", () => {
     );
     expect(reply.status).toBe("error");
     expect(reply.parts).toContainEqual({ message: why, type: "error" });
-    // The SDK, which sends the output to the model as JSON, reports it too.
     expect(onError).toHaveBeenCalledWith(
       expect.objectContaining({ message: why })
     );
@@ -93,7 +91,6 @@ describe("what a session keeps of a turn's values", () => {
     expect(toolResults(history)).toEqual([
       { isError: true, output: why, toolCallId: "call-1", type: "tool_result" },
     ]);
-    // Listeners hear the failure the session kept, not a successful-looking output.
     expect(onToolResult).toHaveBeenCalledWith(
       expect.objectContaining({ isError: true, output: why })
     );

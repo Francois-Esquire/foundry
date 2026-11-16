@@ -32,7 +32,6 @@ afterEach(() => {
   }
 });
 
-/** A private scratch directory of this test's. */
 function scratch(): string {
   const dir = mkdtempSync(join(tmpdir(), "spawn-record-"));
   made.push(dir);
@@ -56,7 +55,6 @@ it("writes a private record of the process, making the directory private if it i
   });
   expect(notPrivate(dir, "directory")).toBeUndefined();
   expect(notPrivate(path, "file")).toBeUndefined();
-  // Nothing in flight is left behind.
   expect(readdirSync(dir)).toEqual([`${String(process.pid)}.json`]);
 });
 
@@ -75,7 +73,6 @@ it("refuses a directory open to others, and a path that is not a directory, with
   ).not.toThrow();
   expect(readdirSync(shared)).toEqual([]);
   expect(readFileSync(file, "utf8")).toBe("a file");
-  // Said once for the process, not once per spawn.
   expect(said.mock.calls.length).toBeLessThanOrEqual(1);
 });
 
@@ -110,7 +107,6 @@ it("records nothing for a child that has already gone", async () => {
   const dir = scratch();
   const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
   await new Promise((settle) => child.once("exit", settle));
-  // Reaped by now, so no process has its pid.
   recordSpawned(child.pid, false, { [SPAWN_RECORD_ENV]: dir });
   expect(readdirSync(dir)).toEqual([]);
 });

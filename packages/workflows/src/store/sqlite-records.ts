@@ -18,20 +18,8 @@ import {
   SuspensionRecordSchema,
 } from "../schema";
 
-/**
- * What a record must be for `SqliteWorkflowStore` to keep it: one set of
- * checks per record kind, run on every record a commit puts and on every
- * record a row decodes to. So anything written reads back, and anything
- * read back can be written again. Each check returns an owned, plain copy
- * of the record, or throws a {@link RecordFault} naming the field below the
- * record and what is wrong with it. A storage limit of the SQLite store,
- * not a rule of the package.
- */
-
-/** A field of a record SQLite cannot keep as it is, and why. */
 export class RecordFault extends Error {
   override readonly name = "RecordFault";
-  /** The field below the record, such as `id` or `metadata.list[2]`; empty for the record itself. */
   readonly path: string;
   readonly reason: string;
 
@@ -42,7 +30,6 @@ export class RecordFault extends Error {
   }
 }
 
-/** `path` below `at`, as one path. */
 export function below(at: string, path: string): string {
   if (path === "") {
     return at;
@@ -50,45 +37,18 @@ export function below(at: string, path: string): string {
   return path.startsWith("[") ? `${at}${path}` : `${at}.${path}`;
 }
 
-/**
- * Whether SQLite gives `text` back as it was bound. It does not when the text
- * holds U+0000 (libSQL reads it back cut at the NUL) or is not well-formed
- * UTF-16: a lone surrogate is bound as U+FFFD on Node and as nothing on Bun,
- * so it reads back changed, and a key holding one would match another key's
- * row. JSON text is exempt: JSON escapes both.
- */
 export function storable(text: string): boolean {
   return text.isWellFormed() && !text.includes("\u0000");
 }
 
-/**
- * How one top-level field is kept.
- *
- * - `text`: a plain text column.
- * - `integer`: an integer column, for epoch milliseconds and counters.
- * - `json`: a JSON column; NULL is a `null` value.
- * - `optional`: a JSON column for a field the record may leave out; NULL is
- *   the field left out, so the field may not hold `null`.
- */
 type FieldKind = "integer" | "json" | "optional" | "text";
 
-/** A record kind: its fields, how each is kept, and its schema. */
 export interface RecordKind<T> {
-  /**
-   * The record as `schema` checks it, when that differs from the record
-   * itself: a legacy Run id is checked as the coordinator checks it.
-   */
   readonly checkedAs?: (record: Readonly<Record<string, unknown>>) => unknown;
-  /**
-   * A schema that names the field at fault when `schema` refuses a record
-   * without saying which, as `RunRecordSchema` does.
-   */
   readonly explain?: z.ZodType;
   readonly fields: Readonly<Record<string, FieldKind>>;
-  /** What a record is called in a refusal, such as `a Run`. */
   readonly label: string;
   readonly schema: z.ZodType<T>;
-  /** Whether fields the record does not declare are kept, in `undeclared`. */
   readonly undeclared: boolean;
 }
 
@@ -120,7 +80,6 @@ export const JOB: RecordKind<JobRecord> = {
   undeclared: false,
 };
 
-/** Every field `RunRecordShapeSchema` declares; the rest go in `undeclared`. */
 export const RUN: RecordKind<RunRecord> = {
   checkedAs: runCheckedAs,
   explain: RunRecordShapeSchema,
@@ -172,21 +131,11 @@ export const FRAME: RecordKind<RunFrame> = {
   undeclared: false,
 };
 
-/** A record split into its declared fields and the ones it does not declare. */
 export interface KeptRecord<T> {
-  /** The owned copy: the declared fields in schema order, then the rest. */
   readonly record: T;
-  /** The fields the record does not declare, or `null` when there are none. */
   readonly undeclared: Record<string, unknown> | null;
 }
 
-/**
- * An owned copy of `value` that SQLite keeps as it is, or a
- * {@link RecordFault}. It refuses a value that is not a plain object, a
- * field holding `undefined`, a required field left out, a field no column
- * would keep, a value of the wrong storage type, and a record its schema
- * refuses.
- */
 export function kept<T>(kind: RecordKind<T>, value: unknown): KeptRecord<T> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new RecordFault("", `holds ${describe(value)}, not ${kind.label}`);
@@ -210,10 +159,6 @@ export function kept<T>(kind: RecordKind<T>, value: unknown): KeptRecord<T> {
   };
 }
 
-/**
- * `value`'s own fields, each read once and copied as its column keeps it:
- * the declared ones, and the rest as JSON when the kind keeps them.
- */
 function splitFields(
   kind: RecordKind<unknown>,
   value: object
@@ -241,7 +186,6 @@ function splitFields(
   return { declared, rest };
 }
 
-/** Refuses a record its schema refuses, naming the field where it can. */
 function accepted(
   kind: RecordKind<unknown>,
   record: Readonly<Record<string, unknown>>
@@ -296,13 +240,6 @@ function textOf(path: string, value: unknown): string {
   return value;
 }
 
-/**
- * An integer column. SQLite does not give back NaN or an infinity (libSQL
- * refuses to bind them), `-0` (it reads back as `0`), or an integer beyond
- * `Number.MAX_SAFE_INTEGER` either way (an integer column keeps it as a
- * 64-bit integer libSQL then refuses to read, which would break every read
- * of the row). Every other number, whole or fractional, reads back exactly.
- */
 function integerOf(path: string, value: unknown): number {
   if (typeof value !== "number") {
     throw new RecordFault(path, `holds ${describe(value)}, not a number`);
@@ -316,7 +253,6 @@ function integerOf(path: string, value: unknown): number {
   return value;
 }
 
-/** A key that reads plainly after a dot in a path. */
 const PLAIN_KEY = /^[A-Za-z_$][\w$]*$/;
 
 function keyPath(at: string, key: string): string {
@@ -326,16 +262,6 @@ function keyPath(at: string, key: string): string {
   return `${at}[${JSON.stringify(key)}]`;
 }
 
-/**
- * A plain copy of `value` that JSON gives back as it is, or a refusal naming
- * the first part that it would not: NaN, an infinity or `-0` (JSON writes
- * `null`, `null` and `0`), `undefined`, a hole or a function in an array
- * (`null`), a `bigint` or a value that contains itself (JSON throws),
- * anything but a plain object or an array (a `Date` becomes a string, a
- * `Map` an empty object), and a property holding `undefined` (JSON leaves
- * it out). Strings need no check: JSON escapes U+0000 and lone surrogates,
- * and reads them back intact. A key named `__proto__` stays an own key.
- */
 function jsonOf(at: string, value: unknown, ancestors: Set<object>): unknown {
   switch (typeof value) {
     case "boolean":

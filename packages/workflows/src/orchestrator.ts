@@ -196,21 +196,11 @@ export class Registry {
 }
 
 export interface OrchestratorOptions {
-  /**
-   * Joins each managed Job attempt: runs inside the claim's store
-   * transaction, after the claim, over the store bound to it. A throw rolls
-   * the claim back. Needs a `store` that offers `transaction`.
-   */
   readonly admissionParticipant?: (input: {
     readonly job: JobRecord;
     readonly run: RunRecord;
     readonly store: OrchestratorStore;
   }) => Promise<JsonValue>;
-  /**
-   * Decides a Run's cancellation inside one store transaction, over the
-   * store bound to it, and returns the Run as it settled, or `null` to
-   * cancel it the default way. Needs a `store` that offers `transaction`.
-   */
   readonly cancellationParticipant?: (input: {
     readonly run: RunRecord;
     readonly store: OrchestratorStore;
@@ -229,11 +219,6 @@ export interface OrchestratorOptions {
   readonly queueExtensions?: Extensions;
   /** Pre-populated registry, or omit to start empty. */
   readonly registry?: Registry;
-  /**
-   * The execution records. Defaults to an `ExecutionCoordinator` over a
-   * `MemoryWorkflowStore`; pass one over `SqliteWorkflowStore` to keep them
-   * in a database.
-   */
   readonly store?: OrchestratorStore;
 }
 

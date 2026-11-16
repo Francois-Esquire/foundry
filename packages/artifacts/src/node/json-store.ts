@@ -20,7 +20,6 @@ import { ownedWrite } from "../store/owned";
 
 const FORMAT_VERSION = 1;
 const DEFAULT_LOCK_TIMEOUT_MS = 10_000;
-/** Why a call from inside the store's own transaction is refused. */
 const REENTRY =
   "JsonArtifactStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
@@ -31,26 +30,6 @@ export interface JsonArtifactStoreOptions {
   readonly path: string;
 }
 
-/**
- * An `ArtifactStore` kept in one JSON file: the in-memory store's records,
- * saved by each commit before it takes effect. Interim: it goes when the
- * SQLite store lands.
- *
- * Several processes may share the file. A commit or transaction holds
- * `<path>.lock`, reloads the file, and replaces it by temp-and-rename, so it
- * never commits against stale records. Reads outside a transaction reload
- * when the file changed.
- *
- * The manager runs its reads through `transaction` too, so they take the
- * lock: they need a writable directory, create it and a transient
- * `<path>.lock` file, wait while another process holds the lock, and throw
- * `FileLockTimeoutError` once `lockTimeoutMs` passes.
- * The whole file is rewritten per commit, which suits a local feed's scale
- * rather than a large catalogue.
- *
- * An unreadable records file fails loudly: silently starting empty would let
- * the next commit discard every Artifact.
- */
 export class JsonArtifactStore implements ArtifactStore {
   readonly #path: string;
   readonly #lockTimeoutMs: number;
@@ -63,10 +42,6 @@ export class JsonArtifactStore implements ArtifactStore {
     this.#lockTimeoutMs = options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
   }
 
-  /**
-   * Takes the write as it stands now, as the memory store does: one
-   * owned copy (`ownedWrite`), made before the commit waits for the lock.
-   */
   commit(write: ArtifactStoreWrite): Promise<void> {
     let copy: ArtifactStoreWrite;
     try {
@@ -77,21 +52,11 @@ export class JsonArtifactStore implements ArtifactStore {
     return this.transaction((view) => view.commit(copy));
   }
 
-  /**
-   * `work` runs holding the lock, over the records as they are then. Its
-   * commits stage in memory, read back through `view`, and are saved as one
-   * file replacement once `work` succeeds.
-   */
   transaction<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T> {
     return this.#locked(async () => {
       const base = await this.#current();
-      /**
-       * The staged copy every commit applies to, made once: created before
-       * the first commit yields, so concurrent commits share it.
-       */
       let staged: Promise<InMemoryArtifactStore> | undefined;
       let open = true;
-      /** The records the view reads, rejecting once the transaction settled. */
       const read = <R>(
         take: (records: InMemoryArtifactStore) => Promise<R>
       ): Promise<R> =>
@@ -102,7 +67,6 @@ export class JsonArtifactStore implements ArtifactStore {
         commit: (write) => {
           let copy: ArtifactStoreWrite;
           try {
-            // Taken now: the staged records may still be loading.
             copy = ownedWrite(write);
           } catch (error) {
             return Promise.reject(error);
@@ -114,7 +78,6 @@ export class JsonArtifactStore implements ArtifactStore {
           }
           return read((records) => records.commit(copy));
         },
-        // Its commits stand only if the work succeeds and the file is saved.
         durability: "host",
         findBlobs: (digest) => read((records) => records.findBlobs(digest)),
         findReferences: (id) => read((records) => records.findReferences(id)),
@@ -136,7 +99,6 @@ export class JsonArtifactStore implements ArtifactStore {
       };
       try {
         const result = await work(view);
-        // Settled before saving, so a late commit cannot slip into the save.
         open = false;
         if (staged) {
           await this.#save(await staged);
@@ -168,7 +130,6 @@ export class JsonArtifactStore implements ArtifactStore {
     return (await this.#current()).getContent(id);
   }
 
-  /** Lists by the query as it stands at the call, not once the file loads. */
   async listArtifacts(query: ArtifactListQuery): Promise<ArtifactListing> {
     const owned = ownedListQuery(query);
     return (await this.#current()).listArtifacts(owned);
@@ -182,10 +143,6 @@ export class JsonArtifactStore implements ArtifactStore {
     return (await this.#current()).listContents(artifactId);
   }
 
-  /**
-   * One writer at a time: in this process by turns, across processes by the
-   * lock file. A call from inside the running turn is refused at once.
-   */
   #locked<T>(work: () => Promise<T>): Promise<T> {
     return this.#turns.run(async () => {
       await mkdir(dirname(this.#path), { recursive: true });
@@ -201,20 +158,12 @@ export class JsonArtifactStore implements ArtifactStore {
     });
   }
 
-  /**
-   * Replaces the records file with `next`; held under the lock. The write
-   * lands at the rename. A failure after it (syncing the directory) still
-   * rejects, and the next read reloads the file it left.
-   */
   async #save(next: InMemoryArtifactStore): Promise<void> {
     await writeFileAtomic(this.#path, encodeRecords(await next.records()), {
       fsync: true,
       mode: 0o600,
     });
-    // Unknown, the next read compares against the file and reloads it.
     const version = await fileVersion(this.#path).catch(() => undefined);
-    // Set together, after the await, so a reload running meanwhile cannot
-    // pair its older records with this version.
     this.#memory = next;
     this.#version = version;
   }

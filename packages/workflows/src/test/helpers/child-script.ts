@@ -4,26 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
-/** A script running in another process of this runtime, read line by line. */
 export interface ChildScript {
-  /** Waits for the process to exit; rejects unless it exited with 0. */
   readonly exited: (ms?: number) => Promise<void>;
-  /**
-   * The next line the script prints, once it has printed one. Rejects if
-   * the process errors or exits first, or after `ms`.
-   */
   readonly line: (ms?: number) => Promise<string>;
-  /**
-   * Stops the process if it still runs: `SIGTERM`, then `SIGKILL` once
-   * `graceMs` pass without it closing. Reaps it and removes the script.
-   */
   readonly stop: (graceMs?: number) => Promise<void>;
 }
 
 const STARTUP = 10_000;
 const GRACE = 2000;
 
-/** Runs `source` as an ES module with `args`, on this process's runtime. */
 export async function startScript(
   source: string,
   args: readonly string[]
@@ -35,11 +24,9 @@ export async function startScript(
     stdio: ["ignore", "pipe", "inherit"],
   });
 
-  // Settled once, whatever happens, with handlers attached at once.
   const ended = new Promise<{ code: number | null; error?: Error }>(
     (resolve) => {
       child.once("error", (error) => resolve({ code: null, error }));
-      // `close`, not `exit`: it follows the last of the output.
       child.once("close", (code) => resolve({ code }));
     }
   );
@@ -106,7 +93,6 @@ export async function startScript(
       let escalation: ReturnType<typeof setTimeout> | undefined;
       if (running()) {
         child.kill("SIGTERM");
-        // A child may handle or ignore SIGTERM; SIGKILL it cannot.
         escalation = setTimeout(() => {
           if (running()) {
             child.kill("SIGKILL");

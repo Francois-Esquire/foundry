@@ -13,7 +13,6 @@ import {
   isGuestArchitecture,
 } from "~/lib/cli-harnesses";
 
-/** Host commands, recorded where the environment asks (`@foundry/lib/spawn-record`). */
 const execute = execFileRecorded;
 const manifestSchema = z.object({
   dist: z.object({

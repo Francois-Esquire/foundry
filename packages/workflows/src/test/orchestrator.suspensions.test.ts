@@ -63,7 +63,6 @@ class FailingParkingStore extends ExecutionCoordinator {
     const store = new FaultyWorkflowStore();
     super({ store });
     store.before = (write) => {
-      // Parking files a pending Suspension with its suspended Run.
       if (
         this.failParking &&
         write.putSuspensions?.some((record) => record.status === "pending") &&
@@ -82,7 +81,6 @@ class FailingCancellationStore extends ExecutionCoordinator {
     const store = new FaultyWorkflowStore();
     super({ store });
     store.before = (write) => {
-      // Cancelling a Run files it cancelled with its cancelled Suspensions.
       if (
         this.failCancellation &&
         write.putRuns?.some((record) => record.status === "cancelled") &&

@@ -48,8 +48,6 @@ const INHERITED_ENV =
 const CLOSE_GRACE_MS = 2000;
 
 function childEnv(custom: Record<string, string> = {}): Record<string, string> {
-  // The process recorder's own variables, when it is on, so what the server
-  // starts is recorded and marked as well (`@foundry/lib/spawn-record`).
   const env: Record<string, string> = {
     ...spawnRecordEnvironment(),
     ...custom,
@@ -160,7 +158,6 @@ export const spawnStdioTransport: SpawnStdio = (config, hooks) => {
             transport.onerror?.(error);
           });
         }
-        // Once the child is the transport's; it never throws.
         recordSpawned(proc.pid, false);
       });
     },
