@@ -138,10 +138,13 @@ async function loadSource(
   configPath: string,
   {
     catalog,
+    dry,
     read,
     workspaceId,
   }: {
     catalog: Catalog;
+    /** Whether the host loads it under a dry run: what it uses as it loads runs dry too. */
+    dry: boolean;
     read?: (file: string) => void;
     workspaceId: string;
   },
@@ -156,19 +159,24 @@ async function loadSource(
   }
   await linkSourceLibrary();
   let loaded: readonly string[] = [];
-  await loadInto(workspaceId, catalog, async (load) => {
-    // Every file it reads, as it loads and as its runs import more later.
-    const reading = read === undefined ? undefined : onRead(load, read);
-    try {
-      await importLoad(sourceRoot(configPath), files, load);
-    } catch (error) {
-      // A load that failed reads nothing more.
-      reading?.forget();
-      throw error;
-    } finally {
-      loaded = filesRead(load);
-    }
-  });
+  await loadInto(
+    workspaceId,
+    catalog,
+    async (load) => {
+      // Every file it reads, as it loads and as its runs import more later.
+      const reading = read === undefined ? undefined : onRead(load, read);
+      try {
+        await importLoad(sourceRoot(configPath), files, load);
+      } catch (error) {
+        // A load that failed reads nothing more.
+        reading?.forget();
+        throw error;
+      } finally {
+        loaded = filesRead(load);
+      }
+    },
+    { dry }
+  );
   print(`[source] ${configPath}`);
   return loaded;
 }
@@ -302,6 +310,7 @@ export async function openWorkspace(
       at.configPath,
       {
         catalog,
+        dry: args.dry,
         ...(read === undefined ? {} : { read }),
         workspaceId: workspaceState(resolve(args.state), at.root).id,
       },

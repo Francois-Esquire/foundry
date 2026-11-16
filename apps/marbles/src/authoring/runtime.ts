@@ -46,6 +46,8 @@ export type InstanceRuntime = Pick<
  */
 interface Hosting {
   readonly catalog: Catalog;
+  /** Whether its source loads under a dry host; set while no engine is bound. */
+  readonly dry?: boolean;
   readonly id: string;
   readonly runtime: InstanceRuntime | undefined;
 }
@@ -88,10 +90,13 @@ let importing = 0;
  * once `expectHost` says a source is about to load, until one is bound.
  */
 let hostState: "unhosted" | "loading" | "hosted" = "unhosted";
-let fallback: Promise<InstanceRuntime> | undefined;
-let createFallback: () => Promise<InstanceRuntime> = async () => {
+/** The default runtime, one for work done dry and one for the rest. */
+const fallbacks = new Map<boolean, Promise<InstanceRuntime>>();
+let createFallback: (options: {
+  readonly dry: boolean;
+}) => Promise<InstanceRuntime> = async ({ dry }) => {
   const { createDefaultEngine } = await import("~/create");
-  const engine = createDefaultEngine();
+  const engine = createDefaultEngine({ dry });
   // It is never started, so its providers are read, and a provider that
   // lists its models asked, here.
   const problems =
@@ -145,13 +150,15 @@ export function refuseUnnamedWork(): void {
 export async function loadInto<T>(
   workspaceId: string,
   into: Catalog,
-  load: (n: number) => Promise<T>
+  load: (n: number) => Promise<T>,
+  { dry }: { readonly dry: boolean }
 ): Promise<T> {
   const n = newLoad();
   loads.set(n, { catalog: into, workspaceId });
   if (liveHosting(workspaceId) === undefined) {
     hostings.set(workspaceId, {
       catalog: into,
+      dry,
       id: workspaceId,
       runtime: undefined,
     });
@@ -362,7 +369,7 @@ export function hostTaskStore(): TaskStore | undefined {
 }
 
 export function setDefaultRuntime(
-  create: () => Promise<InstanceRuntime>
+  create: (options: { readonly dry: boolean }) => Promise<InstanceRuntime>
 ): void {
   createFallback = create;
 }
@@ -375,29 +382,45 @@ export function instanceRoot(): string {
   return activeHost()?.bindings.root ?? process.cwd();
 }
 
-/** The host's engine, else the default runtime, built once. */
+/**
+ * The host's engine, else the default runtime, built once: a dry one for
+ * work whose workspace's source loads under a dry host (its engine not
+ * bound yet, or never, as under `list`), so a definition used as a source
+ * loads runs as its steps would. Work whose workspace is hosted here with
+ * no engine and no known dryness is refused.
+ */
 export function instanceRuntime(): Promise<InstanceRuntime> {
-  let runtime: InstanceRuntime | undefined;
+  let hosting: Hosting | undefined;
   try {
-    runtime = activeHost();
+    hosting = hostingNow();
   } catch (error) {
     return Promise.reject(error);
   }
-  if (runtime) {
-    return Promise.resolve(runtime);
+  if (hosting?.runtime) {
+    return Promise.resolve(hosting.runtime);
   }
-  if (!fallback) {
+  const dry = hosting === undefined ? false : hosting.dry;
+  if (dry === undefined) {
+    return Promise.reject(
+      new Error(
+        `a definition was used while workspace ${hosting?.id ?? ""}'s source was loading, and whether it loads under a dry run is not known here; use it in a step, which the host's engine runs`
+      )
+    );
+  }
+  let runtime = fallbacks.get(dry);
+  if (runtime === undefined) {
     // A step it runs may query `usage`; its default accounts come first.
-    fallback = Promise.all([createFallback(), initializeUsage()]).then(
+    runtime = Promise.all([createFallback({ dry }), initializeUsage()]).then(
       ([created]) => created
     );
+    fallbacks.set(dry, runtime);
     // A script that never calls `dispose` still exits once its work is
     // done, unless something the runtime started holds the process open.
     process.once("beforeExit", () => {
       dispose().catch(() => undefined);
     });
   }
-  return fallback;
+  return runtime;
 }
 
 /**
@@ -406,9 +429,9 @@ export function instanceRuntime(): Promise<InstanceRuntime> {
  * outside a run calls it before exiting; the next call builds a new one.
  */
 export async function dispose(): Promise<void> {
-  const pending = fallback;
-  fallback = undefined;
-  if (pending) {
-    await (await pending).dispose();
+  const pending = [...fallbacks.values()];
+  fallbacks.clear();
+  for (const runtime of pending) {
+    await (await runtime).dispose();
   }
 }

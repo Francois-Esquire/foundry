@@ -120,7 +120,13 @@ function walk(
   top: string,
   root: string,
   artifact: string,
-  positions: readonly ("before" | "after")[]
+  positions: readonly ("before" | "after")[],
+  options: {
+    /** Run only the commands this keeps. */
+    readonly only?: (command: string) => boolean;
+    /** Checked after each run, beside the snapshot. */
+    readonly after?: (what: string) => void;
+  } = {}
 ): void {
   const table = cases(artifact);
   expect(Object.keys(table).sort()).toEqual(Object.keys(COMMANDS).sort());
@@ -133,13 +139,22 @@ function walk(
     TMPDIR: join(own, "tmp"),
   };
   mkdirSync(env.HOME);
-  mkdirSync(env.TMPDIR);
+  // Made ahead, and left out below: see `ignored`.
+  mkdirSync(join(env.TMPDIR, "marbles"), { recursive: true });
   const watched = [home.path, top, own];
   // SQLite's shared-memory file, which every reader maps read-write; it
   // keeps nothing.
-  const ignored = new Set([`${stateDatabase(home.layout.state)}-shm`]);
+  const ignored = new Set([
+    `${stateDatabase(home.layout.state)}-shm`,
+    // Where a dry engine cuts its echoed worktrees, as its steps do: empty
+    // scratch directories under the temporary directory, for a step to
+    // write in, never under the home, the workspace or its repository.
+    join(env.TMPDIR, "marbles"),
+  ]);
   const before = snapshotTrees(watched, ignored);
-  for (const command of Object.keys(COMMANDS)) {
+  for (const command of Object.keys(COMMANDS).filter(
+    options.only ?? (() => true)
+  )) {
     const how = table[command];
     if (how === undefined) {
       throw new Error(`no case for ${command}: say how to run it here`);
@@ -168,8 +183,41 @@ function walk(
         expect(done.stderr, what).toContain(refusal);
       }
       expect(snapshotTrees(watched, ignored), what).toEqual(before);
+      options.after?.(what);
     }
   }
+}
+
+/**
+ * A source that uses every kind of definition at its top level, as it
+ * loads: a workspace's git, a model, an artifact, a sandbox and a task.
+ * Each is tried on its own, so one refused leaves the others tried.
+ */
+const AT_LOAD = `import { agent, artifact, sandbox, step, tasks, workspace } from "@foundry.sh/marbles";
+const repo = workspace({ path: "." });
+const writer = agent({ name: "writer", prompt: "Write." });
+const notes = artifact({ name: "notes", type: "text/markdown" });
+const box = sandbox({});
+step("hello").do(() => "hi");
+const attempt = async (what, work) => {
+  try {
+    await work();
+  } catch (error) {
+    console.error("[at load] " + what + ": " + String(error));
+  }
+};
+await attempt("git", () => repo.git.worktree({ base: "HEAD", branch: "made-at-load" }));
+await attempt("model", () => writer.generate("Hello"));
+await attempt("artifact", () => notes.write({ "a.md": "# At load" }));
+await attempt("sandbox", () => box.exec(["true"]));
+await attempt("task", () => tasks.create({ title: "At load" }));
+`;
+
+/** The branches and worktrees of the repository at `root`. */
+function repository(root: string): string {
+  const git = (...args: string[]) =>
+    spawnSync("git", ["-C", root, ...args], { encoding: "utf8" }).stdout;
+  return `${git("branch", "--format=%(refname:short)")}${git("worktree", "list", "--porcelain")}`;
 }
 
 describe("every command under --dry-run", { timeout: 600_000 }, () => {
@@ -186,6 +234,43 @@ describe("every command under --dry-run", { timeout: 600_000 }, () => {
     const top = await realpath(temporaryDirectory("marbles-dry-resources-"));
     const { artifact, root } = await seeded(home, top);
     walk(home, top, root, artifact, ["before", "after"]);
+  });
+
+  it("keeps a definition used while the source loads dry too, under every command that loads it, the repository included", async () => {
+    const home = testHome();
+    const top = await realpath(temporaryDirectory("marbles-dry-load-"));
+    const root = join(top, "one");
+    mkdirSync(root);
+    const git = (...args: string[]) =>
+      spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+    git("init", "-q", "-b", "main");
+    git(
+      "-c",
+      "user.email=test@example.invalid",
+      "-c",
+      "user.name=test",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init"
+    );
+    writeFileSync(join(root, "marbles.ts"), AT_LOAD);
+    const repositoryBefore = repository(root);
+    // The commands that load the source, as the handler table says.
+    const loads = (command: string) => {
+      const { needs } = COMMANDS[command as keyof typeof COMMANDS];
+      return needs === "triggers" || needs === "connection";
+    };
+    expect(Object.keys(COMMANDS).filter(loads).sort()).toEqual([
+      "list",
+      "roll",
+      "run",
+    ]);
+    walk(home, top, root, "artifact#missing", ["after"], {
+      after: (what) => expect(repository(root), what).toBe(repositoryBefore),
+      only: loads,
+    });
   });
 
   it("keeps a dry task to itself while the Marbles process hosts the workspace", async () => {

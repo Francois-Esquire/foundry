@@ -560,18 +560,25 @@ function unrecordedObservers(
 }
 
 /**
- * The runtime a definition's instance uses in a script no host loaded: the
- * detected CLI harnesses, the machine's provider configuration, and the
- * current directory as the workspace; its artifacts are in memory, and
- * nothing is persisted. Not started; no run is launched through it.
+ * The runtime a definition's instance uses in a script no host loaded, or
+ * as a source loads before its host binds an engine: the detected CLI
+ * harnesses, the machine's provider configuration, and the current
+ * directory as the workspace; its artifacts are in memory, and nothing is
+ * persisted. Under `dry` (a source loading under a dry host) it is a dry
+ * engine, decided as every other one is. Not started; no run is launched
+ * through it.
  */
-export function createDefaultEngine(): Engine {
+export function createDefaultEngine({
+  dry,
+}: {
+  readonly dry: boolean;
+}): Engine {
   const machine = layout();
   const { id, root } = machine.workspace(process.cwd());
   return createEngine({
     artifacts: machine.artifacts,
     catalog: new Catalog(),
-    dry: false,
+    dry,
     print: (line) => {
       process.stderr.write(`${line}\n`);
     },

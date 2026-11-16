@@ -13,6 +13,7 @@ import {
 } from "~/access/workspace";
 import type { Args, ArgsOf, Command, Flags } from "~/args";
 import { parseArgs, UsageError } from "~/args";
+import { dispose as disposeDefaultRuntime } from "~/authoring/runtime";
 import type { Triggers } from "~/create";
 import { DatabaseBusyError } from "~/database/client";
 import { LinksPlacementError } from "~/database/links";
@@ -721,6 +722,12 @@ export async function main(entry: string): Promise<void> {
     }
     process.stderr.write(`marbles: ${error.message}\n`);
     process.exitCode = 1;
+  } finally {
+    // A definition the source used as it loaded ran on a default runtime,
+    // which nothing else closes: closed here, so the command ends.
+    await disposeDefaultRuntime().catch((error: unknown) => {
+      process.stderr.write(`marbles: ${String(error)}\n`);
+    });
   }
 }
 
