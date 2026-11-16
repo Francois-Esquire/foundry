@@ -7,6 +7,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { catalog } from "~/authoring/catalog";
 import { openWorkspaceRecords } from "~/database/managed";
 import type { Engine } from "~/lib/engine";
+import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Handler } from "~/lib/events/source";
 import { TASKS } from "~/lib/events/source";
 import { testEngine } from "../helpers/engine";
@@ -157,4 +158,37 @@ it("ends a retired engine whose handler never returns once its runs have, and st
   // Its stop waits for nothing the handler holds.
   await old.dispose();
   engines.splice(engines.indexOf(old), 1);
+}, 30_000);
+
+it("hands its queued runs over though giving up the delivery claim fails", async () => {
+  class FailingRelease extends MemoryWorkspaceRecords {
+    override releaseDelivery(): Promise<void> {
+      return Promise.reject(new Error("the claim could not be given up"));
+    }
+  }
+  const lines: string[] = [];
+  const old = testEngine({
+    print: (line) => lines.push(line),
+    records: new FailingRelease(),
+    root,
+  });
+  engines.push(old);
+  old.observe(TASKS, () => undefined);
+  const finish = Promise.withResolvers<void>();
+  old.task({ name: "active", run: () => finish.promise });
+  old.task({ name: "queued", run: () => undefined });
+  await old.start();
+  const active = await old.launch("active", {});
+  const queued = await old.launch("queued", {});
+  queued.result.catch(() => undefined);
+  const next = { pid: thisProcess().pid + 1, started: null };
+  await old.retire(next);
+  expect(old.executions.get(queued.id)?.owner).toMatchObject({
+    pid: next.pid,
+  });
+  expect(
+    lines.some((line) => line.includes("the claim could not be given up"))
+  ).toBe(true);
+  finish.resolve();
+  await active.result;
 }, 30_000);

@@ -1410,7 +1410,11 @@ export class Engine {
     // No change is delivered here from now on, and the successor may
     // deliver at once: the claim is given up now, a handler still running
     // left to itself, never waited for (`Delivery.letGo`).
-    await this.#delivery.letGo();
+    await this.#delivery.letGo().catch((error: unknown) => {
+      this.#print(
+        `[engine] the delivery claim was not given up as this engine retires: ${String(error)}`
+      );
+    });
     const handedLate = (late: string) => options.onHanded?.(late);
     for (const runId of await this.#launcher.handOver(successor, handedLate)) {
       this.#letGo.add(runId);
