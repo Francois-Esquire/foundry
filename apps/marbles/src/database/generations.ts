@@ -1,3 +1,4 @@
+import { isGone } from "@foundry/lib/process-identity";
 import { desc, eq, inArray } from "drizzle-orm";
 
 import { asBusy } from "~/database/busy";
@@ -84,18 +85,33 @@ export class GenerationRecords {
   }
 
   /**
-   * Every generation recorded live, marked exited: for a Marbles process
-   * starting, whose predecessor left them so when it died. A generation
-   * whose Marbles process is gone drains its runs and exits on its own, and
-   * what it held once it is gone is put right by the next engine start's
-   * recovery.
+   * What every generation recorded live is now, for a Marbles process
+   * starting, whose predecessor left them so when it died: one whose
+   * process is proved gone is marked exited; one whose process is alive,
+   * out of reach of any daemon now, finishes the runs it has and exits on
+   * its own, so it is marked retiring. What a generation held once it is
+   * gone is put right by the next engine start's recovery and the daemon's
+   * sweep. Each process is judged before the writes, never under them.
    */
   endAll(): Promise<void> {
     return asBusy(async () => {
-      await this.#database
-        .update(marblesGenerations)
-        .set({ state: "exited", updatedAt: new Date().toISOString() })
+      const live = await this.#database
+        .select({
+          number: marblesGenerations.number,
+          pid: marblesGenerations.pid,
+          started: marblesGenerations.started,
+        })
+        .from(marblesGenerations)
         .where(inArray(marblesGenerations.state, [...LIVE]));
+      const at = new Date().toISOString();
+      for (const each of live) {
+        const gone =
+          each.pid <= 0 || isGone({ pid: each.pid, started: each.started });
+        await this.#database
+          .update(marblesGenerations)
+          .set({ state: gone ? "exited" : "retiring", updatedAt: at })
+          .where(eq(marblesGenerations.number, each.number));
+      }
     });
   }
 

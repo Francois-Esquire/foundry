@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -1458,6 +1459,86 @@ describe("engine generations", () => {
     expect(await stored(fixture, fixture.summary.id)).toBe(false);
     fixture.client.close();
   }, 150_000);
+
+  it("when the daemon crashes between a detach's steps, the next leaves the workspace detached and the generation finishing its run", async () => {
+    const home = testHome({ providers: false });
+    const root = join(home.path, "project");
+    mkdirSync(root);
+    const gates = join(home.path, "gates");
+    mkdirSync(gates);
+    const fixture = {
+      gates,
+      log: join(home.path, "steps.log"),
+      machine: home.layout,
+      source: join(root, "marbles.config.ts"),
+    };
+    writeFileSync(fixture.log, "");
+    writeFileSync(fixture.source, moduleText(fixture, 0));
+    // A Marbles process of the test's own, which it can end as a crash would.
+    const lines: string[] = [];
+    const child = spawn(
+      process.execPath,
+      [join(import.meta.dirname, "helpers", "daemon-process.ts")],
+      { env: home.env, stdio: ["ignore", "pipe", "inherit"] }
+    );
+    home.track(child.pid, false);
+    child.stdout.on("data", (chunk: Buffer) => {
+      lines.push(...chunk.toString().split("\n").filter(Boolean));
+    });
+    await vi.waitFor(
+      () => expect(lines.some((line) => line.startsWith("ready "))).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    const client = await connect({ layout: fixture.machine, start: false });
+    const summary = await client.attach(fixture.source);
+    const first = summary.pid ?? 0;
+    const workspace = client.workspace(summary);
+    const runId = await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    const detaching = client.detach(summary.id);
+    detaching.catch(() => undefined);
+    await vi.waitFor(
+      () =>
+        expect(
+          lines.some((line) =>
+            line.includes("detaching · waiting for engine generation 1")
+          )
+        ).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    expect(await stored(fixture, summary.id)).toBe(false);
+    // The daemon this test started, proved that process by its start, is
+    // killed; the generation it spawned is not.
+    const daemonPid = child.pid ?? 0;
+    expect(startedAt(daemonPid)).not.toBeNull();
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    process.kill(daemonPid, "SIGKILL");
+    await exited;
+    client.close();
+    expect(processAlive(first)).toBe(true);
+    // The next daemon hosts what is registered: not this workspace.
+    daemons.push(
+      await startDaemon({ layout: fixture.machine, print: () => undefined })
+    );
+    const next = await connect({ layout: fixture.machine, start: false });
+    expect(await next.workspaces()).toEqual([]);
+    expect(await stored(fixture, summary.id)).toBe(false);
+    // The generation the crash left goes on with its run, whole, out of
+    // the new daemon's reach: recorded as still finishing, not as exited.
+    expect(processAlive(first)).toBe(true);
+    expect(
+      (await readLiveGenerations(fixture.machine.state)).find(
+        (generation) => generation.pid === first
+      )?.state
+    ).toBe("retiring");
+    // Once its run ends, it exits on its own.
+    open(1, fixture);
+    await gone(first, 60_000);
+    const rows = await executions(fixture, summary.id);
+    expect(rows.find((row) => row.name === "hold1")?.status).toBe("complete");
+    expect(runId).toBeDefined();
+    next.close();
+  }, 180_000);
 
   it("completes a daemon stop while a detach waits for a retired generation, refusing the attach that waited on it", async () => {
     const lines: string[] = [];
