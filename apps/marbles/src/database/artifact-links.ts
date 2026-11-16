@@ -49,14 +49,22 @@ export interface Touched {
 /** What `keepingLinks` adds to the store it keeps links for. */
 export interface LinksKept {
   /**
-   * Resolve once no link update is under way or queued, so nothing of this
-   * store's link keeping is in a database call or will begin one: the
-   * database may close then. After `withinMs`, give up what has no end of
-   * its own, the updates not yet begun and one waiting for a workspace's
-   * links lock, reporting them once as `marbles relink` repairs them; an
-   * update reading the database or changing links still reaches its next
-   * step, where it stops, before this resolves. One stopped changes no
-   * link: what it made ahead is removed, and the links are as they were.
+   * Take no new link work from now on, and resolve once no link update is
+   * under way or queued, so nothing of this store's link keeping is in a
+   * database call or will begin one: the database may close then. A write
+   * that lands once this has begun has its links left to `marbles relink`,
+   * reported once, and reads nothing. After `withinMs`, give up what has no
+   * end of its own, the updates not yet begun and one waiting for a
+   * workspace's links lock, reporting them once as `marbles relink` repairs
+   * them; an update reading the database or changing links still reaches
+   * its next step, where it stops, before this resolves. One stopped
+   * changes no link: what it made ahead is removed, and the links are as
+   * they were.
+   *
+   * `withinMs` is no deadline: past it, this still waits for a read of the
+   * database under way, however long it takes, since closing the database
+   * under it is what this is for. What bounds a host's close is the host's
+   * own: a generation's stop timeout; nothing, in a host in this process.
    */
   drainLinks(withinMs: number): Promise<void>;
 }
@@ -191,6 +199,8 @@ function artifactLinker(options: KeptLinksOptions): {
   // Aborted once a drain gave up: an update stops at its next step, before
   // it reads the database again, and a wait for a links lock ends.
   const giveUp = new AbortController();
+  // Closed once a drain begins: nothing more is queued.
+  let admitting = true;
   const live = (): void => {
     giveUp.signal.throwIfAborted();
   };
@@ -200,6 +210,15 @@ function artifactLinker(options: KeptLinksOptions): {
     );
   const follow = (touched: Touched) => {
     if (touched.artifacts.length === 0 && touched.blobs.length === 0) {
+      return;
+    }
+    if (!admitting) {
+      failed(
+        `the links of ${owner}'s artifacts`,
+        new Error(
+          `a write landed after the host began to close, touching ${String(touched.artifacts.length)} artifacts and ${String(touched.blobs.length)} blobs`
+        )
+      );
       return;
     }
     queue = queue
@@ -233,6 +252,7 @@ function artifactLinker(options: KeptLinksOptions): {
     }
   };
   const drain = async (withinMs: number): Promise<void> => {
+    admitting = false;
     let timer: NodeJS.Timeout | undefined;
     const timedOut = new Promise<"timed out">((done) => {
       timer = setTimeout(() => done("timed out"), withinMs);

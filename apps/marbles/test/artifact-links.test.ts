@@ -10,6 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
+import type { ArtifactStore } from "@foundry/artifacts/store";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { acquireFileLock } from "@foundry/lib/file-lock";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
@@ -505,6 +507,69 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     expect(await readFile(join(place, "a.md"), "utf8")).toBe("# Second\n");
     expect(await readFile(join(place, "b.md"), "utf8")).toBe("# B\n");
   });
+
+  it.each(["commit", "transaction"] as const)(
+    "take no new work once a drain has begun: a %s that lands after it is left to relink, reported once, and calls nothing",
+    async (shape) => {
+      let land = (): void => undefined;
+      const gate = new Promise<void>((resolve) => {
+        land = resolve;
+      });
+      // A store whose writes land only once the gate opens.
+      const memory = new InMemoryArtifactStore();
+      const held = new Proxy(memory, {
+        get(target, property) {
+          const value: unknown = Reflect.get(target, property, target);
+          if (
+            (property === "commit" || property === "transaction") &&
+            typeof value === "function"
+          ) {
+            return async (...args: unknown[]) => {
+              await gate;
+              return Reflect.apply(value, target, args);
+            };
+          }
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }) as ArtifactStore;
+      const closed: { drained: boolean } = { drained: false };
+      const callsAfterDrain: string[] = [];
+      // A database closed once the drain resolves: any call is recorded.
+      const database = new Proxy(
+        {},
+        {
+          get: (_target, property) => () => {
+            if (closed.drained) {
+              callsAfterDrain.push(String(property));
+            }
+            throw new Error("the database is closed");
+          },
+        }
+      ) as never;
+      const lines: string[] = [];
+      const kept = keepingLinks(held, {
+        artifacts: "/nonexistent/artifacts",
+        database,
+        owner: "one",
+        report: (line) => lines.push(line),
+        state: "/nonexistent/state",
+      });
+      const id = artifactIdSchema.parse("artifact#late");
+      const written =
+        shape === "commit"
+          ? kept.commit({ deleteArtifacts: [id] })
+          : kept.transaction?.((view) =>
+              view.commit({ deleteArtifacts: [id] })
+            );
+      await kept.drainLinks(1000);
+      closed.drained = true;
+      land();
+      await written;
+      await kept.drainLinks(1000);
+      expect(callsAfterDrain).toEqual([]);
+      expect(lines).toEqual([expect.stringMatching(REPAIRS)]);
+    }
+  );
 
   it("drain an engine's link updates as it is disposed, giving up on a lock that does not free", async () => {
     const { artifacts, machine, one } = await arranged();

@@ -374,7 +374,8 @@ function recordsFor(
  * up those with no end of their own (not begun, or waiting for a
  * workspace's `.marbles/.lock`): an update holds the lock for moments, so
  * this outlasts a rebuild in another process, and stays well inside a
- * generation's stop deadline.
+ * generation's stop deadline. No deadline for the dispose: an update
+ * reading the database is still waited for (`drainLinks`).
  */
 const LINK_DRAIN_MS = 5000;
 
