@@ -218,6 +218,32 @@ it("reads a settled Execution Run once the claim is held, from a run store that 
   expect(await other.claim("rn-1", ANY_STORED_RUN)).toBe(true);
 });
 
+it("reads a settled Execution Run once the claim is held, when the run store's database holds none for the Run", async () => {
+  const { executions, next, store } = await parkedByAnOwner();
+  // The host keeps Execution Runs in another store, which holds this one
+  // cancelled: the run store's own database holds none for it.
+  await executions.remove("rn-1");
+  let reads = 0;
+  const lines: string[] = [];
+  const adopted = await adoptParkedRuns({
+    askable: true,
+    print: (line) => lines.push(line),
+    registered: () => true,
+    runs: next,
+    settled: () => {
+      reads += 1;
+      return Promise.resolve(true);
+    },
+    store,
+  });
+
+  expect(adopted.size).toBe(0);
+  expect(reads).toBe(1);
+  expect(lines).toEqual([
+    "[run] flow rn-1 not adopted: its execution run has settled",
+  ]);
+});
+
 const SOURCE = resolve(import.meta.dirname, "../../src");
 
 /**

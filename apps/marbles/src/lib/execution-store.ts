@@ -232,21 +232,24 @@ export function changed(
   };
 }
 
+/** A run as kept: never changed in place, so a transaction can share it. */
 interface Kept {
-  readonly observations: Map<string, ExecutionObservation>;
-  record: KeptRecord;
+  readonly observations: ReadonlyMap<string, ExecutionObservation>;
+  readonly record: KeptRecord;
 }
 
 /**
  * The Execution Runs held in this process, for one engine: nothing
  * outlives it. Everything is copied in and out, so no caller shares a
  * reference with the store; one transaction runs at a time, and a write
- * outside one waits its turn.
+ * outside one waits its turn. A transaction stages what it changes over
+ * what is kept (`Staged`), so it costs what it touches, not every run
+ * kept, and only a transaction whose work resolves changes what is kept.
  */
 export class MemoryExecutionStore implements ExecutionStore {
   readonly #gate = new RecordsGate("the execution store is closed");
-  #runs = new Map<string, Kept>();
-  #gaps = new Map<string, RetentionGap>();
+  readonly #runs = new Map<string, Kept>();
+  readonly #gaps = new Map<string, RetentionGap>();
   #turn: Promise<unknown> = Promise.resolve();
 
   close(): Promise<void> {
@@ -256,16 +259,9 @@ export class MemoryExecutionStore implements ExecutionStore {
   transaction<T>(work: (view: ExecutionView) => Promise<T>): Promise<T> {
     return this.#gate.run(() => {
       const running = this.#turn.then(async () => {
-        const runs = new Map(
-          [...this.#runs].map(([id, kept]) => [
-            id,
-            { observations: new Map(kept.observations), record: kept.record },
-          ])
-        );
-        const gaps = new Map(this.#gaps);
-        const result = await work(new MemoryView(runs, gaps));
-        this.#runs = runs;
-        this.#gaps = gaps;
+        const staged = new Staged(this.#runs, this.#gaps);
+        const result = await work(new MemoryView(staged));
+        staged.apply();
         return result;
       });
       this.#turn = running.catch(() => undefined);
@@ -343,7 +339,9 @@ export class MemoryExecutionStore implements ExecutionStore {
   }
 
   #read<T>(read: (view: ExecutionView) => Promise<T>): Promise<T> {
-    return this.#gate.run(() => read(new MemoryView(this.#runs, this.#gaps)));
+    return this.#gate.run(() =>
+      read(new MemoryView(new Staged(this.#runs, this.#gaps)))
+    );
   }
 
   /**
@@ -365,54 +363,138 @@ export class MemoryExecutionStore implements ExecutionStore {
   }
 }
 
-/** A view over `runs` and `gaps`, changing them in place. */
-class MemoryView implements ExecutionView {
+/**
+ * What one view reads and writes: the runs and gaps as kept, and over them
+ * what its transaction has changed so far, which its reads see too. Only
+ * `apply` changes what is kept, so a view whose work rejects, or a read's,
+ * leaves it as it was. Runs list in the order they are kept, a run
+ * created after every other, as copying the maps and writing to the copy
+ * would order them.
+ */
+class Staged {
   readonly #runs: Map<string, Kept>;
   readonly #gaps: Map<string, RetentionGap>;
+  /** Each run this transaction put, or removed (`undefined`). */
+  readonly #changed = new Map<string, Kept | undefined>();
+  /** The runs it created, in the order it last created each. */
+  readonly #created = new Set<string>();
+  readonly #changedGaps = new Map<string, RetentionGap>();
 
   constructor(runs: Map<string, Kept>, gaps: Map<string, RetentionGap>) {
     this.#runs = runs;
     this.#gaps = gaps;
   }
 
+  run(id: string): Kept | undefined {
+    return this.#changed.has(id) ? this.#changed.get(id) : this.#runs.get(id);
+  }
+
+  /** Every run, in the order it is kept. */
+  *runs(): Generator<readonly [string, Kept]> {
+    for (const id of this.#runs.keys()) {
+      const kept = this.#created.has(id) ? undefined : this.run(id);
+      if (kept) {
+        yield [id, kept];
+      }
+    }
+    for (const id of this.#created) {
+      const kept = this.#changed.get(id);
+      if (kept) {
+        yield [id, kept];
+      }
+    }
+  }
+
+  create(id: string, kept: Kept): void {
+    this.#created.delete(id);
+    this.#created.add(id);
+    this.#changed.set(id, kept);
+  }
+
+  put(id: string, kept: Kept): void {
+    this.#changed.set(id, kept);
+  }
+
+  remove(id: string): void {
+    this.#changed.set(id, undefined);
+  }
+
+  gaps(): RetentionGap[] {
+    return [...new Map([...this.#gaps, ...this.#changedGaps]).values()];
+  }
+
+  putGap(gap: RetentionGap): void {
+    this.#changedGaps.set(gap.scope, gap);
+  }
+
+  /** Keep what this transaction changed. */
+  apply(): void {
+    for (const [id, kept] of this.#changed) {
+      if (kept === undefined || this.#created.has(id)) {
+        this.#runs.delete(id);
+      } else {
+        this.#runs.set(id, kept);
+      }
+    }
+    for (const id of this.#created) {
+      const kept = this.#changed.get(id);
+      if (kept) {
+        this.#runs.set(id, kept);
+      }
+    }
+    for (const [scope, gap] of this.#changedGaps) {
+      this.#gaps.set(scope, gap);
+    }
+  }
+}
+
+/** A view over what `staged` reads, writing to it. */
+class MemoryView implements ExecutionView {
+  readonly #staged: Staged;
+
+  constructor(staged: Staged) {
+    this.#staged = staged;
+  }
+
   advise(
     id: string,
     change: { readonly progress: JsonValue; readonly updatedAt: string }
   ): Promise<Written> {
-    const kept = this.#runs.get(id);
+    const kept = this.#staged.run(id);
     if (!(kept && advisable(kept.record.status))) {
-      return Promise.resolve(writtenOf(false, kept));
+      return Promise.resolve(writtenOf(false, kept?.record));
     }
-    kept.record = {
+    const record = {
       ...kept.record,
       progress: storedProgress(id, change.progress),
       revision: kept.record.revision + 1,
       timestamps: { ...kept.record.timestamps, updatedAt: change.updatedAt },
     };
-    return Promise.resolve(writtenOf(true, kept));
+    this.#staged.put(id, { observations: kept.observations, record });
+    return Promise.resolve(writtenOf(true, record));
   }
 
   create(run: ExecutionRun): Promise<boolean> {
-    if (this.#runs.has(run.id)) {
+    if (this.#staged.run(run.id)) {
       return Promise.resolve(false);
     }
     const { observations: _observations, ...record } = storedExecutionRun(run);
-    this.#runs.set(run.id, { observations: new Map(), record });
+    this.#staged.create(run.id, { observations: new Map(), record });
     return Promise.resolve(true);
   }
 
   get(id: string): Promise<StoredExecution | undefined> {
-    const kept = this.#runs.get(id);
+    const kept = this.#staged.run(id);
     return Promise.resolve(kept && storedOf(id, kept));
   }
 
   gaps(): Promise<readonly RetentionGap[]> {
-    return Promise.resolve(structuredClone([...this.#gaps.values()]));
+    return Promise.resolve(structuredClone(this.#staged.gaps()));
   }
 
   list(): Promise<readonly StoredExecution[]> {
     return Promise.resolve(
-      [...this.#runs]
+      [...this.#staged.runs()]
         .sort(
           ([a, first], [b, second]) =>
             first.record.sequence - second.record.sequence || a.localeCompare(b)
@@ -426,44 +508,48 @@ class MemoryView implements ExecutionView {
     observation: ExecutionObservation,
     updatedAt: string
   ): Promise<Written> {
-    const kept = this.#runs.get(id);
+    const kept = this.#staged.run(id);
     if (!(kept && advisable(kept.record.status))) {
-      return Promise.resolve(writtenOf(false, kept));
+      return Promise.resolve(writtenOf(false, kept?.record));
     }
-    kept.observations.delete(observation.id);
-    kept.observations.set(observation.id, storedObservation(id, observation));
-    kept.record = {
+    // Only this run's observations are copied, and moved last when seen again.
+    const observations = new Map(kept.observations);
+    observations.delete(observation.id);
+    observations.set(observation.id, storedObservation(id, observation));
+    const record = {
       ...kept.record,
       revision: kept.record.revision + 1,
       timestamps: { ...kept.record.timestamps, updatedAt },
     };
-    return Promise.resolve(writtenOf(true, kept));
+    this.#staged.put(id, { observations, record });
+    return Promise.resolve(writtenOf(true, record));
   }
 
   putGap(gap: RetentionGap): Promise<void> {
-    this.#gaps.set(gap.scope, storedRetentionGap(gap));
+    this.#staged.putGap(storedRetentionGap(gap));
     return Promise.resolve();
   }
 
   remove(id: string): Promise<void> {
-    this.#runs.delete(id);
+    this.#staged.remove(id);
     return Promise.resolve();
   }
 
   transition(id: string, change: LifecycleChange): Promise<Written> {
-    const kept = this.#runs.get(id);
+    const kept = this.#staged.run(id);
     if (!(kept && allows(change, kept.record))) {
-      return Promise.resolve(writtenOf(false, kept));
+      return Promise.resolve(writtenOf(false, kept?.record));
     }
-    kept.record = changed(kept.record, storedChange(id, change));
-    return Promise.resolve(writtenOf(true, kept));
+    const record = changed(kept.record, storedChange(id, change));
+    this.#staged.put(id, { observations: kept.observations, record });
+    return Promise.resolve(writtenOf(true, record));
   }
 
   withSource(
     name: string,
     source: string
   ): Promise<StoredExecution | undefined> {
-    for (const [id, kept] of this.#runs) {
+    for (const [id, kept] of this.#staged.runs()) {
       if (kept.record.name === name && kept.record.source === source) {
         return Promise.resolve(storedOf(id, kept));
       }
@@ -472,8 +558,8 @@ class MemoryView implements ExecutionView {
   }
 }
 
-function writtenOf(applied: boolean, kept: Kept | undefined): Written {
-  return { applied, record: kept && structuredClone(kept.record) };
+function writtenOf(applied: boolean, record: KeptRecord | undefined): Written {
+  return { applied, record: record && structuredClone(record) };
 }
 
 function storedOf(id: string, kept: Kept): StoredExecution {

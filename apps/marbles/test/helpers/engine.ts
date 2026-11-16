@@ -12,7 +12,7 @@ import { directory } from "@foundry/workspaces/node";
 import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { catalog } from "~/authoring/catalog";
 import { declareCatalog, echoGit } from "~/create";
-import { withWorkspaceDatabase } from "~/database/managed";
+import { Engine as DatabaseEngine } from "~/entries/engine";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
@@ -106,15 +106,13 @@ export function testEngine(options: TestEngineOptions = {}): Engine {
   };
   const { state } = engineOptions;
   // The lib engine's tasks stay in memory, as a lib engine's do.
-  const engine = new Engine(
+  const engine =
     state === undefined
-      ? engineOptions
-      : withWorkspaceDatabase({
+      ? new Engine(engineOptions)
+      : new DatabaseEngine({
           records: new MemoryWorkspaceRecords(),
           ...engineOptions,
-          state,
-        })
-  );
+        });
   declareCatalog(engine, catalog);
   return engine;
 }

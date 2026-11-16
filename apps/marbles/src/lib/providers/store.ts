@@ -25,6 +25,17 @@ export class ConfigurationError extends Error {
   }
 }
 
+/**
+ * What the store holds cannot be used as it is: a scope's configuration
+ * or the identity key. Reading it again reads the same, until it is
+ * changed; a store that could not be reached throws any other error.
+ */
+export class InvalidStoredConfiguration extends ConfigurationError {
+  constructor(message: string) {
+    super("CONFIGURATION_UNREADABLE", message);
+  }
+}
+
 export interface ProviderEntryRecord {
   readonly defaults?: Partial<Record<ModelKind, string>>;
   readonly enabled: boolean;
@@ -204,8 +215,7 @@ export function describeIssues(error: z.ZodError): string {
 }
 
 function unreadable(what: string, why: string): ConfigurationError {
-  return new ConfigurationError(
-    "CONFIGURATION_UNREADABLE",
+  return new InvalidStoredConfiguration(
     `${what} cannot be read (${why}); configure those providers again`
   );
 }
@@ -220,8 +230,7 @@ export function newIdentityKey(): string {
 /** The identity key a store kept as `text`; `CONFIGURATION_UNREADABLE` when it is not one. */
 export function identityKeyFrom(text: string): Buffer {
   if (!KEY.test(text)) {
-    throw new ConfigurationError(
-      "CONFIGURATION_UNREADABLE",
+    throw new InvalidStoredConfiguration(
       "the identity key in the Marbles database is not one; remove it to start new sessions everywhere"
     );
   }

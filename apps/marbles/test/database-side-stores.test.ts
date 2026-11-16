@@ -2,12 +2,23 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { withWorkspaceDatabase } from "~/database/managed";
+import type { WorkspaceDatabaseOptions } from "~/database/managed";
+import {
+  defaultWorkspaceTriggers,
+  openWorkspaceDatabase,
+  withWorkspaceDatabase,
+} from "~/database/managed";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
-import type { EngineOptions } from "~/lib/engine";
+import { DatabaseUsageStore } from "~/database/usage";
+import { MemoryAutomationStore } from "~/lib/automation/store";
+import { MemoryWorkspaceRecords } from "~/lib/events/records";
+import { MemoryExecutionStore } from "~/lib/execution-store";
+import { MemoryRunStore } from "~/lib/run-store";
 import type { ActivityRecord } from "~/lib/sandbox/activities";
-import { testInstances } from "./helpers/engine";
+import { MemoryTriggerStore } from "~/lib/trigger-store";
+import { MemoryUsageStore } from "~/lib/usage-store";
+import { testEngine, testInstances } from "./helpers/engine";
 
 const roots: string[] = [];
 
@@ -40,14 +51,21 @@ const activity: ActivityRecord = {
   source,
 };
 
-/** Close what an engine closes on dispose: every store `withWorkspaceDatabase` counted. */
-async function dispose(options: EngineOptions): Promise<void> {
+/**
+ * Close what an engine closes on dispose, every store `withWorkspaceDatabase`
+ * counted, then give up the hold the engine keeps.
+ */
+async function dispose({
+  options,
+  release,
+}: WorkspaceDatabaseOptions): Promise<void> {
   await options.records?.close();
   await options.runs?.close();
   await options.triggers?.close();
   await options.usageStore?.close();
   await options.automationStore?.close();
   await options.executionStore?.close();
+  await release();
 }
 
 describe("the stores an engine keeps beside its records", () => {
@@ -63,32 +81,250 @@ describe("the stores an engine keeps beside its records", () => {
       });
     };
     const first = options();
-    await first.grants?.transact(() => ({ next: "{}", result: undefined }));
-    await first.approvals?.change((saved) => ({
+    await first.options.grants?.transact(() => ({
+      next: "{}",
+      result: undefined,
+    }));
+    await first.options.approvals?.change((saved) => ({
       ...saved,
       sessions: [session],
     }));
-    await first.activityStore?.put("child-1", activity);
+    await first.options.activityStore?.put("child-1", activity);
     await dispose(first);
-    await expect(first.approvals?.load()).rejects.toThrow("closed");
+    await expect(first.options.approvals?.load()).rejects.toThrow("closed");
 
     const second = options();
     try {
-      expect(await second.approvals?.load()).toEqual({
+      expect(await second.options.approvals?.load()).toEqual({
         requests: [],
         sessions: [session],
       });
-      expect(await second.activityStore?.load()).toEqual([activity]);
+      expect(await second.options.activityStore?.load()).toEqual([activity]);
       expect(
-        await second.grants?.transact((stored) => ({ result: stored }))
+        await second.options.grants?.transact((stored) => ({ result: stored }))
       ).toBe("{}");
     } finally {
       await dispose(second);
     }
   });
 
+  it("are kept, and their handle closed on dispose, when the engine is handed every other store", async () => {
+    const state = join(scratch(), "handed");
+    const root = scratch();
+    const engine = () =>
+      testEngine({
+        automationStore: new MemoryAutomationStore(),
+        executionStore: new MemoryExecutionStore(),
+        records: new MemoryWorkspaceRecords(),
+        root,
+        runs: new MemoryRunStore(),
+        state,
+        triggers: new MemoryTriggerStore(),
+        usageStore: new MemoryUsageStore(),
+        workspaceId: "handed",
+      }).start();
+    const first = await engine();
+    await first.activities.record(activity.event, activity.source);
+    await first.dispose();
+    const late = { ...activity.event, revision: 2 };
+    await expect(first.activities.record(late, source)).rejects.toThrow(
+      "closed"
+    );
+
+    const second = await engine();
+    try {
+      // Listed as no longer live, since no session of this engine runs it.
+      expect(second.activities.list()).toEqual([
+        {
+          event: { ...activity.event, actions: [], status: "unknown" },
+          source,
+        },
+      ]);
+    } finally {
+      await second.dispose();
+    }
+  });
+
+  it("stay open until the engine lets go, after the stores made beside them close", async () => {
+    const kept = withWorkspaceDatabase({
+      ...testInstances({ root: scratch() }),
+      root: scratch(),
+      state: join(scratch(), "held"),
+      usageStore: new MemoryUsageStore(),
+      workspaceId: "held",
+    });
+    const { options } = kept;
+    await options.records?.close();
+    await options.runs?.close();
+    await options.triggers?.close();
+    await options.automationStore?.close();
+    await options.executionStore?.close();
+    // An agent still closing writes its activity after the engine's stores closed.
+    await options.activityStore?.put("child-1", activity);
+    await kept.release();
+    await kept.release();
+    await expect(options.activityStore?.load()).rejects.toThrow("closed");
+  });
+
+  it("stay open when a store made beside them is closed more than once", async () => {
+    const kept = withWorkspaceDatabase({
+      ...testInstances({ root: scratch() }),
+      root: scratch(),
+      state: join(scratch(), "twice"),
+      workspaceId: "twice",
+    });
+    const { options } = kept;
+    await options.activityStore?.load();
+    // Each close of the same store gives up that store's claim once.
+    await options.records?.close();
+    await options.records?.close();
+    await options.runs?.close();
+    await options.triggers?.close();
+    await options.usageStore?.close();
+    await options.automationStore?.close();
+    await options.executionStore?.close();
+    await options.executionStore?.close();
+    expect(await options.activityStore?.load()).toEqual([]);
+    await kept.release();
+    await expect(options.activityStore?.load()).rejects.toThrow("closed");
+  });
+
+  it("finish one close of a store, cleanup first, whoever else closes it meanwhile", async () => {
+    const stores = [
+      "records",
+      "runs",
+      "triggers",
+      "usageStore",
+      "automationStore",
+      "executionStore",
+    ] as const;
+    for (const overlapping of stores) {
+      const kept = withWorkspaceDatabase({
+        ...testInstances({ root: scratch() }),
+        root: scratch(),
+        state: join(scratch(), `overlap-${overlapping}`),
+        workspaceId: "overlap",
+      });
+      const { options } = kept;
+      // Opened, with something each store gives up as it closes.
+      await options.triggers?.lastTick("tick");
+      await options.records?.claimDelivery();
+      for (const other of stores.filter((each) => each !== overlapping)) {
+        await options[other]?.close();
+      }
+      const first = options[overlapping]?.close();
+      const second = options[overlapping]?.close();
+      expect(second, overlapping).toBe(first);
+      await second;
+      await kept.release();
+      expect(
+        (await Promise.allSettled([first, second])).map((each) => each.status),
+        overlapping
+      ).toEqual(["fulfilled", "fulfilled"]);
+    }
+  });
+
+  it("close the handle a workspace's own database opened once, for every overlapping close", async () => {
+    const database = openWorkspaceDatabase({
+      state: join(scratch(), "own"),
+      workspaceId: "own",
+    });
+    await database.triggers.lastTick("tick");
+    let firstDone = false;
+    const first = database.close().then(() => {
+      firstDone = true;
+    });
+    await database.close();
+    expect(firstDone).toBe(true);
+    await first;
+  });
+
+  it("close every store of a workspace's own database whatever another's close does, then the handle, and report each failure", async () => {
+    const database = openWorkspaceDatabase({
+      state: join(scratch(), "drain"),
+      workspaceId: "drain",
+    });
+    const { close } = DatabaseWorkspaceRecords.prototype;
+    const { facts } = DatabaseUsageStore.prototype;
+    const held = Promise.withResolvers<undefined>();
+    const reading = Promise.withResolvers<undefined>();
+    // A read still under way as the close begins, and a store whose
+    // cleanup fails.
+    DatabaseUsageStore.prototype.facts = async function (
+      this: DatabaseUsageStore
+    ) {
+      reading.resolve(undefined);
+      await held.promise;
+      return await facts.call(this);
+    };
+    DatabaseWorkspaceRecords.prototype.close = () =>
+      Promise.reject(new Error("records cleanup failed"));
+    try {
+      await database.records.taskStore.snapshot();
+      const read = database.usage.facts().catch((error: unknown) => error);
+      await reading.promise;
+      const closing = database.close();
+      expect(database.close()).toBe(closing);
+      const closed = closing.then(
+        () => "closed",
+        (error: unknown) => error
+      );
+      await new Promise((settle) => setTimeout(settle, 50));
+      held.resolve(undefined);
+      expect(await read).toEqual({ facts: [], revision: 0 });
+      const failure = (await closed) as AggregateError;
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(failure.errors.map((error: Error) => error.message)).toEqual([
+        "records cleanup failed",
+      ]);
+      // Every other store closed: what each refuses now says so.
+      await expect(database.usage.facts()).rejects.toThrow("closed");
+      await expect(database.triggers.lastTick("tick")).rejects.toThrow(
+        "closed"
+      );
+    } finally {
+      held.resolve(undefined);
+      DatabaseWorkspaceRecords.prototype.close = close;
+      DatabaseUsageStore.prototype.facts = facts;
+    }
+  });
+
+  it("hand every caller of a session store's close the one close", async () => {
+    const database = openWorkspaceDatabase({
+      state: join(scratch(), "sessions"),
+      workspaceId: "sessions",
+    });
+    // The engine's own close of it, which its type does not show.
+    const sessions = database.sessions as unknown as {
+      close(): Promise<void>;
+    };
+    try {
+      const first = sessions.close();
+      expect(sessions.close()).toBe(first);
+      await first;
+    } finally {
+      await database.close();
+    }
+  });
+
+  it("finish an overlapping close of a store that owns its handle before either resolves", async () => {
+    const root = scratch();
+    const triggers = defaultWorkspaceTriggers(
+      join(scratch(), "triggers"),
+      root,
+      "triggers"
+    );
+    await triggers.lastTick("tick");
+    const first = triggers.close();
+    const second = triggers.close();
+    expect(second).toBe(first);
+    expect(
+      (await Promise.allSettled([first, second])).map((each) => each.status)
+    ).toEqual(["fulfilled", "fulfilled"]);
+  });
+
   it("keep an activity's highest revision", async () => {
-    const options = withWorkspaceDatabase({
+    const { options, release } = withWorkspaceDatabase({
       ...testInstances({ root: scratch() }),
       root: scratch(),
       state: join(scratch(), "revisions"),
@@ -105,7 +341,7 @@ describe("the stores an engine keeps beside its records", () => {
       await options.activityStore?.put("child-1", at(3, "third"));
       expect(await options.activityStore?.load()).toEqual([at(3, "third")]);
     } finally {
-      await dispose(options);
+      await dispose({ options, release });
     }
   });
 });
