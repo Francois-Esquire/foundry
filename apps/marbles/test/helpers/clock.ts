@@ -70,6 +70,11 @@ export class ManualClock implements DeliveryClock {
     }
   }
 
+  /** The period of each tick still set, in ms: a delivery's poll, its compaction. */
+  get periods(): readonly number[] {
+    return [...this.#ticks].map((ticking) => ticking.ms);
+  }
+
   /** How many ticks are still set: a delivery's poll, until it stops. */
   get ticking(): number {
     return this.#ticks.size;

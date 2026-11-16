@@ -17,17 +17,21 @@ import type { Fact } from "~/lib/events/source";
  */
 export interface ChangeLog {
   /**
-   * Remove the facts that committed before `before` and that every
-   * observer still holding them back has completed, oldest first, as one
-   * prefix of the log: how many went. An observer holds facts back while
-   * the deliverer has it registered (`registered`, whose `seenAt` this
-   * makes now, whatever it is doing: idle, in backoff, or stuck in a
-   * call), or while it was seen since `seenSince`; one no engine has
-   * registered for that long does not, and is told what it missed when it
-   * next moves. Only the deliverer compacts: 0, and nothing removed, when
-   * these records do not hold the claim.
+   * One bounded step of compaction, in one short transaction: remove, as
+   * the next part of one prefix of the log, at most `bound.limit` positions
+   * of facts that committed before `before` and that every observer still
+   * holding them back has completed; whether the step reached as far as
+   * compaction may go now (`done`), or there is more for the next step. An
+   * observer holds facts back while it was seen since `seenSince`; the
+   * observers the calling engine has registered (`registered`) are seen
+   * now, in the same transaction, whatever they are doing: delivering,
+   * idle, in backoff, stuck in a call, or waiting behind another engine.
+   * One no engine has registered for that long does not, and is told what
+   * it missed when it next moves. Any engine may compact, with no claim:
+   * each step decides afresh, so two engines compacting at once only
+   * leave each other less to remove.
    */
-  compact(bound: CompactionBound): Promise<number>;
+  compact(bound: CompactionBound): Promise<CompactionStep>;
   /**
    * The observer `key`'s place, filed at the counter (from now) when it is
    * new, and seen at `now`. Nothing about its place changes here.
@@ -120,9 +124,22 @@ export interface ObserverMove {
   readonly to: number;
 }
 
+/** What one compaction step did. */
+export interface CompactionStep {
+  /** Whether it reached as far as compaction may go now: no next step is needed. */
+  readonly done: boolean;
+  /** How many facts it removed. */
+  readonly removed: number;
+}
+
+/** Positions one compaction step removes at most, unless `CompactionBound.limit` says otherwise. */
+export const COMPACTION_STEP = 5000;
+
 export interface CompactionBound {
   /** Only facts committed before this, in epoch ms. */
   readonly before: number;
+  /** At most this many positions in this step; `COMPACTION_STEP` when omitted. */
+  readonly limit?: number;
   /** Now, in epoch ms: when the registered observers are seen. */
   readonly now: number;
   /** The observers the deliverer has registered: each holds facts back, and is seen now. */
@@ -200,7 +217,7 @@ export class MemoryChangeLog implements ChangeLog {
     }
   }
 
-  compact(bound: CompactionBound): Promise<number> {
+  compact(bound: CompactionBound): Promise<CompactionStep> {
     for (const key of bound.registered) {
       const observer = this.#observers.get(KEY(key));
       if (observer !== undefined) {
@@ -213,19 +230,28 @@ export class MemoryChangeLog implements ChangeLog {
         .filter((observer) => observer.seenAt >= bound.seenSince)
         .map((observer) => observer.position)
     );
-    let aged = 0;
-    for (const change of this.#changes) {
-      if (change.recordedAt >= bound.before) {
-        break;
-      }
-      aged = change.position;
+    const window = Math.min(
+      floor,
+      this.#compacted + (bound.limit ?? COMPACTION_STEP)
+    );
+    const young = this.#changes.find(
+      (change) =>
+        change.position > this.#compacted &&
+        change.position <= window &&
+        change.recordedAt >= bound.before
+    );
+    const through = young === undefined ? window : young.position - 1;
+    if (through <= this.#compacted) {
+      return Promise.resolve({ done: true, removed: 0 });
     }
-    const through = Math.min(floor, aged);
     const kept = this.#changes.filter((change) => change.position > through);
     const removed = this.#changes.length - kept.length;
     this.#changes.splice(0, this.#changes.length, ...kept);
-    this.#compacted = Math.max(this.#compacted, through);
-    return Promise.resolve(removed);
+    this.#compacted = through;
+    return Promise.resolve({
+      done: through < window || window === floor,
+      removed,
+    });
   }
 
   declare(key: ObserverKey, now: number): Promise<ObserverState> {

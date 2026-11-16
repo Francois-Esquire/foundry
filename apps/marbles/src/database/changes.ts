@@ -1,5 +1,5 @@
 import { ownedEvents } from "@foundry/lib/plain-json";
-import { and, asc, eq, gt, gte, lt, lte, min, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lte, min, sql } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import { inList } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
@@ -15,6 +15,7 @@ import type {
   ChangeLog,
   ChangeQuery,
   CompactionBound,
+  CompactionStep,
   LoggedChange,
   MoveOutcome,
   ObserverFailure,
@@ -22,7 +23,7 @@ import type {
   ObserverMove,
   ObserverState,
 } from "~/lib/events/log";
-import { CHANGE_BATCH } from "~/lib/events/log";
+import { CHANGE_BATCH, COMPACTION_STEP } from "~/lib/events/log";
 import { causingRun, EmitListeners } from "~/lib/events/records";
 import type { Fact } from "~/lib/events/source";
 
@@ -250,16 +251,17 @@ export class DatabaseChangeLog implements ChangeLog {
   }
 
   /**
-   * One transaction, under the claim: the registered observers are seen
-   * now; the floor is the lowest place of an observer seen since
-   * `seenSince`, else the counter; what goes is every fact up to the floor
-   * and up to the last that committed before `before`.
+   * One short transaction, under no claim: the registered observers are
+   * seen now; the floor is the lowest place of an observer seen since
+   * `seenSince`, else the counter, read afresh in every step; what goes is
+   * the next window of positions above the compacted prefix, at most
+   * `limit` of them, up to the floor and to the last before the first fact
+   * that committed at or after `before`. Each step reads and removes by
+   * position range, through the primary key, so its work is the window,
+   * not the log; and it counts what it removed rather than returning it.
    */
-  compact(bound: CompactionBound): Promise<number> {
+  compact(bound: CompactionBound): Promise<CompactionStep> {
     return this.#database.transaction(async (transaction) => {
-      if (!(await this.#holding(transaction))) {
-        return 0;
-      }
       for (const key of bound.registered) {
         await transaction
           .update(marblesObservers)
@@ -277,31 +279,35 @@ export class DatabaseChangeLog implements ChangeLog {
           )
         );
       const floor = Math.min(head.position, lowest?.position ?? head.position);
-      const [aged] = await transaction
-        .select({
-          position: sql<number | null>`max(${marblesChanges.position})`,
-        })
+      const window = Math.min(
+        floor,
+        head.compacted + (bound.limit ?? COMPACTION_STEP)
+      );
+      const [young] = await transaction
+        .select({ position: min(marblesChanges.position) })
         .from(marblesChanges)
         .where(
           and(
             eq(marblesChanges.scope, this.#scope),
-            lte(marblesChanges.position, floor),
-            lt(marblesChanges.recordedAt, bound.before)
+            gt(marblesChanges.position, head.compacted),
+            lte(marblesChanges.position, window),
+            gte(marblesChanges.recordedAt, bound.before)
           )
         );
-      const through = aged?.position ?? 0;
+      const youngest = young?.position ?? null;
+      const through = youngest === null ? window : youngest - 1;
       if (through <= head.compacted) {
-        return 0;
+        return { done: true, removed: 0 };
       }
       const removed = await transaction
         .delete(marblesChanges)
         .where(
           and(
             eq(marblesChanges.scope, this.#scope),
+            gt(marblesChanges.position, head.compacted),
             lte(marblesChanges.position, through)
           )
-        )
-        .returning({ position: marblesChanges.position });
+        );
       await transaction
         .insert(marblesChangeLogs)
         .values({
@@ -313,7 +319,11 @@ export class DatabaseChangeLog implements ChangeLog {
           set: { compacted: through },
           target: marblesChangeLogs.scope,
         });
-      return removed.length;
+      return {
+        done: through < window || window === floor,
+        // libSQL's result of a statement: how many rows it changed.
+        removed: (removed as { readonly rowsAffected: number }).rowsAffected,
+      };
     });
   }
 

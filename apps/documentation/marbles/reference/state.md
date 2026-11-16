@@ -171,17 +171,23 @@ process exits, a host that was refused delivery takes it over within a
 second and delivers what was written meanwhile.
 
 Facts committed more than a week ago that every observer holding them
-back has completed are removed every ten minutes by the delivering host,
-whether or not any observer is declared: a workspace that observes
-nothing keeps a week of history, not all of it.
-Every observer that host has declared holds them back, whatever it is
-doing, and so does one any host declared in the last week. An observer's
-place never moves past removed facts in silence: the write that moves it
-records the range in `missed_from` and `missed_through`. Every write to an
-observer row, and every compaction, holds only while its writer still
-holds the workspace's delivery claim, in the same statement; a refused
-write is printed and dropped. An engine without the host's database records only what it keeps
-there: one that opens its own for a state dir records its tasks, Runs and
+back has completed are removed by every running host, every ten minutes,
+whether it delivers or not and whether or not it declares any observer: a
+workspace that observes nothing keeps a week of history, not all of it. A
+host removes them in bounded steps, each one short transaction, so no
+pass holds the write lock long however old the log is; it needs no claim,
+and two hosts compacting at once only leave each other less. Every
+observer a running host declares holds them back, whatever it is doing,
+waiting behind another host included, and so does one any host declared
+in the last week. An observer's place never moves past removed facts in
+silence: the write that moves it records the range in `missed_from` and
+`missed_through`. Every write to an observer's place, failure or stuck
+mark holds only while its writer still holds the workspace's delivery
+claim, in the same statement; a refused write is printed and dropped. A
+host that declares no observer never claims delivery.
+
+An engine without the host's database records only what it keeps there:
+one that opens its own for a state dir records its tasks, Runs and
 sessions, not its artifacts, containers or catalogue, which it keeps in
 memory; under `--dry-run` only its tasks, in memory. It says at start which
 observers it hands nothing.

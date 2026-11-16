@@ -40,18 +40,25 @@ import { current } from "~/lib/run-scope";
  * observer is stuck in it (kept with its place, since when) and handed
  * nothing, and its retry waits for it.
  *
- * Facts every observer registered here, or seen within the retention, has
- * completed, and that committed longer ago than the retention, are removed
- * (`compact`), at most once per `COMPACTION_EVERY_MS`, by the deliverer,
- * which claims delivery and ticks whether or not any observer is declared: an observer this
- * engine has registered holds them back however long it is idle, in
- * backoff or stuck. A place never moves over a gap in silence: a move past
+ * Compaction is a duty of its own, apart from delivery: every started
+ * engine, observing or not, delivering or waiting, removes the facts that
+ * committed longer ago than the retention and that every observer seen
+ * within it has completed, at most once per `COMPACTION_EVERY_MS`, with no
+ * claim. A pass is bounded steps (`compact`), each one short transaction
+ * that decides afresh, the event loop let go between them; two engines
+ * compacting at once only leave each other less. Each step sees this
+ * engine's observers now, so an observer of a live engine holds its facts
+ * back however long it is idle, in backoff, stuck, or waiting behind
+ * another engine. A place never moves over a gap in silence: a move past
  * positions compaction removed records them as missed in the same write,
  * and the observer is told so, once, then goes on after them.
  *
- * Every write about an observer is made only while this delivery's
- * records hold the claim; one refused because they no longer do is
- * printed and dropped, never retried.
+ * Delivery is for an engine with observers only: one with none claims
+ * nothing, starts no tick and prints nothing about delivery, so it never
+ * stands in the way of one that has them. Every write about an observer's
+ * place, failure or stuck mark is made only while this delivery's records
+ * hold the claim; one refused because they no longer do is printed and
+ * dropped, never retried.
  *
  * One engine delivers a workspace's changes at a time: the one granted the
  * claim (`DeliveryLease`), from a successful start until `stop`. Any
@@ -83,7 +90,7 @@ export const DELIVERY_POLL_MS = 1000;
 /** How long, in ms, the log keeps facts every observer has completed: a week. */
 const CHANGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** How often, in ms, a running delivery compacts the log: every ten minutes. */
+/** How often, in ms, a started engine compacts the log: every ten minutes. */
 const COMPACTION_EVERY_MS = 10 * 60 * 1000;
 
 /** How long, in ms, a handler call may run before it counts as failed: five minutes. */
@@ -165,6 +172,8 @@ interface Observer {
 export interface DeliveryOptions {
   /** The time delivery goes by; the wall clock when omitted. */
   readonly clock?: DeliveryClock;
+  /** Positions one compaction step removes at most; the log's own step when omitted. */
+  readonly compactionStep?: number | undefined;
   /** What every handler runs as: the engine's workspace, outside any run. */
   readonly context?: ExecutionContext;
   /** How long, in ms, one handler call may run; `HANDLER_TIMEOUT_MS` when omitted. */
@@ -192,6 +201,7 @@ export class Delivery {
   readonly #print: (line: string) => void;
   readonly #clock: DeliveryClock;
   readonly #retention: number;
+  readonly #compactionStep: number | undefined;
   readonly #handlerTimeout: number;
   readonly #stopGrace: number;
   /** Whether this delivery holds the claim, so `stop` gives it up. */
@@ -200,7 +210,14 @@ export class Delivery {
   #claiming: Promise<void> | undefined;
   /** `waiting`: another process delivers here; this one tries to claim it on each tick. */
   /** `starting`: `start` is under way; a `stop` meanwhile ends it, and it gives up any claim it took. */
-  #phase: "new" | "starting" | "waiting" | "running" | "stopped" = "new";
+  /** `compacting`: started with no observer, it only compacts. */
+  #phase:
+    | "new"
+    | "starting"
+    | "waiting"
+    | "running"
+    | "compacting"
+    | "stopped" = "new";
   #pass: Promise<void> | undefined;
   /** A wake came while a pass ran: look again once it ends. */
   #again = false;
@@ -215,9 +232,12 @@ export class Delivery {
    */
   readonly #abandon = new Set<() => void>();
   readonly #stopped: { gaveUp: boolean } = { gaveUp: false };
-  /** When the log was last compacted here, in epoch ms; never, at first. */
-  #compactedAt = Number.NEGATIVE_INFINITY;
   #timer: { cancel(): void } | undefined;
+  /** The compaction interval's timer, and the pass under way, if any. */
+  #compactTimer: { cancel(): void } | undefined;
+  #compacting: Promise<void> | undefined;
+  /** The last problem a compaction pass printed, so a lasting one is printed once. */
+  #compactionProblem: string | undefined;
   /** The last problem a tick printed, so a lasting one is printed once. */
   #problem: string | undefined;
   /** Runs a pass in the context this delivery was built in; see above. */
@@ -229,6 +249,7 @@ export class Delivery {
     this.#context = options.context;
     this.#clock = options.clock ?? WALL_CLOCK;
     this.#retention = options.retention ?? CHANGE_RETENTION_MS;
+    this.#compactionStep = options.compactionStep;
     this.#handlerTimeout = options.handlerTimeout ?? HANDLER_TIMEOUT_MS;
     this.#stopGrace = options.stopGrace ?? STOP_GRACE_MS;
   }
@@ -282,20 +303,31 @@ export class Delivery {
   }
 
   /**
-   * File every observer's place (from now, for a new one), then claim
-   * delivery, observers or none, since the deliverer compacts. Delivery
+   * File every observer's place (from now, for a new one), start
+   * compacting, then claim delivery. With no observer it only compacts:
+   * it claims nothing and starts no tick, so it never stands in the way of
+   * an engine that has observers, nor reads the counter every poll. Delivery
    * another process has claimed is left to it, and claimed here once it
    * lets go (or exits), on a later tick; a log that cannot be read fails
    * the start.
    */
   async start(): Promise<void> {
-    // With no observer too: the deliverer compacts the log, which every
-    // store writes to whether anything observes it or not.
     if (this.#phase !== "new") {
+      return;
+    }
+    if (this.#observers.length === 0) {
+      // Nothing to deliver: no claim, no tick; compaction alone, which the
+      // log every store writes to needs whether anything observes it.
+      this.#phase = "compacting";
+      this.#compactEvery();
       return;
     }
     this.#phase = "starting";
     await this.#declare();
+    // Its observers filed, it compacts on its own interval, delivering or
+    // waiting: each pass sees its observers now, so a waiting engine's
+    // places are held back as a delivering one's are.
+    this.#compactEvery();
     const holder = await this.#claim();
     // After every wait: stopped meanwhile, this never runs, and gives up
     // the claim a `stop` before it was granted found no claim to give up.
@@ -304,11 +336,9 @@ export class Delivery {
       return;
     }
     if (holder !== undefined) {
-      if (this.#observers.length > 0) {
-        this.#print(
-          `[observe] not delivering here: the changes of this workspace are delivered by ${holder}; delivering here once it stops`
-        );
-      }
+      this.#print(
+        `[observe] not delivering here: the changes of this workspace are delivered by ${holder}; delivering here once it stops`
+      );
       this.#phase = "waiting";
       this.#tickEvery();
       return;
@@ -357,6 +387,7 @@ export class Delivery {
     for (;;) {
       const running = [
         this.#pass,
+        this.#compacting,
         ...this.#observers.map((observer) => observer.lane),
       ].filter((work) => work !== undefined);
       if (running.length === 0) {
@@ -374,9 +405,13 @@ export class Delivery {
     this.#phase = "stopped";
     this.#timer?.cancel();
     this.#timer = undefined;
+    this.#compactTimer?.cancel();
+    this.#compactTimer = undefined;
     try {
       await this.#pass;
       await this.#claiming;
+      // At most the step under way: a pass stops between steps.
+      await this.#compacting;
       const lanes = this.#observers
         .map((observer) => observer.lane)
         .filter((lane) => lane !== undefined);
@@ -533,7 +568,6 @@ export class Delivery {
    */
   async #startDue(): Promise<void> {
     const head = await this.#records.log.head();
-    await this.#compactWhenDue();
     const now = this.#clock.now();
     for (const observer of this.#observers) {
       if (this.#phase !== "running") {
@@ -567,20 +601,68 @@ export class Delivery {
     }
   }
 
-  async #compactWhenDue(): Promise<void> {
-    const now = this.#clock.now();
-    if (now - this.#compactedAt < COMPACTION_EVERY_MS) {
+  /**
+   * Compact now and every interval after: at most once per
+   * `COMPACTION_EVERY_MS`, and at least twice per retention, so this
+   * engine's observers are seen well within it.
+   */
+  #compactEvery(): void {
+    const interval = Math.min(
+      COMPACTION_EVERY_MS,
+      Math.max(1, Math.floor(this.#retention / 2))
+    );
+    this.#compactTimer = this.#clock.every(interval, () => {
+      this.#compactSoon();
+    });
+    this.#compactSoon();
+  }
+
+  /** Begin a compaction pass, unless one is under way or this has stopped. */
+  #compactSoon(): void {
+    if (this.#compacting !== undefined || this.#phase === "stopped") {
       return;
     }
-    this.#compactedAt = now;
-    const bound = now - this.#retention;
-    // Every observer registered here holds facts back, whatever it is doing.
-    await this.#records.log.compact({
-      before: bound,
-      now,
-      registered: this.#observers.map((observer) => observer.key),
-      seenSince: bound,
+    this.#compacting = this.#built(() =>
+      current.exit(() => this.#compact())
+    ).finally(() => {
+      this.#compacting = undefined;
     });
+  }
+
+  /**
+   * One pass: bounded steps, each its own short transaction, the event
+   * loop let go between them, until compaction has gone as far as it may;
+   * a stop ends it between steps. A step that fails (the database busy) is
+   * reported once while it lasts, and the next pass tries again.
+   */
+  async #compact(): Promise<void> {
+    try {
+      for (;;) {
+        const now = this.#clock.now();
+        const bound = now - this.#retention;
+        const step = await this.#records.log.compact({
+          before: bound,
+          ...(this.#compactionStep === undefined
+            ? {}
+            : { limit: this.#compactionStep }),
+          now,
+          // Its observers hold facts back, whatever they are doing.
+          registered: this.#observers.map((observer) => observer.key),
+          seenSince: bound,
+        });
+        if (step.done || this.#phase === "stopped") {
+          this.#compactionProblem = undefined;
+          return;
+        }
+        await new Promise<void>((resume) => setImmediate(resume));
+      }
+    } catch (error) {
+      const line = `[observe] compaction: ${String(error)}`;
+      if (line !== this.#compactionProblem) {
+        this.#compactionProblem = line;
+        this.#print(line);
+      }
+    }
   }
 
   /**
