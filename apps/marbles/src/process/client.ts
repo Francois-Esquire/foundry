@@ -256,14 +256,11 @@ function startDetachedDaemon(options: ConnectOptions): void {
     [...RUNTIME_FLAGS, options.cliEntry ?? cliEntry(), "daemon"],
     {
       detached: true,
-      // The daemon keeps everything under this client's Foundry home.
       env: { ...process.env, FOUNDRY_HOME: layout.home },
       stdio: ["ignore", log, log],
     }
   );
   child.unref();
-  // Once nothing here can fail with the child abandoned; it never throws.
-  // Never a recovery record: it is meant to outlive this client.
   recordSpawned(child.pid, true, {
     ...process.env,
     [SPAWN_RECOVERY_ENV]: undefined,

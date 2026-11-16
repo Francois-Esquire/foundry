@@ -8,19 +8,8 @@ import type { RecordedUsageFact } from "~/lib/usage";
 import type { StoredUsage, UsageStore } from "~/lib/usage-store";
 import { ownerOf, storedUsageFact } from "~/lib/usage-store";
 
-/**
- * A workspace's usage facts in the Marbles database
- * (`marbles_usage_facts`), scoped by the workspace id, one row per turn.
- * Each write is one statement, so two engines recording the same turn,
- * in this process or another, never interleave; each takes the scope's
- * next revision in that statement. Every call surfaces a lock waited on
- * too long as a `DatabaseBusyError`.
- */
-
 export interface DatabaseUsageStoreOptions {
-  /** The database the host keeps open. */
   readonly database: StoreDatabase;
-  /** The workspace id. */
   readonly scope: string;
 }
 
@@ -51,7 +40,6 @@ export class DatabaseUsageStore implements UsageStore {
     readonly revision: number;
   }> {
     return this.#call(async () => {
-      // One statement, so the revision is the one these facts were read at.
       const rows = await this.#database
         .select({
           fact: marblesUsageFacts.fact,
@@ -107,12 +95,6 @@ export class DatabaseUsageStore implements UsageStore {
     });
   }
 
-  /**
-   * `work` on the fact's row, in its stored form taken as the fact is
-   * handed over (`storedUsageFact`), which
-   * takes the scope's next revision as it lands. A fact that cannot be
-   * copied rejects.
-   */
   #write(
     fact: RecordedUsageFact,
     work: (row: UsageRow) => Promise<void>

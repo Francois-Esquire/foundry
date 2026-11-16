@@ -4,7 +4,6 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 
 export interface McpCountOptions {
-  /** A Foundry home; omit it to use `$FOUNDRY_HOME`, else `~/.foundry`. */
   readonly home?: string;
   /** The `count` module, or the project's `.foundry/marbles` folder. */
   readonly source: string;
@@ -30,7 +29,6 @@ export async function countOverMcp(
   options: McpCountOptions
 ): Promise<Record<string, unknown>> {
   const args = ["mcp", "--source", options.source];
-  // The server keeps everything under the home its environment names.
   const env =
     options.home === undefined
       ? undefined

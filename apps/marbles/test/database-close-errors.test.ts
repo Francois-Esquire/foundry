@@ -1,9 +1,3 @@
-/**
- * A store over the workspace database (`database/managed.ts`) whose own
- * cleanup fails, then whose release closes the handle, which fails too:
- * both failures are reported, the cleanup's not lost to the close's.
- */
-
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,7 +14,6 @@ import { DatabaseTriggerStore } from "~/database/triggers";
 import { DatabaseUsageStore } from "~/database/usage";
 import { testInstances } from "./helpers/engine";
 
-/** Each handle opened closes, then fails as a failing driver would. */
 vi.mock("~/database/workspaces", async (original) => {
   const actual = await original<typeof import("~/database/workspaces")>();
   return {
@@ -58,7 +51,6 @@ function scratch(): string {
   return root;
 }
 
-/** Make `owner`'s own close fail with `message` for this test. */
 function failingClose(owner: { close(): Promise<void> }, message: string) {
   const { close } = owner;
   owner.close = () => Promise.reject(new Error(message));

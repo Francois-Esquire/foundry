@@ -152,10 +152,6 @@ export function formatPosted(at: Date, now: Date): string {
   return `${day} ${time}`;
 }
 
-/**
- * The input entry's state for a reader: the stored metadata without the
- * question body (the article carries it) and the owning process (bookkeeping).
- */
 function inputSnapshot({
   body: _body,
   pid: _pid,

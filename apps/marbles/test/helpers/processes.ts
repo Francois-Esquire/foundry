@@ -25,96 +25,45 @@ import {
   type SpawnRecord,
 } from "~/process/spawned";
 
-/**
- * The processes a test run may stop are the ones it recorded as it
- * started them (`recordSpawned`, here and in Marbles itself): pid, start
- * time, and whether each leads a process group of its own. A record is
- * read only from a private file in private directories (`notPrivate`);
- * any other is skipped and reported. Before each process's own signal,
- * it is proved again, from what the system says about it right then:
- *
- * - no process has the pid, or one that started at another time does:
- *   it is gone, and the pid is someone else's now;
- * - one that started then does, and leads its group if the record says
- *   so, and carries the run's marker in its environment where that can be
- *   read (macOS shows no one the environment of its own platform
- *   binaries): it is the one recorded, and gets the signal, with its
- *   group when it leads one;
- * - anything else is a problem, reported and never signalled.
- *
- * A group whose recorded leader has exited may still hold processes; each
- * is stopped only on a record of its own, and otherwise reported.
- * An environment marker alone never selects a process: it is read from
- * the environment only, never the command line, and finds what was not
- * recorded so that it can be reported.
- */
-
 export interface Marker {
   readonly name: string;
   readonly value: string;
 }
 
 export interface StopLimits {
-  /** How long the processes get to exit after SIGTERM. */
   readonly graceMs: number;
-  /** How long after SIGKILL before a survivor is reported. */
   readonly killMs: number;
 }
 
-/** What the system says about a process right now. */
 interface Seen {
-  /** It has exited and waits to be reaped (a zombie): it is gone. */
   readonly exited?: true;
   readonly pgid: number;
   readonly started: string;
 }
 
-/** How a stop reaches the system; a test replaces it to model pid reuse. */
 export interface ProcessSystem {
-  /** Whether a signal reaches `pid`: one the listing leaves out may still run. */
   alive(pid: number): boolean;
-  /**
-   * The environment of `pid`, one `NAME=value` per entry; empty when it
-   * cannot be read, `undefined` when no process has the pid.
-   */
   environment(pid: number): readonly string[] | undefined;
   kill(target: number, signal: NodeJS.Signals): void;
-  /** What the system says about each of `pids` that is running. */
   look(pids: readonly number[]): ReadonlyMap<number, Seen>;
-  /** The processes in the group `pgid`. */
   members(pgid: number): readonly number[];
   sleep(ms: number): Promise<void>;
 }
 
 const LIMITS: StopLimits = { graceMs: 5000, killMs: 2000 };
 const POLL_MS = 100;
-/** Each pass stops what the processes of the last one recorded meanwhile. */
 const MAX_PASSES = 8;
-/** A partial record this old is a dead writer's: a write takes a moment. */
 const STALE_PARTIAL_MS = 60_000;
-/** How long `ps` gets to answer, so a stop takes a bounded time. */
 const PS_TIMEOUT_MS = 5000;
 const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
 const MEMBER_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s*$/;
 const COMMAND_LINE = /^\s*(\d+) (.*)$/;
 const PID = /^\d+$/;
 
-/** Record `pid`, which the caller has just started, in `dir`; see `recordSpawned`. */
 export function recordProcess(dir: string, pid: number, group: boolean): void {
   recordSpawned(pid, group, { [SPAWN_RECORD_ENV]: dir });
 }
 
-/**
- * Stop every process recorded under `dir`, proving each one before every
- * signal: SIGTERM, a grace period, SIGKILL, a last wait. Resolves with
- * what went wrong, empty when every recorded process is confirmed gone.
- * A process still running may record another meanwhile, so the records
- * are read again after each stop, and a new one is stopped in turn; the
- * record of each process confirmed gone is removed, and `dir` goes only
- * once that leaves it empty. A record written after the last read, or
- * one still being written, keeps `dir` and is reported, so no caller
- * takes `dir` for clear and removes it: the next sweep stops it.
- */
 export async function stopRecorded(
   dir: string,
   marker: Marker,
@@ -122,7 +71,6 @@ export async function stopRecorded(
   system: ProcessSystem = SYSTEM
 ): Promise<string[]> {
   const problems = new Set<string>();
-  /** The records already stopped, by path and start: a reused pid's is new. */
   const handled = new Set<string>();
   for (let pass = 0; pass < MAX_PASSES; pass += 1) {
     const read = readRecords(dir);
@@ -136,8 +84,6 @@ export async function stopRecorded(
       if (problems.size > 0 || removeEmpty(dir).length === 0) {
         return [...problems];
       }
-      // A record arrived after the read, or is still being written: read
-      // it next pass.
       await system.sleep(POLL_MS);
       continue;
     }
@@ -175,9 +121,7 @@ function handledKey(record: ReadRecord): string {
   return `${record.path}\n${record.started}`;
 }
 
-/** The file operations `forgetRecord` makes; a test replaces them to land a write between two. */
 export interface RecordFiles {
-  /** Make `path` name `existing`'s file; throws `EEXIST` when `path` is taken. */
   link(existing: string, path: string): void;
   read(path: string): string;
   remove(path: string): void;
@@ -191,18 +135,6 @@ const FILES: RecordFiles = {
   rename: (from, to) => renameSync(from, to),
 };
 
-/**
- * Remove the record file at `record.path`, only if what is removed names
- * `record`'s process, which has been proved gone. A process that records
- * another may replace the file at any moment, so nothing read before
- * decides: the file is moved aside first, under a fresh name in the same
- * directory (a rename, atomic), read there, and deleted only if it names
- * that process. One that does not is linked back, never over a file that
- * took its place meanwhile: that one is newer, and this one then stays
- * aside, under a name that is still a record's (`.json`), for the next
- * pass or sweep to read. So no interleaving removes the record of a
- * process that runs, and a stop cut short leaves every record readable.
- */
 export function forgetRecord(
   record: Pick<ReadRecord, "path" | "pid" | "started">,
   files: RecordFiles = FILES
@@ -240,13 +172,6 @@ export function forgetRecord(
   files.remove(aside);
 }
 
-/**
- * Remove `dir` and the directories under it, without removing any file
- * but a stale partial record (`.tmp`), which a writer that died left:
- * what is left, each named for what it is; empty once nothing is. A
- * partial record still being written is left: its record may name a
- * process that runs, so the directory is not clear while it is there.
- */
 function removeEmpty(dir: string): string[] {
   let entries: Dirent[];
   try {
@@ -283,7 +208,6 @@ function removeEmpty(dir: string): string[] {
     rmdirSync(dir);
     return [];
   } catch (error) {
-    // Not empty: an entry arrived after it was listed.
     return gone(error) ? [] : [`${dir}, which gained an entry`];
   }
 }
@@ -296,7 +220,6 @@ function stale(path: string): boolean {
   }
 }
 
-/** One stop of a set of records: what has been proved, and what went wrong. */
 class RecordedStop {
   readonly #records: readonly SpawnRecord[];
   readonly #recorded: ReadonlySet<number>;
@@ -304,14 +227,7 @@ class RecordedStop {
   readonly #system: ProcessSystem;
   readonly #problems = new Map<number, string>();
   readonly #unreadable: readonly string[];
-  /** The pids last found matching their records in part, not signalled. */
   #unproven = new Set<number>();
-  /**
-   * Groups that may hold processes without records: one whose recorded
-   * leader was proved in this stop, or whose leader's pid no process
-   * holds any more. Its id cannot name another group while any of its
-   * processes remain, and a new one would need a leader with that pid.
-   */
   readonly #groups = new Set<number>();
 
   constructor(
@@ -326,7 +242,6 @@ class RecordedStop {
     this.#system = system;
   }
 
-  /** Prove every record now, signal the proved ones; the pids still there. */
   round(signal: NodeJS.Signals | undefined): number[] {
     const left: number[] = [];
     this.#unproven = new Set();
@@ -335,8 +250,6 @@ class RecordedStop {
         continue;
       }
       const environment = this.#system.environment(record.pid);
-      // Read last, right before this one's own signal: what an earlier
-      // record's stop took long enough to change shows here.
       const found = this.#system.look([record.pid]).get(record.pid);
       const proof = prove(
         record,
@@ -360,7 +273,6 @@ class RecordedStop {
     return left;
   }
 
-  /** Poll, proving again each time, until nothing is left or `ms` pass. */
   async waitGone(ms: number): Promise<number[]> {
     const deadline = Date.now() + ms;
     let left = this.round(undefined);
@@ -403,7 +315,6 @@ class RecordedStop {
     }
   }
 
-  /** What is in one of those groups without a record of its own: pid and group. */
   #remnants(): [number, number][] {
     return [...this.#groups].flatMap((pgid) =>
       this.#system
@@ -414,12 +325,6 @@ class RecordedStop {
   }
 }
 
-/**
- * The other processes whose environment, not their command line, holds
- * `marker` and that no record under `dir` names: what a test or a run
- * started without recording it. Not stopped, since nothing proves them
- * the run's; a caller reports them.
- */
 export function unrecordedMarked(dir: string, marker: Marker): number[] {
   const recorded = new Set(readRecords(dir).records.map(({ pid }) => pid));
   const entry = `${marker.name}=${marker.value}`;
@@ -431,10 +336,6 @@ export function unrecordedMarked(dir: string, marker: Marker): number[] {
     .map(([pid]) => pid);
 }
 
-/**
- * `unproven`: it matches its record as far as could be read, but the
- * rest could not be read this time; not signalled, and looked at again.
- */
 type Proof = "gone" | "recorded" | "unproven" | { readonly problem: string };
 
 function prove(
@@ -445,9 +346,6 @@ function prove(
   system: Pick<ProcessSystem, "alive" | "look">
 ): Proof {
   const pid = String(record.pid);
-  // The one rule (`processState`): gone only on proof; a pid the listing
-  // leaves out that a signal reaches, or a start it cannot compare, is
-  // neither gone nor proved.
   const state = processState(record, {
     alive: (each) => system.alive(each),
     look: (pids) => system.look(pids),
@@ -488,8 +386,6 @@ function signalIfThere(
   try {
     system.kill(target, signal);
   } catch (error) {
-    // Gone between the proof and the signal; a group of exited members
-    // not yet reaped answers EPERM on macOS.
     const { code } = error as NodeJS.ErrnoException;
     if (code !== "ESRCH" && code !== "EPERM") {
       throw error;
@@ -497,21 +393,15 @@ function signalIfThere(
   }
 }
 
-/** A record, and the file it was read from. */
 interface ReadRecord extends SpawnRecord {
   readonly path: string;
 }
 
 interface Records {
-  /** The records that could not be read: what they name cannot be stopped. */
   readonly problems: readonly string[];
   readonly records: readonly ReadRecord[];
 }
 
-/**
- * Every record under `dir`. One removed meanwhile, by another run's sweep
- * of the same root, is skipped; one that cannot be read is a problem.
- */
 function readRecords(dir: string): Records {
   const records: ReadRecord[] = [];
   const problems: string[] = [];
@@ -549,12 +439,6 @@ function readRecords(dir: string): Records {
   return { problems, records };
 }
 
-/**
- * The record files under `dir`, each directory on the way and each file
- * checked private (`notPrivate`) before it is listed; what is not is
- * skipped, with the reason in `problems`. Files in flight (`.tmp`) are
- * not records yet.
- */
 function listRecords(dir: string, problems: string[]): string[] {
   if (!existsSync(dir)) {
     return [];
@@ -598,9 +482,6 @@ const SYSTEM: ProcessSystem = {
     if (seen === undefined) {
       throw new Error(`the system could not say how ${pids.join(", ")} run`);
     }
-    // One that has exited and waits to be reaped (a zombie) stays listed,
-    // marked so: it is gone, and not to be taken for one the listing leaves
-    // out (`processState`).
     return seen;
   },
   members(pgid) {
@@ -609,19 +490,10 @@ const SYSTEM: ProcessSystem = {
   sleep: (ms) => sleep(ms),
 };
 
-/**
- * A process that has exited and is waiting to be reaped (state `Z`, a
- * zombie) runs nothing and no signal reaches it: it is gone, as far as a
- * stop goes. Its pid cannot be given to another process until it is
- * reaped, so taking it for gone frees nothing early; counting it as
- * running would wait on it forever where no one reaps it, as in a Linux
- * container whose first process does not.
- */
 function exited(state: string): boolean {
   return state.startsWith("Z");
 }
 
-/** `ps -A -o pid=,pgid=,state=`, read: the processes of `pgid` that still run. */
 export function parseMembers(listed: string, pgid: number): number[] {
   return listed
     .split("\n")
@@ -635,7 +507,6 @@ export function parseMembers(listed: string, pgid: number): number[] {
     .map((parsed) => Number(parsed?.[1]));
 }
 
-/** `ps` with its output; it exits 1 when a pid it was given is not running. */
 function ps(args: readonly string[]): string {
   const listed = spawnSync("ps", args, {
     encoding: "utf8",
@@ -651,12 +522,6 @@ function ps(args: readonly string[]): string {
   return listed.stdout;
 }
 
-/**
- * Each listed process's environment. macOS prints it after the command
- * line under `-E`, so it is what follows the command line printed without
- * `-E`: an argument cannot land there. Empty for a process whose
- * environment the system will not show.
- */
 function environments(
   pids?: readonly number[]
 ): Map<number, readonly string[]> {
@@ -702,14 +567,12 @@ function byPid(listed: string): Map<number, string> {
   return lines;
 }
 
-/** Linux: the process's initial environment, NUL-separated. */
 function linuxEnvironment(pid: number): readonly string[] | undefined {
   try {
     return readFileSync(`/proc/${String(pid)}/environ`, "utf8")
       .split("\0")
       .filter((entry) => entry !== "");
   } catch (error) {
-    // Not ours to read counts as unreadable; gone counts as gone.
     return (error as NodeJS.ErrnoException).code === "ENOENT" ? undefined : [];
   }
 }

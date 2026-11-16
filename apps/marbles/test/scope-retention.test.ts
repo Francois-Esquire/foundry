@@ -30,8 +30,6 @@ it("keeps a definition made in a run answerable to its workspace without keeping
     current.run(store, () => step(`made-${String(i)}`).do(() => i));
   }
   await collect();
-  // Each definition is held by the catalog, and with it whatever its
-  // `.run` keeps; none of the runs' frames are kept.
   expect(catalog.definitions.size).toBe(200);
   expect(frames.filter((frame) => frame.deref() !== undefined)).toHaveLength(0);
 });

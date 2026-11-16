@@ -172,7 +172,6 @@ describe("native harness permission", () => {
     if (part?.type !== "tool_approval_request") {
       throw new Error("No approval");
     }
-    // Each host has its own Sessions over the shared store, as two hosts do.
     const answered = await Promise.allSettled([
       resolveHarnessApproval(settings, "session-1", part.approvalId, {
         approved: false,
@@ -196,7 +195,6 @@ describe("native harness permission", () => {
       .flatMap((message) => message.parts)
       .filter((value) => value.type === "tool_approval_response");
     expect(responses).toMatchObject([{ approved: false }]);
-    // The Allow that lost issued no authority.
     expect(
       await authority.authorizer.decide({
         capability: part.capability,

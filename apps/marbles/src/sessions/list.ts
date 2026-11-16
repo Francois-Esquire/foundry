@@ -1,7 +1,6 @@
 import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
 import type { ListedSessionStore } from "~/lib/usage-evidence";
 
-/** One line per session the store lists, newest first. */
 export async function sessionLines(
   store: ListedSessionStore
 ): Promise<string[]> {

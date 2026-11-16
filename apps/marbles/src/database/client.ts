@@ -9,19 +9,10 @@ import type {
   TransactionMode,
 } from "@libsql/client";
 
-/**
- * The database stayed busy past the wait: in this process, its turn was not
- * given in time (`serialClient`); from another, SQLite's busy timeout ran
- * out (`SQLITE_BUSY`, which `busyError` turns into this).
- */
 export class DatabaseBusyError extends Error {
   override readonly name = "DatabaseBusyError";
 }
 
-/**
- * `error` as a `DatabaseBusyError` when it, or anything in its causes, is
- * SQLite refusing a lock after its busy timeout; undefined otherwise.
- */
 export function busyError(error: unknown): DatabaseBusyError | undefined {
   for (let cause = error; cause instanceof Error; cause = cause.cause) {
     if (cause instanceof DatabaseBusyError) {
@@ -40,69 +31,11 @@ export function busyError(error: unknown): DatabaseBusyError | undefined {
   }
 }
 
-/** How a `serialClient` opens, and opens again, its libSQL client. */
 export interface SerialClientOptions {
-  /**
-   * Opens a fresh client on the same file with the same configuration.
-   * With it, a client SQLite has answered `SQLITE_BUSY` is replaced; see
-   * `serialClient`.
-   */
   readonly connect?: () => Client;
-  /**
-   * The connection settings (`PRAGMA`s) every client runs before anything
-   * else: the first before its first operation, and each replacement
-   * before the handle runs anything on it.
-   */
   readonly settings?: readonly string[];
 }
 
-/**
- * A libSQL client whose operations take turns. The native driver is
- * synchronous: a connection that waits for the write lock blocks the whole
- * thread in SQLite's busy handler, so a second transaction in the same
- * process would stall the first one it waits for until the busy timeout and
- * then fail with `SQLITE_BUSY`. Here every operation, and every transaction
- * for its whole life, holds a turn on the file's queue instead, and waits
- * for it without blocking. Other processes still meet the busy timeout.
- *
- * One queue serves every client this process opens on the same file, since
- * SQLite's locks are per file, not per client or per path: the queue is
- * keyed by the file's identity (`fileIdentity`), taken once `client` has
- * opened, and so created, the file at `file`. A link to the database, or
- * another spelling of its name on a case-insensitive filesystem, shares
- * its queue. When the identity cannot be had, `client` is closed and the
- * error thrown. The queue is dropped once its last client has closed and no
- * turn is pending. The wrapped client must have one connection
- * (`concurrency: 1`), so the pragmas set when it opens hold for everything
- * that runs on it.
- *
- * A turn that is not given within `wait` ms is refused, as SQLite refuses a
- * lock after its busy timeout. That is also how code that uses the database
- * from inside one of its own transactions, and so waits for itself, fails.
- *
- * A connection SQLite answers `SQLITE_BUSY` (another process held the lock
- * past the busy timeout), whether an operation, a transaction's `BEGIN`,
- * one of its statements, or its `COMMIT` or `ROLLBACK`, is not used again:
- * `@libsql/client` 0.18 leaves the failed statement open on it, so its next
- * transaction fails at `COMMIT` ("SQL statements in progress"), and so
- * would every later write on a handle kept open for hours. Given
- * `options.connect`, the client is replaced before the turn is given back,
- * so nothing runs on the failed one: a fresh client is opened, `settings`
- * are applied to it, and the failed one is closed and its statements
- * collected (`collect`). A refused `COMMIT` is rolled back on the failed
- * client first, which releases its locks. The error still reaches the
- * caller, and nothing is run again for it.
- *
- * Closing the failed client cannot release a lock another handle in this
- * process holds on the file. It is closed inside the turn, and every
- * client this process has on the file takes its turns on this same queue,
- * so no other one is inside an operation or a transaction then. And
- * SQLite itself keeps a descriptor open while another connection in the
- * process holds a lock on the same file (it closes it once those locks
- * go), and shares one `-shm` mapping per file among connections, so the
- * POSIX rule that closing any descriptor drops the process's locks does
- * not reach through it.
- */
 export function serialClient(
   client: Client,
   file: string,
@@ -119,11 +52,9 @@ export function serialClient(
   const queue = queueFor(identity, file);
   const settings = options.settings ?? [];
   let current = client;
-  /** Whether `current` still needs `settings`. */
   let unset = settings.length > 0;
   let closed = false;
   const turn = () => queue.next(wait);
-  /** Inside a turn: apply `settings` to a client that has not had them. */
   async function prepared(): Promise<Client> {
     if (unset) {
       for (const setting of settings) {
@@ -133,7 +64,6 @@ export function serialClient(
     }
     return current;
   }
-  /** Inside a turn: replace the client if SQLite answered `error` with busy. */
   async function recover(error: unknown): Promise<void> {
     if (options.connect === undefined || closed || !nativeBusy(error)) {
       return;
@@ -211,15 +141,6 @@ export function serialClient(
   };
 }
 
-/**
- * Collect what is unreachable now. The native driver keeps the statement
- * SQLite refused open, and a connection whose statement is open does not
- * close until that statement is collected: it keeps holding a read lock
- * that would stop the replacement, in this same process, from committing.
- * Nothing else releases it, so the failed client's statements are
- * collected at once, under Bun (`Bun.gc`), or under Node started with
- * `--expose-gc`.
- */
 function collect(): void {
   const runtime = globalThis as {
     readonly Bun?: { gc(force: boolean): void };
@@ -232,7 +153,6 @@ function collect(): void {
   }
 }
 
-/** Whether `error` is SQLite refusing a lock, as the native driver reports it. */
 function nativeBusy(error: unknown): boolean {
   return (
     error instanceof Error &&
@@ -242,35 +162,21 @@ function nativeBusy(error: unknown): boolean {
   );
 }
 
-/**
- * Which file `file` is, whatever path names it: its device and inode, read
- * with `stat`, which follows links and never opens the file. Opening and
- * closing a descriptor to a SQLite database, even only to resolve its
- * path (`realpath` does on macOS), drops every POSIX lock this process
- * holds on it, including those of the connections still open.
- */
 export function fileIdentity(file: string): string {
   const { dev, ino } = statSync(file);
   return `${String(dev)}:${String(ino)}`;
 }
 
-/** The identities of the files this process has a queue for: some client is open, or a turn is pending. */
 export function queuedFiles(): readonly string[] {
   return [...queues.keys()];
 }
 
-/**
- * The transaction, giving its turn back once it commits, rolls back, or
- * closes. When SQLite answered one of its statements, or its end, with
- * busy, `recover` replaces the client first, still inside the turn.
- */
 function heldUntilSettled(
   transaction: Transaction,
   release: () => void,
   recover: (error: unknown) => Promise<void>
 ): Transaction {
   let failure: unknown;
-  /** Whether the turn was given back: a later end runs outside it. */
   let settled = false;
   const watched = async <T>(work: () => Promise<T>): Promise<T> => {
     try {
@@ -280,12 +186,6 @@ function heldUntilSettled(
       throw error;
     }
   };
-  /**
-   * A `COMMIT` SQLite refused leaves the transaction open, and with it the
-   * locks it took, on a connection that would not let go of them when
-   * closed while the failed statement is still open. Rolling it back first
-   * releases them, and leaves the change certainly not landed.
-   */
   const abandon = async (): Promise<void> => {
     try {
       await transaction.rollback();
@@ -298,8 +198,6 @@ function heldUntilSettled(
     committing = false
   ): Promise<void> => {
     if (settled) {
-      // A rollback after a `COMMIT` that failed (as Drizzle sends one): with
-      // the client replaced, closing it already discarded the transaction.
       if (failure === undefined) {
         await end();
       }
@@ -326,7 +224,6 @@ function heldUntilSettled(
       try {
         transaction.close();
       } finally {
-        // Closing gives the turn back at once, or once the client is replaced.
         if (!settled) {
           settled = true;
           if (failure === undefined) {
@@ -349,15 +246,12 @@ function heldUntilSettled(
 }
 
 interface Queue {
-  /** One more client closed: the queue goes once none is open and no turn is pending. */
   leave(): void;
-  /** Resolves with the function that gives the turn back; call it once. */
   next(wait: number): Promise<() => void>;
 }
 
 const queues = new Map<string, Queue & { join(): void }>();
 
-/** The queue for the file `identity` names, joined by one more client. */
 function queueFor(identity: string, file: string): Queue {
   let queue = queues.get(identity);
   if (queue === undefined) {
@@ -414,10 +308,8 @@ function fifo(file: string, idle: () => void): Queue & { join(): void } {
             )
           );
         }, wait);
-        // Every turn ahead resolves once given back; none rejects.
         ready.then(() => {
           clearTimeout(timer);
-          // A refused waiter passes its turn straight on.
           if (refused) {
             release();
           } else {

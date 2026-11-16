@@ -157,7 +157,6 @@ test("a workflow with no valid facts shows unowned unreadable usage in its Catal
   const launched = await first.launch("healthy", {});
   await launched.result;
   await first.dispose();
-  // A transcript nothing names, which cannot be read: no one's for sure.
   const mystery = new Sessions({ store: durableSessions(dir) });
   await mystery.createSession({ id: "mystery" });
   await mystery.appendMessage({
@@ -230,7 +229,6 @@ test("a known workflow whose running run the reader cannot load shows an unattri
   await direct.generate("saved direct turn");
   ({ ref } = direct);
   const transcript = transcriptOf(dir, direct.ref.id);
-  // Both the fact and its marker of the consumer's turn cannot be written.
   const writer = await startEngine({
     ...durable(),
     usageStore: new FailingUsageStore(new MemoryUsageStore(), () => true),

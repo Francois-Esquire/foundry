@@ -1,11 +1,3 @@
-/**
- * Every function an author hands the engine runs as that engine's work
- * (`activeContext()` is the engine's own context), whichever public entry
- * leads to it: a host task, a launch, the host's background dispatch, a
- * direct instance call outside any run, an observer, a monitor's tick.
- * A function called with no context, or another's, fails this test.
- */
-
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
@@ -38,7 +30,6 @@ it("runs every author function as its engine's work, through every public entry"
   let engine: Engine | undefined;
   let entry = "setup";
   const heard: { entry: string; fn: string; own: boolean }[] = [];
-  /** Called first by every author function: whose work it runs as. */
   const probe = (fn: string) => {
     heard.push({ entry, fn, own: activeContext() === engine?.context });
   };
@@ -53,7 +44,6 @@ it("runs every author function as its engine's work, through every public entry"
     },
   });
 
-  // An agent declared with a function, with an output schema of its own.
   const recipe = agent(() => {
     probe("agent builder");
     return {
@@ -260,7 +250,6 @@ it("runs every author function as its engine's work, through every public entry"
       ],
       task: ["agent builder", "agent output schema", "task body"],
     });
-    // Each ran as this engine's work: none with no context, none another's.
     expect(heard.filter((each) => !each.own)).toEqual([]);
   } finally {
     await runs.close();

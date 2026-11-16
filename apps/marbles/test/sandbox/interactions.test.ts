@@ -121,8 +121,6 @@ it("does not reopen a question another host answered while it was restoring", as
   const f = await fixture(approvals);
   expect(await f.permission(false)()).toMatchObject({ behavior: "deny" });
   const entry = await f.open();
-  // The restoring host's first read of the history is held until the
-  // other host has answered.
   const { promise: held, resolve: resume } = Promise.withResolvers<undefined>();
   let entered: (() => void) | undefined;
   const reading = new Promise<void>((resolve) => {
@@ -156,14 +154,12 @@ it("does not reopen a question another host answered while it was restoring", as
   resume(undefined);
   await restoring;
   expect((await f.feed.read())[0]?.input?.status).toBe("answered");
-  // Nothing is pending on it here, so the other answer is not taken.
   expect(await stale.answer(entry.id, "Allow future runs")).toBe(false);
   await f.bridge.close();
   await stale.close();
 });
 
 it("restores a scheduled refusal as an actionable grant without replaying its effect", async () => {
-  // Kept across the restart, as the database keeps them.
   const approvals = new MemoryDeferredApprovalStore();
   const f = await fixture(approvals);
   expect(await f.permission(false)()).toMatchObject({ behavior: "deny" });
@@ -351,7 +347,6 @@ it("does not reopen an aborted choice question via its other-answer action", asy
 });
 
 it("recovers a canonical deferred request even if its publication callback never ran", async () => {
-  // Kept across the restart, as the database keeps them.
   const approvals = new MemoryDeferredApprovalStore();
   const f = await fixture(approvals);
   await f.bridge.registerSession(
@@ -398,7 +393,6 @@ it("recovers a canonical deferred request even if its publication callback never
 });
 
 it("keeps sessions across restarts only under an authority the host built over its own policy", async () => {
-  // Kept across the restart, as the database keeps them.
   const approvals = new MemoryDeferredApprovalStore();
   const f = await fixture(approvals);
   const session = { agentId: "coder", sessionId: "session-1", source };
@@ -419,7 +413,6 @@ it("keeps sessions across restarts only under an authority the host built over i
 });
 
 it("repairs a deferred answer's feed state after publication failed without issuing another grant", async () => {
-  // Kept across the restart, as the database keeps them.
   const approvals = new MemoryDeferredApprovalStore();
   const f = await fixture(approvals);
   await f.permission(false)();

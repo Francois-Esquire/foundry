@@ -16,7 +16,6 @@ import { grantRepositoryContract } from "./helpers/grant-repository-contract";
 const addressing = testAddressing();
 const ADDRESS = addressing.addressOf(preset("chat", 3), fsRead("/p"));
 
-/** A document kept in memory, each transaction run to the end before the next. */
 function memoryStorage(initial?: string): GrantDocumentStorage & {
   readonly text: () => string | undefined;
 } {

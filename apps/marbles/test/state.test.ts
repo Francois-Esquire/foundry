@@ -85,7 +85,6 @@ describe("stored runs", () => {
     ]);
     const stored = await readStoredRuns(state, "test");
     expect(stored).toHaveLength(3);
-    // Settled: no engine owns any of them.
     expect(stored.map((run) => run.owner)).toEqual([null, null, null]);
     expect(lines.filter((line) => line.startsWith("[state]"))).toEqual([]);
   });
@@ -213,7 +212,6 @@ describe("schedule state", () => {
 
     const result = await tick(engine, schedule, { print });
     expect(result).toEqual({ value: "HI" });
-    // A later engine over the same state finds the tick, and no claim on it.
     const other = defaultWorkspaceTriggers(state, process.cwd(), "test");
     expect(await other.lastTick("s")).toEqual({
       kind: "schedule",

@@ -45,7 +45,6 @@ export interface ArtifactManagerOptions {
   readonly files?: BlobFiles;
   readonly maxFileBytes?: number;
   readonly maxTreeBytes?: number;
-  /** Persistence. Defaults to an in-memory store. */
   readonly store?: ArtifactStore;
 }
 
@@ -66,77 +65,19 @@ interface TransactionScope {
   readonly transaction: ArtifactTransaction;
 }
 
-/**
- * A store transaction a manager runs, as the async context of its work sees
- * it. `held` turns false once the work settles, so work it scheduled to run
- * later is not mistaken for a call from inside it.
- */
 interface StoreTurn {
   held: boolean;
   readonly outer: StoreTurn | undefined;
   readonly store: ArtifactStore;
 }
 
-/** The store transactions managers hold, shared by every manager. */
 const storeTurns = new AsyncLocalStorage<StoreTurn>();
 
-/** Why a call from inside a transaction over the manager's own store is refused. */
 const REENTRY =
   "[artifacts] The Artifact store was called from inside its own transaction, through another manager over it; use the operations passed to that transaction's work instead";
 
-/**
- * The root of the Artifact substrate. It holds every rule; the store only
- * keeps records. Each operation builds one change and commits it as one
- * store write; `transaction` groups several. Changes run one at a time per
- * manager, and inside the store's transaction when it offers one, so no
- * other manager over the store writes between a change's reads and its
- * commit. A read of several records runs the same way, so it sees one
- * state. After a commit the
- * manager awaits bound application, notifies observers, and removes retired
- * backing files.
- *
- * Blob bytes never wait on the commit. `create`, `write` and `revise` take
- * their bytes in before the change takes the store's exclusion; inside it,
- * the change only resolves dedup and promotes the staged files it keeps.
- * Changes this manager makes to one Artifact commit in call order. A
- * stream that never ends holds back later changes to its own Artifact
- * through this manager for as long as it is pending; there is no timeout,
- * and the caller ends it by ending or erroring the source.
- * Inline bytes travel inside the blob record. Bytes for `files` wait as
- * staged files, or are published inside the change when it cannot stage
- * them (a stream given inside `transaction`, or a `BlobFiles` without
- * `staging`), to a fresh immutable file no committed record names; the
- * commit then names it. A change whose
- * write the store does not hold removes the files it published; one that
- * failed after its write landed keeps them. A commit retires the files it
- * stopped naming once it lands, and `recover` removes any file left behind
- * by a crash in between.
- *
- * Over a store whose durability is `"host"` (it writes inside a transaction
- * someone else owns, which may yet roll back), a landed commit is not
- * known to last, so the manager never removes a file committed records may
- * name: not the files a change retired, and not in `recover`, which it
- * refuses. A rolled-back change then still finds every file it retired.
- * Reclaiming is a durable manager's `recover`, over a `"commit"` store
- * outside the host's transaction: it reads committed records under the
- * store's exclusion, so it sees the host's outcome. Bindings, observers and
- * after-commit effects still run once the store's commit resolves, before
- * the host's outcome is known.
- *
- * Inside a `transaction` operation, every call on the manager joins that
- * transaction: a read sees its uncommitted writes and a nested `transaction`
- * commits with it. Stores serialize transactions, so the alternative is a
- * call that waits on the transaction it runs in. A joined call is not a
- * savepoint: when one that writes fails, the whole transaction rolls back
- * with {@link TransactionRolledBackError}, even if the operation caught the
- * failure and went on.
- */
 export class ArtifactManager implements Artifacts {
   readonly #store: ArtifactStore;
-  /**
-   * Whether a commit that resolved may still be rolled back by a
-   * transaction the store sits inside; see {@link ArtifactStore.durability}.
-   */
   readonly #held: boolean;
   readonly #limits: TransactionLimits;
   readonly #bindings = new Set<(id: ArtifactId) => Promise<void>>();
@@ -144,11 +85,8 @@ export class ArtifactManager implements Artifacts {
   readonly #scope = new AsyncLocalStorage<TransactionScope>();
   #tail: Promise<unknown> = Promise.resolve();
   readonly #stagingTurns = new StagingTurns();
-  /** Content-named changes still looking up their Artifact, in call order. */
   #lookups = 0;
-  /** Settles once every Content-named change called so far has taken its place. */
   #looked: Promise<void> = Promise.resolve();
-  /** Per Artifact, the latest change whose place in call order is not yet secured. */
   readonly #ordered = new Map<ArtifactId, Promise<void>>();
 
   constructor(options: ArtifactManagerOptions = {}) {
@@ -168,13 +106,6 @@ export class ArtifactManager implements Artifacts {
     };
   }
 
-  /**
-   * Told of each Artifact a commit changed, once its records are committed,
-   * even when applying them to disk failed. A commit whose store rejected it
-   * after its write landed (a failed sync of the replaced file) tells no one:
-   * the change rejects, and `recover` reapplies and tells with cause
-   * `recovery`, the same committed state, not another change.
-   */
   observe(changed: ArtifactObserver): () => void {
     this.#observers.add(changed);
     return () => {
@@ -204,14 +135,6 @@ export class ArtifactManager implements Artifacts {
     return this.#change(operation, this.#staging());
   }
 
-  /**
-   * One change: `prepare` runs in this manager's turn, before the store's
-   * exclusion, then `operation` builds the change inside it over the bytes
-   * `staging` holds. Whatever `staging` still holds is discarded once the
-   * change settles. `settled` is told once the commit or the rollback is
-   * complete, before bindings, observers and after-commit callbacks run, so
-   * one of them may start the next change to the same Artifact.
-   */
   async #change<T>(
     operation: (
       artifacts: ArtifactTransaction,
@@ -270,9 +193,6 @@ export class ArtifactManager implements Artifacts {
           }
         }, prepare);
       } catch (error) {
-        // Published files go only once the store shows the write absent. A
-        // commit can fail after its write landed (syncing the replaced file);
-        // its records then name the files, and `recover` reapplies them.
         if (!(await this.#mayHaveLanded(attempted))) {
           await this.#removeFiles(effects.published);
         }
@@ -283,7 +203,6 @@ export class ArtifactManager implements Artifacts {
     } finally {
       settled();
     }
-    // Outside the change, so a callback (a binding) may start the next one.
     await runAfterCommit(callbacks);
     return result;
   }
@@ -393,8 +312,6 @@ export class ArtifactManager implements Artifacts {
     readonly contentId: ContentId;
     readonly name?: string;
   }): Promise<ArtifactResolved> {
-    // Ordered by the source's Artifact, since a fork freezes a ready
-    // source, and by the Artifact it creates, when its id is given.
     return this.#inOrderOfContent(
       input.contentId,
       () => this.transaction((artifacts) => artifacts.fork(input)),
@@ -448,11 +365,6 @@ export class ArtifactManager implements Artifacts {
     return this.#read((artifacts) => artifacts.readFile(id, path));
   }
 
-  /**
-   * Locates the file in one read. The body then streams after it settles,
-   * loading each chunk in its own read as the consumer pulls. A commit that
-   * rewrites or reclaims the object meanwhile can end the stream.
-   */
   async readFileRange(
     id: ContentId,
     path: string,
@@ -468,7 +380,6 @@ export class ArtifactManager implements Artifacts {
     if (!located) {
       return null;
     }
-    // Each chunk is one record, read as the consumer pulls it.
     const reader = {
       files: this.#limits.files,
       require: (blobId: BlobId) => requireBlob(this.#store, blobId),
@@ -496,13 +407,6 @@ export class ArtifactManager implements Artifacts {
     return this.transaction((artifacts) => artifacts.sweep(input));
   }
 
-  /**
-   * Removes staging and backing files no committed record names, then
-   * reapplies every Artifact to bindings and observers. Refused over a
-   * `"host"` store: the records it would read may yet be rolled back, and a
-   * rollback names again files it would have removed. Run it from a manager
-   * over the durable store instead, outside the host's transaction.
-   */
   async recover(): Promise<void> {
     if (this.#held) {
       throw new Error(
@@ -515,9 +419,7 @@ export class ArtifactManager implements Artifacts {
     }
     const { files } = this.#limits;
     if (files) {
-      // Staging whose owner is gone; live owners' bytes stay where they wait.
       await abandonStaging(files);
-      // Exclusive like a change, so a concurrent publish never lands mid-sweep.
       await this.#exclusive(async (store) => {
         const retained = new Set(
           (await store.listBlobs()).flatMap((blob) =>
@@ -568,7 +470,6 @@ export class ArtifactManager implements Artifacts {
     if (refused) {
       return Promise.reject(refused);
     }
-    // One consistent state for every record the read takes.
     return this.#exclusive(async (store) => {
       const change = new ArtifactChange(store, { readOnly: true });
       try {
@@ -586,11 +487,6 @@ export class ArtifactManager implements Artifacts {
     });
   }
 
-  /**
-   * Whether the store may hold `write`: it shows a blob the write puts with
-   * a backing file, or cannot be read. A write without one published file
-   * has nothing to keep.
-   */
   async #mayHaveLanded(
     write: ArtifactStoreWrite | undefined
   ): Promise<boolean> {
@@ -609,22 +505,6 @@ export class ArtifactManager implements Artifacts {
     }
   }
 
-  /**
-   * A change whose bytes are taken in first. Inside a `transaction` it joins
-   * that transaction and takes them in there.
-   *
-   * A change carrying a stream stages every input before its change takes a
-   * turn, so a stalled source holds neither this manager's queue nor the
-   * store. Its check takes a turn of its own first, so it sees every change
-   * queued before it. Any other change takes its turn at once, and checks
-   * and stages in that turn, before the store's exclusion. Either way the
-   * check reads one consistent view, refuses what the change would refuse
-   * before reading a byte, and records what the change will confirm inside
-   * the store's exclusion (the ownership of objects it may rewrite).
-   *
-   * Changes on one Artifact commit in call order (see `#inOrder`); changes
-   * on other Artifacts, reads, and other managers are not held back.
-   */
   #staged<T>(
     id: ArtifactId | undefined,
     entries: EntryInputs | undefined,
@@ -668,16 +548,6 @@ export class ArtifactManager implements Artifacts {
     return this.#change(operation, staging, undefined, settled);
   }
 
-  /**
-   * Call order for the changes this manager makes to Artifact `id`. A change
-   * that `streams` takes its turn only once its bytes are staged, so a later
-   * change to `id` starts only after it has committed or rolled back (it
-   * calls the `settled` it is given then, before its bindings run, or it
-   * rejects); until then the later change waits outside the queue. A change
-   * with no such stream ahead of it starts at once, and the queue keeps its
-   * order. Changes with no `id`, and calls joined to an open transaction,
-   * are not held.
-   */
   #inOrder<T>(
     id: ArtifactId | undefined,
     streams: boolean,
@@ -690,18 +560,9 @@ export class ArtifactManager implements Artifacts {
     if (this.#lookups === 0 || this.#joined()) {
       return this.#register([id], streams, start);
     }
-    // Behind every Content-named change called earlier, once each has
-    // taken its place in its Artifact's order.
     return this.#looked.then(() => this.#register([id], streams, start));
   }
 
-  /**
-   * `#inOrder` once no earlier Content-named change is still looking up its
-   * Artifact. A change to several Artifacts takes its place in each order
-   * at once and starts once every change ahead of it in any of them has
-   * secured its place. Places are taken in call order, so a change only
-   * ever waits on earlier ones and no two wait on each other.
-   */
   #register<T>(
     ids: readonly (ArtifactId | undefined)[],
     streams: boolean,
@@ -737,25 +598,12 @@ export class ArtifactManager implements Artifacts {
     });
     const begin = () => {
       const result = start(secured);
-      // A stream secures its place once it commits or rolls back, or once it
-      // rejects before reaching its change; any other change once queued.
       (streams ? result : Promise.resolve()).then(secured, secured);
       return result;
     };
     return before.length === 0 ? begin() : Promise.all(before).then(begin);
   }
 
-  /**
-   * `#inOrder` for a change named by Content. With no stream change pending
-   * and no lookup under way, it starts at once and reads nothing. Otherwise
-   * it reserves its place at call time: changes called after it, of any
-   * kind, wait (outside the queue) until it has read its Content's Artifact
-   * from the store and taken its place in that Artifact's order. A lookup
-   * that fails, or finds no Content, gives the place up, and the change
-   * rejects as it would have. A Content's Artifact never changes, so one
-   * read suffices. A change that also creates Artifact `also` (a fork) takes
-   * its place in that Artifact's order too.
-   */
   #inOrderOfContent<T>(
     id: ContentId,
     start: () => Promise<T>,
@@ -783,8 +631,6 @@ export class ArtifactManager implements Artifacts {
       .then(() => this.#store.getContent(id))
       .then(
         (content) => {
-          // Registered before the place is released, so changes waiting on
-          // it find this change ahead of them.
           const result = this.#register(
             [content?.artifactId, also],
             false,
@@ -800,7 +646,6 @@ export class ArtifactManager implements Artifacts {
       );
   }
 
-  /** `check` in this manager's turn, over one consistent view of the store. */
   #check(
     check: (artifacts: ArtifactTransaction) => Promise<unknown>,
     staging: BlobStaging
@@ -811,11 +656,6 @@ export class ArtifactManager implements Artifacts {
       : this.#inStoreTurn((view) => this.#checkOver(view, check, staging));
   }
 
-  /**
-   * `check` over `store`. The change runs its checks again inside the
-   * store's exclusion, over `staging`, where this first check records what
-   * it saw; it also spares staging the bytes of a refused change.
-   */
   async #checkOver(
     store: ArtifactStore,
     check: (artifacts: ArtifactTransaction) => Promise<unknown>,
@@ -840,11 +680,6 @@ export class ArtifactManager implements Artifacts {
     return new BlobStaging(this.#limits, this.#stagingTurns);
   }
 
-  /**
-   * One read-modify-write, or one read of several steps: serialized in this
-   * manager, and exclusive in the store when it offers transactions.
-   * `prepare` runs in this manager's turn, before the store's exclusion.
-   */
   #exclusive<T>(
     work: (store: ArtifactStore) => Promise<T>,
     prepare: () => Promise<void> = () => Promise.resolve()
@@ -858,11 +693,6 @@ export class ArtifactManager implements Artifacts {
     });
   }
 
-  /**
-   * `work` in the store's transaction, marked as held for as long as it
-   * runs, so a call on any manager over this store from inside it is
-   * refused at once (see `#reentry`).
-   */
   #inStoreTurn<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T> {
     const store = this.#store;
     if (store.transaction === undefined) {
@@ -882,15 +712,6 @@ export class ArtifactManager implements Artifacts {
     });
   }
 
-  /**
-   * A call made from inside a store transaction that some manager over this
-   * manager's store holds, and that this manager did not open, could wait in
-   * this manager's turn or call order behind a call that itself waits for
-   * that transaction, and never run. It is refused at once instead, before
-   * any of those waits. A call joined to this manager's own transaction, or
-   * made by work it scheduled, is not refused: the first joins it and the
-   * second waits its turn behind it.
-   */
   #reentry(): ReentrantCallError | undefined {
     if (this.#scope.getStore() !== undefined) {
       return;
@@ -928,8 +749,6 @@ export class ArtifactManager implements Artifacts {
     if (failure) {
       throw failure;
     }
-    // Over a "host" store a rollback could name them again: they wait for
-    // a durable manager's recover.
     if (!this.#held) {
       await this.#removeFiles(effects.retired);
     }

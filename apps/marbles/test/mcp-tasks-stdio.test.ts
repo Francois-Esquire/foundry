@@ -39,10 +39,6 @@ const records = z.object({
   tasks: z.array(z.object({ tags: z.array(z.string()), title: z.string() })),
 });
 
-/**
- * Every task and recorded change under the state root, with how many
- * observers completed each change, read as a reader does.
- */
 async function stored(state: string): Promise<z.infer<typeof records>> {
   const read = await readDatabase(stateDatabase(state), async (database) => {
     const changes = await database
@@ -70,12 +66,6 @@ async function stored(state: string): Promise<z.infer<typeof records>> {
   return records.parse(read);
 }
 
-/**
- * The database's files, byte for byte, read where no connection has them
- * open. A reader takes part in SQLite's locking through the shared-memory
- * index, and may rebuild it, so of that only its size counts; it holds no
- * data.
- */
 async function files(state: string) {
   const names = (await readdir(state)).filter((name) =>
     name.startsWith("marbles.db")
@@ -144,7 +134,6 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
   // runs yet, so the CLI opens the tasks itself and starts none.
   const fromCli = cli("create", "From CLI", "--tag", "cli", "--json");
   expect(fromCli.status, fromCli.stderr).toBe(0);
-  // In the Marbles database; the workspace has no state dir of its own yet.
   expect(
     (await readdir(state)).filter(
       (name) => !(name.startsWith("marbles.db") || name === "locks")
@@ -164,8 +153,6 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     }),
   ]);
   try {
-    // The CLI hosts the workspace in the Marbles process; the server only
-    // joins the worker that now owns the tasks.
     const attached = spawnSync("bun", cliArgs("attach", "--source", source), {
       cwd: root,
       encoding: "utf8",
@@ -213,8 +200,6 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       expect(status).toContain('["From CLI","From MCP"]');
     });
 
-    // The worker delivers the CLI's change and the server's, oldest first:
-    // one observer completes each, the other keeps failing.
     await vi.waitFor(
       async () => {
         expect(existsSync(seen)).toBe(true);
@@ -253,8 +238,6 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     expect(before.tasks).toHaveLength(2);
     expect(await stored(state)).toEqual(before);
 
-    // The worker hosting the workspace answers for its tasks: a separate
-    // CLI process asks it, reads the same store, and changes nothing; a
     // refusal keeps its code across the process boundary.
     const routed = cli("list", "--tag", "review", "--json");
     expect(routed.status, routed.stderr).toBe(0);
@@ -277,8 +260,6 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
   }
   try {
     // The Marbles process keeps hosting the workspace after the server
-    // closes; once it stops, the next process reads what it wrote, and
-    // reading changes none of the database's files.
     await stopDaemon(home);
     const after = cli("list", "--tag", "review", "--json");
     expect(after.status, after.stderr).toBe(0);

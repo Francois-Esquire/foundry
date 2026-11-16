@@ -64,19 +64,12 @@ export interface ModuleAccess {
 }
 
 export interface CreateModuleAccessOptions {
-  /**
-   * Cancels a revoked Grant's active Invocations; none run without it.
-   * Access runs each change in a transaction of its own and cancels only
-   * once it commits, so `store` must not be `"host"` durable: access
-   * refuses one at construction.
-   */
   readonly invocations?: Pick<ModuleGatewayRuntimeDispatcher, "revoke">;
   readonly now?: () => Date;
   readonly providers: readonly ModuleCapabilityProvider[];
   readonly store: AccessRegistry;
 }
 
-/** The registry commands access reads and changes Grants through. */
 export type AccessRegistry = ModuleRegistryUnit<
   "loadGatewayContext" | "replaceInstallationGrants" | "revokeInstallationGrant"
 >;
@@ -199,9 +192,6 @@ export function createModuleAccess(
             expectedGeneration,
             installationId,
           });
-          // Only once the revokes have committed: a rolled-back carry-over
-          // cancels nothing. Every dropped Grant is cancelled, though one
-          // cancellation throws.
           effects.afterCommit(() => cancel(installationId, grant.capability));
         }
         return carried;
@@ -222,7 +212,6 @@ export function createModuleAccess(
           expectedGeneration: current.installation.generation,
           installationId,
         });
-        // Only once the revoke has committed.
         effects.afterCommit(() => cancel(installationId, capability));
         return revoked;
       });

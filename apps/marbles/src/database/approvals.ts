@@ -12,18 +12,10 @@ import {
 } from "~/lib/sandbox/deferred-approvals";
 
 export interface DatabaseDeferredApprovalStoreOptions {
-  /** The database the host keeps open. */
   readonly database: StoreDatabase;
-  /** The workspace id. */
   readonly scope: string;
 }
 
-/**
- * A workspace's deferred approvals in the Marbles database: one row of
- * `marbles_deferred_approvals` by the workspace id, read back through
- * their schema. A change reads and writes in one transaction. A lock
- * waited on too long rejects as a `DatabaseBusyError`.
- */
 export class DatabaseDeferredApprovalStore implements DeferredApprovalStore {
   readonly #database: StoreDatabase;
   readonly #scope: string;

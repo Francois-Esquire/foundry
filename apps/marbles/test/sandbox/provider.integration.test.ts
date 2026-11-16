@@ -47,7 +47,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
           ? [
               gatewayProvider({
                 config: { apiKey, baseURL: "https://ai-gateway.vercel.sh/v1" },
-                // The model this test names; the gateway supplies none of its own.
                 models: [
                   {
                     id: "openai/gpt-5-mini",

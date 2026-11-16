@@ -16,14 +16,6 @@ import { testHome } from "./helpers/home";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
-/**
- * Each container row names its holder, the registry that last claimed
- * it, by its process's identity; a start takes back, with their VMs, the
- * rows whose holder is gone, keeps those a live process holds, and keeps
- * a row whose VM would not go, saying so, for the next start. The gone
- * holder is a process this test started, in its own home, and killed.
- */
-
 const SPEC = { format: "foundry.sandbox.container/1", image: "x" } as const;
 const machines: TestMachine[] = [];
 const RUNS = {
@@ -37,7 +29,6 @@ afterEach(() => {
   }
 });
 
-/** The identity of a process this test started and has seen exit. */
 async function goneProcess(): Promise<ProcessIdentity> {
   const home = testHome({ providers: false });
   const child = spawn("sleep", ["60"], { env: home.env, stdio: "ignore" });
@@ -59,7 +50,6 @@ async function fixture() {
   const stores = workspaceStores(machine.database.database, "ws");
   const runtime = createFakeContainerRuntime();
   const gone = await goneProcess();
-  // A registry of the process that died; it is never shut down.
   const theirs = createContainers({
     holder: JSON.stringify({ ...gone, registry: "gone" }),
     instanceLabel: "marbles-ws",
@@ -115,7 +105,6 @@ it("takes back the rows a gone process held, with their VMs, and keeps those a l
   expect(removed.get(`${left.id}-1`)).toBe(true);
   expect(removed.get(`${held.id}-1`)).toBe(false);
 
-  // Again: nothing left, so the runtime is not even asked.
   lines.length = 0;
   await recovery(next, lines).recover(RUNS);
   expect(lines).toEqual([]);
@@ -134,7 +123,6 @@ it("leaves a VM a live container records though it carries a gone one's id, and 
   if (heldRow === undefined) {
     throw new Error("no row");
   }
-  // The live container's row records the VM labelled with the gone one's id.
   await stores.containers.commit({
     putContainers: [{ ...heldRow, nativeId: vm }],
   });
@@ -183,9 +171,7 @@ it("keeps a row whose holder cannot be read, and names it on every start", async
 
 it("names, in its report, the VMs its sweep passed over as not provably this engine's", async () => {
   const { ours, recovery, runtime, theirs } = await fixture();
-  // A row a gone process left, so the start recovers and sweeps.
   await theirs.start(SPEC);
-  // Another engine's live VM under the same instance label: a store of its own.
   const other = createContainers({
     instanceLabel: "marbles-ws",
     runtime,
@@ -230,8 +216,6 @@ it("reports a row whose VM would not go as failed, keeps it, and the next start 
   });
 
   runtimeDown.now = false;
-  // A later start: the first registry's holder is this process, so it
-  // stands for one that has died since with a holder of its own.
   const later = createContainers({
     holder: JSON.stringify({ pid: 1, registry: "later", started: null }),
     instanceLabel: "marbles-ws",
@@ -241,11 +225,9 @@ it("reports a row whose VM would not go as failed, keeps it, and the next start 
   const lines: string[] = [];
   await recovery(later, lines).recover(RUNS);
   expect(lines).toEqual([]);
-  // Held by this live process now, so a later start leaves it: shown so.
   expect(await stores.containers.get(left.id)).toMatchObject({
     status: "removing",
   });
-  // Once its holder is gone, the next start finishes it.
   await stores.containers.commit({
     putContainers: [
       {
@@ -278,14 +260,12 @@ it("takes back only its own workspace's rows and VMs, beside another workspace i
       store: workspaceStores(machine.database.database, scope).containers,
     });
   const gone = await goneProcess();
-  // Alpha: one row this live process holds, one a gone process left.
   const alphaLive = registry("alpha", containerHolder());
   const alphaHeld = await alphaLive.start(SPEC);
   const alphaLeft = await registry(
     "alpha",
     JSON.stringify({ ...gone, registry: "gone" })
   ).start(SPEC);
-  // Beta: only a row a gone process left.
   const betaLeft = await registry(
     "beta",
     JSON.stringify({ ...gone, registry: "gone" })
@@ -309,7 +289,6 @@ it("takes back only its own workspace's rows and VMs, beside another workspace i
   ]);
   const removed = new Map(runtime.instances.map((vm) => [vm.id, vm.removed]));
   expect(removed.get(`${betaLeft.id}-1`)).toBe(true);
-  // Alpha's are alpha's start's to take back, live or left.
   expect(removed.get(`${alphaHeld.id}-1`)).toBe(false);
   expect(removed.get(`${alphaLeft.id}-1`)).toBe(false);
   const alpha = workspaceStores(machine.database.database, "alpha");
@@ -348,10 +327,8 @@ it("keeps the names of passed-over VMs in the report as the database keeps it an
     print: () => undefined,
     runs: new MemoryRunStore(),
   });
-  // As the engine keeps each start's report.
   const { report } = await recovered.recover(RUNS);
   await log.record(report);
-  // Across the boundary a report crosses: kept as JSON, read back by status.
   const read = await readLastRecovery(machine.root, "ws");
   expect(
     read?.steps.find((step) => step.step === "containers")?.detail

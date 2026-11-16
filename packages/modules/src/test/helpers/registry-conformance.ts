@@ -9,13 +9,7 @@ import {
 } from "../../errors";
 import type { InstallationGrant, ModuleRegistry } from "../../registry";
 
-/**
- * The rules every `ModuleRegistry` keeps, whatever store it runs over. The
- * harness registers the Module before handing the registry over. Both
- * versions name real Contents of the Module's Artifact.
- */
 export interface ModuleRegistryHarness {
-  /** A second version of the same Module, for change-vs-replay. */
   readonly alternateVersion: ModuleVersion;
   readonly containerId: string;
   readonly dispose?: () => void | Promise<void>;
@@ -28,11 +22,9 @@ export interface ModuleRegistryHarness {
   readonly store: ModuleRegistry;
 }
 
-/** How `transaction` on a transaction's registry is refused. */
 const NESTED_REFUSAL =
   /ReentrantCallError: .*transactions do not nest; use the registry passed/;
 
-/** `refused: <error>` or `resolved`, so a test can return either. */
 function settled(promise: Promise<unknown>): Promise<string> {
   return promise.then(
     () => "resolved",
@@ -40,7 +32,6 @@ function settled(promise: Promise<unknown>): Promise<string> {
   );
 }
 
-/** How a call from inside a registry's own transaction is refused. */
 const REFUSAL = /ReentrantCallError: .*use the/;
 
 const T = (minute: number) =>
@@ -76,7 +67,6 @@ export function describeModuleRegistry(
               throw new Error("abort inner");
             })
           );
-          // The outer work carries on, and commits.
           await registry.registerModule({ module });
           return nested;
         });
@@ -113,7 +103,6 @@ export function describeModuleRegistry(
         const outcome = harness.store.transaction(async (registry, effects) => {
           await registry.createInstallation(harness.installation);
           effects.afterCommit(async () => {
-            // The change is there for good, and the registry free again.
             const context = await harness.store.loadGatewayContext(
               harness.installation.id
             );

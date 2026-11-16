@@ -7,7 +7,6 @@ import { describeArtifactManager } from "../testing/manager";
 import { describeArtifactStore } from "../testing/store";
 import { libsqlDatabases } from "./helpers/sqlite";
 
-/** Fresh storage: one store per scope, kept for that scope. */
 function memoryStorage() {
   const scopes = new Map<string, InMemoryArtifactStore>();
   return (scope: string) => {
@@ -22,7 +21,6 @@ describeArtifactManager("In-memory", () => new InMemoryArtifactStore());
 
 for (const location of ["memory", "file"] as const) {
   const databases = libsqlDatabases(location);
-  /** Fresh storage: one database, one store per scope, kept for that scope. */
   async function sqliteStorage() {
     const database = await databases.open();
     const scopes = new Map<string, SqliteArtifactStore>();

@@ -41,7 +41,6 @@ afterEach(() => {
   }
 });
 
-/** A private scratch directory of this test's. */
 function scratch(): string {
   const dir = mkdtempSync(join(tmpdir(), "spawn-record-"));
   made.push(dir);
@@ -65,7 +64,6 @@ it("writes a private record of the process, making the directory private if it i
   });
   expect(notPrivate(dir, "directory")).toBeUndefined();
   expect(notPrivate(path, "file")).toBeUndefined();
-  // Nothing in flight is left behind.
   expect(readdirSync(dir)).toEqual([`${String(process.pid)}.json`]);
 });
 
@@ -84,7 +82,6 @@ it("refuses a directory open to others, and a path that is not a directory, with
   ).not.toThrow();
   expect(readdirSync(shared)).toEqual([]);
   expect(readFileSync(file, "utf8")).toBe("a file");
-  // Said once for the process, not once per spawn.
   expect(said.mock.calls.length).toBeLessThanOrEqual(1);
 });
 
@@ -119,7 +116,6 @@ it("records nothing for a child that has already gone", async () => {
   const dir = scratch();
   const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
   await new Promise((settle) => child.once("exit", settle));
-  // Reaped by now, so no process has its pid.
   recordSpawned(child.pid, false, { [SPAWN_RECORD_ENV]: dir });
   expect(readdirSync(dir)).toEqual([]);
 });
@@ -129,7 +125,6 @@ const GONE = { group: false, pid: PID, started: "ps:Sun Nov 15 08:00:00 2026" };
 const SINCE = { ...GONE, started: "ps:Sun Nov 15 09:00:00 2026" };
 const NEWER = { ...GONE, started: "ps:Sun Nov 15 10:00:00 2026" };
 
-/** The starts the records directly in `dir` name. */
 function startsIn(dir: string): string[] {
   return readdirSync(dir)
     .filter((name) => name.endsWith(".json"))
@@ -137,7 +132,6 @@ function startsIn(dir: string): string[] {
     .sort();
 }
 
-/** The real file operations, with `before` run ahead of each, counted. */
 function hooked(before: (index: number) => void): RecordFiles {
   let index = 0;
   const step = <T>(work: () => T): T => {
@@ -165,7 +159,6 @@ it("forgets a record only if what it removes names the process that is gone, whe
       GONE,
       hooked((index) => {
         if (index === at) {
-          // A process given the pid since records itself.
           writePrivate(path, JSON.stringify(SINCE));
           landed = true;
         }
@@ -182,7 +175,6 @@ it("forgets a record only if what it removes names the process that is gone, whe
   }
   expect(tried).toBe(3);
 
-  // Moved and read as another's, then a newer one takes the path: both stay.
   const dir = scratch();
   const path = recordPath(dir, PID);
   writePrivate(path, JSON.stringify(SINCE));
@@ -198,7 +190,6 @@ it("forgets a record only if what it removes names the process that is gone, whe
   expect(startsIn(dir)).toEqual([SINCE.started, NEWER.started]);
   expect(JSON.parse(readFileSync(path, "utf8")).started).toBe(NEWER.started);
 
-  // Undisturbed, the record of the process that is gone goes, alone.
   const plain = scratch();
   writePrivate(recordPath(plain, PID), JSON.stringify(GONE));
   forgetRecord(recordPath(plain, PID), GONE);
@@ -210,7 +201,6 @@ it("keeps, as a child exits, a recovery record that names another process", asyn
   const child = spawn("sleep", ["60"], { stdio: "ignore" });
   recordChild(child, false, { [SPAWN_RECOVERY_ENV]: dir });
   const path = recordPath(dir, child.pid ?? 0);
-  // As if its pid had gone to another process, which recorded itself.
   const other = {
     ...JSON.parse(readFileSync(path, "utf8")),
     started: NEWER.started,

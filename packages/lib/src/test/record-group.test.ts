@@ -27,13 +27,6 @@ import {
 import { signalOwn, stopLeftover } from "./helpers/leftovers";
 import { pidWritten } from "./helpers/pid-file";
 
-/**
- * A group leader recorded as a group is stopped with everything it
- * started. Every process here is this test's own: a shell it starts,
- * leading a group, and the `sleep` that shell starts in it, which the
- * test stops by its pid, proved by its start, if a test leaves it.
- */
-
 const made: string[] = [];
 const leftovers: { pid: number; started: string }[] = [];
 
@@ -46,11 +39,6 @@ afterEach(() => {
   }
 });
 
-/**
- * A shell leading a group of its own, which starts a `sleep` in it, then
- * runs `then`; `record` is handed it in the same turn as the spawn, as a
- * caller records its child.
- */
 async function group(
   then: string,
   record: (child: ChildProcess, dir: string) => () => Promise<GroupStopResult>
@@ -130,8 +118,6 @@ it("keeps the record of a group that would not empty, its members written before
       env: { [SPAWN_RECOVERY_ENV]: join(at, "records") },
       graceMs: 30,
       killMs: 30,
-      // A system whose group never empties, whatever it is sent: no
-      // signal is sent for real; its members are read for real.
       system: {
         kill: (_target, signal) => {
           signalled.push(signal);
@@ -150,7 +136,6 @@ it("keeps the record of a group that would not empty, its members written before
     })
   );
   expect((await stop()).emptied).toBe(false);
-  // What a start after this process died mid-stop proves each member by.
   expect(recordedAtTerm?.members).toEqual(
     expect.arrayContaining([
       { pid: child.pid, started: startedAt(child.pid ?? 0) },
@@ -164,14 +149,9 @@ it("keeps the record of a group that would not empty, its members written before
   expect(existsSync(recordPath(join(dir, "records"), child.pid ?? 0))).toBe(
     true
   );
-  // Stopped for real here, as the next start would.
   signalOwn(-(child.pid ?? 0), "SIGKILL");
 });
 
-/**
- * A made-up child, leading a made-up group: its pid is above any
- * system's limit, and no signal reaches a real process. `exit` reaps it.
- */
 function madeUpChild(pid: number): {
   readonly child: Parameters<typeof recordGroup>[0];
   readonly exit: () => void;
@@ -190,7 +170,6 @@ function madeUpChild(pid: number): {
   };
   return {
     child: child as unknown as Parameters<typeof recordGroup>[0],
-    // As a real child: its exit code is set before its exit event.
     exit: () => {
       child.exitCode = 0;
       onExit?.();
@@ -212,7 +191,6 @@ it("sends no SIGKILL to a group id that went to another group during the grace p
     kill(target, signal) {
       sent.push([target, signal]);
       if (signal === "SIGTERM") {
-        // The group empties, and its id goes to another group.
         members = new Map([[4_200_042, { pgid, started: LATER }]]);
       }
     },
@@ -234,7 +212,6 @@ it("takes a group left only with exited, unreaped members (zombies) for empty", 
   const system: GroupSystem = {
     kill(target, signal) {
       sent.push([target, signal]);
-      // A group of exited members not yet reaped answers EPERM on macOS.
       throw Object.assign(new Error("EPERM"), { code: "EPERM" });
     },
     members: () =>
@@ -255,8 +232,6 @@ it("sends nothing to a group id another process leads once the leader is reaped:
     kill(target, signal) {
       sent.push([target, signal]);
     },
-    // A process with the leader's pid leads the group: not the leader,
-    // which was reaped.
     members: () =>
       new Map([
         [pgid, { pgid, started: LATER }],
@@ -270,7 +245,6 @@ it("sends nothing to a group id another process leads once the leader is reaped:
   expect(sent).toEqual([[-pgid, 0]]);
 });
 
-/** A recovery directory of this test's, holding the made-up leader's record. */
 function recordedIn(pgid: number): {
   readonly dir: string;
   readonly path: string;
@@ -299,12 +273,10 @@ it("tries writing the members again once, and saves them when the second write g
   let members = new Map<number, SeenProcess>([
     [4_200_071, { pgid, started: MADE_UP }],
   ]);
-  // What the record holds as SIGTERM goes, before the group empties.
   const read: (readonly unknown[] | undefined)[] = [];
   const system: GroupSystem = {
     kill(_target, signal) {
       if (signal === 0 && members.size === 0) {
-        // Emptied: no process of the group answers a signal any more.
         throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
       }
       if (signal === "SIGTERM") {
@@ -351,7 +323,6 @@ it("reports members it could not save, says so, and stops its group all the same
   const system: GroupSystem = {
     kill(target, signal) {
       if (signal === 0 && members.size === 0) {
-        // Emptied: no process of the group answers a signal any more.
         throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
       }
       sent.push([target, signal]);
@@ -395,7 +366,6 @@ it("keeps the record of a group the listing shows empty while a signal still rea
   const sent: [number, NodeJS.Signals | 0][] = [];
   const system: GroupSystem = {
     kill(target, signal) {
-      // Something in the group still answers a signal.
       sent.push([target, signal]);
     },
     members: () => new Map(),
@@ -429,7 +399,6 @@ it("stops its own unreaped leader's group even when the group cannot be listed, 
     report: (line) => reports.push(line),
     sleep: () => Promise.resolve(),
   };
-  // The leader never exits: this process's own, unreaped, so its id is proved.
   const held = madeUpChild(pgid);
   const stop = recordGroup(held.child, {
     env: {},
@@ -444,7 +413,6 @@ it("stops its own unreaped leader's group even when the group cannot be listed, 
   ]);
   expect(reports).toEqual([expect.stringContaining("could not be listed")]);
 
-  // Reaped, and not to be listed: nothing is sent, and it is reported.
   reports.length = 0;
   sent.length = 0;
   const reaped = madeUpChild(pgid + 1);
@@ -472,7 +440,6 @@ it("does not take a leader whose exit has already happened for its own unreaped 
     report: (line) => reports.push(line),
     sleep: () => Promise.resolve(),
   };
-  // Handed over after its exit: its exit code is set, though no exit event comes.
   const child = {
     exitCode: 0,
     once() {

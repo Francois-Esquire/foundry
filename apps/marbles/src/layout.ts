@@ -4,16 +4,6 @@ import { join, resolve } from "node:path";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 
-/**
- * Where Marbles keeps things on this machine, decided once, all of it
- * under one Foundry home: `$FOUNDRY_HOME`, else `~/.foundry`. It holds the
- * Marbles state root (`marbles/`: the Marbles database, the process's
- * socket and claim, settings, and one directory per workspace for its run
- * output and worktrees) and the artifact store (`artifacts/`), whose blob
- * files every workspace's artifacts keep. Moving the home moves
- * everything; nothing moves on its own.
- */
-
 export interface LayoutOptions {
   /** Read for `FOUNDRY_HOME`; `process.env` when omitted. */
   readonly env?: Readonly<Record<string, string | undefined>>;
@@ -24,17 +14,11 @@ export interface LayoutOptions {
 export interface Layout {
   /** The shared artifact store: records, blobs, and the feed. */
   readonly artifacts: string;
-  /** The Marbles database, one file for every workspace under the state root. */
   readonly database: string;
   /** The Foundry home the defaults hang off. */
   readonly home: string;
   /** The Unix socket the Marbles process listens on. */
   readonly socket: string;
-  /**
-   * Where the Marbles process records what its workspaces start
-   * (`MARBLES_SPAWN_RECOVERY`), so an engine's next start stops what one
-   * that is gone left running.
-   */
   readonly spawned: string;
   /** The Marbles state root: process files, and one directory per workspace. */
   readonly state: string;
@@ -68,10 +52,6 @@ export function layout(options: LayoutOptions = {}): Layout {
   };
 }
 
-/**
- * The Marbles database under the state root `state`, beside the process
- * claim and socket.
- */
 export function stateDatabase(state: string): string {
   return join(resolve(state), DATABASE_FILE);
 }

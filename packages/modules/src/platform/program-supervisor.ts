@@ -750,7 +750,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     return context.installation;
   }
 
-  /** Pass the registry a transaction handed its work when called inside one. */
   async #startingAt(
     installationId: InstallationId,
     generation: number,

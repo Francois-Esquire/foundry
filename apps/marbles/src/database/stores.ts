@@ -12,38 +12,12 @@ import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
 
-/**
- * A workspace's artifacts, sandbox containers and workspace catalogue in
- * the Marbles database: each package's own SQLite store, scoped by the
- * workspace id, over the handle the host keeps open. The stores are
- * handed over as the packages make them, so every rule of theirs (a write
- * owned from the call, a value they cannot store refused, one call at a
- * time) is the package's, not Marbles' again; only a lock waited on too
- * long surfaces as Marbles says it, a `DatabaseBusyError`
- * (`surfacingBusy`). None records its changes; who holds each container
- * row is on the row itself (`lib/sandbox/holders.ts`).
- *
- * An artifact's records are rows; its bytes past the inline limit are blob
- * files on disk, which the package stages and names. Each workspace keeps
- * those under a directory of its own in the artifact store
- * (`artifactBlobs`), as its records are a scope of their own.
- */
-
 export interface WorkspaceStores {
-  /** The records of the workspace's artifacts and feed. */
   readonly artifacts: SqliteArtifactStore;
-  /** The rows of the containers the workspace's sandboxes run in. */
   readonly containers: ContainerStore;
-  /** The workspace catalogue's registrations and entries. */
   readonly workspaces: WorkspaceStore;
 }
 
-/**
- * Every store of the workspace `scope` (its id) over `database`. `location`
- * is the real path of the database's file: the container store's identity
- * is bound to it, so a byte copy of the file, or the file moved, has
- * another, and one engine's sweep never takes the other's VMs.
- */
 export function workspaceStores(
   database: StoreDatabase,
   scope: string,
@@ -62,24 +36,10 @@ export function workspaceStores(
   };
 }
 
-/**
- * Where the workspace `scope` keeps its artifacts' blob files, in the
- * artifact store at `dir`: `<dir>/workspaces/<id>/blobs`. A directory per
- * scope, so a manager sweeping the files its records no longer name
- * (`ArtifactManager.recover`) never reaches another workspace's.
- */
 export function artifactBlobs(dir: string, scope: string): string {
   return join(dir, "workspaces", scope, "blobs");
 }
 
-/**
- * The workspace `scope`'s artifacts as a real run left them in the Marbles
- * database at the state root `state`, read only: each call opens a
- * read-only connection (`readDatabase`), reads, loading any file's bytes,
- * and closes it, so nothing is created, migrated or written. With no
- * database, or nothing migrated into it, there is nothing to find. For
- * `--dry-run`, whose own artifacts are in memory.
- */
 export function readArtifacts(
   state: string,
   dir: string,

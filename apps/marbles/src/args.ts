@@ -259,7 +259,6 @@ class TaskLine {
   }
 }
 
-/** `text` parsed as JSON; `flag` names it in the error. */
 function parsedJson(flag: string, text: string): unknown {
   try {
     return JSON.parse(text);
@@ -271,10 +270,6 @@ function parsedJson(flag: string, text: string): unknown {
   }
 }
 
-/**
- * `--metadata <json>` as the object create stores, or update sets over the
- * stored keys; the batch schema checks it.
- */
 function metadataOf(line: TaskLine): JsonObject | undefined {
   const text = line.value("--metadata");
   return text === undefined
@@ -483,7 +478,6 @@ function isCommand(name: string): name is Command {
 }
 
 export interface Flags extends HostOptions {
-  /** The shell's directory, which the command line is relative to. */
   readonly directory: string;
   readonly inputJson: string | undefined;
 }
@@ -499,11 +493,6 @@ const VALUE_FLAGS = {
   "--source": "config",
 } as const;
 
-/**
- * Flags that moved one location once. Left unrecognised, each would parse
- * as a positional and its value with it, and the command would run
- * against the home.
- */
 const REMOVED_FLAGS = ["--state", "--artifacts"] as const;
 type ValueFlag = keyof typeof VALUE_FLAGS;
 
@@ -548,7 +537,6 @@ function parseFlags(argv: readonly string[]): {
   const flags = {
     artifacts,
     config: values.config ?? DEFAULT_SOURCE,
-    // The command line's edge: the one place the shell's directory is read.
     directory: process.cwd(),
     dry,
     inputJson: values.inputJson,

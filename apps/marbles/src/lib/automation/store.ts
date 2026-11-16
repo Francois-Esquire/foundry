@@ -2,51 +2,22 @@ import { RecordsGate } from "~/lib/events/records";
 import { storableJson } from "~/lib/state/json";
 import type { AutomationRecord } from "./service";
 
-/**
- * Where a workspace's automations are kept, the triggers agents created,
- * one by id. The store enforces nothing about them: `AutomationService`
- * says what is written, inside `edit` when it reads first, so two engines
- * editing at once never act on what the other is changing.
- * `MemoryAutomationStore` keeps them in this process; the Marbles database
- * keeps them on disk (`database/automations.ts`), shared by every engine
- * over it.
- */
 export interface AutomationStore extends AutomationView {
-  /** Refuse every call from now on, once those under way have settled. */
   close(): Promise<void>;
-  /**
-   * `work` over a view of the automations no other edit changes until it
-   * settles, by any engine sharing the store; what it put or removed is
-   * kept when it resolves, and nothing of it when it rejects.
-   */
   edit<T>(work: (view: AutomationView) => Promise<T>): Promise<T>;
 }
 
-/** The automations, as a store or an edit in progress sees them. */
 export interface AutomationView {
-  /**
-   * Every automation kept, by id, in id order. A stored value is not
-   * trusted: the service reads it through its schema.
-   */
   list(): Promise<readonly StoredAutomation[]>;
-  /** Keep `record` as its id's, whole. */
   put(record: AutomationRecord): Promise<void>;
-  /** Forget the automation `id`; nothing when there is none. */
   remove(id: string): Promise<void>;
 }
 
-/** An automation as the store gives it back: its id, and its record unchecked. */
 export interface StoredAutomation {
   readonly id: string;
   readonly value: unknown;
 }
 
-/**
- * The copy of an automation every store keeps: plain JSON as it reads
- * back (`storableJson`), so a record reads back the same from memory as
- * from the database. One JSON would not give back as it is is refused
- * with a `NotStorableError` naming the part.
- */
 export function storedAutomation(record: AutomationRecord): AutomationRecord {
   return storableJson(
     `automation ${JSON.stringify(record.id)}`,
@@ -54,11 +25,6 @@ export function storedAutomation(record: AutomationRecord): AutomationRecord {
   ) as unknown as AutomationRecord;
 }
 
-/**
- * The automations held in this process, for one engine: nothing outlives
- * it. Records are copied in and out, so no caller shares a reference with
- * the store; one edit runs at a time.
- */
 export class MemoryAutomationStore implements AutomationStore {
   readonly #gate = new RecordsGate("the automation store is closed");
   readonly #records = new Map<string, AutomationRecord>();
@@ -88,7 +54,6 @@ export class MemoryAutomationStore implements AutomationStore {
     return this.#gate.run(() => viewOf(this.#records).list());
   }
 
-  /** Taken now, and kept in its turn, after any edit under way. */
   put(record: AutomationRecord): Promise<void> {
     let owned: AutomationRecord;
     try {
@@ -104,7 +69,6 @@ export class MemoryAutomationStore implements AutomationStore {
   }
 }
 
-/** A view over `records`, changing them in place. */
 function viewOf(records: Map<string, AutomationRecord>): AutomationView {
   return {
     list: () =>

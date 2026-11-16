@@ -1,25 +1,3 @@
-/**
- * A durable {@link GrantRepository} over one document: every Grant, and the
- * sequence their ids are drawn from, with the reference semantics from
- * `./grant-state`, kept wherever a {@link GrantDocumentStorage} keeps it.
- *
- * Each operation is one transaction of the storage: read and validate the
- * whole document, apply one transition, write it when it changed. The
- * storage excludes every other transaction on the same document, in this
- * process and in others, so concurrent hosts cannot both spend a one-shot
- * Grant.
- *
- * It fails closed. A document that does not parse, does not validate,
- * whose addresses disagree with their capabilities, or whose revisions
- * could not have come from the transitions is refused rather than
- * repaired. Errors never echo the document.
- *
- * Generic like the rest of this module: the host supplies schemas for its
- * Subject and Capability and the addressing adapter that relates them.
- * Needs `zod`, so it is kept off the barrel; import it from
- * `@foundry/lib/config/authorization/document`.
- */
-
 import { z } from "zod";
 
 import type { Exactly } from "../../exactly";
@@ -50,17 +28,7 @@ import {
   revokeGrant,
 } from "./grant-state";
 
-/**
- * Where a {@link DocumentGrantRepository} keeps its document, and how it
- * runs one transaction on it.
- */
 export interface GrantDocumentStorage {
-  /**
-   * Run `apply` on the document as stored, its text, or `undefined` when
-   * there is none, excluding every other transaction on it; then store
-   * `next` in its place when `apply` returns one. `apply` may throw, and
-   * nothing is stored then.
-   */
   transact<T>(
     apply: (stored: string | undefined) => {
       readonly next?: string;
@@ -73,21 +41,11 @@ export interface DocumentGrantRepositoryOptions<
   S extends AuthorizationSubject,
   C,
 > {
-  /** How the host's Subject and Capability become an address; saved addresses are checked against it. */
   readonly addressing: AuthorizationAddressing<S, C>;
-  /** Validates a saved Capability. Should be strict: unknown keys are refused. */
   readonly capability: z.ZodType<C>;
-  /**
-   * The document's format tag, written at the top level and required on
-   * read, so a document from another host or version is refused instead of
-   * misread.
-   */
   readonly format: string;
-  /** Injected so expiry is testable. Defaults to `Date.now`. */
   readonly now?: () => number;
-  /** Where the document is kept. */
   readonly storage: GrantDocumentStorage;
-  /** Validates a saved Subject. Should be strict: unknown keys are refused. */
   readonly subject: z.ZodType<S>;
 }
 
@@ -135,7 +93,6 @@ function savedGrantsSchema<S extends AuthorizationSubject, C>(
     certificateId: z.string().optional(),
     expiresAt: z.number().optional(),
     id: z.string(),
-    // Optional so files written before issuance keys existed still load.
     issuanceKey: z.string().optional(),
     issuedAt: z.number(),
     lifetime: lifetimeSchema,
@@ -161,11 +118,6 @@ function savedGrantsSchema<S extends AuthorizationSubject, C>(
   });
 }
 
-/**
- * Only states the transitions can produce: ids in issue order, addresses that
- * match their capabilities, revision 1 while live and 2 once revoked or
- * claimed, and a claim only on a consumed one-shot Grant.
- */
 function isReachable<S extends AuthorizationSubject, C>(
   saved: SavedGrants<S, C>,
   addressing: AuthorizationAddressing<S, C>
@@ -193,7 +145,6 @@ function isReachable<S extends AuthorizationSubject, C>(
   });
 }
 
-/** One document of Grants. See the module comment for its guarantees. */
 export class DocumentGrantRepository<S extends AuthorizationSubject, C>
   implements GrantRepository<S, C>
 {
@@ -285,7 +236,6 @@ export class DocumentGrantRepository<S extends AuthorizationSubject, C>
     });
   }
 
-  /** Read, apply, write when changed: one transaction of the storage. */
   #transaction<T>(
     apply: (saved: SavedGrants<S, C>) => {
       readonly changed: boolean;
@@ -332,8 +282,6 @@ export class DocumentGrantRepository<S extends AuthorizationSubject, C>
   }
 
   #written(saved: SavedGrants<S, C>): string {
-    // What was read validated, so a failure here is the new Grant: refuse to
-    // write a document this repository would then refuse to read back.
     const valid = this.#validate(saved);
     if (!valid) {
       throw new Error(

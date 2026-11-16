@@ -49,10 +49,6 @@ function engineWith(options: Parameters<typeof testEngine>[0] = {}): Engine {
   return engine;
 }
 
-/**
- * Whether an engine other than one of this file's holds the claim on the
- * Run: one that tries it, as an adopter would, is refused.
- */
 async function claimedElsewhere(runId: string): Promise<boolean> {
   const probe = defaultWorkspaceRuns(state, root, "test");
   try {
@@ -171,7 +167,6 @@ async function parkedThenOrphaned(): Promise<string> {
   await first.dispose();
   catalog.reset();
 
-  // Its stop gave up the Run; the record names a process that has exited.
   await rewriteRecord(id, { owner: { pid: exitedPid(), started: null } });
   return id;
 }
@@ -192,7 +187,6 @@ it("cancels a parked run whose process exited when nothing here can adopt it", a
   expect(await storedExecution(state, id)).toMatchObject({
     status: "cancelled",
   });
-  // The claim on its Run is given back, so a later start can still read it.
   expect(await claimedElsewhere(id)).toBe(false);
   expect(await engine.executions.prune([id], () => "scope")).toHaveLength(1);
 });
@@ -204,7 +198,6 @@ it("never resumes a parked run that was cancelled after its process exited", asy
   await cancelling.cancel(id);
   await cancelling.dispose();
 
-  // A process that can run it finds its Run still parked in the store.
   const next = engineWith({ askable: true });
   next.define({
     fn: ({ ask }: Context) => ask.question({ title: "continue?" }),
@@ -249,7 +242,6 @@ it("leaves a parked run alone while another process is adopting it", async () =>
   });
   const engine = engineWith();
   await engine.start();
-  // An adopter holds the claim on the Run from before it reads the record.
   const adopter = defaultWorkspaceRuns(state, root, "test");
   try {
     expect(await adopter.claim("rn-adopting", ANY_STORED_RUN)).toBe(true);
@@ -399,7 +391,6 @@ it("reads an orphan's record again once its Run is claimed, and leaves one an ad
   const executions = new Executions({
     runs: {
       claim: async () => {
-        // Between the look and the claim: a live process adopts it.
         await seedExecution(store, adopted);
         return true;
       },

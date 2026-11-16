@@ -13,8 +13,6 @@ let server: Server;
 let baseURL: string;
 
 beforeAll(async () => {
-  // An OpenAI-compatible chat server: one streamed answer, and its usage
-  // when the request asks for it.
   server = createServer((request, response) => {
     let text = "";
     request.on("data", (chunk: Buffer) => {
@@ -46,7 +44,6 @@ beforeAll(async () => {
       response.end("data: [DONE]\n\n");
     });
   });
-  // Port 0: the system picks a free port. A bind error fails the hook at once.
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -63,7 +60,6 @@ function setup(
   return {
     env,
     id: "gw",
-    // What a server listed: the plugin supplies no models of its own.
     models: [{ id: "served/chat", kind: "text", modelId: "served/chat" }],
     scope: "machine",
     settings,

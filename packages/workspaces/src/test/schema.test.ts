@@ -35,9 +35,7 @@ async function cataloged() {
   return { registration, root, store, workspace };
 }
 
-/** The record fields a Workspace adds to what the source observed. */
 type EntryRecordKey = "createdAt" | "id" | "name" | "updatedAt" | "workspaceId";
-/** An entry as core's storage node, without what classification adds. */
 type StorageNodeOf<Entry> = Entry extends unknown
   ? Omit<Entry, EntryRecordKey | "extension" | "kind">
   : never;
@@ -53,7 +51,6 @@ describe("record types", () => {
   });
 
   it("restate core's storage shapes exactly", () => {
-    // `branded` compares core's union of intersections member by member.
     expectTypeOf<
       StorageNodeOf<WorkspaceEntry>
     >().branded.toEqualTypeOf<StorageEntry>();
