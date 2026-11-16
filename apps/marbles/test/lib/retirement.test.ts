@@ -116,6 +116,47 @@ describe("an engine that has begun to retire", () => {
     await retiring;
   });
 
+  it("hands its queued runs over without waiting for an observer, and ends only once that observer has", async () => {
+    const engine = engineHere();
+    const entered = Promise.withResolvers<void>();
+    const observing = Promise.withResolvers<void>();
+    const finishing = Promise.withResolvers<void>();
+    engine.observe(TASKS, async () => {
+      entered.resolve();
+      await observing.promise;
+    });
+    engine.task({
+      name: "active",
+      run: async () => {
+        await finishing.promise;
+      },
+    });
+    engine.task({ name: "queued", run: () => undefined });
+    await engine.start();
+    await new Tasks({ store: engine.taskStore }).create({ title: "held" });
+    await entered.promise;
+    const active = await engine.launch("active", {});
+    const queued = await engine.launch("queued", {});
+    queued.result.catch(() => undefined);
+    const next = successor();
+    // The observer still runs: the hand-over does not wait for it.
+    const retired = await engine.retire(next);
+    expect(engine.executions.get(queued.id)?.owner).toMatchObject({
+      pid: next.pid,
+    });
+    let ended = false;
+    retired.ended.then(() => {
+      ended = true;
+    });
+    finishing.resolve();
+    await active.result;
+    // Past two of the retirement's looks (every 250 ms) for what is left.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(ended).toBe(false);
+    observing.resolve();
+    await retired.ended;
+  });
+
   it("runs a child a task active here launches after retirement began", async () => {
     const engine = engineHere();
     const gate = Promise.withResolvers<void>();
