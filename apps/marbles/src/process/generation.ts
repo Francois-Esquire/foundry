@@ -370,22 +370,32 @@ async function main(): Promise<void> {
     return { config: added.config, id: added.id, root: added.root };
   };
 
-  /** Workspaces being unhosted: each drains here, and a retirement leaves it to that. */
-  const unhosting = new Set<string>();
+  /**
+   * Workspaces being unhosted, each its drain: a retirement leaves each to
+   * it, and the hosts close only once each has dropped its registration.
+   */
+  const unhosting = new Map<string, Promise<void>>();
 
-  const unhost = async (raw: unknown): Promise<void> => {
+  const unhost = (raw: unknown): Promise<void> => {
     const { id } = workspaceIdSchema.parse(raw);
-    unhosting.add(id);
-    try {
+    const under = unhosting.get(id);
+    if (under !== undefined) {
+      return under;
+    }
+    const draining = (async () => {
       await untick(id, false);
       const all = workspaces();
       const found = all.list().find((each) => each.id === id);
       // Drain: running work finishes before the workspace closes.
       await found?.engine.stop();
       await all.unregister(id);
-    } finally {
+    })();
+    unhosting.set(id, draining);
+    const forget = () => {
       unhosting.delete(id);
-    }
+    };
+    draining.then(forget, forget);
+    return draining;
   };
 
   /** Close what this generation holds, its engines stopped first. */
@@ -395,6 +405,9 @@ async function main(): Promise<void> {
     await Promise.allSettled(
       (hosted?.list() ?? []).map((each) => each.engine.stop())
     );
+    // A workspace being unhosted drops its registration before the hosts,
+    // and the database handle under them, close.
+    await Promise.allSettled(unhosting.values());
     await staged?.abandon().catch(() => undefined);
     await hosted?.close();
   };

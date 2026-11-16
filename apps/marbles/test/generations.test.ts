@@ -1269,6 +1269,57 @@ describe("engine generations", () => {
     client.close();
   }, 150_000);
 
+  it("finishes a detach whose generation retires and closes its hosts while it drops the registration", async () => {
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: {
+        generationEntry: join(
+          import.meta.dirname,
+          "helpers",
+          "generation-slow-unregister.ts"
+        ),
+        print: (line) => lines.push(line),
+      },
+    });
+    const first = fixture.summary.pid ?? 0;
+    const otherRoot = join(fixture.gates, "..", "other");
+    mkdirSync(otherRoot);
+    const otherSource = join(otherRoot, "marbles.config.ts");
+    writeFileSync(otherSource, moduleText(fixture, 0));
+    const other = await fixture.client.attach(otherSource);
+    const workspace = fixture.client.workspace(fixture.summary);
+    await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    const detaching = fixture.client.detach(fixture.summary.id);
+    detaching.catch(() => undefined);
+    await vi.waitFor(
+      () =>
+        expect(
+          lines.some((line) =>
+            line.includes(
+              `[${fixture.summary.id}] detaching · waiting for engine generation 1`
+            )
+          )
+        ).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    // The first generation retires while it drains; its run ending ends
+    // both, and its hosts close as the registration is being dropped.
+    await fixture.client.reload(other.id);
+    open(1, fixture);
+    await detaching;
+    await gone(first);
+    // Its hosts closed only once the registration was dropped.
+    const said = lines.join("\n");
+    expect(said).toContain("hosts closing with 0 unregister(s) under way");
+    expect(said).not.toContain("hosts closing with 1 unregister(s) under way");
+    expect((await fixture.client.workspaces()).map((each) => each.id)).toEqual([
+      other.id,
+    ]);
+    expect(await stored(fixture, fixture.summary.id)).toBe(false);
+    fixture.client.close();
+  }, 150_000);
+
   it("completes a daemon stop while a detach waits for a retired generation, refusing the attach that waited on it", async () => {
     const lines: string[] = [];
     const fixture = await setUp({
