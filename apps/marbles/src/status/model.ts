@@ -1,4 +1,8 @@
-import { isGone } from "@foundry/lib/process-identity";
+import {
+  isGone,
+  type ProcessState,
+  processState,
+} from "@foundry/lib/process-identity";
 import {
   type GenerationRecord,
   type GenerationState,
@@ -124,16 +128,23 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
 }
 
 function generationStatus(record: GenerationRecord): GenerationStatus {
-  const unprovable = record.pid > 0 && record.started === null;
+  const seen = processOf(record);
   return {
-    alive:
-      record.pid > 0 &&
-      !unprovable &&
-      !isGone({ pid: record.pid, started: record.started }),
+    alive: seen === "running",
     number: record.number,
     pid: record.pid,
-    state: unprovable ? "cannot tell" : record.state,
+    state: seen === "unknown" ? "cannot tell" : record.state,
   };
+}
+
+function processOf(record: GenerationRecord): ProcessState {
+  if (record.pid <= 0) {
+    return "gone";
+  }
+  if (record.started === null) {
+    return "unknown";
+  }
+  return processState({ pid: record.pid, started: record.started });
 }
 
 /** The current generation, while its process is alive: its pid, and the workspaces it hosts. */

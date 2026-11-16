@@ -2,6 +2,8 @@ import { thisProcess } from "@foundry/lib/process-identity";
 import { Tasks } from "@foundry/tasks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
+import { catalog } from "~/authoring/catalog";
+import { setHost } from "~/authoring/runtime";
 import type { Engine } from "~/lib/engine";
 import { TASKS } from "~/lib/events/source";
 import { testEngine } from "../helpers/engine";
@@ -15,6 +17,7 @@ import { testEngine } from "../helpers/engine";
 const engines: Engine[] = [];
 
 afterEach(async () => {
+  catalog.reset();
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
 });
 
@@ -493,6 +496,45 @@ describe("an engine that has begun to retire", () => {
       expect(await outcome(parent.result)).toBe(2);
       await ended;
     });
+  });
+
+  it("resolves the retiring engine and its run for an authored call from an active run's callback, another engine of the workspace alive", async () => {
+    const old = engineHere();
+    const next = engineHere();
+    const gate = Promise.withResolvers<void>();
+    const child = step("child").do(() => 42);
+    for (const engine of [old, next]) {
+      engine.define(child);
+      setHost(engine);
+    }
+    old.define({
+      fn: () => 1,
+      kind: "step",
+      name: "parent",
+      output: {
+        "~standard": {
+          validate: async () => {
+            await gate.promise;
+            return { value: await child.run({}) };
+          },
+          vendor: "test",
+          version: 1 as const,
+        },
+      },
+    });
+    await old.start();
+    await next.start();
+    const parent = await old.launch("parent", {}, { queue: "parents" });
+    const { ended } = await old.retire(successor());
+    gate.resolve();
+    expect(await outcome(parent.result)).toBe(42);
+    expect(old.executions.list().some((run) => run.name === "child")).toBe(
+      true
+    );
+    expect(next.executions.list().some((run) => run.name === "child")).toBe(
+      false
+    );
+    await ended;
   });
 
   it("refuses a launch from an observer, and one after its active runs ended", async () => {
