@@ -85,8 +85,12 @@ Five buckets, each importing only what sits below it:
   run scope inherited from another engine's run): a step's whole
   execution, schemas and body (`tree.ts`, `materialize`), its retry
   decision, a launch's input schema and a workflow's setup (`factoryFor`),
-  a host task's body (`launcher.ts`), and each observer (`Delivery`);
-  whatever that code starts inherits it. Nothing in `lib/` reads
+  a host task's body (`launcher.ts`), each observer (`Delivery`), every
+  session the agents manager opens, whichever entry opens it
+  (`openSession`: an agent's own function, and each turn's output
+  schema, stop conditions and harness authority, approval and question
+  callbacks), and a worktree callback outside a run
+  (`managers/workspaces.ts`); whatever that code starts inherits it. Nothing in `lib/` reads
   `process.cwd()` or `process.env` for it.
   `lib/cli-harnesses.ts` describes each CLI harness once (ids in
   preference order, executor, guest artifact and environment). Provider
