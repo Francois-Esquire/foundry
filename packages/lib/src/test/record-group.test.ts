@@ -25,6 +25,7 @@ import {
   writePrivate,
 } from "../spawn-record";
 import { signalOwn, stopLeftover } from "./helpers/leftovers";
+import { pidWritten } from "./helpers/pid-file";
 
 /**
  * A group leader recorded as a group is stopped with everything it
@@ -67,10 +68,7 @@ async function group(
     { detached: true, stdio: "ignore" }
   );
   const stop = record(child, dir);
-  for (let i = 0; i < 500 && !existsSync(join(dir, "pid")); i += 1) {
-    await new Promise((done) => setTimeout(done, 10));
-  }
-  const sleep = Number(readFileSync(join(dir, "pid"), "utf8").trim());
+  const sleep = await pidWritten(join(dir, "pid"));
   const started = startedAt(sleep);
   if (typeof started === "string") {
     leftovers.push({ pid: sleep, started });

@@ -27,6 +27,7 @@ import {
 } from "../spawn-record";
 import { anotherStart } from "../testing/process-identity";
 import { stopLeftover } from "./helpers/leftovers";
+import { pidWritten } from "./helpers/pid-file";
 
 /**
  * Every process here is one this test started (`sleep`), and the only
@@ -324,10 +325,7 @@ async function stubbornGroup(dir: string): Promise<{
     }
   );
   started.push(leader);
-  for (let i = 0; i < 500 && !existsSync(ready); i += 1) {
-    await new Promise((done) => setTimeout(done, 10));
-  }
-  const pid = Number(readFileSync(ready, "utf8"));
+  const pid = await pidWritten(ready);
   const helperStart = startedAt(pid);
   const leaderStart = startedAt(leader.pid ?? 0);
   if (typeof helperStart !== "string" || typeof leaderStart !== "string") {
