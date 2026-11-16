@@ -22,17 +22,12 @@ import type { ProcessStatus } from "~/process/instance";
 import { readProcess } from "~/process/instance";
 
 export interface StatusReport {
-  /**
-   * The engine generations recorded live, newest first: the current one,
-   * and any finishing the runs it had when the next took over.
-   */
   readonly generations: readonly GenerationStatus[];
   readonly process: ProcessStatus | null;
   readonly root: string;
   readonly workspaces: readonly WorkspaceStatus[];
 }
 
-/** One engine generation, as its record says, and whether its process is there. */
 interface GenerationStatus {
   readonly alive: boolean;
   readonly number: number;
@@ -41,17 +36,13 @@ interface GenerationStatus {
 }
 
 export interface WorkspaceStatus {
-  /** It is registered, its engine started in the current generation, and that generation's process is alive. */
   readonly alive: boolean;
   readonly config: string | null;
-  /** What hosts the workspace: the current engine generation, once its engine started there and while it runs. */
   readonly host: "generation" | null;
-  /** Registered with the Marbles process, which loads it in each generation; `alive` says whether it started. */
   readonly hosted: boolean;
   readonly id: string;
   readonly lastSeen: string | null;
   readonly pid: number | null;
-  /** What its last engine start put right after a crash; `null` when none is kept. */
   readonly recovery: RecoveryReport | null;
   readonly root: string;
   readonly runs: RunsStatus;
@@ -87,11 +78,6 @@ interface RunSummary {
 
 const RECENT = 5;
 
-/**
- * The state root as stored: the process claim, and each workspace the
- * registry records with what its directory holds. Reads only; a state root
- * without a database stays without one.
- */
 export async function readStatus(stateRoot: string): Promise<StatusReport> {
   const records = await recordedWorkspaces(stateRoot);
   const sessions: ReadonlyMap<string, number> =
@@ -147,7 +133,6 @@ function processOf(record: GenerationRecord): ProcessState {
   return processState({ pid: record.pid, started: record.started });
 }
 
-/** The current generation, while its process is alive: its pid, and the workspaces it hosts. */
 interface CurrentHost {
   readonly pid: number;
   readonly workspaces: readonly string[];
@@ -161,8 +146,6 @@ function readWorkspaceStatus(
   ticks: readonly StoredTick[],
   recovery: RecoveryReport | null
 ): WorkspaceStatus {
-  // Hosted only where its engine started: one that did not load or start
-  // is not running, whatever else the generation runs.
   const host =
     record.hosted && current?.workspaces.includes(record.id) === true
       ? current

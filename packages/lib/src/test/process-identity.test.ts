@@ -35,7 +35,6 @@ it("reads this process once, as the system says it started", () => {
 
 it("takes an earlier process with this one's pid, as after a reboot, for gone", () => {
   expect(isGone({ pid: process.pid, started: LONG_AGO })).toBe(true);
-  // One recorded with no start time is taken by its pid alone.
   expect(isGone({ pid: process.pid, started: null })).toBe(false);
 });
 
@@ -46,7 +45,6 @@ it("takes a live pid that started at another time for gone, and one that exited"
     const started = startedAt(pid);
     expect(typeof started).toBe("string");
     expect(isGone({ pid, started: started ?? null })).toBe(false);
-    // Spaced differently, as ps pads a one-digit day: the same start.
     expect(
       isGone({ pid, started: ` ${String(started)}`.replace(" ", "  ") })
     ).toBe(false);
@@ -81,9 +79,6 @@ const PS_START = /^ps:\w{3} \w{3} +\d+ \d\d:\d\d:\d\d \d{4}$/;
 const BOOT = "6f1c2a7e-2b9d-4c2e-9a51-0d3b7c8e9f10";
 
 it("reads a start under /proc from the ticks since boot and the boot's id, whatever the command is called", () => {
-  // Fields 3 on: state, ppid, pgrp (5), session, tty, tpgid, flags, then
-  // the fault and time counters, priority, nice, threads, itrealvalue,
-  // and starttime (22).
   const rest =
     "S 1 4242 4242 0 -1 4194560 120 0 0 0 3 1 0 0 20 0 1 0 987654 1000 200";
   for (const command of ["sleep", "a b c", "evil) (x", ") ((", "(tricky)"]) {
@@ -124,7 +119,6 @@ it("compares starts of one kind only: another kind, or none, says nothing", () =
   const linux = `linux:${BOOT}:987654`;
   expect(compareStarts(linux, `linux:${BOOT}:987654`)).toBe("same");
   expect(compareStarts(linux, `linux:${BOOT}:987655`)).toBe("different");
-  // Another boot, the same ticks: another process.
   expect(compareStarts(linux, anotherStart(linux))).toBe("different");
   expect(
     compareStarts(
@@ -137,7 +131,6 @@ it("compares starts of one kind only: another kind, or none, says nothing", () =
     compareStarts("Sun Nov 15 12:00:00 2026", "ps:Sun Nov 15 12:00:00 2026")
   ).toBe("unknown");
   expect(compareStarts(null, linux)).toBe("unknown");
-  // A live pid recorded with a start of another kind is never taken for gone.
   expect(
     isGone({ pid: process.pid, started: "Sun Nov 15 12:00:00 2026" })
   ).toBe(false);
@@ -175,8 +168,6 @@ it.skipIf(process.platform === "linux")(
   "never takes a start it read a moment ago as proof that a pid's new process is gone",
   () => {
     const dir = mkdtempSync(join(tmpdir(), "identity-cache-"));
-    // A process of this test's, whose pid `ps` is then made to report as
-    // started at another time: as if it were handed to a new process.
     const child = spawn("sleep", ["30"], { stdio: "ignore" });
     try {
       const pid = child.pid ?? 0;
@@ -215,11 +206,6 @@ console.log(JSON.stringify({ after, before, former }));`
   }
 );
 
-/**
- * A made-up system: `alive` answers whether a signal reaches the pid,
- * `seen` what a listing says of it (`undefined`: the listing failed).
- * The pids are above any system's limit, and nothing is signalled.
- */
 function madeUp(
   alive: boolean,
   seen: SeenProcess | "absent" | undefined
@@ -248,10 +234,8 @@ it("takes an owner that has exited and is not reaped (a zombie) for gone, though
     },
   };
   expect(isGone({ pid: 4_200_101, started: AT }, zombie)).toBe(true);
-  // With no start to compare, too: an exited process is gone, whoever it was.
   expect(isGone({ pid: 4_200_102, started: null }, zombie)).toBe(true);
   expect(startedAt(4_200_103, zombie)).toBeNull();
-  // Each was decided on what this system said of it.
   expect(asked).toEqual([4_200_101, 4_200_102, 4_200_103]);
 });
 
@@ -259,16 +243,13 @@ it("never takes a running owner for gone when the system cannot say, or lists no
   const running = madeUp(true, { pgid: 1, started: AT });
   expect(isGone({ pid: 4_200_111, started: AT }, running)).toBe(false);
   expect(isGone({ pid: 4_200_112, started: null }, running)).toBe(false);
-  // The listing failed: cannot tell.
   expect(isGone({ pid: 4_200_113, started: AT }, madeUp(true, undefined))).toBe(
     false
   );
   expect(startedAt(4_200_114, madeUp(true, undefined))).toBeUndefined();
-  // The listing printed nothing for it, yet it answers a signal.
   expect(isGone({ pid: 4_200_115, started: AT }, madeUp(true, "absent"))).toBe(
     false
   );
-  // Gone for certain: no signal reaches it, or it started at another time.
   expect(isGone({ pid: 4_200_116, started: AT }, madeUp(false, "absent"))).toBe(
     true
   );
@@ -287,7 +268,6 @@ it("reads a ps line only in its exact shape: anything truncated, reordered or ex
     4_200_201,
     { pgid: 4_200_201, started: "ps:Sun Nov 5 08:00:00 2026" },
   ]);
-  // A state ps could not read, as while a process starts or exits.
   expect(psLine("12768 11558 ?NE  Sun Nov 15 22:33:54 2026    ")?.[0]).toBe(
     12_768
   );
@@ -322,7 +302,6 @@ it("takes a listing with any line it cannot read for one it cannot tell anything
     psListing(`${good}\n  4200212   4200211 S    Sun Nov 15 08:00:00\n`)
   ).toBeUndefined();
   expect(psListing("ps: something went wrong\n")).toBeUndefined();
-  // A running owner whose listing came back truncated is not taken for gone.
   const truncated: ProcessLookup = {
     alive: () => true,
     look: () => psListing("4200213 1 S Sun Nov 15 08:00:00\n"),
@@ -376,7 +355,6 @@ it("says a process is gone only on proof, running only on its start, and cannot 
   for (const [what, lookup, state] of cases) {
     expect({ state: processState(at, lookup), what }).toEqual({ state, what });
   }
-  // A start read for a pid the listing leaves out while it answers is unknown.
   expect(startedAt(4_200_302, madeUp(true, "absent"))).toBeUndefined();
   expect(startedAt(4_200_303, madeUp(false, "absent"))).toBeNull();
 });
@@ -389,13 +367,13 @@ it("passes over, in a /proc listing, a process whose stat another user keeps, or
   };
   const read = (pid: number): string => {
     if (pid === 2) {
-      return failing("EACCES"); // hidepid=1: another user's process
+      return failing("EACCES");
     }
     if (pid === 3) {
       return failing("EPERM");
     }
     if (pid === 4) {
-      return failing("ESRCH"); // it exited while being read
+      return failing("ESRCH");
     }
     if (pid === 5) {
       return failing("ENOENT");
@@ -430,7 +408,6 @@ it("takes a group's id for another's when a process with the leader's pid runs w
     })
   ).toBe(false);
   expect(groupIdTaken(leader, undefined)).toBe(false);
-  // A start that cannot be compared proves nothing, unless the leader is known reaped.
   expect(
     groupIdTaken(
       { pid: 4_200_500, started: null },

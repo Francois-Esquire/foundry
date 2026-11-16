@@ -165,7 +165,6 @@ describe("record decoding rules", () => {
   });
 });
 
-/** A dictionary whose own entries include one named `__proto__`. */
 function withProtoEntry(
   entries: Record<string, unknown>,
   protoValue: unknown
@@ -353,7 +352,6 @@ describe("record shapes stay visible for table derivation", () => {
 
 describe("decoded key order", () => {
   test("a step node decodes as children, index, key, name", () => {
-    // Input keys arrive in reverse order; the decoder sets the order.
     const node = WorkflowStepNodeSchema.parse(
       JSON.parse(
         '{"name":"root","key":"root","index":0,"children":[{"name":"leaf","key":"root.leaf","index":0}]}'

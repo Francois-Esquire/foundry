@@ -24,7 +24,6 @@ export function workspaceLines(workspace: WorkspaceStatus): string[] {
   ];
 }
 
-/** The last start's recovery, a line per step; a failed step says so first. */
 function recoveryLines(recovery: WorkspaceStatus["recovery"]): string[] {
   if (recovery === null) {
     return ["last recovery: none recorded"];

@@ -5,28 +5,6 @@ import { basename, dirname, extname, join, relative, sep } from "node:path";
 import type { WorkspaceRecord } from "~/lib/state/workspace";
 import { DATA_EXTENSIONS, isModulePath } from "~/workspace/source";
 
-/**
- * What an engine generation loaded, as digests the daemon compares to
- * decide when the next one starts: the installation it runs from, and
- * each registered workspace's files. A generation's fingerprint is taken
- * before it loads anything, so an edit made while it loads differs from
- * it at the next poll; it grows as the generation reports files it read
- * outside a workspace's root, each recorded as it was when read.
- *
- * - A workspace's tree is every file under its root a load could read, a
- *   module, a data file or an `.env` file, its path relative to that root
- *   and its content, but those under `SKIPPED` directories: wherever they
- *   sit, whether the last load read them or not, and whether it succeeded
- *   or not. What a run writes there of any other kind counts for nothing.
- * - Files outside the root count only as a generation reported reading
- *   them: what it depends on there, and nothing another generation read.
- *
- * Contents are digested only for a file whose size or modification time
- * changed since it was last digested (`FileDigests`), so a poll costs a
- * stat per file.
- */
-
-/** Directories a workspace tree leaves out: dependencies, history, Marbles' own, and builds. */
 const SKIPPED = new Set([
   ".cache",
   ".git",
@@ -39,20 +17,16 @@ const SKIPPED = new Set([
   "node_modules",
 ]);
 
-/** A tree past this many files is digested from its entries' folder alone. */
 const TREE_LIMIT = 20_000;
 
-/** A file outside the root that changed between its read and its report: matches no digest. */
 const CHANGED = "changed since it was read";
 
-/** Content digests of files, each read again only when its size or modification time changed. */
 export class FileDigests {
   readonly #known = new Map<
     string,
     { readonly hash: string; readonly mtimeMs: number; readonly size: number }
   >();
 
-  /** The digest of `file`'s content now; `undefined` when it is not there. */
   of(file: string): string | undefined {
     let stat: ReturnType<typeof statSync>;
     try {
@@ -79,48 +53,31 @@ export class FileDigests {
     return hash;
   }
 
-  /** When `file` was last modified; `undefined` when it is not there. */
   modified(file: string): number | undefined {
     return statSync(file, { throwIfNoEntry: false })?.mtimeMs;
   }
 }
 
-/** One workspace's part of a fingerprint. */
 export interface WorkspacePrint {
-  /** Each file the tree covers, by its path relative to `root`, with its digest: what `tree` digests. */
   readonly files: ReadonlyMap<string, string>;
-  /** Each file read outside the root, by absolute path, with its digest as recorded. */
   readonly outside: ReadonlyMap<string, string>;
-  /**
-   * The directory the tree is rooted at: the workspace's root, or its
-   * source's folder when the root holds too many files.
-   */
   readonly root: string;
-  /** The digest of every file under the root. */
   readonly tree: string;
 }
 
 export interface Fingerprint {
   readonly digest: string;
   readonly installation: string;
-  /** Each registered workspace's part, by workspace id. */
   readonly sources: ReadonlyMap<string, WorkspacePrint>;
 }
 
-/** The workspace's root, as its registration names it. */
 type Registration = Pick<WorkspaceRecord, "config" | "id" | "root">;
 
-/** Whether `file` is under `root`. */
 function isUnder(root: string, file: string): boolean {
   const path = relative(root, file);
   return path !== "" && !path.startsWith("..") && !path.startsWith(sep);
 }
 
-/**
- * Whether a load could read `file`: a module, a data file it imports by
- * path, or an environment file its schema loads. What a run writes under
- * the root (a log, a report) is none of them, and never starts a switch.
- */
 function importable(file: string): boolean {
   return (
     isModulePath(file) ||
@@ -129,7 +86,6 @@ function importable(file: string): boolean {
   );
 }
 
-/** The entries of `dir`; none when it cannot be read. */
 function entriesOf(dir: string): Dirent[] {
   try {
     return readdirSync(dir, { withFileTypes: true });
@@ -138,10 +94,6 @@ function entriesOf(dir: string): Dirent[] {
   }
 }
 
-/**
- * Every file under `dir`, sorted, but those under skipped directories or
- * any of `ignored`; `undefined` past `limit`.
- */
 function filesBelow(
   dir: string,
   limit: number,
@@ -168,13 +120,6 @@ function filesBelow(
   return files.sort();
 }
 
-/**
- * The digest of every file under the workspace's root, each by its path
- * relative to the root and its content, but those under `ignored`: the
- * Foundry home, say, when it sits inside the root, whose database changes
- * as Marbles runs. A root past `TREE_LIMIT` files is digested from its
- * source's folder alone.
- */
 export function treeDigest(
   registration: Registration,
   digests: FileDigests,
@@ -183,10 +128,6 @@ export function treeDigest(
   return digestOfTree(treeFiles(registration, digests, ignored).files);
 }
 
-/**
- * The files `treeDigest` digests, by path relative to the directory the
- * tree is rooted at, each with its digest, and that directory.
- */
 function treeFiles(
   registration: Registration,
   digests: FileDigests,
@@ -205,7 +146,6 @@ function treeFiles(
   return { files: entries, root };
 }
 
-/** The digest of a tree's files, in path order. */
 function digestOfTree(files: ReadonlyMap<string, string>): string {
   const hash = createHash("sha256");
   for (const [path, digest] of [...files].sort(([a], [b]) =>
@@ -216,11 +156,6 @@ function digestOfTree(files: ReadonlyMap<string, string>): string {
   return hash.digest("hex");
 }
 
-/**
- * What differs between `was` and `now`, a line each, for whoever must say
- * why a switch was asked for: the installation, a workspace registered or
- * not, and each file under a root or read outside it that is not as it was.
- */
 export function differences(was: Fingerprint, now: Fingerprint): string[] {
   const lines: string[] = [];
   if (was.installation !== now.installation) {
@@ -253,14 +188,6 @@ export function differences(was: Fingerprint, now: Fingerprint): string[] {
   return lines;
 }
 
-/**
- * `print` with `file`, which a generation read at `readAt` (ms since the
- * epoch), recorded: by its digest now when it has not changed since it was
- * read, else as changed, which matches no digest, so the next poll starts
- * the next generation. A file the tree covers, or one recorded already,
- * leaves the print as it was; one under the root the tree does not cover,
- * a text file a load imports, say, is recorded as any read is.
- */
 export function withRead(
   print: WorkspacePrint,
   file: string,
@@ -279,10 +206,6 @@ export function withRead(
   return { ...print, outside };
 }
 
-/**
- * What `registration` is now, over the files outside its root that
- * `outside` names: those a generation read there, with what they hold now.
- */
 export function printNow(
   registration: Registration,
   outside: Iterable<string>,
@@ -302,7 +225,6 @@ export function printNow(
   };
 }
 
-/** The fingerprint of `installation` and `sources`, in workspace id and file order. */
 export function fingerprintOf(
   installation: string,
   sources: ReadonlyMap<string, WorkspacePrint>
@@ -324,10 +246,6 @@ export function fingerprintOf(
 
 const shared = new FileDigests();
 
-/**
- * Every registration's digest now, by workspace id: its tree, and each of
- * `files` (by workspace id) its loads read that the tree does not cover.
- */
 export function sourceDigests(
   records: readonly Registration[],
   files: ReadonlyMap<string, readonly string[]>
@@ -335,7 +253,6 @@ export function sourceDigests(
   const digests = new Map<string, string>();
   for (const record of records) {
     const tree = printNow(record, [], shared);
-    // Each file the loads read that the tree does not cover counts as read.
     const outside = (files.get(record.id) ?? []).filter(
       (file) =>
         !(isUnder(tree.root, file) && tree.files.has(relative(tree.root, file)))
@@ -349,14 +266,6 @@ export function sourceDigests(
   return digests;
 }
 
-/**
- * A digest of the installation a generation runs from: `version`, and
- * every file under the directory its entry is built into (`dist`), or,
- * run from source, the source directory above it (`src`), by path, size
- * and modification time. Dot files and `node_modules` are left out; paths
- * are taken in sorted order, so the digest does not depend on how a
- * directory lists.
- */
 export function installationDigest(entry: string, version: string): string {
   const root = entry.endsWith(".ts") ? dirname(dirname(entry)) : dirname(entry);
   const hash = createHash("sha256");

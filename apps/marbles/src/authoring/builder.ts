@@ -82,12 +82,10 @@ interface StepFields {
   readonly input?: StandardSchemaV1;
   readonly name?: string;
   readonly output?: StandardSchemaV1;
-  /** The scope `step()` was called in: the body is declared in it, whenever `.do` is called. */
   readonly scope?: Scope;
   readonly site?: CallSite;
 }
 
-/** Run now, for a builder made with no scope of its own. */
 const now: Scope = (work) => work();
 
 export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
@@ -234,7 +232,6 @@ export class WorkflowBuilder<I = Empty, R = Empty> {
   readonly #site: CallSite | undefined;
   readonly #description: string | undefined;
   readonly #input: StandardSchemaV1 | undefined;
-  /** The scope `workflow()` was called in: the setup is declared in it. */
   readonly #scope: Scope;
 
   constructor(

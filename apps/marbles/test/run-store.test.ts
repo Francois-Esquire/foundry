@@ -1,12 +1,7 @@
-import { thisProcess } from "@foundry/lib/process-identity";
-/**
- * Every run store keeps one contract: in memory, and in the Marbles
- * database, where two engines share a workspace's Runs and claim them.
- */
-
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { thisProcess } from "@foundry/lib/process-identity";
 import { expect, it } from "vitest";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { initializeDatabase } from "~/database/open";
@@ -91,7 +86,6 @@ it("writes the Execution Run a Run's commit follows with in that commit's own tr
       status: "suspended",
     });
 
-    // A follower that fails takes the Run's commit with it.
     follows = () => {
       throw new Error("no record to follow with");
     };

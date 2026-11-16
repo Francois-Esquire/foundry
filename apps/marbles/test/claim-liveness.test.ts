@@ -20,14 +20,6 @@ import { testHome } from "./helpers/home";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
-/**
- * A claim asks whether its row's owner is gone before it opens its write
- * transaction, never while it holds it, and in the transaction only
- * checks that the owner is still the one it judged: one that changed in
- * between is judged again. Every `isGone` call records whether a
- * transaction of the claim's database was open then.
- */
-
 const watch = vi.hoisted(() => ({ asked: [] as boolean[], open: false }));
 
 vi.mock("@foundry/lib/process-identity", async (actual) => {
@@ -51,11 +43,6 @@ afterEach(() => {
   }
 });
 
-/**
- * The machine's database, with every transaction marked open while it
- * runs; `before` runs at the start of the next one only, as another
- * engine's write would land just before it.
- */
 async function watched() {
   const machine = await testMachine();
   machines.push(machine);
@@ -93,7 +80,6 @@ async function watched() {
   return { database, next, raw };
 }
 
-/** A live process of this test's: its identity. */
 function liveProcess(): ProcessIdentity {
   const home = testHome({ providers: false });
   const child = spawn("sleep", ["60"], { env: home.env, stdio: "ignore" });
@@ -130,7 +116,6 @@ describe("a claim on a row another engine left", () => {
       scope: "ws",
     });
     const store = new DatabaseRunStore({ database, scope: "ws" });
-    // Just before its transaction, a live engine takes the Run.
     const taker = liveProcess();
     next.before = async () => {
       await raw.update(marblesWorkflowRuns).set({
@@ -144,7 +129,6 @@ describe("a claim on a row another engine left", () => {
     expect(watch.asked.every((open) => !open)).toBe(true);
     await store.close();
 
-    // Left again by a gone engine: taken, with no one asked under the lock.
     await raw.update(marblesWorkflowRuns).set({
       ownerId: "gone-engine",
       ownerPid: left.pid,
@@ -170,7 +154,6 @@ describe("a claim on a row another engine left", () => {
     const store = new DatabaseTriggerStore({ database, scope: "ws" });
     expect((await store.claimTick("schedule:a")).claimed).toBe(true);
     expect(watch.asked).toEqual([false]);
-    // Now this process holds it: refused, still judged outside.
     watch.asked.length = 0;
     const other = new DatabaseTriggerStore({ database, scope: "ws" });
     expect(await other.claimTick("schedule:a")).toEqual({
@@ -198,7 +181,6 @@ describe("a claim on a row another engine left", () => {
   });
 });
 
-/** A memory execution store whose transactions are marked open while they run. */
 function watchedExecutions(): ExecutionStore {
   const store = new MemoryExecutionStore();
   return new Proxy(store, {

@@ -45,13 +45,6 @@ export function identityMaterial(instance: {
   ];
 }
 
-/**
- * Why an instance that reads `process.env` itself cannot serve as `env`, or
- * undefined. The process environment is the machine's alone: a
- * workspace's values reach its work through its execution context, never
- * `process.env`, so `env` must be the machine's, and the live process
- * environment must also hold `env`'s account.
- */
 export function ambientProblem(
   machine: Environment,
   patterns: readonly string[],

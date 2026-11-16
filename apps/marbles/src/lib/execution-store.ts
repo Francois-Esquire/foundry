@@ -13,147 +13,59 @@ import type {
 import type { ExecutionStatus } from "./execution-statuses";
 import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
 
-/**
- * Where a workspace's Execution Runs are kept: each run's record by id,
- * its observations one row each beside it, and what pruning removed, by
- * host scope (`RetentionGap`).
- *
- * `ExecutionRecords` (`lib/execution-records.ts`) holds every rule of the
- * domain; the store keeps two kinds of write apart, so engines sharing it
- * never undo one another:
- *
- * - A lifecycle change (`transition`: started, parked, resumed, settled,
- *   cancelled, taken over, interrupted) is made only on a run stored in
- *   one of the statuses it allows and owned by the process it names, and
- *   writes only the lifecycle fields: status, owner, error, start and
- *   settle times, and the queued input it drops. Nothing else blocks it.
- * - An advisory change (`advise`, a run's progress, and `observe`, one
- *   observation, replacing one of its id and moving it last, at the same
- *   cost however many the run has) is made only on a run not settled, and
- *   writes only its own field: one that comes after a settle is dropped.
- *
- * Every write that is made raises the run's revision by one, so a reader
- * orders what it is told; the revision guards nothing. A read inside
- * `transaction` sees no other engine's write until it settles.
- *
- * `MemoryExecutionStore` keeps everything in this process, for one
- * engine; the Marbles database keeps it on disk (`database/executions.ts`),
- * shared by every engine over it.
- */
 export interface ExecutionStore extends ExecutionView {
-  /** Refuse every call from now on, once those under way have settled. */
   close(): Promise<void>;
-  /**
-   * The ids of the queued runs `owner`'s process owns, in admission order:
-   * for a retiring engine to find a run handed to it after it started.
-   * Without it, an engine finds only the runs it holds.
-   */
   queuedOwnedBy?(owner: ProcessIdentity): Promise<readonly string[]>;
-  /**
-   * `work` over a view no other engine writes to until it settles; what it
-   * wrote is kept when it resolves, and nothing of it when it rejects.
-   */
   transaction<T>(work: (view: ExecutionView) => Promise<T>): Promise<T>;
 }
 
-/** The Execution Runs, as a store or a transaction in progress sees them. */
 export interface ExecutionView {
-  /** Set `progress` on the run `id`, unless it is settled or not kept. */
   advise(
     id: string,
     change: { readonly progress: JsonValue; readonly updatedAt: string }
   ): Promise<Written>;
-  /**
-   * Keep a new run's record whole, its observations aside; `false`,
-   * keeping nothing, when a run of its id is kept already.
-   */
   create(run: ExecutionRun): Promise<boolean>;
-  /** What pruning has removed so far, by host scope. */
   gaps(): Promise<readonly RetentionGap[]>;
-  /** The run `id` with its observations; `undefined` when none is kept. */
   get(id: string): Promise<StoredExecution | undefined>;
-  /** Every run kept, with its observations, in admission order (`sequence`, then id). */
   list(): Promise<readonly StoredExecution[]>;
-  /**
-   * Record `observation` on the run `id`, or replace the one of its id,
-   * which then comes last, unless the run is settled or not kept.
-   */
   observe(
     id: string,
     observation: ExecutionObservation,
     updatedAt: string
   ): Promise<Written>;
-  /** Keep `gap` as its scope's, whole. */
   putGap(gap: RetentionGap): Promise<void>;
-  /** Forget the run `id` and its observations; nothing when none is kept. */
   remove(id: string): Promise<void>;
-  /**
-   * The engine its host hands queued runs to now, when the host keeps one
-   * (the Marbles process: its current engine generation), read in the
-   * view: a hand-over decides who takes a run in the transaction that
-   * writes it. `undefined` when none is current now.
-   */
   successor?(): Promise<ProcessIdentity | undefined>;
-  /** Make the lifecycle change on the run `id`, when it allows the run as stored. */
   transition(id: string, change: LifecycleChange): Promise<Written>;
-  /** The run kept for the definition `name` and caller's `source`, if one is. */
   withSource(
     name: string,
     source: string
   ): Promise<StoredExecution | undefined>;
 }
 
-/**
- * A change of a run's lifecycle, made only when the run is stored in one
- * of `from` and owned by `owner`. Its fields are the only ones it writes.
- */
 export interface LifecycleChange {
-  /** Drop the queued input: a run that has started keeps none. */
   readonly dropInput?: boolean;
-  /** Why it failed or was interrupted; the stored one stays without. */
   readonly error?: ExecutionRun["error"];
-  /** The statuses the run must be stored in. */
   readonly from: readonly ExecutionStatus[];
-  /** Its owner from now on; `owner` stays when omitted. */
   readonly newOwner?: ProcessIdentity;
-  /** The process that must own it as stored. */
   readonly owner: ProcessIdentity;
-  /** When it settled; set once, by a settle. */
   readonly settledAt?: string;
-  /** When it started; set once, by a start. */
   readonly startedAt?: string;
   readonly status: ExecutionStatus;
   readonly updatedAt: string;
 }
 
-/** What a write found: whether it was made, and the run's record as stored after it. */
 export interface Written {
   readonly applied: boolean;
-  /**
-   * The record as stored once the write settled, its observations aside,
-   * unchecked; `undefined` when the run is not kept.
-   */
   readonly record: unknown;
 }
 
-/**
- * A run as the store gives it back: its record and its observations in the
- * order they were last recorded, neither checked. `ExecutionRecords`
- * reads them through `parseStored`.
- */
 export interface StoredExecution {
   readonly id: string;
   readonly observations: readonly unknown[];
-  /** The record, without its observations. */
   readonly value: unknown;
 }
 
-/**
- * The copy of a run's record every store keeps, its observations aside:
- * plain JSON as it reads back (`storableJson`), so a record reads back the
- * same from memory as from the database. One JSON would not give back as
- * it is is refused with a `NotStorableError` naming the part.
- */
 export function storedExecutionRun(run: ExecutionRun): ExecutionRun {
   const { observations: _observations, ...record } = run;
   return {
@@ -165,7 +77,6 @@ export function storedExecutionRun(run: ExecutionRun): ExecutionRun {
   };
 }
 
-/** The copy of an observation every store keeps, as `storedExecutionRun` keeps a record. */
 export function storedObservation(
   runId: string,
   observation: ExecutionObservation
@@ -176,7 +87,6 @@ export function storedObservation(
   ) as unknown as ExecutionObservation;
 }
 
-/** The copy of a run's progress every store keeps, as `storedExecutionRun` keeps a record. */
 export function storedProgress(runId: string, progress: JsonValue): JsonValue {
   return storableJson(
     `execution run ${JSON.stringify(runId)} progress`,
@@ -184,7 +94,6 @@ export function storedProgress(runId: string, progress: JsonValue): JsonValue {
   );
 }
 
-/** The copy of a lifecycle change every store keeps, as `storedExecutionRun` keeps a record. */
 export function storedChange(
   runId: string,
   change: LifecycleChange
@@ -195,7 +104,6 @@ export function storedChange(
   ) as unknown as LifecycleChange;
 }
 
-/** The copy of a retention gap every store keeps, as `storedExecutionRun` keeps a record. */
 export function storedRetentionGap(gap: RetentionGap): RetentionGap {
   return storableJson(
     `retention gap ${JSON.stringify(gap.scope)}`,
@@ -203,7 +111,6 @@ export function storedRetentionGap(gap: RetentionGap): RetentionGap {
   ) as unknown as RetentionGap;
 }
 
-/** Whether a lifecycle change allows `record`, as stored. */
 export function allows(
   change: LifecycleChange,
   record: {
@@ -220,15 +127,12 @@ export function allows(
   );
 }
 
-/** Whether an advisory change may still be made on a run stored as `status`. */
 export function advisable(status: string): boolean {
   return !SETTLED_EXECUTION_STATUSES.has(status as ExecutionStatus);
 }
 
-/** A run's record as it is kept, its observations aside. */
 type KeptRecord = Omit<ExecutionRun, "observations">;
 
-/** `record` with `change` made, its revision raised: the lifecycle fields alone. */
 export function changed(
   record: KeptRecord,
   change: LifecycleChange
@@ -255,20 +159,11 @@ export function changed(
   };
 }
 
-/** A run as kept: never changed in place, so a transaction can share it. */
 interface Kept {
   readonly observations: ReadonlyMap<string, ExecutionObservation>;
   readonly record: KeptRecord;
 }
 
-/**
- * The Execution Runs held in this process, for one engine: nothing
- * outlives it. Everything is copied in and out, so no caller shares a
- * reference with the store; one transaction runs at a time, and a write
- * outside one waits its turn. A transaction stages what it changes over
- * what is kept (`Staged`), so it costs what it touches, not every run
- * kept, and only a transaction whose work resolves changes what is kept.
- */
 export class MemoryExecutionStore implements ExecutionStore {
   readonly #gate = new RecordsGate("the execution store is closed");
   readonly #runs = new Map<string, Kept>();
@@ -380,10 +275,6 @@ export class MemoryExecutionStore implements ExecutionStore {
     );
   }
 
-  /**
-   * `write` on the copy of `value` `stored` makes now, as every store keeps
-   * it; one it refuses rejects, keeping nothing.
-   */
   #owning<V, T>(
     value: V,
     stored: (value: V) => V,
@@ -399,20 +290,10 @@ export class MemoryExecutionStore implements ExecutionStore {
   }
 }
 
-/**
- * What one view reads and writes: the runs and gaps as kept, and over them
- * what its transaction has changed so far, which its reads see too. Only
- * `apply` changes what is kept, so a view whose work rejects, or a read's,
- * leaves it as it was. Runs list in the order they are kept, a run
- * created after every other, as copying the maps and writing to the copy
- * would order them.
- */
 class Staged {
   readonly #runs: Map<string, Kept>;
   readonly #gaps: Map<string, RetentionGap>;
-  /** Each run this transaction put, or removed (`undefined`). */
   readonly #changed = new Map<string, Kept | undefined>();
-  /** The runs it created, in the order it last created each. */
   readonly #created = new Set<string>();
   readonly #changedGaps = new Map<string, RetentionGap>();
 
@@ -425,7 +306,6 @@ class Staged {
     return this.#changed.has(id) ? this.#changed.get(id) : this.#runs.get(id);
   }
 
-  /** Every run, in the order it is kept. */
   *runs(): Generator<readonly [string, Kept]> {
     for (const id of this.#runs.keys()) {
       const kept = this.#created.has(id) ? undefined : this.run(id);
@@ -463,7 +343,6 @@ class Staged {
     this.#changedGaps.set(gap.scope, gap);
   }
 
-  /** Keep what this transaction changed. */
   apply(): void {
     for (const [id, kept] of this.#changed) {
       if (kept === undefined || this.#created.has(id)) {
@@ -484,7 +363,6 @@ class Staged {
   }
 }
 
-/** A view over what `staged` reads, writing to it. */
 class MemoryView implements ExecutionView {
   readonly #staged: Staged;
 
@@ -548,7 +426,6 @@ class MemoryView implements ExecutionView {
     if (!(kept && advisable(kept.record.status))) {
       return Promise.resolve(writtenOf(false, kept?.record));
     }
-    // Only this run's observations are copied, and moved last when seen again.
     const observations = new Map(kept.observations);
     observations.delete(observation.id);
     observations.set(observation.id, storedObservation(id, observation));

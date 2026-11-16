@@ -21,7 +21,6 @@ const programs = {
   selectVersion: () => Promise.reject(new Error("unused")),
 };
 
-/** Create, import and delete over each store a registry can run on. */
 const STORES = [
   ["MemoryModuleStore", () => Promise.resolve(new MemoryModuleStore())],
   [

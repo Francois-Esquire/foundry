@@ -16,12 +16,6 @@ import type {
   TaskRefusal,
 } from "~/model/tasks";
 
-/**
- * Runs the task commands of `model/tasks.ts` against one backlog. The host
- * runs them over its engine's store; an engine generation answers them for the
- * Marbles process, as outcomes.
- */
-
 const RUN: {
   readonly [K in TaskCommandKind]: (
     tasks: Tasks,

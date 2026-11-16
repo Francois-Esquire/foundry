@@ -1,11 +1,3 @@
-/**
- * A stop of a run's processes removes a record only once it has proved
- * the process it names gone, and never one that names a process still
- * running, however the writes of a process that records another land
- * against its own. No process here is real: the system is made up, and
- * nothing is signalled.
- */
-
 import {
   existsSync,
   linkSync,
@@ -37,7 +29,6 @@ function put(path: string, record: typeof OLD): void {
   writeFileSync(path, JSON.stringify(record), { mode: 0o600 });
 }
 
-/** The starts the records under `dir` name for `PID`. */
 function startsIn(dir: string): string[] {
   return readdirSync(dir)
     .filter((name) => name.endsWith(".json"))
@@ -45,7 +36,6 @@ function startsIn(dir: string): string[] {
     .sort();
 }
 
-/** The real file operations, with `before` run ahead of each, counted. */
 function hooked(before: (index: number) => void): RecordFiles {
   let index = 0;
   const step = <T>(work: () => T): T => {
@@ -72,7 +62,6 @@ it("removes a record proved gone, and none that a process given its pid since wr
       { ...OLD, path },
       hooked((index) => {
         if (index === at) {
-          // A process given the pid since records itself.
           put(path, NEW);
           landed = true;
         }
@@ -87,10 +76,8 @@ it("removes a record proved gone, and none that a process given its pid since wr
       starts: [NEW.started],
     });
   }
-  // Before the move, before the read, and before the removal.
   expect(tried).toBe(3);
 
-  // Undisturbed, the record proved gone goes, and nothing else is left.
   const dir = temporaryDirectory("rec-");
   put(join(dir, `${String(PID)}.json`), OLD);
   forgetRecord({ ...OLD, path: join(dir, `${String(PID)}.json`) });
@@ -101,12 +88,10 @@ it("puts back a record it moved that names another process, never over a newer o
   for (const second of [false, true]) {
     const dir = temporaryDirectory("rec-");
     const path = join(dir, `${String(PID)}.json`);
-    // Replaced before the stop came to remove it.
     put(path, NEW);
     forgetRecord(
       { ...OLD, path },
       hooked((index) => {
-        // Moved aside and read (0, 1); then a newer one takes the path.
         if (second && index === 2) {
           put(path, NEWER);
         }
@@ -127,8 +112,6 @@ it("keeps, and reports, a record written during the stop for a process it cannot
   put(path, OLD);
   let looks = 0;
   const system: ProcessSystem = {
-    // Its environment cannot be read: matched, never proved, never signalled.
-    // A signal reaches a process just when it is listed.
     alive: (pid) => looks > 1 && pid === PID,
     environment: () => (looks > 1 ? undefined : []),
     kill: () => {
@@ -137,7 +120,6 @@ it("keeps, and reports, a record written during the stop for a process it cannot
     look: (pids) => {
       looks += 1;
       if (looks === 2) {
-        // OLD was found gone; a process given its pid records itself.
         put(path, NEW);
       }
       return new Map(
@@ -162,7 +144,6 @@ it("keeps, and reports, a record written during the stop for a process it cannot
   expect(startsIn(dir)).toEqual([NEW.started]);
 });
 
-/** Every record file under `dir`, at any depth, with the start it names. */
 function recordsUnder(dir: string): string[] {
   return readdirSync(dir, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
@@ -184,9 +165,6 @@ it("never removes a run's root with a record in it, wherever that record lands a
     mkdirSync(join(root, "spawned"), { mode: 0o700, recursive: true });
     put(join(root, "owner.json"), { ...OLD, group: false });
     let landed = false;
-    // The process records itself through the root's own path, as one
-    // whose environment names it does; it is never proved, so never
-    // signalled.
     const lands = () => {
       mkdirSync(join(root, "spawned", "late"), {
         mode: 0o700,
@@ -239,7 +217,6 @@ it("never removes a run's root with a record in it, wherever that record lands a
     });
     expect(kept).not.toEqual([]);
   }
-  // Before the move aside, and after it, through the old path.
   expect(tried).toBe(2);
 });
 
@@ -273,14 +250,12 @@ it("forgets a record only on proof its process is gone: never for one unlisted t
   const dir = temporaryDirectory("rec-");
   const path = join(dir, `${String(PID)}.json`);
 
-  // Not listed, yet a signal reaches it: cannot tell.
   put(path, OLD);
   expect(await stop({ alive: (pid) => pid === PID })).toEqual([
     expect.stringContaining("is not listed but a signal still reaches it"),
   ]);
   expect(existsSync(path)).toBe(true);
 
-  // A start of a kind this system cannot compare: cannot tell.
   put(path, { ...OLD, started: `ps:${OLD.started}` });
   expect(
     await stop({
@@ -290,7 +265,6 @@ it("forgets a record only on proof its process is gone: never for one unlisted t
   ).toEqual([expect.stringContaining("a start of a kind this system cannot")]);
   expect(existsSync(path)).toBe(true);
 
-  // Listed as exited and unreaped, a signal still reaching it: gone.
   put(path, OLD);
   expect(
     await stop({
@@ -302,7 +276,6 @@ it("forgets a record only on proof its process is gone: never for one unlisted t
   expect(existsSync(dir)).toBe(false);
 });
 
-/** A run root under `parent`, recording `record`, with an owner unless `owner` is false. */
 function runRoot(
   parent: string,
   name: string,
@@ -320,13 +293,11 @@ function runRoot(
 
 it("restores the owner of a root made again, and reports, when the process lookup fails mid-removal", async () => {
   const parent = temporaryDirectory("sw-");
-  // A record the stop of the moved root has to look its process up for.
   const root = runRoot(parent, "marbles-run-lookup-fails", OLD);
   const files: RootFiles = {
     remove: (path) => rmSync(path, { force: true, recursive: true }),
     rename: (from, to) => {
       renameSync(from, to);
-      // A process records itself through the old path right after.
       mkdirSync(join(root, "spawned"), { mode: 0o700, recursive: true });
       put(join(root, "spawned", `${String(PID)}.json`), NEW);
     },
@@ -372,9 +343,7 @@ it("never passes over a run root that holds records and names no owner: its reco
     members: () => [],
     sleep: () => Promise.resolve(),
   };
-  // Its process is gone: the record is forgotten, the root removed.
   const gone = runRoot(parent, "marbles-run-ownerless-gone", OLD, false);
-  // Its process is not listed but answers: kept, and reported.
   const answering = runRoot(
     parent,
     "marbles-run-ownerless-answering",
@@ -392,7 +361,6 @@ it("never passes over a run root that holds records and names no owner: its reco
   expect(existsSync(gone)).toBe(false);
   expect(existsSync(answering)).toBe(true);
   expect(warned).toContain("is not listed but a signal still reaches it");
-  // A root being made, with neither owner nor record yet, is left alone.
   const making = join(parent, "marbles-run-making");
   mkdirSync(making, { mode: 0o700 });
   await sweepFinishedRuns(parent, { graceMs: 0, killMs: 0 }, system);

@@ -325,10 +325,6 @@ function materialize(
   };
 }
 
-/**
- * `retry` with its `shouldRetry` run as run `runId`'s own work, as the rest
- * of the step is: the package calls it outside the step's `execute`.
- */
 function asRunPolicy(
   runId: string,
   bindings: Bindings,
@@ -376,7 +372,6 @@ export function factoryFor(
   };
 }
 
-/** Parse the launch's input, and open the run's scope with its tree built. */
 async function openRun(
   definition: AnyDefinition,
   name: string,

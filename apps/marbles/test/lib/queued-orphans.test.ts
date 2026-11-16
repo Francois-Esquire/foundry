@@ -8,13 +8,6 @@ import type { Engine } from "~/lib/engine";
 import { testEngine } from "../helpers/engine";
 import { exitedPid, leftBehind, storedExecution } from "../helpers/executions";
 
-/**
- * A queued run whose owning process is proved gone is taken by the engine
- * offered it, in the one transaction that checks, inside it, that the run
- * is still queued under exactly that owner: an owner that is alive keeps
- * it, two takers take it once, and a retiring engine takes nothing.
- */
-
 let root: string;
 let state: string;
 const engines: Engine[] = [];
@@ -30,7 +23,6 @@ afterEach(async () => {
   await rm(root, { force: true, recursive: true });
 });
 
-/** A started engine over the shared state, with the task `save` that says it ran. */
 async function engineHere(ran: string[]): Promise<Engine> {
   const engine = testEngine({ print: () => undefined, root, state });
   engines.push(engine);
@@ -51,8 +43,6 @@ it("takes a queued run whose owner is gone, and runs it", async () => {
   await leftBehind(state, dead.pid, [{ id: "rn-orphan", input: {} }]);
   const ran: string[] = [];
   const engine = await engineHere(ran);
-  // Its start leaves it: queued runs of a gone process are not recovered
-  // at start in Marbles.
   expect((await storedExecution(state, "rn-orphan"))?.status).toBe("queued");
   expect(await engine.takeQueued("rn-orphan", dead)).toEqual({ taken: true });
   await expect.poll(() => ran).toEqual(["save"]);

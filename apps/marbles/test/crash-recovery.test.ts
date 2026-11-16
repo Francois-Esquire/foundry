@@ -1,17 +1,3 @@
-/**
- * Crash recovery across real processes in a test home of its own. The
- * first process hosts one step, `hold`, which starts a long host command
- * and records a harness activity, and is killed with SIGKILL while both
- * run. The next start over the same state stops the command it left, by
- * its recovery record, closes out its Run and its activity, and records
- * its Execution Run interrupted; a start after that changes nothing.
- *
- * Every process signalled here is one this test started: the host
- * process, tracked in the home's records when it is spawned, and the
- * command it started, which the home records too, so the home's teardown
- * stops whatever recovery did not.
- */
-
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -38,10 +24,8 @@ const PROCESS_TIMEOUT = 60_000;
 const TEST_TIMEOUT = 180_000;
 const POLL_MS = 50;
 const LONG_AGO = anotherStart();
-/** A Run its process still owes an outcome. */
 const UNSETTLED = /^(queued|running)$/;
 
-/** A host process over `<home>/state`, with `hold` and then `body`. */
 function phase(home: TestHome, name: string, body: string): string {
   const script = join(home.path, `${name}.ts`);
   const state = join(home.path, "state");
@@ -97,7 +81,6 @@ function run(home: TestHome, script: string): Record<string, unknown> {
   return JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
 }
 
-/** Run `script` until it kills itself at the first line starting `killOn`. */
 function runKilled(home: TestHome, script: string, killOn: string): unknown {
   try {
     execFileSync("bun", [script], {
@@ -113,7 +96,6 @@ function runKilled(home: TestHome, script: string, killOn: string): unknown {
   return "exited";
 }
 
-/** The recovery records the host's children left, other than `except`'s. */
 function recoveryRecords(home: TestHome, except: number): SpawnRecord[] {
   const dir = home.layout.spawned;
   if (!existsSync(dir)) {
@@ -151,11 +133,6 @@ function runs(home: TestHome) {
   return readStoredRuns(join(home.path, "state"), "test");
 }
 
-/**
- * A host over `home` that launched `hold`, whose step started `sleep`,
- * recorded a harness activity, and was killed with SIGKILL: the run, and
- * the command it left running.
- */
 async function crashedHost(
   home: TestHome
 ): Promise<{ readonly command: SpawnRecord; readonly runId: string }> {
@@ -198,14 +175,12 @@ await new Promise(() => undefined);`
       ? (JSON.parse(output.split("\n")[0] ?? "{}") as { runId: string })
       : undefined
   );
-  // The command the step started, recorded with the host as its owner.
   const command = await waitFor(() =>
     recoveryRecords(home, host.pid ?? 0).at(0)
   );
   expect(command.owner?.pid).toBe(host.pid);
   host.kill("SIGKILL");
   await exited(host);
-  // Left running by the host it outlived, its Run unsettled.
   expect(startedAt(command.pid)).toBe(command.started);
   expect(
     (await runs(home)).find((entry) => entry.id === runId)?.status
@@ -214,7 +189,6 @@ await new Promise(() => undefined);`
   return { command, runId };
 }
 
-/** A phase that reports how the engine sees the run after its start. */
 function inspection(home: TestHome, name: string, runId: string): string {
   return phase(
     home,
@@ -227,7 +201,6 @@ report.recovery = engine.lastRecovery;`
   );
 }
 
-/** What every start after the crash leaves, however many it took. */
 async function expectRecovered(
   home: TestHome,
   report: Record<string, unknown>,
@@ -278,7 +251,6 @@ it(
       ])
     );
 
-    // Again: nothing is left to put right, and nothing changes.
     const again = run(home, inspection(home, "again", runId));
     expect(
       (again.lines as string[]).filter(
@@ -288,7 +260,6 @@ it(
     expect(again.execution).toEqual(recovered.execution);
     expect(again.run).toEqual(recovered.run);
     expect(again.activities).toEqual(recovered.activities);
-    // What each start did is kept for `marbles status`: the last one's.
     expect(recovered.recovery).toMatchObject({
       steps: [
         { detail: "1 process(es) stopped", outcome: "done", step: "processes" },
@@ -333,7 +304,6 @@ it(
     const home = testHome();
     const { command, runId } = await crashedHost(home);
     const state = join(home.path, "state");
-    // As after a reboot: the run's owner had the pid this process has now.
     const before = { ownerPid: process.pid, ownerStarted: LONG_AGO };
     await writeDatabase(stateDatabase(state), async (database) => {
       await database

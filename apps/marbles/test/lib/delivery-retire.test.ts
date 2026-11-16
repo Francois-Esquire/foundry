@@ -12,15 +12,6 @@ import type { Handler } from "~/lib/events/source";
 import { TASKS } from "~/lib/events/source";
 import { testEngine } from "../helpers/engine";
 
-/**
- * An engine that has begun to retire does not stand in the way of its
- * successor's delivery: it gives the delivery claim up at once, not when
- * a handler still running returns, and writes nothing about that handler
- * afterwards, so the successor's record of what it delivered wins. A
- * handler that never returns holds nothing: the retired engine ends once
- * its runs have.
- */
-
 let root: string;
 let state: string;
 const engines: Engine[] = [];
@@ -36,7 +27,6 @@ afterEach(async () => {
   await rm(root, { force: true, recursive: true });
 });
 
-/** An engine over the shared database, its tasks kept there too. */
 function engineHere(): Engine {
   const engine = testEngine({
     print: () => undefined,
@@ -53,7 +43,6 @@ const successor = () => ({
   started: thisProcess().started,
 });
 
-/** The titles a change's payload carries. */
 function titles(payload: unknown): string[] {
   const { tasks } = payload as {
     readonly tasks: readonly { readonly after?: { readonly title?: string } }[];
@@ -81,19 +70,15 @@ it("lets the next engine deliver while the retired engine's observer is still ha
   });
   await next.start();
   await new Tasks({ store: next.taskStore }).create({ title: "second" });
-  // The next engine takes the claim on its tick and delivers, the old
-  // handler still running.
   await vi.waitFor(() => expect(seen).toContain("second"), {
     interval: 50,
     timeout: 10_000,
   });
-  // The retired engine has no runs: it has ended, its handler or not.
   await retired.ended;
   release.resolve();
 }, 30_000);
 
 it("writes nothing about a handler that returns after the next engine delivered", async () => {
-  // One observer, the same handler in both engines: its calls say which.
   const calls: string[] = [];
   const oldCall = Promise.withResolvers<void>();
   const entered = Promise.withResolvers<void>();
@@ -121,17 +106,12 @@ it("writes nothing about a handler that returns after the next engine delivered"
   const next = engineHere();
   next.observe(TASKS, handler);
   await next.start();
-  // The next engine is handed "first" and fails it: not completed there.
   await vi.waitFor(() => expect(calls).toEqual(["first", "first"]), {
     interval: 50,
     timeout: 10_000,
   });
-  // The old call returns now, late; once the old engine is gone, all it
-  // did is done.
   oldCall.resolve();
   await old.dispose();
-  // The next change makes the next engine look again: "first" is still
-  // its to complete, the late return having recorded nothing.
   await new Tasks({ store: next.taskStore }).create({ title: "second" });
   await vi.waitFor(() => expect(calls).toContain("second"), {
     interval: 50,
@@ -155,7 +135,6 @@ it("ends a retired engine whose handler never returns once its runs have, and st
   const retired = await old.retire(successor());
   await running.result;
   await retired.ended;
-  // Its stop waits for nothing the handler holds.
   await old.dispose();
   engines.splice(engines.indexOf(old), 1);
 }, 30_000);

@@ -28,7 +28,6 @@ const NO_NAME_PATTERN = /has no name/;
 
 const text = z.object({ text: z.string() });
 
-/** An engine as the loop sees it: these triggers, trigger state in memory, a stub launch. */
 function loopEngine(
   schedules: readonly Schedule[],
   started: () => void
@@ -338,7 +337,6 @@ describe("cadence", () => {
     claiming.resolve();
     await done;
     expect(launched).toBe(0);
-    // Given up: the next engine claims it at once.
     expect(await claimTick.call(triggers, "s")).toEqual({ claimed: true });
   });
 

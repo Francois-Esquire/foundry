@@ -29,7 +29,6 @@ import { testHome } from "./helpers/home";
 import { rawMcpSession, strayLines } from "./helpers/mcp-stdio";
 import { inspectDashboard } from "./helpers/terminal";
 
-/** The line `marbles status` gives the engine generation that hosts the workspace. */
 const CURRENT_GENERATION = /engine generation \d+: pid \d+ · current/;
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
@@ -170,7 +169,6 @@ test("the tarball installs and shares the library registry with the CLI", async 
     );
     expect(readFileSync(join(installed, "LICENSE"), "utf8")).toContain("MIT");
     expect(readdirSync(installed)).not.toContain("src");
-    // Opening the database applies the migrations the package ships.
     expect(
       readdirSync(join(installed, "dist", "migrations", "meta"))
     ).toContain("_journal.json");
@@ -242,7 +240,6 @@ if (readProcess(stateDir) !== undefined) throw new Error("Release must clear the
 console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing", listed);
 `
     );
-    // A prompt is written with the package's own tags: nothing else is installed.
     writeFileSync(
       join(consumer, "prompt.ts"),
       `
@@ -410,8 +407,6 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       )
     ).toContain("Hello tarball");
     // Without --dry-run the packaged CLI starts the Marbles process from its
-    // own dist entries, hosts the workspace in an engine generation, and
-    // rolls there.
     const home = testHome();
     const { state } = home.layout;
     const marbles = (args: string[], env = home.env) =>
@@ -424,17 +419,14 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       expect(status).toContain("marbles process: pid");
       expect(status).toContain("(generation)");
       expect(status).toMatch(CURRENT_GENERATION);
-      // The daemon recorded the workspace in the database it opened.
       expect(readdirSync(state)).toContain("marbles.db");
       expect(status).toContain(consumer);
-      // A task made through the generation that hosts the workspace.
       expect(marbles(["tasks", "create", "Through the generation"])).toContain(
         "Through the generation"
       );
     } finally {
       expect(marbles(["stop"])).toContain("stopped Marbles process");
     }
-    // With no process holding it, the database still reads, read-only.
     expect(marbles(["status"])).toContain(consumer);
     const listedTasks = (env: Record<string, string>) =>
       (
@@ -443,16 +435,12 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
         }[]
       ).map((task) => task.title);
     expect(listedTasks(home.env)).toEqual(["Through the generation"]);
-    // With no Marbles process and no database yet, a task change makes and
-    // migrates it from the installed migrations; a listing reads it back.
     const tasksHome = testHome();
     expect(marbles(["tasks", "create", "Packed"], tasksHome.env)).toContain(
       "Packed"
     );
     expect(readdirSync(tasksHome.layout.state)).toContain("marbles.db");
     expect(listedTasks(tasksHome.env)).toEqual(["Packed"]);
-    // The installed bin serves MCP over STDIO, stdout carries only frames,
-    // and serving starts no Marbles process.
     const mcpHome = testHome();
     const session = await rawMcpSession(
       cli,

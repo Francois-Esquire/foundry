@@ -27,27 +27,14 @@ import {
   storedMonitorState,
 } from "~/lib/trigger-store";
 
-/**
- * A workspace's trigger state in the Marbles database, scoped by the
- * workspace id: each schedule's tick (`marbles_schedule_ticks`), and each
- * monitor's state (`marbles_monitor_states`), both by the trigger's key. A
- * claim on a tick is a transaction that reads the row's owner and takes
- * it, so two engines, in this process or another, never tick one trigger
- * at once; an owner whose process has exited holds nothing. Every call
- * surfaces a lock waited on too long as a `DatabaseBusyError`.
- */
-
 export interface DatabaseTriggerStoreOptions {
-  /** The database the host keeps open. */
   readonly database: StoreDatabase;
-  /** The workspace id. */
   readonly scope: string;
 }
 
 export class DatabaseTriggerStore implements TriggerStore {
   readonly #database: StoreDatabase;
   readonly #scope: string;
-  /** This store's identity as a tick's owner: one per engine. */
   readonly #owner = randomUUID();
   readonly #gate = new RecordsGate("the trigger store is closed");
 
@@ -74,7 +61,6 @@ export class DatabaseTriggerStore implements TriggerStore {
     return this.#call(() =>
       claimJudged(
         () => look(this.#database),
-        // Asked outside the transaction: no process is asked under its lock.
         (seen) => (seen === undefined ? null : heldBy(seen)),
         (seen, holder) =>
           this.#database.transaction(
@@ -123,11 +109,6 @@ export class DatabaseTriggerStore implements TriggerStore {
     });
   }
 
-  /**
-   * Refuse every call from now on, once those under way have settled, then
-   * give up every tick this store still holds: one cut short by a stop is
-   * claimed by the next engine at once, not once this process exits.
-   */
   async close(): Promise<void> {
     await this.#gate.close();
     await asBusy(() =>
@@ -236,7 +217,6 @@ export class DatabaseTriggerStore implements TriggerStore {
 
 type TickRow = typeof marblesScheduleTicks.$inferSelect;
 
-/** A row's last tick; `undefined` while it holds only a claim. */
 function tickOf(row: TickRow): ScheduleHistory | undefined {
   if (
     row.lastFinish === null ||
@@ -256,21 +236,12 @@ function tickOf(row: TickRow): ScheduleHistory | undefined {
   });
 }
 
-/** A trigger as `status` lists it. */
 export interface StoredTick {
   readonly key: string;
-  /** Its last tick; `undefined` before its first. */
   readonly last?: ScheduleHistory;
-  /** The process whose tick of it is under way, if one is. */
   readonly running: number | null;
 }
 
-/**
- * Every trigger the workspace `scope` has ticked, or is ticking now, in
- * the Marbles database at the state root `state`, by key, read only.
- * Empty with no database, or nothing migrated into it. A tick it cannot
- * read is listed as none.
- */
 export async function readStoredTicks(
   state: string,
   scope: string
@@ -292,7 +263,6 @@ export async function readStoredTicks(
       last = undefined;
     }
     const running = heldBy(row)?.pid ?? null;
-    // A claim its dead owner left, on a trigger that never ticked, is nothing.
     if (last === undefined && running === null) {
       return [];
     }

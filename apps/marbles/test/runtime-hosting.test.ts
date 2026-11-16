@@ -1,10 +1,3 @@
-/**
- * Which engine a workspace's own code answers to (`authoring/runtime.ts`):
- * the engine its run, observer or load belongs to, until that engine is
- * disposed, whatever engine is bound to the workspace after it; then it
- * is refused. Never the engine bound after it.
- */
-
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -37,7 +30,6 @@ import { seedRepository } from "./helpers/repository";
 
 type TestEngine = InstanceRuntime & { disposed: boolean };
 
-/** An engine as the slot sees it: its workspace, the context its runs execute in, and whether it was disposed. */
 function engine(workspaceId: string): TestEngine {
   return {
     context: { cwd: "/", environment: {}, workspaceId },
@@ -46,7 +38,6 @@ function engine(workspaceId: string): TestEngine {
   } as unknown as TestEngine;
 }
 
-/** Load `workspaceId` into `into`; resolves the load's number. */
 async function load(workspaceId: string, into: Catalog): Promise<number> {
   let number = 0;
   await loadInto(workspaceId, into, (n) => {
@@ -56,14 +47,12 @@ async function load(workspaceId: string, into: Catalog): Promise<number> {
   return number;
 }
 
-/** Run `work` as one of `owner`'s runs would: in its execution context. */
 function inRunOf<T>(owner: TestEngine, work: () => T): T {
   return inContext(owner.context, work);
 }
 
 const RELEASED = expect.objectContaining({ name: "WorkspaceReleasedError" });
 
-/** What `work` declares into and reaches, or the name of what it threw. */
 async function reached(
   work: (call: () => unknown) => unknown
 ): Promise<{ catalog: unknown; runtime: unknown }> {
@@ -76,7 +65,6 @@ async function reached(
   return { catalog: declaredInto, runtime };
 }
 
-/** A workspace with a first engine bound, then a second bound while the first still runs. */
 async function replaced(workspace: string) {
   const old = new Catalog();
   const first = await load(workspace, old);
@@ -99,7 +87,6 @@ async function replaced(workspace: string) {
 it("keeps an old engine's runs and loads on that engine after another is bound, until it is disposed", async () => {
   const w = await replaced("old-still-runs");
   w.bindNext();
-  // The old engine still finishes the runs it has: they answer to it.
   expect(await reached((call) => inRunOf(w.oldEngine, call))).toEqual({
     catalog: w.old,
     runtime: w.oldEngine,
@@ -108,7 +95,6 @@ it("keeps an old engine's runs and loads on that engine after another is bound, 
     catalog: w.old,
     runtime: w.oldEngine,
   });
-  // The new engine's own work reaches it.
   expect(await reached((call) => inRunOf(w.nextEngine, call))).toEqual({
     catalog: w.next,
     runtime: w.nextEngine,
@@ -119,7 +105,6 @@ it("keeps an old engine's runs and loads on that engine after another is bound, 
   });
 
   w.oldEngine.disposed = true;
-  // Disposed: refused, never handed to the engine bound after it.
   expect(await reached((call) => inRunOf(w.oldEngine, call))).toEqual({
     catalog: "WorkspaceReleasedError",
     runtime: "WorkspaceReleasedError",
@@ -197,8 +182,6 @@ it("keeps an old run's timers and promises on its engine while it lives, and ref
     Promise.withResolvers<undefined>();
   const { promise: secondTimer, resolve: fireSecond } =
     Promise.withResolvers<undefined>();
-  // Set up inside the old run: each runs later, as a timer or promise of
-  // that run would.
   const outcomes = inRunOf(w.oldEngine, () => {
     const timed = (fire: Promise<undefined>) =>
       new Promise<{ catalog: unknown; runtime: unknown }>((settle) => {
@@ -218,13 +201,11 @@ it("keeps an old run's timers and promises on its engine while it lives, and ref
     };
   });
   w.bindNext();
-  // After the replacement, before the old engine is disposed.
   openFirst(undefined);
   fireFirst(undefined);
   const alive = { catalog: w.old, runtime: w.oldEngine };
   expect(await outcomes.firstPromise).toEqual(alive);
   expect(await outcomes.firstTimer).toEqual(alive);
-  // Once it is disposed.
   w.oldEngine.disposed = true;
   openSecond(undefined);
   fireSecond(undefined);
@@ -238,7 +219,6 @@ it("keeps an old run's timers and promises on its engine while it lives, and ref
 
 it("refuses a load its host gave up while an older engine still answers, and leaves that engine answering its own", async () => {
   const w = await replaced("given-up");
-  // The second load completed, and its host gave it up before binding it.
   abandonHost("given-up", w.next);
   expect(await reached((call) => inLoad(w.second, call))).toEqual({
     catalog: "WorkspaceReleasedError",
@@ -284,7 +264,6 @@ describe("two real engines over one workspace", () => {
     const alive = Promise.withResolvers<undefined>();
     const late = Promise.withResolvers<undefined>();
     const seen: Record<string, unknown> = {};
-    /** What the calling work declares into and reaches, by identity. */
     const probe = async () => ({
       catalog: (() => {
         try {
@@ -298,7 +277,6 @@ describe("two real engines over one workspace", () => {
     step("probe").do(async () => {
       await alive.promise;
       seen.stepAlive = await probe();
-      // Left running after the step returns, as a timer of its run would.
       seen.stepLate = late.promise.then(probe);
       return "done";
     });
@@ -347,12 +325,10 @@ describe("two real engines over one workspace", () => {
   });
 });
 
-/** What the calling authored code reaches: the engine, or the name of what it threw. */
 async function reachedEngine(): Promise<unknown> {
   return await instanceRuntime().catch((error: Error) => error.name);
 }
 
-/** A schema whose check is an author's code, recording what it reaches. */
 function probingSchema(seen: unknown[]): StandardSchemaV1 {
   return {
     "~standard": {
@@ -372,7 +348,6 @@ describe("every place an engine calls an author's code", () => {
     catalog.reset();
   });
 
-  /** A first engine and its replacement over one workspace, both alive. */
   async function replacedEngines(workspaceId: string) {
     const root = await seedRepository();
     const old = await startEngine({
@@ -488,7 +463,6 @@ describe("every place an engine calls an author's code", () => {
       name: "flow",
       setup: async () => {
         seen.setup.push(await reachedEngine());
-        // A child's input is checked as it runs; a root's was at launch.
         return {
           children: [
             [
@@ -512,7 +486,6 @@ describe("every place an engine calls an author's code", () => {
     old.define(flow);
     const reachedAtRetry: unknown[] = [];
     const decide = inner.config?.retry?.shouldRetry;
-    // The retry decision records what it reaches, then decides.
     (inner.config?.retry as { shouldRetry: unknown }).shouldRetry = (
       error: unknown,
       attempt: number
@@ -523,7 +496,6 @@ describe("every place an engine calls an author's code", () => {
       return decide?.(error, attempt) ?? false;
     };
     expect(await old.run("flow", undefined)).toBe("done");
-    // By identity: the engine itself is no value to compare.
     const which = (each: unknown) => {
       if (each === old) {
         return "old";
@@ -537,7 +509,6 @@ describe("every place an engine calls an author's code", () => {
       retry: reachedAtRetry.map(which),
       setup: seen.setup.map(which),
     }).toEqual({
-      // Once per attempt.
       input: ["old", "old"],
       launch: ["old"],
       output: ["old"],
@@ -556,11 +527,8 @@ describe("every place an engine calls an author's code", () => {
         const session = await context.agents.session({
           id: "prober",
           kind: "agent",
-          // The mock models answer with the prompts: only the JSON below.
           prompt: "",
           settings: {
-            // The author's schema for the turn's answer, which the turn
-            // parses it with.
             output: Output.object({
               schema: z.object({ answer: z.number() }).refine(async () => {
                 seen.push(await reachedEngine());
@@ -569,7 +537,6 @@ describe("every place an engine calls an author's code", () => {
             }),
           },
         });
-        // The mock models answer with the prompt: plain JSON here.
         await session.generate('{"answer":1}');
         return "turned";
       },
@@ -624,7 +591,6 @@ describe("every place an engine calls an author's code", () => {
       }
       return each === old ? "old" : each;
     };
-    // The task's context and engine, the workflow's input schema and setup.
     expect(seen.map(which)).toEqual(["next", "next", "next", "next"]);
   });
 
@@ -635,7 +601,6 @@ describe("every place an engine calls an author's code", () => {
       expect.objectContaining({ name: "AmbiguousWorkspaceError" })
     );
     await engines.old.dispose();
-    // One alive: the load reaches it, as a source loading beside it does.
     expect(await inLoad(loading, instanceRuntime)).toBe(engines.next);
   });
 
@@ -662,7 +627,6 @@ describe("what a disposed engine leaves behind", () => {
       const bound = engine(workspace);
       setHost(bound, loaded);
       bound.disposed = true;
-      // What a host does once its engine is disposed.
       releaseEngine(bound);
       engines.push(new WeakRef(bound));
     })();
@@ -686,7 +650,6 @@ describe("what a disposed engine leaves behind", () => {
         }))
       );
     }
-    // The engine bound last is replaced too; nothing else keeps them.
     setHost(engine(workspace), new Catalog());
     for (let each = 0; each < 4; each += 1) {
       await new Promise((settle) => setTimeout(settle, 0));
@@ -700,11 +663,6 @@ describe("what a disposed engine leaves behind", () => {
   });
 });
 
-/**
- * Load `workspace`, bind an engine to the load, keep what work of it might
- * keep (the load's number, a scope one of its runs captured), and dispose
- * the engine. Resolves the late calls, which close over neither.
- */
 async function reloaded(
   workspace: string,
   watch: (bound: object, loaded: object) => void

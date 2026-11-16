@@ -3,14 +3,6 @@ import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import type { HarnessSession } from "@foundry/agents/harness";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 
-/**
- * An engine generation whose workspace engines record one harness
- * activity, `activity` of session `session`, and, in the first generation
- * to start only (it leaves `MARBLES_TEST_STANDIN` behind as it does), hold
- * a stand-in session that can stop it: each stop is a line `stop <pid>`
- * in `MARBLES_TEST_STANDIN.log`. A later generation knows the activity
- * from the database, and holds no session to stop it with.
- */
 const marker = process.env.MARBLES_TEST_STANDIN ?? "";
 const { load } = HarnessActivities.prototype;
 HarnessActivities.prototype.load = async function (this: HarnessActivities) {

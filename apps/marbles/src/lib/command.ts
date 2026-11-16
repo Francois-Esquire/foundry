@@ -39,10 +39,6 @@ export interface CommandSite {
   readonly cwd: () => string;
   /** Print instead of run. */
   readonly dry: boolean;
-  /**
-   * What every command inherits, beneath what its call adds: the run's
-   * execution context's. The process's own environment when omitted.
-   */
   readonly environment?: Readonly<Record<string, string>>;
   readonly print: (line: string) => void;
   readonly signal: () => AbortSignal | undefined;
@@ -103,7 +99,6 @@ function onHost(
     );
     child.stdout?.on("data", (chunk: string) => site.write?.(chunk));
     child.stderr?.on("data", (chunk: string) => site.write?.(chunk));
-    // Once the child is this call's; it never throws.
     recordChild(child);
   });
 }

@@ -167,9 +167,6 @@ describe("lib2 through the engine", () => {
     const recordedSession = scope?.ledger.toJSON();
     const runSession = scope?.session.id;
     expect(Object.keys(recordedSession ?? {})).toHaveLength(1);
-    // Committed when it parked, not only at stop: a crash leaves it too,
-    // with its Suspension, or the next process adopts a run it can never
-    // answer.
     await vi.waitFor(async () =>
       expect(await storedRun(state, launched.id)).toMatchObject({
         status: "suspended",
@@ -550,7 +547,6 @@ describe("lib2 through the engine", () => {
     };
     expect((await read()).status).toBe("suspended");
     await engine.answer(question.id, "approve");
-    // The body is still held at its gate; the store already says the
     // question is answered and the run is under way.
     await vi.waitFor(async () =>
       expect((await read()).status).not.toBe("suspended")
@@ -600,7 +596,6 @@ describe("lib2 through the engine", () => {
     expect(two.scopes.has(launched.id)).toBe(true);
     expect((await storedRun(state, launched.id))?.owner).toBe(process.pid);
 
-    // Another engine that finds the same parked Run cannot take it too.
     const three = await startEngine({
       ...rebound.instances,
       askable: true,
@@ -626,7 +621,6 @@ describe("lib2 through the engine", () => {
           .map(() => ({})) as never,
       () => true
     );
-    // Settled: nothing owns it any more.
     expect((await storedRun(state, launched.id))?.owner).toBeNull();
     await two.stop();
     await rebound.dispose();

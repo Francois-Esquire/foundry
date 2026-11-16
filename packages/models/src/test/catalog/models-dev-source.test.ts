@@ -7,10 +7,8 @@ const PAYLOAD = {
   },
 };
 
-/** A fresh module, so each test starts with nothing loaded. */
 const source = () => import("../../catalog/models-dev-source");
 
-/** A fetch that answers only when its signal aborts, as a hung server would. */
 const hanging = () =>
   vi.fn(
     (_url: string, init?: RequestInit) =>
@@ -135,7 +133,6 @@ describe("holdModelsDev", () => {
 
     const hold = holdModelsDev();
     await hold.loaded;
-    // 30 s, 1, 2, 4 and 8 minutes, then 10 minutes each time.
     for (const delay of [30, 60, 120, 240, 480, 600, 600]) {
       await vi.advanceTimersByTimeAsync(delay * 1000);
     }
@@ -160,7 +157,6 @@ describe("holdModelsDev", () => {
     const second = holdModelsDev();
     expect(fetch).toHaveBeenCalledTimes(2);
     await second.loaded;
-    // A new hold does not wait for the retry.
     const third = holdModelsDev();
     expect(fetch).toHaveBeenCalledTimes(3);
     await third.loaded;
@@ -190,7 +186,6 @@ describe("holdModelsDev", () => {
     const { holdModelsDev, loadedModelsDev } = await source();
 
     const abandoned = holdModelsDev();
-    // The response has arrived; its body is still being read.
     await Promise.resolve();
     abandoned.release();
     const replacement = holdModelsDev();

@@ -13,19 +13,8 @@ import type {
 import { storedAutomation } from "~/lib/automation/store";
 import { RecordsGate } from "~/lib/events/records";
 
-/**
- * A workspace's automations in the Marbles database
- * (`marbles_automations`), scoped by the workspace id, one row per id, each
- * field of the record in a column of its own. An edit is one write
- * transaction, which takes the database's write lock before it reads, so
- * two engines, in this process or another, never edit at once. Every call
- * surfaces a lock waited on too long as a `DatabaseBusyError`.
- */
-
 export interface DatabaseAutomationStoreOptions {
-  /** The database the host keeps open, or one of its transactions. */
   readonly database: StoreDatabase;
-  /** The workspace id. */
   readonly scope: string;
 }
 
@@ -78,7 +67,6 @@ export class DatabaseAutomationStore implements AutomationStore {
 
 type AutomationRow = typeof marblesAutomations.$inferInsert;
 
-/** The automations of `scope` as `database`, or a transaction on it, holds them. */
 function automationsIn(database: StoreDatabase, scope: string): AutomationView {
   return {
     async list() {
@@ -116,7 +104,6 @@ async function putRow(database: StoreDatabase, row: AutomationRow) {
     });
 }
 
-/** The record's row, in its stored form as it stands now (`storedAutomation`). */
 function rowOf(record: AutomationRecord, scope: string): AutomationRow {
   const copy = storedAutomation(record);
   return {
@@ -138,7 +125,6 @@ function rowOf(record: AutomationRecord, scope: string): AutomationRow {
   };
 }
 
-/** A row as the record it holds, unchecked: the service reads it through its schema. */
 function recordOf(row: typeof marblesAutomations.$inferSelect): unknown {
   return {
     at: row.at,
@@ -162,7 +148,6 @@ function recordOf(row: typeof marblesAutomations.$inferSelect): unknown {
   };
 }
 
-/** A stored input's JSON; one that is not JSON reads as itself, which the schema refuses. */
 function parsedInput(text: string): unknown {
   try {
     return JSON.parse(text);
@@ -171,13 +156,6 @@ function parsedInput(text: string): unknown {
   }
 }
 
-/**
- * The automations of the workspace `scope` in the Marbles database at the
- * state root `state`, for a command that lists triggers without an
- * engine: each list reads the database read only (`readDatabase`), and is
- * empty with no database or nothing migrated into it; every change is
- * refused.
- */
 export function readAutomations(state: string, scope: string): AutomationStore {
   const refused = () =>
     Promise.reject(new Error("the automations are read only here"));

@@ -1,11 +1,5 @@
 import { thisProcess } from "../process-identity";
 
-/**
- * A start of the kind this system reads, for a process that is not the
- * one `started` names: one from another boot under `/proc`, one at the
- * epoch under `ps`. For a test that models a pid handed to another
- * process since, as after a reboot.
- */
 export function anotherStart(
   started: string | null = thisProcess().started
 ): string {

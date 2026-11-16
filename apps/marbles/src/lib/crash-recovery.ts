@@ -13,7 +13,6 @@ import type { RunStore } from "./run-store";
 import type { HarnessActivities } from "./sandbox/activities";
 import { holderState, leftBehind } from "./sandbox/holders";
 
-/** The steps of a recovery, in the order they run. */
 const RECOVERY_STEPS = [
   "processes",
   "containers",
@@ -23,25 +22,17 @@ const RECOVERY_STEPS = [
 ] as const;
 export type RecoveryStepName = (typeof RECOVERY_STEPS)[number];
 
-/**
- * How one step of a start's recovery went: `done`, with what it did;
- * `skipped`, when this engine keeps nothing it would act on; `failed`,
- * with why, the next step having run anyway.
- */
 interface RecoveryStep {
   readonly detail: string;
   readonly outcome: "done" | "failed" | "skipped";
   readonly step: RecoveryStepName;
 }
 
-/** What a start's recovery did, step by step, and when it ran. */
 export interface RecoveryReport {
-  /** An ISO time. */
   readonly at: string;
   readonly steps: readonly RecoveryStep[];
 }
 
-/** A recovery report as read back: anything else is not one. */
 export const recoveryReportSchema = z.object({
   at: z.string(),
   steps: z.array(
@@ -53,76 +44,21 @@ export const recoveryReportSchema = z.object({
   ),
 });
 
-/**
- * Where a workspace's last recovery report is kept, for `marbles status`
- * (`database/recoveries.ts`); without one, only the engine holds it.
- */
 export interface RecoveryLog {
-  /** Keep `report` as the workspace's last, in place of the one before. */
   record(report: RecoveryReport): Promise<void>;
 }
 
 export interface CrashRecoveryOptions {
   readonly activities: HarnessActivities;
   readonly artifacts: Pick<Artifacts, "recover">;
-  /**
-   * The container rows kept, read without the runtime, each naming its
-   * holder (`lib/sandbox/holders.ts`); without them no container is
-   * taken back.
-   */
   readonly containerRows?: Pick<ContainerStore, "list">;
-  /** The engine's containers, started once, as its sandboxes use them. */
   readonly containers: () => Promise<Pick<Containers, "recover">>;
-  /** The Execution Runs this engine holds, as the launcher left them. */
   readonly executions: () => readonly ExecutionRun[];
   readonly print: (line: string) => void;
   readonly runs: RunStore;
-  /**
-   * Where the processes this engine's process belongs to record what they
-   * start (`MARBLES_SPAWN_RECOVERY`); no child is stopped without one.
-   */
   readonly spawned?: string;
 }
 
-/**
- * What a starting engine puts right after the Marbles process or an
- * engine died, in one place and one order. Each part's rule is its own
- * module's; this only orders the calls:
- *
- * 1. The children a gone process started and left running are stopped
- *    (`stopOrphans`, from the recovery records under `spawned`), first,
- *    so none of them changes what the later parts put right.
- * 2. Container rows a gone process left are removed, with their VMs, and
- *    VMs with no row swept (`Containers.recover`); the runtime is started
- *    for it only when there is such a row. A row is deleted only once
- *    every VM labelled with its id is gone, so a start that dies after
- *    the delete, before the sweep, leaves no VM that a later start,
- *    finding no row, would miss.
- * 3. Runs a gone process left `queued` or `running` are closed out, once
- *    the launcher has settled their Execution Runs (`closeAbandonedRuns`).
- *    Parked Runs stay parked, for whoever can answer them, and queued
- *    Execution Runs stay queued, as the launcher left them.
- * 4. Harness activities left running in a run that has ended are closed
- *    out (`HarnessActivities.closeOut`); sessions are left as they are.
- * 5. Artifact files no committed record names, and staging left
- *    unchanged for a day, are removed (`Artifacts.recover`).
- *
- * Modules: nothing to recover until Marbles hosts a module system; their
- * recovery (`createModuleRuntimeRecovery`) needs its program supervisor.
- *
- * Every part acts only on what a process that is gone left, decided on
- * the record itself: a child or container row by its holder's pid and
- * start time, a Run by a claim no live engine holds and its settled
- * Execution Run, an activity by its run's settled Execution Run (a run
- * missing from the list this engine loaded was pruned, and pruning takes
- * only settled runs), and artifact files under the package's own
- * exclusion (each store transaction holds SQLite's write lock from its
- * first statement, and staging is judged by its age, never its owner).
- * So it is safe to run twice, and safe to stop at any point: what a part
- * did not get to is still there for the next start. A part that fails is
- * reported and the next one runs; the engine starts either way, and keeps
- * what each step did (`RecoveryReport`) where `marbles status` reads it.
- */
 export class CrashRecovery {
   readonly #options: CrashRecoveryOptions;
 
@@ -130,11 +66,6 @@ export class CrashRecovery {
     this.#options = options;
   }
 
-  /**
-   * Put right what a gone process left, over the engine's workflow records
-   * `store`: what each step did, and the ids of the Runs it closed out,
-   * for the engine to list.
-   */
   async recover(
     store: Pick<ExecutionCoordinator, "abandonRun" | "listRuns">
   ): Promise<{
@@ -215,9 +146,6 @@ export class CrashRecovery {
         outcome: "skipped",
       };
     }
-    // Judged here, outside any transaction; the registry's claim checks
-    // the holder it was judged by still holds each row. With none left
-    // behind, no VM is either: a row goes only with all of its VMs.
     const listed = await rows.list();
     const untold = listed
       .filter((row) => holderState(row) === "unknown")
@@ -260,7 +188,6 @@ export class CrashRecovery {
     };
   }
 
-  /** Whether a run has ended: its Execution Run settled, or none is kept. */
   #ended(): (runId: string) => boolean {
     const runs = new Map(
       this.#options.executions().map((run) => [run.id, run])
@@ -271,7 +198,6 @@ export class CrashRecovery {
     };
   }
 
-  /** One step, its failure caught: the next step runs either way. */
   async #step(
     step: RecoveryStepName,
     work: () => Promise<Outcome>
@@ -284,7 +210,6 @@ export class CrashRecovery {
   }
 }
 
-/** How a step went, and whether it changed anything, which is what gets printed. */
 interface Outcome extends Omit<RecoveryStep, "step"> {
   readonly acted: boolean;
 }

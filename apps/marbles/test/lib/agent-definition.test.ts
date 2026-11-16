@@ -589,7 +589,6 @@ describe("replay", () => {
 });
 
 describe("input", () => {
-  /** A reviewer told who did the work; the session keeps who that was. */
   function reviewerOf(seen: unknown[] = []) {
     return agent((_route, input?: { readonly implementer: string }) => {
       seen.push(input);
@@ -651,7 +650,6 @@ describe("input", () => {
     expect(() => reviewer.extend({ input: { run: () => 0 } })).toThrow(
       NOT_JSON
     );
-    // An array with holes would not come back from JSON the same.
     expect(() => reviewer.extend({ input: { list: new Array(2) } })).toThrow(
       NOT_JSON
     );
@@ -681,7 +679,6 @@ describe("input", () => {
     expect(first.ref.input).toBeNull();
     expect(first.ref.noInput).toBeUndefined();
 
-    // Reopened without an input, the function is given the null it kept.
     const kept = JSON.parse(JSON.stringify(first.ref));
     const reopened = await new AgentsManager(deps)
       .scoped(args())
@@ -700,7 +697,6 @@ describe("input", () => {
         })
     ).rejects.toThrow(ANOTHER_INPUT);
 
-    // A session opened with none does not take null.
     const none = await new AgentsManager(deps).scoped(args()).session(nullable);
     expect(none.ref.noInput).toBe(true);
     await expect(
@@ -731,7 +727,6 @@ describe("input", () => {
         .session(reviewer.extend({ input: given }), { session: first.ref })
     ).rejects.toThrow(ANOTHER_INPUT);
 
-    // An input read back from a ref is frozen for the function too.
     const reopened = await new AgentsManager(deps)
       .scoped(args())
       .session(reviewer, { session: JSON.parse(JSON.stringify(first.ref)) });
@@ -761,7 +756,6 @@ describe("input", () => {
     expect(again.ref).toEqual(first.ref);
     expect(seen).toEqual([undefined, undefined]);
 
-    // The same in a parked run whose body now binds an input.
     const restored = new RunScope(
       a.scope.id,
       a.scope.cwd,
@@ -791,8 +785,6 @@ describe("input", () => {
     const first = await new AgentsManager(deps).scoped(a).session(ofCodex);
     expect(first.ref.input).toEqual({ implementer: "codex" });
 
-    // The run parks: its ledger is written as JSON, and a later process
-    // rebuilds the scope from it. The body runs again without the input.
     const restored = new RunScope(
       a.scope.id,
       a.scope.cwd,
@@ -869,7 +861,6 @@ describe("input", () => {
         })
     ).rejects.toThrow(ANOTHER_INPUT);
 
-    // A ref that kept no input takes the one the agent has.
     const byId = await new AgentsManager(deps)
       .scoped(args())
       .session(reviewer.extend({ input: { implementer: "claude" } }), {
@@ -897,7 +888,6 @@ describe("input", () => {
         })
     ).rejects.toThrow(ANOTHER_INPUT);
 
-    // A session opened with no input keeps that too.
     const none = await new AgentsManager(deps).scoped(args()).session(reviewer);
     const plainAgain = await new AgentsManager(deps)
       .scoped(args())
@@ -1002,7 +992,6 @@ describe("an MCP dispatch", () => {
     );
     const jobs = new BackgroundRuns(engine, catalog);
     await engine.start();
-    // The ref comes back over MCP as JSON, through the dispatch schema.
     const { session } = dispatchSchema.parse({
       agent: declared.id,
       prompt: "Continue",
@@ -1038,7 +1027,6 @@ describe("an MCP dispatch", () => {
       ...JSON.parse(JSON.stringify(opened.ref)),
       input: { forged: true },
     };
-    // MCP validates each field with the shape's own schema.
     expect(dispatchSchema.shape.session.safeParse(forged).success).toBe(false);
     expect(
       dispatchSchema.safeParse({

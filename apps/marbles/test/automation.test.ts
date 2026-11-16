@@ -36,13 +36,8 @@ const temp = () => {
   directories.push(path);
   return path;
 };
-/** The Marbles database at each state root a test used, open until it ends. */
 const databases = new Map<string, MarblesDatabase>();
 
-/**
- * The automations of the test workspace in the Marbles database at
- * `state`, as an engine over it keeps them, or in memory without one.
- */
 async function storeAt(state?: string): Promise<AutomationStore> {
   if (state === undefined) {
     return new MemoryAutomationStore();
@@ -58,7 +53,6 @@ async function storeAt(state?: string): Promise<AutomationStore> {
   });
 }
 
-/** A service over `storeAt(state)`, with a registry of its own, as another host has. */
 async function serviceAt(state?: string): Promise<AutomationService> {
   return new AutomationService({
     registry: declared(),
@@ -663,7 +657,6 @@ it("picks up another writer's record, and its removal, at the next read", async 
     record.id,
   ]);
 
-  // Another process writes a record directly, with no service at all.
   const id = `automation-${"b".repeat(24)}`;
   const store = await storeAt(state);
   await store.put({ ...record, id, key: "by-hand" });

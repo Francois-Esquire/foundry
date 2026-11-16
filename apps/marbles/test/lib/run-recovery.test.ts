@@ -1,17 +1,8 @@
-import { thisProcess } from "@foundry/lib/process-identity";
-/**
- * A starting engine decides to adopt a parked Run in the same atomic step
- * as its claim on it: a Run that moved on after the scan that found it,
- * because its owner resumed it and then died, or whose Execution Run
- * settled meanwhile, is not adopted, and nothing runs its body again. The
- * Execution Run is read in the claim's own transaction, so a canceller's
- * settle lands before it or not at all.
- */
-
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { thisProcess } from "@foundry/lib/process-identity";
 import { ExecutionCoordinator } from "@foundry/workflows";
 import { and, eq } from "drizzle-orm";
 import { afterEach, expect, it } from "vitest";
@@ -39,7 +30,6 @@ afterEach(() => {
   }
 });
 
-/** A Run parked by an owner engine, in a database another engine starts over. */
 async function parkedByAnOwner() {
   const root = mkdtempSync(join(tmpdir(), "marbles-recovery-race-"));
   roots.push(root);
@@ -60,7 +50,6 @@ async function parkedByAnOwner() {
   });
   await owner.updateRun("rn-1", { status: "running" });
   await owner.updateRun("rn-1", { status: "suspended" });
-  /** The owner's process exits: what it owned, it owns no longer. */
   const ownerDies = async () => {
     await database
       .update(marblesWorkflowRuns)
@@ -73,7 +62,6 @@ async function parkedByAnOwner() {
       );
   };
   await ownerDies();
-  // Its Execution Run, parked with it, owned by the process that died.
   const executions = new DatabaseExecutionStore({ database, scope: "ws" });
   const at = new Date().toISOString();
   const execution: ExecutionRun = {
@@ -90,7 +78,6 @@ async function parkedByAnOwner() {
     timestamps: { queuedAt: at, startedAt: at, updatedAt: at },
   };
   await executions.create(execution);
-  /** Its Execution Run as the database holds it now. */
   const storedExecution = async () => {
     const stored = await executions.get("rn-1");
     return stored && parseStored(stored);
@@ -111,11 +98,9 @@ async function parkedByAnOwner() {
   };
 }
 
-/** Never asked: the claim reads the Execution Run itself. */
 const unasked = (): Promise<boolean> =>
   Promise.reject(new Error("the claim should have read the Execution Run"));
 
-/** `runs`, running `between` after the scan and before each claim. */
 function interleaved(runs: RunStore, between: () => Promise<void>): RunStore {
   return {
     claim: async (runId: string, when: ClaimCondition) => {
@@ -139,7 +124,6 @@ it("does not adopt a parked Run its owner resumed, and died running, after the s
     print: (line) => lines.push(line),
     registered: () => true,
     runs: interleaved(next, async () => {
-      // The owner, alive again for a moment, resumes the Run and dies.
       await owner.updateRun("rn-1", { status: "running" });
       await ownerDies();
     }),
@@ -151,7 +135,6 @@ it("does not adopt a parked Run its owner resumed, and died running, after the s
   expect(lines).toEqual([
     "[run] flow rn-1 not adopted: it is running now, not parked",
   ]);
-  // Nothing was claimed either: the Run is left as it stood.
   expect(
     await next.claim("rn-1", (stored) => stored?.status === "running")
   ).toBe(true);
@@ -165,7 +148,6 @@ it("does not adopt a parked Run whose Execution Run settled after the scan", asy
     print: (line) => lines.push(line),
     registered: () => true,
     runs: interleaved(next, async () => {
-      // A canceller settles it between the scan and the claim.
       await executions.transition("rn-1", {
         from: ["suspended"],
         newOwner: thisProcess(),
@@ -189,7 +171,6 @@ it("reads a settled Execution Run once the claim is held, from a run store that 
   const { next, store } = await parkedByAnOwner();
   const blind: RunStore = {
     ...interleaved(next, () => Promise.resolve()),
-    // As a store that keeps no Execution Runs hands the condition none.
     claim: (runId, when) => next.claim(runId, (stored) => when(stored)),
   };
   let reads = 0;
@@ -211,7 +192,6 @@ it("reads a settled Execution Run once the claim is held, from a run store that 
   expect(lines).toEqual([
     "[run] flow rn-1 not adopted: its execution run has settled",
   ]);
-  // The claim it won is given back.
   const other = new DatabaseRunStore({
     database: handles[0]?.database as MarblesDatabase["database"],
     scope: "ws",
@@ -221,8 +201,6 @@ it("reads a settled Execution Run once the claim is held, from a run store that 
 
 it("reads a settled Execution Run once the claim is held, when the run store's database holds none for the Run", async () => {
   const { executions, next, store } = await parkedByAnOwner();
-  // The host keeps Execution Runs in another store, which holds this one
-  // cancelled: the run store's own database holds none for it.
   await executions.remove("rn-1");
   let reads = 0;
   const lines: string[] = [];
@@ -247,11 +225,6 @@ it("reads a settled Execution Run once the claim is held, when the run store's d
 
 const SOURCE = resolve(import.meta.dirname, "../../src");
 
-/**
- * A canceller in a process of its own: it claims the Run, waits for
- * `<root>/settle`, cancels the orphan's Execution Run, and dies holding
- * its claim, writing `<root>/released` as it goes.
- */
 function canceller(root: string) {
   const script = `
     const { existsSync, writeFileSync } = await import("node:fs");
@@ -289,7 +262,6 @@ function canceller(root: string) {
   return { exited };
 }
 
-/** Resolves once `path` exists, polling briefly. */
 async function appears(path: string): Promise<void> {
   const deadline = Date.now() + 20_000;
   while (!existsSync(path)) {
@@ -336,8 +308,6 @@ it("lands no canceller's settle while this engine decides its claim", {
     ...interleaved(next, () => Promise.resolve()),
     claim: (runId, when) =>
       next.claim(runId, (stored, execution) => {
-        // Inside the claim's transaction: the canceller settles now, and
-        // dies once it has tried, while this claim is still undecided.
         writeFileSync(join(root, "settle"), "");
         const wait = new Int32Array(new SharedArrayBuffer(4));
         while (!existsSync(released)) {
@@ -355,7 +325,6 @@ it("lands no canceller's settle while this engine decides its claim", {
     store,
   });
   await exited;
-  // Its settle waited for this transaction, and gave up: the record is open.
   expect(await storedExecution()).toMatchObject({ status: "suspended" });
   expect(adopted.size).toBeLessThanOrEqual(1);
 });
@@ -392,7 +361,6 @@ it("closes out a Run a gone process left running whose settled Execution Run the
     step: "flow",
   });
   await owner.updateRun("rn-1", { status: "running" });
-  // Its process exits mid-run: what it owned, it owns no longer.
   await database
     .update(marblesWorkflowRuns)
     .set({ ownerPid: spawnSync("true").pid })
@@ -402,8 +370,6 @@ it("closes out a Run a gone process left running whose settled Execution Run the
         eq(marblesWorkflowRuns.runId, "rn-1")
       )
     );
-  // The host keeps Execution Runs elsewhere: this database holds none, and
-  // the launcher has settled the Run's there.
   const at = new Date().toISOString();
   const settled: ExecutionRun = {
     correlation: {},
@@ -436,7 +402,6 @@ it("closes out a Run a gone process left running whose settled Execution Run the
   expect(lines).toEqual([
     "[run] flow rn-1 closed out: its process exited while it was running",
   ]);
-  // The claim it held to close it out is given back.
   expect(
     await new DatabaseRunStore({ database, scope: "ws" }).claim(
       "rn-1",
@@ -456,7 +421,6 @@ it("leaves a Run this engine runs, whose Execution Run it holds open elsewhere, 
     store: await next.open(() => undefined),
   });
   const queue = await store.ensureQueue({ id: "qu-1", name: "marbles" });
-  // This engine's own Run, live: readmitted before recovery runs.
   await store.createRun({
     id: "rn-2",
     input: null,
@@ -488,7 +452,6 @@ it("leaves a Run this engine runs, whose Execution Run it holds open elsewhere, 
     })
   ).toEqual([]);
   expect((await store.getRun("rn-2"))?.status).toBe("running");
-  // Still this engine's: no other may claim it.
   expect(
     await new DatabaseRunStore({ database, scope: "ws" }).claim(
       "rn-2",

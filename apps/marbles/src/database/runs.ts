@@ -34,23 +34,6 @@ import type {
 } from "~/lib/run-store";
 import { filedRuns, removalOf } from "~/lib/run-store";
 
-/**
- * A workspace's workflow Runs in the Marbles database: the
- * `@foundry/workflows` rows scoped by the workspace id, and beside each Run
- * Marbles' own row (`marbles_workflow_runs`), what its scope recorded and
- * which engine owns it.
- *
- * The row is written by `SqliteWorkflowStore`'s `onCommit` hook, on the
- * transaction the hook is handed, so a Run and what its scope recorded
- * commit or roll back together, and the engine that commits a Run owns it
- * until a commit settles it. A claim (adopting a parked Run, or settling
- * one an exited process left) is one transaction that reads the owner and
- * takes it, so two engines, in this process or another, never both own a
- * Run. An owner whose process has exited owns nothing. Every call surfaces
- * a lock waited on too long as a `DatabaseBusyError`.
- */
-
-/** A change to a Run this engine no longer holds: another took it over, or it was let go. */
 class RunMovedError extends Error {
   override readonly name = "RunMovedError";
 
@@ -62,13 +45,10 @@ class RunMovedError extends Error {
 }
 
 export interface DatabaseRunStoreOptions {
-  /** The database the host keeps open; never one of its transactions, since a Run's commit must be there for good. */
   readonly database: StoreDatabase;
-  /** The workspace id. */
   readonly scope: string;
 }
 
-/** A row's recording, as it must read back. */
 const recordedRow = z.object({
   ledger: z.record(z.string(), z.unknown()),
   literals: z.record(z.string(), z.record(z.string(), z.unknown())),
@@ -79,15 +59,8 @@ export class DatabaseRunStore implements RunStore {
   readonly durable = true;
   readonly #database: StoreDatabase;
   readonly #scope: string;
-  /** This store's identity as an owner: one per engine, so two in one process are told apart. */
   readonly #owner = randomUUID();
-  /**
-   * The Runs this store gave up one by one (`release(runId)`), and has not
-   * claimed again: let go for another engine to take over, so no commit of
-   * this store's may retake one, though no one owns it yet.
-   */
   readonly #letGo = new Set<string>();
-  /** Every call, the workflow records' included, so `close` waits for those under way. */
   readonly #gate = new RecordsGate("the run store is closed");
 
   constructor(options: DatabaseRunStoreOptions) {
@@ -99,20 +72,17 @@ export class DatabaseRunStore implements RunStore {
     return this.#call(async () => {
       const claimed: boolean = await claimJudged<boolean, boolean>(
         () => this.#ownerOf(this.#database, runId),
-        // Asked outside the transaction: no process is asked under its lock.
         (seen) => seen !== undefined && this.#heldElsewhere(seen),
         (seen, held) => this.#claimIn(runId, when, seen, held),
         false
       );
       if (claimed) {
-        // Claimed again: this store's to change once more.
         this.#letGo.delete(runId);
       }
       return claimed;
     });
   }
 
-  /** The owner columns of the Run `runId`'s row, as `database` reads them now. */
   async #ownerOf(
     database: StoreDatabase | WorkflowTransaction,
     runId: string
@@ -128,7 +98,6 @@ export class DatabaseRunStore implements RunStore {
     return row;
   }
 
-  /** The claim's transaction, on the owner `seen` and whether it was `held`. */
   #claimIn(
     runId: string,
     when: ClaimCondition,
@@ -136,9 +105,6 @@ export class DatabaseRunStore implements RunStore {
     held: boolean
   ): Promise<boolean | typeof CHANGED> {
     return this.#database.transaction(async (transaction) => {
-      // Read in the claim's own transaction, the Run and its Execution
-      // Run beside it: no write lands between them and the claim, from
-      // this process or another.
       const stored = await new SqliteWorkflowStore({
         database: transaction,
         scope: this.#scope,
@@ -170,11 +136,6 @@ export class DatabaseRunStore implements RunStore {
     });
   }
 
-  /**
-   * Refuse every call from now on, the workflow records' included, once
-   * those under way have settled: the host may then close the database
-   * with no transaction of the store's left open on it.
-   */
   close(): Promise<void> {
     return this.#gate.close();
   }
@@ -214,7 +175,6 @@ export class DatabaseRunStore implements RunStore {
         return { ledger: {} };
       }
       const { ledger, literals, sessionId } = recordedRow.parse(row);
-      // A recording always names the run's session; a row without one is an owner's alone.
       return sessionId === null
         ? { ledger }
         : { ledger, literals, session: sessionId };
@@ -222,8 +182,6 @@ export class DatabaseRunStore implements RunStore {
   }
 
   release(runId?: string): Promise<void> {
-    // Let go from this turn on, before the write lands: a commit of this
-    // store's that would retake it is refused from now (`#file`).
     if (runId !== undefined) {
       this.#letGo.add(runId);
     }
@@ -256,27 +214,12 @@ export class DatabaseRunStore implements RunStore {
     );
   }
 
-  /**
-   * What `write` files beside its Runs, in its own `transaction`: each Run
-   * it puts unsettled has this store as its owner, and the recording of
-   * its scope when there is one here; each Run it settles is owned by no
-   * one; each Run it deletes loses its row. A Run whose row another engine
-   * owns, one that claimed it after this one let it go, is not this
-   * engine's to change: the whole commit is refused with a `RunMovedError`,
-   * read and decided in this same transaction, so an answer, a resume or
-   * any other change this engine makes after the run moved never lands. So
-   * is a commit to a Run this store let go (`release(runId)`) and has not
-   * claimed again, in the window before the next engine claims it. Any
-   * other Run no one owns is this store's again once it puts it.
-   */
   async #file(
     transaction: WorkflowTransaction,
     write: WorkflowStoreWrite,
     recorded: (runId: string) => RecordedScope | undefined
   ): Promise<void> {
     for (const { runId, scope, settled } of filedRuns(write, recorded)) {
-      // Let go by this store: its change is refused even while no one owns
-      // it, since the engine taking it over has not claimed it yet.
       if (this.#letGo.has(runId)) {
         throw new RunMovedError(runId);
       }
@@ -289,7 +232,6 @@ export class DatabaseRunStore implements RunStore {
         throw new RunMovedError(runId);
       }
       const owner = settled ? NO_OWNER : this.#owned();
-      // Without a recording, the row keeps what it had and changes owner.
       const recording =
         scope === undefined
           ? owner
@@ -326,7 +268,6 @@ export class DatabaseRunStore implements RunStore {
     }
   }
 
-  /** Each Execution Run `follows` answers for a Run `write` puts, in its `transaction`. */
   async #follow(
     transaction: WorkflowTransaction,
     write: WorkflowStoreWrite,
@@ -340,7 +281,6 @@ export class DatabaseRunStore implements RunStore {
     }
   }
 
-  /** Owned by another engine whose process is still there. */
   #heldElsewhere(row: {
     readonly ownerId: string | null;
     readonly ownerPid: number | null;
@@ -364,19 +304,11 @@ export class DatabaseRunStore implements RunStore {
     );
   }
 
-  /** Run `call` unless closed, and say what went wrong in the database's terms. */
   #call<T>(call: () => Promise<T>): Promise<T> {
     return this.#gate.run(() => asBusy(call));
   }
 }
 
-/** A workspace's Run as `status` lists it. */
-/**
- * The parked Runs of the workspace `scope` that no live engine holds, by
- * id, read through `database`: what an engine let go and none has taken
- * over yet, for the Marbles process to offer its current generation. An
- * owner is judged gone outside any transaction.
- */
 export async function unheldParkedRuns(
   database: StoreDatabase,
   scope: string
@@ -420,20 +352,13 @@ export async function unheldParkedRuns(
 }
 
 export interface StoredRun {
-  /** In ms since the epoch. */
   readonly createdAt: number;
   readonly id: string;
-  /** The process of the engine that owns it; `null` when none does. */
   readonly owner: ProcessIdentity | null;
   readonly status: string;
   readonly step: string;
 }
 
-/**
- * Every Run the workspace `scope` keeps in the Marbles database at the
- * state root `state`, read only (`readDatabase`), in the order they were
- * first put. Empty with no database, or nothing migrated into it.
- */
 export async function readStoredRuns(
   state: string,
   scope: string

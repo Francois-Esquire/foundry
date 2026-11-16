@@ -52,10 +52,6 @@ const activity: ActivityRecord = {
   source,
 };
 
-/**
- * Close what an engine closes on dispose, every store `withWorkspaceDatabase`
- * counted, then give up the hold the engine keeps.
- */
 async function dispose({
   options,
   release,
@@ -134,9 +130,6 @@ describe("the stores an engine keeps beside its records", () => {
 
     const second = await engine();
     try {
-      // Kept, and closed out by the start's recovery: its run has ended
-      // (no Execution Run of it is kept), and the process that ran it is
-      // gone.
       expect(second.activities.list()).toEqual([
         {
           event: {
@@ -172,13 +165,11 @@ describe("the stores an engine keeps beside its records", () => {
     const first = await engine();
     const kept = first.lastRecovery;
     await first.dispose();
-    // Kept in the engine's own database, there once the engine is gone.
     expect(kept).toBeDefined();
     expect(await readLastRecovery(state, "recovered")).toEqual(kept);
 
     const second = await engine();
     try {
-      // The next start's report takes its place.
       expect(second.lastRecovery?.at).not.toBe(kept?.at);
       expect(await readLastRecovery(state, "recovered")).toEqual(
         second.lastRecovery
@@ -202,7 +193,6 @@ describe("the stores an engine keeps beside its records", () => {
     await options.triggers?.close();
     await options.automationStore?.close();
     await options.executionStore?.close();
-    // An agent still closing writes its activity after the engine's stores closed.
     await options.activityStore?.put("child-1", activity);
     await kept.release();
     await kept.release();
@@ -218,7 +208,6 @@ describe("the stores an engine keeps beside its records", () => {
     });
     const { options } = kept;
     await options.activityStore?.load();
-    // Each close of the same store gives up that store's claim once.
     await options.records?.close();
     await options.records?.close();
     await options.runs?.close();
@@ -249,7 +238,6 @@ describe("the stores an engine keeps beside its records", () => {
         workspaceId: "overlap",
       });
       const { options } = kept;
-      // Opened, with something each store gives up as it closes.
       await options.triggers?.lastTick("tick");
       await options.records?.claimDelivery();
       for (const other of stores.filter((each) => each !== overlapping)) {
@@ -291,8 +279,6 @@ describe("the stores an engine keeps beside its records", () => {
     const { facts } = DatabaseUsageStore.prototype;
     const held = Promise.withResolvers<undefined>();
     const reading = Promise.withResolvers<undefined>();
-    // A read still under way as the close begins, and a store whose
-    // cleanup fails.
     DatabaseUsageStore.prototype.facts = async function (
       this: DatabaseUsageStore
     ) {
@@ -320,7 +306,6 @@ describe("the stores an engine keeps beside its records", () => {
       expect(failure.errors.map((error: Error) => error.message)).toEqual([
         "records cleanup failed",
       ]);
-      // Every other store closed: what each refuses now says so.
       await expect(database.usage.facts()).rejects.toThrow("closed");
       await expect(database.triggers.lastTick("tick")).rejects.toThrow(
         "closed"
@@ -337,7 +322,6 @@ describe("the stores an engine keeps beside its records", () => {
       state: join(scratch(), "sessions"),
       workspaceId: "sessions",
     });
-    // The engine's own close of it, which its type does not show.
     const sessions = database.sessions as unknown as {
       close(): Promise<void>;
     };
@@ -394,7 +378,6 @@ describe("who delivers a workspace's task changes", () => {
     const opened = await initializeDatabase(join(scratch(), "marbles.db"));
     try {
       let failing = false;
-      // The database, refusing the next update as a held write lock would.
       const database = new Proxy(opened.database, {
         get(target, property) {
           if (property === "update" && failing) {
@@ -457,7 +440,6 @@ describe("who delivers a workspace's task changes", () => {
       expect(await second.claimDelivery()).toBe(
         "another engine in this process"
       );
-      // Another workspace's delivery is its own.
       expect(
         await new DatabaseWorkspaceRecords({
           database: opened.database,

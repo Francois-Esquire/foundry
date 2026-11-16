@@ -8,12 +8,6 @@ import type { Engine } from "~/lib/engine";
 import { TASKS } from "~/lib/events/source";
 import { testEngine } from "../helpers/engine";
 
-/**
- * An engine that has begun to retire starts no run that comes from
- * outside its own active runs, and runs whole what they start themselves:
- * a child, a child of a child, a child queued behind a busy queue.
- */
-
 const engines: Engine[] = [];
 
 afterEach(async () => {
@@ -31,7 +25,6 @@ const RETIRING = /^EngineRetiringError/;
 
 const successor = () => ({ pid: thisProcess().pid + 1, started: null });
 
-/** What `promise` settles to, a rejection as its name and message. */
 function outcome(promise: Promise<unknown>): Promise<unknown> {
   return promise.then(
     (value) => value,
@@ -70,7 +63,6 @@ describe("an engine that has begun to retire", () => {
     const queued = await engine.launch("queued", {});
     queued.result.catch(() => undefined);
     const retiring = engine.retire(successor());
-    // The slot frees while the observer still holds the retirement.
     finishing.resolve();
     await active.result;
     await new Promise((resolve) => setImmediate(resolve));
@@ -109,7 +101,6 @@ describe("an engine that has begun to retire", () => {
     );
     await new Tasks({ store: engine.taskStore }).create({ title: "held" });
     await entered.promise;
-    // Retirement waits on the observer: the paused run is not let go yet.
     const retiring = engine.retire(successor());
     await expect(engine.resume(run.id, "paused")).rejects.toMatchObject({
       name: "QuestionMovingError",
@@ -142,14 +133,12 @@ describe("an engine that has begun to retire", () => {
     const queued = await engine.launch("queued", {});
     queued.result.catch(() => undefined);
     const next = successor();
-    // The observer still runs: the hand-over does not wait for it.
     const retired = await engine.retire(next);
     expect(engine.executions.get(queued.id)?.owner).toMatchObject({
       pid: next.pid,
     });
     finishing.resolve();
     await active.result;
-    // The observer has not returned: it holds nothing here.
     await retired.ended;
     observing.resolve();
   });
@@ -232,7 +221,6 @@ describe("an engine that has begun to retire", () => {
     const parent = await engine.launch("parent", {});
     const { ended } = await engine.retire(successor());
     parentGate.resolve();
-    // The child waits behind busy, which holds the queue's one slot.
     await new Promise((resolve) => setImmediate(resolve));
     expect(ran).toEqual(["busy"]);
     busyGate.resolve();
@@ -279,7 +267,6 @@ describe("an engine that has begun to retire", () => {
     const parent = await engine.launch("parent", {});
     parent.result.catch(() => undefined);
     const childId = await childLaunched.promise;
-    // The parent parks waiting, its child queued behind busy.
     expect(engine.pause(parent.id, "parent", "hold")).toBe(true);
     await vi.waitFor(() =>
       expect(engine.executions.get(parent.id)?.status).toBe("suspended")
@@ -288,7 +275,6 @@ describe("an engine that has begun to retire", () => {
     await engine.retire(next);
     busyGate.resolve();
     await busy.result;
-    // Its parent is moving: the child goes with the queue, not run here.
     expect(ran).toEqual(["busy"]);
     expect(engine.executions.get(childId)?.owner).toMatchObject({
       pid: next.pid,
@@ -322,7 +308,6 @@ describe("an engine that has begun to retire", () => {
   });
 
   describe("from a callback the engine runs for an active run", () => {
-    /** A schema whose validation awaits `gate`, then launches `child` and passes its value on. */
     function launching(
       engine: Engine,
       gate: Promise<void>,
@@ -572,7 +557,6 @@ describe("an engine that has begun to retire", () => {
       name: "parent",
       run: async () => {
         await parentGate.promise;
-        // Launched, not awaited: the parent ends before its child does.
         await engine.launch("child", {});
       },
     });
@@ -584,7 +568,6 @@ describe("an engine that has begun to retire", () => {
     });
     parentGate.resolve();
     await parent.result;
-    // Past two of the retirement's looks (every 250 ms) for what is left.
     await new Promise((resolve) => setTimeout(resolve, 600));
     expect(ended).toBe(false);
     childGate.resolve();

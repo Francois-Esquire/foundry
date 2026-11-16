@@ -5,7 +5,6 @@ import { fileRecord, hostWorkspace, newRoot, seed } from "../testing/records";
 import { libsqlDatabases } from "./helpers/sqlite";
 import { execInAnotherProcess } from "./helpers/sqlite-process";
 
-/** What SQLite says when a lock it needs is held. */
 const LOCKED = /locked|busy/i;
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
@@ -37,7 +36,6 @@ describe.each([
         second.create({ entries: [], workspace: b }),
       ]);
 
-      // The second waits its turn, sees the first's registration, and yields.
       expect(results).toEqual([
         { kind: "committed" },
         { existingId: a.id, kind: "workspace-exists" },
@@ -53,7 +51,6 @@ describe("a list against another connection to its file", () => {
     let attempted: string | undefined;
     const reader = files.connect(database, {
       onQuery: (query) => {
-        // Just before the page is read, another process adds a registration.
         if (attempted === undefined && query.includes("order by")) {
           attempted = execInAnotherProcess(files.path(database), [
             "BEGIN IMMEDIATE",

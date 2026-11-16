@@ -11,7 +11,6 @@ import { DeferredApprovals } from "~/lib/sandbox/deferred-approvals";
 const source = { definition: "review", path: ["review"], runId: "run" };
 const SRC = resolve("src");
 
-/** A Marbles database of the test's own, kept open by it as a host keeps one. */
 async function database() {
   const directory = await mkdtemp(join(tmpdir(), "marbles-approvals-"));
   const file = join(directory, "marbles.db");
@@ -54,7 +53,6 @@ it("overlapping approval indexes preserve sessions, additions, and removals", as
     "approval-c",
   ]);
   expect(await first.load()).toEqual(saved);
-  // Another workspace's are its own.
   const elsewhere = new DeferredApprovals(
     new DatabaseDeferredApprovalStore({
       database: opened.database,

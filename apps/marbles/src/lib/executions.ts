@@ -36,7 +36,6 @@ interface Waiting {
   /** Called when the run cannot be recorded as running, instead of `start`. */
   readonly fail: (error: unknown) => void;
   readonly id: string;
-  /** The run here whose body launched it, if one did. */
   readonly parent?: string;
   /** Called with the run's input once it is admitted and recorded as running. */
   readonly start: (input: unknown) => Promise<void>;
@@ -65,19 +64,8 @@ function validConcurrency(queue: string, concurrency: number): number {
 export class Executions extends ExecutionRecords implements ExecutionRuns {
   readonly #lanes = new Map<string, Lane>();
   readonly #idle = new Set<() => void>();
-  /** Runs whose cancellation is being written: each holds its queue's place. */
   readonly #withdrawing = new Set<string>();
-  /**
-   * Set once the engine has begun to retire (`closeAdmission`), and kept:
-   * no queue lets a run in here again, on success or failure, but those
-   * `#kept` here.
-   */
   #closed = false;
-  /**
-   * Runs an active run here launched, kept here once admission closed: the
-   * queues still let them in, in their order, and they are never handed
-   * over.
-   */
   readonly #kept = new Set<string>();
   constructor(
     options: ExecutionRecordsOptions & {
@@ -129,7 +117,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     };
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `closeAdmission` sets it.
     if (this.#closed && parent !== undefined) {
-      // Admitted after retirement began only for an active run here.
       this.#kept.add(id);
     }
     lane.waiting.push(waiting);
@@ -147,11 +134,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     }
   }
 
-  /**
-   * Parked on a question or a pause: its slot goes to the next run, and
-   * its record is parked in its turn (left as it is when its Run's commit
-   * parked it already, `follows`).
-   */
   suspend(id: string): void {
     this.moveRecord(id, "suspended");
     this.release(id);
@@ -167,20 +149,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     this.#lane(run.queue).active.add(id);
   }
 
-  /**
-   * Take a queued run off its queue and record it cancelled; resolves
-   * `false` when it is not queued here or in a process that has exited. The
-   * decision is made on the stored record, in the transaction that cancels
-   * it, never on what this process last saw: a run another process has
-   * since taken over or started is left to it. A run this process recorded
-   * queued but has not yet handed to its queue, which a subscriber told of
-   * it can cancel from that very update, is withdrawn too: nothing of it
-   * has run. While the cancellation is written the run keeps its place in
-   * its queue and nothing behind it is let in, so the queue's order holds
-   * whichever way it goes: cancelled, it leaves; refused or failed, it is
-   * next. Resolves once the cancellation is stored; rejects when it cannot
-   * be, cancelling nothing.
-   */
   async withdraw(id: string): Promise<boolean> {
     const run = this.get(id);
     if (run?.status !== "queued") {
@@ -205,13 +173,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     return cancelled;
   }
 
-  /**
-   * Let no queue admit a run here again but those an active run here
-   * launched. For an engine that has begun to retire: a run waiting now
-   * that `active` says its parent still runs here is kept, to be let in
-   * here; every other waits to be handed over (`handOverAll`). Nothing
-   * reopens the queues. Only the first call decides.
-   */
   closeAdmission(active: (runId: string) => boolean): void {
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; this sets it.
     if (this.#closed) {
@@ -227,16 +188,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     }
   }
 
-  /**
-   * Take every run waiting in this process's queues off them and make each
-   * the engine's `choose` names in the write's own transaction, still
-   * queued (`handQueued`), in their order, but those
-   * kept here (`closeAdmission`, which retirement calls first). `onHanded` is told
-   * of each as it is handed over, whatever happens to the runs after it. A
-   * run whose hand-over fails is reported in `failed` and stays queued
-   * here, unstarted, holding `drained` back, for another try. One no
-   * longer queued here stays as it is.
-   */
   async handOverAll(
     choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>,
     onHanded: (id: string) => void
@@ -259,13 +210,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     return { failed };
   }
 
-  /**
-   * Take a queued run off its queue and make it the engine's `choose`
-   * names, still
-   * queued (`handQueued`); resolves `false`, leaving it here, when it is not
-   * queued here. It holds its queue's place while that is written, as a
-   * withdrawal does.
-   */
   async #handOver(
     id: string,
     choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>
@@ -321,13 +265,8 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     return lane;
   }
 
-  /**
-   * Let in waiting runs, first come first served, while the queue has room;
-   * one being withdrawn holds its place, and nothing behind it goes first.
-   */
   #pump(lane: Lane): void {
     while (lane.active.size < lane.concurrency) {
-      // Once closed, only a kept run goes in, the first kept in line.
       // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `closeAdmission` sets it.
       const index = this.#closed
         ? lane.waiting.findIndex((item) => this.#kept.has(item.id))
@@ -350,8 +289,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     try {
       await this.startRecord(id);
     } catch (error) {
-      // Settled failed if it can be; a settle that cannot be written is
-      // kept to try again, and the run does not start either way.
       await this.settle(id, "failed", { code: "not_recorded" }).catch(
         () => undefined
       );
@@ -381,12 +318,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     }
     return run;
   }
-  /**
-   * Record how a run ended and free its slot; a run already settled frees
-   * its slot too, whatever settled it. Resolves once the record is on disk;
-   * rejects when it cannot be written, the slot freed all the same, since
-   * the run's work has ended (`ExecutionRecords.settle`).
-   */
   override settle(
     id: string,
     status: "complete" | "failed" | "cancelled" | "interrupted",

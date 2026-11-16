@@ -4,12 +4,6 @@ import { claimJobAttempt } from "./execution-coordinator";
 import type { OrchestratorOptions } from "./orchestrator";
 import type { RunRecord } from "./schema";
 
-/**
- * The host's participants in a Job admission and a Run cancellation. Each
- * runs inside the store transaction of the change it joins, over the store
- * bound to that transaction, so its own records land with the change or
- * not at all.
- */
 export class ExecutionParticipants {
   private readonly store: OrchestratorStore;
   private readonly admission: OrchestratorOptions["admissionParticipant"];
@@ -40,12 +34,6 @@ export class ExecutionParticipants {
     return this.#admit(transaction, admission, jobId, input);
   }
 
-  /**
-   * The claim and its admission in one transaction. A Job found settled is
-   * an outcome, not a throw, inside it: the transaction commits the Job as
-   * complete, and the claim is refused once it has. Any throw rolls the
-   * whole transaction back.
-   */
   async #admit(
     transaction: NonNullable<OrchestratorStore["transaction"]>,
     admission: NonNullable<OrchestratorOptions["admissionParticipant"]>,

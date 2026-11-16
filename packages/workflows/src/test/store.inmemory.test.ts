@@ -17,7 +17,6 @@ const JSON_SAFE_PATTERN = /JSON-safe/;
 
 orchestratorStoreContract("in-memory", makeInMemoryStore);
 
-/** A coordinator over a store that records its commits and can refuse a settlement. */
 class FailingSettlementStore extends ExecutionCoordinator {
   failSettlement = false as boolean;
   readonly workflowStore: FaultyWorkflowStore;
@@ -157,7 +156,6 @@ describe("ExecutionCoordinator over the memory store", () => {
       queueId: "main",
       step: "publish",
     });
-    // A record written before Runs kept them: only in its metadata.
     const { definition: _definition, links: _links, ...legacy } = created;
     await records.commit({ putRuns: [legacy] });
     const store = new ExecutionCoordinator({ store: records });

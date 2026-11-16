@@ -42,12 +42,6 @@ const databases = {
   memory: libsqlDatabases("memory"),
 };
 
-/**
- * A SQLite store on a new database, usable at once: each call waits for the
- * tables. It refuses re-entry as the memory store does, so the whole suite
- * runs over a store that would catch the registry calling it from inside
- * its own transaction.
- */
 function sqliteStore(location: keyof typeof databases): ContainerStore {
   const ready = databases[location]
     .open()
@@ -67,14 +61,12 @@ function sqliteStore(location: keyof typeof databases): ContainerStore {
   };
 }
 
-/** Every store the registry is tested over. */
 const STORES: [string, () => ContainerStore][] = [
   ["the memory store", createMemoryContainerStore],
   ["the SQLite store in memory", () => sqliteStore("memory")],
   ["the SQLite store on a file", () => sqliteStore("file")],
 ];
 
-/** The store under test, set by each run of the suite. */
 let newStore: () => ContainerStore = createMemoryContainerStore;
 
 function fixture(instanceLabel = "instance-a") {
@@ -84,12 +76,6 @@ function fixture(instanceLabel = "instance-a") {
   return { containers, runtime, store };
 }
 
-/**
- * A memory store that answers asynchronously and can hold a matching commit
- * until the test lets it through, so one write can be caught mid-flight.
- * With `transactional`, it offers the memory store's transaction and holds
- * commits made through a transaction's view.
- */
 function gatedStore({ transactional = false } = {}) {
   const inner = newStore();
   const writes: ContainerStoreWrite[] = [];
@@ -124,7 +110,6 @@ function gatedStore({ transactional = false } = {}) {
       }
     : gated(inner);
   return {
-    /** Holds the next commit `matches` accepts; resolves once one is held. */
     hold(matches: (write: ContainerStoreWrite) => boolean) {
       let release = (): void => undefined;
       const open = new Promise<void>((resolve) => {
@@ -472,7 +457,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
   it("recover removes the rows a gone process left, with their VMs, and sweeps VMs with no row, once", async () => {
     const runtime = createFakeContainerRuntime();
     const store = newStore();
-    // A process that started three containers and died: nothing closed.
     const gone = createContainers({
       instanceLabel: "instance-a",
       runtime,
@@ -511,7 +495,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     expect(byName.get(`${unrowed.id}-1`)).toBe(true);
     expect(byName.get(`${mine.id}-1`)).toBe(false);
 
-    // Again: nothing a gone process left is there any more.
     expect(await next.recover(() => true)).toEqual({
       conflicts: [],
       kept: [],
@@ -533,8 +516,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
       store,
     });
     const left = await gone.start(SPEC);
-    // An `open` that committed the next native name, then died before it
-    // removed the VM under the last.
     const row = await store.get(left.id);
     if (row === undefined) {
       throw new Error("no row");
@@ -548,7 +529,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
       runtime,
       store,
     });
-    // A start that dies right after the row's delete, before its sweep.
     const dies = new AbortController();
     await expect(
       next.recover(() => {
@@ -573,7 +553,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
       store,
     });
     const left = await gone.start(SPEC);
-    // As above: the next native name committed, the last VM still there.
     const row = await store.get(left.id);
     if (row === undefined) {
       throw new Error("no row");
@@ -587,7 +566,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
       store,
     });
 
-    // The VM a dead process left is stopped already: it is removed, not stopped again.
     await runtime.stopResource(`${left.id}-1`);
     const stop = runtime.stopResource.bind(runtime);
     runtime.stopResource = (name) =>
@@ -620,8 +598,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     if (leftRow === undefined || otherRow === undefined) {
       throw new Error("no rows");
     }
-    // The labels and the rows disagree: the VM labelled `left`'s is the
-    // one another row, held by a live registry, records as its own.
     await store.commit({
       putContainers: [
         { ...leftRow, nativeId: `${left.id}-2` },
@@ -653,7 +629,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     });
     await expect(next.remove(left.id)).rejects.toThrow(vm);
 
-    // With `left`'s row gone, the sweep leaves it too: a row records it.
     await store.commit({ deleteContainers: [left.id] });
     expect(await next.sweep()).not.toContain(vm);
     expect(instance?.removed).toBe(false);
@@ -675,7 +650,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     if (row === undefined || otherRow === undefined) {
       throw new Error("no rows");
     }
-    // `left` has two VMs: an open committed its next name, then died.
     await store.commit({
       putContainers: [{ ...row, nativeId: `${left.id}-2`, status: "starting" }],
     });
@@ -697,8 +671,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
       pull: "missing",
       workdir: "/w",
     });
-    // While the first is stopping, a row written past the registry comes
-    // to record the second: from then on it is that row's.
     const names = [`${left.id}-1`, `${left.id}-2`];
     const stop = runtime.stopResource.bind(runtime);
     let claimed: string | undefined;
@@ -726,8 +698,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
 
     const recovered = await next.recover((each) => each.id === left.id);
 
-    // Left by the removal as a conflict, and by the sweep as not provably
-    // this registry's (it carries no store label): named both times.
     expect(recovered).toMatchObject({
       conflicts: [claimed],
       kept: [left.id],
@@ -750,7 +720,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     });
     const left = await gone.start(SPEC);
     const other = await gone.start(SPEC);
-    // A VM labelled `left`'s whose name is `other`'s, as the runtime lists it.
     const list = runtime.listResources.bind(runtime);
     runtime.listResources = async (query) => {
       const listed = await list(query);
@@ -781,8 +750,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     const instance = runtime.instances.find((i) => i.id === `${other.id}-1`);
     expect(instance?.removed).toBe(false);
 
-    // A row that records another row's name, written past the registry,
-    // is refused when the registry would write it back.
     const row = await store.get(left.id);
     if (row === undefined) {
       throw new Error("no row");
@@ -807,7 +774,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     const left = await gone.start(SPEC);
     const other = await gone.start(SPEC);
     const list = runtime.listResources.bind(runtime);
-    // `left`'s VM, by name, as the runtime lists it, labelled `other`'s.
     runtime.listResources = async (query) => {
       const listed = await list(query);
       return {
@@ -849,7 +815,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     });
     const held = await holder.start(SPEC);
     const heldName = held.row.nativeId ?? "";
-    // A row, written past the registry, recording the live row's VM.
     const stray = "33333333-3333-4333-8333-333333333333";
     await store.commit({
       putContainers: [
@@ -968,7 +933,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     expect(lines).toEqual([expect.stringContaining(`${left.id}-1`)]);
     const old = runtime.instances.find((i) => i.id === `${left.id}-1`);
     expect(old?.removed).toBe(false);
-    // The next sweep judges it, once the inventory can be read: the row's own.
     expect([...(await next.sweep())]).toEqual([`${left.id}-1`]);
     expect(old?.removed).toBe(true);
     await reopened.close();
@@ -1020,7 +984,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
       store,
     });
     const left = await gone.start(SPEC);
-    // The old VM's labels name another store: not provably the row's.
     const list = runtime.listResources.bind(runtime);
     runtime.listResources = async (query) => {
       const listed = await list(query);
@@ -1076,7 +1039,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
       removed: [],
       swept: [],
     });
-    // Kept, saying what is left to do, for whichever start comes next.
     expect(await store.get(left.id)).toMatchObject({ status: "removing" });
     expect(runtime.instances[0]?.removed).toBe(false);
 
@@ -1144,7 +1106,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     const live = runtime.instances.at(-1);
     expect(live?.removed).toBe(false);
     expect(await store.get(row.id)).toMatchObject({ status: "running" });
-    // A recovery that judges it now sees the winner holding it.
     const holders: (string | undefined)[] = [];
     await recovering.recover((seen) => {
       holders.push(seen.holder);
@@ -1160,8 +1121,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     "sweeps an orphan in the %s runtime state",
     async (status) => {
       const { runtime, containers, store } = fixture();
-      // A VM of a row that is gone: its store's and its row's labels, and
-      // that row's own name.
       const id = globalThis.crypto.randomUUID();
       const own = await store.identity();
       try {
@@ -1255,7 +1214,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     const reopening = containers.open(c.id);
     await gate.caught;
     const restarting = containers.restart(c.id, alpine);
-    // Let the restart reach the store before the reopen's commit lands.
     await new Promise((resolve) => setTimeout(resolve, 0));
     gate.release();
     await restarting;
@@ -1283,7 +1241,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     const reopening = first.open(c.id);
     await gate.caught;
     const restarting = second.restart(c.id, alpine);
-    // Let the other registry reach the store before the reopen's commit lands.
     await new Promise((resolve) => setTimeout(resolve, 0));
     gate.release();
     await restarting;
@@ -1304,8 +1261,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     const c = await first.start(SPEC);
     await c.close();
 
-    // Each names its VM from the row as stored, so no name is used twice.
-    // The row records one of them: one row is live in one registry at a time.
     const handles = await Promise.all([first.open(c.id), second.open(c.id)]);
     expect(runtime.instances.map((instance) => instance.id)).toEqual([
       `${c.id}-1`,

@@ -9,20 +9,8 @@ import { Executions } from "~/lib/executions";
 import { Launcher } from "~/lib/launcher";
 import { exitedPid } from "../helpers/executions";
 
-/**
- * A retiring engine handing its queued runs to its successor: nothing of
- * its queue may start here once the handover began, even when a slot frees
- * while a run's handover is being written.
- */
-
-/**
- * A memory store whose transactions wait at `gate` while `holding` is set,
- * and that refuses the transactions `failing` says to, counted from 0 once
- * `counting` is set.
- */
 class GatedStore extends MemoryExecutionStore {
   holding = false;
-  /** How many transactions pass before the one `holding` gates. */
   skip = 0;
   counting = false;
   failing: (index: number) => boolean = () => false;
@@ -71,11 +59,6 @@ function launcherOver(store: GatedStore, lines: string[] = []) {
   return { executions, launcher };
 }
 
-/**
- * A launcher with a task `first` running, holding its queue's one slot,
- * and runs 2 and 3 of `waiting` queued behind it; `started` lists what
- * started here.
- */
 async function queuedBehindOne(lines: string[] = []) {
   const store = new GatedStore();
   const { executions, launcher } = launcherOver(store, lines);
@@ -102,7 +85,6 @@ async function queuedBehindOne(lines: string[] = []) {
   second.result.catch(() => undefined);
   third.result.catch(() => undefined);
   const successor = { pid: thisProcess().pid + 1, started: null };
-  /** Let the first run end, and wait for its end. */
   const end = async () => {
     finish.resolve();
     await first.result;
@@ -120,7 +102,6 @@ async function queuedBehindOne(lines: string[] = []) {
   };
 }
 
-/** How `promise` has settled by the time everything already due has run. */
 async function settledYet(promise: Promise<unknown>): Promise<string> {
   const pending = Symbol("pending");
   const settled = await Promise.race([
@@ -140,7 +121,6 @@ describe("an engine that has begun to retire", () => {
     const handing = queued.launcher.handOver(queued.successor);
     await queued.store.entered.promise;
     const during = queued.launcher.launch("waiting", { n: 4 }, {});
-    // The slot frees while the hand-over is written.
     queued.executions.release(queued.first.id);
     queued.store.gate.resolve();
     await expect(during).rejects.toMatchObject({
@@ -152,7 +132,6 @@ describe("an engine that has begun to retire", () => {
     await queued.end();
     expect(queued.started).toEqual(["first"]);
     expect(queued.executions.waiting()).toEqual([]);
-    // Nothing of the refused launches was recorded here.
     expect(
       queued.executions
         .list()
@@ -165,7 +144,6 @@ describe("an engine that has begun to retire", () => {
     const { executions, launcher } = launcherOver(store);
     await executions.load();
     launcher.task({ name: "quick", run: () => undefined });
-    // The launch's record is written; its start is held.
     store.skip = 1;
     store.holding = true;
     const launching = launcher.launch("quick", {}, {});
@@ -174,7 +152,6 @@ describe("an engine that has begun to retire", () => {
       pid: thisProcess().pid + 1,
       started: null,
     });
-    // Released from a timer: a hand-over that never yields never sees it.
     setTimeout(() => store.gate.resolve(), 20);
     expect(await handing).toEqual([]);
     await (await launching).result;
@@ -186,12 +163,10 @@ describe("an engine that has begun to retire", () => {
     queued.store.holding = true;
     const handing = queued.launcher.handOver(queued.successor);
     await queued.store.entered.promise;
-    // The second run's hand-over is refused once.
     queued.store.counting = true;
     queued.store.failing = (index) => index === 0;
     queued.executions.release(queued.first.id);
     queued.store.gate.resolve();
-    // The first pass hands over the third; a later try, the second.
     expect(await handing).toEqual([queued.third.id]);
     await expect(queued.second.result).rejects.toThrow(
       "was handed to the next engine generation"
@@ -217,7 +192,6 @@ describe("an engine that has begun to retire", () => {
       late.push(id)
     );
     await queued.store.entered.promise;
-    // The second run moves; every try at the third is refused for now.
     queued.store.counting = true;
     queued.store.failing = (index) => index > 0;
     queued.executions.release(queued.first.id);
@@ -236,7 +210,6 @@ describe("an engine that has begun to retire", () => {
     expect(await settledYet(queued.third.result)).toBe("pending");
     expect(await settledYet(queued.executions.drained())).toBe("pending");
 
-    // Tried again, the same failure said once, until the store takes it.
     await vi.waitFor(
       () =>
         expect(
@@ -263,11 +236,6 @@ describe("an engine that has begun to retire", () => {
   }, 60_000);
 });
 
-/**
- * A gated store whose transactions say which engine is current, as the
- * Marbles database does (`ExecutionView.successor`): `current`, read when
- * the transaction asks.
- */
 class CurrentStore extends GatedStore {
   current: ProcessIdentity | undefined;
 
@@ -306,13 +274,11 @@ describe("a later pass of a retiring engine's hand-over", () => {
       const queued = await launcher.launch("waiting", {}, {});
       queued.result.catch(() => undefined);
       const retiredFor = { pid: thisProcess().pid + 1, started: null };
-      // The first pass fails: the run stays queued here.
       store.counting = true;
       store.failing = () => true;
       await launcher.handOver(retiredFor);
       store.counting = false;
       store.current = retiredFor;
-      // The next pass's write waits; meanwhile another engine is current.
       store.holding = true;
       const pass = vi.advanceTimersByTimeAsync(1000);
       await store.entered.promise;
@@ -374,7 +340,6 @@ describe("a later pass of a retiring engine's hand-over", () => {
       expect(
         await launcher.handOver({ pid: thisProcess().pid + 1, started: null })
       ).toEqual([]);
-      // Another engine hands this one a run, as it retires too.
       const at = new Date().toISOString();
       await store.create({
         correlation: {},
@@ -478,9 +443,6 @@ describe("handing queued runs over", () => {
     const successor = { pid: thisProcess().pid + 1, started: null };
     store.holding = true;
     const handing = launcher.handOver(successor);
-    // While the second run's handover is written, the first run gives up
-    // its slot, as a run that parks on a question or a task that lets its
-    // slot go does: no write of its own, so nothing waits behind the gate.
     await store.entered.promise;
     executions.release(first.id);
     store.gate.resolve();

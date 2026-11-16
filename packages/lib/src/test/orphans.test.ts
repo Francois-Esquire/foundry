@@ -29,12 +29,6 @@ import { anotherStart } from "../testing/process-identity";
 import { stopLeftover } from "./helpers/leftovers";
 import { pidWritten } from "./helpers/pid-file";
 
-/**
- * Every process here is one this test started (`sleep`), and the only
- * ones a stop may signal: each record names one of them, its owner
- * another. Whatever is still running at the end is stopped by its pid,
- * which this process has not reaped, so no other process can have it.
- */
 const started: ChildProcess[] = [];
 const made: string[] = [];
 const FAST = { graceMs: 2000, killMs: 1000 };
@@ -56,7 +50,6 @@ function scratch(): string {
   return dir;
 }
 
-/** A `sleep` of this test's, with its identity. */
 function sleeper(detached = false): {
   readonly child: ChildProcess;
   readonly identity: ProcessIdentity & { readonly started: string };
@@ -119,7 +112,6 @@ it("never signals a process that started at another time than its record says", 
   const dir = scratch();
   const owner = sleeper();
   const impostor = sleeper();
-  // The pid is live, but the record was of another process given it before.
   record(dir, {
     group: false,
     owner: owner.identity,
@@ -131,7 +123,6 @@ it("never signals a process that started at another time than its record says", 
   expect(await stopOrphans(dir, FAST)).toEqual({ problems: [], stopped: [] });
   expect(impostor.child.exitCode).toBeNull();
   expect(impostor.child.signalCode).toBeNull();
-  // It names no process now.
   expect(existsSync(recordPath(dir, impostor.identity.pid))).toBe(false);
 });
 
@@ -178,7 +169,6 @@ it("stops a group an orphan leads, and refuses one that no longer leads its grou
   const leader = sleeper(true);
   const follower = sleeper();
   record(dir, { ...leader.identity, group: true, owner: owner.identity });
-  // Recorded as leading a group, but it is in this test's.
   record(dir, { ...follower.identity, group: true, owner: owner.identity });
   await kill(owner.child);
 
@@ -201,7 +191,6 @@ it("kills one that ignores SIGTERM, and keeps the record of one that will not go
     { stdio: "ignore" }
   );
   started.push(stubborn);
-  // Its handler is in place once it has had a moment to start.
   await new Promise((settle) => setTimeout(settle, 300));
   const pid = stubborn.pid ?? 0;
   const when = startedAt(pid);
@@ -300,11 +289,6 @@ it("records the owner of a child on its recovery record, and removes it once the
   expect(existsSync(path)).toBe(false);
 });
 
-/**
- * A group this test starts, leading its own: a shell that starts a Node
- * process ignoring SIGTERM, which writes its pid once its handler is in
- * place. The helper's identity, for proving and, at the end, stopping it.
- */
 async function stubbornGroup(dir: string): Promise<{
   readonly helper: ProcessIdentity & { readonly started: string };
   readonly leader: ChildProcess;
@@ -364,7 +348,6 @@ it("finishes a group a stop cut short after its leader exited, by the members it
   const dir = scratch();
   const owner = sleeper();
   const group = await stubbornGroup(dir);
-  // What a stop cut short leaves: the members it wrote down, the leader gone.
   record(dir, {
     ...group.identity,
     group: true,
@@ -428,16 +411,9 @@ it("keeps, and reports, a record whose start is of another kind than the system 
   expect(existsSync(recordPath(dir, 123))).toBe(true);
 });
 
-/**
- * A table of made-up processes, by pid: a signal to a pid, or to a group
- * by its id, ends each one it reaches that is running; one that has
- * exited (a zombie) stays listed, as no signal reaches it. Every signal
- * is kept in `sent`; none reaches a real process.
- */
 function madeUpTable(
   processes: Map<number, SeenProcess>,
   afterKill: (target: number, name: NodeJS.Signals) => void = () => undefined,
-  /** Processes a signal reaches that the listing leaves out. */
   unlisted: ReadonlySet<number> = new Set()
 ): {
   readonly sent: [number, NodeJS.Signals][];
@@ -536,8 +512,6 @@ it("proves a group again before it records or signals it: one whose id went to a
     look(pids) {
       const seen = table.look(pids);
       if (!looked) {
-        // Proved as the records are read; then, while other orphans are
-        // stopped, the group exits and its id goes to another group.
         looked = true;
         processes.clear();
         processes.set(leader, { pgid: leader, started: LATER });
@@ -549,9 +523,6 @@ it("proves a group again before it records or signals it: one whose id went to a
 
   const stop = await stopOrphans(dir, { graceMs: 0, killMs: 0, system });
 
-  // Nothing is sent to the other group. Its id being another's proves the
-  // old group empty (a pid is not given to a new process while a group
-  // with that id has a member), so the record goes.
   expect(sent).toEqual([]);
   expect(stop).toEqual({ problems: [], stopped: [] });
   expect(existsSync(recordPath(dir, leader))).toBe(false);
@@ -568,7 +539,6 @@ it("signals a group by its id only while a recorded member is proved in it: not 
   ]);
   const { sent, table } = madeUpTable(processes, (target, name) => {
     if (target === -leader && name === "SIGTERM") {
-      // The group empties, and before the SIGKILL its id is another's.
       processes.set(leader, { pgid: leader, started: LATER });
       processes.set(4_200_022, { pgid: leader, started: LATER });
     }
@@ -576,8 +546,6 @@ it("signals a group by its id only while a recorded member is proved in it: not 
 
   const stop = await stopOrphans(dir, { graceMs: 0, killMs: 0, system: table });
 
-  // No SIGKILL to the other group; its id being another's proves the
-  // stopped group empty, so its record goes.
   expect(sent).toEqual([[-leader, "SIGTERM"]]);
   expect(stop.problems).toEqual([]);
   expect(existsSync(recordPath(dir, leader))).toBe(false);
@@ -612,8 +580,6 @@ it("forgets a record left aside by a removal cut short, by the file it read it f
   const gone = { group: false, owner: OWNER, pid: 4_200_140, started: MADE_UP };
   const path = recordPath(dir, gone.pid);
   record(dir, gone);
-  // Cut short right after the move aside: the record is there under its
-  // aside name only.
   expect(() =>
     forgetRecord(path, gone, {
       link: () => {
@@ -637,7 +603,6 @@ it("forgets a record left aside by a removal cut short, by the file it read it f
   expect(sent).toEqual([]);
   expect(readdirSync(dir)).toEqual([]);
 
-  // One left aside that still names an orphan is stopped, then forgotten.
   const orphan = { ...gone, pid: 4_200_141 };
   const aside = join(dir, `.${String(orphan.pid)}.json.left.forget.json`);
   writePrivate(aside, JSON.stringify(orphan));
@@ -651,10 +616,6 @@ it("forgets a record left aside by a removal cut short, by the file it read it f
   expect(readdirSync(dir)).toEqual([]);
 });
 
-/**
- * A table where each listed process is as given, and a signal reaches
- * each pid in `answering` (and every listed one); nothing is signalled.
- */
 function judged(
   listed: Map<number, SeenProcess>,
   answering: ReadonlySet<number>
@@ -760,7 +721,6 @@ it("does not take an orphan for gone, once signalled, while it is unlisted but a
   let listed = true;
   const sent: unknown[] = [];
   const table: ProcessTable = {
-    // Signalled, it drops out of the listing but still answers.
     alive: (each) => each === pid,
     kill: (...args) => {
       sent.push(args);
@@ -798,7 +758,6 @@ it("stops a recorded member that still runs as recorded though it left the group
     pid: leader,
     started: MADE_UP,
   });
-  // The leader is gone; the member runs, in a group of its own now.
   const { sent, table } = madeUpTable(
     new Map([[member, { pgid: member, started: MADE_UP }]])
   );
@@ -807,7 +766,6 @@ it("stops a recorded member that still runs as recorded though it left the group
   expect(stop).toEqual({ problems: [], stopped: [leader] });
   expect(existsSync(recordPath(dir, leader))).toBe(false);
 
-  // One that will not stop keeps the record, reported.
   const kept = scratch();
   record(kept, {
     group: true,
@@ -865,7 +823,6 @@ it("reports, every time, an orphan kept because its owner cannot be told gone or
     record(dir, { group: false, owner, pid: child, started: MADE_UP });
     const { sent, table } = madeUpTable(
       new Map([
-        // Someone has the owner's pid; the child runs as recorded.
         [owner.pid, { pgid: owner.pid, started: LATER }],
         [child, { pgid: 1, started: MADE_UP }],
       ])
@@ -894,7 +851,6 @@ it("keeps, and reports, a group the listing shows empty while a signal still rea
   });
   const sent: unknown[] = [];
   const table: ProcessTable = {
-    // The group answers a signal; what is in it the listing leaves out.
     alive: (pid) => pid === -leader,
     kill: (...args) => {
       sent.push(args);

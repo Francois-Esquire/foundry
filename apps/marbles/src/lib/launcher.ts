@@ -99,7 +99,6 @@ interface Closable {
 export interface LauncherOptions {
   /** Sessions for a task run: they stop with it, close when it settles, and record on it. */
   readonly agents: (run: TaskRunSite) => Agents;
-  /** What a task's body runs as: its engine's execution context. */
   readonly context?: ExecutionContext;
   readonly executions: Executions;
   readonly print: (line: string) => void;
@@ -141,11 +140,6 @@ type Live =
 
 type Ending = "cancelled" | "failed" | undefined;
 
-/**
- * A run whose work ended but whose settlement could not be recorded: its
- * caller is paid this, `cause` the write's failure, rather than an outcome
- * the store does not hold.
- */
 export class RunNotRecordedError extends Error {
   override readonly name = "RunNotRecordedError";
 
@@ -157,13 +151,6 @@ export class RunNotRecordedError extends Error {
   }
 }
 
-/**
- * A launch from outside this engine's active runs that reached it after it
- * began to retire: nothing is recorded or started here, and the Marbles
- * process launches it again on the engine generation current now, as it
- * does with a question moving with its run (its name is what it tells
- * them apart by).
- */
 class EngineRetiringError extends Error {
   override readonly name = "EngineRetiringError";
 
@@ -174,11 +161,8 @@ class EngineRetiringError extends Error {
   }
 }
 
-/** The wait before a failed hand-over is tried again; it doubles after each failed try. */
 const HAND_OVER_RETRY_MS = 1000;
-/** The longest wait between two tries of a hand-over. */
 const HAND_OVER_RETRY_MAX_MS = 30_000;
-/** How often a retiring engine passes over its queued runs when the last pass failed nothing. */
 const HAND_OVER_PASS_MS = 2000;
 
 /**
@@ -206,7 +190,6 @@ export class Launcher {
   readonly #owed = new Map<string, Owed>();
   readonly #live = new Map<string, Live>();
   readonly #admitted = new Map<string, Admission>();
-  /** Cancellations of waiting runs a stop began, which it waits for. */
   readonly #withdrawing: Promise<void>[] = [];
   /**
    * Set when a stop begins and kept: the engine never starts again. A task
@@ -214,12 +197,7 @@ export class Launcher {
    * starts while a cancelling stop runs never gets to its body.
    */
   #halting: Halting;
-  /**
-   * Set when the engine begins to retire (`handOver`), and kept: no launch
-   * is recorded here from then on.
-   */
   #retiring = false;
-  /** Launches between their check and their admission, which a hand-over waits for. */
   readonly #launching = new Set<Promise<void>>();
 
   constructor(options: LauncherOptions) {
@@ -264,15 +242,11 @@ export class Launcher {
     if (!this.#runnable(name)) {
       throw new Error(`Definition is not registered: ${name}`);
     }
-    // A run active here launches as part of itself: admitted, retiring or
-    // not, and kept here to run on the code it runs on.
     const parent = this.#activeCaller();
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
     if (this.#retiring && parent === undefined) {
       throw new EngineRetiringError(name);
     }
-    // Until it is admitted, a hand-over that begins meanwhile waits for it,
-    // and hands it over with the rest of the queue.
     const admitted = Promise.withResolvers<void>();
     const done = () => {
       this.#launching.delete(admitted.promise);
@@ -340,14 +314,11 @@ export class Launcher {
    */
   async recover(options: {
     readonly adopted: ReadonlySet<string>;
-    /** What a workflow run's own Run says its status is; `undefined` without one. */
     readonly fileStatus: (run: ExecutionRun) => string | undefined;
   }): Promise<void> {
     const readmitted = await this.executions.recover({
       adopted: options.adopted,
       fileStatus: options.fileStatus,
-      // A queued run handed to this process (`handOver`) is let in whatever
-      // the host asked: it was this host's to run already.
       readmit: (run) =>
         (this.#options.recoverQueued ||
           sameProcess(run.owner, thisProcess())) &&
@@ -360,24 +331,6 @@ export class Launcher {
     }
   }
 
-  /**
-   * Begin to retire (`beginRetiring`), then hand every run waiting in this
-   * process's queues, but those kept here, to `successor`, in their order,
-   * still queued, for it to let in when it starts: launches already under
-   * way among them. Whoever awaits one here is told it was handed over as
-   * soon as it is. Resolves with the ids this first pass handed over.
-   *
-   * From then until this engine stops, it passes again: each pass takes up
-   * every queued run the store says is this process's, a run handed to it
-   * after it started among them, and hands each to the engine its host
-   * records current in the transaction that writes it (`successor` when
-   * the store keeps none), waiting while none is. A run whose hand-over
-   * fails stays queued here, unstarted, and the queues are not drained
-   * while it does; after a failure the next pass waits longer, up to
-   * `HAND_OVER_RETRY_MAX_MS`, and each distinct failure is said once.
-   * `onHanded` is told of each run a later pass hands over, which an
-   * engine already started does not find by itself.
-   */
   async handOver(
     successor: ProcessIdentity,
     onHanded: (id: string) => void = () => undefined
@@ -391,9 +344,6 @@ export class Launcher {
         new Error(`run ${id} was handed to the next engine generation`)
       );
     };
-    // Every launch past its check is admitted, or refused, once these
-    // settle, and none from outside passes it from now on: one pass takes
-    // them all.
     await Promise.all(this.#launching);
     const { failed } = await this.executions.handOverAll(
       () => Promise.resolve(successor),
@@ -402,8 +352,6 @@ export class Launcher {
     const said = new Set<string>();
     this.#sayFailed(failed, said);
     this.#handOverLater(
-      // The one current where the write is made; the first `successor`
-      // only for a store that keeps none.
       (view) =>
         view.successor === undefined
           ? Promise.resolve(successor)
@@ -415,7 +363,6 @@ export class Launcher {
     return [...handed];
   }
 
-  /** Say each failure of a hand-over not said already, by its message. */
   #sayFailed(
     failed: readonly { readonly error: unknown; readonly id: string }[],
     said: Set<string>
@@ -431,12 +378,6 @@ export class Launcher {
     }
   }
 
-  /**
-   * Pass over this process's queued runs again after `delay`, and again
-   * after that, until this engine stops: take up each the store says is
-   * this process's that it does not hold yet, and hand every one over to
-   * the engine `choose` names in the write's transaction.
-   */
   #handOverLater(
     choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>,
     onHanded: (id: string) => void,
@@ -474,15 +415,9 @@ export class Launcher {
             )
       );
     }, delay);
-    // A retiring process exits once its runs end; a pass keeps nothing alive.
     timer.unref?.();
   }
 
-  /**
-   * Hold, waiting in their queues, the queued runs the store says are this
-   * process's that it does not hold yet: handed to it after it started,
-   * as it began to retire, for its next pass to hand on.
-   */
   async #takeUpQueued(): Promise<void> {
     for (const id of await this.executions.queuedHere()) {
       if (this.#owed.has(id) || this.#admitted.has(id)) {
@@ -497,14 +432,6 @@ export class Launcher {
     }
   }
 
-  /**
-   * Take a queued run whose owner, `owner`, is gone, and let it in here:
-   * `true` once it waits in its queue here, or already did; `false`,
-   * changing nothing, when this engine has begun to retire, nothing here
-   * can run it, `owner` is not proved gone, or the run is no longer queued
-   * under `owner` exactly when the store is asked
-   * (`ExecutionRecords.takeQueuedFrom`).
-   */
   async takeOrphaned(id: string, owner: ProcessIdentity): Promise<QueuedTake> {
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
     if (this.#retiring) {
@@ -541,13 +468,6 @@ export class Launcher {
     return { taken: true };
   }
 
-  /**
-   * Let in a queued run another process handed to this one after this one
-   * started (`handOver` there): `true` once it waits in its queue here, or
-   * already did; `false` when nothing here can run it, or this engine has
-   * begun to retire; `undefined` when the store holds no queued run of
-   * this process's by that id.
-   */
   async takeHanded(id: string): Promise<boolean | undefined> {
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
     if (this.#retiring) {
@@ -560,8 +480,6 @@ export class Launcher {
     if (run === undefined) {
       return;
     }
-    // Looked at again after the read: a retirement or a start may have
-    // come meanwhile.
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
     if (this.#retiring || !this.#runnableAs(run)) {
       return false;
@@ -585,7 +503,6 @@ export class Launcher {
    * already settled is left as it is.
    */
   async cancel(id: string): Promise<void> {
-    // Paid once the cancellation is stored, never before.
     if (await this.executions.withdraw(id)) {
       this.#pay(id, new Error(`run ${id} was cancelled before it started`));
       return;
@@ -624,14 +541,6 @@ export class Launcher {
     await this.#options.workflows.cancel(id);
   }
 
-  /**
-   * Withdraw queued work and abort live dispatches and tasks before
-   * shutdown awaits anything: each waiting run comes off its queue at once,
-   * and its caller is paid its cancellation once that is stored (a stop
-   * waits for it, in `halt`); one whose cancellation cannot be stored is
-   * paid that failure. From now on, a task that starts here is aborted
-   * before its body runs.
-   */
   cancelPending(): void {
     this.#halting = "cancel";
     for (const id of this.executions.waiting()) {
@@ -767,21 +676,11 @@ export class Launcher {
     );
   }
 
-  /**
-   * The run active here whose body is calling, if one is: launched or
-   * adopted here and not yet settled (`#live`). Decided from the run scope
-   * the call is made in (`callingRun`), never from what the caller says.
-   */
   #activeCaller(): string | undefined {
     const id = callingRun();
     return id !== undefined && this.#active(id) ? id : undefined;
   }
 
-  /**
-   * Whether run `id` is active here: launched or adopted here, not settled
-   * (`#live`), recorded running, and this process's. A parked run, or one
-   * let go to another engine, is not, whatever it left here.
-   */
   #active(id: string): boolean {
     const run = this.executions.get(id);
     return (
@@ -791,12 +690,6 @@ export class Launcher {
     );
   }
 
-  /**
-   * Begin to retire, at once: no launch from outside this engine's active
-   * runs is recorded here from now on, and no queue admits a run but one
-   * an active run here launched (`Executions.closeAdmission`). Nothing
-   * reopens either.
-   */
   beginRetiring(): void {
     this.#retiring = true;
     this.executions.closeAdmission((id) => this.#active(id));
@@ -934,13 +827,11 @@ export class Launcher {
       signal: resourceSignal,
     };
     this.#live.set(id, live);
-    // The body, and everything it starts, runs as this engine's work.
     const result = withinContext(this.#options.context, async () => {
       let value: unknown;
       try {
         // Cancelled before its body started: it never runs.
         controller.signal.throwIfAborted();
-        // Its body is the run's own: what it launches comes from it.
         value = await asRun(id, () => task.run(input, context));
       } finally {
         lifetime.abort(new Error(`run ${id} resource lifetime ended`));
@@ -980,15 +871,6 @@ export class Launcher {
     );
   }
 
-  /**
-   * Record how a run ended, then pay its caller what it ended with, once
-   * the settlement is stored: a run is never acknowledged as ended before
-   * its record says so, and one stored settled otherwise already pays what
-   * is stored. One whose settlement cannot be stored pays its
-   * caller a `RunNotRecordedError` instead, and the settlement is kept to
-   * try again (`ExecutionRecords.settle`). With no `ending` (a run left
-   * parked) nothing is recorded, and the caller is paid at once.
-   */
   async #end(
     id: string,
     ending: "complete" | Ending,
@@ -1007,7 +889,6 @@ export class Launcher {
         return;
       }
       if (stored && stored.status !== ending) {
-        // Settled otherwise already: the caller gets what is stored.
         this.#pay(
           id,
           stored.status === "complete"

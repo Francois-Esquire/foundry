@@ -29,18 +29,8 @@ import { readStatus } from "~/status/model";
 import { exitedPid, seedExecution, withExecutions } from "./helpers/executions";
 import { testHome } from "./helpers/home";
 
-/**
- * Engine generations, as real processes: the daemon runs here, under the
- * test runner, and each generation it spawns runs under Bun. A step tells
- * which generation ran it by its pid (`where`, `hold<n>`, `asking`), and
- * each `hold<n>` waits for a gate file of its own, so a test decides when
- * the run it holds ends. Editing the source is what starts a switch. Only
- * the generations this test's daemon spawned are ever signalled.
- */
-
 interface Fixture {
   readonly gates: string;
-  /** What each step logs: `<step> <pid>`, a line each. */
   readonly log: string;
   readonly machine: Layout;
   readonly source: string;
@@ -54,12 +44,6 @@ afterEach(async () => {
 
 const zodPath = createRequire(import.meta.url).resolve("zod");
 
-/**
- * The workspace's source at `revision`: `broken` throws as it loads;
- * `ticking` adds a schedule; `strict` makes `picky` refuse the input its
- * earlier runs were given, so a parked one cannot be rebuilt by an engine
- * that starts with it.
- */
 function moduleText(
   fixture: Pick<Fixture, "gates" | "log">,
   revision: number,
@@ -167,10 +151,6 @@ async function setUp({
   return { ...fixture, client, daemon: started, summary };
 }
 
-/**
- * A clock the test moves on by hand: a timer fires only once `advance`
- * passes its time, so a wait the daemon schedules ends when the test says.
- */
 function handClock(): DaemonClock & { advance(ms: number): void } {
   let now = 0;
   const timers = new Map<
@@ -201,14 +181,12 @@ function handClock(): DaemonClock & { advance(ms: number): void } {
   };
 }
 
-/** The generation helper whose engines refuse one stop (`MARBLES_TEST_FAIL_STOP`). */
 const failingStop = join(
   import.meta.dirname,
   "helpers",
   "generation-failing-stop.ts"
 );
 
-/** Whether the stored registration of workspace `id` says it is hosted. */
 async function stored(
   fixture: Pick<Fixture, "machine">,
   id: string
@@ -257,7 +235,6 @@ async function crash(child: ReturnType<typeof spawn>): Promise<void> {
   await exited;
 }
 
-/** How many generations the daemon has ever numbered, live or not. */
 async function numbered(fixture: Pick<Fixture, "machine">): Promise<number> {
   const rows = await readDatabase(
     stateDatabase(fixture.machine.state),
@@ -266,7 +243,6 @@ async function numbered(fixture: Pick<Fixture, "machine">): Promise<number> {
   return rows?.length ?? 0;
 }
 
-/** Each `<step> <pid>` line the steps logged. */
 function logged(fixture: Pick<Fixture, "log">): string[] {
   return readFileSync(fixture.log, "utf8").split("\n").filter(Boolean);
 }
@@ -281,7 +257,6 @@ async function whenLogged(
   });
 }
 
-/** Edit the source, and wait for a generation other than `before` to host the workspace. */
 async function switchFrom(
   fixture: Fixture & { readonly client: MarblesClient },
   before: number,
@@ -306,7 +281,6 @@ function open(gate: number | string, fixture: Pick<Fixture, "gates">): void {
   writeFileSync(join(fixture.gates, String(gate)), "");
 }
 
-/** Wait until the workspace is ready on a generation whose pid `which` accepts; its pid. */
 async function readyOn(
   fixture: { readonly client: MarblesClient },
   which: (pid: number) => boolean
@@ -322,7 +296,6 @@ async function readyOn(
   );
 }
 
-/** The id of the open question titled `title`, once the feed shows it. */
 async function openEntry(
   workspace: ReturnType<MarblesClient["workspace"]>,
   title: string
@@ -347,7 +320,6 @@ async function gone(pid: number, timeout = 30_000): Promise<void> {
   });
 }
 
-/** Every Execution Run of the workspace, its name and status, as stored. */
 async function executions(
   fixture: Pick<Fixture, "machine">,
   scope: string
@@ -365,10 +337,6 @@ async function executions(
   );
 }
 
-/**
- * Prove `pid` is the generation the database records in `state`, by its
- * start, right before this test signals it.
- */
 async function provedGeneration(
   fixture: Pick<Fixture, "machine">,
   pid: number,
@@ -398,16 +366,13 @@ describe("engine generations", () => {
     const workspace = fixture.client.workspace(fixture.summary);
     const holding = workspace.roll("hold1");
     await whenLogged(fixture, `hold1 ${String(first)}`);
-    // The queue lets one run in at a time: this one waits behind hold1.
     await workspace.actions.launch("where", {});
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(logged(fixture)).not.toContain(`where ${String(first)}`);
 
     const second = await switchFrom(fixture, first, 1);
-    // The queued run is the new generation's, and runs there at once.
     await whenLogged(fixture, `where ${String(second)}`);
     expect(logged(fixture)).not.toContain(`where ${String(first)}`);
-    // The old one goes on with its run, whole.
     expect(processAlive(first)).toBe(true);
     expect((await workspace.roll("where")).value).toBe(second);
 
@@ -432,7 +397,6 @@ describe("engine generations", () => {
       { interval: 100, timeout: 30_000 }
     );
     const second = await switchFrom(fixture, first, 1);
-    // Parked is not running: the old generation has nothing left, and goes.
     await gone(first);
     await workspace.actions.answer(entry ?? "", "yes");
     await whenLogged(fixture, `answered ${String(second)}`);
@@ -472,12 +436,9 @@ describe("engine generations", () => {
     const second = await switchFrom(fixture, first, 1);
     expect(processAlive(first)).toBe(true);
 
-    // The retired generation this test's daemon spawned dies mid-run:
-    // proved to be that process, by its recorded start, right before.
     await provedGeneration(fixture, first, "retiring");
     process.kill(first, "SIGKILL");
     await expect(holding).rejects.toThrow();
-    // A generation that starts after the death recovers its run.
     const third = await vi.waitFor(
       async () => {
         const [summary] = await fixture.client.workspaces();
@@ -536,7 +497,6 @@ describe("engine generations", () => {
     );
     const second = await switchFrom(fixture, first, 1, { ticking: true });
     const third = await switchFrom(fixture, second, 2, { ticking: true });
-    // Until the third generation has finished a tick of its own.
     await vi.waitFor(
       () =>
         expect(
@@ -546,7 +506,6 @@ describe("engine generations", () => {
         ).toBe(true),
       { interval: 200, timeout: 60_000 }
     );
-    // Each tick's start and end, in the order they started.
     const ticks = logged(fixture)
       .filter((line) => line.startsWith("tick ") || line.startsWith("tock "))
       .map((line) => line.split(" "));
@@ -568,9 +527,6 @@ describe("engine generations", () => {
     for (const [index, run] of runs.entries()) {
       const before = runs[index - 1];
       if (before?.end !== undefined) {
-        // Never two at once, and each a cadence after the last finished,
-        // whichever generation ran it: the stored finish is read again
-        // under the tick's claim.
         expect(run.start).toBeGreaterThanOrEqual(before.end);
         expect(run.start - before.end).toBeGreaterThanOrEqual(900);
       }
@@ -614,7 +570,6 @@ describe("engine generations", () => {
       },
       { interval: 200, timeout: 30_000 }
     );
-    // Its one run ended: the retired generation goes.
     await gone(first);
     fixture.client.close();
   }, 120_000);
@@ -633,7 +588,6 @@ describe("engine generations", () => {
       },
       { interval: 100, timeout: 30_000 }
     );
-    // A run that keeps the old generation alive past the switch.
     const holding = workspace.roll("hold1");
     await whenLogged(fixture, `hold1 ${String(first)}`);
     const second = await switchFrom(fixture, first, 1);
@@ -644,8 +598,6 @@ describe("engine generations", () => {
     open(1, fixture);
     expect((await holding).value).toBe(first);
     await gone(first);
-    // Answered once, by the generation that adopted it, and left complete
-    // by the old one's stop.
     expect(
       logged(fixture).filter((line) => line.startsWith("answered "))
     ).toEqual([`answered ${String(second)}`]);
@@ -667,7 +619,6 @@ describe("engine generations", () => {
       await startDaemon({ layout: home.layout, print: () => undefined })
     );
     const client = await connect({ layout: home.layout, start: false });
-    // The first attach, with no generation running yet.
     await expect(client.attach(brokenSource)).rejects.toThrow("never loads");
 
     const root = join(home.path, "project");
@@ -685,8 +636,6 @@ describe("engine generations", () => {
     writeFileSync(fixture.source, moduleText(fixture, 0));
     const summary = await client.attach(fixture.source);
     const first = summary.pid ?? 0;
-    // The next generation loads every registered workspace: the broken
-    // one is not among them.
     writeFileSync(fixture.source, moduleText(fixture, 1));
     const second = await vi.waitFor(
       async () => {
@@ -729,17 +678,13 @@ describe("engine generations", () => {
     await workspace.actions.launch("late", {});
     await whenLogged(fixture, `late ${String(first)}`);
     const second = await switchFrom(fixture, first, 1);
-    // It is still running on the retired generation: now it parks.
     open("late", fixture);
-    // Answered the moment its question shows, whichever generation holds
-    // it then: the answer waits for the handover rather than miss it.
     const entry = await openEntry(workspace, "Late?");
     await workspace.actions.answer(entry, "yes");
     await whenLogged(fixture, `answered-late ${String(second)}`);
     expect(
       logged(fixture).filter((line) => line.startsWith("answered-late "))
     ).toEqual([`answered-late ${String(second)}`]);
-    // It held nothing parked, and nothing ran: it is gone.
     await gone(first);
     fixture.client.close();
   }, 150_000);
@@ -750,8 +695,6 @@ describe("engine generations", () => {
     const workspace = fixture.client.workspace(fixture.summary);
     await workspace.actions.launch("picky", { n: 1 });
     await openEntry(workspace, "Picky?");
-    // The next source loads, but cannot rebuild the parked run it takes
-    // over: its engine's start fails after the first generation retired.
     writeFileSync(fixture.source, moduleText(fixture, 1, { strict: true }));
     await vi.waitFor(
       async () => {
@@ -761,8 +704,6 @@ describe("engine generations", () => {
       { interval: 200, timeout: 60_000 }
     );
     await gone(first);
-    // With none current, the daemon goes on starting one, as after a
-    // crash; once the source can start, one takes over and the run with it.
     writeFileSync(fixture.source, moduleText(fixture, 2));
     const recovered = await readyOn(fixture, (pid) => pid !== first);
     const entry = await openEntry(workspace, "Picky?");
@@ -791,7 +732,6 @@ describe("engine generations", () => {
     expect(processAlive(first)).toBe(true);
     fixture.client.close();
     const daemon = daemons.pop();
-    // Within the stop's bounds: each is asked, then killed.
     await daemon?.close();
     expect(processAlive(first)).toBe(false);
     expect(processAlive(second)).toBe(false);
@@ -808,7 +748,6 @@ describe("engine generations", () => {
     await workspace.roll("add", { title: "after" });
     await whenLogged(fixture, `seen-after ${String(second)}`);
     await gone(first);
-    // A third generation reads the same changes, and delivers none again.
     const third = await switchFrom(fixture, second, 2);
     await workspace.roll("add", { title: "last" });
     await whenLogged(fixture, `seen-last ${String(third)}`);
@@ -835,7 +774,6 @@ describe("engine generations", () => {
       `import { value } from ${JSON.stringify(helper)};\nimport values from ${JSON.stringify(data)};\n${moduleText(fixture, 1)}export const read = () => [value, values.value];\n`
     );
     const second = await readyOn(fixture, (pid) => pid !== first);
-    // The source is as it was: only what it imports changes.
     writeFileSync(helper, "export const value = 200;\n");
     const third = await readyOn(fixture, (pid) => pid !== second);
     writeFileSync(data, '{ "value": 200 }\n');
@@ -845,7 +783,6 @@ describe("engine generations", () => {
 
   it("starts no other generation after an attach when nothing changed", async () => {
     const fixture = await setUp();
-    // Several polls of the fingerprint: none may see a change.
     for (let poll = 0; poll < 3; poll += 1) {
       await fixture.daemon.pollNow();
       expect(await fixture.daemon.idle()).toEqual({
@@ -862,7 +799,6 @@ describe("engine generations", () => {
 
   it("starts exactly one generation for an idle reload, and one more for each after it", async () => {
     const clock = handClock();
-    // What the daemon said, so a failure shows why it scheduled a switch.
     const lines: string[] = [];
     const fixture = await setUp({
       daemon: { clock, print: (line) => lines.push(line) },
@@ -871,7 +807,6 @@ describe("engine generations", () => {
     const second = (await fixture.client.reload(fixture.summary.id)).pid ?? 0;
     expect(second).not.toBe(first);
     await gone(first);
-    // Past every backoff a replacement could wait: nothing was scheduled.
     expect(await fixture.daemon.idle(), lines.join("\n")).toEqual({
       reasons: [],
       scheduled: false,
@@ -903,7 +838,6 @@ describe("engine generations", () => {
     const source = join(root, "marbles.config.ts");
     const loading = join(home.path, "loading");
     const loaded = join(home.path, "loaded");
-    // Its load says it began, then waits until the test lets it finish.
     writeFileSync(
       source,
       `import { existsSync, writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(loading)}, "");\nwhile (!existsSync(${JSON.stringify(loaded)})) await new Promise((resolve) => setTimeout(resolve, 20));\nimport { step } from "@foundry.sh/marbles";\nexport const where = step("where").do(() => process.pid);\n`
@@ -950,7 +884,6 @@ describe("engine generations", () => {
         },
       });
       const first = fixture.summary.pid ?? 0;
-      // The next generation loads, but its engine does not start.
       writeFileSync(marker, "");
       await fixture.client.reload(fixture.summary.id).catch(() => undefined);
       const [failed] = await fixture.client.workspaces();
@@ -959,7 +892,6 @@ describe("engine generations", () => {
       expect(idle.scheduled, lines.join("\n")).toBe(true);
       expect(idle.reasons.join("\n")).toContain("did not start");
 
-      // The failure clears with nothing edited: the replacement starts it.
       rmSync(marker);
       clock.advance(1000);
       await fixture.daemon.idle();
@@ -995,15 +927,10 @@ describe("engine generations", () => {
       const workspace = fixture.client.workspace(fixture.summary);
       const holding = workspace.roll("hold1");
       await whenLogged(fixture, `hold1 ${String(first)}`);
-      // The queue lets one run in at a time: this one waits behind hold1.
       await workspace.actions.launch("where", {});
-      // The switch's hand-over of it fails, so the next generation starts
-      // without it.
       writeFileSync(marker, "");
       const second = await switchFrom(fixture, first, 1);
       expect(logged(fixture)).not.toContain("where");
-      // The store answers again: the retired generation hands it over, and
-      // the current one, started already, runs it.
       rmSync(marker);
       await whenLogged(fixture, `where ${String(second)}`);
       expect(logged(fixture)).not.toContain(`where ${String(first)}`);
@@ -1086,11 +1013,8 @@ describe("engine generations", () => {
       holding.catch(() => undefined);
       await whenLogged(fixture, `hold1 ${String(first)}`);
       await workspace.actions.launch("where", {});
-      // Its hand-over fails, so the run stays queued under the first.
       writeFileSync(marker, "");
       const second = await switchFrom(fixture, first, 1);
-      // The retired generation this test's daemon spawned dies before it
-      // hands the run over: proved that process, by its start, right before.
       await provedGeneration(fixture, first, "retiring");
       process.kill(first, "SIGKILL");
       await gone(first);
@@ -1165,7 +1089,6 @@ describe("engine generations", () => {
       await workspace.actions.launch("where", {});
       writeFileSync(marker, "");
       const second = await switchFrom(fixture, first, 1);
-      // A second switch while the first generation still cannot hand it over.
       const third = await switchFrom(fixture, second, 2);
       rmSync(marker);
       await whenLogged(fixture, `where ${String(third)}`);
@@ -1196,7 +1119,6 @@ describe("engine generations", () => {
       const workspace = fixture.client.workspace(fixture.summary);
       writeFileSync(marker, "");
       await workspace.actions.launch("where", {});
-      // Refused once, as retiring, then launched on the generation current now.
       expect(existsSync(marker)).toBe(false);
       await whenLogged(fixture, `where ${String(fixture.summary.pid ?? 0)}`);
       const rows = await executions(fixture, fixture.summary.id);
@@ -1219,7 +1141,6 @@ describe("engine generations", () => {
     const second = await readyOn(fixture, (pid) => pid !== first);
     const workspace = fixture.client.workspace(fixture.summary);
     expect((await workspace.roll("told")).value).toBe("Say hello.\n");
-    // Only the prompt changes.
     writeFileSync(prompt, "Say goodbye, at length.\n");
     await readyOn(fixture, (pid) => pid !== second);
     expect((await workspace.roll("told")).value).toBe(
@@ -1238,7 +1159,6 @@ describe("engine generations", () => {
     const runId = await workspace.actions.launch("hold1", {});
     await whenLogged(fixture, `hold1 ${String(first)}`);
     const second = await switchFrom(fixture, first, 1);
-    // Still running in the retired generation as the workspace goes.
     const detaching = fixture.client.detach(fixture.summary.id);
     const waitingOnRetired = vi.waitFor(
       () =>
@@ -1253,9 +1173,7 @@ describe("engine generations", () => {
       detaching.then(() => "detached" as const),
       waitingOnRetired.then(() => "waiting" as const),
     ]);
-    // The detach must not be done while the retired generation runs it.
     expect(settled).toBe("waiting");
-    // Reachable while it drains: the run is cancelled where it runs.
     await workspace.actions.runs.cancel(runId);
     await detaching;
     const rows = await executions(fixture, fixture.summary.id);
@@ -1287,13 +1205,11 @@ describe("engine generations", () => {
         ).toBe(true),
       { interval: 50, timeout: 60_000 }
     );
-    // It says it is detaching, and holds no generation of its own.
     const listed = (await fixture.client.workspaces()).find(
       (each) => each.id === fixture.summary.id
     );
     expect(listed?.state).toBe("stopped");
     expect(listed?.error).toContain("detaching");
-    // New work for it is refused; attaching it again waits for the detach.
     await expect(workspace.actions.launch("hold2", {})).rejects.toThrow(
       "is detaching"
     );
@@ -1306,18 +1222,15 @@ describe("engine generations", () => {
       })
     );
     const detached = detaching.then(() => order.push("detach"));
-    // Another workspace attaches meanwhile: the daemon's turn is free.
     const otherRoot = join(fixture.gates, "..", "other");
     mkdirSync(otherRoot);
     const otherSource = join(otherRoot, "marbles.config.ts");
     writeFileSync(otherSource, moduleText(fixture, 0));
     const other = await fixture.client.attach(otherSource);
     expect(other.state).toBe("ready");
-    // Its run is still reachable where it runs, and ending it ends the detach.
     await workspace.actions.runs.cancel(runId);
     await detached;
     await gone(first);
-    // Then both attaches host it afresh, as one workspace.
     const [again, twice] = await Promise.all(attaches);
     expect(order[0]).toBe("detach");
     expect(again?.state).toBe("ready");
@@ -1343,7 +1256,6 @@ describe("engine generations", () => {
     const workspace = fixture.client.workspace(fixture.summary);
     await workspace.actions.launch("hold1", {});
     await whenLogged(fixture, `hold1 ${String(first)}`);
-    // The queue lets one run in at a time: this one waits behind hold1.
     await workspace.actions.launch("where", {});
     const detaching = fixture.client.detach(fixture.summary.id);
     detaching.catch(() => undefined);
@@ -1358,16 +1270,12 @@ describe("engine generations", () => {
         ).toBe(true),
       { interval: 50, timeout: 60_000 }
     );
-    // A switch while the current generation drains it: the next one loads
-    // only the other workspace, and the first retires.
     await fixture.client.reload(other.id);
     const now = (await fixture.client.workspaces()).find(
       (each) => each.id === other.id
     );
     expect(now?.state).toBe("ready");
     expect(now?.pid).not.toBe(first);
-    // The drain runs what it had, the queued run too, there: the next
-    // generation does not host the workspace, so nothing goes to it.
     open(1, fixture);
     await detaching;
     await gone(first);
@@ -1415,8 +1323,6 @@ describe("engine generations", () => {
       expect(listed?.state).toBe("failed");
       expect(listed?.error).toContain("detach failed");
       expect(await stored(fixture, fixture.summary.id)).toBe(true);
-      // Its source is the current generation's again: a poll of the
-      // sources finds nothing to switch for.
       const generations = await numbered(fixture);
       await fixture.daemon.pollNow();
       expect(await fixture.daemon.idle()).toEqual({
@@ -1486,7 +1392,6 @@ describe("engine generations", () => {
         ).toBe(true),
       { interval: 50, timeout: 60_000 }
     );
-    // Registered no more, its drain under way, as the daemon goes.
     expect(await stored(fixture, fixture.summary.id)).toBe(false);
     fixture.client.close();
     await daemons.pop()?.close();
@@ -1495,7 +1400,6 @@ describe("engine generations", () => {
       await startDaemon({ layout: fixture.machine, print: () => undefined })
     );
     const client = await connect({ layout: fixture.machine, start: false });
-    // The next daemon hosts what is registered: not this one.
     expect(await client.workspaces()).toEqual([]);
     expect(await stored(fixture, fixture.summary.id)).toBe(false);
     client.close();
@@ -1535,13 +1439,10 @@ describe("engine generations", () => {
         ).toBe(true),
       { interval: 50, timeout: 60_000 }
     );
-    // The first generation retires while it drains; its run ending ends
-    // both, and its hosts close as the registration is being dropped.
     await fixture.client.reload(other.id);
     open(1, fixture);
     await detaching;
     await gone(first);
-    // Its hosts closed only once the registration was dropped.
     const said = lines.join("\n");
     expect(said).toContain("hosts closing with 0 unregister(s) under way");
     expect(said).not.toContain("hosts closing with 1 unregister(s) under way");
@@ -1627,12 +1528,9 @@ describe("engine generations", () => {
       { interval: 50, timeout: 60_000 }
     );
     expect(await stored(fixture, summary.id)).toBe(false);
-    // The daemon this test started, proved that process by its start, is
-    // killed; the generation it spawned is not.
     await crash(child);
     client.close();
     expect(processAlive(first)).toBe(true);
-    // The next daemon hosts what is registered: not this workspace.
     const restarted = await startDaemon({
       layout: fixture.machine,
       print: () => undefined,
@@ -1641,15 +1539,12 @@ describe("engine generations", () => {
     const next = await connect({ layout: fixture.machine, start: false });
     expect(await next.workspaces()).toEqual([]);
     expect(await stored(fixture, summary.id)).toBe(false);
-    // The generation the crash left goes on with its run, whole, out of
-    // the new daemon's reach: recorded as still finishing, not as exited.
     expect(processAlive(first)).toBe(true);
     expect(
       (await readLiveGenerations(fixture.machine.state)).find(
         (generation) => generation.pid === first
       )?.state
     ).toBe("retiring");
-    // Once its run ends, it exits on its own.
     open(1, fixture);
     await gone(first, 60_000);
     const rows = await executions(fixture, summary.id);
@@ -1688,12 +1583,10 @@ describe("engine generations", () => {
         ).toBe(true),
       { interval: 50, timeout: 60_000 }
     );
-    // An attach waiting for the detach is settled by the stop too.
     const attaching = fixture.client.attach(fixture.source).then(
       () => "attached",
       () => "refused"
     );
-    // Within the stop's bounds: each generation is asked, then killed.
     await daemons.pop()?.close();
     expect(processAlive(first)).toBe(false);
     expect(processAlive(second)).toBe(false);
@@ -1711,7 +1604,6 @@ describe("engine generations", () => {
     const other = await fixture.client.attach(otherSource);
     fixture.client.close();
     await daemons.pop()?.close();
-    // The next Marbles process boots with one workspace that will not load.
     writeFileSync(otherSource, 'throw new Error("never loads");\n');
     daemons.push(
       await startDaemon({ layout: fixture.machine, print: () => undefined })
@@ -1742,7 +1634,6 @@ describe("engine generations", () => {
     const lines: string[] = [];
     const original = GenerationRecords.prototype.hosting;
     let failures = 0;
-    // The first write of the hosts fails, once; every other lands.
     GenerationRecords.prototype.hosting = () => {
       GenerationRecords.prototype.hosting = original;
       failures += 1;
@@ -1793,7 +1684,6 @@ describe("engine generations", () => {
       GenerationRecords.prototype.hosting = original;
     }
     expect((await fixture.daemon.idle()).scheduled).toBe(true);
-    // An attach writes the hosts before the retry is due, and it lands.
     const otherRoot = join(fixture.gates, "..", "other");
     mkdirSync(otherRoot);
     const otherSource = join(otherRoot, "marbles.config.ts");
@@ -1828,7 +1718,6 @@ describe("engine generations", () => {
     await whenLogged(fixture, `late ${String(first)}`);
     const second = await switchFrom(fixture, first, 1);
     open("late", fixture);
-    // Let go as it parks, and no one told: the daemon finds it stored.
     const entry = await openEntry(workspace, "Late?");
     await workspace.actions.answer(entry, "yes");
     await whenLogged(fixture, `answered-late ${String(second)}`);
@@ -1853,12 +1742,10 @@ describe("engine generations", () => {
       const first = fixture.summary.pid ?? 0;
       expect(readFileSync(marker, "utf8")).toBe(String(first));
       const workspace = fixture.client.workspace(fixture.summary);
-      // Keeps the first generation, which holds the session, alive.
       const holding = workspace.roll("hold1");
       await whenLogged(fixture, `hold1 ${String(first)}`);
       await switchFrom(fixture, first, 1);
       await workspace.actions.runs.stopActivity("session", "activity");
-      // Stopped once, by its holder; the current one refused, stopping nothing.
       expect(readFileSync(`${marker}.log`, "utf8")).toBe(
         `stop ${String(first)}\n`
       );
@@ -1898,7 +1785,6 @@ export const read = step("read").do(() => value);
       interval: 20,
       timeout: 60_000,
     });
-    // Evaluated already, edited before the load has finished.
     writeFileSync(helper, "export const value = 200;\n");
     writeFileSync(go, "");
     const first = await attaching;
@@ -1948,7 +1834,6 @@ export const read = step("read").do(() => value);
       { interval: 200, timeout: 60_000 }
     );
     expect((await fixture.client.workspaces())[0]?.pid).toBe(first);
-    // Only the helper changes: the source is the one that was refused.
     writeFileSync(helper, "export const value = 200;\n");
     await readyOn(fixture, (pid) => pid !== first);
     const workspace = fixture.client.workspace(fixture.summary);

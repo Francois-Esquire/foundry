@@ -7,11 +7,6 @@ import type { RunStore } from "~/lib/run-store";
 import { ANY_STORED_RUN } from "~/lib/run-store";
 import { NotStorableError } from "~/lib/state/json";
 
-/**
- * Where a run store under test comes from: `store()` makes another over
- * the same records, as a second engine would have. `close` ends whatever
- * the stores were made over.
- */
 export interface RunStoreFixture {
   close(): Promise<void>;
   store(): RunStore;
@@ -23,7 +18,6 @@ const SCOPE: RecordedScope = {
   session: { id: "run-session" },
 };
 
-/** A Run put through `workflows`, as an Orchestrator would put it. */
 export async function putRun(
   workflows: WorkflowStore,
   id: string,
@@ -45,11 +39,6 @@ export async function putRun(
   }
 }
 
-/**
- * The contract every `RunStore` keeps, whatever it keeps Runs in. `shared`
- * says whether two stores from one fixture see one another's Runs, as two
- * engines over one database do, or each keeps its own, as in memory.
- */
 export function describeRunStore(
   name: string,
   open: () => Promise<RunStoreFixture>,
@@ -127,7 +116,6 @@ export function describeRunStore(
       const parked = (stored: RunRecord | null) =>
         stored?.status === "suspended";
 
-      // Moved on before the claim: the claim decides on what is stored now.
       await putRun(workflows, "rn-1", "running");
       await runs.release();
       expect(await runs.claim("rn-1", parked)).toBe(false);
@@ -228,10 +216,8 @@ export function describeRunStore(
           landed = true;
         });
       await runs.close();
-      // Closed only once it was done: the host may close what it is over.
       expect(landed).toBe(true);
       await putting;
-      // It landed whole: the next store over the same records reads it.
       if (shared) {
         const next = await store();
         expect((await next.recorded("rn-1")).session).toBe("run-session");
@@ -262,7 +248,6 @@ export function describeRunStore(
         await first.release("rn-1");
         expect(await second.claim("rn-1", ANY_STORED_RUN)).toBe(true);
 
-        // The first store's late change, an answer that resumes it, say.
         await expect(putRun(workflows, "rn-1", "running")).rejects.toThrow(
           "is not held by this engine"
         );
@@ -278,17 +263,14 @@ export function describeRunStore(
         const second = await store();
         const workflows = await first.open(() => SCOPE);
         await putRun(workflows, "rn-1", "suspended");
-        // Let go: owned by no one, and not yet taken by another engine.
         await first.release("rn-1");
 
-        // A late answer of the store that let it go, landing in that window.
         await expect(putRun(workflows, "rn-1", "running")).rejects.toThrow(
           "is not held by this engine"
         );
         expect((await workflows.getRun("rn-1"))?.status).toBe("suspended");
         expect(await second.claim("rn-1", ANY_STORED_RUN)).toBe(true);
         await second.release("rn-1");
-        // Claimed again, it is this store's to change once more.
         expect(await first.claim("rn-1", ANY_STORED_RUN)).toBe(true);
         await putRun(workflows, "rn-1", "running");
         expect((await workflows.getRun("rn-1"))?.status).toBe("running");
@@ -303,7 +285,6 @@ export function describeRunStore(
         const workflows = await first.open(() => SCOPE);
         await putRun(workflows, "rn-1", "suspended");
 
-        // Putting it made the first its owner; the second is refused.
         expect(await second.claim("rn-1", ANY_STORED_RUN)).toBe(false);
         await first.release();
         expect(await second.claim("rn-1", ANY_STORED_RUN)).toBe(true);
@@ -312,7 +293,6 @@ export function describeRunStore(
         await second.release("rn-1");
         await putRun(workflows, "rn-1", "running");
         await putRun(workflows, "rn-1", "complete");
-        // Settled: no store owns it.
         expect(await second.claim("rn-1", ANY_STORED_RUN)).toBe(true);
       }
     );

@@ -6,7 +6,6 @@ import { MockLanguageModelV4 } from "ai/test";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-/** A trimmed models.dev payload: gpt-5-mini's facts, and OpenAI's own price for it. */
 const PAYLOAD = {
   models: { "openai/gpt-5-mini": { name: "GPT-5 mini" } },
   providers: {
@@ -52,7 +51,6 @@ const message: SessionMessage = {
   updatedAt: 0,
 };
 
-/** The ledger's pricing over a fresh models.dev module, so nothing is loaded yet. */
 async function pricing() {
   vi.resetModules();
   const source = await import("@foundry/models/catalog/models-dev-source");
@@ -128,7 +126,6 @@ it("prices nothing when models.dev cannot be read, and throws nothing", async ()
   hold.release();
 });
 
-/** A fetch that answers only when its signal aborts, as a hung server would. */
 function hangingFetch() {
   const fetch = vi.fn(
     (_url: string, init?: RequestInit) =>
@@ -196,10 +193,6 @@ it("an engine that started offline is priced after Airplane Mode is turned on an
   }
 });
 
-/**
- * The real Claude Code provider over a vendor model that reports what the
- * CLI says each call cost, with the settings the vendor would merge.
- */
 async function claudeCode(
   costs: readonly number[],
   defaultSettings: ClaudeCodeSettings = {}
@@ -263,7 +256,6 @@ async function claudeCode(
   });
 }
 
-/** The saved costs of a run whose step opens one session and takes two turns. */
 async function twoTurns(models: () => Promise<ModelManager>) {
   vi.stubEnv("FOUNDRY_MODELS_DEV_URL", "");
   vi.resetModules();
@@ -278,7 +270,6 @@ async function twoTurns(models: () => Promise<ModelManager>) {
   step("review").do(async ({ agents }) => {
     const session = await agents.session(reviewer);
     await session.generate("first");
-    // This call resumes the first one's CLI session.
     await session.generate("second");
     return "done";
   });
@@ -311,7 +302,6 @@ it("records Claude Code's own estimate for a turn that resumed no session, and n
     },
     { kind: "unknown", reason: "no list price for claude-code/sonnet" },
   ]);
-  // The CLI's figure is an estimate, and shows as one.
   expect(cell).toBe("~$0.1200+?");
 });
 
@@ -338,7 +328,6 @@ it("a meter gives a turn the marked figure only when the turn made exactly one c
       return Promise.resolve({
         content: [],
         finishReason: { raw: undefined, unified: "stop" },
-        // Only the first call resumed no session.
         providerMetadata:
           call === 1 ? marked : { "claude-code": { costUsd: 0.3 } },
         usage: {
@@ -355,7 +344,6 @@ it("a meter gives a turn the marked figure only when the turn made exactly one c
   const model = meter.wrap(vendor);
   await model.doGenerate(options);
   await model.doGenerate(options);
-  // Two calls in one turn: the marked figure is not the turn's own.
   expect(meter.take()).toBeUndefined();
 
   call = 0;

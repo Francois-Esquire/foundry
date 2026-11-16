@@ -38,39 +38,10 @@ import {
 import { taskCommandSchema, taskOutcome } from "~/workspace/tasks";
 import type { SetupDraft } from "~/workspace/templates";
 
-/**
- * One engine generation: the process the daemon spawns to host every
- * registered workspace, each in an engine of its own over one handle on
- * the Marbles database. It is isolated from the daemon, so a misbehaving
- * module takes down the generation, never the daemon. It dials the
- * daemon's socket and registers with the token it was spawned with; then
- * the daemon drives it:
- *
- * - `load` loads every registered workspace up to engines not yet
- *   started, and says how each went: whether this generation can take
- *   over at all. It holds nothing of the workspaces' work yet.
- * - `start` starts those engines, which takes over parked and queued
- *   work, and ticks each workspace's triggers.
- * - `host` and `unhost` add one workspace, or drop one, while it runs.
- * - `retire` hands what is not running to the generation that takes over
- *   (`Engine.retire`) and stops the triggers; the runs still running here
- *   then run to their end, a run that parks meanwhile is let go and the
- *   daemon told (`released`), and the generation exits.
- * - `adopt` takes over a parked run a retired generation let go.
- * - `stop` drains running work and exits.
- *
- * Workspace methods arrive as `workspace.<name>` with the workspace's id,
- * and status lines go out as notifications. The daemon watches the
- * sources itself, to decide when the next generation starts.
- */
-
 interface GenerationArgs {
-  /** The shared artifact store, under the Foundry home `FOUNDRY_HOME` names. */
   readonly artifacts: string;
   readonly dry: boolean;
-  /** The daemon's socket, and what to say on it. */
   readonly socket: string;
-  /** The Marbles state root, under the Foundry home `FOUNDRY_HOME` names. */
   readonly state: string;
   readonly token: string;
 }
@@ -96,7 +67,6 @@ function parseArgs(argv: readonly string[]): GenerationArgs {
     }
     return value;
   };
-  // The daemon names its Foundry home in the generation's environment.
   const { artifacts, state } = layout();
   return {
     artifacts,
@@ -146,7 +116,6 @@ function call(
     case "describe":
       return host.describe();
     case "dispatchAgent":
-      // MCP validates what it dispatches; a raw client on the socket may not.
       return host.dispatchAgent(dispatchSchema.parse(p));
     case "dispatchWorkflow":
       return host.dispatchWorkflow(text(p.name, "name"), p.input);
@@ -186,7 +155,6 @@ function call(
         text(p.activityId, "activityId")
       );
     case "tasks":
-      // Checked as MCP and the CLI check it; a raw client on the socket may not.
       return taskOutcome(host.tasks(taskCommandSchema.parse(p.command)));
     default:
       return Promise.reject(
@@ -212,13 +180,9 @@ function loadResult(load: WorkspaceLoad): WorkspaceLoadResult {
     : { error: load.error.message, root: load.root };
 }
 
-/** One hosted workspace's triggers, and how to stop them. */
 interface Ticking {
-  /** Cancels the run a tick under way started. */
   readonly cancel: AbortController;
-  /** Resolves once the loop has stopped, its last tick ended. */
   readonly done: Promise<void>;
-  /** Stops the loop: no tick starts again. */
   readonly stop: AbortController;
 }
 
@@ -229,7 +193,6 @@ async function main(): Promise<void> {
   const ticking = new Map<string, Ticking>();
   let retiring: Promise<void> | undefined;
   let stopping: Promise<void> | undefined;
-  /** Resolves once this generation is done: stopped, or retired with nothing left running. */
   const finished = Promise.withResolvers<void>();
 
   const workspaces = (): HostedWorkspaces => {
@@ -245,7 +208,6 @@ async function main(): Promise<void> {
     }
   };
 
-  /** Tick `host`'s triggers until stopped. */
   const tick = (host: WorkspaceHost): void => {
     const stop = new AbortController();
     const cancel = new AbortController();
@@ -265,7 +227,6 @@ async function main(): Promise<void> {
     ticking.set(host.id, { cancel, done, stop });
   };
 
-  /** Stop ticking workspace `id`; with `cancel`, the tick under way is cut short too. */
   const untick = async (id: string, cancel: boolean): Promise<void> => {
     const loop = ticking.get(id);
     if (loop === undefined) {
@@ -279,11 +240,9 @@ async function main(): Promise<void> {
     await loop.done;
   };
 
-  /** Onboarding's feed entry comes from a real Run, like every other entry. */
   const postSetup = (host: WorkspaceHost, draft: SetupDraftParams): void => {
     const input: SetupInput = {
       configPath: host.configPath,
-      // The client wrote the starter it names; its template is one it knows.
       draft: draft as SetupDraft,
       root: host.root,
     };
@@ -303,8 +262,6 @@ async function main(): Promise<void> {
       print(root, line) {
         notify(GENERATION_NOTIFICATIONS.line, { line, root });
       },
-      // What this generation depends on, as it reads it: the daemon's
-      // fingerprint of it records each file as it was when read.
       read(root, file) {
         notify(GENERATION_NOTIFICATIONS.read, {
           file,
@@ -312,7 +269,6 @@ async function main(): Promise<void> {
           root,
         });
       },
-      // The daemon names it, under its Foundry home.
       ...(process.env[SPAWN_RECOVERY_ENV]
         ? { spawned: process.env[SPAWN_RECOVERY_ENV] }
         : {}),
@@ -336,7 +292,6 @@ async function main(): Promise<void> {
       throw new Error("this generation has nothing loaded to start");
     }
     const loads = await staged.start();
-    // Told to stop or retire while the engines started: none ticks.
     if (stopping !== undefined || retiring !== undefined) {
       throw new Error("this generation stopped while it started");
     }
@@ -358,8 +313,6 @@ async function main(): Promise<void> {
     }
     const all = await open();
     const added = await all.register({ config, root });
-    // Retiring or stopping meanwhile: it is not ticked here, and closes
-    // with the rest as this generation leaves.
     if (away()) {
       throw new Error("this generation began to retire or stop as it loaded");
     }
@@ -372,10 +325,6 @@ async function main(): Promise<void> {
     return { config: added.config, id: added.id, root: added.root };
   };
 
-  /**
-   * Workspaces being unhosted, each its drain: a retirement leaves each to
-   * it, and the hosts close only once each has dropped its registration.
-   */
   const unhosting = new Map<string, Promise<void>>();
 
   const unhost = (raw: unknown): Promise<void> => {
@@ -388,7 +337,6 @@ async function main(): Promise<void> {
       await untick(id, false);
       const all = workspaces();
       const found = all.list().find((each) => each.id === id);
-      // Drain: running work finishes before the workspace closes.
       await found?.engine.stop();
       await all.unregister(id);
     })();
@@ -400,15 +348,11 @@ async function main(): Promise<void> {
     return draining;
   };
 
-  /** Close what this generation holds, its engines stopped first. */
   const leave = async (cancel: boolean): Promise<void> => {
     await Promise.all([...ticking.keys()].map((id) => untick(id, cancel)));
-    // Drain: running work finishes, parked runs stay for the next generation.
     await Promise.allSettled(
       (hosted?.list() ?? []).map((each) => each.engine.stop())
     );
-    // A workspace being unhosted drops its registration before the hosts,
-    // and the database handle under them, close.
     await Promise.allSettled(unhosting.values());
     await staged?.abandon().catch(() => undefined);
     await hosted?.close();
@@ -419,12 +363,9 @@ async function main(): Promise<void> {
     if (retiring !== undefined || stopping !== undefined) {
       throw new Error("this generation is already retiring or stopping");
     }
-    // One being unhosted is not handed to the successor, which does not
-    // host it: its drain runs what it has here, queued runs too.
     const hosts = (hosted?.list() ?? []).filter(
       (each) => !unhosting.has(each.id)
     );
-    // No tick starts here again; one under way runs to its end.
     for (const each of hosts) {
       const loop = ticking.get(each.id);
       loop?.stop.abort();
@@ -432,11 +373,9 @@ async function main(): Promise<void> {
     const retired = await Promise.all(
       hosts.map((each) =>
         each.engine.retire(successor, {
-          // A queued run handed over late is the current generation's.
           onHanded(runId) {
             notify(GENERATION_NOTIFICATIONS.handed, { id: each.id, runId });
           },
-          // A run that parks from now on is the current generation's.
           onLetGo(runId) {
             notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });
           },
@@ -513,9 +452,6 @@ async function main(): Promise<void> {
     },
   });
   await channel.request(DAEMON_METHODS.register, { token: args.token });
-  // The daemon is gone: nothing can reach this generation, so drain and
-  // leave. The reason stays unreported on purpose: this process's only log
-  // is its stderr pipe into that daemon, and writing to it now would fail.
   channel.closed.then(() => stop()).catch(() => undefined);
   process.once("SIGTERM", () => {
     stop().catch(() => undefined);
@@ -526,7 +462,6 @@ async function main(): Promise<void> {
   try {
     await finished.promise;
   } finally {
-    // A reply to the request that finished it is on its way out first.
     await new Promise((resolve) => setImmediate(resolve));
     socket.end();
   }

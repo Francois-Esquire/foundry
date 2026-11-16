@@ -37,21 +37,12 @@ import {
   artifacts,
 } from "./tables";
 
-/**
- * An async Drizzle SQLite database, with or without a relational schema, or a
- * transaction on one. A `drizzle-orm/libsql` database and its transactions
- * both satisfy it, so a host can hand the store either.
- */
 export type ArtifactDatabase = BaseSQLiteDatabase<
   "async",
   unknown,
   Record<string, unknown>
 >;
 
-/**
- * The database transaction one `commit` runs in, as `onCommit` receives it.
- * (`ArtifactTransaction` names the package's own change transaction.)
- */
 export type ArtifactDatabaseTransaction = SQLiteTransaction<
   "async",
   unknown,
@@ -60,46 +51,18 @@ export type ArtifactDatabaseTransaction = SQLiteTransaction<
 >;
 
 export interface SqliteArtifactStoreOptions {
-  /** Opened, migrated, and owned by the host; the store never closes it. */
   readonly database: ArtifactDatabase;
-  /**
-   * When a commit that resolved is there for good (see
-   * `ArtifactStoreDurability`). A Drizzle transaction handed in as
-   * `database` is one the host owns and may roll back, so the store is
-   * `"host"` over it whatever this says, and refuses `"commit"`. Over a
-   * plain database the default is `"commit"`; pass `"host"` when the host
-   * has begun a transaction of its own on the connection (a raw `BEGIN`),
-   * which the store cannot see.
-   */
   readonly durability?: ArtifactStoreDurability;
-  /**
-   * Runs inside the commit's transaction after the store's own statements,
-   * so the host can record the change atomically with it. A throw rolls the
-   * whole commit back. It runs for every commit, a commit through a
-   * transaction's view included; `ArtifactManager` makes no commit for a
-   * change that writes nothing.
-   *
-   * It receives the store's own copy of the write, the one its rows were
-   * made from, not the caller's object. That is all it can learn of the
-   * change from this store: each record put, whole, as it now stands, and
-   * only the id of each record deleted. It has no record as it stood
-   * before (the rows are already replaced when it runs), and a deleted
-   * Content or blob does not say which Artifact it belonged to. Deleting an
-   * Artifact lists its Contents among the deletes, and a blob the change
-   * stopped needing is a delete of its own.
-   */
   readonly onCommit?: (
     transaction: ArtifactDatabaseTransaction,
     write: ArtifactStoreWrite
   ) => Promise<void>;
-  /** The partition this store reads and writes; any nonempty string. */
   readonly scope: string;
 }
 
 type ContentRow = typeof artifactContents.$inferSelect;
 type BlobRow = typeof artifactBlobs.$inferSelect;
 
-/** Every column of an Artifact row that a record has: exactly an `Artifact`. */
 const {
   idLower: _idLower,
   idOrder: _idOrder,
@@ -110,46 +73,26 @@ const {
   ...artifactColumns
 } = getTableColumns(artifacts);
 
-/** Every column of a Content row but `scope`: exactly a `Content`. */
 const { scope: _contentScope, ...contentColumns } =
   getTableColumns(artifactContents);
 
-/** Every column of a blob row but `scope`. */
 const { scope: _blobScope, ...blobColumns } = getTableColumns(artifactBlobs);
 
-/** On a conflicting put, every column but the key takes the incoming value. */
 const replaceArtifact = replacing(getTableColumns(artifacts));
 const replaceContent = replacing(getTableColumns(artifactContents));
 const replaceBlob = replacing(getTableColumns(artifactBlobs));
 
-/** Why a call from inside the store's own transaction or hook is refused. */
 const REENTRY =
   "SqliteArtifactStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead";
 
-/** Why a view used after its transaction is refused, as the other stores say. */
 const SETTLED = "Artifact store transaction has settled";
 
-/**
- * An `ArtifactStore` over the host's SQLite database, in the tables from
- * `@foundry/artifacts/store/tables`. It behaves as `InMemoryArtifactStore`
- * does, within its scope. Blob bytes it keeps are only those inline in a
- * blob record; a backing file is the package's, and the store keeps its
- * name.
- *
- * Its calls take turns, as the memory store's commits do: a call made while
- * a transaction or commit runs waits for it. That keeps two
- * `ArtifactManager`s over one store apart in this process, and keeps a
- * `:memory:` database, which has a single connection, from refusing a call
- * while a transaction holds it. Across connections and processes,
- * `transaction` takes the database's write lock (see there).
- */
 export class SqliteArtifactStore implements ArtifactStore {
   readonly durability: ArtifactStoreDurability;
   readonly #database: ArtifactDatabase;
   readonly #scope: string;
   readonly #onCommit: SqliteArtifactStoreOptions["onCommit"];
   readonly #turns = new Turns(REENTRY);
-  /** On a transaction's view, whether the transaction is still running. */
   // biome-ignore lint/style/useReadonlyClassProperties: `transaction` sets it on the view it makes.
   #open: { value: boolean } | undefined;
 
@@ -171,22 +114,6 @@ export class SqliteArtifactStore implements ArtifactStore {
     this.#onCommit = options.onCommit;
   }
 
-  /**
-   * One database transaction: the deletes, then the puts, then `onCommit`.
-   *
-   * The store takes the write as it stands when `commit` is called: one
-   * owned copy of the whole write (`ownedWrite`: a `structuredClone`, with
-   * inline bytes in a buffer of their own), as the memory store takes it, and
-   * that copy alone is checked, made into every row, and handed to
-   * `onCommit`. Nothing the caller still holds is read again, so changing it
-   * later changes nothing, and no getter or `toJSON` of the caller's runs
-   * while the rows are encoded. A write the clone refuses (one holding a
-   * function, say) rejects with the clone's error, as in the memory store.
-   *
-   * Rejects, before any statement runs, a write holding a value SQLite would
-   * not give back intact (see {@link unstorableField}). A delete of a key no
-   * row can hold does nothing.
-   */
   commit(write: ArtifactStoreWrite): Promise<void> {
     let owned: ArtifactStoreWrite;
     try {
@@ -208,19 +135,6 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
-  /**
-   * Runs `work` inside one database transaction, over a view whose reads
-   * and commits use it; a throw from `work` rolls everything back. Each
-   * commit through the view is a savepoint of its own, so one that fails
-   * leaves the view's earlier commits standing. The view refuses calls once
-   * `work` has settled. In this process, the store's other calls wait for
-   * it. Across connections, the transaction holds SQLite's write lock from
-   * its first statement: Drizzle's libSQL driver opens every transaction
-   * with libSQL's default mode, `BEGIN IMMEDIATE`. Another connection's
-   * write then waits for it, for as long as that connection's busy timeout
-   * allows, or fails with `SQLITE_BUSY`; it never lands between `work`'s
-   * reads and its commit.
-   */
   transaction<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T> {
     return this.#run(() =>
       this.#database.transaction(async (transaction) => {
@@ -235,14 +149,12 @@ export class SqliteArtifactStore implements ArtifactStore {
           return await work(view);
         } finally {
           open.value = false;
-          // A view call still running finishes before the transaction ends.
           await view.#turns.run(() => Promise.resolve());
         }
       })
     );
   }
 
-  /** `null` for an id no row can hold (see {@link storable}). */
   getArtifact(id: ArtifactId): Promise<Artifact | null> {
     return this.#run(async () => {
       if (!storable(id)) {
@@ -256,7 +168,6 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
-  /** `null` for an id no row can hold (see {@link storable}). */
   getContent(id: ContentId): Promise<Content | null> {
     return this.#run(async () => {
       if (!storable(id)) {
@@ -275,7 +186,6 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
-  /** `null` for an id no row can hold (see {@link storable}). */
   getBlob(id: BlobId): Promise<Blob | null> {
     return this.#run(async () => {
       if (!storable(id)) {
@@ -309,10 +219,6 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
-  /**
-   * Both lookup tables as of one moment: the two reads share one database
-   * transaction, which on libSQL holds the write lock while it reads.
-   */
   findReferences(id: BlobId): Promise<BlobReferences> {
     return this.#run(() => {
       if (!storable(id)) {
@@ -345,16 +251,6 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
-  /**
-   * One page and the total as of one moment: the two reads share one
-   * database transaction, which on libSQL holds the write lock while it
-   * reads. Every filter is answered in SQL, as the memory store answers it
-   * by `matchesArtifactFilter` and `isAfterCursor`, and `limit` bounds the
-   * rows read; see {@link textMatch} and {@link afterCursor}. A `type` or
-   * text no stored row can hold matches nothing, without a query. The query
-   * is read as it stands at the call (see `ownedListQuery`), which refuses
-   * a `limit` that is not a positive safe integer.
-   */
   listArtifacts(query: ArtifactListQuery): Promise<ArtifactListing> {
     let owned: ArtifactListQuery;
     try {
@@ -365,7 +261,6 @@ export class SqliteArtifactStore implements ArtifactStore {
     return this.#listArtifacts(owned);
   }
 
-  /** {@link listArtifacts} by the store's own copy of the query. */
   #listArtifacts(query: ArtifactListQuery): Promise<ArtifactListing> {
     return this.#run(() => {
       const needle = query.text?.toLowerCase();
@@ -373,7 +268,6 @@ export class SqliteArtifactStore implements ArtifactStore {
         (query.type !== undefined && !storable(query.type)) ||
         needle?.includes("\u0000")
       ) {
-        // Stored text holds no NUL, nor any type a row cannot hold.
         return Promise.resolve({ artifacts: [], total: 0 });
       }
       const matches = and(
@@ -405,7 +299,6 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
-  /** One scope's run of the primary key, with no bytes read. */
   listBlobs(): Promise<readonly BlobListing[]> {
     return this.#run(async () => {
       const rows = await this.#database
@@ -418,7 +311,6 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
-  /** `[]` for an Artifact id no row can hold (see {@link storable}). */
   listContents(artifactId?: ArtifactId): Promise<readonly Content[]> {
     return this.#run(() => {
       if (artifactId !== undefined && !storable(artifactId)) {
@@ -438,7 +330,6 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
-  /** `operation` in this store's turn, refused on a view whose transaction settled. */
   #run<T>(operation: () => Promise<T>): Promise<T> {
     return this.#turns.run(() =>
       this.#open?.value === false
@@ -447,10 +338,6 @@ export class SqliteArtifactStore implements ArtifactStore {
     );
   }
 
-  /**
-   * The deletes, then the puts. A Content's or blob's lookup rows go with
-   * it, and are written again for each one put.
-   */
   async #apply(
     transaction: ArtifactDatabaseTransaction,
     rows: WriteRows
@@ -540,9 +427,6 @@ export class SqliteArtifactStore implements ArtifactStore {
   }
 }
 
-// ── Rows ──
-
-/** What one write runs: the keys it deletes and every row it puts. */
 interface WriteRows {
   readonly artifacts: (typeof artifacts.$inferInsert)[];
   readonly blobChunks: (typeof artifactBlobChunks.$inferInsert)[];
@@ -554,14 +438,6 @@ interface WriteRows {
   readonly deleteContents: readonly string[];
 }
 
-/**
- * The rows the store's own copy of a write runs, or a `RangeError` naming
- * the first value SQLite would not give back intact. The rows hold the
- * copy's values (its trees, chunks, metadata and dates), so they and the
- * lookup rows derived from them describe the same records. Deletes of keys
- * no row can hold are dropped. A record put twice in one list puts its last
- * value, as the memory store's maps do.
- */
 function writeRows(scope: string, write: ArtifactStoreWrite): WriteRows {
   const fault = unstorableField(write);
   if (fault !== undefined) {
@@ -636,25 +512,18 @@ function writeRows(scope: string, write: ArtifactStoreWrite): WriteRows {
   };
 }
 
-/** The blobs a Content's file entries name, once per file. */
 function treeBlobIds(content: Content): BlobId[] {
   return Object.values(content.tree).flatMap((node) =>
     node.type === "file" ? [node.blobId] : []
   );
 }
 
-/** Each id's last record, so one put twice in a list is put once. */
 function lastById<T extends { readonly id: string }>(
   records: readonly T[]
 ): T[] {
   return [...new Map(records.map((record) => [record.id, record])).values()];
 }
 
-/**
- * The record a blob row holds: only the source its bytes are in. Rejects a
- * row this store would not have written, naming the scope, the blob and
- * the columns at fault.
- */
 function blobOf(scope: string, row: Omit<BlobRow, "scope">): Blob {
   const fault = blobRowFault(row);
   if (fault !== undefined) {
@@ -669,7 +538,6 @@ function blobOf(scope: string, row: Omit<BlobRow, "scope">): Blob {
     id: row.id,
   };
   if (row.bytes !== null) {
-    // A copy: a plain `Uint8Array`, detached from the driver's buffer.
     return { ...common, bytes: new Uint8Array(row.bytes) };
   }
   return row.path === null
@@ -677,7 +545,6 @@ function blobOf(scope: string, row: Omit<BlobRow, "scope">): Blob {
     : { ...common, path: row.path };
 }
 
-/** What is wrong with a blob row, if anything. */
 function blobRowFault(row: Omit<BlobRow, "scope">): string | undefined {
   const filled = (["bytes", "path", "chunks"] as const).filter(
     (column) => row[column] !== null
@@ -693,15 +560,6 @@ function blobRowFault(row: Omit<BlobRow, "scope">): string | undefined {
   }
 }
 
-/**
- * Whether an Artifact's name, type or id, lower-cased, holds `needle`, a
- * lower-cased text with no NUL, as `matchesArtifactFilter` asks by code
- * unit. Text that is well-formed UTF-16 holds another as code units exactly
- * when it does as code points, so `instr` on the lower-cased columns
- * answers it. A needle holding a lone surrogate can match half of a stored
- * pair, which no text comparison in SQLite can see, so it is matched by
- * {@link codeUnitText} on `text_units` instead.
- */
 function textMatch(needle: string): SQL | undefined {
   if (!needle.isWellFormed()) {
     return sql`instr(${artifacts.textUnits}, ${codeUnitText(needle)}) > 0`;
@@ -713,11 +571,6 @@ function textMatch(needle: string): SQL | undefined {
   );
 }
 
-/**
- * The rows `isAfterCursor` keeps. It compares creation times, then ids by
- * code unit; with a cursor whose time is no valid `Date`, the time
- * difference is `NaN`, so it compares by id alone, which is `id_order`.
- */
 function afterCursor(cursor: ArtifactCursor): SQL {
   const time = cursor.createdAt.getTime();
   const order = codeUnitOrder(cursor.id);
@@ -726,12 +579,6 @@ function afterCursor(cursor: ArtifactCursor): SQL {
     : sql`${artifacts.idOrder} > ${order}`;
 }
 
-/**
- * `text` as its UTF-16 code units, each four lower-case hex digits and a
- * comma. One such string holds another exactly where the texts hold each
- * other by code unit: every comma of the needle must meet a comma of the
- * text, so a match cannot start inside a unit.
- */
 function codeUnitText(text: string): string {
   let units = "";
   for (let index = 0; index < text.length; index += 1) {
@@ -740,11 +587,6 @@ function codeUnitText(text: string): string {
   return units;
 }
 
-/**
- * `id` as its UTF-16 code units, two bytes each, high byte first. SQLite
- * compares blobs byte by byte, so these sort as JavaScript compares the
- * strings by code unit, which text in SQLite (by code point) does not.
- */
 function codeUnitOrder(id: string): Buffer {
   const bytes = Buffer.alloc(id.length * 2);
   for (let index = 0; index < id.length; index += 1) {
@@ -753,17 +595,6 @@ function codeUnitOrder(id: string): Buffer {
   return bytes;
 }
 
-// ── What SQLite cannot store ──
-
-/**
- * Whether SQLite gives `text` back as it was bound. It does not when the text
- * holds U+0000 (libSQL reads it back cut at the NUL) or is not well-formed
- * UTF-16: a lone surrogate is bound as U+FFFD on Node and as nothing on Bun,
- * so it reads back changed, and a key holding one would match another key's
- * row. JSON columns are exempt: JSON escapes both. A key that is no string
- * at all (`undefined` from a caller) is no key a row holds either, as no
- * memory store's map holds one.
- */
 function storable(text: unknown): text is string {
   return (
     typeof text === "string" && text.isWellFormed() && !text.includes("\u0000")
@@ -777,25 +608,17 @@ const TIME =
 const INTEGER =
   "SQLite keeps an integer column as a safe integer, and reads -0 back as 0";
 
-/** A value SQLite would not give back intact, by its path, and why. */
 interface Fault {
   readonly name: string;
   readonly reason: string;
 }
 
-/** One value a write puts, by its path in the write, and how it is stored. */
 type Put = readonly [
   field: string,
   value: unknown,
   kind: "integer" | "json" | "text" | "time",
 ];
 
-/**
- * The first value a write puts that SQLite would not give back intact, by
- * its path in the write, such as `putContents[2].tag`, and why. A storage
- * limit of this store, not a rule of the package. Reading a field that
- * throws throws here, before any statement runs.
- */
 function unstorableField(write: ArtifactStoreWrite): Fault | undefined {
   const puts: Put[] = [
     ...(write.putArtifacts ?? []).flatMap((artifact, index) =>
@@ -841,11 +664,6 @@ function whyUnstorable(
   }
 }
 
-/**
- * Why a blob's sources cannot be stored as they are: a blob row holds
- * exactly one of `bytes`, `path` and `chunks`, and has no way to keep a
- * source key that is present but `undefined` (the memory store keeps one).
- */
 function sourceFault(blob: Blob): string | undefined {
   const keys = (["bytes", "path", "chunks"] as const).filter((key) =>
     Object.hasOwn(blob, key)
@@ -889,7 +707,6 @@ function contentPuts(at: string, content: Content): Put[] {
     [`${at}.frozenAt`, content.frozenAt, "time"],
     [`${at}.metadata`, content.metadata, "json"],
     [`${at}.tree`, content.tree, "json"],
-    // Each blob a file names is also a key of the lookup table.
     ...Object.entries(content.tree).flatMap(([path, node]): Put[] =>
       node.type === "file"
         ? [[`${at}.tree[${JSON.stringify(path)}].blobId`, node.blobId, "text"]]
@@ -906,23 +723,12 @@ function blobPuts(at: string, blob: Blob): Put[] {
     [`${at}.byteLength`, blob.byteLength, "integer"],
     [`${at}.createdAt`, blob.createdAt, "time"],
     [`${at}.chunks`, blob.chunks, "json"],
-    // Each chunk is also a key of the lookup table.
     ...(blob.chunks ?? []).map(
       (id, index): Put => [`${at}.chunks[${index}]`, id, "text"]
     ),
   ];
 }
 
-/**
- * The first value inside a JSON column that `JSON.stringify` and
- * `JSON.parse` would not give back as the memory store's `structuredClone`
- * does, by its path, and why: `-0` (read back as 0), a number that is not
- * finite (stored as `null`), `undefined`, a function, a symbol or a bigint
- * (dropped, or refused by `JSON.stringify`), an array hole or an array's
- * own named key, an object that is not plain (a `Date` would become a
- * string), or a cycle. Strings are exempt: JSON escapes U+0000 and lone
- * surrogates. An absent column (`undefined` at the top) has nothing to check.
- */
 function jsonFault(
   value: unknown,
   at: string,
@@ -949,7 +755,6 @@ function jsonFault(
   }
 }
 
-/** {@link jsonFault} for an array or an object, and what it holds. */
 function jsonObjectFault(
   value: object,
   at: string,
@@ -995,20 +800,14 @@ function jsonValueFault(at: string, what: string): Fault {
   };
 }
 
-/** A key that can follow a path as `.key`. */
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 
-/** A key as a path step: `.name`, or `["any key"]`. */
 function member(key: string): string {
   return IDENTIFIER.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`;
 }
 
-// ── Statements ──
-
-/** SQLite's default limit on the parameters one statement binds. */
 const MAX_PARAMETERS = 32_766;
 
-/** The rows of `table` one multi-row insert can bind. */
 function perStatement(
   table:
     | typeof artifacts
@@ -1020,7 +819,6 @@ function perStatement(
   return MAX_PARAMETERS / Object.keys(getTableColumns(table)).length;
 }
 
-/** Deletes the scope's rows of `table` whose `key` is one of `ids`. */
 async function deleteIn(
   transaction: ArtifactDatabaseTransaction,
   table:
@@ -1033,7 +831,6 @@ async function deleteIn(
   key: SQLiteColumn,
   ids: readonly string[]
 ): Promise<void> {
-  // `scope` takes one of the statement's parameters.
   await inOrder(batches(ids, MAX_PARAMETERS - 1), (batch) =>
     transaction
       .delete(table)
@@ -1041,7 +838,6 @@ async function deleteIn(
   );
 }
 
-/** `items` in order, at most `size` at a time; none when `items` is empty. */
 function batches<T>(items: readonly T[], size: number): T[][] {
   const length = Math.max(1, Math.floor(size));
   const result: T[][] = [];
@@ -1051,18 +847,15 @@ function batches<T>(items: readonly T[], size: number): T[][] {
   return result;
 }
 
-/** Runs one statement per batch, each after the one before. */
 async function inOrder<T>(
   items: readonly T[],
   run: (item: T) => PromiseLike<unknown>
 ): Promise<void> {
   for (const item of items) {
-    // In sequence: deletes precede puts, and later batches follow earlier ones.
     await run(item);
   }
 }
 
-/** `set` for an upsert: each column but the key takes the proposed value. */
 function replacing(columns: Record<string, SQLiteColumn>): Record<string, SQL> {
   return Object.fromEntries(
     Object.entries(columns)
@@ -1071,7 +864,6 @@ function replacing(columns: Record<string, SQLiteColumn>): Record<string, SQL> {
   );
 }
 
-/** The value an `INSERT` proposed for `column`, inside its `ON CONFLICT`. */
 function excluded(column: SQLiteColumn): SQL {
   return sql.raw(`excluded."${column.name}"`);
 }

@@ -77,7 +77,6 @@ export interface WorktreeOptions {
 
 const runWithSimpleGit: GitRun = (cwd, args) => simpleGit(cwd).raw([...args]);
 
-/** Worktrees whose directory `Git.worktree()` cut, and so may remove. */
 const cut = new WeakSet<Worktree>();
 
 export class Git {
@@ -257,12 +256,6 @@ export class Worktree extends Git {
     this.branch = branch;
   }
 
-  /**
-   * Remove the checkout. Git removes its directory itself; a runner that
-   * only echoes the command would leave behind a directory `worktree()`
-   * cut, so that one is removed here too. Any other checkout's directory
-   * is left to git.
-   */
   async remove(): Promise<void> {
     await this.run(this.repository, [
       "worktree",

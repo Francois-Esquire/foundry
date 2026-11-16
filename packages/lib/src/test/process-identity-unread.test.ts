@@ -1,13 +1,6 @@
 import { spawn } from "node:child_process";
 import { afterEach, expect, it, vi } from "vitest";
 
-/**
- * A read of the process table that leaves out a process still running,
- * as `ps` can when it exits 1 under load, or `/proc/<pid>/stat` when it
- * reads as missing: the pid still answers a signal, so its owner is not
- * gone.
- */
-
 const system = vi.hoisted(() => ({ unread: new Set<number>() }));
 
 vi.mock("node:child_process", async (importOriginal) => {

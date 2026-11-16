@@ -11,36 +11,20 @@ import { afterAll, afterEach } from "vitest";
 
 import { sandboxContainers } from "../../store/tables";
 
-/** Where each database lives: in the connection, or in a temp-dir file. */
 export type DatabaseLocation = "file" | "memory";
 
 export interface LibsqlDatabases {
-  /**
-   * Another client on `database`'s file, as a second process would hold.
-   * `busyTimeout` is how long its writes wait on a lock; none by default.
-   */
   readonly connect: (
     database: LibSQLDatabase,
     options?: { readonly busyTimeout?: number }
   ) => LibSQLDatabase;
-  /**
-   * A new database holding the sandbox tables. `onQuery` is called with each
-   * statement's SQL just before it runs; a throw fails that statement.
-   */
   readonly open: (options?: {
     readonly onQuery?: (query: string) => void;
   }) => Promise<LibSQLDatabase>;
-  /** The file `database` lives in. */
   readonly path: (database: LibSQLDatabase) => string;
-  /** Closes `database`'s connection and connects to the same database again. */
   readonly reopen: (database: LibSQLDatabase) => Promise<LibSQLDatabase>;
 }
 
-/**
- * libSQL databases for one test file, each closed after the test that opened
- * it. File databases share one temporary directory, removed after the file's
- * tests.
- */
 export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
   const clients: Client[] = [];
   const connections = new WeakMap<
@@ -66,7 +50,6 @@ export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
       return ":memory:";
     }
     directory ??= mkdtemp(join(tmpdir(), "foundry-sandbox-"));
-    // Taken before the await, so databases opened at once get their own.
     count += 1;
     const name = `sandbox-${count}.db`;
     return `file:${join(await directory, name)}`;

@@ -1,10 +1,3 @@
-/**
- * Each load's copies of a workspace's modules (`workspace/copies.ts`): only
- * import specifiers are rewritten, and every import, computed ones
- * included, reaches the load's own copy. The loader is a Bun plugin, so
- * each scenario runs in its own `bun` process.
- */
-
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -27,7 +20,6 @@ async function scratch(): Promise<string> {
   return root;
 }
 
-/** Runs `body` with the loader registered, from `root`; resolves its JSON report. */
 async function withLoader(
   root: string,
   body: string

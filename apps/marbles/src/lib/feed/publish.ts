@@ -87,7 +87,6 @@ const feedMetadataSchema = z.object({
       /** Approval requests permission; a question requests input. Absent on old entries. */
       mode: z.enum(ASK_MODES).optional(),
       note: z.string().optional(),
-      /** While open: the process that can answer it, by pid and start time. */
       pid: z.number().int().optional(),
       sessionId: z.string().optional(),
       started: z.string().nullable().optional(),
@@ -136,7 +135,6 @@ export function feedPublisher(
   options: {
     /** Recorded on open questions; defaults to this process. */
     readonly owner?: ProcessIdentity;
-    /** Whether an owner recorded on a question is gone; `isGone` by default. */
     readonly gone?: (owner: ProcessIdentity) => boolean;
   } = {}
 ): FeedPublisher {
