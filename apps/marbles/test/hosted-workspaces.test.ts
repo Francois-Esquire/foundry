@@ -81,17 +81,48 @@ observe(tasks, async (payload) => {
 ${tail}`;
 }
 
-/** Runs `body` in a fresh `bun` process with `hosted` open; resolves its JSON report. */
+/**
+ * Makes the shared database's `close` throw once it has closed, as a
+ * failing driver would: put before anything imports the database.
+ */
+const FAILING_DATABASE_CLOSE = `import { mock } from "bun:test";
+const workspacesModule = ${JSON.stringify(join(SRC, "database/workspaces.ts"))};
+const realWorkspaces = { ...(await import(workspacesModule)) };
+mock.module(workspacesModule, () => ({
+  ...realWorkspaces,
+  openHostDatabase: async (...args) => {
+    const opened = await realWorkspaces.openHostDatabase(...args);
+    return new Proxy(opened, {
+      get(target, property) {
+        if (property === "close") {
+          return () => {
+            target.close();
+            throw new Error("the database failed to close");
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  },
+}));
+`;
+
+/**
+ * Runs `body` in a fresh `bun` process with `hosted` open; resolves its
+ * JSON report. `prelude` runs before any Marbles module is imported.
+ */
 async function inProcess(
   root: string,
-  body: string
+  body: string,
+  prelude = ""
 ): Promise<Record<string, unknown>> {
   const script = join(root, `host-${String(Date.now())}.ts`);
   await writeFile(
     script,
-    `import { HostedWorkspaces } from ${JSON.stringify(join(SRC, "workspace/hosted.ts"))};
-import { hostTasks } from ${JSON.stringify(join(SRC, "workspace/open.ts"))};
-import { tasks } from ${JSON.stringify(join(SRC, "authoring/tasks.ts"))};
+    `${prelude}const { HostedWorkspaces } = await import(${JSON.stringify(join(SRC, "workspace/hosted.ts"))});
+const { hostTasks } = await import(${JSON.stringify(join(SRC, "workspace/open.ts"))});
+const { tasks } = await import(${JSON.stringify(join(SRC, "authoring/tasks.ts"))});
 const report = {};
 const environment = { ...process.env };
 const hosted = await HostedWorkspaces.open({
@@ -109,7 +140,11 @@ const until = async (check) => {
 try {
 ${body}
 } finally {
-  await hosted.close();
+  // Closing again shares the first close, and its failure, which a body
+  // that closes reports itself.
+  await hosted.close().catch((error) => {
+    report.closeFailed = (error.errors ?? [error]).map((each) => each.message);
+  });
 }
 report.environmentKept =
   JSON.stringify(environment) === JSON.stringify({ ...process.env });
@@ -681,4 +716,275 @@ process.exit(0);
   ]);
   expect(beta?.at).toBe((report.betaRecovery as unknown as { at: string }).at);
   expect(alpha?.at).not.toBe(beta?.at);
+}, 120_000);
+
+it("lets every workspace finish closing before it closes the database, and reports each that failed", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const b = await workspace(root, "beta");
+  const report = await inProcess(
+    root,
+    `const alpha = await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  const beta = await hosted.register({ config: ${JSON.stringify(b.source)}, root: ${JSON.stringify(b.dir)} });
+  const closeAlpha = alpha.close.bind(alpha);
+  alpha.close = async () => {
+    await closeAlpha();
+    throw new Error("alpha failed to close");
+  };
+  const closeBeta = beta.close.bind(beta);
+  beta.close = async () => {
+    // Still saving through the shared handle after alpha has failed.
+    await new Promise((settle) => setTimeout(settle, 200));
+    try {
+      await hostTasks(beta.engine).create({ title: "last write" });
+      report.lastWrite = "kept";
+    } catch (error) {
+      report.lastWrite = String(error);
+    }
+    await closeBeta();
+  };
+  try {
+    await hosted.close();
+  } catch (error) {
+    report.errors = (error.errors ?? [error]).map((each) => each.message);
+  }`
+  );
+  expect(report.lastWrite).toBe("kept");
+  expect(report.errors).toEqual(["alpha failed to close"]);
+}, 120_000);
+
+it("refuses what a closed workspace's module declares later, rather than keep it in a catalog no engine uses", async () => {
+  const root = await scratch();
+  const a = await workspace(
+    root,
+    "alpha",
+    // Declared from a module callback, outside every run, once alpha closed.
+    'globalThis.declareLate = () => step("late").do(() => "late");\n'
+  );
+  const report = await inProcess(
+    root,
+    `const alpha = await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  await alpha.close();
+  try {
+    globalThis.declareLate();
+    report.late = "declared";
+  } catch (error) {
+    report.late = error.name;
+  }`
+  );
+  expect(report.late).toBe("WorkspaceReleasedError");
+}, 120_000);
+
+it("refuses a first load's late work once its workspace is hosted again, and the new host answers its own", async () => {
+  const root = await scratch();
+  const a = await workspace(
+    root,
+    "alpha",
+    // Kept by the test, so only the first load's are called late.
+    `globalThis.loads = [...(globalThis.loads ?? []), {
+  declare: () => step("late").do(() => "late"),
+  run: () => build.run(),
+}];
+`
+  );
+  const report = await inProcess(
+    root,
+    `const registration = { config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} };
+  const alpha = await hosted.register(registration);
+  await hosted.unregister(alpha.id);
+  const again = await hosted.register(registration);
+  report.hostedAgain = again !== alpha && !again.engine.disposed;
+  const [first] = globalThis.loads;
+  try {
+    first.declare();
+    report.late = "declared";
+  } catch (error) {
+    report.late = error.name;
+  }
+  report.lateRun = await first.run().then(() => "ran", (error) => error.name);
+  report.inNew = again.engine.definitions().some(({ name }) => name === "late");
+  report.newRun = await hosted.run({ name: "build", workspace: again.id });`
+  );
+  expect(report).toMatchObject({
+    hostedAgain: true,
+    inNew: false,
+    late: "WorkspaceReleasedError",
+    lateRun: "WorkspaceReleasedError",
+  });
+  expect(report.newRun).toBe(`${a.dir}\nalpha`);
+}, 120_000);
+
+/** A body's lines that hold `name`'s close until `release${name}()`, then write a task through the shared handle, as stopping runs and saving sessions do. */
+function heldClose(name: string): string {
+  return `let release${name};
+  const held${name} = new Promise((settle) => { release${name} = settle; });
+  const close${name} = ${name}.close.bind(${name});
+  ${name}.close = async () => {
+    await held${name};
+    report.lastWrite${name} = await hostTasks(${name}.engine).create({ title: "last write" }).then(() => "kept", (error) => String(error));
+    await close${name}();
+  };`;
+}
+
+it("closes the database once, after every host closing, when it is closed twice at once", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const report = await inProcess(
+    root,
+    `const alpha = await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  ${heldClose("alpha")}
+  let done = 0;
+  const first = hosted.close().then(() => { done += 1; });
+  await new Promise((settle) => setTimeout(settle, 50));
+  const second = hosted.close().then(() => { done += 1; });
+  await new Promise((settle) => setTimeout(settle, 100));
+  report.doneWhileHostClosing = done;
+  releasealpha();
+  await Promise.all([first, second]);
+  report.disposed = alpha.engine.disposed;`
+  );
+  expect(report).toMatchObject({
+    disposed: true,
+    doneWhileHostClosing: 0,
+    lastWritealpha: "kept",
+  });
+}, 120_000);
+
+it("waits for a host an unregister is closing before it closes the database", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const report = await inProcess(
+    root,
+    `const alpha = await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  ${heldClose("alpha")}
+  const unregistering = hosted.unregister(alpha.id);
+  await new Promise((settle) => setTimeout(settle, 50));
+  let closed = false;
+  const closing = hosted.close().then(() => { closed = true; });
+  await new Promise((settle) => setTimeout(settle, 100));
+  report.closedWhileUnregistering = closed;
+  releasealpha();
+  report.unregistered = await unregistering.then(String, (error) => String(error));
+  await closing;
+  report.disposed = alpha.engine.disposed;`
+  );
+  expect(report).toMatchObject({
+    closedWhileUnregistering: false,
+    disposed: true,
+    lastWritealpha: "kept",
+    unregistered: "true",
+  });
+}, 120_000);
+
+it("reports every host's failure and the database's own when both fail to close", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const report = await inProcess(
+    root,
+    `const alpha = await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  const closeAlpha = alpha.close.bind(alpha);
+  alpha.close = async () => {
+    await closeAlpha();
+    throw new Error("alpha failed to close");
+  };
+  try {
+    await hosted.close();
+  } catch (error) {
+    report.errors = (error.errors ?? [error]).map((each) => each.message);
+  }`,
+    FAILING_DATABASE_CLOSE
+  );
+  expect(report.errors).toEqual([
+    "alpha failed to close",
+    "the database failed to close",
+  ]);
+}, 120_000);
+
+it("lets a reading of the registered workspaces finish before the database closes, and refuses one after", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const report = await inProcess(
+    root,
+    `await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  const loading = hosted.loadRegistered();
+  const closing = hosted.close();
+  report.loads = await loading.then((loads) => loads.map((load) => load.loaded), (error) => String(error));
+  await closing;
+  report.after = await hosted.loadRegistered().then(() => "loaded", (error) => error.message);
+  report.unregisterAfter = await hosted.unregister("any").then(() => "unregistered", (error) => error.message);`
+  );
+  // Read before the close, and refused as a load once it began.
+  expect(report.loads).toEqual([false]);
+  expect(report.after).toBe("these hosted workspaces are closed");
+  expect(report.unregisterAfter).toBe("these hosted workspaces are closed");
+}, 120_000);
+
+it("lets go of a host closed directly, hosts its workspace again on the next register, and waits for that close before closing the database", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const report = await inProcess(
+    root,
+    `const registration = { config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} };
+  const alpha = await hosted.register(registration);
+  await alpha.close();
+  report.listed = hosted.list().length;
+  report.get = (() => { try { hosted.get(alpha.id); return "returned"; } catch (error) { return error.message; } })();
+  const again = await hosted.register(registration);
+  report.fresh = again !== alpha && !again.engine.disposed;
+  // Its close is held inside, where stopping runs and saving sessions take time.
+  let release;
+  const held = new Promise((settle) => { release = settle; });
+  const dispose = again.engine.dispose.bind(again.engine);
+  again.engine.dispose = async () => {
+    await held;
+    report.lastWrite = await hostTasks(again.engine).create({ title: "last write" }).then(() => "kept", (error) => String(error));
+    return await dispose();
+  };
+  const direct = again.close();
+  report.sameClose = again.close() === direct;
+  report.listedWhileClosing = hosted.list().length;
+  let closed = false;
+  const closing = hosted.close().then(() => { closed = true; });
+  await new Promise((settle) => setTimeout(settle, 100));
+  report.closedWhileHostClosing = closed;
+  release();
+  await direct;
+  await closing;`
+  );
+  expect(report).toMatchObject({
+    closedWhileHostClosing: false,
+    fresh: true,
+    get: expect.stringContaining("is hosted here"),
+    lastWrite: "kept",
+    listed: 0,
+    listedWhileClosing: 0,
+    sameClose: true,
+  });
+}, 120_000);
+
+it("hosts a workspace again while its last host is still closing, its new engine delivering once the old one has let go", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const report = await inProcess(
+    root,
+    `const registration = { config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} };
+  const alpha = await hosted.register(registration);
+  let release;
+  const held = new Promise((settle) => { release = settle; });
+  const dispose = alpha.engine.dispose.bind(alpha.engine);
+  alpha.engine.dispose = async () => {
+    await held;
+    return await dispose();
+  };
+  const closing = alpha.close();
+  const again = await hosted.register(registration);
+  report.fresh = again !== alpha && !again.engine.disposed;
+  setTimeout(() => release(), 200);
+  await hostTasks(again.engine).create({ title: "ping" });
+  await until(async () => (await titles(again.id)).includes("pong alpha"));
+  report.tasks = await titles(again.id);
+  await closing;`
+  );
+  expect(report.fresh).toBe(true);
+  expect(report.tasks).toEqual(["ping", "pong alpha"]);
 }, 120_000);

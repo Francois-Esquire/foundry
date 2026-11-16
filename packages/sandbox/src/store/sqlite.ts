@@ -34,6 +34,14 @@ export interface SqliteContainerStoreOptions {
   /** Opened, migrated, and owned by the host; the store never closes it. */
   readonly database: ContainerDatabase;
   /**
+   * Where this database lives, as the host knows it: the real path of its
+   * file, or of the directory that holds it. The store's identity is the
+   * id it keeps combined with this, so a byte copy of the database, or the
+   * database moved, has another. Without it the identity is the kept id
+   * alone, which a copy carries.
+   */
+  readonly location?: string;
+  /**
    * Runs inside the commit's transaction after the store's own statements,
    * so the host can record the change atomically with it. A throw rolls the
    * whole commit back. It receives the store's own copy of the write, the
@@ -43,7 +51,11 @@ export interface SqliteContainerStoreOptions {
     transaction: ContainerTransaction,
     write: ContainerStoreWrite
   ) => Promise<void>;
-  /** The partition this store reads and writes; any nonempty string. */
+  /**
+   * The partition this store reads and writes; any nonempty string with
+   * no U+0000, no U+001F (its identity's own scope uses it) and no lone
+   * surrogate.
+   */
   readonly scope: string;
 }
 
@@ -91,14 +103,68 @@ type StoredRow = typeof sandboxContainers.$inferInsert;
 export function createSqliteContainerStore(
   options: SqliteContainerStoreOptions
 ): ContainerStore {
-  const { database, onCommit, scope } = options;
-  if (scope.length === 0 || !storableText(scope)) {
+  const { scope } = options;
+  if (scope.length === 0 || !storableText(scope) || scope.includes(UNIT)) {
     throw new RangeError(
-      "scope must be a nonempty string with no U+0000 and no lone surrogate"
+      "scope must be a nonempty string with no U+0000, no U+001F and no lone surrogate"
     );
   }
+  return storeOver(options);
+}
+
+/**
+ * The store over `options.database`; a transaction's view has its store's
+ * identity already, read before the transaction began.
+ */
+function storeOver(
+  options: SqliteContainerStoreOptions,
+  fixedIdentity?: string
+): ContainerStore {
+  const { database, location, onCommit, scope } = options;
   const turns = new Turns(REENTRY);
   const inScope = eq(sandboxContainers.scope, scope);
+  const identityRow = and(
+    eq(sandboxContainers.scope, identityScope(scope)),
+    eq(sandboxContainers.id, IDENTITY_ID)
+  );
+  let known = fixedIdentity;
+
+  /**
+   * Read, or make, the id this database keeps for the scope, outside any
+   * caller's transaction (so a rollback cannot lose it), once: then
+   * cached for the store's life. Combined with `location` when given.
+   */
+  const identityOf = async (): Promise<string> => {
+    if (known !== undefined) {
+      return known;
+    }
+    await database
+      .insert(sandboxContainers)
+      .values({
+        createdAt: 0,
+        holder: null,
+        id: IDENTITY_ID,
+        nativeId: globalThis.crypto.randomUUID(),
+        position: 0,
+        scope: identityScope(scope),
+        spec: "{}",
+        status: "stopped",
+        updatedAt: 0,
+      })
+      .onConflictDoNothing();
+    const [row] = await database
+      .select({ nativeId: sandboxContainers.nativeId })
+      .from(sandboxContainers)
+      .where(identityRow);
+    if (typeof row?.nativeId !== "string" || row.nativeId === "") {
+      throw new Error("the container store's identity could not be read");
+    }
+    known =
+      location === undefined
+        ? row.nativeId
+        : await digest(`${row.nativeId}\u0000${location}`);
+    return known;
+  };
 
   /** A new row takes the next position; one put again keeps its own. */
   const put = async (
@@ -191,6 +257,17 @@ export function createSqliteContainerStore(
         return row === undefined ? undefined : containerRow(row);
       }),
 
+    /**
+     * Kept in the store's own table, as one row under a scope of its own
+     * (`identityScope`) that no read of the store's scope returns: made
+     * once, by whichever process asks first (insert-or-ignore), then read
+     * back, so every store over this database and scope gives the same;
+     * combined with `location` when the host gives one, so a copy or a
+     * move of the database gives another. A read that fails rejects, and
+     * is asked again next time.
+     */
+    identity: () => turns.run(identityOf),
+
     /** One query, so one state; no transaction needed. */
     list: () =>
       turns.run(async () => {
@@ -215,18 +292,50 @@ export function createSqliteContainerStore(
      * reads and its commit.
      */
     transaction: (work) =>
-      turns.run(() =>
-        database.transaction((transaction) =>
+      turns.run(async () => {
+        // Read before the transaction begins: what it gives inside one is
+        // never lost to a rollback.
+        const identity = await identityOf();
+        return await database.transaction((transaction) =>
           work(
-            createSqliteContainerStore({
-              database: transaction,
-              scope,
-              ...(onCommit === undefined ? {} : { onCommit }),
-            })
+            storeOver(
+              {
+                database: transaction,
+                scope,
+                ...(onCommit === undefined ? {} : { onCommit }),
+              },
+              identity
+            )
           )
-        )
-      ),
+        );
+      }),
   };
+}
+
+/** SHA-256 of `text`, as hex, by the Web Crypto every runtime this runs on has. */
+async function digest(text: string): Promise<string> {
+  const bytes = new Uint8Array(
+    await globalThis.crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(text)
+    )
+  );
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** What separates a store's scope from its identity's: no scope may hold it. */
+const UNIT = "\u001f";
+
+/** The id of the one row that keeps a store's identity, in its own scope. */
+const IDENTITY_ID = "identity";
+
+/**
+ * The scope the identity of the store over `scope` is kept under: `scope`
+ * and a unit separator (U+001F), which a scope is refused for holding, so
+ * no read of a store's rows ever returns it.
+ */
+function identityScope(scope: string): string {
+  return `${scope}${UNIT}store`;
 }
 
 /** A stored row as the record: a NULL `native_id` or `holder` is `undefined`, and left out. */

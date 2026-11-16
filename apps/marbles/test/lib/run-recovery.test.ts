@@ -23,7 +23,7 @@ import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { ExecutionRun } from "~/lib/execution-record";
 import { parseStored } from "~/lib/execution-record";
-import { adoptParkedRuns } from "~/lib/run-recovery";
+import { adoptParkedRuns, closeAbandonedRuns } from "~/lib/run-recovery";
 import type { ClaimCondition, RunStore } from "~/lib/run-store";
 import { ANY_STORED_RUN } from "~/lib/run-store";
 
@@ -219,6 +219,32 @@ it("reads a settled Execution Run once the claim is held, from a run store that 
   expect(await other.claim("rn-1", ANY_STORED_RUN)).toBe(true);
 });
 
+it("reads a settled Execution Run once the claim is held, when the run store's database holds none for the Run", async () => {
+  const { executions, next, store } = await parkedByAnOwner();
+  // The host keeps Execution Runs in another store, which holds this one
+  // cancelled: the run store's own database holds none for it.
+  await executions.remove("rn-1");
+  let reads = 0;
+  const lines: string[] = [];
+  const adopted = await adoptParkedRuns({
+    askable: true,
+    print: (line) => lines.push(line),
+    registered: () => true,
+    runs: next,
+    settled: () => {
+      reads += 1;
+      return Promise.resolve(true);
+    },
+    store,
+  });
+
+  expect(adopted.size).toBe(0);
+  expect(reads).toBe(1);
+  expect(lines).toEqual([
+    "[run] flow rn-1 not adopted: its execution run has settled",
+  ]);
+});
+
 const SOURCE = resolve(import.meta.dirname, "../../src");
 
 /**
@@ -345,4 +371,128 @@ it("adopts a Run still parked when it is claimed", async () => {
     store,
   });
   expect([...adopted.keys()]).toEqual(["rn-1"]);
+});
+
+it("closes out a Run a gone process left running whose settled Execution Run the host keeps in another store", async () => {
+  const root = mkdtempSync(join(tmpdir(), "marbles-recovery-abandoned-"));
+  roots.push(root);
+  const opened = await initializeDatabase(stateDatabase(root));
+  handles.push(opened);
+  const { database } = opened;
+  const owner = new ExecutionCoordinator({
+    store: await new DatabaseRunStore({ database, scope: "ws" }).open(
+      () => undefined
+    ),
+  });
+  const queue = await owner.ensureQueue({ id: "qu-1", name: "marbles" });
+  await owner.createRun({
+    id: "rn-1",
+    input: null,
+    queueId: queue.id,
+    step: "flow",
+  });
+  await owner.updateRun("rn-1", { status: "running" });
+  // Its process exits mid-run: what it owned, it owns no longer.
+  await database
+    .update(marblesWorkflowRuns)
+    .set({ ownerPid: spawnSync("true").pid })
+    .where(
+      and(
+        eq(marblesWorkflowRuns.scope, "ws"),
+        eq(marblesWorkflowRuns.runId, "rn-1")
+      )
+    );
+  // The host keeps Execution Runs elsewhere: this database holds none, and
+  // the launcher has settled the Run's there.
+  const at = new Date().toISOString();
+  const settled: ExecutionRun = {
+    correlation: {},
+    id: "rn-1",
+    kind: "workflow",
+    name: "flow",
+    observations: [],
+    owner: { pid: spawnSync("true").pid ?? 0, started: null },
+    queue: "marbles",
+    revision: 4,
+    sequence: 1,
+    status: "failed",
+    timestamps: { queuedAt: at, startedAt: at, updatedAt: at },
+  };
+  const next = new DatabaseRunStore({ database, scope: "ws" });
+  const store = new ExecutionCoordinator({
+    store: await next.open(() => undefined),
+  });
+  const lines: string[] = [];
+
+  const closed = await closeAbandonedRuns({
+    execution: (runId) => (runId === settled.id ? settled : undefined),
+    print: (line) => lines.push(line),
+    runs: next,
+    store,
+  });
+
+  expect(closed).toEqual(["rn-1"]);
+  expect((await store.getRun("rn-1"))?.status).toBe("failed");
+  expect(lines).toEqual([
+    "[run] flow rn-1 closed out: its process exited while it was running",
+  ]);
+  // The claim it held to close it out is given back.
+  expect(
+    await new DatabaseRunStore({ database, scope: "ws" }).claim(
+      "rn-1",
+      ANY_STORED_RUN
+    )
+  ).toBe(true);
+});
+
+it("leaves a Run this engine runs, whose Execution Run it holds open elsewhere, and its claim on it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "marbles-recovery-open-"));
+  roots.push(root);
+  const opened = await initializeDatabase(stateDatabase(root));
+  handles.push(opened);
+  const { database } = opened;
+  const next = new DatabaseRunStore({ database, scope: "ws" });
+  const store = new ExecutionCoordinator({
+    store: await next.open(() => undefined),
+  });
+  const queue = await store.ensureQueue({ id: "qu-1", name: "marbles" });
+  // This engine's own Run, live: readmitted before recovery runs.
+  await store.createRun({
+    id: "rn-2",
+    input: null,
+    queueId: queue.id,
+    step: "flow",
+  });
+  await store.updateRun("rn-2", { status: "running" });
+  const at = new Date().toISOString();
+  const open: ExecutionRun = {
+    correlation: {},
+    id: "rn-2",
+    kind: "workflow",
+    name: "flow",
+    observations: [],
+    owner: thisProcess(),
+    queue: "marbles",
+    revision: 2,
+    sequence: 1,
+    status: "running",
+    timestamps: { queuedAt: at, startedAt: at, updatedAt: at },
+  };
+
+  expect(
+    await closeAbandonedRuns({
+      execution: (runId) => (runId === open.id ? open : undefined),
+      print: () => undefined,
+      runs: next,
+      store,
+    })
+  ).toEqual([]);
+  expect((await store.getRun("rn-2"))?.status).toBe("running");
+  // Still this engine's: no other may claim it.
+  expect(
+    await new DatabaseRunStore({ database, scope: "ws" }).claim(
+      "rn-2",
+      ANY_STORED_RUN
+    )
+  ).toBe(false);
 });

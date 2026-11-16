@@ -448,6 +448,45 @@ A VM is not adopted across processes. `open` on a row that is not live in this
 process removes whatever the runtime still holds under the old native name and
 boots again under `<rowId>-<generation>`.
 
+Every store has an identity of its own (`ContainerStore.identity`). A store in
+memory makes a fresh one per instance. A durable store keeps an id in its
+database, the same for every process over that database and scope; the SQLite
+store combines it with `location`, where the host says the database lives
+(Marbles gives the real path of its database file), so a byte copy of the
+database, which carries the id, still has another identity. Without a
+`location` the identity is the kept id alone, and a copy shares it. A home
+that is moved or renamed gets a new identity: the VMs it booted before the
+move are then not provably its own, so they are passed over and named, never
+removed, and taken out by hand as below. The registry puts
+it on every VM it boots, as the `com.foundry.container.store` label. A VM is a
+row's only when all three say so: it carries this store's identity, its name
+is one of that row's own (`<rowId>-<generation>`), and its id label names that
+row. Every stop or removal asks this right before it acts (`recover`,
+`remove`, `sweep`, the retries of `sweep` and `shutdown`, `open`'s removal of
+the old VM, a close, a restart, a failed boot), and a VM is kept to retry only
+if it passes. The instance label names a workspace, not a store, so two
+engines over one workspace root (two Foundry homes, or a script with no host
+database beside a daemon) share it; the store label is what keeps one's sweep
+from taking the other's VMs.
+
+A VM that does not pass is never stopped or removed, and never left unseen.
+`recover` and `remove` name one that bears a claimed row's id or name in
+`conflicts` and keep the row `removing`. `sweep` (and `recover`, through it)
+names every VM under this instance's labels it could not prove its own in
+`passedOver`: another store's, one with no store or no id label, one whose
+name and label disagree. When `open` cannot read the runtime's inventory, the
+old VM's name, the row's own, is kept to retry, and judged once the inventory
+can be read; the registry says so through `report` (stderr by default).
+
+VMs booted before stores had an identity carry no store label, so no sweep or
+recovery removes them now. `msb` is the CLI of the `microsandbox` package
+Foundry installs, at `node_modules/.bin/msb` in the install (it is not put on
+PATH). List them with
+`msb list --label com.foundry.environment.managed-by=foundry-sandbox`, check
+one's labels with `msb inspect <name>`, and remove one, running or not, with
+`msb rm -f <name>` (`-f` stops a running VM first). Every message that names a
+VM left this way gives the same command (`removeByHand`).
+
 A registry owns every VM it boots. If the commit that records a boot fails
 (a SQLite store busy under another connection's lock, say), `start`, `open`
 or `restart` removes the VM it just booted, tries to mark the row `failed`,
@@ -463,8 +502,15 @@ Limits:
 
 - The list of VMs the registry could not remove is in memory. If the process
   is lost first, their cleanup is not guaranteed: the next process's `open`
-  or `remove` of the row removes a VM whose name the row still records, but
-  nothing removes one whose row has moved on to a later name.
+  removes a VM whose name the row still records, but not one whose row has
+  moved on to a later name. `remove` and `recover` delete a row only once
+  every VM labelled with its id is gone, whatever its name.
+- VMs a crashed engine left over a store in memory (a script with no host
+  database) carry that store's identity, which no later store has: no one
+  removes them, and they are named only by a start that reads the inventory.
+- A row left `removing` whose claiming process still runs, as when two
+  engine generations overlap, is named by no start while that process runs;
+  once it is gone, a start takes the row over and retries it.
 - `sweep` removes VMs; it does not repair rows. A row left `starting`,
   `restarting` or `running` with no VM (after a commit that failed while a
   VM was removed) stays so until a later `open` or `remove` of it.

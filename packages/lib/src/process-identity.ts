@@ -28,15 +28,23 @@ import { readdirSync, readFileSync } from "node:fs";
 
 /**
  * One process: its pid, and its start (see above). `started` is `null`
- * when that could not be read; the pid alone then decides.
+ * when that could not be read. The pid alone can then only show it gone
+ * (no signal reaches it, or it is listed as exited and unreaped); a
+ * process running with that pid is neither proved its nor another's, so
+ * it cannot be told (`processState` says `unknown`).
  */
 export interface ProcessIdentity {
   readonly pid: number;
   readonly started: string | null;
 }
 
-/** What the system says about a running process. */
+/** What the system says about a process it lists. */
 export interface SeenProcess {
+  /**
+   * It has exited and waits to be reaped (a zombie): it runs nothing, no
+   * signal reaches it, and its pid is not free for another process yet.
+   */
+  readonly exited?: true;
   readonly pgid: number;
   readonly started: string;
 }
@@ -47,18 +55,41 @@ const PS_TIMEOUT_MS = 5000;
 const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
 const SPACES = /\s+/g;
 const DIGITS = /^\d+$/;
-const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(.+)$/;
+const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.+?)\s*$/;
+/** `ps -o lstart` in the C locale: `Sun Nov  5 08:00:00 2026`. */
+const LSTART =
+  /^(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) +(\d{1,2}) (\d{2}):(\d{2}):(\d{2}) \d{4}$/;
+/**
+ * A process state as `ps` prints it: a letter, or `?` when it could not
+ * read one (as while a process starts or exits), then its flags.
+ */
+const PS_STATE = /^[A-Z?][A-Za-z<>+]*$/;
+/** A process state as `/proc/<pid>/stat` holds it: one letter. */
+const PROC_STATE = /^[A-Za-z]$/;
+/** `/proc/sys/kernel/random/boot_id`: a UUID. */
+const BOOT_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** What `ps` is asked for each process: `psLine` reads it back. */
+const PS_COLUMNS = "pid=,pgid=,state=,lstart=";
 /** How long a start read for a live pid is trusted. */
 const SEEN_MS = 1000;
 const LINUX = "linux:";
 const PS = "ps:";
 /** The fields of `/proc/<pid>/stat` after the command's closing parenthesis start at field 3. */
+const STAT_STATE = 3 - 3;
 const STAT_PGID = 5 - 3;
 const STAT_START = 22 - 3;
 
+/** A process state, from `/proc` or `ps`, that says it has exited (`Z`, or `X` as it goes). */
+function exitedState(state: string | undefined): boolean {
+  return (
+    state !== undefined && (state.startsWith("Z") || state.startsWith("X"))
+  );
+}
+
 /**
  * How `pid` runs now, from a `/proc/<pid>/stat` line and the boot id:
- * its group and its start. The command, field 2, is in parentheses and
+ * its group, its start, and whether it has exited. The command, field 2, is in parentheses and
  * may hold spaces and parentheses itself, so the fields after it are read
  * from its last closing parenthesis. `undefined` for a line that is not
  * one.
@@ -77,15 +108,96 @@ export function procStat(
     .split(" ");
   const pgid = Number(fields[STAT_PGID]);
   const ticks = fields[STAT_START];
-  if (!Number.isInteger(pgid) || ticks === undefined || !DIGITS.test(ticks)) {
+  const boot = bootId.trim();
+  if (
+    !Number.isInteger(pgid) ||
+    ticks === undefined ||
+    !DIGITS.test(ticks) ||
+    !PROC_STATE.test(fields[STAT_STATE] ?? "") ||
+    !BOOT_ID.test(boot)
+  ) {
     return;
   }
-  return { pgid, started: `${LINUX}${bootId.trim()}:${ticks}` };
+  return {
+    ...(exitedState(fields[STAT_STATE]) ? { exited: true as const } : {}),
+    pgid,
+    started: `${LINUX}${boot}:${ticks}`,
+  };
+}
+
+/**
+ * One line `ps -o pid=,pgid=,state=,lstart=` printed: the pid, and how
+ * it runs; `undefined` for a line that is not one, in exactly that shape:
+ * a start cut short, a column out of place or one too many is not taken
+ * for a start, since a start that is not one would read as another.
+ */
+export function psLine(
+  line: string
+): readonly [number, SeenProcess] | undefined {
+  const parsed = PS_LINE.exec(line);
+  if (
+    parsed === null ||
+    !PS_STATE.test(parsed[3] ?? "") ||
+    !validStart(normalStart(parsed[4] ?? ""))
+  ) {
+    return;
+  }
+  return [
+    Number(parsed[1]),
+    {
+      ...(exitedState(parsed[3]) ? { exited: true as const } : {}),
+      pgid: Number(parsed[2]),
+      started: psStart(parsed[4] ?? ""),
+    },
+  ];
 }
 
 /** A start `ps -o lstart` printed, as this module keeps it. */
 export function psStart(lstart: string): string {
-  return `${PS}${lstart.trim().replace(SPACES, " ")}`;
+  return `${PS}${normalStart(lstart)}`;
+}
+
+function normalStart(lstart: string): string {
+  return lstart.trim().replace(SPACES, " ");
+}
+
+/** Whether `lstart`, its spaces made single, is a start `ps` prints. */
+function validStart(lstart: string): boolean {
+  const parsed = LSTART.exec(lstart);
+  if (parsed === null) {
+    return false;
+  }
+  const [day, hours, minutes, seconds] = parsed.slice(1).map(Number);
+  return (
+    day !== undefined &&
+    day >= 1 &&
+    day <= 31 &&
+    (hours ?? 24) < 24 &&
+    (minutes ?? 60) < 60 &&
+    (seconds ?? 61) < 61
+  );
+}
+
+/**
+ * What a `ps -o pid=,pgid=,state=,lstart=` listing says of each process
+ * it lists; `undefined` when any line in it is not one (`psLine`), since
+ * then it says nothing certain, of the processes it leaves out included.
+ */
+export function psListing(
+  listed: string
+): Map<number, SeenProcess> | undefined {
+  const seen = new Map<number, SeenProcess>();
+  for (const line of listed.split("\n")) {
+    if (line.trim() === "") {
+      continue;
+    }
+    const parsed = psLine(line);
+    if (parsed === undefined) {
+      return;
+    }
+    seen.set(...parsed);
+  }
+  return seen;
 }
 
 let knownBoot: string | undefined;
@@ -121,17 +233,49 @@ function lookProc(
   } catch {
     return;
   }
+  const read = procListing(
+    pids,
+    (pid) => readFileSync(`/proc/${String(pid)}/stat`, "utf8"),
+    boot
+  );
+  if (read === undefined) {
+    return;
+  }
+  for (const [pid, entry] of read) {
+    seen.set(pid, entry);
+  }
+  return seen;
+}
+
+/** Errors reading a process's stat that leave it out of a listing, as not one of this user's or not there. */
+const UNLISTED = new Set(["EACCES", "ENOENT", "EPERM", "ESRCH"]);
+
+/**
+ * What `/proc` says of each of `pids`, each stat read by `read`, under
+ * the boot `bootId`; `undefined` when it says nothing certain. A stat
+ * that is gone, or went while it was read (`ENOENT`, `ESRCH`), is no
+ * process; one this user may not read (`EACCES`, `EPERM`, as under
+ * `hidepid=1`) is another user's process, so never one of this user's:
+ * either is left out, and the rest still listed. Any other failure, or a
+ * stat that is not one, makes the listing say nothing.
+ */
+export function procListing(
+  pids: readonly number[],
+  read: (pid: number) => string,
+  bootId: string
+): Map<number, SeenProcess> | undefined {
+  const seen = new Map<number, SeenProcess>();
   for (const pid of pids) {
     let stat: string;
     try {
-      stat = readFileSync(`/proc/${String(pid)}/stat`, "utf8");
+      stat = read(pid);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      if (UNLISTED.has((error as NodeJS.ErrnoException).code ?? "")) {
         continue;
       }
       return;
     }
-    const found = procStat(stat, boot);
+    const found = procStat(stat, bootId);
     if (found === undefined) {
       return;
     }
@@ -144,23 +288,21 @@ function lookPs(
   pids: readonly number[],
   seen: Map<number, SeenProcess>
 ): ReadonlyMap<number, SeenProcess> | undefined {
-  const listed = spawnSync(
-    "ps",
-    ["-o", "pid=,pgid=,lstart=", "-p", pids.join(",")],
-    { encoding: "utf8", env: PS_ENV, timeout: PS_TIMEOUT_MS }
-  );
+  const listed = spawnSync("ps", ["-o", PS_COLUMNS, "-p", pids.join(",")], {
+    encoding: "utf8",
+    env: PS_ENV,
+    timeout: PS_TIMEOUT_MS,
+  });
   // `ps` exits 1 when one of the pids has no process, and lists the rest.
   if (listed.error !== undefined || (listed.status ?? 2) > 1) {
     return;
   }
-  for (const line of listed.stdout.split("\n")) {
-    const parsed = PS_LINE.exec(line);
-    if (parsed) {
-      seen.set(Number(parsed[1]), {
-        pgid: Number(parsed[2]),
-        started: psStart(parsed[3] ?? ""),
-      });
-    }
+  const read = psListing(listed.stdout);
+  if (read === undefined) {
+    return;
+  }
+  for (const [pid, entry] of read) {
+    seen.set(pid, entry);
   }
   return seen;
 }
@@ -192,7 +334,7 @@ function allProc(): ReadonlyMap<number, SeenProcess> | undefined {
 }
 
 function allPs(): ReadonlyMap<number, SeenProcess> | undefined {
-  const listed = spawnSync("ps", ["-A", "-o", "pid=,pgid=,lstart="], {
+  const listed = spawnSync("ps", ["-A", "-o", PS_COLUMNS], {
     encoding: "utf8",
     env: PS_ENV,
     maxBuffer: 64 * 1024 * 1024,
@@ -201,43 +343,70 @@ function allPs(): ReadonlyMap<number, SeenProcess> | undefined {
   if (listed.error !== undefined || listed.status !== 0) {
     return;
   }
-  const seen = new Map<number, SeenProcess>();
-  for (const line of listed.stdout.split("\n")) {
-    const parsed = PS_LINE.exec(line);
-    if (parsed) {
-      seen.set(Number(parsed[1]), {
-        pgid: Number(parsed[2]),
-        started: psStart(parsed[3] ?? ""),
-      });
-    }
-  }
-  return seen;
+  return psListing(listed.stdout);
 }
+
+/** How a process's identity is read from the system; a test replaces it. */
+export interface ProcessLookup {
+  /** Whether a signal reaches the pid (`processAlive`). */
+  alive(pid: number): boolean;
+  /** What the system says of each of `pids` it lists (`lookProcesses`). */
+  look(pids: readonly number[]): ReadonlyMap<number, SeenProcess> | undefined;
+}
+
+const LOOKUP: ProcessLookup = {
+  alive: (pid) => processAlive(pid),
+  look: (pids) => lookProcesses(pids),
+};
 
 /**
  * The start of the process `pid` (see above); `null` when no process has
- * the pid, `undefined` when the system cannot say.
+ * the pid (none is listed, and no signal reaches it), or the one that has
+ * it has exited and waits to be reaped (a zombie), which runs nothing;
+ * `undefined` when the system cannot say, as when the listing leaves out
+ * a pid a signal still reaches.
  */
-export function startedAt(pid: number): string | null | undefined {
-  const seen = lookProcesses([pid]);
+export function startedAt(
+  pid: number,
+  lookup: ProcessLookup = LOOKUP
+): string | null | undefined {
+  const seen = lookup.look([pid]);
   if (seen === undefined) {
     return;
   }
-  return seen.get(pid)?.started ?? null;
+  const found = seen.get(pid);
+  if (found === undefined) {
+    // Absence from a listing is no proof while a signal still reaches it.
+    return lookup.alive(pid) ? undefined : null;
+  }
+  return found.exited === true ? null : found.started;
 }
 
 /**
  * This process, read once, as the module loads: nothing that records this
  * process as an owner waits on the system, or fails when it cannot answer.
  */
-const SELF: ProcessIdentity = Object.freeze({
+let self: ProcessIdentity = Object.freeze({
   pid: process.pid,
   started: startedAt(process.pid) ?? null,
 });
 
-/** This process, as every record of an owner names it. */
+/**
+ * This process, as every record of an owner names it. Its start is read
+ * once, as the module loads; when that read failed, it is read again on
+ * each call until one succeeds, so a passing failure does not leave every
+ * record this process writes without a start for its whole life. What it
+ * wrote with none stays its own: `sameProcess` takes a missing start for
+ * one that cannot be compared, never for another process's.
+ */
 export function thisProcess(): ProcessIdentity {
-  return SELF;
+  if (self.started === null) {
+    const started = startedAt(process.pid);
+    if (typeof started === "string") {
+      self = Object.freeze({ pid: process.pid, started });
+    }
+  }
+  return self;
 }
 
 /** Whether a process has the pid: `EPERM` counts, since then it belongs to another user. */
@@ -266,36 +435,136 @@ export function compareStarts(
 }
 
 /**
- * Whether the process `owner` names is gone: no process has its pid, or
- * the one that has it now started at another time. When the starts cannot
- * be compared, the pid alone decides, so a live owner is never taken for
- * gone.
+ * What can be said of the process `identity` names now, by the one rule
+ * for every pid Foundry reasons about (an owner, a recorded child, a
+ * group's leader or member):
+ *
+ * - `gone`, only on positive evidence: no signal reaches its pid; or the
+ *   process with it is listed as exited and waiting to be reaped (a
+ *   zombie: a signal still reaches it, but it runs nothing); or it is
+ *   listed with a start of the same kind that differs.
+ * - `running`: listed, not exited, with the same start.
+ * - `unknown`, for anything else: the listing failed; or it leaves the pid
+ *   out while a signal still reaches it (absence from a listing is no
+ *   proof); or the starts cannot be compared (another kind, or none).
  */
-export function isGone(owner: ProcessIdentity): boolean {
-  if (owner.pid === SELF.pid) {
+export function processState(
+  identity: ProcessIdentity,
+  lookup: ProcessLookup = LOOKUP
+): ProcessState {
+  if (identity.pid === process.pid) {
     // A process before this one that had its pid, as after a reboot.
-    return compareStarts(owner.started, SELF.started) === "different";
+    return compareStarts(identity.started, thisProcess().started) ===
+      "different"
+      ? "gone"
+      : "running";
   }
-  if (!processAlive(owner.pid)) {
-    return true;
+  if (!lookup.alive(identity.pid)) {
+    return "gone";
   }
-  if (owner.started === null) {
-    return false;
-  }
-  // A start read a moment ago may only confirm the owner: anything else
+  // A start read a moment ago may only confirm the process: anything else
   // is decided on a fresh read, since the pid may be another's by now.
-  if (confirmedRecently(owner.pid, owner.started)) {
+  // Only this system's own reads are kept, and only they confirm: what a
+  // lookup a caller hands in says is never taken for what the system said.
+  const cached = lookup === LOOKUP;
+  if (
+    cached &&
+    identity.started !== null &&
+    confirmedRecently(identity.pid, identity.started)
+  ) {
+    return "running";
+  }
+  const remember = cached ? rememberSeen : () => undefined;
+  const seen = lookup.look([identity.pid]);
+  if (seen === undefined) {
+    remember(identity.pid, undefined);
+    return "unknown";
+  }
+  const found = seen.get(identity.pid);
+  if (found?.exited === true) {
+    remember(identity.pid, null);
+    return "gone";
+  }
+  if (found === undefined) {
+    remember(identity.pid, null);
+    // Listed as no process, yet a signal reached it a moment ago: the
+    // listing is not trusted over the signal.
+    return lookup.alive(identity.pid) ? "unknown" : "gone";
+  }
+  remember(identity.pid, found.started);
+  const start = compareStarts(found.started, identity.started);
+  if (start === "same") {
+    return "running";
+  }
+  return start === "different" ? "gone" : "unknown";
+}
+
+export type ProcessState = "gone" | "running" | "unknown";
+
+/**
+ * Whether the group a stop is judging is proved empty, by the one rule for
+ * groups, from what the system lists in it (`listed`: every process with
+ * that group id, exited ones marked; `undefined` when it could not list
+ * them) and whether a signal reaches the group (`reached`, signal 0 to
+ * `-pgid`):
+ *
+ * - `empty`, only on proof: no signal reaches the group, or the listing
+ *   shows members and every one has exited and waits to be reaped;
+ * - `running`, when the listing shows one that runs;
+ * - `unknown` otherwise: the listing failed, or it shows none while a
+ *   signal still reaches the group (a process it leaves out, as one whose
+ *   stat this user may not read, may still be in it).
+ *
+ * A group whose id another process now holds is empty too
+ * (`groupIdTaken`), which a caller asks first.
+ */
+export function groupState(
+  listed: ReadonlyMap<number, SeenProcess> | undefined,
+  reached: boolean
+): "empty" | "running" | "unknown" {
+  if (!reached) {
+    return "empty";
+  }
+  if (listed === undefined) {
+    return "unknown";
+  }
+  const members = [...listed.values()];
+  if (members.some((seen) => seen.exited !== true)) {
+    return "running";
+  }
+  return members.length > 0 ? "empty" : "unknown";
+}
+
+/**
+ * Whether the group `leader` led has another process's pid as its id now,
+ * which proves it empty: a pid is not given to a new process while a
+ * group with that id still has a member. So it is, when `seen` (what the
+ * system lists for the leader's pid) is a process running with a start of
+ * the same kind that differs from the leader's; or, once the leader is
+ * known `reaped`, any process running with that pid.
+ */
+export function groupIdTaken(
+  leader: ProcessIdentity,
+  seen: SeenProcess | undefined,
+  reaped = false
+): boolean {
+  if (seen === undefined || seen.exited === true) {
     return false;
   }
-  const now = startedAt(owner.pid);
-  remember(owner.pid, now);
-  if (now === null) {
-    // The read found no process with the pid. One that still answers a
-    // signal says otherwise: the read is not trusted over it, since a
-    // live owner must never be taken for gone.
-    return !processAlive(owner.pid);
-  }
-  return now !== undefined && compareStarts(now, owner.started) === "different";
+  return reaped || compareStarts(seen.started, leader.started) === "different";
+}
+
+/**
+ * Whether the process `owner` names is gone, by `processState`'s rule:
+ * never on absence from a listing while a signal still reaches its pid,
+ * nor when the starts cannot be compared, so a live owner is never taken
+ * for gone.
+ */
+export function isGone(
+  owner: ProcessIdentity,
+  lookup: ProcessLookup = LOOKUP
+): boolean {
+  return processState(owner, lookup) === "gone";
 }
 
 /** Whether `one` and `other` name the same process, as far as either says. */
@@ -357,7 +626,7 @@ function confirmedRecently(pid: number, started: string): boolean {
   );
 }
 
-function remember(pid: number, started: string | null | undefined): void {
+function rememberSeen(pid: number, started: string | null | undefined): void {
   if (started === undefined || started === null) {
     recent.delete(pid);
   } else {

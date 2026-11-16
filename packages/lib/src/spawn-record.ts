@@ -42,17 +42,26 @@ import { randomUUID } from "node:crypto";
 import {
   closeSync,
   constants,
+  linkSync,
   lstatSync,
   mkdirSync,
   openSync,
+  readFileSync,
   renameSync,
   rmSync,
   writeSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import {
+  compareStarts,
+  groupIdTaken,
+  groupMembers,
+  groupState,
+  lookProcesses,
   type ProcessIdentity,
-  startedAt,
+  type ProcessLookup,
+  processAlive,
+  type SeenProcess,
   thisProcess,
 } from "./process-identity";
 
@@ -68,7 +77,7 @@ export interface SpawnRecord {
   /** The process that started it, on a recovery record. */
   readonly owner?: ProcessIdentity;
   readonly pid: number;
-  /** As `startedAt` reads it. */
+  /** As `lookProcesses` reads it: the same kind `startedAt` gives. */
   readonly started: string;
 }
 
@@ -154,20 +163,31 @@ export function notPrivate(
 export function recordSpawned(
   pid: number | undefined,
   group: boolean,
-  env: Readonly<Record<string, string | undefined>> = process.env
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  lookup?: ProcessLookup
 ): void {
+  recordInto(pid, group, env, lookup);
+}
+
+/** `recordSpawned`, giving back the start its records name, if it wrote them. */
+function recordInto(
+  pid: number | undefined,
+  group: boolean,
+  env: Readonly<Record<string, string | undefined>>,
+  lookup: ProcessLookup = RECORD_LOOKUP
+): string | undefined {
   const all = named(env[SPAWN_RECORD_ENV]);
   const recovery = named(env[SPAWN_RECOVERY_ENV]);
   if ((all === undefined && recovery === undefined) || pid === undefined) {
     return;
   }
   try {
-    write(pid, group, all, recovery);
+    return write(pid, group, all, recovery, lookup);
   } catch (error) {
     if (!reported) {
       reported = true;
-      process.stderr.write(
-        `foundry: could not record process ${String(pid)} in ${[all, recovery].filter(Boolean).join(" and ")}: ${error instanceof Error ? error.message : String(error)}\n`
+      reportLine(
+        `could not record process ${String(pid)} in ${[all, recovery].filter(Boolean).join(" and ")}: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
@@ -182,13 +202,14 @@ export function recordChild(
   group = false,
   env: Readonly<Record<string, string | undefined>> = process.env
 ): void {
-  recordSpawned(child.pid, group, env);
+  const started = recordInto(child.pid, group, env);
   const recovery = named(env[SPAWN_RECOVERY_ENV]);
   const { pid } = child;
-  if (recovery !== undefined && pid !== undefined) {
+  if (recovery !== undefined && pid !== undefined && started !== undefined) {
     child.once("exit", () => {
-      // The exit is its reaping: no later child can have had this pid yet.
-      rmSync(recordPath(recovery, pid), { force: true });
+      // Its exit is its reaping, so the pid may be another's by now, and
+      // that one recorded: only this child's record goes.
+      forgetRecord(recordPath(recovery, pid), { pid, started });
     });
   }
 }
@@ -197,7 +218,27 @@ export function recordChild(
 export interface GroupSystem {
   /** Signal `target` (a negative pid: the group); throws as `process.kill` does. */
   kill(target: number, signal: NodeJS.Signals | 0): void;
+  /** Every process in the group `pgid`; `undefined` when the system cannot say. */
+  members(pgid: number): ReadonlyMap<number, SeenProcess> | undefined;
+  /** Told what went wrong that the stop went on past; stderr when omitted. */
+  report?(line: string): void;
   sleep(ms: number): Promise<void>;
+  /** Write a record file, as `writePrivate` does, which it is when omitted. */
+  write?(path: string, text: string): void;
+}
+
+/** What a group's stop did. */
+export interface GroupStopResult {
+  /** No process of the group is left. */
+  readonly emptied: boolean;
+  /**
+   * The group's members are in its recovery record each time the stop
+   * read them, so a start after this process died mid-stop can prove
+   * them (so too when no recovery record is kept). `false` when writing
+   * them failed twice: reported, and the group stopped all the same,
+   * since this process knows it for certain right now.
+   */
+  readonly saved: boolean;
 }
 
 export interface RecordGroupOptions {
@@ -215,8 +256,15 @@ const GROUP_GRACE_MS = 2000;
 const GROUP_KILL_MS = 1000;
 const GROUP_POLL_MS = 50;
 
+/** How a record reads the process it records: this system. */
+const RECORD_LOOKUP: ProcessLookup = {
+  alive: (pid) => processAlive(pid),
+  look: (pids) => lookProcesses(pids),
+};
+
 const GROUP_SYSTEM: GroupSystem = {
   kill: (target, signal) => process.kill(target, signal),
+  members: groupMembers,
   sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
 };
 
@@ -227,30 +275,84 @@ const GROUP_SYSTEM: GroupSystem = {
  * SIGTERM, a grace period, SIGKILL, a last wait. Its recovery record goes
  * only once the group is empty; one that would not empty keeps it, so the
  * next start's orphan stop finds the group (`@foundry/lib/orphans`).
- * Returns the stop, which resolves with whether the group emptied.
+ * Before the first signal, the group's members, each with its start, are
+ * written into that record, so a start after this process died mid-stop
+ * can prove each one once the leader is gone.
+ *
+ * The group's id is this one's while the leader is not yet reaped, and
+ * the stop that follows its exit runs in the same turn as its reaping.
+ * The SIGKILL comes a grace period later, so it goes to the group only
+ * while a member recorded at the start is proved still in it (a group id
+ * cannot go to another group while any of its processes lives); else
+ * nothing is sent, and the record stays for the next start. A process
+ * that has exited and waits to be reaped (a zombie) is not left in the
+ * group as far as the stop goes.
+ *
+ * Writing the members is tried twice. Should both fail, the failure is
+ * reported (`GroupSystem.report`, stderr by default) and the group is
+ * stopped all the same: this process knows it for certain right now,
+ * and leaving its children running because a disk will not take a write
+ * is worse. The stop's result says the members were not saved.
+ *
+ * Returns the stop, which resolves with whether the group emptied and
+ * whether its members were saved.
  */
 export function recordGroup(
-  child: Pick<ChildProcess, "once" | "pid">,
+  child: Pick<ChildProcess, "exitCode" | "once" | "pid" | "signalCode">,
   options: RecordGroupOptions = {}
-): () => Promise<boolean> {
+): () => Promise<GroupStopResult> {
   const env = options.env ?? process.env;
   const { pid } = child;
-  recordSpawned(pid, true, env);
+  const started = recordInto(pid, true, env);
   if (pid === undefined) {
-    return () => Promise.resolve(true);
+    return () => Promise.resolve({ emptied: true, saved: true });
   }
   const recovery = named(env[SPAWN_RECOVERY_ENV]);
   const system = options.system ?? GROUP_SYSTEM;
-  let stopping: Promise<boolean> | undefined;
-  const stop = (): Promise<boolean> => {
+  const record = recovery === undefined ? undefined : recordPath(recovery, pid);
+  let reaped = false;
+  // Its own child, not reaped: the exit event has not come, and its exit
+  // code and signal are not set (a child handed over late has them).
+  const held = (): boolean =>
+    !reaped && child.exitCode === null && child.signalCode === null;
+  let saved = true;
+  let told = false;
+  const save = (
+    members: ReadonlyMap<number, SeenProcess> | undefined
+  ): void => {
+    if (record === undefined) {
+      return;
+    }
+    if (members === undefined) {
+      // The group could not be listed: who is in it is not written down.
+      saved = false;
+      return;
+    }
+    if (!saveMembers(pid, record, members, system)) {
+      saved = false;
+    }
+  };
+  let stopping: Promise<GroupStopResult> | undefined;
+  const stop = (): Promise<GroupStopResult> => {
     stopping ??= stopGroup(pid, system, {
       graceMs: options.graceMs ?? GROUP_GRACE_MS,
+      held,
       killMs: options.killMs ?? GROUP_KILL_MS,
+      leader: { pid, started: started ?? null },
+      save,
+      unlisted: () => {
+        if (!told) {
+          told = true;
+          (system.report ?? reportLine)(
+            `the members of group ${String(pid)} could not be listed; ${held() ? "its own unreaped leader proves the group, so it is signalled without them, and they are not written down" : "its leader is reaped, so nothing proves the group still its: not signalled, its recovery record kept"}`
+          );
+        }
+      },
     }).then((emptied) => {
-      if (emptied && recovery !== undefined) {
-        rmSync(recordPath(recovery, pid), { force: true });
+      if (emptied && record !== undefined && started !== undefined) {
+        forgetRecord(record, { pid, started });
       }
-      return emptied;
+      return { emptied, saved };
     });
     return stopping;
   };
@@ -259,33 +361,248 @@ export function recordGroup(
   });
   // Its exit is its reaping; what it started may still run in its group.
   child.once("exit", () => {
+    reaped = true;
     stop().catch(() => false);
   });
   return stop;
 }
 
-/** SIGTERM the group `pgid`, wait, SIGKILL it, wait; whether it emptied. */
+interface GroupStop {
+  readonly graceMs: number;
+  /** Whether the leader is not yet reaped, so its pid, the group's id, is still this process's. */
+  readonly held: () => boolean;
+  readonly killMs: number;
+  /** The leader, as its record names it: its start is `null` when none was read. */
+  readonly leader: ProcessIdentity;
+  /** Write the group's members into its recovery record, if it keeps one. */
+  readonly save: (
+    members: ReadonlyMap<number, SeenProcess> | undefined
+  ) => void;
+  /** Report, once per stop, that the group could not be listed. */
+  readonly unlisted: () => void;
+}
+
+/**
+ * SIGTERM the group `pgid`, wait, SIGKILL it if it is still proved this
+ * one, wait; whether it emptied.
+ */
 async function stopGroup(
   pgid: number,
   system: GroupSystem,
-  limits: { readonly graceMs: number; readonly killMs: number }
+  stop: GroupStop
 ): Promise<boolean> {
+  if (!groupSignal(system, pgid, 0)) {
+    return true;
+  }
+  const listed = system.members(pgid);
+  let known = running(listed);
+  const first = listing(listed, known, pgid, system, stop);
+  if (first !== undefined) {
+    return first;
+  }
+  if (known === undefined || known.size > 0) {
+    // Before any signal, so a stop cut short leaves its proof behind; a
+    // group that cannot be listed leaves none, and says so (`saved`).
+    stop.save(known);
+  }
   for (const [signal, ms] of [
-    ["SIGTERM", limits.graceMs],
-    ["SIGKILL", limits.killMs],
+    ["SIGTERM", stop.graceMs],
+    ["SIGKILL", stop.killMs],
   ] as const) {
+    if (signal === "SIGKILL") {
+      const proof = reproved(known, pgid, system, stop);
+      if (typeof proof === "boolean") {
+        return proof;
+      }
+      known = proof;
+    }
     if (!groupSignal(system, pgid, signal)) {
       return true;
     }
-    const deadline = Date.now() + ms;
-    while (Date.now() < deadline) {
-      await system.sleep(GROUP_POLL_MS);
-      if (!groupSignal(system, pgid, 0)) {
-        return true;
-      }
+    if (await emptiedWithin(system, pgid, ms)) {
+      return true;
     }
   }
   return false;
+}
+
+/**
+ * The group, proved again before SIGKILL: `true` emptied or its id
+ * another's, `false` not to be signalled (nothing proves it this one), or
+ * the members to go on with. Its own unreaped leader proves the id this
+ * group's, listed or not.
+ */
+function reproved(
+  known: ReadonlyMap<number, SeenProcess> | undefined,
+  pgid: number,
+  system: GroupSystem,
+  stop: GroupStop
+): boolean | ReadonlyMap<number, SeenProcess> | undefined {
+  const listedNow = system.members(pgid);
+  const now = running(listedNow);
+  const settled = listing(listedNow, now, pgid, system, stop);
+  if (settled !== undefined) {
+    return settled;
+  }
+  if (!(stop.held() || (now !== undefined && provedIn(known, now)))) {
+    // Nothing proves the id still this group's: the next start decides.
+    return false;
+  }
+  if (now === undefined) {
+    return known;
+  }
+  stop.save(now);
+  return now;
+}
+
+/** Poll the group `pgid` until it has no process left that runs, or `ms` pass. */
+async function emptiedWithin(
+  system: GroupSystem,
+  pgid: number,
+  ms: number
+): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    // Asked at least once, however short the wait.
+    if (!groupSignal(system, pgid, 0)) {
+      return true;
+    }
+    if (Date.now() >= deadline) {
+      break;
+    }
+    await system.sleep(GROUP_POLL_MS);
+  }
+  // It answers a signal: empty only if the listing shows members, every
+  // one exited and unreaped (zombies). A listing that shows none while a
+  // signal reaches the group proves nothing gone.
+  return groupState(system.members(pgid), true) === "empty";
+}
+
+/**
+ * What the group's listing settles before a signal: `true`, emptied (only
+ * exited members, or its id another group's); `false`, not to be told
+ * (a signal reaches the group, the leader is reaped, and the listing
+ * shows none of it: nothing is sent, the record stays, reported);
+ * `undefined`, nothing yet.
+ */
+function listing(
+  listed: ReadonlyMap<number, SeenProcess> | undefined,
+  known: ReadonlyMap<number, SeenProcess> | undefined,
+  pgid: number,
+  system: GroupSystem,
+  stop: GroupStop
+): boolean | undefined {
+  if (reused(known, pgid, stop)) {
+    return true;
+  }
+  // A signal reached the group a moment ago (the stop asked first).
+  const state = groupState(listed, true);
+  if (state === "empty") {
+    return true;
+  }
+  if (listed === undefined) {
+    stop.unlisted();
+    // Its own unreaped leader proves the group's id this one's without a
+    // listing; once reaped, nothing does.
+    return stop.held() ? undefined : false;
+  }
+  if (state === "unknown" && !stop.held()) {
+    reportUntold(system, pgid);
+    return false;
+  }
+}
+
+function reportUntold(system: GroupSystem, pgid: number): void {
+  (system.report ?? reportLine)(
+    `group ${String(pgid)} is not listed but a signal still reaches it; not signalled, its recovery record kept for the next start`
+  );
+}
+
+/**
+ * Whether the group's id is another group's now: the leader is reaped,
+ * and a process with its pid runs, so that one is not the leader, and
+ * leads a group of its own with that id. This group was empty before it
+ * could start, as an id is not given to a new group while any process of
+ * the old one lives.
+ */
+function reused(
+  members: ReadonlyMap<number, SeenProcess> | undefined,
+  pgid: number,
+  stop: GroupStop
+): boolean {
+  return groupIdTaken(stop.leader, members?.get(pgid), !stop.held());
+}
+
+/** `members`, without those that have exited and wait to be reaped (zombies). */
+function running(
+  members: ReadonlyMap<number, SeenProcess> | undefined
+): ReadonlyMap<number, SeenProcess> | undefined {
+  return members === undefined
+    ? undefined
+    : new Map([...members].filter(([, seen]) => seen.exited !== true));
+}
+
+/** Whether a process of `known` is in `now`, with the same start. */
+function provedIn(
+  known: ReadonlyMap<number, SeenProcess> | undefined,
+  now: ReadonlyMap<number, SeenProcess>
+): boolean {
+  return [...(known ?? [])].some(([pid, seen]) => {
+    const found = now.get(pid);
+    return (
+      found !== undefined &&
+      compareStarts(found.started, seen.started) === "same"
+    );
+  });
+}
+
+/**
+ * Write `members` into the group `pgid`'s record at `path`, with those it
+ * names already; whether they are there now. Tried twice; a failure both
+ * times is reported, and the stop goes on.
+ */
+function saveMembers(
+  pgid: number,
+  path: string,
+  members: ReadonlyMap<number, SeenProcess>,
+  system: GroupSystem
+): boolean {
+  let failure: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const record = JSON.parse(readFileSync(path, "utf8")) as SpawnRecord;
+      const known = record.members ?? [];
+      const added = [...members]
+        .filter(([pid, seen]) =>
+          known.every(
+            (member) =>
+              member.pid !== pid ||
+              compareStarts(member.started, seen.started) !== "same"
+          )
+        )
+        .map(
+          ([pid, seen]): ProcessIdentity => ({ pid, started: seen.started })
+        );
+      if (added.length > 0 || record.members === undefined) {
+        (system.write ?? writePrivate)(
+          path,
+          JSON.stringify({ ...record, members: [...known, ...added] })
+        );
+      }
+      return true;
+    } catch (error) {
+      failure = error;
+    }
+  }
+  (system.report ?? reportLine)(
+    `could not save the members of group ${String(pgid)} into its recovery record ${path}, so a start after this process died mid-stop could not prove them; stopping the group all the same: ${failure instanceof Error ? failure.message : String(failure)}`
+  );
+  return false;
+}
+
+/** Report `line` on stderr, as this module reports what it went on past. */
+function reportLine(line: string): void {
+  process.stderr.write(`foundry: ${line}\n`);
 }
 
 /** Signal the group `pgid`; `false` once it has no process left. */
@@ -312,25 +629,35 @@ function named(dir: string | undefined): string | undefined {
   return dir === undefined || dir === "" ? undefined : dir;
 }
 
+/** Write the records of `pid`; the start they name, `undefined` when none was written. */
 function write(
   pid: number,
   group: boolean,
   all: string | undefined,
-  recovery: string | undefined
-): void {
+  recovery: string | undefined,
+  lookup: ProcessLookup
+): string | undefined {
   for (const dir of [all, recovery]) {
     if (dir !== undefined) {
       privateDirectory(dir);
     }
   }
-  const started = startedAt(pid);
-  if (started === null) {
+  const seen = lookup.look([pid]);
+  if (seen === undefined) {
+    throw new Error("ps could not say when it started");
+  }
+  // One that has exited but is not reaped yet is recorded all the same:
+  // a group it led may still hold what it started.
+  const started = seen.get(pid)?.started;
+  if (started === undefined) {
+    if (lookup.alive(pid)) {
+      // Absence from a listing is no proof: it may run, unrecorded.
+      throw new Error("it is not listed, yet a signal reaches it");
+    }
     // It has already exited and been reaped: nothing is left to record.
     return;
   }
-  if (started === undefined) {
-    throw new Error("ps could not say when it started");
-  }
+  const written = started;
   const record: SpawnRecord = { group, pid, started };
   if (all !== undefined) {
     writePrivate(recordPath(all, pid), JSON.stringify(record));
@@ -342,6 +669,7 @@ function write(
       JSON.stringify({ ...record, owner })
     );
   }
+  return written;
 }
 
 /** Make `dir`, private, if it is missing; refuse one that is not private. */
@@ -351,6 +679,76 @@ function privateDirectory(dir: string): void {
   if (problem !== undefined) {
     throw new Error(problem);
   }
+}
+
+/** The file operations `forgetRecord` makes; a test replaces them to land a write between two. */
+export interface RecordFiles {
+  /** Make `path` name `existing`'s file; throws `EEXIST` when `path` is taken. */
+  link(existing: string, path: string): void;
+  read(path: string): string;
+  remove(path: string): void;
+  rename(from: string, to: string): void;
+}
+
+const RECORD_FILES: RecordFiles = {
+  link: (existing, path) => linkSync(existing, path),
+  read: (path) => readFileSync(path, "utf8"),
+  remove: (path) => rmSync(path, { force: true }),
+  rename: (from, to) => renameSync(from, to),
+};
+
+/**
+ * Remove the record at `path`, only if what is removed names `identity`,
+ * a process that is gone. Another process given its pid since may record
+ * itself there at any moment, so nothing read before decides: the file is
+ * moved aside first, under a fresh name in the same directory (a rename,
+ * atomic), read there, and deleted only if it names `identity`. One that
+ * does not is linked back, never over a file that took its place
+ * meanwhile: that one is newer, and this one then stays aside, under a
+ * name that is still a record's (`.json`), for the next reader. So no
+ * interleaving removes the record of a process that runs, and a removal
+ * cut short leaves every record readable.
+ */
+export function forgetRecord(
+  path: string,
+  identity: { readonly pid: number; readonly started: string },
+  files: RecordFiles = RECORD_FILES
+): void {
+  const aside = join(
+    dirname(path),
+    `.${basename(path)}.${randomUUID()}.forget.json`
+  );
+  try {
+    files.rename(path, aside);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+  let moved: Partial<SpawnRecord> | undefined;
+  try {
+    moved = JSON.parse(files.read(aside)) as Partial<SpawnRecord>;
+  } catch {
+    moved = undefined;
+  }
+  if (
+    moved?.pid === identity.pid &&
+    typeof moved.started === "string" &&
+    compareStarts(moved.started, identity.started) === "same"
+  ) {
+    files.remove(aside);
+    return;
+  }
+  try {
+    files.link(aside, path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      return;
+    }
+    throw error;
+  }
+  files.remove(aside);
 }
 
 /**

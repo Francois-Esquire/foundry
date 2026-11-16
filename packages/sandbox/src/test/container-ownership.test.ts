@@ -53,6 +53,7 @@ function refusingStore(inner: ContainerStore = createMemoryContainerStore()) {
         : target.commit(write);
     },
     get: (id) => target.get(id),
+    identity: () => target.identity(),
     list: () => target.list(),
   });
   const store: ContainerStore = {
@@ -382,7 +383,9 @@ describe("an old VM whose stop fails", () => {
     await containers.shutdown();
     const next = createContainers({ instanceLabel: "a", runtime, store });
     expect(await next.recover(() => true)).toEqual({
+      conflicts: [],
       kept: [],
+      passedOver: [],
       removed: [id],
       swept: [],
     });

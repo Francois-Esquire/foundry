@@ -13,8 +13,12 @@ import { privateBase, RUN_ENV, startRun, sweepFinishedRuns } from "./runs";
  * has 104 bytes, and fixtures add their own directories below the run's
  * root. The per-user macOS temp directory takes about fifty of them by
  * itself. Private, so no one else can plant a run or a record in it.
+ * `MARBLES_TEST_RUNS` names another, short too, for a suite whose runs
+ * no other checkout's sweep should see.
  */
-const RUN_PARENT = `/tmp/marbles-runs-${String(process.getuid?.() ?? "user")}`;
+const RUN_PARENT =
+  process.env.MARBLES_TEST_RUNS ||
+  `/tmp/marbles-runs-${String(process.getuid?.() ?? "user")}`;
 
 /**
  * Where `HOME` points for the run. Its `.foundry` is a file, so a process

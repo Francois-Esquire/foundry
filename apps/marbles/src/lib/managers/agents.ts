@@ -22,10 +22,11 @@ import { observeAgentTurn } from "@foundry/models";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import type { Container } from "@foundry/sandbox/container/containers";
 import type { Output } from "ai";
-
 import type { AutomationService } from "~/lib/automation/service";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import { DIRECT_HARNESS, harnessOf, isCliHarness } from "~/lib/cli-harnesses";
+import type { ExecutionContext } from "~/lib/execution-context";
+import { withinContext } from "~/lib/execution-context";
 import type { ExecutionObservation } from "~/lib/executions";
 import type { RecordObservation } from "~/lib/observations";
 import { composeObservers, runTurnObserver } from "~/lib/observations";
@@ -97,6 +98,11 @@ export interface AgentsDeps {
   readonly automations: AutomationService;
   /** The container behind a sandbox handle; a sandbox session's harness runs in it. */
   readonly containerOf: (sandbox: SandboxHandle) => Container;
+  /**
+   * What every session this manager opens is opened and turned as: the
+   * engine's execution context, whichever entry opens it.
+   */
+  readonly context?: ExecutionContext;
   /** Where a session opened outside a step works: the engine's execution context's. */
   readonly cwd: string;
   /** The route when an agent names neither model nor provider. */
@@ -869,7 +875,36 @@ interface Opening {
  * session, which is created in the store the first time the run needs it,
  * so a host can read every agent the run opened through `run.session`.
  */
+/**
+ * The one way this manager opens a session, for every entry (`session`,
+ * `scoped`, `forRun`, `turns`): the agent is built (an agent declared with
+ * a function runs it here) and each turn runs (its output schema, stop
+ * conditions, and the harness's authority, approval and question
+ * callbacks) as the engine's work, whoever calls in, inside a run or not.
+ */
 async function openSession<OUTPUT extends Output.Output>(
+  deps: AgentsDeps,
+  site: SessionSite,
+  agent: AgentLike<OUTPUT>,
+  options: SessionOptions
+): Promise<Session<OUTPUT>> {
+  const { context } = deps;
+  const session = await withinContext(context, () =>
+    openUnentered(deps, site, agent, options)
+  );
+  if (context === undefined) {
+    return session;
+  }
+  return {
+    ...session,
+    generate: (input, turn) =>
+      withinContext(context, () => session.generate(input, turn)),
+    stream: (input, turn) =>
+      withinContext(context, () => session.stream(input, turn)),
+  };
+}
+
+async function openUnentered<OUTPUT extends Output.Output>(
   deps: AgentsDeps,
   site: SessionSite,
   agent: AgentLike<OUTPUT>,

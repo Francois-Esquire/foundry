@@ -5,6 +5,7 @@ import { catalog } from "~/authoring/catalog";
 import { newLoad } from "~/authoring/load-tag";
 import { initializeUsage } from "~/authoring/usage";
 import type { Engine } from "~/lib/engine";
+import type { ExecutionContext } from "~/lib/execution-context";
 import { activeContext } from "~/lib/execution-context";
 
 /**
@@ -28,6 +29,7 @@ export type InstanceRuntime = Pick<
   | "agents"
   | "artifacts"
   | "bindings"
+  | "context"
   | "dispose"
   | "disposed"
   | "execute"
@@ -38,36 +40,123 @@ export type InstanceRuntime = Pick<
 >;
 
 /**
+ * One engine bound to its workspace here (`setHost`), with the catalog it
+ * took. It is released once that engine is disposed, and only then:
+ * another engine bound to the same workspace releases nothing, so an old
+ * engine keeps answering the runs it still has. Work that belongs to an
+ * engine carries its binding, and is answered through it alone. Once
+ * released it holds neither the engine nor the catalog, only that it was
+ * released, so work that still carries it keeps nothing of either alive.
+ */
+interface Binding {
+  catalog: Catalog | undefined;
+  released: boolean;
+  runtime: InstanceRuntime | undefined;
+  readonly workspaceId: string;
+}
+
+/** Every binding not yet released. */
+const bound = new Set<Binding>();
+
+/** Whether `binding`'s engine was disposed; once it was, it lets go of the engine and catalog. */
+function isReleased(binding: Binding): boolean {
+  if (!binding.released && binding.runtime?.disposed !== false) {
+    binding.released = true;
+    binding.runtime = undefined;
+    binding.catalog = undefined;
+    bound.delete(binding);
+  }
+  return binding.released;
+}
+
+/** The bindings of `workspaceId` whose engine is not disposed. */
+function liveBindings(workspaceId: string): Binding[] {
+  return [...bound].filter(
+    (binding) => binding.workspaceId === workspaceId && !isReleased(binding)
+  );
+}
+
+/**
+ * Each bound engine's binding, by the execution context it runs its work
+ * in: every run and observer of an engine, and every continuation of one,
+ * sees that engine's own context (`Engine.context`), so the context says
+ * whose work it is.
+ */
+const contextBindings = new WeakMap<ExecutionContext, Binding>();
+
+/**
  * One workspace a host in this process loads or hosts: the catalog its
- * source declares into, and the engine bound to answer for it. Its tasks
- * are refused while its source loads, before its engine is bound, and once
+ * source declares into, and the binding of the engine answering for it
+ * now, which work that names only the workspace reaches. Its tasks are
+ * refused while its source loads, before its engine is bound, and once
  * that engine is disposed, until another is bound. None falls back to
  * memory, which would accept a workspace's write and lose it.
  */
 interface Hosting {
+  readonly binding: Binding | undefined;
   readonly catalog: Catalog;
   readonly id: string;
-  readonly runtime: InstanceRuntime | undefined;
 }
 
 const hostings = new Map<string, Hosting>();
 /**
- * Workspaces whose host here closed or gave them up: work that still names
- * one is refused, never handed to whichever workspace is left.
+ * Workspaces whose host here closed or gave them up: work that names only
+ * the workspace is refused, never handed to whichever workspace is left.
  */
 const released = new Set<string>();
-/** Each load's workspace, and the catalog its modules declare into, by load number. */
-const loads = new Map<
-  number,
-  { readonly catalog: Catalog; readonly workspaceId: string }
->();
+/**
+ * One load of a workspace's source: the catalog its modules declare into,
+ * and the binding of the engine that took that catalog, once one has. A
+ * load whose host gave it up before any engine took it is abandoned.
+ */
+interface Load {
+  abandoned: boolean;
+  binding: Binding | undefined;
+  readonly catalog: Catalog;
+  readonly workspaceId: string;
+}
+
+/** Each load that work may still answer to, by load number. */
+const loads = new Map<number, Load>();
+/**
+ * The numbers of loads that answer nothing any more: their engine was
+ * disposed, or their host gave them up. Only the number is kept, so a
+ * late call from one is refused rather than taken for work that names no
+ * workspace; the load and its catalog are let go.
+ */
+const retired = new Set<number>();
+
+/**
+ * Let go of what nothing can answer through any more: each binding whose
+ * engine was disposed, each load it took or its host gave up, and each
+ * workspace whose engine bound last is gone. Run as engines are bound
+ * and loads begin, so a host that reloads for months keeps only what is
+ * live.
+ */
+function sweep(): void {
+  for (const binding of [...bound]) {
+    isReleased(binding);
+  }
+  for (const [number, load] of loads) {
+    if (load.abandoned || load.binding?.released === true) {
+      loads.delete(number);
+      retired.add(number);
+    }
+  }
+  for (const id of [...hostings.keys()]) {
+    liveHosting(id);
+  }
+}
 /**
  * Whom work done later on another's behalf answers to: a load, while its
- * library's words run, or the workspace of the run or observer that made
- * a builder or an instance. Only this identity is kept, never the stores
- * of the run it came from.
+ * library's words run; the binding of the engine whose run or observer
+ * made a builder or an instance; or, for a run of an engine no host here
+ * bound, its workspace alone.
  */
-type Route = { readonly load: number } | { readonly workspaceId: string };
+type Route =
+  | { readonly load: number }
+  | { readonly binding: Binding }
+  | { readonly workspaceId: string };
 
 const routeScope = new AsyncLocalStorage<Route>();
 /**
@@ -121,16 +210,28 @@ export function inLoad<T>(load: number, work: () => T): T {
 /** Work run later in the scope captured: it names the same run, observer or load. */
 export type Scope = <T>(work: () => T) => T;
 
-/** The scope the calling work runs in, kept for work done later on its behalf. */
+/**
+ * The scope the calling work runs in, kept for work done later on its
+ * behalf: the binding of the engine whose run or observer calls, else the
+ * load whose library word calls, which follows that load's binding.
+ */
 export function captureScope(): Scope {
   const context = activeContext();
-  const route: Route | undefined =
-    context === undefined
-      ? routeScope.getStore()
-      : { workspaceId: context.workspaceId };
-  return route === undefined
-    ? (work) => work()
-    : (work) => routeScope.run(route, work);
+  let route: Route | undefined;
+  if (context === undefined) {
+    route = routeScope.getStore();
+  } else {
+    const binding = contextBindings.get(context);
+    route =
+      binding === undefined
+        ? { workspaceId: context.workspaceId }
+        : { binding };
+  }
+  if (route === undefined) {
+    return (work) => work();
+  }
+  const kept = route;
+  return (work) => routeScope.run(kept, work);
 }
 
 /**
@@ -147,13 +248,20 @@ export async function loadInto<T>(
   into: Catalog,
   load: (n: number) => Promise<T>
 ): Promise<T> {
+  sweep();
   const n = newLoad();
-  loads.set(n, { catalog: into, workspaceId });
+  const loaded: Load = {
+    abandoned: false,
+    binding: undefined,
+    catalog: into,
+    workspaceId,
+  };
+  loads.set(n, loaded);
   if (liveHosting(workspaceId) === undefined) {
     hostings.set(workspaceId, {
+      binding: undefined,
       catalog: into,
       id: workspaceId,
-      runtime: undefined,
     });
     released.delete(workspaceId);
   }
@@ -162,7 +270,8 @@ export async function loadInto<T>(
     return await load(n);
   } catch (error) {
     into.reset();
-    abandonHost(workspaceId);
+    // Given up whether or not an engine answers for the workspace meanwhile.
+    abandonHost(workspaceId, into);
     throw error;
   } finally {
     importing -= 1;
@@ -170,21 +279,56 @@ export async function loadInto<T>(
 }
 
 /**
- * The host's engine answers for its workspace: instance calls made outside
- * a run, and the builtin `tasks`, reach it whenever the work names that
- * workspace, or names none and it is the only one hosted here. What the
+ * The host's engine answers for its workspace: its own runs and
+ * observers, the loads whose catalog it takes, and what they make, reach
+ * it until it is disposed, whatever is bound after it; instance calls and
+ * the builtin `tasks` that name only the workspace, or name none while it
+ * is the only one hosted here, reach the engine bound last. What the
  * workspace's runs declare goes to `declared`, its own catalog: the one
  * its source loaded into when omitted, else this process's.
  */
 export function setHost(runtime: InstanceRuntime, declared?: Catalog): void {
+  sweep();
   const hosting = hostings.get(runtime.workspaceId);
-  hostings.set(runtime.workspaceId, {
-    catalog: declared ?? hosting?.catalog ?? catalog,
-    id: runtime.workspaceId,
+  const taken = declared ?? hosting?.catalog ?? catalog;
+  const binding: Binding = {
+    catalog: taken,
+    released: false,
     runtime,
+    workspaceId: runtime.workspaceId,
+  };
+  bound.add(binding);
+  contextBindings.set(runtime.context, binding);
+  hostings.set(runtime.workspaceId, {
+    binding,
+    catalog: taken,
+    id: runtime.workspaceId,
   });
+  // Each load whose catalog this engine took answers to this engine alone.
+  for (const load of loads.values()) {
+    if (
+      load.workspaceId === runtime.workspaceId &&
+      load.catalog === taken &&
+      load.binding === undefined &&
+      !load.abandoned
+    ) {
+      load.binding = binding;
+    }
+  }
   released.delete(runtime.workspaceId);
   hostState = "hosted";
+}
+
+/**
+ * A host disposed `runtime`: let go of it, its catalog and the loads it
+ * took now, rather than when the next engine is bound or load begins. An
+ * engine disposed by anything else is let go then.
+ */
+export function releaseEngine(runtime: InstanceRuntime): void {
+  if (!runtime.disposed) {
+    return;
+  }
+  sweep();
 }
 
 /**
@@ -197,26 +341,145 @@ export function expectHost(): void {
 }
 
 /**
- * A host gave workspace `workspaceId` up before it bound an engine to it:
- * forget it, so it answers nothing, and work that still names it is
- * refused.
+ * A host gave up the load of workspace `workspaceId` into `given` before
+ * an engine took that catalog: each such load is abandoned, so its work is
+ * refused, whatever engine answers for the workspace meanwhile. When no
+ * engine answers for the workspace at all, it is forgotten too, so it
+ * answers nothing, and work that still names it is refused.
  */
-export function abandonHost(workspaceId: string): void {
-  if (hostings.get(workspaceId)?.runtime === undefined) {
+export function abandonHost(workspaceId: string, given: Catalog): void {
+  for (const load of loads.values()) {
+    if (
+      load.workspaceId === workspaceId &&
+      load.catalog === given &&
+      load.binding === undefined
+    ) {
+      load.abandoned = true;
+    }
+  }
+  if (hostings.get(workspaceId)?.binding === undefined) {
     hostings.delete(workspaceId);
     released.add(workspaceId);
   }
 }
 
-/** `id`'s hosting, unless its engine was disposed, which releases it. */
+/**
+ * Whom the calling work belongs to: the binding of the engine whose run,
+ * observer or load it is, or that made it; else a load no engine took
+ * yet; else, for a run of an engine no host here bound, its workspace
+ * alone. Undefined for work that names none.
+ */
+type Owner =
+  | { readonly binding: Binding }
+  | { readonly load: Load }
+  | { readonly workspaceId: string };
+
+function owner(): Owner | undefined {
+  const context = activeContext();
+  if (context !== undefined) {
+    const binding = contextBindings.get(context);
+    return binding === undefined
+      ? { workspaceId: context.workspaceId }
+      : { binding };
+  }
+  const route = routeScope.getStore();
+  if (route === undefined || !("load" in route)) {
+    return route;
+  }
+  if (retired.has(route.load)) {
+    throw releasedError();
+  }
+  const load = loads.get(route.load);
+  if (load === undefined) {
+    // A load no host registered (`importLoad` on its own): it names none.
+    return;
+  }
+  if (load.abandoned) {
+    throw releasedError(load.workspaceId);
+  }
+  return load.binding === undefined ? { load } : { binding: load.binding };
+}
+
+/** The engine and catalog of `binding`, refused once its engine has been disposed. */
+function live(binding: Binding): {
+  readonly catalog: Catalog;
+  readonly runtime: InstanceRuntime;
+} {
+  const { catalog: taken, runtime } = binding;
+  if (isReleased(binding) || taken === undefined || runtime === undefined) {
+    throw releasedError(binding.workspaceId);
+  }
+  return { catalog: taken, runtime };
+}
+
+/**
+ * The hosting of `workspaceId` for work that carries no binding, only as
+ * long as one engine at most is alive for it: with an older engine still
+ * finishing its runs beside a newer one, such work could belong to
+ * either, so it is refused rather than handed to the one bound last.
+ */
+function soleHosting(workspaceId: string): Hosting | undefined {
+  const alive = liveBindings(workspaceId);
+  if (alive.length > 1) {
+    throw new AmbiguousWorkspaceError(
+      `this call names workspace ${workspaceId} and no engine of it, and ${String(alive.length)} of its engines are running here (one still finishing its runs beside the one that replaced it), so none of them answers it`
+    );
+  }
+  return liveHosting(workspaceId);
+}
+
+/** The workspace work that has no binding names: its load's, or its run's. */
+function namedBy(
+  own: { readonly load: Load } | { readonly workspaceId: string } | undefined
+): string | undefined {
+  if (own === undefined) {
+    return;
+  }
+  return "load" in own ? own.load.workspaceId : own.workspaceId;
+}
+
+/** What answers the calling work: its catalog and, once bound, its engine. */
+interface Answer {
+  readonly catalog: Catalog;
+  readonly id: string;
+  readonly runtime: InstanceRuntime | undefined;
+}
+
+/** `id`'s hosting, unless the engine bound last was disposed, which releases it. */
 function liveHosting(id: string): Hosting | undefined {
   const hosting = hostings.get(id);
-  if (hosting?.runtime?.disposed) {
+  if (hosting?.binding !== undefined && isReleased(hosting.binding)) {
     hostings.delete(id);
     released.add(id);
     return;
   }
   return hosting;
+}
+
+/** What `hosting` answers with: the engine bound last, if any. */
+function answerOf(hosting: Hosting): Answer {
+  return {
+    catalog: hosting.catalog,
+    id: hosting.id,
+    runtime: hosting.binding?.runtime,
+  };
+}
+
+/**
+ * Work from a run of an engine no host here bound names its workspace
+ * alone. It belongs to that engine, never to one bound here: while one
+ * is, it is refused, as it is once that workspace's host here closed;
+ * otherwise no engine here answers it.
+ */
+function refuseUnbound(workspaceId: string): void {
+  if (liveBindings(workspaceId).length > 0) {
+    throw new AmbiguousWorkspaceError(
+      `this call comes from a run of an engine of workspace ${workspaceId} that no host here bound, and another engine is bound to that workspace here, so neither answers it`
+    );
+  }
+  if (released.has(workspaceId)) {
+    throw releasedError(workspaceId);
+  }
 }
 
 /** A host here holds several workspaces, and the work names none of them. */
@@ -229,28 +492,12 @@ class WorkspaceReleasedError extends Error {
   override readonly name = "WorkspaceReleasedError";
 }
 
-function releasedError(id: string): WorkspaceReleasedError {
+function releasedError(id?: string): WorkspaceReleasedError {
+  const named =
+    id === undefined ? "the workspace this work belongs to" : `workspace ${id}`;
   return new WorkspaceReleasedError(
-    `workspace ${id} is no longer hosted in this process: its host closed, so nothing it started outlives it here; nothing was read, written or declared`
+    `${named} is no longer hosted in this process: its host closed, so nothing it started outlives it here; nothing was read, written or declared`
   );
-}
-
-/**
- * The workspace the calling work names: its execution context's (a run, an
- * observer), else that of the load whose library word is calling.
- */
-function namedWorkspace(): string | undefined {
-  const named = activeContext()?.workspaceId;
-  if (named !== undefined) {
-    return named;
-  }
-  const route = routeScope.getStore();
-  if (route === undefined) {
-    return;
-  }
-  return "workspaceId" in route
-    ? route.workspaceId
-    : loads.get(route.load)?.workspaceId;
 }
 
 /** Work that names no workspace, where that is refused. */
@@ -261,18 +508,31 @@ function unnamedError(): AmbiguousWorkspaceError {
 }
 
 /**
- * The workspace the calling work belongs to. Work that names one is
- * answered by it alone, and refused once its host has closed here; only
+ * What answers the calling work. Work that belongs to an engine is
+ * answered by that engine alone, whatever is bound after it, and refused
+ * once it is disposed; work that names only a workspace by the engine
+ * bound to it last, and is refused once its host has closed here; only
  * work that names none falls to the one workspace hosted here. Undefined
  * when none is. Throws when several are and the work names none, rather
  * than reach whichever was bound last.
  */
-function hostingNow(): Hosting | undefined {
-  const named = namedWorkspace();
+function answering(): Answer | undefined {
+  const own = owner();
+  if (own !== undefined && "binding" in own) {
+    const { catalog: taken, runtime } = live(own.binding);
+    return { catalog: taken, id: runtime.workspaceId, runtime };
+  }
+  if (own !== undefined && "workspaceId" in own) {
+    refuseUnbound(own.workspaceId);
+    return undefined;
+  }
+  // A load no engine has taken yet: the engine answering for its
+  // workspace meanwhile, while it is the only one alive.
+  const named = namedBy(own);
   if (named !== undefined) {
-    const hosting = liveHosting(named);
+    const hosting = soleHosting(named);
     if (hosting !== undefined) {
-      return hosting;
+      return answerOf(hosting);
     }
     if (released.has(named)) {
       throw releasedError(named);
@@ -281,46 +541,47 @@ function hostingNow(): Hosting | undefined {
   if (named === undefined && unnamedRefused) {
     throw unnamedError();
   }
+  // Work that names nothing: the one workspace hosted here, while one
+  // engine alone is alive for it.
   const hosted = [...hostings.keys()].flatMap((id) => {
-    const live = liveHosting(id);
-    return live === undefined ? [] : [live];
+    const each = liveHosting(id);
+    return each === undefined ? [] : [each];
   });
   if (hosted.length > 1) {
     throw new AmbiguousWorkspaceError(
       `this process hosts ${String(hosted.length)} workspaces (${hosted.map((each) => each.id).join(", ")}), and this call names none of them: it runs outside their runs, observers and modules, so none of them answers it`
     );
   }
-  return hosted[0];
+  const [only] = hosted;
+  if (only === undefined) {
+    return;
+  }
+  const sole = soleHosting(only.id);
+  return sole === undefined ? undefined : answerOf(sole);
 }
 
 /**
- * The catalog the authoring words declare into now: the workspace a run
- * or observer runs for, else the load whose library word is declaring, else this
- * process's own, as in a script no host loaded. Refused for a workspace
- * whose host has closed here, and for a declaration that names no
- * workspace while one's source is loading.
+ * The catalog the authoring words declare into now: that of the engine
+ * the work belongs to, else the load whose library word is declaring,
+ * else the workspace a run of an unbound engine names, else this
+ * process's own, as in a script no host loaded. Refused once the engine
+ * the work belongs to is disposed, for a workspace whose host has closed
+ * here, and for a declaration that names no workspace while one's source
+ * is loading.
  */
 export function declaringCatalog(): Catalog {
-  const route = routeScope.getStore();
-  const workspaceId =
-    activeContext()?.workspaceId ??
-    (route !== undefined && "workspaceId" in route
-      ? route.workspaceId
-      : undefined);
-  if (workspaceId !== undefined) {
-    const hosting = liveHosting(workspaceId);
-    if (hosting !== undefined) {
-      return hosting.catalog;
+  const own = owner();
+  if (own !== undefined) {
+    if ("binding" in own) {
+      return live(own.binding).catalog;
     }
-    if (released.has(workspaceId)) {
-      throw releasedError(workspaceId);
+    if ("load" in own) {
+      return own.load.catalog;
     }
+    // A run of an engine no host here bound: this process's own catalog,
+    // never that of an engine bound to the workspace.
+    refuseUnbound(own.workspaceId);
     return catalog;
-  }
-  const owner =
-    route !== undefined && "load" in route ? loads.get(route.load) : undefined;
-  if (owner !== undefined) {
-    return owner.catalog;
   }
   if (importing > 0) {
     throw new AmbiguousWorkspaceError(
@@ -333,9 +594,9 @@ export function declaringCatalog(): Catalog {
   return catalog;
 }
 
-/** The engine answering for the calling work's workspace, if one is bound and not disposed. */
+/** The engine answering the calling work, if one is bound and not disposed. */
 function activeHost(): InstanceRuntime | undefined {
-  return hostingNow()?.runtime;
+  return answering()?.runtime;
 }
 
 /**
@@ -344,7 +605,7 @@ function activeHost(): InstanceRuntime | undefined {
  * engine bound to answer for the work's workspace.
  */
 export function hostTaskStore(): TaskStore | undefined {
-  const hosting = hostingNow();
+  const hosting = answering();
   if (hosting === undefined && hostState === "unhosted") {
     return;
   }

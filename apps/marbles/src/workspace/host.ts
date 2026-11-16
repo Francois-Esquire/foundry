@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { abandonHost } from "~/authoring/runtime";
+import { abandonHost, releaseEngine } from "~/authoring/runtime";
 import type { MarblesDatabase } from "~/database/open";
 import { openHostDatabase } from "~/database/workspaces";
 import type { Engine } from "~/lib/engine";
@@ -65,6 +65,11 @@ export interface HostWorkspaceOptions {
   readonly dry?: boolean;
   /** What a `.env.schema` that does not resolve does; `warn` when omitted. */
   readonly env?: "require" | "warn";
+  /**
+   * Told once the host begins to close, however its close was started,
+   * with the close it can wait for: what holds the host lets go of it.
+   */
+  readonly onClose?: (closing: Promise<void>) => void;
   /** Nothing is at the source: offer to create it. Resolves true once something loads there. */
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   /** Runs on the built engine before it starts: host steps registered beside the source. */
@@ -86,7 +91,10 @@ export interface HostWorkspaceOptions {
 }
 
 export interface WorkspaceHost extends WorkspaceConnection {
-  /** Stop the engine, cancelling live runs, and close what it opened. */
+  /**
+   * Stop the engine, cancelling live runs, and close what it opened. Every
+   * call shares the first one's close, and `onClose` hears it begin.
+   */
   close(): Promise<void>;
   /** Where the source is, or would be created. */
   readonly configPath: string;
@@ -210,8 +218,19 @@ export async function stageWorkspace(
   let own: MarblesDatabase | undefined;
   /** Nothing of it stays bound in this process for the next host to meet. */
   const unbind = (): void => {
-    abandonHost(loaded.workspace.id);
+    abandonHost(loaded.workspace.id, loaded.catalog);
     own?.close();
+  };
+  const release = async (built: Engine): Promise<void> => {
+    try {
+      await built.dispose();
+    } finally {
+      try {
+        releaseEngine(built);
+      } finally {
+        unbind();
+      }
+    }
   };
   let engine: Engine;
   let opened: OpenedWorkspace;
@@ -242,11 +261,7 @@ export async function stageWorkspace(
     // Defined before the engine starts: background agent dispatch is a step.
     dispatches = new BackgroundRuns(engine, opened.catalog);
   } catch (error) {
-    try {
-      await engine.dispose();
-    } finally {
-      unbind();
-    }
+    await release(engine);
     throw error;
   }
   const database = shared ?? own;
@@ -262,11 +277,7 @@ export async function stageWorkspace(
   return {
     async abandon() {
       once();
-      try {
-        await engine.dispose();
-      } finally {
-        unbind();
-      }
+      await release(engine);
     },
     config: opened.config,
     configPath: opened.configPath,
@@ -292,6 +303,9 @@ export async function stageWorkspace(
             diagnostics.add(line, "error");
           },
           lastFinish: await lastFinishes(engine),
+          ...(options.onClose === undefined
+            ? {}
+            : { onClose: options.onClose }),
           print,
           setStatus: (line) => {
             status = line;
@@ -299,11 +313,7 @@ export async function stageWorkspace(
           status: () => status,
         });
       } catch (error) {
-        try {
-          await engine.dispose();
-        } finally {
-          unbind();
-        }
+        await release(engine);
         throw error;
       }
     },
@@ -319,6 +329,8 @@ interface Status {
   readonly fail: (line: string) => void;
   /** When each trigger last finished a tick, as the host started. */
   readonly lastFinish: ReadonlyMap<string, number>;
+  /** Told once the host begins to close. */
+  readonly onClose?: (closing: Promise<void>) => void;
   readonly print: (line: string) => void;
   readonly setStatus: (line: string) => void;
   readonly status: () => string;
@@ -395,6 +407,7 @@ function hosted(
     diagnostics,
     fail,
     lastFinish,
+    onClose,
     print,
     setStatus,
     status,
@@ -464,19 +477,30 @@ function hosted(
     return { lines, value };
   }
 
+  // One close, however often or by whom it is asked for.
+  let closing: Promise<void> | undefined;
+  const shutDown = async () => {
+    try {
+      await dispatches.close();
+    } finally {
+      try {
+        await engine.dispose();
+      } finally {
+        // Nothing of it stays held here once it is disposed.
+        releaseEngine(engine);
+        database?.close();
+      }
+    }
+  };
   return {
     actions,
     cancelRun: (runId) => dispatches.cancel(runId),
-    async close() {
-      try {
-        await dispatches.close();
-      } finally {
-        try {
-          await engine.dispose();
-        } finally {
-          database?.close();
-        }
+    close() {
+      if (closing === undefined) {
+        closing = shutDown();
+        onClose?.(closing);
       }
+      return closing;
     },
     config,
     configPath,

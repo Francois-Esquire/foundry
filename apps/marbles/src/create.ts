@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
@@ -48,6 +48,7 @@ import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot, executionEnvironment } from "~/lib/environment";
+import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { localCatalogue } from "~/lib/managers/workspaces";
@@ -85,6 +86,12 @@ export interface CreateEngineOptions {
    * Under `dry` the engine gets neither and keeps everything in memory.
    */
   readonly database?: StoreDatabase;
+  /**
+   * The file `database` is, which binds its container store's identity to
+   * where it lives (`workspaceStores`); without it, the identity is the
+   * one the database keeps, which a copy of it shares.
+   */
+  readonly databaseFile?: string;
   readonly dry: boolean;
   /** The machine environment and the workspace's Varlock values; the process's own when omitted. */
   readonly environment?: {
@@ -352,12 +359,12 @@ class OwnDatabaseEngine extends PublishedEngine {
     this.#database = database;
   }
 
-  override async dispose(): Promise<void> {
-    try {
-      await super.dispose();
-    } finally {
-      await this.#database.close();
-    }
+  override dispose(): Promise<void> {
+    return inTurn(
+      () => super.dispose(),
+      () => this.#database.close(),
+      "Failed to dispose the engine and close its database"
+    );
   }
 }
 
@@ -387,10 +394,24 @@ function containersFor(
       // This process, so a later start can tell the rows it held are left.
       holder: containerHolder(),
       instanceLabel: `marbles-${workspaceId}`,
+      // What the registry leaves without acting on, said where the engine speaks.
+      report: (line) => print(`[sandbox] ${line}`),
       runtime: await runtime(),
       store: store ?? createMemoryContainerStore(),
     });
   };
+}
+
+/** The real path of `file`, or `undefined` without one, or when it cannot be read. */
+function realPath(file: string | undefined): string | undefined {
+  if (file === undefined) {
+    return;
+  }
+  try {
+    return realpathSync(file);
+  } catch {
+    // Then the identity is the one the database keeps, as without a file.
+  }
 }
 
 /** Build each instance, hand them to a new engine, and declare the config to it. Not yet started. */
@@ -403,7 +424,9 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const database = dry ? undefined : options.database;
   const { own, ...kept } = recordsFor(state, database, options);
   const stores =
-    database === undefined ? undefined : workspaceStores(database, workspaceId);
+    database === undefined
+      ? undefined
+      : workspaceStores(database, workspaceId, realPath(options.databaseFile));
   const git = dry ? { run: echoGit(print) } : {};
   // The class the package publishes, so a host's engine is that `Engine`.
   const engineOptions: EngineOptions = {

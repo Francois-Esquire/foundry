@@ -128,7 +128,15 @@ export class HostedWorkspaces {
   /** Registrations under way, by workspace id: a second one for the same workspace shares the first. */
   readonly #pending = new Map<string, Promise<WorkspaceHost>>();
   readonly #options: HostedWorkspacesOptions;
+  /**
+   * Work under way that still writes through the shared handle once its
+   * host has left `#hosts`: a host closing, and an unregister finishing.
+   * The database closes only after every one of them has settled.
+   */
+  readonly #inFlight = new Set<Promise<unknown>>();
   #phase: "open" | "closed" = "open";
+  /** The one shutdown every `close` shares. */
+  #closing: Promise<void> | undefined;
 
   private constructor(
     options: HostedWorkspacesOptions,
@@ -220,6 +228,7 @@ export class HostedWorkspaces {
     registration: WorkspaceRegistration,
     { args, found, root }: Found
   ): Promise<StagedWorkspace> {
+    let host: WorkspaceHost | undefined;
     try {
       if (this.#database !== undefined) {
         await new WorkspaceRegistry({
@@ -230,7 +239,7 @@ export class HostedWorkspaces {
           hosted: true,
         });
       }
-      return await stageWorkspace({
+      const staged = await stageWorkspace({
         artifacts: args.artifacts,
         ...(this.#options.askable === undefined
           ? {}
@@ -240,6 +249,12 @@ export class HostedWorkspaces {
         ...(this.#options.env === undefined ? {} : { env: this.#options.env }),
         directory: root,
         dry: args.dry,
+        onClose: (closing) => {
+          if (host !== undefined && this.#hosts.get(host.id) === host) {
+            this.#hosts.delete(host.id);
+          }
+          this.#track(closing);
+        },
         ...(this.#options.prepare === undefined
           ? {}
           : { prepare: this.#options.prepare }),
@@ -251,6 +266,13 @@ export class HostedWorkspaces {
           : { spawned: this.#options.spawned }),
         state: args.state,
       });
+      return {
+        ...staged,
+        start: async () => {
+          host = await staged.start();
+          return host;
+        },
+      };
     } catch (error) {
       throw new WorkspaceLoadError(root, { cause: error });
     }
@@ -357,10 +379,15 @@ export class HostedWorkspaces {
     if (database === undefined) {
       return [];
     }
-    const records = await new WorkspaceRegistry({
-      database: database.database,
-      state: this.#options.state,
-    }).list();
+    if (this.#phase === "closed") {
+      throw new Error("these hosted workspaces are closed");
+    }
+    const records = await this.#track(
+      new WorkspaceRegistry({
+        database: database.database,
+        state: this.#options.state,
+      }).list()
+    );
     return records.filter((record) => record.hosted);
   }
 
@@ -402,7 +429,14 @@ export class HostedWorkspaces {
    * later `loadRegistered` loads it, and stop it here if it is hosted. Its
    * stored state stays. Whether it was registered.
    */
-  async unregister(id: string): Promise<boolean> {
+  unregister(id: string): Promise<boolean> {
+    if (this.#phase === "closed") {
+      return Promise.reject(new Error("these hosted workspaces are closed"));
+    }
+    return this.#track(this.#unregister(id));
+  }
+
+  async #unregister(id: string): Promise<boolean> {
     const pending = this.#pending.get(id);
     if (pending !== undefined) {
       await pending.catch(() => undefined);
@@ -417,6 +451,16 @@ export class HostedWorkspaces {
       database: this.#database.database,
       state: this.#options.state,
     }).unhost(id);
+  }
+
+  /** `work`, kept in flight until it settles, so the database outlives it. */
+  #track<T>(work: Promise<T>): Promise<T> {
+    this.#inFlight.add(work);
+    const settled = () => {
+      this.#inFlight.delete(work);
+    };
+    work.then(settled, settled);
+    return work;
   }
 
   /** The host of workspace `id`; throws when none here holds it. */
@@ -475,17 +519,38 @@ export class HostedWorkspaces {
 
   /**
    * Stop every workspace, cancelling live runs, then close the database: a
-   * registration still under way is closed as soon as it loads.
+   * registration still under way is closed as soon as it loads. Every
+   * workspace finishes closing, its last writes through the shared handle
+   * included, before the database closes, whichever of them failed, and
+   * so does every host an unregister was closing; then each failure,
+   * the database's own included, is reported together. Closing again, or
+   * meanwhile, shares that one shutdown.
    */
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    this.#closing ??= this.#shutDown();
+    return this.#closing;
+  }
+
+  async #shutDown(): Promise<void> {
     this.#phase = "closed";
     await Promise.allSettled([...this.#pending.values()]);
     const hosts = this.list();
     this.#hosts.clear();
+    const closed = await Promise.allSettled(hosts.map((host) => host.close()));
+    // An unregister reports its own failure; here it is only waited for.
+    while (this.#inFlight.size > 0) {
+      await Promise.allSettled([...this.#inFlight]);
+    }
+    const errors = closed.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : []
+    );
     try {
-      await Promise.all(hosts.map((host) => host.close()));
-    } finally {
       this.#database?.close();
+    } catch (error) {
+      errors.push(error);
+    }
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "Failed to close every workspace");
     }
   }
 }

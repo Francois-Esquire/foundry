@@ -2,7 +2,8 @@ import { isSuspendSignal } from "@foundry/workflows/executable";
 import type { RunExecutionContext } from "@foundry/workflows/orchestrator";
 import type { StepContext, StepSpec } from "@foundry/workflows/step";
 import { Step } from "@foundry/workflows/step";
-import { isBail, type RetryPolicy } from "@foundry/workflows/types";
+import type { RetryPolicy } from "@foundry/workflows/types";
+import { isBail } from "@foundry/workflows/types";
 
 import type { Bindings } from "./bindings";
 import { asRun } from "./calling-run";
@@ -14,6 +15,7 @@ import type {
   WorkflowRecord,
 } from "./definition";
 import { isLockedNode, rootLock } from "./definition";
+import { withinContext } from "./execution-context";
 import type { Frame, RunScope, RunScopes } from "./run-scope";
 import { current, PAUSE_KIND, raceAbort, workingDirectory } from "./run-scope";
 import { parseEvery } from "./schedule";
@@ -308,15 +310,13 @@ function materialize(
   const children = node.children.map(([childKey, child]) =>
     materialize(child, childKey, scope, bindings, path)
   );
-  const retry = asRunPolicy(scope.id, node.definition.config?.retry);
+  const retry = asRunPolicy(scope.id, bindings, node.definition.config?.retry);
   return {
     children,
     // Retry only: the timeout is Marbles', since it must abort the body.
     ...(retry === undefined ? {} : { config: { retry } }),
-    // The whole step is its run's own work, its schemas as much as its
-    // body: what any of it launches comes from that run.
     execute: (_input, ctx) =>
-      asRun(scope.id, () =>
+      asRunWork(scope.id, bindings, () =>
         runBody(node, key, ctx as StepContext, scope, bindings)
       ),
     // Explicit: an undefined input inherits the launcher's.
@@ -331,16 +331,22 @@ function materialize(
  */
 function asRunPolicy(
   runId: string,
+  bindings: Bindings,
   retry: RetryPolicy | undefined
 ): RetryPolicy | undefined {
   const decide = retry?.shouldRetry;
-  return decide === undefined
-    ? retry
-    : {
-        ...retry,
-        shouldRetry: (error, attempt) =>
-          asRun(runId, () => decide(error, attempt)),
-      };
+  if (retry === undefined || decide === undefined) {
+    return retry;
+  }
+  return {
+    ...retry,
+    shouldRetry: (error, attempt) =>
+      asRunWork(runId, bindings, () => decide(error, attempt)),
+  };
+}
+
+function asRunWork<T>(runId: string, bindings: Bindings, work: () => T): T {
+  return withinContext(bindings.context, () => asRun(runId, work));
 }
 
 /** Adapt a named definition to the orchestrator's factory contract. */
@@ -362,41 +368,42 @@ export function factoryFor(
   name: string = nameOf(definition)
 ): DefinitionFactory {
   return (rawInput, execution) => {
-    const runId = execution?.runId ?? crypto.randomUUID();
-    // Building the run is its own work: what its input schema or its
-    // setup launches comes from it, whether it starts, is adopted, or is
-    // rebuilt after a restart.
-    return asRun(runId, () => build(rawInput, runId));
-  };
-
-  async function build(
-    rawInput: unknown,
-    runId: string
-  ): Promise<Step<unknown, unknown>> {
     const bound = bindings();
-    const input = (
-      definition.input
-        ? await validate(definition.input, rawInput ?? {}, `"${name}" input`)
-        : (rawInput ?? {})
-    ) as Input;
-    return await scopes.open(
-      runId,
-      bound.context?.cwd ?? bound.root,
-      bound.host,
-      async (scope) =>
-        Step.create(
-          materialize(
-            stepTree(
-              await rootNode(definition, name, input, scope, bound),
-              name
-            ),
-            name,
-            scope,
-            bound
-          )
-        )
+    const runId = execution?.runId ?? crypto.randomUUID();
+    return asRunWork(runId, bound, () =>
+      openRun(definition, name, scopes, bound, rawInput, runId)
     );
-  }
+  };
+}
+
+/** Parse the launch's input, and open the run's scope with its tree built. */
+async function openRun(
+  definition: AnyDefinition,
+  name: string,
+  scopes: RunScopes,
+  bound: Bindings,
+  rawInput: unknown,
+  runId: string
+): Promise<Step<unknown, unknown>> {
+  const input = (
+    definition.input
+      ? await validate(definition.input, rawInput ?? {}, `"${name}" input`)
+      : (rawInput ?? {})
+  ) as Input;
+  return await scopes.open(
+    runId,
+    bound.context?.cwd ?? bound.root,
+    bound.host,
+    async (scope) =>
+      Step.create(
+        materialize(
+          stepTree(await rootNode(definition, name, input, scope, bound), name),
+          name,
+          scope,
+          bound
+        )
+      )
+  );
 }
 
 function nameOf(definition: AnyDefinition): string {

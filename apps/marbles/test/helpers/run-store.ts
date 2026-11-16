@@ -90,6 +90,22 @@ export function describeRunStore(
       expect(await runs.recorded("rn-unknown")).toEqual({ ledger: {} });
     });
 
+    it("gives back a recording its caller can change without changing what is kept", async () => {
+      const runs = await store();
+      const workflows = await runs.open(() => SCOPE);
+      await putRun(workflows, "rn-1");
+
+      const first = await runs.recorded("rn-1");
+      (first.ledger["flow|agents.session|0"] as { id: string }).id = "changed";
+      (first.literals?.flow as Record<string, unknown>).n = 2;
+
+      expect(await runs.recorded("rn-1")).toEqual({
+        ledger: SCOPE.ledger,
+        literals: SCOPE.literals,
+        session: "run-session",
+      });
+    });
+
     it("keeps nothing of a commit a transaction rolls back", async () => {
       const runs = await store();
       const workflows = await runs.open(() => SCOPE);

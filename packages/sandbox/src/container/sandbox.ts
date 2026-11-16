@@ -81,20 +81,37 @@ export async function startContainerSandbox<TNative>(
     return new ContainerSandboxHandle(instance, provisioned.spec);
   } catch (error) {
     // The setup's error is the one to report, whatever the removal does.
-    try {
-      await instance.remove();
-    } catch (cleanup: unknown) {
+    const leftBehind = (cleanup: unknown): void => {
       try {
         options.onLeftBehind?.(cleanup);
       } catch {
         // A callback that throws does not replace the setup's error.
       }
+    };
+    if (options.mayRemove?.() === false) {
+      leftBehind(
+        new SandboxError(
+          "invalid-contract",
+          "the VM is not its owner's to remove"
+        )
+      );
+      throw error;
+    }
+    try {
+      await instance.remove();
+    } catch (cleanup: unknown) {
+      leftBehind(cleanup);
     }
     throw error;
   }
 }
 
 export interface StartContainerSandboxOptions {
+  /**
+   * Asked right before a failed setup removes the VM it made: `false`
+   * leaves it, reported through `onLeftBehind`. Removed when omitted.
+   */
+  readonly mayRemove?: () => boolean;
   /**
    * Called when the VM was created, its setup failed, and removing it failed
    * too, with the removal's error. The VM may still be there under the spec's

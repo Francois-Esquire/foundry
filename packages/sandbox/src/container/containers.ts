@@ -1,7 +1,7 @@
 import { SandboxError } from "../errors";
 import { assertNotAborted } from "../sandbox";
 import type { ContainerRow } from "../schema";
-import type { ContainerStore } from "../store/index";
+import type { ContainerStore, ContainerStoreWrite } from "../store/index";
 import { createMemoryContainerStore } from "../store/memory";
 import {
   ACTIVE_CONTAINER_RESOURCE_STATUSES,
@@ -9,8 +9,10 @@ import {
   CONTAINER_INSTANCE_LABEL,
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
+  CONTAINER_STORE_LABEL,
   INVENTORY_PAGE_LIMIT,
   MAX_INVENTORY_PAGES,
+  removeByHand,
 } from "./constants";
 import type { ContainerSandboxConstraints } from "./constraints";
 import {
@@ -49,6 +51,12 @@ export interface CreateContainersOptions {
   readonly instanceLabel: string;
   /** Guest directory every mount target must equal or fall under. */
   readonly mountTargetRoot?: string;
+  /**
+   * Told what the registry went past without acting on, and why, so
+   * nothing it leaves is left unseen: an old VM it could not judge, one
+   * not provably its own. Written to stderr when omitted.
+   */
+  readonly report?: (line: string) => void;
   readonly runtime: ContainerRuntime;
   /** Persistence. Defaults to an in-memory store. */
   readonly store?: ContainerStore;
@@ -64,9 +72,12 @@ export interface Containers {
    * removal, in one store transaction and only while its holder and last
    * write are still the ones `left` was shown, so a registry that opened
    * it meanwhile keeps it. A claimed row is marked `removing` under this
-   * registry, its VM removed, and the row deleted only once the runtime
-   * no longer lists the VM; one whose VM would not go stays `removing`,
-   * listed in `kept`, for a later recovery to take over and retry. Then
+   * registry, its VMs removed (every one labelled with its id), and the
+   * row deleted only once the runtime lists none of them, so a deleted
+   * row leaves no VM behind; one whose VM would not go stays `removing`,
+   * listed in `kept`, for a later recovery to take over and retry; so does
+   * one with a VM labelled with its id that another row records, which is
+   * left alone and named in `conflicts`. Then
    * every VM with this instance's labels and no row is swept. A row live
    * here, or being opened or removed here, is never offered.
    */
@@ -76,8 +87,9 @@ export interface Containers {
   ): Promise<ContainerRecovery>;
   /**
    * Delete a row whose VM is not live here, removing whatever the runtime
-   * still holds under its native name. The row is marked `removing` first,
-   * and deleted only once the runtime no longer lists the VM; one that
+   * still holds under its native name or labelled with its id. The row is
+   * marked `removing` first, and deleted only once the runtime lists no
+   * VM of it; one that
    * would not go rejects, its row kept `removing` so a later recovery
    * retries it. Refuses while a handle is open; an `open` or `restart`
    * that begins before the delete commits is refused.
@@ -106,20 +118,41 @@ export interface Containers {
     signal?: AbortSignal
   ): Promise<Container>;
   /**
-   * Stop and remove every VM carrying this instance's labels but no row, and
-   * every VM this registry booted or set out to remove but could not remove.
-   * Returns the native names swept.
+   * Stop and remove every VM provably this registry's (`isRowsMachine`: its
+   * store's identity, a row id and that row's own name) whose row is gone,
+   * and every VM this registry booted or set out to remove but could not
+   * remove. Returns the native names swept; `passedOver` names every VM
+   * with this instance's labels it left because it could not prove it
+   * this registry's: another store's, or carrying no store or no id label,
+   * or a name and a label that disagree.
    */
-  sweep(signal?: AbortSignal): Promise<readonly string[]>;
+  sweep(signal?: AbortSignal): Promise<ContainerSweep>;
 }
+
+/**
+ * The native names a sweep removed, and (`passedOver`, not enumerated)
+ * those it left because it could not prove them its own, so they are seen.
+ * `passedOver` is a property of this array alone: a copy of it (a spread,
+ * `map`, `JSON.stringify`, `structuredClone`) does not carry it. Read it
+ * from the result itself, or from `ContainerRecovery.passedOver`.
+ */
+export type ContainerSweep = readonly string[] & {
+  readonly passedOver: readonly string[];
+};
 
 /**
  * What `recover` took back: the rows it removed, the rows it claimed but
  * whose VM would not go (kept, `removing`, to retry), and the native names
- * it swept.
+ * it swept. `conflicts` names the VMs that bear a claimed row's id or name
+ * but are not provably its own (another row records them, or they lack
+ * this store's identity, or their name and label disagree): left alone,
+ * their claimed rows kept.
  */
 export interface ContainerRecovery {
+  readonly conflicts: readonly string[];
   readonly kept: readonly string[];
+  /** The sweep's VMs not provably this registry's, left (`ContainerSweep`). */
+  readonly passedOver: readonly string[];
   readonly removed: readonly string[];
   readonly swept: readonly string[];
 }
@@ -143,6 +176,8 @@ type RowPatch = Partial<Pick<ContainerRow, "nativeId" | "spec" | "status">>;
 interface Live {
   facets: ContainerFacets;
   handles: number;
+  /** The labels `sandbox` was booted with. */
+  labels: Readonly<Record<string, string>>;
   /** The native name `sandbox` was booted under. */
   nativeId: string;
   row: ContainerRow;
@@ -159,7 +194,7 @@ interface Live {
  */
 export function createContainers(options: CreateContainersOptions): Containers {
   const { runtime } = options;
-  const store = options.store ?? createMemoryContainerStore();
+  const store = ownNamesOnly(options.store ?? createMemoryContainerStore());
   const holder = options.holder ?? globalThis.crypto.randomUUID();
   const live = new Map<string, Live>();
   const pending = new Map<string, Promise<Live>>();
@@ -180,32 +215,99 @@ export function createContainers(options: CreateContainersOptions): Containers {
    * remove: `sweep` and `shutdown` retry them. A native name is never booted
    * twice, so a name here never becomes live again.
    */
-  const abandoned = new Set<string>();
+  const abandoned = new Map<string, string>();
 
-  /** Remove a VM no live row holds; one that will not go is kept to retry. */
-  const discard = async (
-    name: string,
-    sandbox: ContainerSandbox
-  ): Promise<void> => {
-    try {
-      await sandbox.remove();
-    } catch {
-      abandoned.add(name);
+  /**
+   * Keep the VM `machine` to retry, as the row `rowId`'s: only one that is
+   * that row's by the one rule (`isRowsMachine`), so no other row's VM
+   * ever comes to be removed as left over.
+   */
+  const abandon = (machine: Machine, rowId: string, own: string): void => {
+    if (isRowsMachine(machine, rowId, own)) {
+      abandoned.set(machine.name, rowId);
+    } else {
+      report(
+        `container ${rowId}: the VM ${machine.name} would not go, and is not provably this registry's, so it is not kept to retry; remove it by hand with ${removeByHand(machine.name)}`
+      );
     }
   };
 
   /**
-   * Remove an old VM by its native name. A stop or remove that fails may mean
-   * the VM is gone (the expected case) or that it is stuck, and the runtime
-   * cannot say which, so the name is kept for `sweep` and `shutdown`: their
-   * inventory drops it if it is gone and retries it if it is not.
+   * Say `line` through the host's reporter, or stderr. Never changes what
+   * the registry does: a reporter that throws is passed over.
    */
-  const removeNative = async (name: string): Promise<void> => {
+  const report = (line: string): void => {
     try {
-      await runtime.stopResource(name);
-      await runtime.removeResource(name);
+      (
+        options.report ??
+        ((text: string) => process.stderr.write(`foundry: ${text}\n`))
+      )(line);
     } catch {
-      abandoned.add(name);
+      // What was to be said is lost; what the registry does is not.
+    }
+  };
+
+  /** Remove a VM no live row holds; one that will not go is kept to retry. */
+  const discard = async (
+    machine: Machine,
+    rowId: string,
+    own: string,
+    sandbox: ContainerSandbox
+  ): Promise<void> => {
+    if (!isRowsMachine(machine, rowId, own)) {
+      report(
+        `container ${rowId}: the VM ${machine.name} it booted is not provably its own, so it is left; remove it by hand with ${removeByHand(machine.name)}`
+      );
+      return;
+    }
+    try {
+      await sandbox.remove();
+    } catch {
+      abandon(machine, rowId, own);
+    }
+  };
+
+  /**
+   * Remove the row `rowId`'s old VM `name`, as the inventory lists it, and
+   * only if it is that row's by the one rule (`isRowsMachine`): one that is
+   * not is no row's to remove here, and is left. A stop or remove that
+   * fails may mean the VM is gone (the expected case) or that it is stuck,
+   * and the runtime cannot say which, so the name is kept for `sweep` and
+   * `shutdown`: their inventory drops it if it is gone and retries it if it
+   * is not. When the inventory cannot be read, the name, the row's own by
+   * construction, is kept to retry as the row's: `sweep` and `shutdown`
+   * judge it by the one rule once the inventory can be read. Reported.
+   */
+  const removeNative = async (name: string, rowId: string): Promise<void> => {
+    let resource: ContainerResourceSummary | undefined;
+    let own: string;
+    try {
+      own = await store.identity();
+      resource = (await enumerate(runtime, selection, undefined)).find(
+        (each) => each.name === name
+      );
+    } catch (error: unknown) {
+      if (ownsNativeName(rowId, name)) {
+        abandoned.set(name, rowId);
+      }
+      report(
+        `container ${rowId}: its old VM ${name} could not be judged (${String(error)}); kept to retry once the inventory can be read`
+      );
+      return;
+    }
+    if (resource === undefined) {
+      return;
+    }
+    if (!isRowsMachine(resource, rowId, own)) {
+      report(
+        `container ${rowId}: its old VM ${name} is not provably this registry's, so it is left; remove it by hand with ${removeByHand(name)}`
+      );
+      return;
+    }
+    try {
+      await dispose(runtime, resource);
+    } catch {
+      abandon(resource, rowId, own);
     }
   };
 
@@ -217,27 +319,39 @@ export function createContainers(options: CreateContainersOptions): Containers {
    * names removed; rejects, keeping the rest, if any would not go.
    */
   const reclaim = async (
-    signal: AbortSignal | undefined
+    signal: AbortSignal | undefined,
+    own: string
   ): Promise<{
+    readonly passedOver: string[];
     readonly removed: string[];
     readonly resources: readonly ContainerResourceSummary[];
   }> => {
     const candidates = [...abandoned];
+    const passedOver: string[] = [];
     const resources = await enumerate(runtime, selection, signal);
     const listed = new Map(
       resources.map((resource) => [resource.name, resource])
     );
     const removed: string[] = [];
     let failure: { readonly error: unknown } | undefined;
-    for (const name of candidates) {
-      if (!abandoned.has(name)) {
+    for (const [name, rowId] of candidates) {
+      if (abandoned.get(name) !== rowId) {
         continue;
       }
       const resource = listed.get(name);
       try {
+        // Asked again right before acting: the row's by the one rule, and
+        // no other row records it now. One that is not is left, and named.
         if (resource !== undefined) {
-          await dispose(runtime, resource);
-          removed.push(name);
+          if (
+            isRowsMachine(resource, rowId, own) &&
+            !(await recordedByAnother(name, rowId))
+          ) {
+            await dispose(runtime, resource);
+            removed.push(name);
+          } else {
+            passedOver.push(name);
+          }
         }
         abandoned.delete(name);
       } catch (error: unknown) {
@@ -247,11 +361,14 @@ export function createContainers(options: CreateContainersOptions): Containers {
     if (failure !== undefined) {
       throw new SandboxError(
         "provider-failed",
-        `could not remove ${candidates.filter((name) => abandoned.has(name)).join(", ")}`,
+        `could not remove ${candidates
+          .filter(([name]) => abandoned.has(name))
+          .map(([name]) => name)
+          .join(", ")}`,
         { cause: failure.error }
       );
     }
-    return { removed, resources };
+    return { passedOver, removed, resources };
   };
 
   const rowOrThrow = async (
@@ -343,7 +460,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
     entry: { row: ContainerRow },
     constraints: ContainerSandboxConstraints,
     signal: AbortSignal | undefined
-  ): Promise<Pick<Live, "facets" | "nativeId" | "sandbox">> => {
+  ): Promise<Pick<Live, "facets" | "labels" | "nativeId" | "sandbox">> => {
     assertNotAborted(signal, "container start was cancelled");
     const { row } = entry;
     const { nativeId } = row;
@@ -357,12 +474,16 @@ export function createContainers(options: CreateContainersOptions): Containers {
       constraints,
       options.config
     );
+    // Read before anything is booted: a VM is never made without the
+    // label that proves it this store's.
+    const own = await store.identity();
     const config: ContainerConfig = {
       ...resolved,
       labels: {
         ...resolved.labels,
         ...selection,
         [CONTAINER_ID_LABEL]: row.id,
+        [CONTAINER_STORE_LABEL]: own,
       },
       name: nativeId,
     };
@@ -377,7 +498,21 @@ export function createContainers(options: CreateContainersOptions): Containers {
       sandbox = await startContainerSandbox(
         await provisionContainerSandbox(config, { runtime }, mounts),
         // The VM exists and would not go: keep it for `sweep` and `shutdown`.
-        { onLeftBehind: () => abandoned.add(nativeId) }
+        {
+          // The setup's own cleanup removes only the VM it made, the row's.
+          mayRemove: () =>
+            isRowsMachine(
+              { labels: config.labels ?? {}, name: nativeId },
+              row.id,
+              own
+            ),
+          onLeftBehind: () =>
+            abandon(
+              { labels: config.labels ?? {}, name: nativeId },
+              row.id,
+              own
+            ),
+        }
       );
     } catch (error: unknown) {
       // The boot's own error is the one to report; the row is best effort.
@@ -389,7 +524,12 @@ export function createContainers(options: CreateContainersOptions): Containers {
     } catch (error: unknown) {
       // The VM is up but its row could not say so, and no live row will
       // hold it: remove it now, or keep it for `sweep` and `shutdown`.
-      await discard(nativeId, sandbox);
+      await discard(
+        { labels: config.labels ?? {}, name: nativeId },
+        row.id,
+        own,
+        sandbox
+      );
       await update(entry, { status: "failed" }).catch(() => undefined);
       throw error;
     }
@@ -399,6 +539,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         mounts,
         (options.allowedMountRoots?.length ?? 0) > 0
       ),
+      labels: config.labels ?? {},
       nativeId,
       sandbox,
     };
@@ -426,12 +567,20 @@ export function createContainers(options: CreateContainersOptions): Containers {
     const done = (async () => {
       // A restart under way finishes first, so the VM removed is its VM.
       await entry.turn;
-      try {
-        await entry.sandbox.remove();
-      } catch (error: unknown) {
-        // No live row holds it any more: keep it for `sweep` and `shutdown`.
-        abandoned.add(entry.nativeId);
-        throw error;
+      const machine = { labels: entry.labels, name: entry.nativeId };
+      const own = await store.identity();
+      if (isRowsMachine(machine, entry.row.id, own)) {
+        try {
+          await entry.sandbox.remove();
+        } catch (error: unknown) {
+          // No live row holds it any more: keep it for `sweep` and `shutdown`.
+          abandon(machine, entry.row.id, own);
+          throw error;
+        }
+      } else {
+        report(
+          `container ${entry.row.id}: its VM ${entry.nativeId} is not provably its own, so its close left it; remove it by hand with ${removeByHand(entry.nativeId)}`
+        );
       }
       await update(entry, { status: "stopped" });
     })().finally(() => releasing.delete(entry.row.id));
@@ -507,29 +656,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
   };
 
   /**
-   * Remove the VM `name`: whether the runtime no longer lists it. A stop
-   * or remove that fails may mean it is gone already; the inventory says.
-   * One still listed is retried through its row, which stays `removing`.
-   */
-  const removeVm = async (name: string): Promise<boolean> => {
-    try {
-      await runtime.stopResource(name);
-      await runtime.removeResource(name);
-      return true;
-    } catch {
-      try {
-        const resources = await enumerate(runtime, selection, undefined);
-        if (!resources.some((resource) => resource.name === name)) {
-          return true;
-        }
-      } catch {
-        // An inventory that cannot be read proves nothing gone.
-      }
-      return false;
-    }
-  };
-
-  /**
    * Mark the row `removing` under this registry, in one store transaction;
    * when `judged` is given, only while the row's holder and last write are
    * still those, so a row another registry took meanwhile is left to it.
@@ -567,13 +693,106 @@ export function createContainers(options: CreateContainersOptions): Containers {
       }
     });
 
-  /** A claimed row's VM removed and the row deleted; whether both went. */
-  const removeClaimed = async (row: ContainerRow): Promise<boolean> => {
-    if (row.nativeId !== undefined && !(await removeVm(row.nativeId))) {
-      return false;
+  /**
+   * A claimed row's VMs removed and the row deleted: whether both went,
+   * and the VMs it would not touch. Every VM the runtime lists labelled
+   * with the row's id goes first, not only the one its native name names:
+   * an `open` commits the next native name before it removes the VM under
+   * the last, so a process that died between the two left that VM under
+   * the row. Once the row is deleted, no VM of it is left for a start to
+   * find, so none needs a sweep after it. A label is only a hint, though:
+   * a VM whose native name another row records is that row's, so it is
+   * left alone, named in `conflicts`, and the row kept to retry. Each VM
+   * is stopped first only if it runs, as `sweep` does; one a stop or
+   * remove failed on goes once the inventory no longer lists it. An
+   * inventory that cannot be read keeps the row, to retry.
+   */
+  const removeClaimed = async (
+    row: ContainerRow
+  ): Promise<{
+    readonly conflicts: readonly string[];
+    readonly removed: boolean;
+  }> => {
+    let resources: readonly ContainerResourceSummary[];
+    try {
+      resources = await enumerate(runtime, selection, undefined);
+    } catch {
+      return { conflicts: [], removed: false };
+    }
+    const conflicts: string[] = [];
+    let removed = true;
+    for (const resource of resources) {
+      // Every VM that bears one of the row's names or its label: the one
+      // rule then says which are the row's, and the rest are conflicts.
+      if (
+        resource.labels[CONTAINER_ID_LABEL] !== row.id &&
+        resource.name !== row.nativeId &&
+        !ownsNativeName(row.id, resource.name)
+      ) {
+        continue;
+      }
+      const others = await anotherOwns(row, resource);
+      if (others === undefined) {
+        return { conflicts, removed: false };
+      }
+      if (others) {
+        conflicts.push(resource.name);
+      } else if (!(await disposeListed(resource))) {
+        removed = false;
+      }
+    }
+    if (conflicts.length > 0 || !removed) {
+      return { conflicts, removed: false };
     }
     await deleteHeld(row.id);
-    return true;
+    return { conflicts, removed: true };
+  };
+
+  /**
+   * Whether the VM `name` is not `row`'s to remove: its name is not one of
+   * `row`'s own, or another row records it, asked of the store right
+   * before its removal, never of anything read before an earlier one.
+   * `undefined` when the store cannot say.
+   */
+  const anotherOwns = async (
+    row: ContainerRow,
+    machine: Machine
+  ): Promise<boolean | undefined> => {
+    try {
+      return (
+        !isRowsMachine(machine, row.id, await store.identity()) ||
+        (await recordedByAnother(machine.name, row.id))
+      );
+    } catch {
+      // A store that cannot be read says nothing either way: `undefined`.
+    }
+  };
+
+  /** Whether a row other than `except` records the native name `name`, read now. */
+  const recordedByAnother = async (
+    name: string,
+    except?: string
+  ): Promise<boolean> =>
+    (await store.list()).some(
+      (stored) => stored.id !== except && stored.nativeId === name
+    );
+
+  /** Remove a VM the inventory listed: whether the runtime no longer lists it. */
+  const disposeListed = async (
+    resource: ContainerResourceSummary
+  ): Promise<boolean> => {
+    try {
+      await dispose(runtime, resource);
+      return true;
+    } catch {
+      try {
+        const listed = await enumerate(runtime, selection, undefined);
+        return !listed.some((each) => each.name === resource.name);
+      } catch {
+        // An inventory that cannot be read proves nothing gone.
+        return false;
+      }
+    }
   };
 
   const containers: Containers = {
@@ -613,7 +832,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
             return claimed;
           });
           if (previous !== undefined) {
-            await removeNative(previous);
+            await removeNative(previous, id);
           }
           return bringUp({ row }, parseSpec(JSON.parse(row.spec)), signal);
         })().finally(() => pending.delete(id));
@@ -626,6 +845,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
       assertOpen();
       const removed: string[] = [];
       const kept: string[] = [];
+      const conflicts: string[] = [];
       for (const row of await store.list()) {
         assertNotAborted(signal, "container recovery was cancelled");
         const { id } = row;
@@ -642,7 +862,9 @@ export function createContainers(options: CreateContainersOptions): Containers {
         try {
           const claimed = await claimForRemoval(id, row);
           if (claimed !== undefined) {
-            ((await removeClaimed(claimed)) ? removed : kept).push(id);
+            const taken = await removeClaimed(claimed);
+            (taken.removed ? removed : kept).push(id);
+            conflicts.push(...taken.conflicts);
           }
         } finally {
           removing.delete(id);
@@ -650,9 +872,11 @@ export function createContainers(options: CreateContainersOptions): Containers {
       }
       const swept = await containers.sweep(signal);
       return Object.freeze({
+        conflicts: Object.freeze(conflicts),
         kept: Object.freeze(kept),
+        passedOver: swept.passedOver,
         removed: Object.freeze(removed),
-        swept,
+        swept: Object.freeze([...swept]),
       });
     },
 
@@ -677,7 +901,14 @@ export function createContainers(options: CreateContainersOptions): Containers {
             `container ${id} does not exist`
           );
         }
-        if (!(await removeClaimed(claimed))) {
+        const taken = await removeClaimed(claimed);
+        if (taken.conflicts.length > 0) {
+          throw new SandboxError(
+            "invalid-contract",
+            `container ${id}: the VM(s) ${taken.conflicts.join(", ")} carry its id but another row records them; left alone, the row is kept, removing`
+          );
+        }
+        if (!taken.removed) {
           throw new SandboxError(
             "provider-failed",
             `container ${id}: its VM ${String(claimed.nativeId)} could not be removed; the row is kept to retry`
@@ -719,7 +950,19 @@ export function createContainers(options: CreateContainersOptions): Containers {
           status: "restarting",
           ...(given === undefined ? {} : { spec: JSON.stringify(given) }),
         });
-        await entry.sandbox.remove();
+        if (
+          isRowsMachine(
+            { labels: entry.labels, name: entry.nativeId },
+            id,
+            await store.identity()
+          )
+        ) {
+          await entry.sandbox.remove();
+        } else {
+          report(
+            `container ${id}: its VM ${entry.nativeId} is not provably its own, so its restart left it; remove it by hand with ${removeByHand(entry.nativeId)}`
+          );
+        }
         assertStillLive();
         try {
           await update(entry, (current) => ({
@@ -730,6 +973,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
           entry.sandbox = booted.sandbox;
           entry.facets = booted.facets;
           entry.nativeId = booted.nativeId;
+          entry.labels = booted.labels;
           // A close during the boot is waiting to remove the VM just booted.
           assertStillLive();
         } catch (error: unknown) {
@@ -753,7 +997,12 @@ export function createContainers(options: CreateContainersOptions): Containers {
         releases = await Promise.allSettled([...live.values()].map(release));
       }
       if (abandoned.size > 0) {
-        await reclaim(undefined);
+        const { passedOver } = await reclaim(undefined, await store.identity());
+        for (const name of passedOver) {
+          report(
+            `the VM ${name} this registry kept to retry is not provably its own now, so its shutdown left it; remove it by hand with ${removeByHand(name)}`
+          );
+        }
       }
       const failed = releases.find((result) => result.status === "rejected");
       if (failed !== undefined) {
@@ -769,20 +1018,39 @@ export function createContainers(options: CreateContainersOptions): Containers {
     },
     async sweep(signal) {
       assertOpen();
-      const { removed: swept, resources } = await reclaim(signal);
+      const own = await store.identity();
+      const {
+        passedOver,
+        removed: swept,
+        resources,
+      } = await reclaim(signal, own);
       for (const resource of resources) {
         assertNotAborted(signal, "container sweep was cancelled");
-        if (swept.includes(resource.name)) {
+        if (
+          swept.includes(resource.name) ||
+          passedOver.includes(resource.name)
+        ) {
           continue;
         }
         const id = resource.labels[CONTAINER_ID_LABEL];
-        if (id !== undefined && (await store.get(id)) !== undefined) {
+        // Each asked right before this VM's removal. One not provably this
+        // registry's (another store's, no store or id label, or a name and
+        // a label that disagree) is left, and named; one whose row there
+        // is, or that a row records, is that row's.
+        if (id === undefined || !isRowsMachine(resource, id, own)) {
+          passedOver.push(resource.name);
+          continue;
+        }
+        if (
+          (await store.get(id)) !== undefined ||
+          (await recordedByAnother(resource.name))
+        ) {
           continue;
         }
         await dispose(runtime, resource);
         swept.push(resource.name);
       }
-      return Object.freeze(swept);
+      return sweepResult(swept, passedOver);
     },
   };
   return Object.freeze(containers);
@@ -799,6 +1067,104 @@ function parseSpec(input: unknown): ContainerSandboxConstraints {
     );
   }
   return Object.freeze(result.data);
+}
+
+/** The names swept, with those passed over beside them, not enumerated. */
+function sweepResult(
+  swept: readonly string[],
+  passedOver: readonly string[]
+): ContainerSweep {
+  const result = [...swept];
+  Object.defineProperty(result, "passedOver", {
+    enumerable: false,
+    value: Object.freeze([...passedOver]),
+  });
+  return Object.freeze(result) as unknown as ContainerSweep;
+}
+
+/** A VM as the runtime names and labels it. */
+interface Machine {
+  readonly labels: Readonly<Record<string, string>>;
+  readonly name: string;
+}
+
+/**
+ * Whether the VM `machine` is the row `rowId`'s, of the store `store`: it
+ * carries that store's identity, its name is one of that row's own native
+ * names, and its id label names that row. All three, or none: a VM of
+ * another store (another engine's, under the same instance label), one
+ * with no store label (booted before stores had one), or one whose name
+ * and label disagree is no row's here. The one rule
+ * asked right before any VM is stopped or removed, and before one is kept
+ * to retry.
+ */
+function isRowsMachine(
+  machine: Machine,
+  rowId: string,
+  store: string
+): boolean {
+  return (
+    machine.labels[CONTAINER_STORE_LABEL] === store &&
+    ownsNativeName(rowId, machine.name) &&
+    machine.labels[CONTAINER_ID_LABEL] === rowId
+  );
+}
+
+/**
+ * Whether `name` is a native name of the row `rowId`'s own: the
+ * `<rowId>-<generation>` that `nextNativeId` makes for it, and that the
+ * VM booted under it is labelled with. Row ids are UUIDs, so no name is
+ * two rows' own.
+ */
+function ownsNativeName(rowId: string, name: string): boolean {
+  return (
+    name.startsWith(`${rowId}-`) &&
+    GENERATION.test(name.slice(rowId.length + 1))
+  );
+}
+
+const GENERATION = /^\d+$/;
+
+/**
+ * `store`, refusing any write of a row that records a native name not of
+ * its own, through a transaction's view as well: so no row the registry
+ * writes can claim a VM another row's id labels. Everything else passes
+ * through to `store` unchanged.
+ */
+function ownNamesOnly(store: ContainerStore): ContainerStore {
+  const checked = (write: ContainerStoreWrite): SandboxError | undefined => {
+    const row = (write.putContainers ?? []).find(
+      (each) =>
+        each.nativeId !== undefined && !ownsNativeName(each.id, each.nativeId)
+    );
+    return row === undefined
+      ? undefined
+      : new SandboxError(
+          "invalid-contract",
+          `container ${row.id} records the native name ${String(row.nativeId)}, which is not one of its own`
+        );
+  };
+  const guard = (view: ContainerStore): ContainerStore =>
+    new Proxy(view, {
+      get(target, property, receiver) {
+        if (property === "commit") {
+          return (write: ContainerStoreWrite) => {
+            const refused = checked(write);
+            return refused === undefined
+              ? target.commit(write)
+              : Promise.reject(refused);
+          };
+        }
+        if (property === "transaction" && target.transaction !== undefined) {
+          const { transaction } = target;
+          return <T>(work: (inner: ContainerStore) => Promise<T>) =>
+            transaction.call(target, (inner) => work(guard(inner)));
+        }
+        const value: unknown = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  return guard(store);
 }
 
 /** `<rowId>-<generation>`, the generation read back off the previous native id. */

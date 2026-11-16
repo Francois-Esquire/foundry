@@ -43,6 +43,13 @@ export const CONTAINER_OWNER_ID_LABEL = "com.foundry.environment.owner-id";
 export const CONTAINER_INSTANCE_LABEL = "com.foundry.container.instance";
 
 export const CONTAINER_ID_LABEL = "com.foundry.container.id";
+/**
+ * The identity of the store whose registry booted the VM
+ * (`ContainerStore.identity`): a registry proves a VM its own only by it,
+ * so one another store recorded, under the same instance label, is never
+ * taken for its own.
+ */
+export const CONTAINER_STORE_LABEL = "com.foundry.container.store";
 
 /** Guest memory when `resources.memoryBytes` is unset. */
 export const DEFAULT_CONTAINER_MEMORY_MIB = 1024;
@@ -75,3 +82,12 @@ export const CONTAINER_SANDBOX_CONSTRAINTS_FORMAT =
 export const INVENTORY_PAGE_LIMIT = 100;
 
 export const MAX_INVENTORY_PAGES = 1000;
+
+/**
+ * How a person removes a VM by hand, running or not: the command, and
+ * where its program is. `msb` is the CLI of the `microsandbox` package
+ * Foundry installs; it is not put on PATH. `-f` stops a running VM first.
+ */
+export function removeByHand(name: string): string {
+  return `\`msb rm -f ${name}\` (msb is node_modules/.bin/msb, in the Foundry install)`;
+}
