@@ -8,6 +8,7 @@ import {
 import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
 import { ChangeRecorder } from "~/database/changes";
 import { busyError } from "~/database/client";
+import { batches } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { marblesSessionRevisions } from "~/database/tables";
@@ -45,9 +46,6 @@ export interface DatabaseSessionStoreOptions {
 }
 
 const SESSIONS_KEY = sourceKey(SESSIONS) ?? "sessions";
-
-/** Rows per statement when a commit raises revisions: three parameters each, well under SQLite's limit. */
-const REVISION_BATCH = 500;
 
 /** The engine's `SessionStore` over the Marbles database, which can list its sessions. */
 export class DatabaseSessionStore implements ListedSessionStore {
@@ -257,15 +255,6 @@ async function raiseRevisions(
 
 /** A revision one above the one stored. */
 const raised = sql`${marblesSessionRevisions.revision} + 1`;
-
-/** `items` in runs short enough for one statement's parameters. */
-function batches<T>(items: readonly T[]): T[][] {
-  const runs: T[][] = [];
-  for (let start = 0; start < items.length; start += REVISION_BATCH) {
-    runs.push(items.slice(start, start + REVISION_BATCH));
-  }
-  return runs;
-}
 
 /** Run `call`, with a lock SQLite waited too long for as a `DatabaseBusyError`. */
 async function asMarbles<T>(call: () => Promise<T>): Promise<T> {

@@ -1,7 +1,7 @@
 import { ownedEvents } from "@foundry/lib/plain-json";
 import { and, asc, eq, gt, gte, lte, min, sql } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
-import { inList } from "~/database/lists";
+import { batches, inList } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import {
@@ -39,12 +39,6 @@ import type { Fact } from "~/lib/events/source";
  * order commits land. The positions come from the counter, never from the
  * facts that survive, so none is given twice, after compaction too.
  */
-
-/**
- * Facts per insert: eight values each, far under SQLite's limit on the
- * values one statement may bind (32,766), however many a commit carries.
- */
-const CHANGE_ROWS_PER_INSERT = 500;
 
 /** Whatever transaction a package store hands its `onCommit` hook. */
 type CommitTransaction = Pick<StoreDatabase, "insert">;
@@ -116,10 +110,8 @@ export class ChangeRecorder {
     }));
     // In batches, each row keeping the position just taken for it, all in
     // the commit's transaction: one statement binds only so many values.
-    for (let start = 0; start < rows.length; start += CHANGE_ROWS_PER_INSERT) {
-      await transaction
-        .insert(marblesChanges)
-        .values(rows.slice(start, start + CHANGE_ROWS_PER_INSERT));
+    for (const batch of batches(rows)) {
+      await transaction.insert(marblesChanges).values(batch);
     }
     this.#wake();
   }
