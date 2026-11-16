@@ -12,6 +12,7 @@ import {
   CONTAINER_STORE_LABEL,
   INVENTORY_PAGE_LIMIT,
   MAX_INVENTORY_PAGES,
+  removeByHand,
 } from "./constants";
 import type { ContainerSandboxConstraints } from "./constraints";
 import {
@@ -131,6 +132,9 @@ export interface Containers {
 /**
  * The native names a sweep removed, and (`passedOver`, not enumerated)
  * those it left because it could not prove them its own, so they are seen.
+ * `passedOver` is a property of this array alone: a copy of it (a spread,
+ * `map`, `JSON.stringify`, `structuredClone`) does not carry it. Read it
+ * from the result itself, or from `ContainerRecovery.passedOver`.
  */
 export type ContainerSweep = readonly string[] & {
   readonly passedOver: readonly string[];
@@ -223,14 +227,25 @@ export function createContainers(options: CreateContainersOptions): Containers {
       abandoned.set(machine.name, rowId);
     } else {
       report(
-        `container ${rowId}: the VM ${machine.name} would not go, and is not provably this registry's, so it is not kept to retry; list it with \`msb list\` and remove it with \`msb rm ${machine.name}\``
+        `container ${rowId}: the VM ${machine.name} would not go, and is not provably this registry's, so it is not kept to retry; remove it by hand with ${removeByHand(machine.name)}`
       );
     }
   };
 
-  const report =
-    options.report ??
-    ((line: string) => process.stderr.write(`foundry: ${line}\n`));
+  /**
+   * Say `line` through the host's reporter, or stderr. Never changes what
+   * the registry does: a reporter that throws is passed over.
+   */
+  const report = (line: string): void => {
+    try {
+      (
+        options.report ??
+        ((text: string) => process.stderr.write(`foundry: ${text}\n`))
+      )(line);
+    } catch {
+      // What was to be said is lost; what the registry does is not.
+    }
+  };
 
   /** Remove a VM no live row holds; one that will not go is kept to retry. */
   const discard = async (
@@ -241,7 +256,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
   ): Promise<void> => {
     if (!isRowsMachine(machine, rowId, own)) {
       report(
-        `container ${rowId}: the VM ${machine.name} it booted is not provably its own, so it is left; remove it with \`msb rm ${machine.name}\``
+        `container ${rowId}: the VM ${machine.name} it booted is not provably its own, so it is left; remove it by hand with ${removeByHand(machine.name)}`
       );
       return;
     }
@@ -285,7 +300,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
     }
     if (!isRowsMachine(resource, rowId, own)) {
       report(
-        `container ${rowId}: its old VM ${name} is not provably this registry's, so it is left; remove it with \`msb rm ${name}\``
+        `container ${rowId}: its old VM ${name} is not provably this registry's, so it is left; remove it by hand with ${removeByHand(name)}`
       );
       return;
     }
@@ -564,7 +579,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         }
       } else {
         report(
-          `container ${entry.row.id}: its VM ${entry.nativeId} is not provably its own, so its close left it; remove it with \`msb rm ${entry.nativeId}\``
+          `container ${entry.row.id}: its VM ${entry.nativeId} is not provably its own, so its close left it; remove it by hand with ${removeByHand(entry.nativeId)}`
         );
       }
       await update(entry, { status: "stopped" });
@@ -945,7 +960,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
           await entry.sandbox.remove();
         } else {
           report(
-            `container ${id}: its VM ${entry.nativeId} is not provably its own, so its restart left it; remove it with \`msb rm ${entry.nativeId}\``
+            `container ${id}: its VM ${entry.nativeId} is not provably its own, so its restart left it; remove it by hand with ${removeByHand(entry.nativeId)}`
           );
         }
         assertStillLive();
@@ -985,7 +1000,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         const { passedOver } = await reclaim(undefined, await store.identity());
         for (const name of passedOver) {
           report(
-            `the VM ${name} this registry kept to retry is not provably its own now, so its shutdown left it; remove it with \`msb rm ${name}\``
+            `the VM ${name} this registry kept to retry is not provably its own now, so its shutdown left it; remove it by hand with ${removeByHand(name)}`
           );
         }
       }

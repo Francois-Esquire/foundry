@@ -975,6 +975,77 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     await next.shutdown();
   });
 
+  it("goes on, and boots, when its reporter throws", async () => {
+    const runtime = createFakeContainerRuntime();
+    const store = newStore();
+    const gone = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const left = await gone.start(SPEC);
+    const next = createContainers({
+      instanceLabel: "instance-a",
+      report: () => {
+        throw new Error("the reporter broke");
+      },
+      runtime,
+      store,
+    });
+    const list = runtime.listResources.bind(runtime);
+    let failing = true;
+    runtime.listResources = (query) => {
+      if (failing) {
+        failing = false;
+        return Promise.reject(new Error("inventory down"));
+      }
+      return list(query);
+    };
+    const reopened = await next.open(left.id);
+    expect(await store.get(left.id)).toMatchObject({
+      nativeId: `${left.id}-2`,
+      status: "running",
+    });
+    expect([...(await next.sweep())]).toEqual([`${left.id}-1`]);
+    await reopened.close();
+    await next.shutdown();
+  });
+
+  it("names, in what it reports, a way to remove a running VM by hand", async () => {
+    const runtime = createFakeContainerRuntime();
+    const store = newStore();
+    const gone = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const left = await gone.start(SPEC);
+    // The old VM's labels name another store: not provably the row's.
+    const list = runtime.listResources.bind(runtime);
+    runtime.listResources = async (query) => {
+      const listed = await list(query);
+      return {
+        ...listed,
+        resources: listed.resources.map((resource) => ({
+          ...resource,
+          labels: { ...resource.labels, [CONTAINER_STORE_LABEL]: "another" },
+        })),
+      };
+    };
+    const lines: string[] = [];
+    const next = createContainers({
+      instanceLabel: "instance-a",
+      report: (line) => lines.push(line),
+      runtime,
+      store,
+    });
+    const reopened = await next.open(left.id);
+    expect(lines).toEqual([expect.stringContaining(`msb rm -f ${left.id}-1`)]);
+    expect(lines[0]).toContain("node_modules/.bin/msb");
+    await reopened.close();
+    await next.shutdown();
+  });
+
   it("keeps the row of a VM a recovery could not remove, removing, and the next recovery takes it over and removes it", async () => {
     const runtime = createFakeContainerRuntime();
     const store = newStore();

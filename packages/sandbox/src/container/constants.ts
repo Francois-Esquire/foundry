@@ -82,3 +82,12 @@ export const CONTAINER_SANDBOX_CONSTRAINTS_FORMAT =
 export const INVENTORY_PAGE_LIMIT = 100;
 
 export const MAX_INVENTORY_PAGES = 1000;
+
+/**
+ * How a person removes a VM by hand, running or not: the command, and
+ * where its program is. `msb` is the CLI of the `microsandbox` package
+ * Foundry installs; it is not put on PATH. `-f` stops a running VM first.
+ */
+export function removeByHand(name: string): string {
+  return `\`msb rm -f ${name}\` (msb is node_modules/.bin/msb, in the Foundry install)`;
+}
