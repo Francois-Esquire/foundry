@@ -510,20 +510,14 @@ export class Launcher {
       return false;
     }
     const run = await this.executions.takeQueuedFrom(id, owner);
-    // Looked at again after the write: a retirement may have begun.
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
-    if (run === undefined || this.#retiring) {
-      // Taken by this process as it began to retire: its next pass hands
-      // it on with the rest of its queue.
-      if (run !== undefined) {
-        this.#owe(id, true);
-        this.#admit(id);
-      }
-      return run !== undefined;
+    if (run === undefined) {
+      return false;
     }
     if (this.#owed.has(id) || this.#admitted.has(id)) {
       return true;
     }
+    // Taken as this engine began to retire, it waits in its closed queue
+    // and the next pass hands it on with the rest.
     this.#options.print(
       `[run] ${run.name} taken over from a gone process ${id}`
     );
