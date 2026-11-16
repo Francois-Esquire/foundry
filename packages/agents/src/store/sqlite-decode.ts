@@ -1,17 +1,6 @@
 import type { SessionMessage, SessionRecord } from "../schema";
 import { keptMessage, keptSession, RecordFault } from "./sqlite-records";
 
-/**
- * How `SqliteSessionStore` reads a row back as a record: the one decoder.
- * It takes each column as SQLite returns it, the JSON columns as text and
- * `summarized` as an integer, turns the row into the record it holds, and
- * passes that through the checks every write passes (`./sqlite-records`).
- * So a record read back can be written again. It rejects a row it would not
- * have written, naming the scope, the session, the message and the column
- * or field at fault.
- */
-
-/** A session row as SQLite returns it, `scope` aside. */
 export interface RawSessionRow {
   readonly createdAt: unknown;
   readonly id: string;
@@ -23,7 +12,6 @@ export interface RawSessionRow {
   readonly updatedAt: unknown;
 }
 
-/** A message row as SQLite returns it, `scope` and `position` aside. */
 export interface RawMessageRow {
   readonly createdAt: unknown;
   readonly id: string;
@@ -36,7 +24,6 @@ export interface RawMessageRow {
   readonly updatedAt: unknown;
 }
 
-/** The record a session row holds; NULL `recursion_depth` is the field left out. */
 export function sessionOf(row: RawSessionRow, scope: string): SessionRecord {
   const what = `session ${JSON.stringify(row.id)} in scope ${JSON.stringify(scope)}`;
   return checked(what, () =>
@@ -55,10 +42,6 @@ export function sessionOf(row: RawSessionRow, scope: string): SessionRecord {
   );
 }
 
-/**
- * The record a message row holds; NULL `metadata` or `summarized` is the
- * field left out. Rejects a row whose columns or JSON are not a message.
- */
 export function messageOf(row: RawMessageRow, scope: string): SessionMessage {
   const what = `message ${JSON.stringify(row.id)} of session ${JSON.stringify(row.sessionId)} in scope ${JSON.stringify(scope)}`;
   const parts = parsed(row.parts, "parts", what);
@@ -80,7 +63,6 @@ export function messageOf(row: RawMessageRow, scope: string): SessionMessage {
   );
 }
 
-/** `decode()`, with a {@link RecordFault} reported against the row. */
 function checked<T>(what: string, decode: () => T): T {
   try {
     return decode();
@@ -92,7 +74,6 @@ function checked<T>(what: string, decode: () => T): T {
   }
 }
 
-/** `summarized` as the record holds it: 0 and 1 are false and true, NULL the field left out. */
 function summarizedOf(value: unknown, what: string): boolean | undefined {
   switch (value) {
     case null:
@@ -109,7 +90,6 @@ function summarizedOf(value: unknown, what: string): boolean | undefined {
   }
 }
 
-/** A JSON column's text parsed, or a refusal naming `column` and what is wrong. */
 function parsed(text: unknown, column: string, what: string): unknown {
   if (typeof text !== "string") {
     throw unreadable(

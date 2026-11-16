@@ -10,36 +10,22 @@ import { afterAll, afterEach } from "vitest";
 
 import { agentMessages, agentSessions } from "../../store/tables";
 
-/** Where each database lives: in the connection, or in a temp-dir file. */
 export type DatabaseLocation = "file" | "memory";
 
-/** Called with each statement's SQL just before it runs; a throw fails that statement. */
 export type OnQuery = (query: string) => void;
 
 export interface LibsqlDatabases {
-  /**
-   * Another client on `database`'s file, as a second process would hold.
-   * `busyTimeout` is how long its writes wait on a lock; none by default.
-   */
   readonly connect: (
     database: LibSQLDatabase,
     options?: { readonly busyTimeout?: number; readonly onQuery?: OnQuery }
   ) => LibSQLDatabase;
-  /** A new database holding the session tables. */
   readonly open: (options?: {
     readonly onQuery?: OnQuery;
   }) => Promise<LibSQLDatabase>;
-  /** The file `database` lives in. */
   readonly path: (database: LibSQLDatabase) => string;
-  /** Closes `database`'s connection and connects to the same database again. */
   readonly reopen: (database: LibSQLDatabase) => Promise<LibSQLDatabase>;
 }
 
-/**
- * libSQL databases for one test file, each closed after the test that opened
- * it. File databases share one temporary directory, removed after the file's
- * tests. Call it at the top level of a test file or a `describe`.
- */
 export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
   const clients: Client[] = [];
   const connections = new WeakMap<
@@ -65,7 +51,6 @@ export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
       return ":memory:";
     }
     directory ??= mkdtemp(join(tmpdir(), "foundry-agents-"));
-    // Taken before the await, so databases opened at once get their own.
     count += 1;
     const name = `sessions-${count}.db`;
     return `file:${join(await directory, name)}`;

@@ -98,7 +98,6 @@ describe("SessionHarness — session identity", () => {
     expect(writes.filter((write) => write.putMessages === undefined)).toEqual(
       []
     );
-    // Each append carried the session, changing nothing but its stamp.
     const carried = writes.flatMap((write) => write.putSessions ?? []);
     expect(carried).toHaveLength(2);
     for (const record of carried) {

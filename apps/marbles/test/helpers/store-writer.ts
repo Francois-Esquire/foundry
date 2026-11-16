@@ -1,20 +1,3 @@
-/**
- * One process writing a workspace's artifacts, sandbox containers and
- * workspace catalogue into a Marbles database another process made, as a
- * worker does: through the package stores over one writer handle
- * (`openDatabase`), scoped by the workspace id. Run by Bun as a subprocess,
- * never imported:
- *
- *   bun store-writer.ts <state> <artifacts> <name> <count> <roots> <shared> <go>
- *
- * It prints `ready`, waits for the file `go` so every writer starts at
- * once, then makes `count` of each: an artifact named `<name>-<i>` holding
- * `a.txt` with that text, a container started and closed (its row stays,
- * stopped), and the workspace `<roots>/<name>-<i>` loaded into the
- * catalogue; and, first in each round, loads `shared`, which every writer
- * loads too.
- * It exits 0 once everything is written and closed; any failure throws.
- */
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ArtifactManager } from "@foundry/artifacts";
@@ -26,7 +9,6 @@ import { artifactBlobs, workspaceStores } from "~/database/stores";
 import { stateDatabase } from "~/layout";
 import { localCatalogue } from "~/lib/managers/workspaces";
 
-/** The workspace every writer writes as: one scope, shared (`ws`, as the test reads it). */
 const SCOPE = "ws";
 
 const [state, artifacts, name, count, roots, shared, go] =
@@ -44,7 +26,6 @@ if (
     "usage: bun store-writer.ts <state> <artifacts> <name> <count> <roots> <shared> <go>"
   );
 }
-// Generous, as a machine under load may hold the write lock a while.
 const opened = await openDatabase(stateDatabase(state), {
   busyTimeout: 30_000,
 });
@@ -70,7 +51,6 @@ while (!existsSync(go)) {
 try {
   for (let index = 0; index < Number(count); index += 1) {
     const label = `${name}-${String(index)}`;
-    // First, so every writer's first round races to register it.
     await catalogue.load({ path: shared });
     await manager.create({
       entries: {

@@ -329,7 +329,6 @@ describe("createAgentPreset", () => {
 
   it("binds domain context in both harnesses without constructing a Session for an operation", async () => {
     const { store, writes } = recordingStore(new InMemorySessionStore());
-    // Filing a session is the one write that carries a session and no message.
     const filed = () =>
       writes.filter(
         (write) =>

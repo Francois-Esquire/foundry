@@ -79,7 +79,6 @@ const greet = step("greet").input(z.object({ name: z.string() })).do(({ input })
 });
 workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
   );
-  // `marbles mcp` hosts nothing, so the tools are served over a host here.
   const transport = new StdioClientTransport({
     args: ["--no-env-file", resolve("test/helpers/dry-mcp-host.ts"), source],
     command: "bun",
@@ -222,7 +221,6 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   }
 }, 30_000);
 
-/** What a tool call answers, and whether it was refused. */
 function toolAnswer(value: unknown): { isError: boolean; text: string } {
   const parsed = CallToolResultSchema.parse(value);
   const [block] = parsed.content;
@@ -269,7 +267,6 @@ workflow("greeting").do(() => step("greet").do(() => "hello")({}));`
     await client.connect(transport);
     const listed = await client.listTools();
     expect(listed.tools.map(({ name }) => name)).toEqual(TOOL_NAMES);
-    // Its own workspace only, as stored state names it: nothing hosts it.
     const workspaces = summarySchema
       .array()
       .parse(payload(await client.callTool({ name: "list_workspaces" })));
@@ -290,7 +287,6 @@ workflow("greeting").do(() => step("greet").do(() => "hello")({}));`
       expect(refused.text, name).toContain("marbles attach");
       expect(refused.text, name).toContain(DRY_REFUSAL);
     }
-    // The backlog is this server's own, in memory: a change reads back here.
     const created = await client.callTool({
       arguments: {
         operations: [
@@ -318,7 +314,6 @@ workflow("greeting").do(() => step("greet").do(() => "hello")({}));`
   } finally {
     await client.close();
     expect(transport.pid).toBeNull();
-    // Nothing ran the source, and nothing was written: not even a record.
     expect(diagnostics).not.toContain("SOURCE_LOADED");
     expect(existsSync(state)).toBe(false);
     await rm(root, { force: true, recursive: true });
@@ -368,7 +363,6 @@ process.on("exit", () => {
     expect(ended.stderr).toContain("CONSOLE_STDOUT");
     expect(ended.stderr).toContain("NATIVE_STDOUT");
     expect(ended.stderr).toContain("CHILD_STDOUT");
-    // The server took its marker out of the environment.
     expect(ended.stderr).toContain("SERVER_MARKER=undefined");
     expect(strayLines(ended.stdout)).toEqual([]);
   }
@@ -427,7 +421,6 @@ it("refuses to serve without the relay's protocol pipe", async () => {
         encoding: "utf8",
         env: { ...process.env, MARBLES_MCP_SERVER: "1" },
         input: "",
-        // Descriptor 3 is otherwise whatever this test process passes on.
         stdio: ["pipe", "pipe", "pipe", "ignore"],
         timeout: 15_000,
       }
@@ -510,7 +503,6 @@ throw new Error("broken source");
 }, 30_000);
 
 it("answers from stored state with no Marbles process, and starts nothing", async () => {
-  // Short on purpose: a socket path under the state root is limited.
   const root = await mkdtemp(join(tmpdir(), "mn-"));
   const state = join(root, "s");
   const source = join(root, "marbles.ts");
@@ -545,7 +537,6 @@ schedule(tick).every("1s");`
   const client = new Client({ name: "marbles-test", version: "1.0.0" });
   try {
     await client.connect(transport);
-    // The task tools read and write the stored backlog.
     const created = await client.callTool({
       arguments: {
         operations: [
@@ -560,7 +551,6 @@ schedule(tick).every("1s");`
       items: [{ title: "Stored" }],
       total: 1,
     });
-    // Calls a client sends together each open the stored tasks in turn.
     const together = await Promise.all([
       client.callTool({
         arguments: {
@@ -583,7 +573,6 @@ schedule(tick).every("1s");`
         .array()
         .parse(payload(await client.callTool({ name: "list_workspaces" })))
     ).toEqual([expect.objectContaining({ config: source, state: "stopped" })]);
-    // Everything that runs, or reads a run, needs a host, and names it.
     for (const [name, args] of [
       ["list_config", {}],
       ["dispatch_workflow", { name: "tick" }],
@@ -597,7 +586,6 @@ schedule(tick).every("1s");`
         "`marbles attach` in its root hosts it"
       );
     }
-    // Long enough for a one-second schedule to have fired, had anything run it.
     await new Promise((settle) => setTimeout(settle, 1500));
   } catch (error) {
     throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
@@ -617,7 +605,6 @@ schedule(tick).every("1s");`
     }
     expect((await readWorkspace(state, id))?.hosted).not.toBe(true);
     expect(existsSync(join(state, id, "schedules"))).toBe(false);
-    // No source ran here: no schedule ticked and no observer saw the change.
     expect(existsSync(ticked)).toBe(false);
     expect(existsSync(observed)).toBe(false);
   } finally {
@@ -632,7 +619,6 @@ it("starts without a source and serves the stored tasks of every recorded worksp
   const other = join(root, "b");
   await mkdir(here);
   await mkdir(other);
-  // B is recorded, stopped, and has a task the CLI wrote without a process.
   const recorded = workspaceState(state, other);
   await touchWorkspace(state, recorded, null);
   const made = spawnSync(
@@ -649,9 +635,7 @@ it("starts without a source and serves the stored tasks of every recorded worksp
     { cwd: other, encoding: "utf8", timeout: 30_000 }
   );
   expect(made.status, made.stderr).toBe(0);
-  // Its checkout is gone; its stored tasks are not.
   await rm(other, { force: true, recursive: true });
-  // A recorded workspace whose directory is a link out of the state root.
   const outside = join(root, "outside");
   await mkdir(outside);
   const now = new Date().toISOString();
@@ -700,7 +684,6 @@ it("starts without a source and serves the stored tasks of every recorded worksp
       name: "change_tasks",
     });
     expect(intoB.isError, JSON.stringify(intoB)).not.toBe(true);
-    // This workspace has no source, yet its tasks are stored all the same.
     const created = await client.callTool({
       arguments: {
         operations: [
@@ -710,7 +693,6 @@ it("starts without a source and serves the stored tasks of every recorded worksp
       name: "change_tasks",
     });
     expect(created.isError, JSON.stringify(created)).not.toBe(true);
-    // An id names a directory listed under the state root, nothing else.
     for (const id of ["missing", "..", `../${recorded.id}`, state]) {
       const unknown = await client.callTool({
         arguments: { workspace: id },
@@ -773,7 +755,6 @@ it("refuses its own workspace's tasks when its state links out of the state root
   const client = new Client({ name: "marbles-test", version: "1.0.0" });
   try {
     await client.connect(transport);
-    // The default target, then the same workspace named by its id.
     for (const target of [{}, { workspace: own.id }]) {
       const changed = await client.callTool({
         arguments: {
@@ -832,8 +813,6 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   });
   const client = new Client({ name: "marbles-test", version: "1.0.0" });
   try {
-    // The CLI starts the Marbles process and hosts the workspace; the server
-    // only joins it.
     const attached = spawnSync(
       "bun",
       [
@@ -913,8 +892,6 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
       name: "list_config",
     });
     expect(unknown.isError).toBe(true);
-    // Under --dry-run the server drives nothing, though a worker hosts the
-    // workspace: a dry dispatch never starts a real run.
     const dry = new Client({ name: "marbles-dry", version: "1.0.0" });
     const dryTransport = new StdioClientTransport({
       args: [
@@ -953,7 +930,6 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
           await dry.callTool({ arguments: { runId }, name: "get_run" })
         ).isError
       ).toBe(true);
-      // Its tasks are its own, in memory, never the worker's.
       const created = await dry.callTool({
         arguments: {
           operations: [
@@ -983,7 +959,6 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
       expect(transport.pid).toBeNull();
     } finally {
       try {
-        // The daemon outlives the server; the test stops it.
         await stopDaemon(state);
       } finally {
         await rm(root, { force: true, recursive: true });

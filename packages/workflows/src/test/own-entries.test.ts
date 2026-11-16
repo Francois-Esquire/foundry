@@ -15,7 +15,6 @@ import { Step } from "../step";
 import type { WorkflowState } from "../workflow";
 import { Workflow } from "../workflow";
 
-/** A dictionary whose own entries include one named `__proto__`. */
 function withProtoEntry<V>(
   entries: Record<string, V>,
   protoValue: V
@@ -30,7 +29,6 @@ function withProtoEntry<V>(
   return dictionary;
 }
 
-/** True when `value` is a plain object holding `key` as its own entry. */
 function ownEntry(value: unknown, key: string): unknown {
   if (
     typeof value !== "object" ||

@@ -37,10 +37,6 @@ function file(content: Content): StoredFile {
 
 type StoreRead = Exclude<keyof ArtifactStore, "commit" | "transaction">;
 
-/**
- * `store`, and its transaction views, with a pause: once armed, the next
- * call to `read` returns its result only after `release`.
- */
 function pausable(store: ArtifactStore) {
   let armed:
     | {
@@ -84,7 +80,6 @@ function pausable(store: ArtifactStore) {
     };
   }
   return {
-    /** Arms the pause; resolves `reached` once a call to `read` has its result. */
     pause(read: StoreRead) {
       let release!: () => void;
       const held = new Promise<void>((resolve) => {
@@ -103,10 +98,6 @@ function pausable(store: ArtifactStore) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
-/**
- * `promise`, or a rejection saying it hung once `ms` pass, so a call that
- * would wait forever fails its test instead of stalling it.
- */
 function within<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const hung = new Promise<never>((_resolve, reject) => {
@@ -118,11 +109,6 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([promise, hung]).finally(() => clearTimeout(timer));
 }
 
-/**
- * Registers the manager's behaviour over a store: rules, sharing, fences,
- * rollback and commit-time effects. `createStore` returns a fresh, empty
- * store each time, or a promise of one.
- */
 export function describeArtifactManager(
   name: string,
   createStore: () => ArtifactStore | Promise<ArtifactStore>
@@ -696,7 +682,6 @@ export function describeArtifactManager(
       let later: Promise<ArtifactResolved> | undefined;
       const outer = artifacts.transaction(async (transaction) => {
         await transaction.create({ name: "Outer", type: "text/plain" });
-        // Runs once the callback has returned, while its commit is held.
         trigger.promise.then(() => {
           later = artifacts.create({ name: "Later", type: "text/plain" });
         });
@@ -728,7 +713,6 @@ export function describeArtifactManager(
       expect(ran).toBe(false);
     });
 
-    /** Two managers over one pausable store, and an Artifact holding `file.txt`. */
     async function sharedStore() {
       const shared = pausable(await createStore());
       const reader = new ArtifactManager({ store: shared.store });
@@ -787,7 +771,6 @@ export function describeArtifactManager(
         return await second.list();
       });
       await entered.promise;
-      // Independent of the transaction: it waits for it at the store.
       const waiting = second.create({ name: "Waiting", type: "text/plain" });
       await settle();
       proceed.resolve(undefined);
@@ -799,7 +782,6 @@ export function describeArtifactManager(
       expect((await first.list()).total).toBe(1);
     });
 
-    /** An async source of `text`, as a stream write takes its bytes. */
     async function* streamOf(label: string): AsyncIterable<Uint8Array> {
       await Promise.resolve();
       yield new TextEncoder().encode(label);
@@ -861,7 +843,6 @@ export function describeArtifactManager(
           return await call(second, created, "inner");
         });
         await entered.promise;
-        // Independent of the transaction: it waits for it at the store.
         const waiting = call(second, created, "outer");
         await settle();
         proceed.resolve(undefined);
@@ -873,7 +854,6 @@ export function describeArtifactManager(
       });
     }
 
-    /** Two patches of one Content's metadata, the first paused at its read. */
     async function patchConcurrently(
       shared: ReturnType<typeof pausable>,
       created: ArtifactResolved,

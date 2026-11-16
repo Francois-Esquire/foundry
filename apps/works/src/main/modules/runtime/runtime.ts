@@ -32,7 +32,6 @@ export async function createModuleRuntime(
   );
   const artifacts = new ArtifactManager({ store: artifactStore });
   const store = new ModuleRegistry({
-    // A version's Content must exist and be one of its Artifact's.
     artifactOfContent: async (contentId) =>
       (await artifacts.getContent(contentId))?.artifactId ?? null,
   });

@@ -95,14 +95,6 @@ function renderPart(part: ModelMessagePart): string {
   return undefined as never;
 }
 
-/**
- * Summarize the messages before `messageId` and fold them under the summary
- * in one write. No-op (`null`) when there's nothing to fold, or when the
- * messages to fold changed while the summary was written (an edit, or
- * another compaction): the summary would describe content no longer there.
- * The check and the fold run in one store transaction when the store
- * offers one.
- */
 export async function compact(
   store: SessionStore,
   summarizer: Summarizer,

@@ -47,7 +47,6 @@ export interface Work {
   readonly model: string;
   readonly quantities: Quantities;
   readonly session: string;
-  /** False at a speed tier, such as fast, that no list price covers. */
   readonly standardSpeed: boolean;
 }
 
@@ -58,14 +57,6 @@ export type Price = (
 
 type Rates = Parameters<typeof costFromUsage>[0];
 
-/**
- * List prices for one vendor's models from models.dev, which `@foundry/models`
- * reads at run time, matched exactly, so a model it does not list is
- * unpriced. Nothing waits for models.dev: until a host has loaded it
- * (`holdModelsDev` in `@foundry/models`), and when it could not be read,
- * nothing is priced. Rates are looked up
- * once per model per returned function, once the catalog is there.
- */
 export const listPrices = (vendor: string): Price => {
   const rates = new Map<string, Rates | undefined>();
   const ratesOf = (model: string): Rates | undefined => {

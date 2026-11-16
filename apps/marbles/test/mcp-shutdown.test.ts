@@ -15,13 +15,6 @@ import {
   serverPreload,
 } from "./helpers/mcp-stdio";
 
-/**
- * `marbles mcp` is a relay and a server (`src/mcp/relay.ts`). The server
- * loads no source, so a Bun preload names both processes and misbehaves
- * on purpose in the server. Every wait is bounded, so a failure still
- * reaches the cleanup that kills them.
- */
-
 const PIDS = /PIDS=(\d+),(\d+)/;
 
 function alive(pid: number): boolean {
@@ -73,11 +66,6 @@ interface Started {
   readonly session: RawMcpSession;
 }
 
-/**
- * Start `marbles mcp` under `--dry-run`, or with `args` in its place, with
- * `body` run at the start of the server. With `piped`, its stdin is a pipe
- * `cat` writes for as long as the session's stdin is open.
- */
 async function start(
   root: string,
   body: string,
@@ -99,7 +87,6 @@ async function start(
         env,
       })
     : await rawMcpSession("bun", marbles, { cwd: root, env });
-  // Stderr is its own pipe, so it may trail the handshake's answer.
   const pids = await vi
     .waitFor(() => {
       const [, server, relay] = PIDS.exec(session.stderr()) ?? [];
@@ -122,7 +109,6 @@ it("stops the server when the relay is killed and stdin stays open", async () =>
     started = await start(root, "", { piped: true });
     const { relay, server } = started;
     process.kill(relay, "SIGKILL");
-    // Well inside the server's own shutdown deadline: nothing waited it out.
     await vi.waitFor(() => expect(alive(server)).toBe(false), {
       interval: 50,
       timeout: 2000,
@@ -145,7 +131,6 @@ it("exits once shutdown is done, though a timer is pending", async () => {
     process.kill(relay, "SIGTERM");
     const ended = await within(session.ended(), 10_000, "the exit");
     expect(ended.code).toBe(0);
-    // Before the shutdown deadline: the timer did not hold it.
     expect(Date.now() - begun).toBeLessThan(2500);
     expect(alive(server)).toBe(false);
   } finally {
@@ -156,16 +141,12 @@ it("exits once shutdown is done, though a timer is pending", async () => {
 }, 30_000);
 
 it("exits when a shutdown outlives its deadline", async () => {
-  // Short on purpose: the state root holds a Unix socket, whose path is
-  // limited to about a hundred bytes.
   const root = await mkdtemp(join(tmpdir(), "mm-"));
   const state = join(root, "s");
   const source = join(root, "marbles.ts");
   const spinning = join(root, "spinning");
   let started: Started | undefined;
   try {
-    // A worker busy in a step answers no task call. Bounded, so a missed
-    // cleanup still ends it.
     await writeFile(
       source,
       `import { writeFileSync } from "node:fs";
@@ -194,7 +175,6 @@ workflow("spin").do(() => spin({}));`
     await vi.waitFor(() => expect(existsSync(spinning)).toBe(true), {
       timeout: 15_000,
     });
-    // The server holds the tasks for this call until the worker answers.
     session
       .request("tools/call", {
         arguments: {
@@ -205,7 +185,6 @@ workflow("spin").do(() => spin({}));`
         name: "change_tasks",
       })
       .catch(() => undefined);
-    // Answered in order, so the task call has begun by then.
     await session.request("tools/list");
     const begun = Date.now();
     process.kill(relay, "SIGTERM");
@@ -214,7 +193,6 @@ workflow("spin").do(() => spin({}));`
     expect(ended.stderr).toContain(
       "marbles mcp: shutdown did not finish within 3000ms; exiting"
     );
-    // The server's own deadline, before the relay's.
     expect(Date.now() - begun).toBeLessThan(5000);
     expect(alive(server)).toBe(false);
   } finally {
@@ -234,8 +212,6 @@ it("kills a server that does not stop after the relay's deadline", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-blocked-"));
   let started: Started | undefined;
   try {
-    // A SIGTERM listener that blocks the event loop, so no timer the
-    // server set can fire.
     started = await start(
       root,
       `process.on("SIGTERM", () => {
@@ -262,8 +238,6 @@ it("kills a server whose loop is blocked once stdin closes", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-spin-"));
   let started: Started | undefined;
   try {
-    // Blocks the loop when the test asks. Bounded, so a missed cleanup
-    // still ends it.
     started = await start(
       root,
       `const { writeSync } = await import("node:fs");
@@ -314,7 +288,6 @@ it("lets a stored-task call finish before it exits", async () => {
     const ended = await within(session.close(), 10_000, "the exit");
     expect(ended.code).toBe(0);
     expect(ended.stderr).not.toContain("killing it");
-    // No call was cut off holding the tasks.
     for (const id of await readdir(state)) {
       expect(existsSync(join(state, id, "locks", "tasks")), id).toBe(false);
     }

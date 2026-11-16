@@ -10,16 +10,6 @@ import { initializeDatabase } from "~/database/open";
 import { artifactBlobs, workspaceStores } from "~/database/stores";
 import { stateDatabase } from "~/layout";
 
-/**
- * Separate processes keep one workspace's artifacts, sandbox containers and
- * workspace catalogue in one Marbles database file, as the Marbles process
- * and its workers do: every write each makes is kept, each in its own
- * process's commit, and what they write in common (a workspace both load)
- * is kept once. Each writer is `helpers/store-writer.ts` on a handle of its
- * own (`openDatabase`); the database is made and migrated here first, so no
- * writer migrates.
- */
-
 const WRITERS = 2;
 const EACH = 10;
 const SCOPE = "ws";
@@ -37,7 +27,6 @@ interface Exit {
   readonly output: string;
 }
 
-/** Start every writer, let them in at once, and wait for each to exit. */
 async function write(args: (name: string) => readonly string[], go: string) {
   const children = Array.from({ length: WRITERS }, (_, index) =>
     spawn(
@@ -73,7 +62,6 @@ async function write(args: (name: string) => readonly string[], go: string) {
         child.once("exit", (code) => settle({ code, output }));
       })
   );
-  // A writer that fails before it is ready exits instead.
   await Promise.race([Promise.all(ready), Promise.all(exits)]);
   writeFileSync(go, "");
   return await Promise.all(exits);
@@ -118,7 +106,6 @@ it("keeps every write of separate processes over one database file, and what the
       .flat()
       .sort();
 
-    // Every artifact, each with the bytes its writer put in its blob file.
     const manager = new ArtifactManager({
       files: blobFiles(artifactBlobs(artifacts, SCOPE)),
       store: stores.artifacts,
@@ -137,13 +124,11 @@ it("keeps every write of separate processes over one database file, and what the
       );
     }
 
-    // Every container's row, each stopped by the writer that started it.
     const rows = await stores.containers.list();
     expect(rows).toHaveLength(WRITERS * EACH);
     expect(new Set(rows.map((row) => row.id)).size).toBe(WRITERS * EACH);
     expect(rows.every((row) => row.status === "stopped")).toBe(true);
 
-    // Every writer's own workspaces, and the one they all loaded, once.
     const registrations = await stores.workspaces.listWorkspaces({
       limit: 100,
     });

@@ -12,13 +12,6 @@ import { artifactIdFor } from "~/lib/managers/artifacts";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
-/**
- * The Marbles process keeps a workspace's artifacts, sandbox containers and
- * workspace catalogue in the Marbles database, each package's SQLite store
- * scoped by the workspace id; a dry run keeps them in memory and reads what
- * real runs left there.
- */
-
 const machines: TestMachine[] = [];
 const engines: Engine[] = [];
 

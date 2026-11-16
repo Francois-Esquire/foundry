@@ -271,7 +271,6 @@ describe("Module management", () => {
 
   it("archives again harmlessly when the registry step failed, and a retry completes", async () => {
     const { management, module, artifacts, store } = await fixture();
-    // The registry step runs on the registry its transaction hands the work.
     const retire = vi
       .spyOn(ModuleRegistry.prototype, "deleteModule")
       .mockRejectedValueOnce(new Error("registry unavailable"));
@@ -285,7 +284,6 @@ describe("Module management", () => {
     retire.mockRestore();
     await management.deleteModule({ moduleId: module.id });
     expect(await store.loadModule(module.id)).toBeNull();
-    // Archived once: the retry did not archive it again.
     expect(await artifacts.get(module.artifactId)).toMatchObject({
       archivedAt: archived?.archivedAt,
       status: "archived",

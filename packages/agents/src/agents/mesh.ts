@@ -96,7 +96,6 @@ export class Mesh {
   readonly registry?: AgentCompatibilityRegistry;
   private readonly nodes = new Map<string, Node>();
   private readonly edges = new Map<string, Edge>();
-  /** Where edge conversations persist; nothing persists without a store. */
   private readonly transcripts?: Sessions;
   private readonly sessions = new Map<string, string>();
 
