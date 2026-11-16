@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
@@ -85,6 +85,12 @@ export interface CreateEngineOptions {
    * Under `dry` the engine gets neither and keeps everything in memory.
    */
   readonly database?: StoreDatabase;
+  /**
+   * The file `database` is, which binds its container store's identity to
+   * where it lives (`workspaceStores`); without it, the identity is the
+   * one the database keeps, which a copy of it shares.
+   */
+  readonly databaseFile?: string;
   readonly dry: boolean;
   /** The machine environment and the workspace's Varlock values; the process's own when omitted. */
   readonly environment?: {
@@ -395,6 +401,18 @@ function containersFor(
   };
 }
 
+/** The real path of `file`, or `undefined` without one, or when it cannot be read. */
+function realPath(file: string | undefined): string | undefined {
+  if (file === undefined) {
+    return;
+  }
+  try {
+    return realpathSync(file);
+  } catch {
+    // Then the identity is the one the database keeps, as without a file.
+  }
+}
+
 /** Build each instance, hand them to a new engine, and declare the config to it. Not yet started. */
 export function createEngine(options: CreateEngineOptions): Engine {
   const { catalog, dry, print, root, workspaceId } = options;
@@ -405,7 +423,9 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const database = dry ? undefined : options.database;
   const { own, ...kept } = recordsFor(state, database, options);
   const stores =
-    database === undefined ? undefined : workspaceStores(database, workspaceId);
+    database === undefined
+      ? undefined
+      : workspaceStores(database, workspaceId, realPath(options.databaseFile));
   const git = dry ? { run: echoGit(print) } : {};
   // The class the package publishes, so a host's engine is that `Engine`.
   const engineOptions: EngineOptions = {

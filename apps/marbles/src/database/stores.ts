@@ -38,14 +38,26 @@ export interface WorkspaceStores {
   readonly workspaces: WorkspaceStore;
 }
 
-/** Every store of the workspace `scope` (its id) over `database`. */
+/**
+ * Every store of the workspace `scope` (its id) over `database`. `location`
+ * is the real path of the database's file: the container store's identity
+ * is bound to it, so a byte copy of the file, or the file moved, has
+ * another, and one engine's sweep never takes the other's VMs.
+ */
 export function workspaceStores(
   database: StoreDatabase,
-  scope: string
+  scope: string,
+  location?: string
 ): WorkspaceStores {
   return {
     artifacts: surfacingBusy(new SqliteArtifactStore({ database, scope })),
-    containers: surfacingBusy(createSqliteContainerStore({ database, scope })),
+    containers: surfacingBusy(
+      createSqliteContainerStore({
+        database,
+        scope,
+        ...(location === undefined ? {} : { location }),
+      })
+    ),
     workspaces: surfacingBusy(new SqliteWorkspaceStore({ database, scope })),
   };
 }

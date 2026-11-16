@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
+import { realpathSync } from "node:fs";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { afterEach, expect, it } from "vitest";
+import { DatabaseRecoveryLog, readLastRecovery } from "~/database/recoveries";
 import { workspaceStores } from "~/database/stores";
 import { CrashRecovery } from "~/lib/crash-recovery";
 import { MemoryRunStore } from "~/lib/run-store";
@@ -140,7 +142,7 @@ it("leaves a VM a live container records though it carries a gone one's id, and 
   const { report } = await recovery(ours(), []).recover(RUNS);
 
   expect(report.steps.find((step) => step.step === "containers")).toEqual({
-    detail: `0 container(s) removed, 0 VM(s) swept; 1 container(s) whose VM would not go kept, removing, for the next start to retry; the VM(s) ${vm} bear the id or name of one but are not provably its (another container records them, they carry no label of this store, or their name and label disagree), so they were left alone; one no engine owns is removed with \`msb rm <name>\``,
+    detail: `0 container(s) removed, 0 VM(s) swept; 1 container(s) whose VM would not go kept, removing, for the next start to retry; the VM(s) ${vm} bear the id or name of one but are not provably its (another container records them, they carry no label of this store, or their name and label disagree), so they were left alone; one no engine owns is removed by hand with \`msb rm -f <name>\` (msb is node_modules/.bin/msb, in the Foundry install)`,
     outcome: "failed",
     step: "containers",
   });
@@ -318,4 +320,67 @@ it("takes back only its own workspace's rows and VMs, beside another workspace i
   await alphaHeld.close();
   await alphaLive.shutdown();
   await betaNext.shutdown();
+});
+
+it("keeps the names of passed-over VMs in the report as the database keeps it and marbles status reads it", async () => {
+  const { ours, runtime, stores, theirs } = await fixture();
+  await theirs.start(SPEC);
+  const other = createContainers({
+    instanceLabel: "marbles-ws",
+    runtime,
+    store: createMemoryContainerStore(),
+  });
+  const held = await other.start(SPEC);
+  const machine = machines.at(-1);
+  if (machine === undefined) {
+    throw new Error("no machine");
+  }
+  const log = new DatabaseRecoveryLog({
+    database: machine.database.database,
+    scope: "ws",
+  });
+  const recovered = new CrashRecovery({
+    activities: new HarnessActivities(),
+    artifacts: { recover: () => Promise.resolve() },
+    containerRows: stores.containers,
+    containers: () => Promise.resolve(ours()),
+    executions: () => [],
+    print: () => undefined,
+    runs: new MemoryRunStore(),
+  });
+  // As the engine keeps each start's report.
+  const { report } = await recovered.recover(RUNS);
+  await log.record(report);
+  // Across the boundary a report crosses: kept as JSON, read back by status.
+  const read = await readLastRecovery(machine.root, "ws");
+  expect(
+    read?.steps.find((step) => step.step === "containers")?.detail
+  ).toContain(`not provably this engine's: ${held.row.nativeId}`);
+  await held.close();
+  await other.shutdown();
+});
+
+it("binds a workspace's container store identity to its database file: a copy of the file has another", async () => {
+  const machine = await testMachine();
+  machines.push(machine);
+  const at = realpathSync(machine.database.file);
+  const original = await workspaceStores(
+    machine.database.database,
+    "ws",
+    at
+  ).containers.identity();
+  expect(
+    await workspaceStores(
+      machine.database.database,
+      "ws",
+      at
+    ).containers.identity()
+  ).toBe(original);
+  expect(
+    await workspaceStores(
+      machine.database.database,
+      "ws",
+      `${at}.copy`
+    ).containers.identity()
+  ).not.toBe(original);
 });

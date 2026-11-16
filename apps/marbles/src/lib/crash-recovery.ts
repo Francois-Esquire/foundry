@@ -1,5 +1,6 @@
 import type { Artifacts } from "@foundry/artifacts";
 import { stopOrphans } from "@foundry/lib/orphans";
+import { removeByHand } from "@foundry/sandbox/container/constants";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import type { ExecutionCoordinator } from "@foundry/workflows";
@@ -239,7 +240,7 @@ export class CrashRecovery {
     const passed =
       passedOver.length === 0
         ? ""
-        : `; ${String(passedOver.length)} VM(s) passed over, not provably this engine's: ${passedOver.join(", ")} (one no engine owns is removed with \`msb rm <name>\`)`;
+        : `; ${String(passedOver.length)} VM(s) passed over, not provably this engine's: ${passedOver.join(", ")} (one no engine owns is removed by hand with ${removeByHand("<name>")})`;
     if (recovered.kept.length === 0) {
       return {
         acted:
@@ -251,7 +252,7 @@ export class CrashRecovery {
     const conflicting =
       conflicts.length === 0
         ? ""
-        : `; the VM(s) ${conflicts.join(", ")} bear the id or name of one but are not provably its (another container records them, they carry no label of this store, or their name and label disagree), so they were left alone; one no engine owns is removed with \`msb rm <name>\``;
+        : `; the VM(s) ${conflicts.join(", ")} bear the id or name of one but are not provably its (another container records them, they carry no label of this store, or their name and label disagree), so they were left alone; one no engine owns is removed by hand with ${removeByHand("<name>")}`;
     return {
       acted: true,
       detail: `${did}; ${String(recovered.kept.length)} container(s) whose VM would not go kept, removing, for the next start to retry${conflicting}${kept}${passed}`,
