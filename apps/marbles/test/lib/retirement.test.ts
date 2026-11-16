@@ -1,6 +1,6 @@
 import { thisProcess } from "@foundry/lib/process-identity";
 import { Tasks } from "@foundry/tasks";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Engine } from "~/lib/engine";
 import { TASKS } from "~/lib/events/source";
 import { testEngine } from "../helpers/engine";
@@ -164,6 +164,59 @@ describe("an engine that has begun to retire", () => {
     await ended;
   });
 
+  it("hands over a child queued behind a busy queue whose parent parked before retirement began", async () => {
+    const engine = engineHere();
+    const busyGate = Promise.withResolvers<void>();
+    const childLaunched = Promise.withResolvers<string>();
+    const ran: string[] = [];
+    engine.task({
+      name: "busy",
+      queue: "shared",
+      run: async () => {
+        ran.push("busy");
+        await busyGate.promise;
+      },
+    });
+    engine.task({
+      name: "child",
+      queue: "shared",
+      run: () => {
+        ran.push("child");
+      },
+    });
+    engine.define({
+      fn: async ({ signal }: { readonly signal: AbortSignal }) => {
+        const child = await engine.launch("child", {});
+        child.result.catch(() => undefined);
+        childLaunched.resolve(child.id);
+        await new Promise((resolve) =>
+          signal.addEventListener("abort", resolve)
+        );
+      },
+      kind: "step",
+      name: "parent",
+    });
+    await engine.start();
+    const busy = await engine.launch("busy", {});
+    const parent = await engine.launch("parent", {});
+    parent.result.catch(() => undefined);
+    const childId = await childLaunched.promise;
+    // The parent parks waiting, its child queued behind busy.
+    expect(engine.pause(parent.id, "parent", "hold")).toBe(true);
+    await vi.waitFor(() =>
+      expect(engine.executions.get(parent.id)?.status).toBe("suspended")
+    );
+    const next = successor();
+    await engine.retire(next);
+    busyGate.resolve();
+    await busy.result;
+    // Its parent is moving: the child goes with the queue, not run here.
+    expect(ran).toEqual(["busy"]);
+    expect(engine.executions.get(childId)?.owner).toMatchObject({
+      pid: next.pid,
+    });
+  });
+
   it("runs a child a cancelled task launches before its body returns", async () => {
     const engine = engineHere();
     const launched = Promise.withResolvers<unknown>();
@@ -237,7 +290,8 @@ describe("an engine that has begun to retire", () => {
     });
     parentGate.resolve();
     await parent.result;
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Past two of the retirement's looks (every 250 ms) for what is left.
+    await new Promise((resolve) => setTimeout(resolve, 600));
     expect(ended).toBe(false);
     childGate.resolve();
     await retired.ended;

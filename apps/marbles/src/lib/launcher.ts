@@ -687,7 +687,21 @@ export class Launcher {
    */
   #activeCaller(): string | undefined {
     const id = callingRun();
-    return id !== undefined && this.#live.has(id) ? id : undefined;
+    return id !== undefined && this.#active(id) ? id : undefined;
+  }
+
+  /**
+   * Whether run `id` is active here: launched or adopted here, not settled
+   * (`#live`), recorded running, and this process's. A parked run, or one
+   * let go to another engine, is not, whatever it left here.
+   */
+  #active(id: string): boolean {
+    const run = this.executions.get(id);
+    return (
+      this.#live.has(id) &&
+      run?.status === "running" &&
+      sameProcess(run.owner, thisProcess())
+    );
   }
 
   /**
@@ -698,7 +712,7 @@ export class Launcher {
    */
   beginRetiring(): void {
     this.#retiring = true;
-    this.executions.closeAdmission((id) => this.#live.has(id));
+    this.executions.closeAdmission((id) => this.#active(id));
   }
 
   /**
