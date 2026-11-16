@@ -444,9 +444,21 @@ export class ExecutionRecords {
     return written.applied;
   }
 
+  async readHanded(id: string): Promise<ExecutionRun | undefined> {
+    const stored = this.#parse(await this.#store.get(id));
+    if (
+      stored?.status !== "queued" ||
+      !sameProcess(stored.owner, thisProcess())
+    ) {
+      return;
+    }
+    this.#learn(stored);
+    return this.#records.get(id);
+  }
+
   protected async handQueued(
     id: string,
-    successor: ProcessIdentity
+    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>
   ): Promise<boolean> {
     const written = await this.#persist(() =>
       this.#store.transaction(async (view): Promise<Written> => {
@@ -456,6 +468,10 @@ export class ExecutionRecords {
           !sameProcess(stored.owner, thisProcess())
         ) {
           return { applied: false, record: stored };
+        }
+        const successor = await choose(view);
+        if (successor === undefined || sameProcess(successor, thisProcess())) {
+          throw new Error("no other engine is current to hand it to");
         }
         return await view.transition(id, {
           from: ["queued"],
@@ -468,6 +484,48 @@ export class ExecutionRecords {
     );
     this.#took(id, written);
     return written.applied;
+  }
+
+  async peek(id: string): Promise<ExecutionRun | undefined> {
+    return this.#parse(await this.#store.get(id));
+  }
+
+  async queuedHere(): Promise<readonly string[]> {
+    return (
+      (await this.#store.queuedOwnedBy?.(thisProcess())) ??
+      this.list()
+        .filter(
+          (run) =>
+            run.status === "queued" && sameProcess(run.owner, thisProcess())
+        )
+        .map((run) => run.id)
+    );
+  }
+
+  async takeQueuedFrom(
+    id: string,
+    owner: ProcessIdentity
+  ): Promise<ExecutionRun | undefined> {
+    if (!isGone(owner)) {
+      return;
+    }
+    const written = await this.#persist(() =>
+      this.#store.transaction(async (view): Promise<Written> => {
+        const stored = this.#parse(await view.get(id));
+        if (stored?.status !== "queued" || !sameOwner(stored.owner, owner)) {
+          return { applied: false, record: stored };
+        }
+        return await view.transition(id, {
+          from: ["queued"],
+          newOwner: thisProcess(),
+          owner: stored.owner,
+          status: "queued",
+          updatedAt: now(),
+        });
+      })
+    );
+    const taken = this.#took(id, written);
+    return written.applied ? taken : undefined;
   }
 
   protected async cancelQueued(id: string): Promise<boolean> {

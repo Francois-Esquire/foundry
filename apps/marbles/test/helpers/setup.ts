@@ -8,7 +8,9 @@ import {
 } from "./providers";
 import { privateBase, RUN_ENV, startRun, sweepFinishedRuns } from "./runs";
 
-const RUN_PARENT = `/tmp/marbles-runs-${String(process.getuid?.() ?? "user")}`;
+const RUN_PARENT =
+  process.env.MARBLES_TEST_RUNS ||
+  `/tmp/marbles-runs-${String(process.getuid?.() ?? "user")}`;
 
 const USER_HOME = "user";
 

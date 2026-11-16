@@ -1,7 +1,7 @@
 import type { Fact } from "~/lib/events/source";
 
 export interface ChangeLog {
-  compact(bound: CompactionBound): Promise<number>;
+  compact(bound: CompactionBound): Promise<CompactionStep>;
   declare(key: ObserverKey, now: number): Promise<ObserverState>;
   fail(key: ObserverKey, failure: ObserverFailure): Promise<boolean>;
   head(): Promise<number>;
@@ -49,8 +49,16 @@ export interface ObserverMove {
   readonly to: number;
 }
 
+export interface CompactionStep {
+  readonly done: boolean;
+  readonly removed: number;
+}
+
+export const COMPACTION_STEP = 5000;
+
 export interface CompactionBound {
   readonly before: number;
+  readonly limit?: number;
   readonly now: number;
   readonly registered: readonly ObserverKey[];
   readonly seenSince: number;
@@ -110,7 +118,7 @@ export class MemoryChangeLog implements ChangeLog {
     }
   }
 
-  compact(bound: CompactionBound): Promise<number> {
+  compact(bound: CompactionBound): Promise<CompactionStep> {
     for (const key of bound.registered) {
       const observer = this.#observers.get(KEY(key));
       if (observer !== undefined) {
@@ -123,19 +131,28 @@ export class MemoryChangeLog implements ChangeLog {
         .filter((observer) => observer.seenAt >= bound.seenSince)
         .map((observer) => observer.position)
     );
-    let aged = 0;
-    for (const change of this.#changes) {
-      if (change.recordedAt >= bound.before) {
-        break;
-      }
-      aged = change.position;
+    const window = Math.min(
+      floor,
+      this.#compacted + (bound.limit ?? COMPACTION_STEP)
+    );
+    const young = this.#changes.find(
+      (change) =>
+        change.position > this.#compacted &&
+        change.position <= window &&
+        change.recordedAt >= bound.before
+    );
+    const through = young === undefined ? window : young.position - 1;
+    if (through <= this.#compacted) {
+      return Promise.resolve({ done: true, removed: 0 });
     }
-    const through = Math.min(floor, aged);
     const kept = this.#changes.filter((change) => change.position > through);
     const removed = this.#changes.length - kept.length;
     this.#changes.splice(0, this.#changes.length, ...kept);
-    this.#compacted = Math.max(this.#compacted, through);
-    return Promise.resolve(removed);
+    this.#compacted = through;
+    return Promise.resolve({
+      done: through < window || window === floor,
+      removed,
+    });
   }
 
   declare(key: ObserverKey, now: number): Promise<ObserverState> {

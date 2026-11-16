@@ -118,6 +118,8 @@ describe("the read of what is left to deliver", () => {
       const details = plan.rows.map((row) => String(row.detail));
       expect(details).toEqual([
         "SEARCH marbles_changes USING INDEX marbles_changes_scope_source_position (scope=? AND source=? AND position>?)",
+        "LIST SUBQUERY 1",
+        "SCAN json_each VIRTUAL TABLE INDEX 1:",
       ]);
     } finally {
       machine.close();

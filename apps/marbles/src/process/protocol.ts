@@ -182,6 +182,7 @@ export function isWorkspaceMethod(name: string): name is WorkspaceMethod {
 }
 
 export const GENERATION_NOTIFICATIONS = {
+  handed: "handed",
   line: "line",
   read: "read",
   released: "released",
@@ -195,6 +196,7 @@ export const GENERATION_METHODS = {
   start: "start",
   /** Drain running work and exit. */
   stop: "stop",
+  takeQueued: "takeQueued",
   unhost: "unhost",
 } as const;
 
@@ -248,6 +250,17 @@ export const releasedParamsSchema = z.object({
   id: z.string(),
   runId: z.string(),
 });
+
+export const queuedParamsSchema = z.object({
+  id: z.string(),
+  owner: identitySchema,
+  runId: z.string(),
+});
+
+export const queuedTakeSchema = z.discriminatedUnion("taken", [
+  z.object({ taken: z.literal(true) }),
+  z.object({ taken: z.literal(false), why: z.string() }),
+]);
 
 export const retireParamsSchema = z.object({
   successor: identitySchema,

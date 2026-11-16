@@ -71,6 +71,7 @@ interface Observer {
 
 export interface DeliveryOptions {
   readonly clock?: DeliveryClock;
+  readonly compactionStep?: number | undefined;
   readonly context?: ExecutionContext;
   readonly handlerTimeout?: number | undefined;
   readonly print: (line: string) => void;
@@ -92,17 +93,26 @@ export class Delivery {
   readonly #print: (line: string) => void;
   readonly #clock: DeliveryClock;
   readonly #retention: number;
+  readonly #compactionStep: number | undefined;
   readonly #handlerTimeout: number;
   readonly #stopGrace: number;
   #claimed = false;
   #claiming: Promise<void> | undefined;
-  #phase: "new" | "starting" | "waiting" | "running" | "stopped" = "new";
+  #phase:
+    | "new"
+    | "starting"
+    | "waiting"
+    | "running"
+    | "compacting"
+    | "stopped" = "new";
   #pass: Promise<void> | undefined;
   #again = false;
   readonly #abandon = new Set<() => void>();
   readonly #stopped: { gaveUp: boolean } = { gaveUp: false };
-  #compactedAt = Number.NEGATIVE_INFINITY;
   #timer: { cancel(): void } | undefined;
+  #compactTimer: { cancel(): void } | undefined;
+  #compacting: Promise<void> | undefined;
+  #compactionProblem: string | undefined;
   #problem: string | undefined;
   /** Runs a pass in the context this delivery was built in; see above. */
   readonly #built = AsyncLocalStorage.snapshot();
@@ -113,6 +123,7 @@ export class Delivery {
     this.#context = options.context;
     this.#clock = options.clock ?? WALL_CLOCK;
     this.#retention = options.retention ?? CHANGE_RETENTION_MS;
+    this.#compactionStep = options.compactionStep;
     this.#handlerTimeout = options.handlerTimeout ?? HANDLER_TIMEOUT_MS;
     this.#stopGrace = options.stopGrace ?? STOP_GRACE_MS;
   }
@@ -161,11 +172,17 @@ export class Delivery {
   }
 
   async start(): Promise<void> {
-    if (this.#phase !== "new" || this.#observers.length === 0) {
+    if (this.#phase !== "new") {
+      return;
+    }
+    if (this.#observers.length === 0) {
+      this.#phase = "compacting";
+      this.#compactEvery();
       return;
     }
     this.#phase = "starting";
     await this.#declare();
+    this.#compactEvery();
     const holder = await this.#claim();
     if (this.#phase !== "starting") {
       await this.#release();
@@ -194,7 +211,6 @@ export class Delivery {
     this.wake();
   }
 
-  /** Begin a pass, or another after the one in progress. */
   wake(): void {
     if (this.#phase !== "running") {
       return;
@@ -218,6 +234,7 @@ export class Delivery {
     for (;;) {
       const running = [
         this.#pass,
+        this.#compacting,
         ...this.#observers.map((observer) => observer.lane),
       ].filter((work) => work !== undefined);
       if (running.length === 0) {
@@ -227,21 +244,17 @@ export class Delivery {
     }
   }
 
-  async stop(): Promise<void> {
+  async stop(options: { readonly grace?: number } = {}): Promise<void> {
     this.#phase = "stopped";
     this.#timer?.cancel();
     this.#timer = undefined;
+    this.#compactTimer?.cancel();
+    this.#compactTimer = undefined;
     try {
       await this.#pass;
       await this.#claiming;
-      const lanes = this.#observers
-        .map((observer) => observer.lane)
-        .filter((lane) => lane !== undefined);
-      if (lanes.length > 0) {
-        const grace = this.#clock.after(this.#stopGrace);
-        await Promise.race([Promise.allSettled(lanes), grace.done]);
-        grace.cancel();
-      }
+      await this.#compacting;
+      await this.#lanesWithin(options.grace ?? this.#stopGrace);
     } finally {
       this.#stopped.gaveUp = true;
       for (const abandon of this.#abandon) {
@@ -249,6 +262,18 @@ export class Delivery {
       }
       await this.#release();
     }
+  }
+
+  async #lanesWithin(grace: number): Promise<void> {
+    const lanes = this.#observers
+      .map((observer) => observer.lane)
+      .filter((lane) => lane !== undefined);
+    if (lanes.length === 0 || grace <= 0) {
+      return;
+    }
+    const waiting = this.#clock.after(grace);
+    await Promise.race([Promise.allSettled(lanes), waiting.done]);
+    waiting.cancel();
   }
 
   async #declare(): Promise<void> {
@@ -368,7 +393,6 @@ export class Delivery {
 
   async #startDue(): Promise<void> {
     const head = await this.#records.log.head();
-    await this.#compactWhenDue();
     const now = this.#clock.now();
     for (const observer of this.#observers) {
       if (this.#phase !== "running") {
@@ -400,19 +424,55 @@ export class Delivery {
     }
   }
 
-  async #compactWhenDue(): Promise<void> {
-    const now = this.#clock.now();
-    if (now - this.#compactedAt < COMPACTION_EVERY_MS) {
+  #compactEvery(): void {
+    const interval = Math.min(
+      COMPACTION_EVERY_MS,
+      Math.max(1, Math.floor(this.#retention / 2))
+    );
+    this.#compactTimer = this.#clock.every(interval, () => {
+      this.#compactSoon();
+    });
+    this.#compactSoon();
+  }
+
+  #compactSoon(): void {
+    if (this.#compacting !== undefined || this.#phase === "stopped") {
       return;
     }
-    this.#compactedAt = now;
-    const bound = now - this.#retention;
-    await this.#records.log.compact({
-      before: bound,
-      now,
-      registered: this.#observers.map((observer) => observer.key),
-      seenSince: bound,
+    this.#compacting = this.#built(() =>
+      current.exit(() => this.#compact())
+    ).finally(() => {
+      this.#compacting = undefined;
     });
+  }
+
+  async #compact(): Promise<void> {
+    try {
+      for (;;) {
+        const now = this.#clock.now();
+        const bound = now - this.#retention;
+        const step = await this.#records.log.compact({
+          before: bound,
+          ...(this.#compactionStep === undefined
+            ? {}
+            : { limit: this.#compactionStep }),
+          now,
+          registered: this.#observers.map((observer) => observer.key),
+          seenSince: bound,
+        });
+        if (step.done || this.#phase === "stopped") {
+          this.#compactionProblem = undefined;
+          return;
+        }
+        await new Promise<void>((resume) => setImmediate(resume));
+      }
+    } catch (error) {
+      const line = `[observe] compaction: ${String(error)}`;
+      if (line !== this.#compactionProblem) {
+        this.#compactionProblem = line;
+        this.#print(line);
+      }
+    }
   }
 
   async #catchUp(observer: Observer, head: number): Promise<boolean> {

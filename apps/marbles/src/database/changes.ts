@@ -1,6 +1,7 @@
 import { ownedEvents } from "@foundry/lib/plain-json";
-import { and, asc, eq, gt, gte, inArray, lt, lte, min, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lte, min, sql } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
+import { batches, inList } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import {
@@ -14,6 +15,7 @@ import type {
   ChangeLog,
   ChangeQuery,
   CompactionBound,
+  CompactionStep,
   LoggedChange,
   MoveOutcome,
   ObserverFailure,
@@ -21,7 +23,7 @@ import type {
   ObserverMove,
   ObserverState,
 } from "~/lib/events/log";
-import { CHANGE_BATCH } from "~/lib/events/log";
+import { CHANGE_BATCH, COMPACTION_STEP } from "~/lib/events/log";
 import { causingRun, EmitListeners } from "~/lib/events/records";
 import type { Fact } from "~/lib/events/source";
 
@@ -61,18 +63,19 @@ export class ChangeRecorder {
       .returning({ position: marblesChangeLogs.position });
     const last = counter?.position ?? events.length;
     const recordedAt = Date.now();
-    await transaction.insert(marblesChanges).values(
-      events.map((fact, index) => ({
-        id: fact.id,
-        payload: fact,
-        position: last - events.length + index + 1,
-        recordedAt,
-        runId: this.#causes.get(fact.id) ?? null,
-        scope: this.scope,
-        source,
-        type: fact.type,
-      }))
-    );
+    const rows = events.map((fact, index) => ({
+      id: fact.id,
+      payload: fact,
+      position: last - events.length + index + 1,
+      recordedAt,
+      runId: this.#causes.get(fact.id) ?? null,
+      scope: this.scope,
+      source,
+      type: fact.type,
+    }));
+    for (const batch of batches(rows)) {
+      await transaction.insert(marblesChanges).values(batch);
+    }
     this.#wake();
   }
 
@@ -168,11 +171,8 @@ export class DatabaseChangeLog implements ChangeLog {
     this.#owner = owner;
   }
 
-  compact(bound: CompactionBound): Promise<number> {
+  compact(bound: CompactionBound): Promise<CompactionStep> {
     return this.#database.transaction(async (transaction) => {
-      if (!(await this.#holding(transaction))) {
-        return 0;
-      }
       for (const key of bound.registered) {
         await transaction
           .update(marblesObservers)
@@ -190,31 +190,35 @@ export class DatabaseChangeLog implements ChangeLog {
           )
         );
       const floor = Math.min(head.position, lowest?.position ?? head.position);
-      const [aged] = await transaction
-        .select({
-          position: sql<number | null>`max(${marblesChanges.position})`,
-        })
+      const window = Math.min(
+        floor,
+        head.compacted + (bound.limit ?? COMPACTION_STEP)
+      );
+      const [young] = await transaction
+        .select({ position: min(marblesChanges.position) })
         .from(marblesChanges)
         .where(
           and(
             eq(marblesChanges.scope, this.#scope),
-            lte(marblesChanges.position, floor),
-            lt(marblesChanges.recordedAt, bound.before)
+            gt(marblesChanges.position, head.compacted),
+            lte(marblesChanges.position, window),
+            gte(marblesChanges.recordedAt, bound.before)
           )
         );
-      const through = aged?.position ?? 0;
+      const youngest = young?.position ?? null;
+      const through = youngest === null ? window : youngest - 1;
       if (through <= head.compacted) {
-        return 0;
+        return { done: true, removed: 0 };
       }
       const removed = await transaction
         .delete(marblesChanges)
         .where(
           and(
             eq(marblesChanges.scope, this.#scope),
+            gt(marblesChanges.position, head.compacted),
             lte(marblesChanges.position, through)
           )
-        )
-        .returning({ position: marblesChanges.position });
+        );
       await transaction
         .insert(marblesChangeLogs)
         .values({
@@ -226,7 +230,10 @@ export class DatabaseChangeLog implements ChangeLog {
           set: { compacted: through },
           target: marblesChangeLogs.scope,
         });
-      return removed.length;
+      return {
+        done: through < window || window === floor,
+        removed: (removed as { readonly rowsAffected: number }).rowsAffected,
+      };
     });
   }
 
@@ -384,7 +391,7 @@ export function changesAfter(
         gt(marblesChanges.position, query.after),
         query.types === undefined
           ? undefined
-          : inArray(marblesChanges.type, [...query.types])
+          : inList(marblesChanges.type, query.types)
       )
     )
     .orderBy(asc(marblesChanges.position))

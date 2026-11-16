@@ -1,5 +1,6 @@
 import type { Artifacts } from "@foundry/artifacts";
 import { stopOrphans } from "@foundry/lib/orphans";
+import { removeByHand } from "@foundry/sandbox/container/constants";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import type { ExecutionCoordinator } from "@foundry/workflows";
@@ -10,7 +11,7 @@ import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
 import { closeAbandonedRuns } from "./run-recovery";
 import type { RunStore } from "./run-store";
 import type { HarnessActivities } from "./sandbox/activities";
-import { leftBehind } from "./sandbox/holders";
+import { holderState, leftBehind } from "./sandbox/holders";
 
 const RECOVERY_STEPS = [
   "processes",
@@ -77,7 +78,13 @@ export class CrashRecovery {
       await this.#step("processes", () => this.#processes()),
       await this.#step("containers", () => this.#containers()),
       await this.#step("runs", async () => {
-        closed = await closeAbandonedRuns({ print, runs, store });
+        closed = await closeAbandonedRuns({
+          execution: (runId) =>
+            this.#options.executions().find((run) => run.id === runId),
+          print,
+          runs,
+          store,
+        });
         return done(closed.length, "run(s) closed out");
       }),
       await this.#step("activities", async () =>
@@ -139,23 +146,46 @@ export class CrashRecovery {
         outcome: "skipped",
       };
     }
-    if (!(await rows.list()).some(leftBehind)) {
-      return done(0, "container(s) removed");
+    const listed = await rows.list();
+    const untold = listed
+      .filter((row) => holderState(row) === "unknown")
+      .map(({ id }) => id);
+    const kept =
+      untold.length === 0
+        ? ""
+        : `; ${String(untold.length)} container(s) whose holder cannot be told gone or running kept: ${untold.join(", ")}`;
+    if (!listed.some(leftBehind)) {
+      return {
+        acted: untold.length > 0,
+        detail: `0 container(s) removed${kept}`,
+        outcome: "done",
+      };
     }
     const containers = await this.#options.containers();
-    const { kept, removed, swept } = await containers.recover(leftBehind);
+    const recovered = await containers.recover(leftBehind);
+    const { conflicts, passedOver, removed, swept } = recovered;
     const did = `${String(removed.length)} container(s) removed, ${String(swept.length)} VM(s) swept`;
-    return kept.length === 0
-      ? {
-          acted: removed.length + swept.length > 0,
-          detail: did,
-          outcome: "done",
-        }
-      : {
-          acted: true,
-          detail: `${did}; ${String(kept.length)} container(s) whose VM would not go kept, removing, for the next start to retry`,
-          outcome: "failed",
-        };
+    const passed =
+      passedOver.length === 0
+        ? ""
+        : `; ${String(passedOver.length)} VM(s) passed over, not provably this engine's: ${passedOver.join(", ")} (one no engine owns is removed by hand with ${removeByHand("<name>")})`;
+    if (recovered.kept.length === 0) {
+      return {
+        acted:
+          removed.length + swept.length + passedOver.length + untold.length > 0,
+        detail: `${did}${kept}${passed}`,
+        outcome: "done",
+      };
+    }
+    const conflicting =
+      conflicts.length === 0
+        ? ""
+        : `; the VM(s) ${conflicts.join(", ")} bear the id or name of one but are not provably its (another container records them, they carry no label of this store, or their name and label disagree), so they were left alone; one no engine owns is removed by hand with ${removeByHand("<name>")}`;
+    return {
+      acted: true,
+      detail: `${did}; ${String(recovered.kept.length)} container(s) whose VM would not go kept, removing, for the next start to retry${conflicting}${kept}${passed}`,
+      outcome: "failed",
+    };
   }
 
   #ended(): (runId: string) => boolean {

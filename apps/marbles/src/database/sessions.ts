@@ -11,6 +11,7 @@ import {
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { ChangeRecorder } from "~/database/changes";
 import { busyError } from "~/database/client";
+import { batches } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
 import { marblesSessionRevisions } from "~/database/tables";
 import { SESSIONS, sourceKey } from "~/lib/events/source";
@@ -23,8 +24,6 @@ export interface DatabaseSessionStoreOptions {
 }
 
 const SESSIONS_KEY = sourceKey(SESSIONS) ?? "sessions";
-
-const REVISION_BATCH = 500;
 
 export class DatabaseSessionStore implements ListedSessionStore {
   readonly #database: StoreDatabase;
@@ -205,14 +204,6 @@ async function raiseRevisions(
 }
 
 const raised = sql`${marblesSessionRevisions.revision} + 1`;
-
-function batches<T>(items: readonly T[]): T[][] {
-  const runs: T[][] = [];
-  for (let start = 0; start < items.length; start += REVISION_BATCH) {
-    runs.push(items.slice(start, start + REVISION_BATCH));
-  }
-  return runs;
-}
 
 async function asMarbles<T>(call: () => Promise<T>): Promise<T> {
   try {

@@ -38,10 +38,9 @@ export class RecordedStdioTransport extends StdioClientTransport {
     this.#env = params.env?.[SPAWN_RECORD_ENV] ? params.env : process.env;
   }
 
-  override start(): Promise<void> {
-    const started = super.start();
+  override async start(): Promise<void> {
+    await super.start();
     recordSpawned(this.pid ?? undefined, false, this.#env);
-    return started;
   }
 }
 

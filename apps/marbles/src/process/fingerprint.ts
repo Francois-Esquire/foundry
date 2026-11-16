@@ -61,6 +61,7 @@ export class FileDigests {
 export interface WorkspacePrint {
   readonly files: ReadonlyMap<string, string>;
   readonly outside: ReadonlyMap<string, string>;
+  readonly root: string;
   readonly tree: string;
 }
 
@@ -124,14 +125,14 @@ export function treeDigest(
   digests: FileDigests,
   ignored: ReadonlySet<string> = new Set()
 ): string {
-  return digestOfTree(treeFiles(registration, digests, ignored));
+  return digestOfTree(treeFiles(registration, digests, ignored).files);
 }
 
 function treeFiles(
   registration: Registration,
   digests: FileDigests,
   ignored: ReadonlySet<string>
-): ReadonlyMap<string, string> {
+): { readonly files: ReadonlyMap<string, string>; readonly root: string } {
   let { root } = registration;
   let files = filesBelow(root, TREE_LIMIT, ignored);
   if (files === undefined && registration.config !== null) {
@@ -142,7 +143,7 @@ function treeFiles(
   for (const file of files ?? []) {
     entries.set(relative(root, file), digests.of(file) ?? "missing");
   }
-  return entries;
+  return { files: entries, root };
 }
 
 function digestOfTree(files: ReadonlyMap<string, string>): string {
@@ -188,20 +189,21 @@ export function differences(was: Fingerprint, now: Fingerprint): string[] {
 }
 
 export function withRead(
-  registration: Registration,
   print: WorkspacePrint,
   file: string,
   readAt: number,
   digests: FileDigests
 ): WorkspacePrint {
-  if (isUnder(registration.root, file) || print.outside.has(file)) {
+  const covered =
+    isUnder(print.root, file) && print.files.has(relative(print.root, file));
+  if (covered || print.outside.has(file)) {
     return print;
   }
   const modified = digests.modified(file);
   const unchanged = modified !== undefined && modified < readAt;
   const outside = new Map(print.outside);
   outside.set(file, (unchanged && digests.of(file)) || CHANGED);
-  return { files: print.files, outside, tree: print.tree };
+  return { ...print, outside };
 }
 
 export function printNow(
@@ -215,7 +217,12 @@ export function printNow(
   for (const file of outside) {
     read.set(file, digests.of(file) ?? "missing");
   }
-  return { files: tree, outside: read, tree: digestOfTree(tree) };
+  return {
+    files: tree.files,
+    outside: read,
+    root: tree.root,
+    tree: digestOfTree(tree.files),
+  };
 }
 
 export function fingerprintOf(
@@ -245,8 +252,10 @@ export function sourceDigests(
 ): ReadonlyMap<string, string> {
   const digests = new Map<string, string>();
   for (const record of records) {
+    const tree = printNow(record, [], shared);
     const outside = (files.get(record.id) ?? []).filter(
-      (file) => !isUnder(record.root, file)
+      (file) =>
+        !(isUnder(tree.root, file) && tree.files.has(relative(tree.root, file)))
     );
     const print = printNow(record, outside, shared);
     digests.set(

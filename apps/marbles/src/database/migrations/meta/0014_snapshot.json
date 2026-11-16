@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c6cc4b7f-4bd5-41ad-ad2e-9ad67d1c6a64",
-  "prevId": "5c507001-4a55-43cc-8d33-da1f23b98d24",
+  "id": "55b3e523-c120-49ac-a7dd-1ac88ed25432",
+  "prevId": "4d8dc3ea-513f-4117-8856-0a9c673c5318",
   "tables": {
     "agent_messages": {
       "name": "agent_messages",
@@ -2597,6 +2597,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "workspaces": {
+          "name": "workspaces",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
         }
       },
       "indexes": {
@@ -2893,70 +2901,6 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "marbles_resource_workspaces": {
-      "name": "marbles_resource_workspaces",
-      "columns": {
-        "associated_at": {
-          "name": "associated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "owner": {
-          "name": "owner",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "resource_id": {
-          "name": "resource_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workspace": {
-          "name": "workspace",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "marbles_resource_workspaces_kind_workspace": {
-          "name": "marbles_resource_workspaces_kind_workspace",
-          "columns": [
-            "kind",
-            "workspace"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "marbles_resource_workspaces_owner_kind_resource_id_workspace_pk": {
-          "columns": [
-            "owner",
-            "kind",
-            "resource_id",
-            "workspace"
-          ],
-          "name": "marbles_resource_workspaces_owner_kind_resource_id_workspace_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

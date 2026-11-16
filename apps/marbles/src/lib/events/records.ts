@@ -1,6 +1,7 @@
 import { ownedWrite } from "@foundry/lib/plain-json";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import { MemoryTaskStore } from "@foundry/tasks/store/memory";
+import { callingRun } from "~/lib/calling-run";
 import type { ChangeLog, RecordedFact } from "~/lib/events/log";
 import { MemoryChangeLog } from "~/lib/events/log";
 import { sourceKey, TASKS } from "~/lib/events/source";
@@ -19,7 +20,7 @@ export interface DeliveryLease {
 }
 
 export function causingRun(): string | null {
-  return current.getStore()?.scope.id ?? null;
+  return current.getStore()?.scope.id ?? callingRun() ?? null;
 }
 
 const CLOSED = "workspace records are closed";

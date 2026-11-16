@@ -60,6 +60,14 @@ export class ManualClock implements DeliveryClock {
     }
   }
 
+  get periods(): readonly number[] {
+    return [...this.#ticks].map((ticking) => ticking.ms);
+  }
+
+  get ticking(): number {
+    return this.#ticks.size;
+  }
+
   get waiting(): number {
     return this.#waits.size;
   }

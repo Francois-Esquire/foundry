@@ -11,6 +11,7 @@ export interface ContainerStoreWrite {
 export interface ContainerStore {
   commit(write: ContainerStoreWrite): Promise<void>;
   get(id: string): Promise<ContainerRow | undefined>;
+  identity(): Promise<string>;
   list(): Promise<readonly ContainerRow[]>;
   transaction?<T>(work: (view: ContainerStore) => Promise<T>): Promise<T>;
 }

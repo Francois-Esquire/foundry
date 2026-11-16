@@ -1,11 +1,12 @@
 import type { JsonValue } from "@foundry/lib/json";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import {
   marblesExecutionGaps,
   marblesExecutionObservations,
   marblesExecutions,
+  marblesGenerations,
 } from "~/database/tables";
 import { RecordsGate } from "~/lib/events/records";
 import type {
@@ -69,6 +70,15 @@ export class DatabaseExecutionStore implements ExecutionStore {
 
   list(): Promise<readonly StoredExecution[]> {
     return this.#call(() => this.#view().list());
+  }
+
+  queuedOwnedBy(owner: {
+    readonly pid: number;
+    readonly started: string | null;
+  }): Promise<readonly string[]> {
+    return this.#call(() =>
+      queuedRunsOwnedBy(this.#database, this.#scope, owner)
+    );
   }
 
   withSource(
@@ -170,6 +180,61 @@ export async function readExecution(
   return (stored && parseStored(stored)) ?? null;
 }
 
+export async function queuedRunsOwnedBy(
+  database: StoreDatabase,
+  scope: string,
+  owner: { readonly pid: number; readonly started: string | null }
+): Promise<readonly string[]> {
+  const rows = await asBusy(() =>
+    database
+      .select({ id: marblesExecutions.id })
+      .from(marblesExecutions)
+      .where(
+        and(
+          eq(marblesExecutions.scope, scope),
+          eq(marblesExecutions.status, "queued"),
+          eq(marblesExecutions.ownerPid, owner.pid),
+          owner.started === null
+            ? sql`${marblesExecutions.ownerStarted} is null`
+            : eq(marblesExecutions.ownerStarted, owner.started)
+        )
+      )
+      .orderBy(asc(marblesExecutions.sequence))
+  );
+  return rows.map((row) => row.id);
+}
+
+export async function queuedRuns(
+  database: StoreDatabase,
+  scope: string
+): Promise<
+  readonly {
+    readonly id: string;
+    readonly owner: { readonly pid: number; readonly started: string | null };
+  }[]
+> {
+  const rows = await asBusy(() =>
+    database
+      .select({
+        id: marblesExecutions.id,
+        pid: marblesExecutions.ownerPid,
+        started: marblesExecutions.ownerStarted,
+      })
+      .from(marblesExecutions)
+      .where(
+        and(
+          eq(marblesExecutions.scope, scope),
+          eq(marblesExecutions.status, "queued")
+        )
+      )
+      .orderBy(asc(marblesExecutions.sequence))
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    owner: { pid: row.pid, started: row.started },
+  }));
+}
+
 type ExecutionRow = typeof marblesExecutions.$inferSelect;
 
 type KeptRecord = Omit<ExecutionRun, "observations">;
@@ -191,6 +256,23 @@ class DatabaseView implements ExecutionView {
       .from(marblesExecutions)
       .where(this.#run(id));
     return row && (await this.#stored([row]))[0];
+  }
+
+  async successor(): Promise<
+    { readonly pid: number; readonly started: string } | undefined
+  > {
+    const [row] = await this.#database
+      .select({
+        pid: marblesGenerations.pid,
+        started: marblesGenerations.started,
+      })
+      .from(marblesGenerations)
+      .where(eq(marblesGenerations.state, "current"))
+      .orderBy(desc(marblesGenerations.number))
+      .limit(1);
+    return row === undefined || row.pid <= 0 || row.started === null
+      ? undefined
+      : { pid: row.pid, started: row.started };
   }
 
   async gaps(): Promise<readonly RetentionGap[]> {

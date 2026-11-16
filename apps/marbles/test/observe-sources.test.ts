@@ -36,6 +36,7 @@ import {
   WORKSPACES,
 } from "~/lib/events/source";
 import { current } from "~/lib/run-scope";
+import { testEngine } from "./helpers/engine";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
@@ -65,7 +66,7 @@ describe("observing every source", () => {
     const records = machine.records(state);
     const { changes } = records;
     const { database } = machine.database;
-    const stores = workspaceStores(database, scope, changes);
+    const stores = workspaceStores(database, scope, { changes });
     const sessionStore = new DatabaseSessionStore({
       changes,
       database,
@@ -198,7 +199,7 @@ describe("the run a fact is recorded as made by", () => {
     const records = machine.records(state);
     const { changes } = records;
     const { database } = machine.database;
-    const stores = workspaceStores(database, scope, changes);
+    const stores = workspaceStores(database, scope, { changes });
     const runStore = new DatabaseRunStore({ changes, database, scope });
     const committers: readonly (readonly [
       string,
@@ -463,5 +464,62 @@ describe("a Run commit the owner check refuses", () => {
     expect((await owned.getRun(run.id))?.status).toBe("queued");
     await owner.close();
     await other.close();
+  });
+});
+
+describe("a commit carrying more facts than one statement can bind", () => {
+  it("records every one, each at the position the commit gave it, in the commit's own transaction", async () => {
+    const state = machine.workspace();
+    const scope = basename(state);
+    const records = machine.records(state);
+    const { artifacts } = workspaceStores(machine.database.database, scope, {
+      changes: records.changes,
+    });
+    const manager = new ArtifactManager({ store: artifacts });
+    const { id } = await manager.create({
+      entries: { "a.md": { bytes: "# A" } },
+      name: "Renamed",
+      type: "text/markdown",
+    });
+    const before = await records.log.head();
+    const renames = 5000;
+    await manager.transaction(async (artifact) => {
+      for (let index = 0; index < renames; index += 1) {
+        await artifact.rename(id, `name ${String(index)}`);
+      }
+    });
+
+    const logged = (await machine.changes(state, "artifacts")).filter(
+      (change) => change.position > before
+    );
+    expect(logged.length).toBeGreaterThanOrEqual(renames);
+    expect(logged.map((change) => change.position)).toEqual(
+      logged.map((_, index) => before + index + 1)
+    );
+    expect(await records.log.head()).toBe(before + logged.length);
+    expect((await manager.get(id))?.name).toBe(`name ${String(renames - 1)}`);
+    await records.close();
+  }, 60_000);
+});
+
+describe("the run a host task's fact is recorded as made by", () => {
+  it("is the task's own run, though no step frame is around its body", async () => {
+    const state = machine.workspace();
+    const engine = testEngine({
+      print: () => undefined,
+      records: machine.records(state),
+      state,
+    });
+    engine.task({
+      name: "writer",
+      run: () =>
+        new Tasks({ store: engine.taskStore }).create({ title: "from a task" }),
+    });
+    await engine.start();
+    const launched = await engine.launch("writer", {});
+    await launched.result;
+    const [fact] = await machine.changes(state, "tasks");
+    expect(fact?.runId).toBe(launched.id);
+    await engine.dispose();
   });
 });

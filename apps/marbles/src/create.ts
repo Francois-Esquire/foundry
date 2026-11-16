@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
@@ -52,6 +52,7 @@ import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot, executionEnvironment } from "~/lib/environment";
 import { sourceKey } from "~/lib/events/source";
+import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { localCatalogue } from "~/lib/managers/workspaces";
@@ -77,6 +78,7 @@ export interface CreateEngineOptions {
   readonly catalog: Catalog;
   readonly cwd?: string;
   readonly database?: StoreDatabase;
+  readonly databaseFile?: string;
   readonly dry: boolean;
   /** The machine environment and the workspace's Varlock values; the process's own when omitted. */
   readonly environment?: {
@@ -360,12 +362,12 @@ class OwnDatabaseEngine extends PublishedEngine {
     this.#database = database;
   }
 
-  override async dispose(): Promise<void> {
-    try {
-      await super.dispose();
-    } finally {
-      await this.#database.close();
-    }
+  override dispose(): Promise<void> {
+    return inTurn(
+      () => super.dispose(),
+      () => this.#database.close(),
+      "Failed to dispose the engine and close its database"
+    );
   }
 }
 
@@ -389,10 +391,22 @@ function containersFor(
       allowedMountRoots: allowedMountRoots([root, worktreeHome, ...declared]),
       holder: containerHolder(),
       instanceLabel: `marbles-${workspaceId}`,
+      report: (line) => print(`[sandbox] ${line}`),
       runtime: await runtime(),
       store: store ?? createMemoryContainerStore(),
     });
   };
+}
+
+function realPath(file: string | undefined): string | undefined {
+  if (file === undefined) {
+    return;
+  }
+  try {
+    return realpathSync(file);
+  } catch {
+    // Then the identity is the one the database keeps, as without a file.
+  }
 }
 
 /** Build each instance, hand them to a new engine, and declare the config to it. Not yet started. */
@@ -411,7 +425,10 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const stores =
     database === undefined
       ? undefined
-      : workspaceStores(database, workspaceId, changes);
+      : workspaceStores(database, workspaceId, {
+          changes,
+          location: realPath(options.databaseFile),
+        });
   const git = dry ? { run: echoGit(print) } : {};
   const { links, ...artifacts } = artifactsFor(stores, options);
   const engineOptions: EngineOptions = {

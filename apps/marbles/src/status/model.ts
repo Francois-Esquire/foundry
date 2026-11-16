@@ -1,4 +1,8 @@
-import { isGone } from "@foundry/lib/process-identity";
+import {
+  isGone,
+  type ProcessState,
+  processState,
+} from "@foundry/lib/process-identity";
 import { readStoredObservers } from "~/database/changes";
 import {
   type GenerationRecord,
@@ -32,7 +36,7 @@ interface GenerationStatus {
   readonly alive: boolean;
   readonly number: number;
   readonly pid: number;
-  readonly state: GenerationState;
+  readonly state: GenerationState | "cannot tell";
 }
 
 export interface WorkspaceStatus {
@@ -115,12 +119,18 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
           }
           return read;
         });
-  const generations = (await readLiveGenerations(stateRoot)).map(
-    generationStatus
-  );
-  const current = generations.find(
+  const live = await readLiveGenerations(stateRoot);
+  const generations = live.map(generationStatus);
+  const index = generations.findIndex(
     (generation) => generation.state === "current" && generation.alive
   );
+  const current =
+    index === -1
+      ? undefined
+      : {
+          pid: live[index]?.pid ?? 0,
+          workspaces: live[index]?.workspaces ?? [],
+        };
   return {
     generations,
     process: readProcess(stateRoot) ?? null,
@@ -141,24 +151,42 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
 }
 
 function generationStatus(record: GenerationRecord): GenerationStatus {
+  const seen = processOf(record);
   return {
-    alive:
-      record.pid > 0 && !isGone({ pid: record.pid, started: record.started }),
+    alive: seen === "running",
     number: record.number,
     pid: record.pid,
-    state: record.state,
+    state: seen === "unknown" ? "cannot tell" : record.state,
   };
 }
 
+function processOf(record: GenerationRecord): ProcessState {
+  if (record.pid <= 0) {
+    return "gone";
+  }
+  if (record.started === null) {
+    return "unknown";
+  }
+  return processState({ pid: record.pid, started: record.started });
+}
+
+interface CurrentHost {
+  readonly pid: number;
+  readonly workspaces: readonly string[];
+}
+
 function readWorkspaceStatus(
-  current: GenerationStatus | undefined,
+  current: CurrentHost | undefined,
   record: WorkspaceRecord,
   shows: Shows,
   ticks: readonly StoredTick[],
   recovery: RecoveryReport | null,
   log: Awaited<ReturnType<typeof readStoredObservers>>
 ): WorkspaceStatus {
-  const host = record.hosted ? current : undefined;
+  const host =
+    record.hosted && current?.workspaces.includes(record.id) === true
+      ? current
+      : undefined;
   return {
     alive: host !== undefined,
     artifacts: shows.artifacts,

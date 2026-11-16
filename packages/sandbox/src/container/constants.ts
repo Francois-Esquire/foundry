@@ -43,6 +43,7 @@ export const CONTAINER_OWNER_ID_LABEL = "com.foundry.environment.owner-id";
 export const CONTAINER_INSTANCE_LABEL = "com.foundry.container.instance";
 
 export const CONTAINER_ID_LABEL = "com.foundry.container.id";
+export const CONTAINER_STORE_LABEL = "com.foundry.container.store";
 
 /** Guest memory when `resources.memoryBytes` is unset. */
 export const DEFAULT_CONTAINER_MEMORY_MIB = 1024;
@@ -73,3 +74,7 @@ export const CONTAINER_SANDBOX_CONSTRAINTS_FORMAT =
 export const INVENTORY_PAGE_LIMIT = 100;
 
 export const MAX_INVENTORY_PAGES = 1000;
+
+export function removeByHand(name: string): string {
+  return `\`msb rm -f ${name}\` (msb is node_modules/.bin/msb, in the Foundry install)`;
+}

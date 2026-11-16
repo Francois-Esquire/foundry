@@ -5,12 +5,13 @@ import type {
 } from "@foundry/workflows/store";
 import type { WorkflowTransaction } from "@foundry/workflows/store/sqlite";
 import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { removeShares } from "~/database/associations";
 import { aroundCalls, asBusy } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
 import { followExecution, readExecution } from "~/database/executions";
+import { inList } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
 import {
   CHANGED,
@@ -63,6 +64,7 @@ export class DatabaseRunStore implements RunStore {
   readonly #scope: string;
   readonly #changes: ChangeRecorder;
   readonly #owner = randomUUID();
+  readonly #letGo = new Set<string>();
   readonly #gate = new RecordsGate("the run store is closed");
 
   constructor(options: DatabaseRunStoreOptions) {
@@ -72,14 +74,18 @@ export class DatabaseRunStore implements RunStore {
   }
 
   claim(runId: string, when: ClaimCondition): Promise<boolean> {
-    return this.#call(() =>
-      claimJudged(
+    return this.#call(async () => {
+      const claimed: boolean = await claimJudged<boolean, boolean>(
         () => this.#ownerOf(this.#database, runId),
         (seen) => seen !== undefined && this.#heldElsewhere(seen),
         (seen, held) => this.#claimIn(runId, when, seen, held),
         false
-      )
-    );
+      );
+      if (claimed) {
+        this.#letGo.delete(runId);
+      }
+      return claimed;
+    });
   }
 
   async #ownerOf(
@@ -190,6 +196,9 @@ export class DatabaseRunStore implements RunStore {
   }
 
   release(runId?: string): Promise<void> {
+    if (runId !== undefined) {
+      this.#letGo.add(runId);
+    }
     return this.#call(async () => {
       await this.#database
         .update(marblesWorkflowRuns)
@@ -225,6 +234,9 @@ export class DatabaseRunStore implements RunStore {
     recorded: (runId: string) => RecordedScope | undefined
   ): Promise<void> {
     for (const { runId, scope, settled } of filedRuns(write, recorded)) {
+      if (this.#letGo.has(runId)) {
+        throw new RunMovedError(runId);
+      }
       const held = await this.#ownerOf(transaction, runId);
       if (
         held !== undefined &&
@@ -264,7 +276,7 @@ export class DatabaseRunStore implements RunStore {
         .where(
           and(
             eq(marblesWorkflowRuns.scope, this.#scope),
-            inArray(marblesWorkflowRuns.runId, [...deleted])
+            inList(marblesWorkflowRuns.runId, deleted)
           )
         );
     }
@@ -343,7 +355,7 @@ export async function unheldParkedRuns(
       .where(
         and(
           eq(marblesWorkflowRuns.scope, scope),
-          inArray(marblesWorkflowRuns.runId, parked)
+          inList(marblesWorkflowRuns.runId, parked)
         )
       )
   );

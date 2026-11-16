@@ -1,5 +1,6 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
+import { inList } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
 import { marblesResourceWorkspaces } from "~/database/tables";
 import type { StoreTransaction } from "~/database/transaction";
@@ -114,25 +115,16 @@ export async function removeShares(
   ids: readonly unknown[]
 ): Promise<void> {
   const named = ids.filter((id): id is string => typeof id === "string");
-  for (const batch of chunks(named)) {
-    await transaction
-      .delete(marblesResourceWorkspaces)
-      .where(
-        and(
-          eq(marblesResourceWorkspaces.owner, owner),
-          eq(marblesResourceWorkspaces.kind, kind),
-          inArray(marblesResourceWorkspaces.resourceId, batch)
-        )
-      );
+  if (named.length === 0) {
+    return;
   }
-}
-
-const BATCH = 500;
-
-function chunks(ids: readonly string[]): string[][] {
-  const batches: string[][] = [];
-  for (let start = 0; start < ids.length; start += BATCH) {
-    batches.push(ids.slice(start, start + BATCH));
-  }
-  return batches;
+  await transaction
+    .delete(marblesResourceWorkspaces)
+    .where(
+      and(
+        eq(marblesResourceWorkspaces.owner, owner),
+        eq(marblesResourceWorkspaces.kind, kind),
+        inList(marblesResourceWorkspaces.resourceId, named)
+      )
+    );
 }

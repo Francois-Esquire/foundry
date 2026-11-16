@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
-  isGone,
   isProcessIdentity,
+  type ProcessState,
+  processState,
   thisProcess,
 } from "@foundry/lib/process-identity";
 import type { ContainerRow } from "@foundry/sandbox/store";
@@ -11,15 +12,19 @@ export function containerHolder(): string {
   return JSON.stringify({ pid, registry: randomUUID(), started });
 }
 
-export function leftBehind(row: ContainerRow): boolean {
+export function holderState(row: ContainerRow): ProcessState {
   if (row.holder === undefined) {
-    return true;
+    return "unknown";
   }
   let holder: unknown;
   try {
     holder = JSON.parse(row.holder);
   } catch {
-    return true;
+    return "unknown";
   }
-  return !isProcessIdentity(holder) || isGone(holder);
+  return isProcessIdentity(holder) ? processState(holder) : "unknown";
+}
+
+export function leftBehind(row: ContainerRow): boolean {
+  return holderState(row) === "gone";
 }

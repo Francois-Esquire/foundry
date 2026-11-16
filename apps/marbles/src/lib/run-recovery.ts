@@ -51,7 +51,7 @@ export async function adoptParkedRun(
       refused = `it is ${stored === null ? "gone" : stored.status} now, not parked`;
       return false;
     }
-    sawExecution = execution !== undefined;
+    sawExecution = execution !== undefined && execution !== null;
     if (execution && SETTLED_EXECUTION_STATUSES.has(execution.status)) {
       refused = "its execution run has settled";
       return false;
@@ -129,6 +129,7 @@ function abandonedBecause(execution: ExecutionRun): {
 }
 
 export interface AbandonedRunsOptions {
+  readonly execution: (runId: string) => ExecutionRun | undefined;
   readonly print: (line: string) => void;
   readonly runs: RunStore;
   readonly store: Pick<ExecutionCoordinator, "abandonRun" | "listRuns">;
@@ -142,16 +143,13 @@ export async function closeAbandonedRuns(
     return closed;
   }
   for (const run of await unsettled(options.store)) {
+    const held = options.execution(run.id);
     const read: { settled?: ExecutionRun } = {};
     const claimed = await options.runs.claim(run.id, (stored, execution) => {
       const open = stored?.status === "queued" || stored?.status === "running";
-      if (
-        open &&
-        execution !== null &&
-        execution !== undefined &&
-        SETTLED_EXECUTION_STATUSES.has(execution.status)
-      ) {
-        read.settled = execution;
+      const seen = execution ?? held;
+      if (open && seen && SETTLED_EXECUTION_STATUSES.has(seen.status)) {
+        read.settled = seen;
         return true;
       }
       return false;

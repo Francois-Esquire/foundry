@@ -11,10 +11,11 @@ import type { ContainerRow } from "@foundry/sandbox/schema";
 import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import type { RunRecord } from "@foundry/workflows/schema";
 import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { DatabaseAssociationStore } from "~/database/associations";
 import { asBusy } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
+import { inList } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { rowOwner } from "~/database/owner";
@@ -257,28 +258,23 @@ export class ResourceView {
     const database = this.#database;
     const ownerPids = async (owner: string, ids?: readonly string[]) => {
       const pids = new Map<string, ProcessIdentity | null>();
-      const read = (batch?: readonly string[]) =>
-        database
-          .select({
-            ownerPid: marblesWorkflowRuns.ownerPid,
-            ownerStarted: marblesWorkflowRuns.ownerStarted,
-            runId: marblesWorkflowRuns.runId,
-          })
-          .from(marblesWorkflowRuns)
-          .where(
-            and(
-              eq(marblesWorkflowRuns.scope, owner),
-              batch === undefined
-                ? undefined
-                : inArray(marblesWorkflowRuns.runId, [...batch])
-            )
-          );
-      for (const rows of ids === undefined
-        ? [await read()]
-        : await Promise.all(batches(ids).map(read))) {
-        for (const row of rows) {
-          pids.set(row.runId, rowOwner(row));
-        }
+      const rows = await database
+        .select({
+          ownerPid: marblesWorkflowRuns.ownerPid,
+          ownerStarted: marblesWorkflowRuns.ownerStarted,
+          runId: marblesWorkflowRuns.runId,
+        })
+        .from(marblesWorkflowRuns)
+        .where(
+          and(
+            eq(marblesWorkflowRuns.scope, owner),
+            ids === undefined
+              ? undefined
+              : inList(marblesWorkflowRuns.runId, ids)
+          )
+        );
+      for (const row of rows) {
+        pids.set(row.runId, rowOwner(row));
       }
       return pids;
     };
@@ -450,16 +446,6 @@ function byOwner(
     grouped.set(ref.owner, group);
   }
   return grouped;
-}
-
-const BATCH = 500;
-
-function batches(ids: readonly string[]): (readonly string[])[] {
-  const all: (readonly string[])[] = [];
-  for (let start = 0; start < ids.length; start += BATCH) {
-    all.push(ids.slice(start, start + BATCH));
-  }
-  return all;
 }
 
 function newestOfEach<T>(

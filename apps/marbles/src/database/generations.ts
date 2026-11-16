@@ -1,3 +1,4 @@
+import { isGone } from "@foundry/lib/process-identity";
 import { desc, eq, inArray } from "drizzle-orm";
 
 import { asBusy } from "~/database/busy";
@@ -15,6 +16,7 @@ export interface GenerationRecord {
   readonly pid: number;
   readonly started: string | null;
   readonly state: GenerationState;
+  readonly workspaces: readonly string[];
 }
 
 const LIVE: readonly GenerationState[] = ["loading", "current", "retiring"];
@@ -54,6 +56,10 @@ export class GenerationRecords {
     return this.#set(number, { started });
   }
 
+  hosting(number: number, workspaces: readonly string[]): Promise<void> {
+    return this.#set(number, { workspaces: [...workspaces].sort() });
+  }
+
   mark(number: number, state: GenerationState, error?: string): Promise<void> {
     return this.#set(number, {
       state,
@@ -63,11 +69,50 @@ export class GenerationRecords {
 
   endAll(): Promise<void> {
     return asBusy(async () => {
-      await this.#database
-        .update(marblesGenerations)
-        .set({ state: "exited", updatedAt: new Date().toISOString() })
+      const live = await this.#database
+        .select({
+          number: marblesGenerations.number,
+          pid: marblesGenerations.pid,
+          started: marblesGenerations.started,
+        })
+        .from(marblesGenerations)
         .where(inArray(marblesGenerations.state, [...LIVE]));
+      const at = new Date().toISOString();
+      const provable = live.filter(
+        (row) => row.pid <= 0 || row.started !== null
+      );
+      for (const each of provable) {
+        const gone =
+          each.pid <= 0 || isGone({ pid: each.pid, started: each.started });
+        await this.#database
+          .update(marblesGenerations)
+          .set({ state: gone ? "exited" : "retiring", updatedAt: at })
+          .where(eq(marblesGenerations.number, each.number));
+      }
     });
+  }
+
+  async endGone(): Promise<readonly number[]> {
+    const retiring = await asBusy(() =>
+      this.#database
+        .select({
+          number: marblesGenerations.number,
+          pid: marblesGenerations.pid,
+          started: marblesGenerations.started,
+        })
+        .from(marblesGenerations)
+        .where(eq(marblesGenerations.state, "retiring"))
+    );
+    const gone = retiring.filter(
+      (each) =>
+        each.pid > 0 &&
+        each.started !== null &&
+        isGone({ pid: each.pid, started: each.started })
+    );
+    for (const each of gone) {
+      await this.#set(each.number, { state: "exited" });
+    }
+    return gone.map((each) => each.number);
   }
 
   #set(
@@ -102,5 +147,6 @@ export async function readLiveGenerations(
     pid: row.pid,
     started: row.started,
     state: row.state,
+    workspaces: row.workspaces,
   }));
 }

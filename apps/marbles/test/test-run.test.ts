@@ -6,9 +6,15 @@ import {
   readdirSync,
   readFileSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import {
+  lookProcesses,
+  processAlive,
+  processState,
+} from "@foundry/lib/process-identity";
 import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { expect, it, vi } from "vitest";
@@ -23,12 +29,15 @@ import { RecordedStdioTransport } from "./helpers/mcp-stdio";
 import {
   type Marker,
   type ProcessSystem,
+  parseMembers,
   recordProcess,
   stopRecorded,
   unrecordedMarked,
 } from "./helpers/processes";
 import {
   RUN_ENV,
+  removeRoot,
+  runIsOver,
   runRecords,
   startRun,
   sweepFinishedRuns,
@@ -153,6 +162,7 @@ it("proves a recorded process again before every signal, so a reused pid gets no
   let started = "Sun Nov 15 08:00:00 2026";
   const sent: [number, NodeJS.Signals][] = [];
   const system: ProcessSystem = {
+    alive: () => true,
     environment: () => [entry(marker)],
     kill(target, signal) {
       sent.push([target, signal]);
@@ -166,6 +176,161 @@ it("proves a recorded process again before every signal, so a reused pid gets no
     await stopRecorded(records, marker, { graceMs: 0, killMs: 0 }, system)
   ).toEqual([]);
   expect(sent).toEqual([[-4242, "SIGTERM"]]);
+});
+
+it("forgets a run's record only on proof its process is gone: never one unlisted that a signal reaches, nor one of a start it cannot compare", async () => {
+  const marker = uniqueMarker();
+  const records = temporaryDirectory("rec-");
+  const pid = 4_200_400;
+  const started = "ps:Sun Nov 15 08:00:00 2026";
+  const path = join(records, `${String(pid)}.json`);
+  const stop = (system: Partial<ProcessSystem>) =>
+    stopRecorded(
+      records,
+      marker,
+      { graceMs: 0, killMs: 0 },
+      {
+        alive: () => false,
+        environment: () => [entry(marker)],
+        kill: () => {
+          throw new Error("nothing here may be signalled");
+        },
+        look: () => new Map(),
+        members: () => [],
+        sleep: () => Promise.resolve(),
+        ...system,
+      }
+    );
+  const put = (start: string) =>
+    writePrivateFile(
+      path,
+      JSON.stringify({ group: false, pid, started: start })
+    );
+
+  put(started);
+  expect(await stop({ alive: (each) => each === pid })).toEqual([
+    expect.stringContaining("is not listed but a signal still reaches it"),
+  ]);
+  expect(existsSync(path)).toBe(true);
+
+  put("linux:00000000-0000-0000-0000-000000000000:1");
+  expect(
+    await stop({
+      alive: () => true,
+      look: () => new Map([[pid, { pgid: 1, started }]]),
+    })
+  ).toEqual([expect.stringContaining("a start of a kind this system cannot")]);
+  expect(existsSync(path)).toBe(true);
+
+  put(started);
+  expect(
+    await stop({
+      alive: () => true,
+      look: () => new Map([[pid, { exited: true, pgid: 1, started }]]),
+    })
+  ).toEqual([]);
+  expect(existsSync(records)).toBe(false);
+});
+
+function madeUpSystem(
+  marker: Marker,
+  running: Set<number>,
+  started: string,
+  onKill: (target: number) => void = () => undefined
+): {
+  readonly sent: [number, NodeJS.Signals][];
+  readonly system: ProcessSystem;
+} {
+  const sent: [number, NodeJS.Signals][] = [];
+  return {
+    sent,
+    system: {
+      alive: (pid) => running.has(pid),
+      environment: (pid) => (running.has(pid) ? [entry(marker)] : undefined),
+      kill(target, signal) {
+        sent.push([target, signal]);
+        running.delete(Math.abs(target));
+        onKill(target);
+      },
+      look: (pids) =>
+        new Map(
+          pids
+            .filter((pid) => running.has(pid))
+            .map((pid) => [pid, { pgid: 1, started }])
+        ),
+      members: () => [],
+      sleep: () => Promise.resolve(),
+    },
+  };
+}
+
+it("stops a process recorded while the stop runs, and keeps its record until it is gone", async () => {
+  const marker = uniqueMarker();
+  const records = temporaryDirectory("rec-");
+  const started = "Sun Nov 15 08:00:00 2026";
+  const record = (pid: number) =>
+    writePrivateFile(
+      join(records, `${String(pid)}.json`),
+      JSON.stringify({ group: false, pid, started })
+    );
+  record(5151);
+  const running = new Set([5151]);
+  const { sent, system } = madeUpSystem(marker, running, started, (target) => {
+    if (target === 5151) {
+      running.add(5252);
+      record(5252);
+    }
+  });
+  expect(
+    await stopRecorded(records, marker, { graceMs: 0, killMs: 0 }, system)
+  ).toEqual([]);
+  expect(sent).toEqual([
+    [5151, "SIGTERM"],
+    [5252, "SIGTERM"],
+  ]);
+  expect(existsSync(records)).toBe(false);
+});
+
+it("keeps, as not clear, the records directory while a record is still being written there, and removes a dead writer's", async () => {
+  const marker = uniqueMarker();
+  const records = temporaryDirectory("rec-");
+  const nested = join(records, "home");
+  mkdirPrivate(nested);
+  const dead = join(nested, ".1.json.dead.tmp");
+  writePrivateFile(dead, "{");
+  const old = new Date(Date.now() - 3_600_000);
+  utimesSync(dead, old, old);
+  const { system } = madeUpSystem(marker, new Set(), "");
+  expect(
+    await stopRecorded(records, marker, { graceMs: 0, killMs: 0 }, system)
+  ).toEqual([]);
+  expect(existsSync(records)).toBe(false);
+
+  const writing = temporaryDirectory("rec-");
+  writePrivateFile(join(writing, ".2.json.live.tmp"), "{");
+  expect(
+    await stopRecorded(writing, marker, { graceMs: 0, killMs: 0 }, system)
+  ).toEqual([expect.stringContaining("a record still being written")]);
+  expect(existsSync(join(writing, ".2.json.live.tmp"))).toBe(true);
+
+  const odd = temporaryDirectory("rec-");
+  writePrivateFile(join(odd, "notes.txt"), "?");
+  expect(
+    await stopRecorded(odd, marker, { graceMs: 0, killMs: 0 }, system)
+  ).toEqual([expect.stringContaining("notes.txt, not a record")]);
+  expect(existsSync(odd)).toBe(true);
+});
+
+it("takes a group's member that has exited but is not reaped (a zombie) for gone", () => {
+  const members = [
+    "  101   101 Ss",
+    "  102   101 Z",
+    "  103   101 ZN",
+    "  104   101 S+",
+    "  105   202 S",
+  ].join("\n");
+  expect(parseMembers(members, 101)).toEqual([101, 104]);
+  expect(parseMembers("  102   101 Z", 101)).toEqual([]);
 });
 
 it("does not signal a recorded process whose pid now names one that started later", async () => {
@@ -298,6 +463,7 @@ it("does not signal a recorded process whose environment cannot be read, and rep
   );
   const sent: [number, NodeJS.Signals][] = [];
   const system: ProcessSystem = {
+    alive: () => true,
     environment: () => undefined,
     kill: (target, signal) => {
       sent.push([target, signal]);
@@ -501,6 +667,7 @@ it("reads each process's identity again right before its own signal", async () =
   ]);
   const sent: [number, NodeJS.Signals][] = [];
   const system: ProcessSystem = {
+    alive: (pid) => started.has(pid),
     environment: () => [entry(marker)],
     kill(target, signal) {
       sent.push([target, signal]);
@@ -618,6 +785,72 @@ it("keeps a run's root while a process carries its marker without a record, and 
   }
 });
 
+it("takes a run for over only as the one rule for owners does: never for one a signal reaches that the listing leaves out", () => {
+  const parent = temporaryDirectory("sw-");
+  const root = join(parent, "marbles-run-made-up");
+  mkdirPrivate(root);
+  writePrivateFile(
+    join(root, "owner.json"),
+    JSON.stringify({ pid: 4_200_130, started: "ps:Sun Nov 15 08:00:00 2026" })
+  );
+  const unlisted = { alive: () => true, look: () => new Map() };
+  expect(runIsOver(root, unlisted)).toBe(false);
+  const exited = {
+    alive: () => true,
+    look: () =>
+      new Map([
+        [
+          4_200_130,
+          {
+            exited: true as const,
+            pgid: 1,
+            started: "ps:Sun Nov 15 08:00:00 2026",
+          },
+        ],
+      ]),
+  };
+  expect(runIsOver(root, exited)).toBe(true);
+  expect(runIsOver(root, { alive: () => false, look: () => new Map() })).toBe(
+    true
+  );
+});
+
+it("keeps a run's root while a record is still being written in it, and never removes a root a record came back to", async () => {
+  const parent = temporaryDirectory("sw-");
+  const run = startRun(parent, FAST);
+  mkdirPrivate(join(run.records, "run"));
+  writePrivateFile(join(run.records, "run", ".9.json.live.tmp"), "{");
+  await run.finish();
+  expect(existsSync(join(run.records, "run", ".9.json.live.tmp"))).toBe(true);
+
+  const other = startRun(parent, FAST);
+  mkdirPrivate(other.records);
+  writePrivateFile(join(other.records, "9.json"), "{}");
+  expect(await removeRoot(other.root)).toEqual(
+    expect.arrayContaining([expect.stringContaining("is not a process record")])
+  );
+  expect(
+    readdirSync(parent, { recursive: true }).filter((name) =>
+      String(name).endsWith("9.json")
+    )
+  ).toHaveLength(1);
+});
+
+it("leaves a run whose owner's start is of a kind it cannot compare, as one it cannot tell over", async () => {
+  const parent = temporaryDirectory("sw-");
+  const root = join(parent, "marbles-run-other-kind");
+  mkdirPrivate(join(root, "spawned"));
+  writePrivateFile(
+    join(root, "owner.json"),
+    JSON.stringify({
+      pid: process.pid,
+      started: "Sun Nov 15 08:00:00 2026",
+    })
+  );
+  await sweepFinishedRuns(parent, FAST);
+  expect(existsSync(join(root, "spawned"))).toBe(true);
+});
+
 it("leaves a live run whose owner started under another time zone and language", async () => {
   const parent = temporaryDirectory("sw-");
   const script = join(parent, "owner.ts");
@@ -667,7 +900,7 @@ it("sweeps a run whose owner's pid now names a process started later", async () 
   }
 });
 
-it("leaves a live run, roots that never named a readable owner, and their processes alone", async () => {
+it("leaves a live run and a root whose owner cannot be read alone, and handles the records of one that names no owner", async () => {
   const parent = temporaryDirectory("sw-");
   const live = startRun(parent, FAST);
   const liveChild = await sleeper({ [RUN_ENV]: live.root });
@@ -684,12 +917,13 @@ it("leaves a live run, roots that never named a readable owner, and their proces
     await sweepFinishedRuns(parent, FAST);
     expect(existsSync(killed.root)).toBe(false);
     await gone(killed.leftover);
+    await gone(silentChild);
     expect([live.root, silent, garbled].map(existsSync)).toEqual([
       true,
-      true,
+      false,
       true,
     ]);
-    expect([liveChild, silentChild].map(alive)).toEqual([true, true]);
+    expect(alive(liveChild)).toBe(true);
   } finally {
     await live.finish();
     kill(silentChild);
@@ -698,7 +932,7 @@ it("leaves a live run, roots that never named a readable owner, and their proces
   expect(existsSync(live.root)).toBe(false);
 });
 
-const left: { home?: string; pid?: number } = {};
+const left: { home?: string; pid?: number; started?: string | null } = {};
 
 it("records the Marbles process a test's CLI starts in the test's home", () => {
   const home = testHome();
@@ -728,11 +962,17 @@ it("records the Marbles process a test's CLI starts in the test's home", () => {
   ).toHaveLength(1);
   left.home = home.path;
   left.pid = daemon?.pid;
+  left.started = daemon?.started;
 }, 60_000);
 
 it("stops that process and removes the home when the test finishes", () => {
   expect(left.pid).toBeDefined();
-  expect(alive(left.pid ?? 0)).toBe(false);
+  expect(
+    processState(
+      { pid: left.pid ?? 0, started: left.started ?? null },
+      { alive: processAlive, look: lookProcesses }
+    )
+  ).toBe("gone");
   expect(existsSync(left.home ?? "")).toBe(false);
 });
 

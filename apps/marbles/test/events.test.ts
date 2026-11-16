@@ -16,6 +16,7 @@ import {
   vi,
 } from "vitest";
 import { DatabaseChangeLog } from "~/database/changes";
+import { openDatabase } from "~/database/open";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import type { Engine } from "~/lib/engine";
 import { DELIVERY_POLL_MS, Delivery, retryDelay } from "~/lib/events/delivery";
@@ -1007,14 +1008,6 @@ describe("delivery lifecycle", () => {
         to: 1,
       })
     ).toEqual({ kind: "unclaimed" });
-    expect(
-      await older.log.compact({
-        before: Date.now() + 1,
-        now: Date.now(),
-        registered: [],
-        seenSince: Date.now() + 1,
-      })
-    ).toBe(0);
     expect((await newer.log.observers())[0]).toMatchObject({
       failures: 1,
       position: 0,
@@ -1211,6 +1204,201 @@ setInterval(() => undefined, 1000);
   });
 });
 
+describe("an engine that observes nothing", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  function deliveryOver(
+    records: WorkspaceRecords,
+    clock: ManualClock,
+    lines: string[],
+    label: string
+  ) {
+    return new Delivery({
+      clock,
+      print: (line) => lines.push(`${label} ${line}`),
+      records,
+      retention: DAY,
+    });
+  }
+
+  function watching(delivery: Delivery, seen: string[]): Delivery {
+    delivery.observe(
+      TASKS,
+      (fact: TaskEvent) => {
+        seen.push(titles([fact]).join());
+      },
+      { name: "watcher" }
+    );
+    return delivery;
+  }
+
+  it("does not stand in the way of one that observes, when it started first", async () => {
+    const state = stateDir();
+    const clock = new ManualClock();
+    const lines: string[] = [];
+    const seen: string[] = [];
+    const recordsA = machine.records(state);
+    const recordsB = machine.records(state);
+    const a = deliveryOver(recordsA, clock, lines, "A");
+    const b = watching(deliveryOver(recordsB, clock, lines, "B"), seen);
+    await a.start();
+    await b.start();
+    await new Tasks({ store: recordsB.taskStore }).create({ title: "x" });
+    b.wake();
+    await b.idle();
+    clock.advance(DELIVERY_POLL_MS);
+    await b.idle();
+
+    expect(seen).toEqual(["x"]);
+    expect(lines).toEqual([]);
+    await a.stop();
+    await b.stop();
+    await recordsA.close();
+    await recordsB.close();
+  });
+
+  it("does not take delivery in the gap between a deliverer and its successor", async () => {
+    const state = stateDir();
+    const clock = new ManualClock();
+    const lines: string[] = [];
+    const seen: string[] = [];
+    const recordsB = machine.records(state);
+    const recordsA = machine.records(state);
+    const recordsB2 = machine.records(state);
+    const b = watching(deliveryOver(recordsB, clock, lines, "B"), seen);
+    const a = deliveryOver(recordsA, clock, lines, "A");
+    await b.start();
+    await a.start();
+    await b.stop();
+    clock.advance(DELIVERY_POLL_MS);
+    clock.advance(DELIVERY_POLL_MS);
+    await a.idle();
+    const b2 = watching(deliveryOver(recordsB2, clock, lines, "B2"), seen);
+    await b2.start();
+    await new Tasks({ store: recordsB2.taskStore }).create({
+      title: "after handoff",
+    });
+    b2.wake();
+    await b2.idle();
+
+    expect(seen).toEqual(["after handoff"]);
+    expect(lines.filter((line) => line.startsWith("A "))).toEqual([]);
+    await a.stop();
+    await b2.stop();
+    for (const records of [recordsA, recordsB, recordsB2]) {
+      await records.close();
+    }
+  });
+
+  it("does not stand in the way from another connection to the database, as another process's engine would", async () => {
+    const state = stateDir();
+    const clock = new ManualClock();
+    const lines: string[] = [];
+    const seen: string[] = [];
+    const elsewhere = await openDatabase(machine.database.file);
+    if (elsewhere === undefined) {
+      throw new Error("no database");
+    }
+    const recordsA = new DatabaseWorkspaceRecords({
+      database: elsewhere.database,
+      scope: basename(state),
+    });
+    const recordsB = machine.records(state);
+    const a = deliveryOver(recordsA, clock, lines, "A");
+    await a.start();
+    clock.advance(DELIVERY_POLL_MS);
+    await a.idle();
+    const b = watching(deliveryOver(recordsB, clock, lines, "B"), seen);
+    await b.start();
+    await new Tasks({ store: recordsB.taskStore }).create({ title: "across" });
+    b.wake();
+    await b.idle();
+
+    expect(seen).toEqual(["across"]);
+    await a.stop();
+    await b.stop();
+    await recordsA.close();
+    await recordsB.close();
+    elsewhere.close();
+  });
+
+  it("never compacts away what an observer waiting behind another engine is still to receive", async () => {
+    const state = stateDir();
+    const clock = new ManualClock(Date.now());
+    const lines: string[] = [];
+    const seen: string[] = [];
+    const recordsA = machine.records(state);
+    const recordsB = machine.records(state);
+    const a = deliveryOver(recordsA, clock, lines, "A");
+    const b = watching(deliveryOver(recordsB, clock, lines, "B"), seen);
+    await a.start();
+    await b.start();
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => clock.now());
+    try {
+      await new Tasks({ store: recordsB.taskStore }).create({ title: "for B" });
+    } finally {
+      spy.mockRestore();
+    }
+    for (let step = 0; step < 4; step += 1) {
+      clock.advance(DAY / 2 + 11 * 60 * 1000);
+      await a.idle();
+      await b.idle();
+    }
+    await a.stop();
+    clock.advance(DELIVERY_POLL_MS);
+    await b.idle();
+    b.wake();
+    await b.idle();
+
+    expect(seen).toEqual(["for B"]);
+    expect(lines.filter((line) => line.includes("missed"))).toEqual([]);
+    expect((await recordsB.log.observers())[0]).toMatchObject({
+      missed: null,
+    });
+    await b.stop();
+    await recordsA.close();
+    await recordsB.close();
+  });
+});
+
+describe("a delivery stopped with no grace, as retire stops it", () => {
+  it("gives the claim up at once, leaves no tick, and writes nothing when its held handler returns", async () => {
+    const state = stateDir();
+    const records = machine.records(state);
+    const clock = new ManualClock();
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
+    const { promise: entered, resolve: enter } = Promise.withResolvers<void>();
+    const delivery = new Delivery({ clock, print: () => undefined, records });
+    delivery.observe(
+      TASKS,
+      async () => {
+        enter();
+        await held;
+      },
+      { name: "held" }
+    );
+    await delivery.start();
+    await new Tasks({ store: records.taskStore }).create({ title: "held" });
+    delivery.wake();
+    await entered;
+
+    await delivery.stop({ grace: 0 });
+    expect(clock.periods).toEqual([]);
+    const successor = machine.records(state);
+    expect(await successor.claimDelivery()).toBeUndefined();
+
+    release();
+    await delivery.idle();
+    expect((await successor.log.observers())[0]).toMatchObject({
+      failures: 0,
+      name: "held",
+      position: 0,
+    });
+    await successor.close();
+    await records.close();
+  });
+});
+
 describe("compaction", () => {
   const DAY = 24 * 60 * 60 * 1000;
   const LONG_AFTER = 2 * DAY;
@@ -1256,7 +1444,7 @@ describe("compaction", () => {
         registered: [],
         seenSince: later,
       })
-    ).toBe(3);
+    ).toEqual({ done: true, removed: 3 });
     expect(await machine.changes(state)).toEqual([]);
     await record(state, ["d"]);
     expect(
@@ -1266,7 +1454,7 @@ describe("compaction", () => {
     await records.close();
   });
 
-  it("removes only old facts every observer holding them back has completed, and only under the claim", async () => {
+  it("removes only old facts every observer holding them back has completed, whichever engine compacts", async () => {
     const state = stateDir();
     const records = await deliverer(state);
     const { log } = records;
@@ -1286,18 +1474,24 @@ describe("compaction", () => {
       seenSince,
     });
 
+    const none = { done: true, removed: 0 };
+    expect(
+      await log.compact({ ...bound(now - DAY), before: now - DAY })
+    ).toEqual(none);
     const other = machine.records(state);
-    expect(await other.log.compact(bound(later))).toBe(0);
+    expect(await other.log.compact(bound(now - DAY))).toEqual({
+      done: true,
+      removed: 2,
+    });
     await other.close();
-    expect(await log.compact({ ...bound(now - DAY), before: now - DAY })).toBe(
-      0
-    );
-    expect(await log.compact(bound(now - DAY))).toBe(2);
     expect(
       (await machine.changes(state)).map((change) => change.position)
     ).toEqual([3, 4]);
-    expect(await log.compact(bound(later + 1, [ahead, behind]))).toBe(0);
-    expect(await log.compact(bound(later + DAY))).toBe(2);
+    expect(await log.compact(bound(later + 1, [ahead, behind]))).toEqual(none);
+    expect(await log.compact(bound(later + DAY))).toEqual({
+      done: true,
+      removed: 2,
+    });
     expect(await machine.changes(state)).toEqual([]);
     await records.close();
   });
@@ -1408,6 +1602,230 @@ describe("compaction", () => {
     await records.close();
   });
 
+  it("compacts a workspace no observer watches, on its tick, and leaves no tick once stopped", async () => {
+    const state = stateDir();
+    const records = machine.records(state);
+    const clock = new ManualClock(Date.now());
+    const delivery = new Delivery({
+      clock,
+      print: () => undefined,
+      records,
+      retention: DAY,
+    });
+    await delivery.start();
+    await delivery.idle();
+    await record(state, ["a", "b", "c"], clock.now());
+
+    clock.advance(LONG_AFTER);
+    await delivery.idle();
+    expect(await machine.changes(state)).toEqual([]);
+    expect(await records.log.head()).toBe(3);
+
+    await delivery.stop();
+    expect(clock.ticking).toBe(0);
+    expect(clock.waiting).toBe(0);
+    await records.close();
+  });
+
+  it("starts an observer declared after a compaction no observer held back at a position that still exists", async () => {
+    const state = stateDir();
+    const records = machine.records(state);
+    const clock = new ManualClock(Date.now());
+    const lines: string[] = [];
+    const unwatched = new Delivery({
+      clock,
+      print: () => undefined,
+      records,
+      retention: DAY,
+    });
+    await unwatched.start();
+    await record(state, ["old 1", "old 2"], clock.now());
+    clock.advance(LONG_AFTER);
+    await unwatched.idle();
+    await unwatched.stop();
+    expect(await machine.changes(state)).toEqual([]);
+
+    const seen: string[] = [];
+    const watched = new Delivery({
+      clock,
+      print: (line) => lines.push(line),
+      records,
+      retention: DAY,
+    });
+    watched.observe(
+      TASKS,
+      (handed: Fact) => {
+        seen.push(handed.id);
+      },
+      { name: "later" }
+    );
+    await watched.start();
+    await record(state, ["new"], clock.now());
+    watched.wake();
+    await watched.idle();
+    await watched.stop();
+    expect(seen).toEqual(["new"]);
+    expect(lines.filter((line) => line.includes("missed"))).toEqual([]);
+    expect((await records.log.observers())[0]).toMatchObject({
+      missed: null,
+      position: 3,
+    });
+    await records.close();
+  });
+
+  it("starts no one-second work with no observer: one compaction interval, no counter read per poll, nothing printed", async () => {
+    const state = stateDir();
+    const records = machine.records(state);
+    let heads = 0;
+    const log: WorkspaceRecords["log"] = {
+      ...logOf(records),
+      head: () => {
+        heads += 1;
+        return records.log.head();
+      },
+    };
+    const clock = new ManualClock(Date.now());
+    const lines: string[] = [];
+    const delivery = new Delivery({
+      clock,
+      print: (line) => lines.push(line),
+      records: { ...delegate(records), log },
+      retention: DAY,
+    });
+    await delivery.start();
+    await delivery.idle();
+    expect(clock.periods).toEqual([10 * 60 * 1000]);
+    for (let tick = 0; tick < 5; tick += 1) {
+      clock.advance(DELIVERY_POLL_MS);
+      await delivery.idle();
+    }
+    expect(heads).toBe(0);
+    expect(lines).toEqual([]);
+    await delivery.stop();
+    expect(clock.periods).toEqual([]);
+    await records.close();
+  });
+
+  it("starts though compaction fails, tries again on its next interval, and says so once", async () => {
+    const records = new MemoryWorkspaceRecords();
+    let tries = 0;
+    const log: WorkspaceRecords["log"] = {
+      ...records.log,
+      compact: () => {
+        tries += 1;
+        return Promise.reject(new Error("the database is busy"));
+      },
+    };
+    const clock = new ManualClock();
+    const lines: string[] = [];
+    const delivery = new Delivery({
+      clock,
+      print: (line) => lines.push(line),
+      records: { ...delegate(records), log },
+    });
+    await delivery.start();
+    await delivery.idle();
+    clock.advance(10 * 60 * 1000);
+    await delivery.idle();
+    clock.advance(10 * 60 * 1000);
+    await delivery.idle();
+    await delivery.stop();
+    expect(tries).toBe(3);
+    expect(lines).toEqual([
+      "[observe] compaction: Error: the database is busy",
+    ]);
+  });
+
+  it("compacts a large old log in bounded steps, a write and a stop between them, and tells an observer exactly what it missed, once", async () => {
+    const state = stateDir();
+    const records = machine.records(state);
+    const clock = new ManualClock(Date.now());
+    const seen: string[] = [];
+    const lines: string[] = [];
+    const observing = () => {
+      const built = new Delivery({
+        clock,
+        print: (line) => lines.push(line),
+        records,
+        retention: DAY,
+      });
+      built.observe(
+        TASKS,
+        (handed: Fact) => {
+          seen.push(handed.id);
+        },
+        { name: "absent" }
+      );
+      return built;
+    };
+    const first = observing();
+    await first.start();
+    await first.stop();
+    await record(
+      state,
+      Array.from({ length: 25 }, (_, index) => `old ${String(index + 1)}`),
+      clock.now()
+    );
+    clock.advance(LONG_AFTER);
+
+    let steps = 0;
+    let stopping: Promise<void> | undefined;
+    const compactor: Delivery = new Delivery({
+      clock,
+      compactionStep: 10,
+      print: (line) => lines.push(line),
+      records: {
+        ...delegate(records),
+        log: {
+          ...logOf(records),
+          compact: async (bound) => {
+            const step = await records.log.compact(bound);
+            steps += 1;
+            expect(step.removed).toBeLessThanOrEqual(10);
+            if (steps === 1) {
+              await record(state, ["written"], clock.now());
+            }
+            if (steps === 2) {
+              stopping = compactor.stop();
+            }
+            return step;
+          },
+        },
+      },
+      retention: DAY,
+    });
+    await compactor.start();
+    await compactor.idle();
+    await stopping;
+    expect(steps).toBe(2);
+    expect(
+      (await machine.changes(state)).map((change) => change.position)
+    ).toEqual([21, 22, 23, 24, 25, 26]);
+
+    const back = observing();
+    await back.start();
+    await back.idle();
+    back.wake();
+    await back.idle();
+    await back.stop();
+    expect(seen).toEqual([
+      "old 21",
+      "old 22",
+      "old 23",
+      "old 24",
+      "old 25",
+      "written",
+    ]);
+    expect(lines.filter((line) => line.includes("missed"))).toEqual([
+      "[observe] absent (tasks) missed changes 1 to 20: they were removed before it received them; it goes on after them",
+    ]);
+    expect((await records.log.observers())[0]).toMatchObject({
+      missed: { from: 1, through: 20 },
+      position: 26,
+    });
+    await records.close();
+  });
+
   it("records what a compaction landing in the middle of a catch-up removed, in the move that passes it", async () => {
     const state = stateDir();
     const records = machine.records(state);
@@ -1463,7 +1881,10 @@ describe("compaction", () => {
 });
 
 describe("the delivery timer", () => {
-  it("does not keep a process alive", async () => {
+  it.each([
+    ["with an observer", true],
+    ["with none", false],
+  ])("does not keep a process alive, %s", async (_case, observed) => {
     const dir = stateDir();
     const script = join(dir, "never-stopped.ts");
     writeFileSync(
@@ -1472,7 +1893,7 @@ describe("the delivery timer", () => {
 import { MemoryWorkspaceRecords } from ${JSON.stringify(resolvePath("src/lib/events/records.ts"))};
 import { TASKS } from ${JSON.stringify(resolvePath("src/lib/events/source.ts"))};
 const delivery = new Delivery({ print: () => undefined, records: new MemoryWorkspaceRecords() });
-delivery.observe(TASKS, () => undefined, { name: "idle" });
+${observed ? 'delivery.observe(TASKS, () => undefined, { name: "idle" });' : ""}
 await delivery.start();
 process.stdout.write("started\\n");
 `
@@ -1493,6 +1914,18 @@ process.stdout.write("started\\n");
     expect(output).toContain("started");
     expect(code).toBe(0);
     expect(Date.now() - started).toBeLessThan(DELIVERY_POLL_MS * 10);
+  });
+
+  it("holds no delivery claim, from its start to its dispose, with no observer", async () => {
+    const state = stateDir();
+    const engine = engineWith(state, {});
+    await engine.start();
+    const other = machine.records(state);
+    expect(await other.claimDelivery()).toBeUndefined();
+    await other.releaseDelivery();
+    await shutDown(engine);
+    expect(await other.claimDelivery()).toBeUndefined();
+    await other.close();
   });
 
   it("gives up a claim granted after it was stopped, and never starts delivering", async () => {

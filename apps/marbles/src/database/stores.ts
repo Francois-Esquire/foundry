@@ -30,8 +30,13 @@ export interface WorkspaceStores {
 export function workspaceStores(
   database: StoreDatabase,
   scope: string,
-  changes: ChangeRecorder = new ChangeRecorder(scope)
+  options: {
+    readonly changes?: ChangeRecorder;
+    readonly location?: string;
+  } = {}
 ): WorkspaceStores {
+  const { location } = options;
+  const changes = options.changes ?? new ChangeRecorder(scope);
   const recorded =
     (source: string) =>
     (
@@ -63,6 +68,7 @@ export function workspaceStores(
           database,
           onCommit: recorded(SANDBOXES_KEY),
           scope,
+          ...(location === undefined ? {} : { location }),
         })
       )
     ),

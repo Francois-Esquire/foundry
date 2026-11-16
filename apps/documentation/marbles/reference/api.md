@@ -787,8 +787,10 @@ never the ones before.
 The host delivers from its start until it stops or retires, one host per
 workspace at a time: across a switch the retiring generation gives
 delivery up, and the next takes each observer up from the place the
-retiring one left it. Every fact is stored with its change in the same write, whether or
-not anything observes it, with the run that made it when a run did. An
+retiring one left it. A host that declares no observer never delivers, so
+it never stands in the way of one that does. Every fact is stored with its
+change in the same write, whether or not anything observes it, with the
+run that made it when a run did. An
 observer is handed its source's facts in the order they were committed,
 each once it completed the one before. Observers are delivered to
 independently: one that is slow, failing or hung never delays another.
@@ -808,16 +810,19 @@ flight ten seconds at most, then stops without them; an observer whose
 call did not finish keeps its place, and is handed the fact again later.
 One that completed but whose place was not saved is handed the fact again
 too: delivery is at least once, so handle a fact more than once safely. The
-handler takes the fact alone; nothing cancels a call past its limit. A handler runs outside any write
-and outside any run, even when a step's write woke delivery, so a
-definition it calls starts a run of its own. It may change things itself.
+handler takes the fact alone; nothing cancels a call past its limit. A
+handler runs outside any write and outside any run, even when a step's
+write woke delivery, so a definition it calls starts a run of its own. It
+may change things itself.
 
 Facts every observer has completed are removed a week after they
-committed. An observer the delivering host has declared always holds them
-back, whether it is idle, retrying or stuck in a call. One no host has
-declared for a week is not waited for: when it next moves on, it is told
-which facts it missed (once, in the host's output, and in `marbles
-status`) and goes on after them.
+committed, in a workspace with no observers too: every running host
+compacts, every ten minutes, whether it delivers or not. An observer a
+running host has declared always holds them back, whether it is
+delivering, waiting behind another host, idle, retrying or stuck in a
+call. One no host has declared for a week is not waited for: when it next
+moves on, it is told which facts it missed (once, in the host's output,
+and in `marbles status`) and goes on after them.
 
 `@foundry.sh/marbles/prebuilt` exports the
 [prebuilt step factories](/marbles/reference/project#prebuilt-steps).

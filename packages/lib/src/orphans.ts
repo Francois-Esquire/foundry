@@ -1,17 +1,22 @@
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   compareStarts,
+  groupIdTaken,
   groupMembers,
+  groupState,
   isProcessIdentity,
   lookProcesses,
   type ProcessIdentity,
+  type ProcessLookup,
+  processAlive,
+  processState,
   type SeenProcess,
 } from "./process-identity";
 import {
+  forgetRecord,
   notPrivate,
-  recordPath,
   type SpawnRecord,
   writePrivate,
 } from "./spawn-record";
@@ -28,10 +33,22 @@ export interface OrphanStopOptions {
 }
 
 export interface ProcessTable {
+  alive(pid: number): boolean;
   kill(target: number, signal: NodeJS.Signals): void;
   look(pids: readonly number[]): ReadonlyMap<number, SeenProcess> | undefined;
   members(pgid: number): ReadonlyMap<number, SeenProcess> | undefined;
   sleep(ms: number): Promise<void>;
+}
+
+interface Table extends ProcessTable {
+  readonly listed: (
+    pgid: number
+  ) => ReadonlyMap<number, SeenProcess> | undefined;
+  readonly lookup: ProcessLookup;
+}
+
+interface ReadRecord extends SpawnRecord {
+  readonly path: string;
 }
 
 const GRACE_MS = 5000;
@@ -43,7 +60,8 @@ export async function stopOrphans(
   dir: string,
   options: OrphanStopOptions = {}
 ): Promise<OrphanStop> {
-  const system = options.system ?? SYSTEM;
+  const table = options.system ?? SYSTEM;
+  const system = running(table);
   const limits = {
     graceMs: options.graceMs ?? GRACE_MS,
     killMs: options.killMs ?? KILL_MS,
@@ -58,13 +76,13 @@ export async function stopOrphans(
     if (found.orphans.length === 0 && found.groups.length === 0) {
       break;
     }
-    const result = await stopAll(dir, found.orphans, system, limits);
+    const result = await stopAll(found.orphans, system, limits);
     const passStopped = [...result.stopped];
     for (const problem of result.problems) {
       problems.add(problem);
     }
     for (const group of found.groups) {
-      const kept = await stopGroup(dir, group, system, limits);
+      const kept = await stopGroup(group, system, limits);
       if (kept === undefined) {
         passStopped.push(group.record.pid);
       } else {
@@ -81,16 +99,16 @@ export async function stopOrphans(
 
 interface Found {
   readonly groups: readonly OrphanGroup[];
-  readonly orphans: readonly SpawnRecord[];
+  readonly orphans: readonly ReadRecord[];
   readonly problems: readonly string[];
 }
 
 interface OrphanGroup {
   readonly leader: boolean;
-  readonly record: SpawnRecord;
+  readonly record: ReadRecord;
 }
 
-function orphansIn(dir: string, system: ProcessTable): Found {
+function orphansIn(dir: string, system: Table): Found {
   const { problems, records } = readRecords(dir);
   const pids = records.flatMap((record) =>
     record.owner === undefined ? [record.pid] : [record.pid, record.owner.pid]
@@ -103,12 +121,12 @@ function orphansIn(dir: string, system: ProcessTable): Found {
       problems: [...problems, "ps could not list the recorded processes"],
     };
   }
-  const orphans: SpawnRecord[] = [];
+  const orphans: ReadRecord[] = [];
   const groups: OrphanGroup[] = [];
   for (const record of records) {
     const verdict = judge(record, seen, system);
     if (verdict === "gone") {
-      forget(dir, record.pid);
+      forget(record);
     } else if (verdict === "orphan") {
       orphans.push(record);
     } else if (verdict === "group" || verdict === "members") {
@@ -129,34 +147,35 @@ type Verdict =
   | { readonly problem: string };
 
 function judge(
-  record: SpawnRecord,
+  record: ReadRecord,
   seen: ReadonlyMap<number, SeenProcess>,
-  system: ProcessTable
+  system: Table
 ): Verdict {
   if (record.pid === process.pid) {
     return "kept";
   }
-  const found = seen.get(record.pid);
-  const start =
-    found === undefined
-      ? "absent"
-      : compareStarts(found.started, record.started);
-  if (start === "unknown") {
-    return {
-      problem: `process ${String(record.pid)} runs, and its record names a start of another kind than this system reads; not signalled, its record kept`,
-    };
+  const state = processState(record, system.lookup);
+  if (state === "unknown") {
+    return { problem: `${cannotTell(record, system)}, its record kept` };
   }
-  if (record.owner !== undefined && stillThere(record.owner, seen)) {
-    return start === "same" || record.group ? "kept" : "gone";
+  const owner =
+    record.owner === undefined
+      ? undefined
+      : processState(record.owner, system.lookup);
+  if (owner === "unknown" && state === "running") {
+    return { problem: `${ownerUntold(record, system)}, its record kept` };
   }
-  if (record.owner === undefined) {
-    return start === "same" ? "kept" : "gone";
+  const ownerThere = owner === "running" || owner === "unknown";
+  if (record.owner === undefined || ownerThere) {
+    return state === "running" || (record.group && ownerThere)
+      ? "kept"
+      : "gone";
   }
   if (!record.group) {
-    return start === "same" ? "orphan" : "gone";
+    return state === "running" ? "orphan" : "gone";
   }
-  if (start === "same") {
-    return found?.pgid === record.pid
+  if (state === "running") {
+    return seen.get(record.pid)?.pgid === record.pid
       ? "group"
       : {
           problem: `process ${String(record.pid)} was recorded leading its own group and no longer does; not signalled`,
@@ -165,15 +184,107 @@ function judge(
   return leftMembers(record, system);
 }
 
-function leftMembers(record: SpawnRecord, system: ProcessTable): Verdict {
-  const members = system.members(record.pid);
+function cannotTell(identity: ProcessIdentity, system: Table): string {
+  const pid = String(identity.pid);
+  const seen = system.lookup.look([identity.pid]);
+  if (seen === undefined) {
+    return `process ${pid} could not be listed; not signalled`;
+  }
+  return seen.has(identity.pid)
+    ? `process ${pid} runs, and its record names a start of another kind than this system reads; not signalled`
+    : `process ${pid} is not listed but a signal still reaches it; not signalled`;
+}
+
+function ownerUntold(record: ReadRecord, system: Table): string {
+  const { owner } = record;
+  const pid = String(owner?.pid);
+  const child = `process ${String(record.pid)}`;
+  if (owner === undefined) {
+    return `${child} names no owner`;
+  }
+  const seen = system.lookup.look([owner.pid]);
+  let why: string;
+  if (seen === undefined) {
+    why = "it could not be listed";
+  } else if (!seen.has(owner.pid)) {
+    why = "it is not listed but a signal still reaches it";
+  } else if (owner.started === null) {
+    why = "its record names no start, and a process runs with its pid";
+  } else {
+    why = "its start is of another kind than this system reads";
+  }
+  return `owner ${pid} of ${child} cannot be told gone or running: ${why}; ${child} is not signalled`;
+}
+
+function stillRunning(record: ReadRecord, system: Table): ProcessIdentity[] {
+  return distinct([record, ...(record.members ?? [])]).filter(
+    (member) => processState(member, system.lookup) === "running"
+  );
+}
+
+function distinct(members: readonly ProcessIdentity[]): ProcessIdentity[] {
+  return members.filter(
+    (member, index) =>
+      members.findIndex((other) => other.pid === member.pid) === index
+  );
+}
+
+function inGroup(
+  record: ReadRecord,
+  system: Table
+): ReadonlyMap<number, SeenProcess> | undefined {
+  return idTaken(record, system) ? new Map() : system.members(record.pid);
+}
+
+function idTaken(record: ReadRecord, system: Table): boolean {
+  const leader = system.lookup.look([record.pid]);
+  return leader !== undefined && groupIdTaken(record, leader.get(record.pid));
+}
+
+function groupNow(
+  record: ReadRecord,
+  system: Table
+): "empty" | "running" | "unknown" {
+  if (idTaken(record, system)) {
+    return "empty";
+  }
+  return groupState(system.listed(record.pid), system.alive(-record.pid));
+}
+
+function groupUntold(record: ReadRecord, system: Table): string {
+  const pgid = String(record.pid);
+  return system.listed(record.pid) === undefined
+    ? `the members of group ${pgid} could not be listed`
+    : `group ${pgid} is not listed but a signal still reaches it; not signalled`;
+}
+
+function untold(record: ReadRecord, system: Table): string | undefined {
+  const reasons = distinct([record, ...(record.members ?? [])])
+    .filter((member) => processState(member, system.lookup) === "unknown")
+    .map((member) => cannotTell(member, system));
+  return reasons.length === 0 ? undefined : reasons.join("; ");
+}
+
+function leftMembers(record: ReadRecord, system: Table): Verdict {
+  const members = inGroup(record, system);
   if (members === undefined) {
     return {
       problem: `the members of group ${String(record.pid)} could not be listed; its record is kept`,
     };
   }
+  if (stillRunning(record, system).length > 0) {
+    return "members";
+  }
   if (members.size === 0) {
-    return "gone";
+    if (groupNow(record, system) === "unknown") {
+      return { problem: `${groupUntold(record, system)}, its record kept` };
+    }
+    const reasons = untold(record, system);
+    return reasons === undefined
+      ? "gone"
+      : {
+          problem: `group ${String(record.pid)}: ${reasons}; pending, its record kept`,
+        };
   }
   return (record.members ?? []).some((member) => proved(member, members))
     ? "members"
@@ -193,21 +304,9 @@ function proved(
   );
 }
 
-function stillThere(
-  owner: ProcessIdentity,
-  seen: ReadonlyMap<number, SeenProcess>
-): boolean {
-  const found = seen.get(owner.pid);
-  return (
-    found !== undefined &&
-    compareStarts(found.started, owner.started) !== "different"
-  );
-}
-
 async function stopAll(
-  dir: string,
-  orphans: readonly SpawnRecord[],
-  system: ProcessTable,
+  orphans: readonly ReadRecord[],
+  system: Table,
   limits: { readonly graceMs: number; readonly killMs: number }
 ): Promise<OrphanStop> {
   signal(orphans, "SIGTERM", system);
@@ -220,19 +319,23 @@ async function stopAll(
   const stopped = orphans
     .filter(({ pid }) => !survivors.has(pid))
     .map(({ pid }) => pid);
-  for (const pid of stopped) {
-    forget(dir, pid);
+  for (const record of orphans) {
+    if (!survivors.has(record.pid)) {
+      forget(record);
+    }
   }
   return {
-    problems: left.map(
-      ({ pid }) => `process ${String(pid)} would not stop; its record is kept`
+    problems: left.map((record) =>
+      processState(record, system.lookup) === "running"
+        ? `process ${String(record.pid)} would not stop; its record is kept`
+        : `${cannotTell(record, system)}, its record kept`
     ),
     stopped,
   };
 }
 
 function signal(
-  records: readonly SpawnRecord[],
+  records: readonly ReadRecord[],
   name: NodeJS.Signals,
   system: ProcessTable
 ): void {
@@ -246,17 +349,15 @@ function signal(
 }
 
 async function waitGone(
-  records: readonly SpawnRecord[],
+  records: readonly ReadRecord[],
   ms: number,
-  system: ProcessTable
-): Promise<SpawnRecord[]> {
+  system: Table
+): Promise<ReadRecord[]> {
   const deadline = Date.now() + ms;
   for (;;) {
-    const seen = system.look(records.map(({ pid }) => pid));
-    const left =
-      seen === undefined
-        ? [...records]
-        : records.filter((record) => proved(record, seen));
+    const left = records.filter(
+      (record) => processState(record, system.lookup) !== "gone"
+    );
     if (left.length === 0 || Date.now() >= deadline) {
       return left;
     }
@@ -265,35 +366,47 @@ async function waitGone(
 }
 
 async function stopGroup(
-  dir: string,
   group: OrphanGroup,
-  system: ProcessTable,
+  system: Table,
   limits: { readonly graceMs: number; readonly killMs: number }
 ): Promise<string | undefined> {
   const pgid = group.record.pid;
   let { record } = group;
-  if (group.leader) {
+  let whole = group.leader;
+  if (whole) {
     const members = system.members(pgid);
     if (members === undefined) {
       return `the members of group ${String(pgid)} could not be listed; its record is kept`;
     }
-    record = {
-      ...record,
-      members: [...members].map(([pid, seen]) => ({
-        pid,
-        started: seen.started,
-      })),
-    };
-    writePrivate(recordPath(dir, pgid), JSON.stringify(record));
+    if (proved(record, members)) {
+      record = withMembers(record, members);
+    } else {
+      whole = false;
+      const left = leftMembers(record, system);
+      if (left === "gone") {
+        forget(record);
+        return;
+      }
+      if (typeof left === "object") {
+        return left.problem;
+      }
+    }
   }
   const send = (name: NodeJS.Signals): void => {
-    if (group.leader) {
+    const members = inGroup(record, system);
+    const known = record.members ?? [];
+    let reached = new Set<number>();
+    if (
+      whole &&
+      members !== undefined &&
+      known.some((member) => proved(member, members))
+    ) {
+      record = withMembers(record, members);
       signalTarget(system, -pgid, name);
-      return;
+      reached = new Set(members.keys());
     }
-    const members = system.members(pgid);
-    for (const member of record.members ?? []) {
-      if (members !== undefined && proved(member, members)) {
+    for (const member of stillRunning(record, system)) {
+      if (!reached.has(member.pid)) {
         signalTarget(system, member.pid, name);
       }
     }
@@ -303,22 +416,59 @@ async function stopGroup(
     ["SIGKILL", limits.killMs],
   ] as const) {
     send(name);
-    if (await emptied(pgid, ms, system)) {
-      forget(dir, pgid);
+    if (await emptied(record, ms, system)) {
+      forget(record);
       return;
     }
   }
-  return `group ${String(pgid)} still has members after SIGKILL; pending, its record kept`;
+  const reasons = untold(record, system);
+  const stubborn = stillRunning(record, system).map(({ pid }) => String(pid));
+  if (groupNow(record, system) === "unknown") {
+    return `${groupUntold(record, system)}, its record kept`;
+  }
+  if (reasons !== undefined) {
+    return `group ${String(pgid)}: ${reasons}; pending, its record kept`;
+  }
+  return stubborn.length > 0
+    ? `group ${String(pgid)}: recorded member(s) ${stubborn.join(", ")} would not stop; its record kept`
+    : `group ${String(pgid)} still has members after SIGKILL; pending, its record kept`;
+}
+
+function withMembers(
+  record: ReadRecord,
+  members: ReadonlyMap<number, SeenProcess>
+): ReadRecord {
+  const known = record.members ?? [];
+  const added = [...members]
+    .filter(([pid, seen]) =>
+      known.every(
+        (member) =>
+          member.pid !== pid ||
+          compareStarts(member.started, seen.started) !== "same"
+      )
+    )
+    .map(([pid, seen]) => ({ pid, started: seen.started }));
+  if (added.length === 0 && record.members !== undefined) {
+    return record;
+  }
+  const next = { ...record, members: [...known, ...added] };
+  const { path, ...stored } = next;
+  writePrivate(path, JSON.stringify(stored));
+  return next;
 }
 
 async function emptied(
-  pgid: number,
+  record: ReadRecord,
   ms: number,
-  system: ProcessTable
+  system: Table
 ): Promise<boolean> {
   const deadline = Date.now() + ms;
   for (;;) {
-    if (system.members(pgid)?.size === 0) {
+    if (
+      groupNow(record, system) === "empty" &&
+      stillRunning(record, system).length === 0 &&
+      untold(record, system) === undefined
+    ) {
       return true;
     }
     if (Date.now() >= deadline) {
@@ -326,6 +476,27 @@ async function emptied(
     }
     await system.sleep(POLL_MS);
   }
+}
+
+function running(table: ProcessTable): Table {
+  const live = (
+    seen: ReadonlyMap<number, SeenProcess> | undefined
+  ): ReadonlyMap<number, SeenProcess> | undefined =>
+    seen === undefined
+      ? undefined
+      : new Map([...seen].filter(([, entry]) => entry.exited !== true));
+  return {
+    alive: (pid) => table.alive(pid),
+    kill: (target, name) => table.kill(target, name),
+    listed: (pgid) => table.members(pgid),
+    look: (pids) => live(table.look(pids)),
+    lookup: {
+      alive: (pid) => table.alive(pid),
+      look: (pids) => table.look(pids),
+    },
+    members: (pgid) => live(table.members(pgid)),
+    sleep: (ms) => table.sleep(ms),
+  };
 }
 
 function signalTarget(
@@ -345,12 +516,12 @@ function signalTarget(
 
 interface Records {
   readonly problems: string[];
-  readonly records: readonly SpawnRecord[];
+  readonly records: readonly ReadRecord[];
 }
 
 function readRecords(dir: string): Records {
   const problems: string[] = [];
-  const records: SpawnRecord[] = [];
+  const records: ReadRecord[] = [];
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -378,7 +549,7 @@ function readRecords(dir: string): Records {
     try {
       const record: unknown = JSON.parse(readFileSync(path, "utf8"));
       if (isRecord(record)) {
-        records.push(record);
+        records.push({ ...record, path });
       } else {
         problems.push(`${path} is not a process record`);
       }
@@ -408,8 +579,8 @@ function isRecord(value: unknown): value is SpawnRecord {
   );
 }
 
-function forget(dir: string, pid: number): void {
-  rmSync(recordPath(dir, pid), { force: true });
+function forget(record: ReadRecord): void {
+  forgetRecord(record.path, record);
 }
 
 function gone(error: unknown): boolean {
@@ -417,6 +588,7 @@ function gone(error: unknown): boolean {
 }
 
 const SYSTEM: ProcessTable = {
+  alive: processAlive,
   kill: (target, name) => process.kill(target, name),
   look: lookProcesses,
   members: groupMembers,
