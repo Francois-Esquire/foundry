@@ -384,6 +384,27 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     expect(lines).toHaveLength(1);
   });
 
+  it("report giving up once, however many drains give up at once", async () => {
+    const { artifacts, machine, one } = await arranged();
+    const lines: string[] = [];
+    const store = keeping(machine, artifacts, one, lines);
+    const release = await holdLinks(one.root);
+    try {
+      await new ArtifactManager({
+        files: blobFiles(artifactBlobs(artifacts, one.id)),
+        store,
+      }).create({
+        entries: { "a.md": { bytes: "# A\n", mime: "text/markdown" } },
+        name: "twice",
+        type: "text/markdown",
+      });
+      await Promise.all([store.drainLinks(50), store.drainLinks(50)]);
+    } finally {
+      await release();
+    }
+    expect(lines).toEqual([expect.stringMatching(REPAIRS)]);
+  });
+
   it("wait, when a drain gives up, for a read of the database under way, and begin none once it resolves", async () => {
     const { artifacts, machine, one } = await arranged();
     // Closed here, once the drain has resolved.

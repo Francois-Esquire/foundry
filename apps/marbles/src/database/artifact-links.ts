@@ -265,6 +265,11 @@ function artifactLinker(options: KeptLinksOptions): {
     } finally {
       clearTimeout(timer);
     }
+    // Another drain may have given up meanwhile: that one has said so.
+    if (giveUp.signal.aborted) {
+      await settled();
+      return;
+    }
     giveUp.abort(new LinksAbandoned());
     failed(
       `the links of ${owner}'s artifacts`,
