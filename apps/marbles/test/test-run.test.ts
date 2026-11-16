@@ -10,6 +10,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import {
+  lookProcesses,
+  processAlive,
+  processState,
+} from "@foundry/lib/process-identity";
 import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { expect, it, vi } from "vitest";
@@ -926,7 +931,7 @@ it("leaves a live run and a root whose owner cannot be read alone, and handles t
   expect(existsSync(live.root)).toBe(false);
 });
 
-const left: { home?: string; pid?: number } = {};
+const left: { home?: string; pid?: number; started?: string | null } = {};
 
 it("records the Marbles process a test's CLI starts in the test's home", () => {
   const home = testHome();
@@ -950,11 +955,17 @@ it("records the Marbles process a test's CLI starts in the test's home", () => {
   expect(recorded.filter((record) => record.group === false)).toHaveLength(1);
   left.home = home.path;
   left.pid = daemon?.pid;
+  left.started = daemon?.started;
 }, 60_000);
 
 it("stops that process and removes the home when the test finishes", () => {
   expect(left.pid).toBeDefined();
-  expect(alive(left.pid ?? 0)).toBe(false);
+  expect(
+    processState(
+      { pid: left.pid ?? 0, started: left.started ?? null },
+      { alive: processAlive, look: lookProcesses }
+    )
+  ).toBe("gone");
   expect(existsSync(left.home ?? "")).toBe(false);
 });
 
