@@ -19,7 +19,7 @@ import {
   sameProcess,
   startedAt as startOf,
 } from "@foundry/lib/process-identity";
-import { readExecution } from "~/database/executions";
+import { queuedRunsOwnedBy, readExecution } from "~/database/executions";
 import { GenerationRecords } from "~/database/generations";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
@@ -774,6 +774,14 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const offering = new Map<string, Promise<void>>();
   /** When the current generation last declined each run offered, by workspace id and run id. */
   const declined = new Map<string, number>();
+  /**
+   * Runs the current generation answered it holds, by workspace id and run
+   * id: not offered it again. Kept for one generation, `holding.of`.
+   */
+  const holding: { of: number; readonly keys: Set<string> } = {
+    keys: new Set(),
+    of: 0,
+  };
   /** Who waits for a workspace's next handover or switch, by workspace id. */
   const waiting = new Map<string, Set<() => void>>();
 
@@ -835,6 +843,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
             true
           ) {
             declined.delete(key);
+            held(target, key);
             return;
           }
         } catch (error) {
@@ -857,13 +866,22 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     return done;
   }
 
+  /** Note that `target` holds the run `key` names, while it is current. */
+  function held(target: Generation, key: string): void {
+    if (holding.of === target.number) {
+      holding.keys.add(key);
+    }
+  }
+
   /**
    * Offer the current generation every parked run of `ids` (every
    * workspace it hosts when omitted) that no live engine holds, as the
    * Marbles database has it: what a retired generation let go whose
-   * notice was lost, or that an adoption gave back. One the current
-   * generation declined is offered again only after `REOFFER_MS`, unless
-   * `now`. Resolves once each offer has settled.
+   * notice was lost, or that an adoption gave back. Queued runs a retired
+   * generation handed the current one after it started go the same way:
+   * one whose notice was lost, or whose offer was declined. One the
+   * current generation declined is offered again only after `REOFFER_MS`,
+   * unless `now`. Resolves once each offer has settled.
    */
   async function sweep(
     ids: Iterable<string> | undefined,
@@ -873,15 +891,13 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (target === undefined || stopping) {
       return;
     }
+    if (holding.of !== target.number) {
+      holding.of = target.number;
+      holding.keys.clear();
+    }
     const offers: Promise<void>[] = [];
     for (const id of ids ?? target.hosts) {
-      let parked: readonly string[];
-      try {
-        parked = await unheldParkedRuns(database.database, id);
-      } catch {
-        continue;
-      }
-      for (const runId of parked) {
+      for (const runId of await unheld(target, id)) {
         const at = declined.get(`${id}\0${runId}`);
         if (now || at === undefined || Date.now() - at >= REOFFER_MS) {
           offers.push(handOver(id, runId));
@@ -889,6 +905,31 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
     }
     await Promise.all(offers);
+  }
+
+  /**
+   * The runs of workspace `id` to offer `target`: parked ones no live
+   * engine holds, and queued ones its process owns that it has not said it
+   * holds already. None when the database cannot be read now.
+   */
+  async function unheld(
+    target: Generation,
+    id: string
+  ): Promise<readonly string[]> {
+    try {
+      const parked = await unheldParkedRuns(database.database, id);
+      const owner = target.identity;
+      const queued =
+        owner === undefined
+          ? []
+          : await queuedRunsOwnedBy(database.database, id, owner);
+      return [
+        ...parked,
+        ...queued.filter((runId) => !holding.keys.has(`${id}\0${runId}`)),
+      ];
+    } catch {
+      return [];
+    }
   }
 
   /**

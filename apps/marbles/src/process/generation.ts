@@ -1,6 +1,10 @@
 #!/usr/bin/env bun
 import { connect as connectSocket, type Socket } from "node:net";
-import { thisProcess } from "@foundry/lib/process-identity";
+import {
+  type ProcessIdentity,
+  thisProcess,
+} from "@foundry/lib/process-identity";
+import { readLiveGenerations } from "~/database/generations";
 
 import { layout } from "~/layout";
 import type { Engine } from "~/lib/engine";
@@ -412,6 +416,16 @@ async function main(): Promise<void> {
     await hosted?.close();
   };
 
+  /** The generation the Marbles database records current now, as a process. */
+  const currentGeneration = async (): Promise<ProcessIdentity | undefined> => {
+    const now = (await readLiveGenerations(args.state)).find(
+      (each) => each.state === "current"
+    );
+    return now === undefined || now.pid <= 0
+      ? undefined
+      : { pid: now.pid, started: now.started };
+  };
+
   const retire = async (raw: unknown): Promise<void> => {
     const { successor } = retireParamsSchema.parse(raw);
     if (retiring !== undefined || stopping !== undefined) {
@@ -438,6 +452,7 @@ async function main(): Promise<void> {
           onLetGo(runId) {
             notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });
           },
+          successorNow: currentGeneration,
         })
       )
     );

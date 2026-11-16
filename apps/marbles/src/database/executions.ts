@@ -201,6 +201,35 @@ export async function readExecution(
   return (stored && parseStored(stored)) ?? null;
 }
 
+/**
+ * The queued Execution Runs of `scope` that `owner`'s process owns, in
+ * admission order: what a retired generation handed it, which it lets in
+ * when offered (`Engine.adopt`), with those it holds already.
+ */
+export async function queuedRunsOwnedBy(
+  database: StoreDatabase,
+  scope: string,
+  owner: { readonly pid: number; readonly started: string | null }
+): Promise<readonly string[]> {
+  const rows = await asBusy(() =>
+    database
+      .select({ id: marblesExecutions.id })
+      .from(marblesExecutions)
+      .where(
+        and(
+          eq(marblesExecutions.scope, scope),
+          eq(marblesExecutions.status, "queued"),
+          eq(marblesExecutions.ownerPid, owner.pid),
+          owner.started === null
+            ? sql`${marblesExecutions.ownerStarted} is null`
+            : eq(marblesExecutions.ownerStarted, owner.started)
+        )
+      )
+      .orderBy(asc(marblesExecutions.sequence))
+  );
+  return rows.map((row) => row.id);
+}
+
 type ExecutionRow = typeof marblesExecutions.$inferSelect;
 
 /** A run's record as its row holds it, its observations aside. */

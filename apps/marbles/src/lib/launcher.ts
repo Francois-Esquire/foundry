@@ -364,7 +364,8 @@ export class Launcher {
    */
   async handOver(
     successor: ProcessIdentity,
-    onHanded: (id: string) => void = () => undefined
+    onHanded: (id: string) => void = () => undefined,
+    successorNow?: () => Promise<ProcessIdentity | undefined>
   ): Promise<readonly string[]> {
     this.beginRetiring();
     const handed: string[] = [];
@@ -383,7 +384,12 @@ export class Launcher {
     if (failed.length > 0) {
       const said = new Set<string>();
       this.#sayFailed(failed, said);
-      this.#handOverLater(successor, onHanded, said, HAND_OVER_RETRY_MS);
+      this.#handOverLater(
+        successorNow ?? (() => Promise.resolve(successor)),
+        onHanded,
+        said,
+        HAND_OVER_RETRY_MS
+      );
     }
     return [...handed];
   }
@@ -404,9 +410,13 @@ export class Launcher {
     }
   }
 
-  /** Try the runs still waiting to be handed over again, after `delay`. */
+  /**
+   * Try the runs still waiting to be handed over again, after `delay`, to
+   * the engine `successorNow` names then: the one current when the write is
+   * made, which may not be the one current when retirement began.
+   */
   #handOverLater(
-    successor: ProcessIdentity,
+    successorNow: () => Promise<ProcessIdentity | undefined>,
     onHanded: (id: string) => void,
     said: Set<string>,
     delay: number
@@ -421,6 +431,10 @@ export class Launcher {
       };
       let failed: readonly { readonly error: unknown; readonly id: string }[];
       try {
+        const successor = await successorNow();
+        if (successor === undefined) {
+          throw new Error("no engine is current to hand it to");
+        }
         ({ failed } = await this.executions.handOverAll(successor, told));
       } catch (error) {
         failed = [{ error, id: "a queued run" }];
@@ -430,7 +444,7 @@ export class Launcher {
       }
       this.#sayFailed(failed, said);
       this.#handOverLater(
-        successor,
+        successorNow,
         onHanded,
         said,
         Math.min(delay * 2, HAND_OVER_RETRY_MAX_MS)

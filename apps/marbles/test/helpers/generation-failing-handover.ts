@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { existsSync } from "node:fs";
+import { Engine } from "~/lib/engine";
 import { ExecutionRecords } from "~/lib/execution-records";
 
 /**
@@ -19,4 +20,17 @@ records.handQueued = function (this: unknown, ...args: unknown[]) {
   }
   return handQueued.apply(this, args);
 };
+// With `MARBLES_TEST_DROP_HANDED` set, no late hand-over is told to the
+// daemon, as when its notice is lost: only the daemon's sweep finds it.
+if (process.env.MARBLES_TEST_DROP_HANDED === "1") {
+  const { retire } = Engine.prototype;
+  Engine.prototype.retire = function (
+    this: Engine,
+    successor: Parameters<Engine["retire"]>[0],
+    options: Parameters<Engine["retire"]>[1] = {}
+  ) {
+    const { onHanded: _dropped, ...kept } = options;
+    return retire.call(this, successor, kept);
+  } as Engine["retire"];
+}
 await import("~/process/generation");

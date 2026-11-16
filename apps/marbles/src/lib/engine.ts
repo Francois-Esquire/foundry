@@ -1376,9 +1376,14 @@ export class Engine {
   async retire(
     successor: ProcessIdentity,
     options: {
-      /** A queued run handed to `successor` after the first hand-over. */
+      /** A queued run handed over after the first hand-over. */
       readonly onHanded?: (runId: string) => void;
       readonly onLetGo?: (runId: string) => void;
+      /**
+       * The engine current now, for a hand-over tried again later: it may
+       * not be `successor` by then. `successor` when omitted.
+       */
+      readonly successorNow?: () => Promise<ProcessIdentity | undefined>;
     } = {}
   ): Promise<{ readonly ended: Promise<void> }> {
     const running = this.#running;
@@ -1392,7 +1397,11 @@ export class Engine {
     running.router.retire();
     await this.#delivery.stop();
     const handedLate = (late: string) => options.onHanded?.(late);
-    for (const runId of await this.#launcher.handOver(successor, handedLate)) {
+    for (const runId of await this.#launcher.handOver(
+      successor,
+      handedLate,
+      options.successorNow
+    )) {
       this.#letGo.add(runId);
     }
     // Every run that parks from now on goes too, as soon as it has parked.
