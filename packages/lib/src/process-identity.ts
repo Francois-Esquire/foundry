@@ -502,6 +502,40 @@ export function processState(
 export type ProcessState = "gone" | "running" | "unknown";
 
 /**
+ * Whether the group a stop is judging is proved empty, by the one rule for
+ * groups, from what the system lists in it (`listed`: every process with
+ * that group id, exited ones marked; `undefined` when it could not list
+ * them) and whether a signal reaches the group (`reached`, signal 0 to
+ * `-pgid`):
+ *
+ * - `empty`, only on proof: no signal reaches the group, or the listing
+ *   shows members and every one has exited and waits to be reaped;
+ * - `running`, when the listing shows one that runs;
+ * - `unknown` otherwise: the listing failed, or it shows none while a
+ *   signal still reaches the group (a process it leaves out, as one whose
+ *   stat this user may not read, may still be in it).
+ *
+ * A group whose id another process now holds is empty too
+ * (`groupIdTaken`), which a caller asks first.
+ */
+export function groupState(
+  listed: ReadonlyMap<number, SeenProcess> | undefined,
+  reached: boolean
+): "empty" | "running" | "unknown" {
+  if (!reached) {
+    return "empty";
+  }
+  if (listed === undefined) {
+    return "unknown";
+  }
+  const members = [...listed.values()];
+  if (members.some((seen) => seen.exited !== true)) {
+    return "running";
+  }
+  return members.length > 0 ? "empty" : "unknown";
+}
+
+/**
  * Whether the group `leader` led has another process's pid as its id now,
  * which proves it empty: a pid is not given to a new process while a
  * group with that id still has a member. So it is, when `seen` (what the

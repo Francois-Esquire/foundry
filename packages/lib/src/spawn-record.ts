@@ -56,6 +56,7 @@ import {
   compareStarts,
   groupIdTaken,
   groupMembers,
+  groupState,
   lookProcesses,
   type ProcessIdentity,
   type ProcessLookup,
@@ -297,7 +298,7 @@ const GROUP_SYSTEM: GroupSystem = {
  * whether its members were saved.
  */
 export function recordGroup(
-  child: Pick<ChildProcess, "once" | "pid">,
+  child: Pick<ChildProcess, "exitCode" | "once" | "pid" | "signalCode">,
   options: RecordGroupOptions = {}
 ): () => Promise<GroupStopResult> {
   const env = options.env ?? process.env;
@@ -310,6 +311,10 @@ export function recordGroup(
   const system = options.system ?? GROUP_SYSTEM;
   const record = recovery === undefined ? undefined : recordPath(recovery, pid);
   let reaped = false;
+  // Its own child, not reaped: the exit event has not come, and its exit
+  // code and signal are not set (a child handed over late has them).
+  const held = (): boolean =>
+    !reaped && child.exitCode === null && child.signalCode === null;
   let saved = true;
   let told = false;
   const save = (
@@ -331,7 +336,7 @@ export function recordGroup(
   const stop = (): Promise<GroupStopResult> => {
     stopping ??= stopGroup(pid, system, {
       graceMs: options.graceMs ?? GROUP_GRACE_MS,
-      held: () => !reaped,
+      held,
       killMs: options.killMs ?? GROUP_KILL_MS,
       leader: { pid, started: started ?? null },
       save,
@@ -339,7 +344,7 @@ export function recordGroup(
         if (!told) {
           told = true;
           (system.report ?? reportLine)(
-            `the members of group ${String(pid)} could not be listed; ${reaped ? "its leader is reaped, so nothing proves the group still its: not signalled, its recovery record kept" : "its own unreaped leader proves the group, so it is signalled without them, and they are not written down"}`
+            `the members of group ${String(pid)} could not be listed; ${held() ? "its own unreaped leader proves the group, so it is signalled without them, and they are not written down" : "its leader is reaped, so nothing proves the group still its: not signalled, its recovery record kept"}`
           );
         }
       },
@@ -470,7 +475,7 @@ async function emptiedWithin(
   // It answers a signal: empty only if the listing shows members, every
   // one exited and unreaped (zombies). A listing that shows none while a
   // signal reaches the group proves nothing gone.
-  return onlyExited(system.members(pgid));
+  return groupState(system.members(pgid), true) === "empty";
 }
 
 /**
@@ -487,7 +492,12 @@ function listing(
   system: GroupSystem,
   stop: GroupStop
 ): boolean | undefined {
-  if (onlyExited(listed) || reused(known, pgid, stop)) {
+  if (reused(known, pgid, stop)) {
+    return true;
+  }
+  // A signal reached the group a moment ago (the stop asked first).
+  const state = groupState(listed, true);
+  if (state === "empty") {
     return true;
   }
   if (listed === undefined) {
@@ -496,28 +506,10 @@ function listing(
     // listing; once reaped, nothing does.
     return stop.held() ? undefined : false;
   }
-  if (unlisted(listed) && !stop.held()) {
+  if (state === "unknown" && !stop.held()) {
     reportUntold(system, pgid);
     return false;
   }
-}
-
-/** Whether `members` lists the group, and every one in it has exited and waits to be reaped. */
-function onlyExited(
-  members: ReadonlyMap<number, SeenProcess> | undefined
-): boolean {
-  return (
-    members !== undefined &&
-    members.size > 0 &&
-    [...members.values()].every((seen) => seen.exited === true)
-  );
-}
-
-/** Whether `members` lists no process of a group a signal still reaches. */
-function unlisted(
-  members: ReadonlyMap<number, SeenProcess> | undefined
-): boolean {
-  return members !== undefined && members.size === 0;
 }
 
 function reportUntold(system: GroupSystem, pgid: number): void {

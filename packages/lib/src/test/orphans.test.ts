@@ -881,3 +881,35 @@ it("reports, every time, an orphan kept because its owner cannot be told gone or
     expect(existsSync(recordPath(dir, child))).toBe(true);
   }
 });
+
+it("keeps, and reports, a group the listing shows empty while a signal still reaches it", async () => {
+  const dir = scratch();
+  const leader = 4_200_700;
+  record(dir, {
+    group: true,
+    members: [],
+    owner: OWNER,
+    pid: leader,
+    started: MADE_UP,
+  });
+  const sent: unknown[] = [];
+  const table: ProcessTable = {
+    // The group answers a signal; what is in it the listing leaves out.
+    alive: (pid) => pid === -leader,
+    kill: (...args) => {
+      sent.push(args);
+    },
+    look: () => new Map(),
+    members: () => new Map(),
+    sleep: () => Promise.resolve(),
+  };
+  const stop = await stopOrphans(dir, { graceMs: 0, killMs: 0, system: table });
+  expect(sent).toEqual([]);
+  expect(stop.stopped).toEqual([]);
+  expect(stop.problems).toEqual([
+    expect.stringContaining(
+      `group ${String(leader)} is not listed but a signal still reaches it`
+    ),
+  ]);
+  expect(existsSync(recordPath(dir, leader))).toBe(true);
+});

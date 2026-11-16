@@ -173,21 +173,28 @@ it("keeps the record of a group that would not empty, its members written before
  * system's limit, and no signal reaches a real process. `exit` reaps it.
  */
 function madeUpChild(pid: number): {
-  readonly child: Pick<ChildProcess, "once" | "pid">;
+  readonly child: Parameters<typeof recordGroup>[0];
   readonly exit: () => void;
 } {
   let onExit: (() => void) | undefined;
+  const child = {
+    exitCode: null as number | null,
+    once(event: string, listener: () => void) {
+      if (event === "exit") {
+        onExit = listener;
+      }
+      return child;
+    },
+    pid,
+    signalCode: null as NodeJS.Signals | null,
+  };
   return {
-    child: {
-      once(event: string, listener: () => void) {
-        if (event === "exit") {
-          onExit = listener;
-        }
-        return this;
-      },
-      pid,
-    } as Pick<ChildProcess, "once" | "pid">,
-    exit: () => onExit?.(),
+    child: child as unknown as Parameters<typeof recordGroup>[0],
+    // As a real child: its exit code is set before its exit event.
+    exit: () => {
+      child.exitCode = 0;
+      onExit?.();
+    },
   };
 }
 
@@ -451,4 +458,31 @@ it("stops its own unreaped leader's group even when the group cannot be listed, 
   expect(await later()).toEqual({ emptied: false, saved: true });
   expect(sent.filter(([, signal]) => signal !== 0)).toEqual([]);
   expect(reports).toEqual([expect.stringContaining("could not be listed")]);
+});
+
+it("does not take a leader whose exit has already happened for its own unreaped child", async () => {
+  const pgid = 4_200_710;
+  const reports: string[] = [];
+  const sent: [number, NodeJS.Signals | 0][] = [];
+  const system: GroupSystem = {
+    kill: (target, signal) => {
+      sent.push([target, signal]);
+    },
+    members: () => undefined,
+    report: (line) => reports.push(line),
+    sleep: () => Promise.resolve(),
+  };
+  // Handed over after its exit: its exit code is set, though no exit event comes.
+  const child = {
+    exitCode: 0,
+    once() {
+      return child;
+    },
+    pid: pgid,
+    signalCode: null,
+  } as unknown as Parameters<typeof recordGroup>[0];
+  const stop = recordGroup(child, { env: {}, graceMs: 0, killMs: 0, system });
+  expect((await stop()).emptied).toBe(false);
+  expect(sent.filter(([, signal]) => signal !== 0)).toEqual([]);
+  expect(reports).toEqual([expect.stringContaining("its leader is reaped")]);
 });

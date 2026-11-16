@@ -53,6 +53,7 @@ import {
   compareStarts,
   groupIdTaken,
   groupMembers,
+  groupState,
   isProcessIdentity,
   lookProcesses,
   type ProcessIdentity,
@@ -104,6 +105,10 @@ export interface ProcessTable {
  * judgement that a process is gone goes through (`processState`).
  */
 interface Table extends ProcessTable {
+  /** Every process in the group `pgid`, exited ones kept, marked so. */
+  readonly listed: (
+    pgid: number
+  ) => ReadonlyMap<number, SeenProcess> | undefined;
   readonly lookup: ProcessLookup;
 }
 
@@ -322,11 +327,36 @@ function inGroup(
   record: ReadRecord,
   system: Table
 ): ReadonlyMap<number, SeenProcess> | undefined {
+  return idTaken(record, system) ? new Map() : system.members(record.pid);
+}
+
+/** Whether the id of `record`'s group is another process's now (`groupIdTaken`). */
+function idTaken(record: ReadRecord, system: Table): boolean {
   const leader = system.lookup.look([record.pid]);
-  if (leader !== undefined && groupIdTaken(record, leader.get(record.pid))) {
-    return new Map();
+  return leader !== undefined && groupIdTaken(record, leader.get(record.pid));
+}
+
+/**
+ * Whether `record`'s group is proved empty, by the one rule for groups
+ * (`groupState`): its id another's, no signal reaching it, or only exited
+ * members listed. One listed as empty that a signal still reaches is not.
+ */
+function groupNow(
+  record: ReadRecord,
+  system: Table
+): "empty" | "running" | "unknown" {
+  if (idTaken(record, system)) {
+    return "empty";
   }
-  return system.members(record.pid);
+  return groupState(system.listed(record.pid), system.alive(-record.pid));
+}
+
+/** Why `record`'s group is not proved empty by its listing (`groupNow`). */
+function groupUntold(record: ReadRecord, system: Table): string {
+  const pgid = String(record.pid);
+  return system.listed(record.pid) === undefined
+    ? `the members of group ${pgid} could not be listed`
+    : `group ${pgid} is not listed but a signal still reaches it; not signalled`;
 }
 
 /**
@@ -359,7 +389,12 @@ function leftMembers(record: ReadRecord, system: Table): Verdict {
     return "members";
   }
   if (members.size === 0) {
-    // Empty only once its leader and every member it records is gone on proof.
+    // Empty only on proof: the group itself (no signal reaches it, or only
+    // exited members are listed), and its leader and every member it
+    // records gone.
+    if (groupNow(record, system) === "unknown") {
+      return { problem: `${groupUntold(record, system)}, its record kept` };
+    }
     const reasons = untold(record, system);
     return reasons === undefined
       ? "gone"
@@ -537,6 +572,9 @@ async function stopGroup(
   }
   const reasons = untold(record, system);
   const stubborn = stillRunning(record, system).map(({ pid }) => String(pid));
+  if (groupNow(record, system) === "unknown") {
+    return `${groupUntold(record, system)}, its record kept`;
+  }
   if (reasons !== undefined) {
     return `group ${String(pgid)}: ${reasons}; pending, its record kept`;
   }
@@ -585,7 +623,7 @@ async function emptied(
     // and every member it records gone on proof, wherever each went:
     // absence from the listing alone proves none gone.
     if (
-      inGroup(record, system)?.size === 0 &&
+      groupNow(record, system) === "empty" &&
       stillRunning(record, system).length === 0 &&
       untold(record, system) === undefined
     ) {
@@ -616,9 +654,10 @@ function running(table: ProcessTable): Table {
   return {
     alive: (pid) => table.alive(pid),
     kill: (target, name) => table.kill(target, name),
-    look: (pids) => live(table.look(pids)),
     // Whether a process is gone is asked of the table as it is, by the one
     // rule (`processState`): exited, unreaped processes listed so.
+    listed: (pgid) => table.members(pgid),
+    look: (pids) => live(table.look(pids)),
     lookup: {
       alive: (pid) => table.alive(pid),
       look: (pids) => table.look(pids),
