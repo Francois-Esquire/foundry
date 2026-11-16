@@ -67,6 +67,7 @@ export class DatabaseRunStore implements RunStore {
   readonly #scope: string;
   readonly #changes: ChangeRecorder;
   readonly #owner = randomUUID();
+  readonly #letGo = new Set<string>();
   readonly #gate = new RecordsGate("the run store is closed");
 
   constructor(options: DatabaseRunStoreOptions) {
@@ -76,14 +77,18 @@ export class DatabaseRunStore implements RunStore {
   }
 
   claim(runId: string, when: ClaimCondition): Promise<boolean> {
-    return this.#call(() =>
-      claimJudged(
+    return this.#call(async () => {
+      const claimed: boolean = await claimJudged<boolean, boolean>(
         () => this.#ownerOf(this.#database, runId),
         (seen) => seen !== undefined && this.#heldElsewhere(seen),
         (seen, held) => this.#claimIn(runId, when, seen, held),
         false
-      )
-    );
+      );
+      if (claimed) {
+        this.#letGo.delete(runId);
+      }
+      return claimed;
+    });
   }
 
   async #ownerOf(
@@ -188,6 +193,9 @@ export class DatabaseRunStore implements RunStore {
   }
 
   release(runId?: string): Promise<void> {
+    if (runId !== undefined) {
+      this.#letGo.add(runId);
+    }
     return this.#call(async () => {
       await this.#database
         .update(marblesWorkflowRuns)
@@ -223,6 +231,9 @@ export class DatabaseRunStore implements RunStore {
     recorded: (runId: string) => RecordedScope | undefined
   ): Promise<void> {
     for (const { runId, scope, settled } of filedRuns(write, recorded)) {
+      if (this.#letGo.has(runId)) {
+        throw new RunMovedError(runId);
+      }
       const held = await this.#ownerOf(transaction, runId);
       if (
         held !== undefined &&

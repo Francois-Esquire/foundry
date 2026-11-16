@@ -5,6 +5,8 @@ import { Git, git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
 import { nodeObserver } from "@foundry/workspaces/node/watch";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
+import type { ExecutionContext } from "~/lib/execution-context";
+import { withinContext } from "~/lib/execution-context";
 
 import type { ManagerArgs } from "../bindings";
 import { current } from "../run-scope";
@@ -42,6 +44,7 @@ export function localCatalogue(
 
 export interface WorkspacesDeps {
   readonly catalogue: Catalogue;
+  readonly context?: ExecutionContext;
   /** Passed to `Git.at`; `--dry-run` echoes instead of running git. */
   readonly gitOptions?: GitOptions;
   readonly root: string;
@@ -78,7 +81,8 @@ type WorktreeOptions = Parameters<Git["worktree"]>[0];
  */
 function wrapGit<G extends Git>(
   target: G,
-  worktreeHome: string | undefined
+  worktreeHome: string | undefined,
+  context: ExecutionContext | undefined
 ): G {
   const withHome = (options: WorktreeOptions): WorktreeOptions => {
     const home = options.home ?? worktreeHome;
@@ -88,7 +92,8 @@ function wrapGit<G extends Git>(
     mkdirSync(home, { recursive: true });
     return { ...options, home };
   };
-  const wrap = <W extends Git>(worktree: W) => wrapGit(worktree, worktreeHome);
+  const wrap = <W extends Git>(worktree: W) =>
+    wrapGit(worktree, worktreeHome, context);
   const overrides: Partial<Git> = {
     withWorktree: (options, body) =>
       target.withWorktree(withHome(options), (worktree) => {
@@ -96,7 +101,7 @@ function wrapGit<G extends Git>(
         const store = current.getStore();
         return store
           ? current.run({ ...store, cwd: worktree.root }, () => body(wrapped))
-          : body(wrapped);
+          : withinContext(context, () => body(wrapped));
       }),
     worktree: async (options) => wrap(await target.worktree(withHome(options))),
     worktrees: async () => (await target.worktrees()).map(wrap),
@@ -138,7 +143,8 @@ function handle(
   root: string,
   loaded: () => Promise<Loaded>,
   gitOf: () => Git | undefined,
-  worktreeHome: string | undefined
+  worktreeHome: string | undefined,
+  context: ExecutionContext | undefined
 ): WorkspaceHandle {
   const target: Record<string, unknown> = { root };
   for (const name of WORKSPACE_METHODS) {
@@ -156,7 +162,7 @@ function handle(
           `${root} is not a git repository; workspaces.*.git needs one`
         );
       }
-      return wrapGit(found, worktreeHome);
+      return wrapGit(found, worktreeHome, context);
     },
   });
   return target as unknown as WorkspaceHandle;
@@ -180,7 +186,8 @@ export class WorkspacesManager implements Workspaces {
         repositoryRoot(deps.root)
           ? Git.at(deps.root, deps.gitOptions ?? {})
           : undefined,
-      deps.worktreeHome
+      deps.worktreeHome,
+      deps.context
     );
   }
 
@@ -205,7 +212,8 @@ export class WorkspacesManager implements Workspaces {
         workspace.root,
         () => Promise.resolve(workspace),
         () => workspace.git,
-        this.#deps.worktreeHome
+        this.#deps.worktreeHome,
+        this.#deps.context
       ),
       { id: workspace.id, source: workspace.source }
     );

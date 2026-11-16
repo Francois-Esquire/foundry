@@ -25,6 +25,12 @@ export class ConfigurationError extends Error {
   }
 }
 
+export class InvalidStoredConfiguration extends ConfigurationError {
+  constructor(message: string) {
+    super("CONFIGURATION_UNREADABLE", message);
+  }
+}
+
 export interface ProviderEntryRecord {
   readonly defaults?: Partial<Record<ModelKind, string>>;
   readonly enabled: boolean;
@@ -158,8 +164,7 @@ export function describeIssues(error: z.ZodError): string {
 }
 
 function unreadable(what: string, why: string): ConfigurationError {
-  return new ConfigurationError(
-    "CONFIGURATION_UNREADABLE",
+  return new InvalidStoredConfiguration(
     `${what} cannot be read (${why}); configure those providers again`
   );
 }
@@ -172,8 +177,7 @@ export function newIdentityKey(): string {
 
 export function identityKeyFrom(text: string): Buffer {
   if (!KEY.test(text)) {
-    throw new ConfigurationError(
-      "CONFIGURATION_UNREADABLE",
+    throw new InvalidStoredConfiguration(
       "the identity key in the Marbles database is not one; remove it to start new sessions everywhere"
     );
   }

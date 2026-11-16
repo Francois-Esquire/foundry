@@ -83,7 +83,9 @@ export class HostedWorkspaces {
   readonly #hosts = new Map<string, WorkspaceHost>();
   readonly #pending = new Map<string, Promise<WorkspaceHost>>();
   readonly #options: HostedWorkspacesOptions;
+  readonly #inFlight = new Set<Promise<unknown>>();
   #phase: "open" | "closed" = "open";
+  #closing: Promise<void> | undefined;
 
   private constructor(
     options: HostedWorkspacesOptions,
@@ -158,6 +160,7 @@ export class HostedWorkspaces {
     registration: WorkspaceRegistration,
     { args, found, root }: Found
   ): Promise<StagedWorkspace> {
+    let host: WorkspaceHost | undefined;
     try {
       if (this.#database !== undefined) {
         await new WorkspaceRegistry({
@@ -168,7 +171,7 @@ export class HostedWorkspaces {
           hosted: true,
         });
       }
-      return await stageWorkspace({
+      const staged = await stageWorkspace({
         artifacts: args.artifacts,
         ...(this.#options.askable === undefined
           ? {}
@@ -178,6 +181,12 @@ export class HostedWorkspaces {
         ...(this.#options.env === undefined ? {} : { env: this.#options.env }),
         directory: root,
         dry: args.dry,
+        onClose: (closing) => {
+          if (host !== undefined && this.#hosts.get(host.id) === host) {
+            this.#hosts.delete(host.id);
+          }
+          this.#track(closing);
+        },
         ...(this.#options.prepare === undefined
           ? {}
           : { prepare: this.#options.prepare }),
@@ -189,6 +198,13 @@ export class HostedWorkspaces {
           : { spawned: this.#options.spawned }),
         state: args.state,
       });
+      return {
+        ...staged,
+        start: async () => {
+          host = await staged.start();
+          return host;
+        },
+      };
     } catch (error) {
       throw new WorkspaceLoadError(root, { cause: error });
     }
@@ -286,10 +302,15 @@ export class HostedWorkspaces {
     if (database === undefined) {
       return [];
     }
-    const records = await new WorkspaceRegistry({
-      database: database.database,
-      state: this.#options.state,
-    }).list();
+    if (this.#phase === "closed") {
+      throw new Error("these hosted workspaces are closed");
+    }
+    const records = await this.#track(
+      new WorkspaceRegistry({
+        database: database.database,
+        state: this.#options.state,
+      }).list()
+    );
     return records.filter((record) => record.hosted);
   }
 
@@ -319,7 +340,14 @@ export class HostedWorkspaces {
     return await this.load(await this.#registered());
   }
 
-  async unregister(id: string): Promise<boolean> {
+  unregister(id: string): Promise<boolean> {
+    if (this.#phase === "closed") {
+      return Promise.reject(new Error("these hosted workspaces are closed"));
+    }
+    return this.#track(this.#unregister(id));
+  }
+
+  async #unregister(id: string): Promise<boolean> {
     const pending = this.#pending.get(id);
     if (pending !== undefined) {
       await pending.catch(() => undefined);
@@ -334,6 +362,15 @@ export class HostedWorkspaces {
       database: this.#database.database,
       state: this.#options.state,
     }).unhost(id);
+  }
+
+  #track<T>(work: Promise<T>): Promise<T> {
+    this.#inFlight.add(work);
+    const settled = () => {
+      this.#inFlight.delete(work);
+    };
+    work.then(settled, settled);
+    return work;
   }
 
   get(id: string): WorkspaceHost {
@@ -376,15 +413,30 @@ export class HostedWorkspaces {
     return this.get(target.workspace).engine.run<O>(target.name, input);
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    this.#closing ??= this.#shutDown();
+    return this.#closing;
+  }
+
+  async #shutDown(): Promise<void> {
     this.#phase = "closed";
     await Promise.allSettled([...this.#pending.values()]);
     const hosts = this.list();
     this.#hosts.clear();
+    const closed = await Promise.allSettled(hosts.map((host) => host.close()));
+    while (this.#inFlight.size > 0) {
+      await Promise.allSettled([...this.#inFlight]);
+    }
+    const errors = closed.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : []
+    );
     try {
-      await Promise.all(hosts.map((host) => host.close()));
-    } finally {
       this.#database?.close();
+    } catch (error) {
+      errors.push(error);
+    }
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "Failed to close every workspace");
     }
   }
 }

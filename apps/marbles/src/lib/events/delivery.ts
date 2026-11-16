@@ -211,7 +211,6 @@ export class Delivery {
     this.wake();
   }
 
-  /** Begin a pass, or another after the one in progress. */
   wake(): void {
     if (this.#phase !== "running") {
       return;
@@ -245,7 +244,7 @@ export class Delivery {
     }
   }
 
-  async stop(): Promise<void> {
+  async stop(options: { readonly grace?: number } = {}): Promise<void> {
     this.#phase = "stopped";
     this.#timer?.cancel();
     this.#timer = undefined;
@@ -255,14 +254,7 @@ export class Delivery {
       await this.#pass;
       await this.#claiming;
       await this.#compacting;
-      const lanes = this.#observers
-        .map((observer) => observer.lane)
-        .filter((lane) => lane !== undefined);
-      if (lanes.length > 0) {
-        const grace = this.#clock.after(this.#stopGrace);
-        await Promise.race([Promise.allSettled(lanes), grace.done]);
-        grace.cancel();
-      }
+      await this.#lanesWithin(options.grace ?? this.#stopGrace);
     } finally {
       this.#stopped.gaveUp = true;
       for (const abandon of this.#abandon) {
@@ -270,6 +262,18 @@ export class Delivery {
       }
       await this.#release();
     }
+  }
+
+  async #lanesWithin(grace: number): Promise<void> {
+    const lanes = this.#observers
+      .map((observer) => observer.lane)
+      .filter((lane) => lane !== undefined);
+    if (lanes.length === 0 || grace <= 0) {
+      return;
+    }
+    const waiting = this.#clock.after(grace);
+    await Promise.race([Promise.allSettled(lanes), waiting.done]);
+    waiting.cancel();
   }
 
   async #declare(): Promise<void> {

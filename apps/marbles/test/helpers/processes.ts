@@ -1,8 +1,23 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import {
+  type Dirent,
+  existsSync,
+  linkSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { compareStarts, lookProcesses } from "@foundry/lib/process-identity";
+import {
+  lookProcesses,
+  processAlive,
+  processState,
+} from "@foundry/lib/process-identity";
 import {
   notPrivate,
   recordSpawned,
@@ -21,11 +36,13 @@ export interface StopLimits {
 }
 
 interface Seen {
+  readonly exited?: true;
   readonly pgid: number;
   readonly started: string;
 }
 
 export interface ProcessSystem {
+  alive(pid: number): boolean;
   environment(pid: number): readonly string[] | undefined;
   kill(target: number, signal: NodeJS.Signals): void;
   look(pids: readonly number[]): ReadonlyMap<number, Seen>;
@@ -35,9 +52,11 @@ export interface ProcessSystem {
 
 const LIMITS: StopLimits = { graceMs: 5000, killMs: 2000 };
 const POLL_MS = 100;
+const MAX_PASSES = 8;
+const STALE_PARTIAL_MS = 60_000;
 const PS_TIMEOUT_MS = 5000;
 const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
-const PID_PAIR = /^\s*(\d+)\s+(\d+)\s*$/;
+const MEMBER_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s*$/;
 const COMMAND_LINE = /^\s*(\d+) (.*)$/;
 const PID = /^\d+$/;
 
@@ -51,15 +70,154 @@ export async function stopRecorded(
   limits: StopLimits = LIMITS,
   system: ProcessSystem = SYSTEM
 ): Promise<string[]> {
-  const stop = new RecordedStop(readRecords(dir), marker, system);
-  stop.round("SIGTERM");
-  await stop.waitGone(limits.graceMs);
-  stop.round("SIGKILL");
-  const report = stop.report(await stop.waitGone(limits.killMs));
-  if (report.length === 0) {
-    rmSync(dir, { force: true, recursive: true });
+  const problems = new Set<string>();
+  const handled = new Set<string>();
+  for (let pass = 0; pass < MAX_PASSES; pass += 1) {
+    const read = readRecords(dir);
+    for (const problem of read.problems) {
+      problems.add(problem);
+    }
+    const fresh = read.records.filter(
+      (record) => !handled.has(handledKey(record))
+    );
+    if (fresh.length === 0) {
+      if (problems.size > 0 || removeEmpty(dir).length === 0) {
+        return [...problems];
+      }
+      await system.sleep(POLL_MS);
+      continue;
+    }
+    const stop = new RecordedStop(
+      { problems: [], records: fresh },
+      marker,
+      system
+    );
+    stop.round("SIGTERM");
+    await stop.waitGone(limits.graceMs);
+    stop.round("SIGKILL");
+    const report = stop.report(await stop.waitGone(limits.killMs));
+    for (const record of fresh) {
+      handled.add(handledKey(record));
+    }
+    for (const problem of report) {
+      problems.add(problem);
+    }
+    if (report.length === 0) {
+      for (const record of fresh) {
+        forgetRecord(record);
+      }
+    }
   }
-  return report;
+  const left = removeEmpty(dir);
+  if (left.length > 0) {
+    problems.add(
+      `${dir} still held, after ${String(MAX_PASSES)} passes, ${left.join(", ")}; kept, not clear`
+    );
+  }
+  return [...problems];
+}
+
+function handledKey(record: ReadRecord): string {
+  return `${record.path}\n${record.started}`;
+}
+
+export interface RecordFiles {
+  link(existing: string, path: string): void;
+  read(path: string): string;
+  remove(path: string): void;
+  rename(from: string, to: string): void;
+}
+
+const FILES: RecordFiles = {
+  link: (existing, path) => linkSync(existing, path),
+  read: (path) => readFileSync(path, "utf8"),
+  remove: (path) => rmSync(path, { force: true }),
+  rename: (from, to) => renameSync(from, to),
+};
+
+export function forgetRecord(
+  record: Pick<ReadRecord, "path" | "pid" | "started">,
+  files: RecordFiles = FILES
+): void {
+  const aside = join(
+    dirname(record.path),
+    `.${basename(record.path)}.${randomUUID()}.forget.json`
+  );
+  try {
+    files.rename(record.path, aside);
+  } catch (error) {
+    if (gone(error)) {
+      return;
+    }
+    throw error;
+  }
+  let moved: Partial<SpawnRecord> | undefined;
+  try {
+    moved = JSON.parse(files.read(aside)) as Partial<SpawnRecord>;
+  } catch {
+    moved = undefined;
+  }
+  if (moved?.pid === record.pid && moved.started === record.started) {
+    files.remove(aside);
+    return;
+  }
+  try {
+    files.link(aside, record.path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      return;
+    }
+    throw error;
+  }
+  files.remove(aside);
+}
+
+function removeEmpty(dir: string): string[] {
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    if (gone(error)) {
+      return [];
+    }
+    throw error;
+  }
+  const left: string[] = [];
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      left.push(...removeEmpty(path));
+    } else if (entry.name.endsWith(".tmp")) {
+      if (stale(path)) {
+        rmSync(path, { force: true });
+      } else {
+        left.push(`${path}, a record still being written`);
+      }
+    } else {
+      left.push(
+        entry.name.endsWith(".json")
+          ? `${path}, a record written since`
+          : `${path}, not a record`
+      );
+    }
+  }
+  if (left.length > 0) {
+    return left;
+  }
+  try {
+    rmdirSync(dir);
+    return [];
+  } catch (error) {
+    return gone(error) ? [] : [`${dir}, which gained an entry`];
+  }
+}
+
+function stale(path: string): boolean {
+  try {
+    return Date.now() - statSync(path).mtimeMs > STALE_PARTIAL_MS;
+  } catch {
+    return true;
+  }
 }
 
 class RecordedStop {
@@ -93,7 +251,13 @@ class RecordedStop {
       }
       const environment = this.#system.environment(record.pid);
       const found = this.#system.look([record.pid]).get(record.pid);
-      const proof = prove(record, found, environment, this.#marker);
+      const proof = prove(
+        record,
+        found,
+        environment,
+        this.#marker,
+        this.#system
+      );
       if (typeof proof === "object") {
         this.#problems.set(record.pid, proof.problem);
       } else if (proof === "recorded") {
@@ -178,15 +342,25 @@ function prove(
   record: SpawnRecord,
   seen: Seen | undefined,
   environment: readonly string[] | undefined,
-  marker: Marker
+  marker: Marker,
+  system: Pick<ProcessSystem, "alive" | "look">
 ): Proof {
-  if (
-    seen === undefined ||
-    compareStarts(seen.started, record.started) !== "same"
-  ) {
+  const pid = String(record.pid);
+  const state = processState(record, {
+    alive: (each) => system.alive(each),
+    look: (pids) => system.look(pids),
+  });
+  if (state === "gone") {
     return "gone";
   }
-  const pid = String(record.pid);
+  if (state === "unknown" || seen === undefined || seen.exited === true) {
+    return {
+      problem:
+        seen === undefined
+          ? `process ${pid} is not listed but a signal still reaches it; not signalled, its record kept`
+          : `process ${pid}'s record names a start of a kind this system cannot compare (${record.started}); not signalled, its record kept`,
+    };
+  }
   if (record.group && seen.pgid !== record.pid) {
     return {
       problem: `process ${pid} was recorded leading its own group and is now in group ${String(seen.pgid)}; not signalled`,
@@ -219,13 +393,17 @@ function signalIfThere(
   }
 }
 
+interface ReadRecord extends SpawnRecord {
+  readonly path: string;
+}
+
 interface Records {
   readonly problems: readonly string[];
-  readonly records: readonly SpawnRecord[];
+  readonly records: readonly ReadRecord[];
 }
 
 function readRecords(dir: string): Records {
-  const records: SpawnRecord[] = [];
+  const records: ReadRecord[] = [];
   const problems: string[] = [];
   let entries: string[];
   try {
@@ -246,7 +424,7 @@ function readRecords(dir: string): Records {
         typeof record.group === "boolean" &&
         typeof record.started === "string"
       ) {
-        records.push(record);
+        records.push({ ...record, path });
       } else {
         problems.push(`${path} is not a process record`);
       }
@@ -292,6 +470,7 @@ function gone(error: unknown): boolean {
 }
 
 const SYSTEM: ProcessSystem = {
+  alive: processAlive,
   environment(pid) {
     return process.platform === "linux"
       ? linuxEnvironment(pid)
@@ -306,14 +485,27 @@ const SYSTEM: ProcessSystem = {
     return seen;
   },
   members(pgid) {
-    return ps(["-A", "-o", "pid=,pgid="])
-      .split("\n")
-      .map((line) => PID_PAIR.exec(line))
-      .filter((parsed) => parsed !== null && Number(parsed[2]) === pgid)
-      .map((parsed) => Number(parsed?.[1]));
+    return parseMembers(ps(["-A", "-o", "pid=,pgid=,state="]), pgid);
   },
   sleep: (ms) => sleep(ms),
 };
+
+function exited(state: string): boolean {
+  return state.startsWith("Z");
+}
+
+export function parseMembers(listed: string, pgid: number): number[] {
+  return listed
+    .split("\n")
+    .map((line) => MEMBER_LINE.exec(line))
+    .filter(
+      (parsed) =>
+        parsed !== null &&
+        Number(parsed[2]) === pgid &&
+        !exited(parsed[3] ?? "")
+    )
+    .map((parsed) => Number(parsed?.[1]));
+}
 
 function ps(args: readonly string[]): string {
   const listed = spawnSync("ps", args, {

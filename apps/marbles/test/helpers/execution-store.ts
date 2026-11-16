@@ -322,6 +322,46 @@ export function describeExecutionStore(
       expect((await read(executions, "a"))?.status).toBe("running");
     });
 
+    it("reads, inside a transaction, what it wrote so far, and keeps none of it when its work rejects", async () => {
+      const executions = await store();
+      await executions.create(queued("a", { source: "request-1" }));
+      await executions.create(queued("b", { sequence: 11 }));
+      await executions.observe("a", effect("o-1"), AT);
+      const gap = {
+        removed: 1,
+        scope: "notes",
+        through: AT,
+        updatedAt: AT,
+      };
+      await executions.putGap(gap);
+      const before = await executions.list();
+
+      await expect(
+        executions.transaction(async (view) => {
+          await view.transition("a", start());
+          await view.advise("a", { progress: { n: 1 }, updatedAt: LATER });
+          await view.observe("a", effect("o-2"), LATER);
+          await view.remove("b");
+          await view.create(queued("c", { sequence: 12 }));
+          await view.putGap({ ...gap, removed: 5 });
+          const a = await view.get("a");
+          expect(a && parseStored(a)).toMatchObject({
+            observations: [effect("o-1"), effect("o-2")],
+            progress: { n: 1 },
+            revision: 5,
+            status: "running",
+          });
+          expect((await view.list()).map(({ id }) => id)).toEqual(["a", "c"]);
+          expect((await view.withSource("save", "request-1"))?.id).toBe("a");
+          expect(await view.gaps()).toEqual([{ ...gap, removed: 5 }]);
+          throw new Error("changed its mind");
+        })
+      ).rejects.toThrow("changed its mind");
+
+      expect(await executions.list()).toEqual(before);
+      expect(await executions.gaps()).toEqual([gap]);
+    });
+
     it("owns what it is handed from the call, and refuses what it cannot copy", async () => {
       const executions = await store();
       const run = queued("a") as { status: string };

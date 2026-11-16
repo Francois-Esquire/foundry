@@ -36,6 +36,7 @@ import {
   WORKSPACES,
 } from "~/lib/events/source";
 import { current } from "~/lib/run-scope";
+import { testEngine } from "./helpers/engine";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
@@ -65,7 +66,7 @@ describe("observing every source", () => {
     const records = machine.records(state);
     const { changes } = records;
     const { database } = machine.database;
-    const stores = workspaceStores(database, scope, changes);
+    const stores = workspaceStores(database, scope, { changes });
     const sessionStore = new DatabaseSessionStore({
       changes,
       database,
@@ -198,7 +199,7 @@ describe("the run a fact is recorded as made by", () => {
     const records = machine.records(state);
     const { changes } = records;
     const { database } = machine.database;
-    const stores = workspaceStores(database, scope, changes);
+    const stores = workspaceStores(database, scope, { changes });
     const runStore = new DatabaseRunStore({ changes, database, scope });
     const committers: readonly (readonly [
       string,
@@ -471,11 +472,9 @@ describe("a commit carrying more facts than one statement can bind", () => {
     const state = machine.workspace();
     const scope = basename(state);
     const records = machine.records(state);
-    const { artifacts } = workspaceStores(
-      machine.database.database,
-      scope,
-      records.changes
-    );
+    const { artifacts } = workspaceStores(machine.database.database, scope, {
+      changes: records.changes,
+    });
     const manager = new ArtifactManager({ store: artifacts });
     const { id } = await manager.create({
       entries: { "a.md": { bytes: "# A" } },
@@ -501,4 +500,26 @@ describe("a commit carrying more facts than one statement can bind", () => {
     expect((await manager.get(id))?.name).toBe(`name ${String(renames - 1)}`);
     await records.close();
   }, 60_000);
+});
+
+describe("the run a host task's fact is recorded as made by", () => {
+  it("is the task's own run, though no step frame is around its body", async () => {
+    const state = machine.workspace();
+    const engine = testEngine({
+      print: () => undefined,
+      records: machine.records(state),
+      state,
+    });
+    engine.task({
+      name: "writer",
+      run: () =>
+        new Tasks({ store: engine.taskStore }).create({ title: "from a task" }),
+    });
+    await engine.start();
+    const launched = await engine.launch("writer", {});
+    await launched.result;
+    const [fact] = await machine.changes(state, "tasks");
+    expect(fact?.runId).toBe(launched.id);
+    await engine.dispose();
+  });
 });

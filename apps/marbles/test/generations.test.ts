@@ -1,12 +1,20 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { processAlive } from "@foundry/lib/process-identity";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readLiveGenerations } from "~/database/generations";
+import { GenerationRecords, readLiveGenerations } from "~/database/generations";
 import { readDatabase } from "~/database/open";
 import { marblesExecutions, marblesGenerations } from "~/database/tables";
+import { recordedWorkspaces, WorkspaceRegistry } from "~/database/workspaces";
 import { type Layout, stateDatabase } from "~/layout";
 import type { WorkspaceSummary } from "~/model/connection";
 import { connect, type MarblesClient } from "~/process/client";
@@ -17,6 +25,8 @@ import {
   startDaemon,
 } from "~/process/daemon";
 import { startedAt } from "~/process/spawned";
+import { readStatus } from "~/status/model";
+import { exitedPid, seedExecution, withExecutions } from "./helpers/executions";
 import { testHome } from "./helpers/home";
 
 interface Fixture {
@@ -169,6 +179,60 @@ function handClock(): DaemonClock & { advance(ms: number): void } {
       return next;
     },
   };
+}
+
+const failingStop = join(
+  import.meta.dirname,
+  "helpers",
+  "generation-failing-stop.ts"
+);
+
+async function stored(
+  fixture: Pick<Fixture, "machine">,
+  id: string
+): Promise<boolean | undefined> {
+  return (await recordedWorkspaces(fixture.machine.state)).find(
+    (each) => each.id === id
+  )?.hosted;
+}
+
+async function crashableDaemon() {
+  const home = testHome({ providers: false });
+  const root = join(home.path, "project");
+  mkdirSync(root);
+  const gates = join(home.path, "gates");
+  mkdirSync(gates);
+  const fixture = {
+    gates,
+    log: join(home.path, "steps.log"),
+    machine: home.layout,
+    source: join(root, "marbles.config.ts"),
+  };
+  writeFileSync(fixture.log, "");
+  writeFileSync(fixture.source, moduleText(fixture, 0));
+  const lines: string[] = [];
+  const child = spawn(
+    process.execPath,
+    [join(import.meta.dirname, "helpers", "daemon-process.ts")],
+    { env: home.env, stdio: ["ignore", "pipe", "inherit"] }
+  );
+  home.track(child.pid, false);
+  child.stdout.on("data", (chunk: Buffer) => {
+    lines.push(...chunk.toString().split("\n").filter(Boolean));
+  });
+  await vi.waitFor(
+    () => expect(lines.some((line) => line.startsWith("ready "))).toBe(true),
+    { interval: 50, timeout: 60_000 }
+  );
+  return { child, fixture, lines };
+}
+
+async function crash(child: ReturnType<typeof spawn>): Promise<void> {
+  const pid = child.pid ?? 0;
+  expect(startedAt(pid)).not.toBeNull();
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  process.kill(pid, "SIGKILL");
+  await exited;
 }
 
 async function numbered(fixture: Pick<Fixture, "machine">): Promise<number> {
@@ -719,7 +783,13 @@ describe("engine generations", () => {
 
   it("starts no other generation after an attach when nothing changed", async () => {
     const fixture = await setUp();
-    await new Promise((resolve) => setTimeout(resolve, 4000));
+    for (let poll = 0; poll < 3; poll += 1) {
+      await fixture.daemon.pollNow();
+      expect(await fixture.daemon.idle()).toEqual({
+        reasons: [],
+        scheduled: false,
+      });
+    }
     const generations = await readLiveGenerations(fixture.machine.state);
     expect(generations.map((generation) => generation.pid)).toEqual([
       fixture.summary.pid,
@@ -766,9 +836,11 @@ describe("engine generations", () => {
     const root = join(home.path, "project");
     mkdirSync(root);
     const source = join(root, "marbles.config.ts");
+    const loading = join(home.path, "loading");
+    const loaded = join(home.path, "loaded");
     writeFileSync(
       source,
-      'await new Promise((resolve) => setTimeout(resolve, 2500));\nimport { step } from "@foundry.sh/marbles";\nexport const where = step("where").do(() => process.pid);\n'
+      `import { existsSync, writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(loading)}, "");\nwhile (!existsSync(${JSON.stringify(loaded)})) await new Promise((resolve) => setTimeout(resolve, 20));\nimport { step } from "@foundry.sh/marbles";\nexport const where = step("where").do(() => process.pid);\n`
     );
     const daemon = await startDaemon({
       clock,
@@ -777,7 +849,15 @@ describe("engine generations", () => {
     });
     daemons.push(daemon);
     const client = await connect({ layout: home.layout, start: false });
-    const attached = await client.attach(source);
+    const attaching = client.attach(source);
+    await vi.waitFor(() => expect(existsSync(loading)).toBe(true), {
+      interval: 20,
+      timeout: 60_000,
+    });
+    expect(await daemon.pollNow()).toBe(false);
+    expect(await daemon.pollNow()).toBe(false);
+    writeFileSync(loaded, "");
+    const attached = await attaching;
     expect(attached.state).toBe("ready");
     expect(await daemon.idle(), lines.join("\n")).toEqual({
       reasons: [],
@@ -785,6 +865,842 @@ describe("engine generations", () => {
     });
     client.close();
   }, 120_000);
+
+  it("starts the next generation, after the backoff, when a workspace's engine did not start, though nothing changed", async () => {
+    const clock = handClock();
+    const lines: string[] = [];
+    const marker = join(testHome({ providers: false }).path, "fail-start");
+    process.env.MARBLES_TEST_FAIL_START = marker;
+    try {
+      const fixture = await setUp({
+        daemon: {
+          clock,
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-failing-start.ts"
+          ),
+          print: (line) => lines.push(line),
+        },
+      });
+      const first = fixture.summary.pid ?? 0;
+      writeFileSync(marker, "");
+      await fixture.client.reload(fixture.summary.id).catch(() => undefined);
+      const [failed] = await fixture.client.workspaces();
+      expect(failed?.state).toBe("failed");
+      const idle = await fixture.daemon.idle();
+      expect(idle.scheduled, lines.join("\n")).toBe(true);
+      expect(idle.reasons.join("\n")).toContain("did not start");
+
+      rmSync(marker);
+      clock.advance(1000);
+      await fixture.daemon.idle();
+      const [started] = await fixture.client.workspaces();
+      expect(started?.state).toBe("ready");
+      expect(started?.pid).not.toBe(first);
+      expect(await fixture.daemon.idle()).toEqual({
+        reasons: [],
+        scheduled: false,
+      });
+      const workspace = fixture.client.workspace(fixture.summary);
+      expect((await workspace.roll("where")).value).toBe(started?.pid);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_FAIL_START;
+    }
+  }, 150_000);
+
+  it("runs a queued run on the current generation that its retired one handed over only after the current one started", async () => {
+    const marker = join(testHome({ providers: false }).path, "fail-handover");
+    process.env.MARBLES_TEST_FAIL_HANDOVER = marker;
+    try {
+      const fixture = await setUp({
+        daemon: {
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-failing-handover.ts"
+          ),
+        },
+      });
+      const first = fixture.summary.pid ?? 0;
+      const workspace = fixture.client.workspace(fixture.summary);
+      const holding = workspace.roll("hold1");
+      await whenLogged(fixture, `hold1 ${String(first)}`);
+      await workspace.actions.launch("where", {});
+      writeFileSync(marker, "");
+      const second = await switchFrom(fixture, first, 1);
+      expect(logged(fixture)).not.toContain("where");
+      rmSync(marker);
+      await whenLogged(fixture, `where ${String(second)}`);
+      expect(logged(fixture)).not.toContain(`where ${String(first)}`);
+      open(1, fixture);
+      expect((await holding).value).toBe(first);
+      await gone(first);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_FAIL_HANDOVER;
+    }
+  }, 150_000);
+
+  it("leaves a gone process's queued run the current generation cannot run, said once, and offers it only now and then", async () => {
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: {
+        generationEntry: join(
+          import.meta.dirname,
+          "helpers",
+          "generation-counting-take.ts"
+        ),
+        print: (line) => lines.push(line),
+      },
+    });
+    const at = new Date().toISOString();
+    await withExecutions(
+      fixture.machine.state,
+      (store) =>
+        seedExecution(store, {
+          correlation: {},
+          id: "rn-unrunnable",
+          input: {},
+          kind: "task",
+          name: "gone-task",
+          observations: [],
+          owner: { pid: exitedPid(), started: null },
+          queue: "marbles",
+          revision: 1,
+          sequence: 1,
+          status: "queued",
+          timestamps: { queuedAt: at, updatedAt: at },
+        }),
+      fixture.summary.id
+    );
+    for (let sweep = 0; sweep < 3; sweep += 1) {
+      await fixture.daemon.sweepNow();
+    }
+    const asked = lines.filter((line) =>
+      line.includes("take asked for rn-unrunnable")
+    );
+    expect(asked).toHaveLength(1);
+    const left = lines.filter(
+      (line) => line.includes("rn-unrunnable") && line.includes("left queued")
+    );
+    expect(left).toHaveLength(1);
+    expect(left[0]).toContain('no task named "gone-task" is registered here');
+    const rows = await executions(fixture, fixture.summary.id);
+    expect(rows.find((row) => row.name === "gone-task")?.status).toBe("queued");
+    fixture.client.close();
+  }, 150_000);
+
+  it("runs on the current generation a queued run whose retired generation died before handing it over", async () => {
+    const lines: string[] = [];
+    const marker = join(testHome({ providers: false }).path, "fail-handover");
+    process.env.MARBLES_TEST_FAIL_HANDOVER = marker;
+    try {
+      const fixture = await setUp({
+        daemon: {
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-failing-handover.ts"
+          ),
+          print: (line) => lines.push(line),
+        },
+      });
+      const first = fixture.summary.pid ?? 0;
+      const workspace = fixture.client.workspace(fixture.summary);
+      const holding = workspace.roll("hold1");
+      holding.catch(() => undefined);
+      await whenLogged(fixture, `hold1 ${String(first)}`);
+      await workspace.actions.launch("where", {});
+      writeFileSync(marker, "");
+      const second = await switchFrom(fixture, first, 1);
+      await provedGeneration(fixture, first, "retiring");
+      process.kill(first, "SIGKILL");
+      await gone(first);
+      await vi.waitFor(
+        () =>
+          expect(
+            logged(fixture).filter((line) => line.startsWith("where "))
+          ).toHaveLength(1),
+        { interval: 50, timeout: 30_000 }
+      );
+      expect(logged(fixture)).not.toContain(`where ${String(first)}`);
+      expect(second).not.toBe(first);
+      expect(
+        lines.some((line) => line.includes("taken over from a gone process"))
+      ).toBe(true);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_FAIL_HANDOVER;
+    }
+  }, 150_000);
+
+  it("finds a queued run handed over late by the database sweep when its notice is lost", async () => {
+    const marker = join(testHome({ providers: false }).path, "fail-handover");
+    process.env.MARBLES_TEST_FAIL_HANDOVER = marker;
+    process.env.MARBLES_TEST_DROP_HANDED = "1";
+    try {
+      const fixture = await setUp({
+        daemon: {
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-failing-handover.ts"
+          ),
+        },
+      });
+      const first = fixture.summary.pid ?? 0;
+      const workspace = fixture.client.workspace(fixture.summary);
+      const holding = workspace.roll("hold1");
+      await whenLogged(fixture, `hold1 ${String(first)}`);
+      await workspace.actions.launch("where", {});
+      writeFileSync(marker, "");
+      const second = await switchFrom(fixture, first, 1);
+      rmSync(marker);
+      await whenLogged(fixture, `where ${String(second)}`);
+      open(1, fixture);
+      expect((await holding).value).toBe(first);
+      await gone(first);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_FAIL_HANDOVER;
+      delete process.env.MARBLES_TEST_DROP_HANDED;
+    }
+  }, 150_000);
+
+  it("hands a queued run over late to the generation current then, though another switch came after the one that retired it", async () => {
+    const marker = join(testHome({ providers: false }).path, "fail-handover");
+    process.env.MARBLES_TEST_FAIL_HANDOVER = marker;
+    try {
+      const fixture = await setUp({
+        daemon: {
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-failing-handover.ts"
+          ),
+        },
+      });
+      const first = fixture.summary.pid ?? 0;
+      const workspace = fixture.client.workspace(fixture.summary);
+      const holding = workspace.roll("hold1");
+      await whenLogged(fixture, `hold1 ${String(first)}`);
+      await workspace.actions.launch("where", {});
+      writeFileSync(marker, "");
+      const second = await switchFrom(fixture, first, 1);
+      const third = await switchFrom(fixture, second, 2);
+      rmSync(marker);
+      await whenLogged(fixture, `where ${String(third)}`);
+      expect(logged(fixture)).not.toContain(`where ${String(first)}`);
+      expect(logged(fixture)).not.toContain(`where ${String(second)}`);
+      open(1, fixture);
+      expect((await holding).value).toBe(first);
+      await gone(first);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_FAIL_HANDOVER;
+    }
+  }, 150_000);
+
+  it("launches again on the current generation a launch a generation refused as retiring, recording it once", async () => {
+    const marker = join(testHome({ providers: false }).path, "refuse-launch");
+    process.env.MARBLES_TEST_REFUSE_LAUNCH = marker;
+    try {
+      const fixture = await setUp({
+        daemon: {
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-retiring-launch.ts"
+          ),
+        },
+      });
+      const workspace = fixture.client.workspace(fixture.summary);
+      writeFileSync(marker, "");
+      await workspace.actions.launch("where", {});
+      expect(existsSync(marker)).toBe(false);
+      await whenLogged(fixture, `where ${String(fixture.summary.pid ?? 0)}`);
+      const rows = await executions(fixture, fixture.summary.id);
+      expect(rows.filter((row) => row.name === "where")).toHaveLength(1);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_REFUSE_LAUNCH;
+    }
+  }, 150_000);
+
+  it("switches when a text file its source imports under the root changes, though no tree covers it", async () => {
+    const fixture = await setUp();
+    const first = fixture.summary.pid ?? 0;
+    const prompt = join(fixture.gates, "..", "project", "prompt.md");
+    writeFileSync(prompt, "Say hello.\n");
+    writeFileSync(
+      fixture.source,
+      `import prompt from "./prompt.md" with { type: "text" };\n${moduleText(fixture, 1)}export const told = step("told").do(() => prompt);\n`
+    );
+    const second = await readyOn(fixture, (pid) => pid !== first);
+    const workspace = fixture.client.workspace(fixture.summary);
+    expect((await workspace.roll("told")).value).toBe("Say hello.\n");
+    writeFileSync(prompt, "Say goodbye, at length.\n");
+    await readyOn(fixture, (pid) => pid !== second);
+    expect((await workspace.roll("told")).value).toBe(
+      "Say goodbye, at length.\n"
+    );
+    fixture.client.close();
+  }, 150_000);
+
+  it("drains a detached workspace in the retired generation too, its runs reachable until they end", async () => {
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: { print: (line) => lines.push(line) },
+    });
+    const first = fixture.summary.pid ?? 0;
+    const workspace = fixture.client.workspace(fixture.summary);
+    const runId = await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    const second = await switchFrom(fixture, first, 1);
+    const detaching = fixture.client.detach(fixture.summary.id);
+    const waitingOnRetired = vi.waitFor(
+      () =>
+        expect(
+          lines.some((line) =>
+            line.includes("detaching · waiting for engine generation 1")
+          )
+        ).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    const settled = await Promise.race([
+      detaching.then(() => "detached" as const),
+      waitingOnRetired.then(() => "waiting" as const),
+    ]);
+    expect(settled).toBe("waiting");
+    await workspace.actions.runs.cancel(runId);
+    await detaching;
+    const rows = await executions(fixture, fixture.summary.id);
+    expect(rows.find((row) => row.name === "hold1")?.status).toBe("cancelled");
+    await gone(first);
+    expect(processAlive(second)).toBe(true);
+    expect(await fixture.client.workspaces()).toEqual([]);
+    fixture.client.close();
+  }, 150_000);
+
+  it("lets other work through while a detach waits for a retired generation, refusing new work for the detaching workspace and holding its attaches until it ends", async () => {
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: { print: (line) => lines.push(line) },
+    });
+    const first = fixture.summary.pid ?? 0;
+    const workspace = fixture.client.workspace(fixture.summary);
+    const runId = await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    await switchFrom(fixture, first, 1);
+    const detaching = fixture.client.detach(fixture.summary.id);
+    detaching.catch(() => undefined);
+    await vi.waitFor(
+      () =>
+        expect(
+          lines.some((line) =>
+            line.includes("detaching · waiting for engine generation 1")
+          )
+        ).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    const listed = (await fixture.client.workspaces()).find(
+      (each) => each.id === fixture.summary.id
+    );
+    expect(listed?.state).toBe("stopped");
+    expect(listed?.error).toContain("detaching");
+    await expect(workspace.actions.launch("hold2", {})).rejects.toThrow(
+      "is detaching"
+    );
+    await expect(workspace.snapshot()).rejects.toThrow("is detaching");
+    const order: string[] = [];
+    const attaches = [1, 2].map((n) =>
+      fixture.client.attach(fixture.source).then((summary) => {
+        order.push(`attach ${String(n)}`);
+        return summary;
+      })
+    );
+    const detached = detaching.then(() => order.push("detach"));
+    const otherRoot = join(fixture.gates, "..", "other");
+    mkdirSync(otherRoot);
+    const otherSource = join(otherRoot, "marbles.config.ts");
+    writeFileSync(otherSource, moduleText(fixture, 0));
+    const other = await fixture.client.attach(otherSource);
+    expect(other.state).toBe("ready");
+    await workspace.actions.runs.cancel(runId);
+    await detached;
+    await gone(first);
+    const [again, twice] = await Promise.all(attaches);
+    expect(order[0]).toBe("detach");
+    expect(again?.state).toBe("ready");
+    expect(twice?.id).toBe(again?.id);
+    expect(again?.pid).not.toBe(first);
+    expect(
+      (await fixture.client.workspaces()).map((each) => each.id).sort()
+    ).toEqual([other.id, fixture.summary.id].sort());
+    fixture.client.close();
+  }, 150_000);
+
+  it("switches while a detach drains the current generation, which retires leaving that workspace's queue to the drain", async () => {
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: { print: (line) => lines.push(line) },
+    });
+    const first = fixture.summary.pid ?? 0;
+    const otherRoot = join(fixture.gates, "..", "other");
+    mkdirSync(otherRoot);
+    const otherSource = join(otherRoot, "marbles.config.ts");
+    writeFileSync(otherSource, moduleText(fixture, 0));
+    const other = await fixture.client.attach(otherSource);
+    const workspace = fixture.client.workspace(fixture.summary);
+    await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    await workspace.actions.launch("where", {});
+    const detaching = fixture.client.detach(fixture.summary.id);
+    detaching.catch(() => undefined);
+    await vi.waitFor(
+      () =>
+        expect(
+          lines.some((line) =>
+            line.includes(
+              `[${fixture.summary.id}] detaching · waiting for engine generation 1`
+            )
+          )
+        ).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    await fixture.client.reload(other.id);
+    const now = (await fixture.client.workspaces()).find(
+      (each) => each.id === other.id
+    );
+    expect(now?.state).toBe("ready");
+    expect(now?.pid).not.toBe(first);
+    open(1, fixture);
+    await detaching;
+    await gone(first);
+    expect(logged(fixture)).toContain(`where ${String(first)}`);
+    const rows = await executions(fixture, fixture.summary.id);
+    expect(rows.find((row) => row.name === "hold1")?.status).toBe("complete");
+    expect(rows.find((row) => row.name === "where")?.status).toBe("complete");
+    expect((await fixture.client.workspaces()).map((each) => each.id)).toEqual([
+      other.id,
+    ]);
+    fixture.client.close();
+  }, 150_000);
+
+  it("detaches nothing when the registration write of a detach fails", async () => {
+    const fixture = await setUp();
+    const unhosting = vi
+      .spyOn(WorkspaceRegistry.prototype, "unhost")
+      .mockRejectedValueOnce(new Error("injected registration failure"));
+    try {
+      await expect(fixture.client.detach(fixture.summary.id)).rejects.toThrow(
+        "injected registration failure"
+      );
+    } finally {
+      unhosting.mockRestore();
+    }
+    const [listed] = await fixture.client.workspaces();
+    expect(listed?.state).toBe("ready");
+    expect(await stored(fixture, fixture.summary.id)).toBe(true);
+    const again = await fixture.client.attach(fixture.source);
+    expect(again.state).toBe("ready");
+    expect(await stored(fixture, fixture.summary.id)).toBe(true);
+    fixture.client.close();
+  }, 150_000);
+
+  it("puts the registration back when a detach's drain fails, says it failed, and loads it afresh on the next attach", async () => {
+    const marker = join(testHome({ providers: false }).path, "fail-stop");
+    process.env.MARBLES_TEST_FAIL_STOP = marker;
+    try {
+      const fixture = await setUp({ daemon: { generationEntry: failingStop } });
+      writeFileSync(marker, "");
+      await expect(fixture.client.detach(fixture.summary.id)).rejects.toThrow(
+        "the test refuses this drain"
+      );
+      const [listed] = await fixture.client.workspaces();
+      expect(listed?.state).toBe("failed");
+      expect(listed?.error).toContain("detach failed");
+      expect(await stored(fixture, fixture.summary.id)).toBe(true);
+      const generations = await numbered(fixture);
+      await fixture.daemon.pollNow();
+      expect(await fixture.daemon.idle()).toEqual({
+        reasons: [],
+        scheduled: false,
+      });
+      expect(await numbered(fixture)).toBe(generations);
+      const [still] = await fixture.client.workspaces();
+      expect(still?.state).toBe("failed");
+      const again = await fixture.client.attach(fixture.source);
+      expect(again.state).toBe("ready");
+      expect(await stored(fixture, fixture.summary.id)).toBe(true);
+      const workspace = fixture.client.workspace(again);
+      expect((await workspace.roll("where")).value).toBe(again.pid);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_FAIL_STOP;
+    }
+  }, 150_000);
+
+  it("says so when it cannot put the registration back after a failed drain, and the next attach repairs it", async () => {
+    const marker = join(testHome({ providers: false }).path, "fail-stop");
+    process.env.MARBLES_TEST_FAIL_STOP = marker;
+    try {
+      const fixture = await setUp({ daemon: { generationEntry: failingStop } });
+      writeFileSync(marker, "");
+      const touching = vi
+        .spyOn(WorkspaceRegistry.prototype, "touch")
+        .mockRejectedValueOnce(new Error("injected restore failure"));
+      try {
+        await expect(fixture.client.detach(fixture.summary.id)).rejects.toThrow(
+          "the test refuses this drain"
+        );
+      } finally {
+        touching.mockRestore();
+      }
+      const [listed] = await fixture.client.workspaces();
+      expect(listed?.state).toBe("failed");
+      expect(listed?.error).toContain("injected restore failure");
+      expect(await stored(fixture, fixture.summary.id)).toBe(false);
+      const again = await fixture.client.attach(fixture.source);
+      expect(again.state).toBe("ready");
+      expect(await stored(fixture, fixture.summary.id)).toBe(true);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_FAIL_STOP;
+    }
+  }, 150_000);
+
+  it("leaves a workspace unregistered and unhosted when the daemon stops between a detach's steps", async () => {
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: { print: (line) => lines.push(line) },
+    });
+    const first = fixture.summary.pid ?? 0;
+    const workspace = fixture.client.workspace(fixture.summary);
+    await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    const detaching = fixture.client.detach(fixture.summary.id);
+    detaching.catch(() => undefined);
+    await vi.waitFor(
+      () =>
+        expect(
+          lines.some((line) =>
+            line.includes("detaching · waiting for engine generation 1")
+          )
+        ).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    expect(await stored(fixture, fixture.summary.id)).toBe(false);
+    fixture.client.close();
+    await daemons.pop()?.close();
+    expect(processAlive(first)).toBe(false);
+    daemons.push(
+      await startDaemon({ layout: fixture.machine, print: () => undefined })
+    );
+    const client = await connect({ layout: fixture.machine, start: false });
+    expect(await client.workspaces()).toEqual([]);
+    expect(await stored(fixture, fixture.summary.id)).toBe(false);
+    client.close();
+  }, 150_000);
+
+  it("finishes a detach whose generation retires and closes its hosts while it drops the registration", async () => {
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: {
+        generationEntry: join(
+          import.meta.dirname,
+          "helpers",
+          "generation-slow-unregister.ts"
+        ),
+        print: (line) => lines.push(line),
+      },
+    });
+    const first = fixture.summary.pid ?? 0;
+    const otherRoot = join(fixture.gates, "..", "other");
+    mkdirSync(otherRoot);
+    const otherSource = join(otherRoot, "marbles.config.ts");
+    writeFileSync(otherSource, moduleText(fixture, 0));
+    const other = await fixture.client.attach(otherSource);
+    const workspace = fixture.client.workspace(fixture.summary);
+    await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    const detaching = fixture.client.detach(fixture.summary.id);
+    detaching.catch(() => undefined);
+    await vi.waitFor(
+      () =>
+        expect(
+          lines.some((line) =>
+            line.includes(
+              `[${fixture.summary.id}] detaching · waiting for engine generation 1`
+            )
+          )
+        ).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    await fixture.client.reload(other.id);
+    open(1, fixture);
+    await detaching;
+    await gone(first);
+    const said = lines.join("\n");
+    expect(said).toContain("hosts closing with 0 unregister(s) under way");
+    expect(said).not.toContain("hosts closing with 1 unregister(s) under way");
+    expect((await fixture.client.workspaces()).map((each) => each.id)).toEqual([
+      other.id,
+    ]);
+    expect(await stored(fixture, fixture.summary.id)).toBe(false);
+    fixture.client.close();
+  }, 150_000);
+
+  it("when the daemon crashes with the workspace attached, the next hosts it afresh and leaves the orphaned generation its runs, queued ones too", async () => {
+    const { child, fixture, lines } = await crashableDaemon();
+    const client = await connect({ layout: fixture.machine, start: false });
+    const summary = await client.attach(fixture.source);
+    const first = summary.pid ?? 0;
+    const workspace = client.workspace(summary);
+    await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    await workspace.actions.launch("where", {});
+    await crash(child);
+    client.close();
+    expect(lines.some((line) => line.startsWith("ready "))).toBe(true);
+    expect(processAlive(first)).toBe(true);
+
+    const restarted = await startDaemon({
+      layout: fixture.machine,
+      print: () => undefined,
+    });
+    daemons.push(restarted);
+    const next = await connect({ layout: fixture.machine, start: false });
+    const second = await readyOn(
+      { client: next },
+      (pid) => pid !== first && pid > 0
+    );
+    expect(
+      (await readLiveGenerations(fixture.machine.state)).find(
+        (generation) => generation.pid === first
+      )?.state
+    ).toBe("retiring");
+    await restarted.sweepNow();
+    const rows = await executions(fixture, summary.id);
+    expect(rows.find((row) => row.name === "hold1")?.status).toBe("running");
+    expect(rows.find((row) => row.name === "where")?.status).toBe("queued");
+
+    open(1, fixture);
+    await whenLogged(fixture, `where ${String(first)}`);
+    await gone(first, 60_000);
+    expect(logged(fixture)).not.toContain(`where ${String(second)}`);
+    const settled = await executions(fixture, summary.id);
+    expect(settled.find((row) => row.name === "hold1")?.status).toBe(
+      "complete"
+    );
+    expect(settled.find((row) => row.name === "where")?.status).toBe(
+      "complete"
+    );
+    await restarted.sweepNow();
+    expect(
+      (await readLiveGenerations(fixture.machine.state)).map(
+        (generation) => generation.pid
+      )
+    ).not.toContain(first);
+    expect((await next.workspace(summary).roll("where")).value).toBe(second);
+    next.close();
+  }, 180_000);
+
+  it("when the daemon crashes between a detach's steps, the next leaves the workspace detached and the generation finishing its run", async () => {
+    const { child, fixture, lines } = await crashableDaemon();
+    const client = await connect({ layout: fixture.machine, start: false });
+    const summary = await client.attach(fixture.source);
+    const first = summary.pid ?? 0;
+    const workspace = client.workspace(summary);
+    const runId = await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    const detaching = client.detach(summary.id);
+    detaching.catch(() => undefined);
+    await vi.waitFor(
+      () =>
+        expect(
+          lines.some((line) =>
+            line.includes("detaching · waiting for engine generation 1")
+          )
+        ).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    expect(await stored(fixture, summary.id)).toBe(false);
+    await crash(child);
+    client.close();
+    expect(processAlive(first)).toBe(true);
+    const restarted = await startDaemon({
+      layout: fixture.machine,
+      print: () => undefined,
+    });
+    daemons.push(restarted);
+    const next = await connect({ layout: fixture.machine, start: false });
+    expect(await next.workspaces()).toEqual([]);
+    expect(await stored(fixture, summary.id)).toBe(false);
+    expect(processAlive(first)).toBe(true);
+    expect(
+      (await readLiveGenerations(fixture.machine.state)).find(
+        (generation) => generation.pid === first
+      )?.state
+    ).toBe("retiring");
+    open(1, fixture);
+    await gone(first, 60_000);
+    const rows = await executions(fixture, summary.id);
+    expect(rows.find((row) => row.name === "hold1")?.status).toBe("complete");
+    expect(runId).toBeDefined();
+    await restarted.sweepNow();
+    expect(
+      (await readLiveGenerations(fixture.machine.state)).map(
+        (generation) => generation.pid
+      )
+    ).not.toContain(first);
+    next.close();
+  }, 180_000);
+
+  it("completes a daemon stop while a detach waits for a retired generation, refusing the attach that waited on it", async () => {
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: { print: (line) => lines.push(line) },
+    });
+    const first = fixture.summary.pid ?? 0;
+    const workspace = fixture.client.workspace(fixture.summary);
+    await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    const second = await switchFrom(fixture, first, 1);
+    const detaching = fixture.client.detach(fixture.summary.id);
+    const settled = detaching.then(
+      () => "detached",
+      () => "refused"
+    );
+    await vi.waitFor(
+      () =>
+        expect(
+          lines.some((line) =>
+            line.includes("detaching · waiting for engine generation 1")
+          )
+        ).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    const attaching = fixture.client.attach(fixture.source).then(
+      () => "attached",
+      () => "refused"
+    );
+    await daemons.pop()?.close();
+    expect(processAlive(first)).toBe(false);
+    expect(processAlive(second)).toBe(false);
+    expect(["detached", "refused"]).toContain(await settled);
+    expect(await attaching).toBe("refused");
+    fixture.client.close();
+  }, 150_000);
+
+  it("reports a workspace that did not load at boot as not running, and the one that did with its generation", async () => {
+    const fixture = await setUp();
+    const otherRoot = join(fixture.gates, "..", "other");
+    mkdirSync(otherRoot);
+    const otherSource = join(otherRoot, "marbles.config.ts");
+    writeFileSync(otherSource, moduleText(fixture, 0));
+    const other = await fixture.client.attach(otherSource);
+    fixture.client.close();
+    await daemons.pop()?.close();
+    writeFileSync(otherSource, 'throw new Error("never loads");\n');
+    daemons.push(
+      await startDaemon({ layout: fixture.machine, print: () => undefined })
+    );
+    const client = await connect({ layout: fixture.machine, start: false });
+    const pid = await vi.waitFor(
+      async () => {
+        const now = await client.workspaces();
+        const healthy = now.find((each) => each.id === fixture.summary.id);
+        expect(healthy?.state).toBe("ready");
+        expect(now.find((each) => each.id === other.id)?.state).toBe("failed");
+        return healthy?.pid ?? 0;
+      },
+      { interval: 200, timeout: 60_000 }
+    );
+    const status = await readStatus(fixture.machine.state);
+    expect(
+      status.workspaces.find((each) => each.id === fixture.summary.id)
+    ).toMatchObject({ alive: true, host: "generation", pid });
+    expect(
+      status.workspaces.find((each) => each.id === other.id)
+    ).toMatchObject({ alive: false, host: null, pid: null });
+    client.close();
+  }, 150_000);
+
+  it("writes which workspaces a generation hosts again, after the backoff, when the write failed", async () => {
+    const clock = handClock();
+    const lines: string[] = [];
+    const original = GenerationRecords.prototype.hosting;
+    let failures = 0;
+    GenerationRecords.prototype.hosting = () => {
+      GenerationRecords.prototype.hosting = original;
+      failures += 1;
+      return Promise.reject(new Error("injected hosts write failure"));
+    };
+    let fixture: Awaited<ReturnType<typeof setUp>>;
+    try {
+      fixture = await setUp({
+        daemon: { clock, print: (line) => lines.push(line) },
+      });
+    } finally {
+      GenerationRecords.prototype.hosting = original;
+    }
+    expect(failures).toBe(1);
+    const status = async () =>
+      (await readStatus(fixture.machine.state)).workspaces.find(
+        (each) => each.id === fixture.summary.id
+      );
+    const idle = await fixture.daemon.idle();
+    expect(idle.scheduled, lines.join("\n")).toBe(true);
+    expect(idle.reasons.join("\n")).toContain("hosts");
+    expect(await status()).toMatchObject({ alive: false });
+
+    clock.advance(1000);
+    expect(await fixture.daemon.idle()).toEqual({
+      reasons: [],
+      scheduled: false,
+    });
+    expect(await status()).toMatchObject({
+      alive: true,
+      host: "generation",
+      pid: fixture.summary.pid,
+    });
+    fixture.client.close();
+  }, 150_000);
+
+  it("schedules no write of the hosts again once a later one landed", async () => {
+    const clock = handClock();
+    const original = GenerationRecords.prototype.hosting;
+    GenerationRecords.prototype.hosting = () => {
+      GenerationRecords.prototype.hosting = original;
+      return Promise.reject(new Error("injected hosts write failure"));
+    };
+    let fixture: Awaited<ReturnType<typeof setUp>>;
+    try {
+      fixture = await setUp({ daemon: { clock } });
+    } finally {
+      GenerationRecords.prototype.hosting = original;
+    }
+    expect((await fixture.daemon.idle()).scheduled).toBe(true);
+    const otherRoot = join(fixture.gates, "..", "other");
+    mkdirSync(otherRoot);
+    const otherSource = join(otherRoot, "marbles.config.ts");
+    writeFileSync(otherSource, moduleText(fixture, 0));
+    const other = await fixture.client.attach(otherSource);
+    expect(await fixture.daemon.idle()).toEqual({
+      reasons: [],
+      scheduled: false,
+    });
+    const report = await readStatus(fixture.machine.state);
+    for (const id of [fixture.summary.id, other.id]) {
+      expect(report.workspaces.find((each) => each.id === id)).toMatchObject({
+        alive: true,
+      });
+    }
+    fixture.client.close();
+  }, 150_000);
 
   it("hands a released run to the current generation from the database when the notice is lost", async () => {
     const fixture = await setUp({

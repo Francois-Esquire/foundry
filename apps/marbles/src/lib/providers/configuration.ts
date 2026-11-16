@@ -31,10 +31,22 @@ import {
   ConfigurationError,
   describeIssues,
   empty,
+  InvalidStoredConfiguration,
   keptConfigurations,
   MemoryProviderStore,
   readOnlyProviders,
 } from "~/lib/providers/store";
+import type {
+  ReadEvent,
+  StoreRead,
+  StoreReads,
+} from "~/lib/providers/store-reads";
+import {
+  ALL_FINE,
+  moveReads,
+  RECOVERED,
+  retriedOn,
+} from "~/lib/providers/store-reads";
 
 type Edit = (current: ProvidersFile | undefined) => ProvidersFile | undefined;
 
@@ -107,6 +119,10 @@ export class ProviderConfiguration {
   #kept: ProviderConfigurations = keptConfigurations(new Map(), 0);
   #revision: number | undefined;
   #unloaded = false;
+  #reads: StoreReads = ALL_FINE;
+  #heard: string[] | undefined;
+  readonly #owed: string[] = [];
+  readonly #accounted = new WeakSet<object>();
   #editing: ProviderConfigurations | undefined;
   readonly #plugins: ReadonlyMap<string, RegisteredPlugin>;
   #built: readonly Built[] = [];
@@ -186,11 +202,72 @@ export class ProviderConfiguration {
   }
 
   async #keyed(kept: ProviderConfigurations): Promise<void> {
-    if (this.#key !== undefined || !this.#configuredIn(kept)) {
+    if (this.#key !== undefined) {
       return;
     }
-    const key = await this.#store.identityKey(true);
+    let configured: boolean;
+    try {
+      configured = this.#configuredIn(kept);
+    } catch (error) {
+      this.#move("identity key", { kind: "not needed" });
+      throw this.#invalidContent("configuration", error, kept.revision);
+    }
+    if (!configured) {
+      this.#move("identity key", { kind: "not needed" });
+      return;
+    }
+    const key = await this.#reaching(
+      "identity key",
+      () => this.#store.identityKey(true),
+      kept.revision
+    );
     this.#key ??= key;
+  }
+
+  async #reaching<T>(
+    read: StoreRead,
+    call: () => Promise<T>,
+    revision?: number
+  ): Promise<T> {
+    let result: T;
+    try {
+      result = await call();
+    } catch (error) {
+      if (error instanceof InvalidStoredConfiguration) {
+        throw this.#invalidContent(read, error, revision);
+      }
+      this.#move(read, { kind: "unreachable", message: messageOf(error) });
+      if (error instanceof Object) {
+        this.#accounted.add(error);
+      }
+      throw error;
+    }
+    this.#move(read, { kind: "succeeded" });
+    return result;
+  }
+
+  #invalidContent(
+    read: StoreRead,
+    error: unknown,
+    revision: number | undefined
+  ): unknown {
+    if (error instanceof InvalidStoredConfiguration) {
+      this.#move(read, { kind: "invalid", message: error.message, revision });
+      this.#accounted.add(error);
+    }
+    return error;
+  }
+
+  #move(read: StoreRead, event: ReadEvent): void {
+    const { reads, reports } = moveReads(this.#reads, read, event);
+    this.#reads = reads;
+    for (const report of reports) {
+      if (this.#heard !== undefined) {
+        this.#heard.push(report);
+      } else if (report === RECOVERED) {
+        this.#owed.push(report);
+      }
+    }
   }
 
   #together(edits: readonly [Scope, Edit][]): Promise<ProviderConfigurations> {
@@ -210,7 +287,9 @@ export class ProviderConfiguration {
     if (this.#options.fixed !== undefined) {
       return;
     }
-    const kept = await this.#store.read();
+    const kept = await this.#reaching("configuration", () =>
+      this.#store.read()
+    );
     if (this.#adopt(kept)) {
       this.#unloaded = true;
     }
@@ -296,14 +375,18 @@ export class ProviderConfiguration {
 
   async refresh(): Promise<readonly string[]> {
     await this.read();
-    if (!this.configured) {
-      return [];
+    try {
+      if (!this.configured) {
+        return [];
+      }
+      const problems = await this.#listAll();
+      if (!this.#lists.signal.aborted) {
+        this.load();
+      }
+      return problems;
+    } catch (error) {
+      throw this.#invalidContent("configuration", error, this.#revision);
     }
-    const problems = await this.#listAll();
-    if (!this.#lists.signal.aborted) {
-      this.load();
-    }
-    return problems;
   }
 
   setOffline(offline: boolean): void {
@@ -603,10 +686,22 @@ export class ProviderConfiguration {
       return () => undefined;
     }
     let polling = false;
-    const poll = async () => {
-      const seen = this.#revision;
-      if (seen === undefined || (await this.#store.revision()) === seen) {
-        return;
+    let polls = 0;
+    const poll = async (number: number) => {
+      const retry =
+        retriedOn("configuration", this.#reads.configuration, number) ||
+        retriedOn("identity key", this.#reads["identity key"], number);
+      if (!retry) {
+        const seen = this.#revision;
+        if (seen === undefined) {
+          return;
+        }
+        const revision = await this.#reaching("revision", () =>
+          this.#store.revision()
+        );
+        if (revision === seen) {
+          return;
+        }
       }
       for (const problem of await this.refresh()) {
         report(problem);
@@ -617,9 +712,20 @@ export class ProviderConfiguration {
         return;
       }
       polling = true;
-      poll()
-        .catch((error: unknown) => report(messageOf(error)))
+      polls += 1;
+      const heard = this.#owed.splice(0);
+      this.#heard = heard;
+      poll(polls)
+        .catch((error: unknown) => {
+          if (!(error instanceof Object && this.#accounted.has(error))) {
+            heard.push(messageOf(error));
+          }
+        })
         .finally(() => {
+          this.#heard = undefined;
+          for (const problem of heard) {
+            report(problem);
+          }
           polling = false;
         });
     }, POLL_MS);

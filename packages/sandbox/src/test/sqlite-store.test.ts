@@ -1,12 +1,16 @@
+import { copyFileSync } from "node:fs";
+import { createClient } from "@libsql/client";
 import { eq, getTableColumns, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/libsql";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, expectTypeOf, it } from "vitest";
-
+import { createContainers } from "../container/containers";
 import type { ContainerRow } from "../schema";
 import { containerRowSchema } from "../schema";
 import type { ContainerStoreWrite } from "../store/index";
 import { createSqliteContainerStore } from "../store/sqlite";
 import { sandboxContainers } from "../store/tables";
+import { createFakeContainerRuntime } from "../testing";
 import { libsqlDatabases } from "./helpers/sqlite";
 
 const memory = libsqlDatabases("memory");
@@ -64,6 +68,144 @@ async function counted() {
 }
 
 describe("the SQLite container store", () => {
+  it("binds its identity to where it lives: a byte copy of its database, or the database moved, gets another", async () => {
+    const original = await files.open();
+    const at = files.path(original);
+    const first = await createSqliteContainerStore({
+      database: original,
+      location: at,
+      scope: "w",
+    }).identity();
+    expect(
+      await createSqliteContainerStore({
+        database: files.connect(original),
+        location: at,
+        scope: "w",
+      }).identity()
+    ).toBe(first);
+    const copy = `${at}.copy.db`;
+    copyFileSync(at, copy);
+    const client = createClient({ url: `file:${copy}` });
+    try {
+      expect(
+        await createSqliteContainerStore({
+          database: drizzle(client),
+          location: copy,
+          scope: "w",
+        }).identity()
+      ).not.toBe(first);
+    } finally {
+      client.close();
+    }
+    expect(
+      await createSqliteContainerStore({
+        database: files.connect(original),
+        location: `${at}.moved`,
+        scope: "w",
+      }).identity()
+    ).not.toBe(first);
+  });
+
+  it("never has a copy's or a moved home's sweep remove the original's live VM: it is passed over, and named", async () => {
+    const original = await files.open();
+    const at = files.path(original);
+    const a = createSqliteContainerStore({
+      database: original,
+      location: at,
+      scope: "w",
+    });
+    await a.identity();
+    const copy = `${at}.copy.db`;
+    copyFileSync(at, copy);
+    const client = createClient({ url: `file:${copy}` });
+    try {
+      const runtime = createFakeContainerRuntime();
+      const engineA = createContainers({
+        instanceLabel: "marbles-w",
+        report: () => undefined,
+        runtime,
+        store: a,
+      });
+      const held = await engineA.start({
+        format: "foundry.sandbox.container/1",
+        image: "docker.io/oven/bun:1",
+      });
+      const name = held.row.nativeId ?? "";
+      for (const store of [
+        createSqliteContainerStore({
+          database: drizzle(client),
+          location: copy,
+          scope: "w",
+        }),
+        createSqliteContainerStore({
+          database: files.connect(original),
+          location: `${at}.moved`,
+          scope: "w",
+        }),
+      ]) {
+        const other = createContainers({
+          instanceLabel: "marbles-w",
+          report: () => undefined,
+          runtime,
+          store,
+        });
+        const swept = await other.sweep();
+        expect([...swept]).toEqual([]);
+        expect(swept.passedOver).toEqual([name]);
+        expect(runtime.instances.find((i) => i.id === name)?.removed).toBe(
+          false
+        );
+      }
+      await held.close();
+      await engineA.shutdown();
+    } finally {
+      client.close();
+    }
+  });
+
+  it("refuses a scope holding U+001F, which its identity's own scope uses", async () => {
+    const database = await memory.open();
+    expect(() =>
+      createSqliteContainerStore({ database, scope: "w\u001fstore" })
+    ).toThrow(RangeError);
+  });
+
+  it("keeps the identity it gave inside a transaction that rolled back", async () => {
+    const store = createSqliteContainerStore({
+      database: await files.open(),
+      scope: "w",
+    });
+    let inside = "";
+    await store
+      .transaction?.(async (view) => {
+        inside = await view.identity();
+        throw new Error("rolled back");
+      })
+      .catch(() => undefined);
+    expect(inside).not.toBe("");
+    expect(await store.identity()).toBe(inside);
+  });
+
+  it("keeps its identity in its database: every store over that database and scope gives the same, another database another", async () => {
+    const database = await files.open();
+    const first = await createSqliteContainerStore({
+      database,
+      scope: "s",
+    }).identity();
+    expect(
+      await createSqliteContainerStore({ database, scope: "s" }).identity()
+    ).toBe(first);
+    expect(
+      await createSqliteContainerStore({
+        database: await files.open(),
+        scope: "s",
+      }).identity()
+    ).not.toBe(first);
+    expect(
+      await createSqliteContainerStore({ database, scope: "s" }).list()
+    ).toEqual([]);
+  });
+
   it("refuses an empty scope", async () => {
     const database = await memory.open();
     expect(() => createSqliteContainerStore({ database, scope: "" })).toThrow(

@@ -7,6 +7,7 @@ export interface ProcessIdentity {
 }
 
 export interface SeenProcess {
+  readonly exited?: true;
   readonly pgid: number;
   readonly started: string;
 }
@@ -15,12 +16,26 @@ const PS_TIMEOUT_MS = 5000;
 const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
 const SPACES = /\s+/g;
 const DIGITS = /^\d+$/;
-const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(.+)$/;
+const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.+?)\s*$/;
+const LSTART =
+  /^(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) +(\d{1,2}) (\d{2}):(\d{2}):(\d{2}) \d{4}$/;
+const PS_STATE = /^[A-Z?][A-Za-z<>+]*$/;
+const PROC_STATE = /^[A-Za-z]$/;
+const BOOT_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const PS_COLUMNS = "pid=,pgid=,state=,lstart=";
 const SEEN_MS = 1000;
 const LINUX = "linux:";
 const PS = "ps:";
+const STAT_STATE = 3 - 3;
 const STAT_PGID = 5 - 3;
 const STAT_START = 22 - 3;
+
+function exitedState(state: string | undefined): boolean {
+  return (
+    state !== undefined && (state.startsWith("Z") || state.startsWith("X"))
+  );
+}
 
 export function procStat(
   stat: string,
@@ -36,14 +51,83 @@ export function procStat(
     .split(" ");
   const pgid = Number(fields[STAT_PGID]);
   const ticks = fields[STAT_START];
-  if (!Number.isInteger(pgid) || ticks === undefined || !DIGITS.test(ticks)) {
+  const boot = bootId.trim();
+  if (
+    !Number.isInteger(pgid) ||
+    ticks === undefined ||
+    !DIGITS.test(ticks) ||
+    !PROC_STATE.test(fields[STAT_STATE] ?? "") ||
+    !BOOT_ID.test(boot)
+  ) {
     return;
   }
-  return { pgid, started: `${LINUX}${bootId.trim()}:${ticks}` };
+  return {
+    ...(exitedState(fields[STAT_STATE]) ? { exited: true as const } : {}),
+    pgid,
+    started: `${LINUX}${boot}:${ticks}`,
+  };
+}
+
+export function psLine(
+  line: string
+): readonly [number, SeenProcess] | undefined {
+  const parsed = PS_LINE.exec(line);
+  if (
+    parsed === null ||
+    !PS_STATE.test(parsed[3] ?? "") ||
+    !validStart(normalStart(parsed[4] ?? ""))
+  ) {
+    return;
+  }
+  return [
+    Number(parsed[1]),
+    {
+      ...(exitedState(parsed[3]) ? { exited: true as const } : {}),
+      pgid: Number(parsed[2]),
+      started: psStart(parsed[4] ?? ""),
+    },
+  ];
 }
 
 export function psStart(lstart: string): string {
-  return `${PS}${lstart.trim().replace(SPACES, " ")}`;
+  return `${PS}${normalStart(lstart)}`;
+}
+
+function normalStart(lstart: string): string {
+  return lstart.trim().replace(SPACES, " ");
+}
+
+function validStart(lstart: string): boolean {
+  const parsed = LSTART.exec(lstart);
+  if (parsed === null) {
+    return false;
+  }
+  const [day, hours, minutes, seconds] = parsed.slice(1).map(Number);
+  return (
+    day !== undefined &&
+    day >= 1 &&
+    day <= 31 &&
+    (hours ?? 24) < 24 &&
+    (minutes ?? 60) < 60 &&
+    (seconds ?? 61) < 61
+  );
+}
+
+export function psListing(
+  listed: string
+): Map<number, SeenProcess> | undefined {
+  const seen = new Map<number, SeenProcess>();
+  for (const line of listed.split("\n")) {
+    if (line.trim() === "") {
+      continue;
+    }
+    const parsed = psLine(line);
+    if (parsed === undefined) {
+      return;
+    }
+    seen.set(...parsed);
+  }
+  return seen;
 }
 
 let knownBoot: string | undefined;
@@ -75,17 +159,39 @@ function lookProc(
   } catch {
     return;
   }
+  const read = procListing(
+    pids,
+    (pid) => readFileSync(`/proc/${String(pid)}/stat`, "utf8"),
+    boot
+  );
+  if (read === undefined) {
+    return;
+  }
+  for (const [pid, entry] of read) {
+    seen.set(pid, entry);
+  }
+  return seen;
+}
+
+const UNLISTED = new Set(["EACCES", "ENOENT", "EPERM", "ESRCH"]);
+
+export function procListing(
+  pids: readonly number[],
+  read: (pid: number) => string,
+  bootId: string
+): Map<number, SeenProcess> | undefined {
+  const seen = new Map<number, SeenProcess>();
   for (const pid of pids) {
     let stat: string;
     try {
-      stat = readFileSync(`/proc/${String(pid)}/stat`, "utf8");
+      stat = read(pid);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      if (UNLISTED.has((error as NodeJS.ErrnoException).code ?? "")) {
         continue;
       }
       return;
     }
-    const found = procStat(stat, boot);
+    const found = procStat(stat, bootId);
     if (found === undefined) {
       return;
     }
@@ -98,22 +204,20 @@ function lookPs(
   pids: readonly number[],
   seen: Map<number, SeenProcess>
 ): ReadonlyMap<number, SeenProcess> | undefined {
-  const listed = spawnSync(
-    "ps",
-    ["-o", "pid=,pgid=,lstart=", "-p", pids.join(",")],
-    { encoding: "utf8", env: PS_ENV, timeout: PS_TIMEOUT_MS }
-  );
+  const listed = spawnSync("ps", ["-o", PS_COLUMNS, "-p", pids.join(",")], {
+    encoding: "utf8",
+    env: PS_ENV,
+    timeout: PS_TIMEOUT_MS,
+  });
   if (listed.error !== undefined || (listed.status ?? 2) > 1) {
     return;
   }
-  for (const line of listed.stdout.split("\n")) {
-    const parsed = PS_LINE.exec(line);
-    if (parsed) {
-      seen.set(Number(parsed[1]), {
-        pgid: Number(parsed[2]),
-        started: psStart(parsed[3] ?? ""),
-      });
-    }
+  const read = psListing(listed.stdout);
+  if (read === undefined) {
+    return;
+  }
+  for (const [pid, entry] of read) {
+    seen.set(pid, entry);
   }
   return seen;
 }
@@ -141,7 +245,7 @@ function allProc(): ReadonlyMap<number, SeenProcess> | undefined {
 }
 
 function allPs(): ReadonlyMap<number, SeenProcess> | undefined {
-  const listed = spawnSync("ps", ["-A", "-o", "pid=,pgid=,lstart="], {
+  const listed = spawnSync("ps", ["-A", "-o", PS_COLUMNS], {
     encoding: "utf8",
     env: PS_ENV,
     maxBuffer: 64 * 1024 * 1024,
@@ -150,34 +254,47 @@ function allPs(): ReadonlyMap<number, SeenProcess> | undefined {
   if (listed.error !== undefined || listed.status !== 0) {
     return;
   }
-  const seen = new Map<number, SeenProcess>();
-  for (const line of listed.stdout.split("\n")) {
-    const parsed = PS_LINE.exec(line);
-    if (parsed) {
-      seen.set(Number(parsed[1]), {
-        pgid: Number(parsed[2]),
-        started: psStart(parsed[3] ?? ""),
-      });
-    }
-  }
-  return seen;
+  return psListing(listed.stdout);
 }
 
-export function startedAt(pid: number): string | null | undefined {
-  const seen = lookProcesses([pid]);
+export interface ProcessLookup {
+  alive(pid: number): boolean;
+  look(pids: readonly number[]): ReadonlyMap<number, SeenProcess> | undefined;
+}
+
+const LOOKUP: ProcessLookup = {
+  alive: (pid) => processAlive(pid),
+  look: (pids) => lookProcesses(pids),
+};
+
+export function startedAt(
+  pid: number,
+  lookup: ProcessLookup = LOOKUP
+): string | null | undefined {
+  const seen = lookup.look([pid]);
   if (seen === undefined) {
     return;
   }
-  return seen.get(pid)?.started ?? null;
+  const found = seen.get(pid);
+  if (found === undefined) {
+    return lookup.alive(pid) ? undefined : null;
+  }
+  return found.exited === true ? null : found.started;
 }
 
-const SELF: ProcessIdentity = Object.freeze({
+let self: ProcessIdentity = Object.freeze({
   pid: process.pid,
   started: startedAt(process.pid) ?? null,
 });
 
 export function thisProcess(): ProcessIdentity {
-  return SELF;
+  if (self.started === null) {
+    const started = startedAt(process.pid);
+    if (typeof started === "string") {
+      self = Object.freeze({ pid: process.pid, started });
+    }
+  }
+  return self;
 }
 
 export function processAlive(pid: number): boolean {
@@ -199,25 +316,85 @@ export function compareStarts(
   return normal(one) === normal(other) ? "same" : "different";
 }
 
-export function isGone(owner: ProcessIdentity): boolean {
-  if (owner.pid === SELF.pid) {
-    return compareStarts(owner.started, SELF.started) === "different";
+export function processState(
+  identity: ProcessIdentity,
+  lookup: ProcessLookup = LOOKUP
+): ProcessState {
+  if (identity.pid === process.pid) {
+    return compareStarts(identity.started, thisProcess().started) ===
+      "different"
+      ? "gone"
+      : "running";
   }
-  if (!processAlive(owner.pid)) {
-    return true;
+  if (!lookup.alive(identity.pid)) {
+    return "gone";
   }
-  if (owner.started === null) {
+  const cached = lookup === LOOKUP;
+  if (
+    cached &&
+    identity.started !== null &&
+    confirmedRecently(identity.pid, identity.started)
+  ) {
+    return "running";
+  }
+  const remember = cached ? rememberSeen : () => undefined;
+  const seen = lookup.look([identity.pid]);
+  if (seen === undefined) {
+    remember(identity.pid, undefined);
+    return "unknown";
+  }
+  const found = seen.get(identity.pid);
+  if (found?.exited === true) {
+    remember(identity.pid, null);
+    return "gone";
+  }
+  if (found === undefined) {
+    remember(identity.pid, null);
+    return lookup.alive(identity.pid) ? "unknown" : "gone";
+  }
+  remember(identity.pid, found.started);
+  const start = compareStarts(found.started, identity.started);
+  if (start === "same") {
+    return "running";
+  }
+  return start === "different" ? "gone" : "unknown";
+}
+
+export type ProcessState = "gone" | "running" | "unknown";
+
+export function groupState(
+  listed: ReadonlyMap<number, SeenProcess> | undefined,
+  reached: boolean
+): "empty" | "running" | "unknown" {
+  if (!reached) {
+    return "empty";
+  }
+  if (listed === undefined) {
+    return "unknown";
+  }
+  const members = [...listed.values()];
+  if (members.some((seen) => seen.exited !== true)) {
+    return "running";
+  }
+  return members.length > 0 ? "empty" : "unknown";
+}
+
+export function groupIdTaken(
+  leader: ProcessIdentity,
+  seen: SeenProcess | undefined,
+  reaped = false
+): boolean {
+  if (seen === undefined || seen.exited === true) {
     return false;
   }
-  if (confirmedRecently(owner.pid, owner.started)) {
-    return false;
-  }
-  const now = startedAt(owner.pid);
-  remember(owner.pid, now);
-  if (now === null) {
-    return !processAlive(owner.pid);
-  }
-  return now !== undefined && compareStarts(now, owner.started) === "different";
+  return reaped || compareStarts(seen.started, leader.started) === "different";
+}
+
+export function isGone(
+  owner: ProcessIdentity,
+  lookup: ProcessLookup = LOOKUP
+): boolean {
+  return processState(owner, lookup) === "gone";
 }
 
 export function sameProcess(
@@ -271,7 +448,7 @@ function confirmedRecently(pid: number, started: string): boolean {
   );
 }
 
-function remember(pid: number, started: string | null | undefined): void {
+function rememberSeen(pid: number, started: string | null | undefined): void {
   if (started === undefined || started === null) {
     recent.delete(pid);
   } else {

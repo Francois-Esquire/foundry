@@ -19,7 +19,11 @@ import {
   sameProcess,
   startedAt as startOf,
 } from "@foundry/lib/process-identity";
-import { readExecution } from "~/database/executions";
+import {
+  queuedRuns,
+  queuedRunsOwnedBy,
+  readExecution,
+} from "~/database/executions";
 import { GenerationRecords } from "~/database/generations";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
@@ -59,6 +63,7 @@ import {
   lineParamsSchema,
   loadResultSchema,
   PROTOCOL,
+  queuedTakeSchema,
   readParamsSchema,
   registerParamsSchema,
   releasedParamsSchema,
@@ -99,7 +104,9 @@ export interface Daemon {
     readonly scheduled: boolean;
   }>;
   readonly pid: number;
+  pollNow(): Promise<boolean>;
   readonly socket: string;
+  sweepNow(): Promise<void>;
 }
 
 const STOP_TIMEOUT_MS = GENERATION_STOP_TIMEOUT_MS;
@@ -148,6 +155,7 @@ interface Generation {
 }
 
 interface Hosted {
+  detaching?: Promise<void>;
   setup?: SetupDraftParams;
   readonly source: string;
   summary: WorkspaceSummary;
@@ -205,8 +213,10 @@ function lines(onLine: (line: string) => void): (chunk: Buffer) => void {
 const NO_OWNER_HERE: unique symbol = Symbol("no generation here owns the run");
 
 function isMoving(error: unknown): boolean {
-  return error instanceof Error && error.name === "QuestionMovingError";
+  return error instanceof Error && MOVING_ERRORS.has(error.name);
 }
+
+const MOVING_ERRORS = new Set(["QuestionMovingError", "EngineRetiringError"]);
 
 function settledStart(generation: Generation | undefined): Promise<void> {
   return (
@@ -265,6 +275,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     state: layout.state,
   });
   const records = new GenerationRecords({ database: database.database });
+  let hostsWritten: Promise<void> = Promise.resolve();
+  const hostsDue = new Set<Generation>();
+  let hostsTimer: unknown;
+  let hostsDelay = REPLACE_MIN_MS;
   const hosted = new Map<string, Hosted>();
   const generations = new Set<Generation>();
   let current: Generation | undefined;
@@ -578,7 +592,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
       return;
     }
-    if (method === GENERATION_NOTIFICATIONS.released) {
+    if (
+      method === GENERATION_NOTIFICATIONS.released ||
+      method === GENERATION_NOTIFICATIONS.handed
+    ) {
       const parsed = releasedParamsSchema.safeParse(params);
       if (parsed.success) {
         handOver(parsed.data.id, parsed.data.runId).catch(() => undefined);
@@ -603,6 +620,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const handovers = new Map<string, Promise<void>>();
   const offering = new Map<string, Promise<void>>();
   const declined = new Map<string, number>();
+  const orphansDeclined = new Map<string, number>();
+  const orphansReported = new Set<string>();
+  const holding: { of: number; readonly keys: Set<string> } = {
+    keys: new Set(),
+    of: 0,
+  };
   const waiting = new Map<string, Set<() => void>>();
 
   function changed(id?: string): void {
@@ -652,6 +675,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
             true
           ) {
             declined.delete(key);
+            held(target, key);
             return;
           }
         } catch (error) {
@@ -674,6 +698,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     return done;
   }
 
+  function held(target: Generation, key: string): void {
+    if (holding.of === target.number) {
+      holding.keys.add(key);
+    }
+  }
+
   async function sweep(
     ids: Iterable<string> | undefined,
     { now = false }: { readonly now?: boolean } = {}
@@ -682,15 +712,14 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (target === undefined || stopping) {
       return;
     }
+    if (holding.of !== target.number) {
+      holding.of = target.number;
+      holding.keys.clear();
+    }
     const offers: Promise<void>[] = [];
     for (const id of ids ?? target.hosts) {
-      let parked: readonly string[];
-      try {
-        parked = await unheldParkedRuns(database.database, id);
-      } catch {
-        continue;
-      }
-      for (const runId of parked) {
+      offers.push(takeOrphans(target, id));
+      for (const runId of await unheld(target, id)) {
         const at = declined.get(`${id}\0${runId}`);
         if (now || at === undefined || Date.now() - at >= REOFFER_MS) {
           offers.push(handOver(id, runId));
@@ -698,6 +727,85 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
     }
     await Promise.all(offers);
+  }
+
+  async function unheld(
+    target: Generation,
+    id: string
+  ): Promise<readonly string[]> {
+    try {
+      const parked = await unheldParkedRuns(database.database, id);
+      const owner = target.identity;
+      const queued =
+        owner === undefined
+          ? []
+          : await queuedRunsOwnedBy(database.database, id, owner);
+      return [
+        ...parked,
+        ...queued.filter((runId) => !holding.keys.has(`${id}\0${runId}`)),
+      ];
+    } catch {
+      return [];
+    }
+  }
+
+  async function takeOrphans(target: Generation, id: string): Promise<void> {
+    let queued: Awaited<ReturnType<typeof queuedRuns>>;
+    try {
+      queued = await queuedRuns(database.database, id);
+    } catch {
+      return;
+    }
+    const judged = new Map<string, boolean>();
+    for (const { id: runId, owner } of queued) {
+      if (
+        target.identity !== undefined &&
+        sameProcess(owner, target.identity)
+      ) {
+        continue;
+      }
+      const key = `${String(owner.pid)}\0${owner.started ?? ""}`;
+      const gone = judged.get(key) ?? isGone(owner);
+      judged.set(key, gone);
+      if (!gone || current !== target) {
+        continue;
+      }
+      await offerOrphan(target, id, runId, owner);
+    }
+  }
+
+  async function offerOrphan(
+    target: Generation,
+    id: string,
+    runId: string,
+    owner: ProcessIdentity
+  ): Promise<void> {
+    const key = `${id}\0${runId}`;
+    const at = orphansDeclined.get(key);
+    if (at !== undefined && Date.now() - at < REOFFER_MS) {
+      return;
+    }
+    let why: string;
+    try {
+      const take = queuedTakeSchema.parse(
+        await ask(target, GENERATION_METHODS.takeQueued, { id, owner, runId })
+      );
+      if (take.taken) {
+        orphansDeclined.delete(key);
+        orphansReported.delete(key);
+        return;
+      }
+      ({ why } = take);
+    } catch (error) {
+      why = message(error);
+    }
+    orphansDeclined.set(key, Date.now());
+    if (!orphansReported.has(key)) {
+      orphansReported.add(key);
+      print(
+        `[${id}] queued run ${runId} of gone process pid ${String(owner.pid)} left queued: ${why}; offered again every ${String(REOFFER_MS / 1000)} s`
+      );
+    }
   }
 
   async function stopGeneration(generation: Generation): Promise<void> {
@@ -836,12 +944,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (id === undefined || workspace === undefined || part === undefined) {
       return;
     }
-    const registration = {
-      config: workspace.summary.config,
-      id,
-      root: workspace.summary.root,
-    };
-    const next = withRead(registration, part, file, readAt, digests);
+    const next = withRead(part, file, readAt, digests);
     if (next !== part) {
       generation.fingerprint = withSource(generation.fingerprint, id, next);
     }
@@ -941,6 +1044,18 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     candidate.started.resolve();
     print(`[marbles] engine generation ${String(number)} is current`);
     changed();
+    const notStarted = started.filter((load) => load.error !== undefined);
+    if (notStarted.length > 0) {
+      replaceCurrent(
+        "a workspace's engine did not start",
+        undefined,
+        notStarted.map(
+          (load) =>
+            `workspace ${loadedId(load) ?? load.root} did not start in engine generation ${String(number)}: ${load.error ?? "unknown"}`
+        )
+      );
+    }
+    await recordHosts(candidate);
   }
 
   async function announceSwitch(
@@ -1044,6 +1159,46 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       } else {
         setState(workspace, "failed", { error: load.error });
       }
+    }
+  }
+
+  function recordHosts(generation: Generation): Promise<void> {
+    hostsDue.add(generation);
+    hostsWritten = hostsWritten.then(writeHostsDue);
+    return hostsWritten;
+  }
+
+  async function writeHostsDue(): Promise<void> {
+    for (const generation of [...hostsDue]) {
+      hostsDue.delete(generation);
+      if (
+        stopping ||
+        generation.role === "retiring" ||
+        generation.exit !== undefined
+      ) {
+        continue;
+      }
+      try {
+        await records.hosting(generation.number, [...generation.hosts]);
+      } catch (error) {
+        print(
+          `[marbles] which workspaces engine generation ${String(generation.number)} hosts was not recorded: ${message(error)}; it is written again after a backoff`
+        );
+        hostsDue.add(generation);
+      }
+    }
+    if (hostsDue.size === 0) {
+      clock.clearTimeout(hostsTimer);
+      hostsTimer = undefined;
+      hostsDelay = REPLACE_MIN_MS;
+      return;
+    }
+    if (hostsTimer === undefined && !stopping) {
+      hostsTimer = clock.setTimeout(() => {
+        hostsTimer = undefined;
+        hostsWritten = hostsWritten.then(writeHostsDue);
+      }, hostsDelay);
+      hostsDelay = Math.min(hostsDelay * 2, REPLACE_MAX_MS);
     }
   }
 
@@ -1182,33 +1337,57 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
   }
 
-  let polling = false;
-  const poll = setInterval(() => {
-    if (polling || stopping || switchRunning || switchTimer !== undefined) {
-      return;
+  let polling: Promise<boolean> | undefined;
+  function pollTick(): Promise<boolean> {
+    if (polling !== undefined) {
+      return polling;
     }
-    polling = true;
-    pollOnce()
+    if (stopping || switchRunning || switchTimer !== undefined) {
+      return Promise.resolve(false);
+    }
+    const done = pollOnce()
       .catch(() => undefined)
+      .then(() => true)
       .finally(() => {
-        polling = false;
+        polling = undefined;
       });
+    polling = done;
+    return done;
+  }
+  const poll = setInterval(() => {
+    pollTick().catch(() => undefined);
   }, SOURCE_POLL_MS);
   poll.unref();
 
-  let sweeping = false;
-  const sweeper = setInterval(() => {
-    if (sweeping || stopping) {
-      return;
+  let sweeping: Promise<void> | undefined;
+  function sweepTick(): Promise<void> {
+    if (sweeping !== undefined) {
+      return sweeping;
     }
-    sweeping = true;
-    sweep(undefined)
+    if (stopping) {
+      return Promise.resolve();
+    }
+    const done = Promise.all([endGoneGenerations(), sweep(undefined)])
+      .then(() => undefined)
       .catch(() => undefined)
       .finally(() => {
-        sweeping = false;
+        sweeping = undefined;
       });
+    sweeping = done;
+    return done;
+  }
+  const sweeper = setInterval(() => {
+    sweepTick().catch(() => undefined);
   }, SWEEP_MS);
   sweeper.unref();
+
+  async function endGoneGenerations(): Promise<void> {
+    for (const number of await records.endGone()) {
+      print(
+        `[marbles] engine generation ${String(number)} is gone, and recorded exited`
+      );
+    }
+  }
 
   function attach(
     source: string,
@@ -1232,22 +1411,57 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     const workspace = layout.workspace(placed);
     const config = found ? configPath : null;
-    return inTurn(async () => {
-      refuseWhileStopping();
-      if (!insideState(layout.state, workspace.id)) {
-        throw new Error(
-          `the state of workspace ${workspace.id} at ${workspace.dir} links out of the state root; it is not hosted`
-        );
-      }
-      const existing = hosted.get(workspace.id);
-      if (existing !== undefined && existing.summary.state !== "stopped") {
-        const again = await attachAgain(existing, configPath, setup);
-        if (again !== undefined) {
-          return again;
+    return attachInTurn(workspace, config, configPath, setup);
+  }
+
+  async function attachInTurn(
+    workspace: Workspace,
+    config: string | null,
+    configPath: string,
+    setup: SetupDraftParams | undefined
+  ): Promise<WorkspaceSummary> {
+    for (;;) {
+      const attached = await inTurn(
+        async (): Promise<
+          | { readonly summary: WorkspaceSummary }
+          | { readonly detaching: Promise<void> }
+        > => {
+          refuseWhileStopping();
+          if (!insideState(layout.state, workspace.id)) {
+            throw new Error(
+              `the state of workspace ${workspace.id} at ${workspace.dir} links out of the state root; it is not hosted`
+            );
+          }
+          const existing = hosted.get(workspace.id);
+          if (existing?.detaching !== undefined) {
+            return { detaching: existing.detaching };
+          }
+          if (existing !== undefined && existing.summary.state !== "stopped") {
+            await ensureRegistered(workspace, config);
+            const again = await attachAgain(existing, configPath, setup);
+            if (again !== undefined) {
+              return { summary: again };
+            }
+          }
+          return {
+            summary: await hostNew(workspace, config, configPath, setup),
+          };
         }
+      );
+      if ("summary" in attached) {
+        return attached.summary;
       }
-      return await hostNew(workspace, config, configPath, setup);
-    });
+      await attached.detaching.catch(() => undefined);
+    }
+  }
+
+  async function ensureRegistered(
+    workspace: Workspace,
+    config: string | null
+  ): Promise<void> {
+    if ((await registry.read(workspace.id))?.hosted !== true) {
+      await registry.touch(workspace, config, { hosted: true });
+    }
   }
 
   async function attachAgain(
@@ -1351,6 +1565,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     target.hosts.add(workspace.id);
     entry.setup = undefined;
     setState(entry, "ready", { pid: target.child.pid ?? -1 });
+    await recordHosts(target);
     return entry.summary;
   }
 
@@ -1362,25 +1577,99 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     return workspace;
   }
 
-  function detach(id: string): Promise<void> {
-    return inTurn(async () => {
+  async function drainEverywhere(
+    id: string,
+    hosting: readonly Generation[]
+  ): Promise<void> {
+    for (const generation of hosting) {
+      print(
+        `[${id}] detaching · waiting for engine generation ${String(generation.number)} to finish its work`
+      );
+      try {
+        await ask(generation, GENERATION_METHODS.unhost, { id });
+      } catch (error) {
+        const going =
+          stopping ||
+          generation.exit !== undefined ||
+          !generation.channel?.open;
+        if (!going) {
+          throw error;
+        }
+      }
+      generation.hosts.delete(id);
+      await recordHosts(generation);
+    }
+  }
+
+  async function detach(id: string): Promise<void> {
+    const begun = await inTurn(async () => {
       const workspace = hosted.get(id);
       if (workspace === undefined) {
         return;
       }
-      const target = current;
-      if (target?.hosts.has(id)) {
-        await ask(target, GENERATION_METHODS.unhost, { id });
-        target.hosts.delete(id);
+      if (workspace.detaching !== undefined) {
+        return { done: workspace.detaching };
       }
-      // detach can be retried, rather than hosted again at the next boot.
       await registry.unhost(id);
-      hosted.delete(id);
-      if (current !== undefined) {
-        current.fingerprint = withSource(current.fingerprint, id, undefined);
+      const loadedBy = current;
+      const part = loadedBy?.fingerprint.sources.get(id);
+      if (loadedBy !== undefined) {
+        loadedBy.fingerprint = withSource(loadedBy.fingerprint, id, undefined);
       }
-      setState(workspace, "stopped");
+      const hosting = hostsOf(id);
+      const done = finishDetach(workspace, hosting, () => {
+        if (loadedBy !== undefined && part !== undefined) {
+          loadedBy.fingerprint = withSource(loadedBy.fingerprint, id, part);
+        }
+      });
+      workspace.detaching = done;
+      setState(workspace, "stopped", {
+        error: `detaching: waiting for engine generation${hosting.length === 1 ? "" : "s"} ${hosting.map((each) => String(each.number)).join(", ")} to finish its work`,
+      });
+      return { done };
     });
+    await begun?.done;
+  }
+
+  async function finishDetach(
+    workspace: Hosted,
+    hosting: readonly Generation[],
+    putBack: () => void
+  ): Promise<void> {
+    const { id } = workspace.summary;
+    let failure: { readonly error: unknown } | undefined;
+    try {
+      await drainEverywhere(id, hosting);
+    } catch (error) {
+      failure = { error };
+    }
+    await inTurn(async () => {
+      workspace.detaching = undefined;
+      if (failure === undefined) {
+        hosted.delete(id);
+        setState(workspace, "stopped");
+        return;
+      }
+      putBack();
+      const why = `detach failed: ${message(failure.error)}`;
+      try {
+        await registry.touch(
+          layout.workspace(workspace.summary.root),
+          workspace.summary.config,
+          { hosted: true }
+        );
+        setState(workspace, "failed", {
+          error: `${why}; attach it again to load it afresh`,
+        });
+      } catch (error) {
+        setState(workspace, "failed", {
+          error: `${why}; its registration was not put back (${message(error)}); attach it again to repair it`,
+        });
+      }
+    });
+    if (failure !== undefined) {
+      throw failure.error;
+    }
   }
 
   function startsWork(method: string, params: unknown): boolean {
@@ -1530,6 +1819,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     const method = `${WORKSPACE_PREFIX}${name}`;
     const params = { ...rest, id };
+    if (workspace.detaching !== undefined && DISPATCHING.has(name)) {
+      throw new Error(`workspace ${id} is detaching; it starts no new work`);
+    }
     if (RUN_METHODS.has(name)) {
       const answered = await askOwner(id, name, method, rest.runId, params);
       if (answered !== NO_OWNER_HERE) {
@@ -1540,21 +1832,52 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       await handovers.get(id);
       return await askEach(id, method, params);
     }
+    return await askCurrent(workspace, method, params);
+  }
+
+  async function startedCurrent(workspace: Hosted): Promise<Generation> {
     const target = current;
     await settledStart(target);
+    const { error, id, state } = workspace.summary;
+    if (workspace.detaching !== undefined) {
+      throw new Error(`workspace ${id} is detaching`);
+    }
     if (
       target === undefined ||
       target !== current ||
       !target.hosts.has(id) ||
-      workspace.summary.state === "failed" ||
-      workspace.summary.state === "starting" ||
-      workspace.summary.state === "stopped"
+      state === "failed" ||
+      state === "starting" ||
+      state === "stopped"
     ) {
       throw new Error(
-        `workspace ${id} is ${workspace.summary.state}${workspace.summary.error ? `: ${workspace.summary.error}` : ""}`
+        `workspace ${id} is ${state}${error ? `: ${error}` : ""}`
       );
     }
-    return await ask(target, method, params);
+    return target;
+  }
+
+  async function askCurrent(
+    workspace: Hosted,
+    method: string,
+    params: unknown
+  ): Promise<unknown> {
+    const { id } = workspace.summary;
+    const deadline = Date.now() + HELD_WAIT_MS;
+    for (;;) {
+      const target = await startedCurrent(workspace);
+      try {
+        return await ask(target, method, params);
+      } catch (error) {
+        const left = deadline - Date.now();
+        if (!isMoving(error) || left <= 0) {
+          throw error;
+        }
+        if (current === target) {
+          await nextChange(id, Math.min(left, HANDOVER_RETRY_MS * 10));
+        }
+      }
+    }
   }
 
   async function answer(
@@ -1725,6 +2048,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       clearInterval(poll);
       clearInterval(sweeper);
       clock.clearTimeout(switchTimer);
+      clock.clearTimeout(hostsTimer);
+      hostsTimer = undefined;
       let failure: { readonly error: unknown } | undefined;
       const attempt = async (step: () => unknown): Promise<void> => {
         try {
@@ -1771,17 +2096,28 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     async idle() {
       for (;;) {
         const waited = turn;
+        const written = hostsWritten;
         await waited;
-        if (turn === waited) {
+        await written;
+        if (turn === waited && hostsWritten === written) {
+          const hostsReasons = [...hostsDue].map(
+            (generation) =>
+              `which workspaces engine generation ${String(generation.number)} hosts is to be written again`
+          );
           return {
-            reasons: switchTimer === undefined ? [] : [...switchReasons],
-            scheduled: switchTimer !== undefined,
+            reasons: [
+              ...(switchTimer === undefined ? [] : switchReasons),
+              ...(hostsTimer === undefined ? [] : hostsReasons),
+            ],
+            scheduled: switchTimer !== undefined || hostsTimer !== undefined,
           };
         }
       }
     },
     pid: process.pid,
+    pollNow: () => pollTick(),
     socket: layout.socket,
+    sweepNow: () => sweepTick(),
   };
 }
 

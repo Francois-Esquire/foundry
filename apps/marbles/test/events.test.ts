@@ -1361,6 +1361,44 @@ describe("an engine that observes nothing", () => {
   });
 });
 
+describe("a delivery stopped with no grace, as retire stops it", () => {
+  it("gives the claim up at once, leaves no tick, and writes nothing when its held handler returns", async () => {
+    const state = stateDir();
+    const records = machine.records(state);
+    const clock = new ManualClock();
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
+    const { promise: entered, resolve: enter } = Promise.withResolvers<void>();
+    const delivery = new Delivery({ clock, print: () => undefined, records });
+    delivery.observe(
+      TASKS,
+      async () => {
+        enter();
+        await held;
+      },
+      { name: "held" }
+    );
+    await delivery.start();
+    await new Tasks({ store: records.taskStore }).create({ title: "held" });
+    delivery.wake();
+    await entered;
+
+    await delivery.stop({ grace: 0 });
+    expect(clock.periods).toEqual([]);
+    const successor = machine.records(state);
+    expect(await successor.claimDelivery()).toBeUndefined();
+
+    release();
+    await delivery.idle();
+    expect((await successor.log.observers())[0]).toMatchObject({
+      failures: 0,
+      name: "held",
+      position: 0,
+    });
+    await successor.close();
+    await records.close();
+  });
+});
+
 describe("compaction", () => {
   const DAY = 24 * 60 * 60 * 1000;
   const LONG_AFTER = 2 * DAY;

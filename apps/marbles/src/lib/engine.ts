@@ -68,7 +68,12 @@ import type { FeedRouter } from "~/lib/feed/route";
 import { feedRouter, movedAway, QuestionMovingError } from "~/lib/feed/route";
 import type { Dispatched } from "~/lib/held-runs";
 import { HeldRuns } from "~/lib/held-runs";
-import type { DispatchedRun, Launched, LaunchOptions } from "~/lib/launcher";
+import type {
+  DispatchedRun,
+  Launched,
+  LaunchOptions,
+  QueuedTake,
+} from "~/lib/launcher";
 import { Launcher } from "~/lib/launcher";
 import { createLog, type LogLevel, type LogOrigin } from "~/lib/log";
 import { AgentsManager } from "~/lib/managers/agents";
@@ -416,6 +421,7 @@ export class Engine {
     this.executions = this.#executions;
     this.#launcher = new Launcher({
       agents: (run) => this.agents.forRun(run),
+      context: this.context,
       executions: this.#executions,
       print,
       recoverQueued: options.recoverQueued ?? false,
@@ -481,6 +487,7 @@ export class Engine {
       activities: this.activities,
       automations: this.automations,
       containerOf: (sandbox) => sandboxes.containerOf(sandbox),
+      context: this.context,
       defaultExecutor: () => selectExecutor(models),
       dry: options.dry ?? false,
       executionOf: (provider) => options.providers?.executionOf(provider),
@@ -514,6 +521,7 @@ export class Engine {
     });
     this.workspaces = new WorkspacesManager({
       catalogue,
+      context: this.context,
       gitOptions: options.git ?? {},
       root,
       worktreeHome: this.worktrees,
@@ -1015,7 +1023,8 @@ export class Engine {
    */
   async resume(runId: string, stepId: string, prompt?: string): Promise<void> {
     const { orchestrator } = this.#live();
-    if (this.#letGo.has(runId)) {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
+    if (this.#retiring || this.#letGo.has(runId)) {
       throw new QuestionMovingError(runId);
     }
     const scope = this.#scopeOf(runId);
@@ -1024,7 +1033,8 @@ export class Engine {
       runId,
       status: "pending",
     });
-    if (this.#letGo.has(runId)) {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
+    if (this.#retiring || this.#letGo.has(runId)) {
       throw new QuestionMovingError(runId);
     }
     // A pause parks a subtree, so a resume releases every pause at or
@@ -1179,16 +1189,25 @@ export class Engine {
 
   async retire(
     successor: ProcessIdentity,
-    options: { readonly onLetGo?: (runId: string) => void } = {}
+    options: {
+      readonly onHanded?: (runId: string) => void;
+      readonly onLetGo?: (runId: string) => void;
+    } = {}
   ): Promise<{ readonly ended: Promise<void> }> {
     const running = this.#running;
     if (running === undefined) {
       return { ended: Promise.resolve() };
     }
     this.#retiring = true;
+    this.#launcher.beginRetiring();
     running.router.retire();
-    await this.#delivery.stop();
-    for (const runId of await this.#launcher.handOver(successor)) {
+    await this.#delivery.stop({ grace: 0 }).catch((error: unknown) => {
+      this.#print(
+        `[engine] the delivery claim was not given up as this engine retires: ${String(error)}`
+      );
+    });
+    const handedLate = (late: string) => options.onHanded?.(late);
+    for (const runId of await this.#launcher.handOver(successor, handedLate)) {
       this.#letGo.add(runId);
     }
     running.orchestrator.on("suspended", ({ runId }) => {
@@ -1219,7 +1238,7 @@ export class Engine {
               SETTLED_EXECUTION_STATUSES.has(run.status)
             ) && sameProcess(run.owner, thisProcess())
         );
-    const ended = new Promise<void>((resolve) => {
+    const runsEnded = new Promise<void>((resolve) => {
       const look = () => {
         if (left()) {
           setTimeout(look, RETIRED_POLL_MS).unref?.();
@@ -1229,7 +1248,18 @@ export class Engine {
       };
       look();
     });
-    return { ended };
+    return { ended: runsEnded };
+  }
+
+  async takeQueued(runId: string, owner: ProcessIdentity): Promise<QueuedTake> {
+    if (this.#running === undefined || this.#phase !== "started") {
+      return { taken: false, why: "this engine is not running" };
+    }
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
+    if (this.#retiring) {
+      return { taken: false, why: "this engine is retiring" };
+    }
+    return await this.#launcher.takeOrphaned(runId, owner);
   }
 
   async adopt(runId: string): Promise<boolean> {
@@ -1238,6 +1268,10 @@ export class Engine {
       this.#running !== running || this.#phase !== "started" || this.#retiring;
     if (running === undefined || away()) {
       return false;
+    }
+    const handed = await this.#launcher.takeHanded(runId);
+    if (handed !== undefined) {
+      return handed;
     }
     const record = await running.store.getRun(runId);
     if (record?.status !== "suspended" || away()) {
@@ -1390,12 +1424,6 @@ export class Engine {
     this.#prices = undefined;
   }
 
-  /**
-   * Stop execution and close what this engine was handed: the workspace system,
-   * the containers if a sandbox ever opened them, and the models. The models
-   * go last and always: a provider may hold a child process. Its cancelling
-   * stop waits for a workflow's `setup` in flight, as `stop` does.
-   */
   dispose(): Promise<void> {
     this.#disposing ??= this.#dispose();
     return this.#disposing;

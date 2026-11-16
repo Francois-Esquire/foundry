@@ -26,6 +26,7 @@ export type ContainerTransaction = SQLiteTransaction<
 
 export interface SqliteContainerStoreOptions {
   readonly database: ContainerDatabase;
+  readonly location?: string;
   readonly onCommit?: (
     transaction: ContainerTransaction,
     write: ContainerStoreWrite
@@ -53,14 +54,59 @@ type StoredRow = typeof sandboxContainers.$inferInsert;
 export function createSqliteContainerStore(
   options: SqliteContainerStoreOptions
 ): ContainerStore {
-  const { database, onCommit, scope } = options;
-  if (scope.length === 0 || !storableText(scope)) {
+  const { scope } = options;
+  if (scope.length === 0 || !storableText(scope) || scope.includes(UNIT)) {
     throw new RangeError(
-      "scope must be a nonempty string with no U+0000 and no lone surrogate"
+      "scope must be a nonempty string with no U+0000, no U+001F and no lone surrogate"
     );
   }
+  return storeOver(options);
+}
+
+function storeOver(
+  options: SqliteContainerStoreOptions,
+  fixedIdentity?: string
+): ContainerStore {
+  const { database, location, onCommit, scope } = options;
   const turns = new Turns(REENTRY);
   const inScope = eq(sandboxContainers.scope, scope);
+  const identityRow = and(
+    eq(sandboxContainers.scope, identityScope(scope)),
+    eq(sandboxContainers.id, IDENTITY_ID)
+  );
+  let known = fixedIdentity;
+
+  const identityOf = async (): Promise<string> => {
+    if (known !== undefined) {
+      return known;
+    }
+    await database
+      .insert(sandboxContainers)
+      .values({
+        createdAt: 0,
+        holder: null,
+        id: IDENTITY_ID,
+        nativeId: globalThis.crypto.randomUUID(),
+        position: 0,
+        scope: identityScope(scope),
+        spec: "{}",
+        status: "stopped",
+        updatedAt: 0,
+      })
+      .onConflictDoNothing();
+    const [row] = await database
+      .select({ nativeId: sandboxContainers.nativeId })
+      .from(sandboxContainers)
+      .where(identityRow);
+    if (typeof row?.nativeId !== "string" || row.nativeId === "") {
+      throw new Error("the container store's identity could not be read");
+    }
+    known =
+      location === undefined
+        ? row.nativeId
+        : await digest(`${row.nativeId}\u0000${location}`);
+    return known;
+  };
 
   const put = async (
     transaction: ContainerTransaction,
@@ -138,6 +184,8 @@ export function createSqliteContainerStore(
         return row === undefined ? undefined : containerRow(row);
       }),
 
+    identity: () => turns.run(identityOf),
+
     list: () =>
       turns.run(async () => {
         const rows = await database
@@ -149,18 +197,40 @@ export function createSqliteContainerStore(
       }),
 
     transaction: (work) =>
-      turns.run(() =>
-        database.transaction((transaction) =>
+      turns.run(async () => {
+        const identity = await identityOf();
+        return await database.transaction((transaction) =>
           work(
-            createSqliteContainerStore({
-              database: transaction,
-              scope,
-              ...(onCommit === undefined ? {} : { onCommit }),
-            })
+            storeOver(
+              {
+                database: transaction,
+                scope,
+                ...(onCommit === undefined ? {} : { onCommit }),
+              },
+              identity
+            )
           )
-        )
-      ),
+        );
+      }),
   };
+}
+
+async function digest(text: string): Promise<string> {
+  const bytes = new Uint8Array(
+    await globalThis.crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(text)
+    )
+  );
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+const UNIT = "\u001f";
+
+const IDENTITY_ID = "identity";
+
+function identityScope(scope: string): string {
+  return `${scope}${UNIT}store`;
 }
 
 function containerRow(

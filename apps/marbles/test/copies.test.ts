@@ -192,3 +192,35 @@ it("fails the load of a file it cannot parse, naming the file, rather than load 
   );
   expect(report.error).toContain(`${broken} does not parse`);
 });
+
+it("reads an import's `type` from its syntax, past any comment before its options", async () => {
+  const root = await scratch();
+  const write = async (n: number) => {
+    await writeFile(join(root, "notes.md"), `note ${String(n)}\n`);
+    await writeFile(join(root, "static.md"), `static ${String(n)}\n`);
+  };
+  await write(1);
+  await writeFile(
+    join(root, "entry.ts"),
+    `import notes from "./static.md" /* why */ with { type: "text" };
+globalThis.seen = {
+  dynamic: (await import("./notes.md" /* why */, { with: { type: "text" } })).default.trim(),
+  static: notes.trim(),
+};
+`
+  );
+  const report = await withLoader(
+    root,
+    `const entry = ${JSON.stringify(join(root, "entry.ts"))};
+await importLoad(${JSON.stringify(root)}, [entry]);
+report.first = globalThis.seen;
+await Bun.write(${JSON.stringify(join(root, "notes.md"))}, "note 2");
+await Bun.write(${JSON.stringify(join(root, "static.md"))}, "static 2");
+await importLoad(${JSON.stringify(root)}, [entry]);
+report.second = globalThis.seen;`
+  );
+  expect(report).toEqual({
+    first: { dynamic: "note 1", static: "static 1" },
+    second: { dynamic: "note 2", static: "static 2" },
+  });
+});

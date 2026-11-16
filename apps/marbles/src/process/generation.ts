@@ -4,6 +4,7 @@ import { thisProcess } from "@foundry/lib/process-identity";
 
 import { layout } from "~/layout";
 import type { Engine } from "~/lib/engine";
+import type { QueuedTake } from "~/lib/launcher";
 import { Channel, socketTransport } from "~/process/channel";
 import type {
   LoadResult,
@@ -17,6 +18,7 @@ import {
   GENERATION_NOTIFICATIONS,
   hostParamsSchema,
   isWorkspaceMethod,
+  queuedParamsSchema,
   releasedParamsSchema,
   retireParamsSchema,
   startParamsSchema,
@@ -323,13 +325,27 @@ async function main(): Promise<void> {
     return { config: added.config, id: added.id, root: added.root };
   };
 
-  const unhost = async (raw: unknown): Promise<void> => {
+  const unhosting = new Map<string, Promise<void>>();
+
+  const unhost = (raw: unknown): Promise<void> => {
     const { id } = workspaceIdSchema.parse(raw);
-    await untick(id, false);
-    const all = workspaces();
-    const found = all.list().find((each) => each.id === id);
-    await found?.engine.stop();
-    await all.unregister(id);
+    const under = unhosting.get(id);
+    if (under !== undefined) {
+      return under;
+    }
+    const draining = (async () => {
+      await untick(id, false);
+      const all = workspaces();
+      const found = all.list().find((each) => each.id === id);
+      await found?.engine.stop();
+      await all.unregister(id);
+    })();
+    unhosting.set(id, draining);
+    const forget = () => {
+      unhosting.delete(id);
+    };
+    draining.then(forget, forget);
+    return draining;
   };
 
   const leave = async (cancel: boolean): Promise<void> => {
@@ -337,6 +353,7 @@ async function main(): Promise<void> {
     await Promise.allSettled(
       (hosted?.list() ?? []).map((each) => each.engine.stop())
     );
+    await Promise.allSettled(unhosting.values());
     await staged?.abandon().catch(() => undefined);
     await hosted?.close();
   };
@@ -346,7 +363,9 @@ async function main(): Promise<void> {
     if (retiring !== undefined || stopping !== undefined) {
       throw new Error("this generation is already retiring or stopping");
     }
-    const hosts = hosted?.list() ?? [];
+    const hosts = (hosted?.list() ?? []).filter(
+      (each) => !unhosting.has(each.id)
+    );
     for (const each of hosts) {
       const loop = ticking.get(each.id);
       loop?.stop.abort();
@@ -354,6 +373,9 @@ async function main(): Promise<void> {
     const retired = await Promise.all(
       hosts.map((each) =>
         each.engine.retire(successor, {
+          onHanded(runId) {
+            notify(GENERATION_NOTIFICATIONS.handed, { id: each.id, runId });
+          },
           onLetGo(runId) {
             notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });
           },
@@ -373,6 +395,14 @@ async function main(): Promise<void> {
       return false;
     }
     return await workspaces().get(id).engine.adopt(runId);
+  };
+
+  const takeQueued = async (raw: unknown): Promise<QueuedTake> => {
+    const { id, owner, runId } = queuedParamsSchema.parse(raw);
+    if (retiring !== undefined || stopping !== undefined) {
+      return { taken: false, why: "its generation is retiring or stopping" };
+    }
+    return await workspaces().get(id).engine.takeQueued(runId, owner);
   };
 
   const stop = (): Promise<void> => {
@@ -399,6 +429,8 @@ async function main(): Promise<void> {
           return retire(raw);
         case GENERATION_METHODS.adopt:
           return adopt(raw);
+        case GENERATION_METHODS.takeQueued:
+          return takeQueued(raw);
         default:
           break;
       }

@@ -40,19 +40,19 @@ export class RunListing {
   }
 
   async list(): Promise<readonly RunRecord[]> {
-    const live: RunRecord[] = [];
+    const read: RunRecord[] = [];
     for (const runId of [...this.#live]) {
       const run = await this.#store.getRun(runId);
       if (run === null) {
         continue;
       }
-      if (TERMINAL_RUN_STATUSES.has(run.status) && this.#live.has(runId)) {
-        this.#live.delete(runId);
+      if (!TERMINAL_RUN_STATUSES.has(run.status)) {
+        read.push(run);
+      } else if (this.#live.delete(runId)) {
         this.#settled.set(runId, run);
-      } else {
-        live.push(run);
       }
     }
+    const live = read.filter((run) => this.#live.has(run.id));
     return [...this.#settled.values(), ...live].sort(
       (a, b) => a.timestamps.createdAt - b.timestamps.createdAt
     );

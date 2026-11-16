@@ -299,6 +299,10 @@ export const marblesGenerations = sqliteTable(
       enum: ["loading", "current", "retiring", "failed", "exited"],
     }).notNull(),
     updatedAt: text("updated_at").notNull(),
+    workspaces: text({ mode: "json" })
+      .$type<readonly string[]>()
+      .notNull()
+      .default([]),
   },
   (table) => [index("marbles_generations_state_idx").on(table.state)]
 );

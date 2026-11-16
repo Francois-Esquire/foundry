@@ -1,11 +1,14 @@
 import { spawn } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -16,10 +19,16 @@ import { afterEach, expect, it, vi } from "vitest";
 import { startedAt } from "../process-identity";
 import {
   execFileRecorded,
+  forgetRecord,
   notPrivate,
+  type RecordFiles,
+  recordChild,
+  recordPath,
   recordSpawned,
   SPAWN_OWNER_ENV,
   SPAWN_RECORD_ENV,
+  SPAWN_RECOVERY_ENV,
+  writePrivate,
 } from "../spawn-record";
 
 const made: string[] = [];
@@ -109,4 +118,120 @@ it("records nothing for a child that has already gone", async () => {
   await new Promise((settle) => child.once("exit", settle));
   recordSpawned(child.pid, false, { [SPAWN_RECORD_ENV]: dir });
   expect(readdirSync(dir)).toEqual([]);
+});
+
+const PID = 4_200_090;
+const GONE = { group: false, pid: PID, started: "ps:Sun Nov 15 08:00:00 2026" };
+const SINCE = { ...GONE, started: "ps:Sun Nov 15 09:00:00 2026" };
+const NEWER = { ...GONE, started: "ps:Sun Nov 15 10:00:00 2026" };
+
+function startsIn(dir: string): string[] {
+  return readdirSync(dir)
+    .filter((name) => name.endsWith(".json"))
+    .map((name) => JSON.parse(readFileSync(join(dir, name), "utf8")).started)
+    .sort();
+}
+
+function hooked(before: (index: number) => void): RecordFiles {
+  let index = 0;
+  const step = <T>(work: () => T): T => {
+    before(index);
+    index += 1;
+    return work();
+  };
+  return {
+    link: (existing, path) => step(() => linkSync(existing, path)),
+    read: (path) => step(() => readFileSync(path, "utf8")),
+    remove: (path) => step(() => rmSync(path, { force: true })),
+    rename: (from, to) => step(() => renameSync(from, to)),
+  };
+}
+
+it("forgets a record only if what it removes names the process that is gone, wherever another's write lands", () => {
+  let tried = 0;
+  for (let at = 0; ; at += 1) {
+    const dir = scratch();
+    const path = recordPath(dir, PID);
+    writePrivate(path, JSON.stringify(GONE));
+    let landed = false;
+    forgetRecord(
+      path,
+      GONE,
+      hooked((index) => {
+        if (index === at) {
+          writePrivate(path, JSON.stringify(SINCE));
+          landed = true;
+        }
+      })
+    );
+    if (!landed) {
+      break;
+    }
+    tried += 1;
+    expect({ at, starts: startsIn(dir) }).toEqual({
+      at,
+      starts: [SINCE.started],
+    });
+  }
+  expect(tried).toBe(3);
+
+  const dir = scratch();
+  const path = recordPath(dir, PID);
+  writePrivate(path, JSON.stringify(SINCE));
+  forgetRecord(
+    path,
+    GONE,
+    hooked((index) => {
+      if (index === 2) {
+        writePrivate(path, JSON.stringify(NEWER));
+      }
+    })
+  );
+  expect(startsIn(dir)).toEqual([SINCE.started, NEWER.started]);
+  expect(JSON.parse(readFileSync(path, "utf8")).started).toBe(NEWER.started);
+
+  const plain = scratch();
+  writePrivate(recordPath(plain, PID), JSON.stringify(GONE));
+  forgetRecord(recordPath(plain, PID), GONE);
+  expect(readdirSync(plain)).toEqual([]);
+});
+
+it("keeps, as a child exits, a recovery record that names another process", async () => {
+  const dir = scratch();
+  const child = spawn("sleep", ["60"], { stdio: "ignore" });
+  recordChild(child, false, { [SPAWN_RECOVERY_ENV]: dir });
+  const path = recordPath(dir, child.pid ?? 0);
+  const other = {
+    ...JSON.parse(readFileSync(path, "utf8")),
+    started: NEWER.started,
+  };
+  writePrivate(path, JSON.stringify(other));
+  const exited = new Promise((done) => child.once("exit", done));
+  child.kill("SIGKILL");
+  await exited;
+  expect(existsSync(path)).toBe(true);
+  expect(JSON.parse(readFileSync(path, "utf8")).started).toBe(NEWER.started);
+});
+
+it("reports, and writes no record of, a process the listing leaves out while a signal still reaches it", async () => {
+  vi.resetModules();
+  const fresh = await import("../spawn-record");
+  const dir = scratch();
+  const stderr = vi
+    .spyOn(process.stderr, "write")
+    .mockImplementation(() => true);
+  let written = "";
+  try {
+    fresh.recordSpawned(
+      4_200_190,
+      false,
+      { [SPAWN_RECORD_ENV]: dir },
+      { alive: () => true, look: () => new Map() }
+    );
+  } finally {
+    written = stderr.mock.calls.flat().join("");
+    stderr.mockRestore();
+  }
+  expect(readdirSync(dir)).toEqual([]);
+  expect(written).toContain("not listed, yet a signal reaches it");
 });

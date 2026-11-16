@@ -79,6 +79,22 @@ export function describeRunStore(
       expect(await runs.recorded("rn-unknown")).toEqual({ ledger: {} });
     });
 
+    it("gives back a recording its caller can change without changing what is kept", async () => {
+      const runs = await store();
+      const workflows = await runs.open(() => SCOPE);
+      await putRun(workflows, "rn-1");
+
+      const first = await runs.recorded("rn-1");
+      (first.ledger["flow|agents.session|0"] as { id: string }).id = "changed";
+      (first.literals?.flow as Record<string, unknown>).n = 2;
+
+      expect(await runs.recorded("rn-1")).toEqual({
+        ledger: SCOPE.ledger,
+        literals: SCOPE.literals,
+        session: "run-session",
+      });
+    });
+
     it("keeps nothing of a commit a transaction rolls back", async () => {
       const runs = await store();
       const workflows = await runs.open(() => SCOPE);
@@ -237,6 +253,27 @@ export function describeRunStore(
         );
         expect((await workflows.getRun("rn-1"))?.status).toBe("suspended");
         expect(await first.claim("rn-1", ANY_STORED_RUN)).toBe(false);
+      }
+    );
+
+    it.runIf(shared)(
+      "refuses a change from the store that let a Run go, before any other claims it, until it claims it again",
+      async () => {
+        const first = await store();
+        const second = await store();
+        const workflows = await first.open(() => SCOPE);
+        await putRun(workflows, "rn-1", "suspended");
+        await first.release("rn-1");
+
+        await expect(putRun(workflows, "rn-1", "running")).rejects.toThrow(
+          "is not held by this engine"
+        );
+        expect((await workflows.getRun("rn-1"))?.status).toBe("suspended");
+        expect(await second.claim("rn-1", ANY_STORED_RUN)).toBe(true);
+        await second.release("rn-1");
+        expect(await first.claim("rn-1", ANY_STORED_RUN)).toBe(true);
+        await putRun(workflows, "rn-1", "running");
+        expect((await workflows.getRun("rn-1"))?.status).toBe("running");
       }
     );
 
