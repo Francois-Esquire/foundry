@@ -805,7 +805,13 @@ describe("engine generations", () => {
   it("starts no other generation after an attach when nothing changed", async () => {
     const fixture = await setUp();
     // Several polls of the fingerprint: none may see a change.
-    await new Promise((resolve) => setTimeout(resolve, 4000));
+    for (let poll = 0; poll < 3; poll += 1) {
+      await fixture.daemon.pollNow();
+      expect(await fixture.daemon.idle()).toEqual({
+        reasons: [],
+        scheduled: false,
+      });
+    }
     const generations = await readLiveGenerations(fixture.machine.state);
     expect(generations.map((generation) => generation.pid)).toEqual([
       fixture.summary.pid,
@@ -854,10 +860,12 @@ describe("engine generations", () => {
     const root = join(home.path, "project");
     mkdirSync(root);
     const source = join(root, "marbles.config.ts");
-    // Loads for longer than a poll of the fingerprint takes to come round.
+    const loading = join(home.path, "loading");
+    const loaded = join(home.path, "loaded");
+    // Its load says it began, then waits until the test lets it finish.
     writeFileSync(
       source,
-      'await new Promise((resolve) => setTimeout(resolve, 2500));\nimport { step } from "@foundry.sh/marbles";\nexport const where = step("where").do(() => process.pid);\n'
+      `import { existsSync, writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(loading)}, "");\nwhile (!existsSync(${JSON.stringify(loaded)})) await new Promise((resolve) => setTimeout(resolve, 20));\nimport { step } from "@foundry.sh/marbles";\nexport const where = step("where").do(() => process.pid);\n`
     );
     const daemon = await startDaemon({
       clock,
@@ -866,7 +874,16 @@ describe("engine generations", () => {
     });
     daemons.push(daemon);
     const client = await connect({ layout: home.layout, start: false });
-    const attached = await client.attach(source);
+    const attaching = client.attach(source);
+    await vi.waitFor(() => expect(existsSync(loading)).toBe(true), {
+      interval: 20,
+      timeout: 60_000,
+    });
+    // Polls while the load is under way see nothing to switch for.
+    await daemon.pollNow();
+    await daemon.pollNow();
+    writeFileSync(loaded, "");
+    const attached = await attaching;
     expect(attached.state).toBe("ready");
     expect(await daemon.idle(), lines.join("\n")).toEqual({
       reasons: [],
@@ -1305,10 +1322,14 @@ describe("engine generations", () => {
       expect(listed?.state).toBe("failed");
       expect(listed?.error).toContain("detach failed");
       expect(await stored(fixture, fixture.summary.id)).toBe(true);
-      // Its source is the current generation's again: past a few of the
-      // daemon's source polls (every second), nothing switches on its own.
+      // Its source is the current generation's again: a poll of the
+      // sources finds nothing to switch for.
       const generations = await numbered(fixture);
-      await new Promise((resolve) => setTimeout(resolve, 2500));
+      await fixture.daemon.pollNow();
+      expect(await fixture.daemon.idle()).toEqual({
+        reasons: [],
+        scheduled: false,
+      });
       expect(await numbered(fixture)).toBe(generations);
       const [still] = await fixture.client.workspaces();
       expect(still?.state).toBe("failed");

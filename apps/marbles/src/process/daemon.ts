@@ -145,6 +145,14 @@ export interface Daemon {
     readonly scheduled: boolean;
   }>;
   readonly pid: number;
+  /**
+   * Poll what the current generation loaded now, as the source poll does
+   * every second, with the same guards: none while a switch runs or is
+   * scheduled. Resolves once that poll has settled; a change it saw has
+   * asked for a switch by then (`idle` says so). For a caller that must
+   * not wait on the poll's timer.
+   */
+  pollNow(): Promise<void>;
   readonly socket: string;
 }
 
@@ -1618,17 +1626,24 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   }
 
   /** Poll what the current generation loaded; a change asks for a switch. */
-  let polling = false;
-  const poll = setInterval(() => {
-    if (polling || stopping || switchRunning || switchTimer !== undefined) {
-      return;
+  let polling: Promise<void> | undefined;
+  function pollTick(): Promise<void> {
+    if (polling !== undefined) {
+      return polling;
     }
-    polling = true;
-    pollOnce()
+    if (stopping || switchRunning || switchTimer !== undefined) {
+      return Promise.resolve();
+    }
+    const done = pollOnce()
       .catch(() => undefined)
       .finally(() => {
-        polling = false;
+        polling = undefined;
       });
+    polling = done;
+    return done;
+  }
+  const poll = setInterval(() => {
+    pollTick().catch(() => undefined);
   }, SOURCE_POLL_MS);
   poll.unref();
 
@@ -2497,6 +2512,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
     },
     pid: process.pid,
+    pollNow: () => pollTick(),
     socket: layout.socket,
   };
 }
