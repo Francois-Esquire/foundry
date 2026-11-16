@@ -70,7 +70,7 @@ it("does not take a live owner for gone when a read of its start leaves it out",
   const started = startedAt(pid);
   expect(typeof started).toBe("string");
   system.unread.add(pid);
-  expect(startedAt(pid)).toBeNull();
+  expect(startedAt(pid)).toBeUndefined();
   expect(isGone({ pid, started: started ?? null })).toBe(false);
 });
 
