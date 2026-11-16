@@ -553,6 +553,7 @@ export class Engine {
     this.executions = this.#executions;
     this.#launcher = new Launcher({
       agents: (run) => this.agents.forRun(run),
+      context: this.context,
       executions: this.#executions,
       print,
       recoverQueued: options.recoverQueued ?? false,
@@ -616,6 +617,7 @@ export class Engine {
       activities: this.activities,
       automations: this.automations,
       containerOf: (sandbox) => sandboxes.containerOf(sandbox),
+      context: this.context,
       defaultExecutor: () => selectExecutor(models),
       dry: options.dry ?? false,
       executionOf: (provider) => options.providers?.executionOf(provider),
@@ -649,6 +651,7 @@ export class Engine {
     });
     this.workspaces = new WorkspacesManager({
       catalogue,
+      context: this.context,
       gitOptions: options.git ?? {},
       root,
       worktreeHome: this.worktrees,
@@ -1440,6 +1443,10 @@ export class Engine {
    * the containers if a sandbox ever opened them, and the models. The models
    * go last and always: a provider may hold a child process. Its cancelling
    * stop waits for a workflow's `setup` in flight, as `stop` does.
+   * `disposed` is true from the moment this is called, not once it ends:
+   * an observer or step still running while it waits for them is refused
+   * as released if it reaches its engine through the authoring runtime,
+   * though its own stores are still open.
    */
   dispose(): Promise<void> {
     this.#disposing ??= this.#dispose();

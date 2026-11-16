@@ -31,10 +31,22 @@ import {
   ConfigurationError,
   describeIssues,
   empty,
+  InvalidStoredConfiguration,
   keptConfigurations,
   MemoryProviderStore,
   readOnlyProviders,
 } from "~/lib/providers/store";
+import type {
+  ReadEvent,
+  StoreRead,
+  StoreReads,
+} from "~/lib/providers/store-reads";
+import {
+  ALL_FINE,
+  moveReads,
+  RECOVERED,
+  retriedOn,
+} from "~/lib/providers/store-reads";
 
 /** An edit of one scope's configuration: undefined leaves it as it is. */
 type Edit = (current: ProvidersFile | undefined) => ProvidersFile | undefined;
@@ -131,6 +143,22 @@ export class ProviderConfiguration {
   #revision: number | undefined;
   /** `read` kept a newer `#kept` than the manager's set was loaded from. */
   #unloaded = false;
+  /**
+   * How each read of the store stands (`store-reads.ts`): the
+   * configuration, the identity key a read or write needed, and the
+   * revision the watcher polls.
+   */
+  #reads: StoreReads = ALL_FINE;
+  /** What a poll under way hears to report: undefined outside one, whose caller reports what it is thrown. */
+  #heard: string[] | undefined;
+  /**
+   * A recovery heard outside a poll (an edit, or `refresh` called
+   * directly, that reached the store again): no caller is told of it, so
+   * the next poll reports it.
+   */
+  readonly #owed: string[] = [];
+  /** Errors a read's state already accounts for, which a poll does not report again. */
+  readonly #accounted = new WeakSet<object>();
   /** Every scope as the edit under way reads it, inside the store's transaction. */
   #editing: ProviderConfigurations | undefined;
   readonly #plugins: ReadonlyMap<string, RegisteredPlugin>;
@@ -233,11 +261,84 @@ export class ProviderConfiguration {
    * dry run's store makes none.
    */
   async #keyed(kept: ProviderConfigurations): Promise<void> {
-    if (this.#key !== undefined || !this.#configuredIn(kept)) {
+    if (this.#key !== undefined) {
       return;
     }
-    const key = await this.#store.identityKey(true);
+    // A configuration that needs no key, nothing at all or one that cannot
+    // be read, leaves no key read to try again.
+    let configured: boolean;
+    try {
+      configured = this.#configuredIn(kept);
+    } catch (error) {
+      this.#move("identity key", { kind: "not needed" });
+      throw this.#invalidContent("configuration", error, kept.revision);
+    }
+    if (!configured) {
+      this.#move("identity key", { kind: "not needed" });
+      return;
+    }
+    const key = await this.#reaching(
+      "identity key",
+      () => this.#store.identityKey(true),
+      kept.revision
+    );
     this.#key ??= key;
+  }
+
+  /**
+   * `read` of the store, moving its state (`nextRead`): succeeded; invalid
+   * at `revision` when what it found cannot be used; else unreachable.
+   */
+  async #reaching<T>(
+    read: StoreRead,
+    call: () => Promise<T>,
+    revision?: number
+  ): Promise<T> {
+    let result: T;
+    try {
+      result = await call();
+    } catch (error) {
+      if (error instanceof InvalidStoredConfiguration) {
+        throw this.#invalidContent(read, error, revision);
+      }
+      this.#move(read, { kind: "unreachable", message: messageOf(error) });
+      if (error instanceof Object) {
+        this.#accounted.add(error);
+      }
+      throw error;
+    }
+    this.#move(read, { kind: "succeeded" });
+    return result;
+  }
+
+  /** `error`, when it says what `read` found cannot be used, moves that read to invalid. */
+  #invalidContent(
+    read: StoreRead,
+    error: unknown,
+    revision: number | undefined
+  ): unknown {
+    if (error instanceof InvalidStoredConfiguration) {
+      this.#move(read, { kind: "invalid", message: error.message, revision });
+      this.#accounted.add(error);
+    }
+    return error;
+  }
+
+  /**
+   * Move `read`'s state (`moveReads`). What the move reports is heard by
+   * the poll under way; outside one, its caller is thrown any failure, and
+   * only a recovery is kept for the next poll.
+   */
+  #move(read: StoreRead, event: ReadEvent): void {
+    const { reads, reports } = moveReads(this.#reads, read, event);
+    this.#reads = reads;
+    for (const report of reports) {
+      if (this.#heard !== undefined) {
+        this.#heard.push(report);
+      } else if (report === RECOVERED) {
+        this.#owed.push(report);
+      }
+    }
   }
 
   /** Apply edits to several scopes as one write: every edit runs before any is kept. */
@@ -266,7 +367,9 @@ export class ProviderConfiguration {
     // With the revision of the same read: one that cannot be read is
     // reported once per change, not on every poll, and a later repair is
     // still noticed.
-    const kept = await this.#store.read();
+    const kept = await this.#reaching("configuration", () =>
+      this.#store.read()
+    );
     if (this.#adopt(kept)) {
       this.#unloaded = true;
     }
@@ -366,15 +469,20 @@ export class ProviderConfiguration {
    */
   async refresh(): Promise<readonly string[]> {
     await this.read();
-    // Without configuration the set stays as it is, and the first session asks for it.
-    if (!this.configured) {
-      return [];
+    try {
+      // Without configuration the set stays as it is, and the first session asks for it.
+      if (!this.configured) {
+        return [];
+      }
+      const problems = await this.#listAll();
+      if (!this.#lists.signal.aborted) {
+        this.load();
+      }
+      return problems;
+    } catch (error) {
+      // What the store holds and cannot be used is the configuration's state.
+      throw this.#invalidContent("configuration", error, this.#revision);
     }
-    const problems = await this.#listAll();
-    if (!this.#lists.signal.aborted) {
-      this.load();
-    }
-    return problems;
   }
 
   /**
@@ -693,18 +801,39 @@ export class ProviderConfiguration {
   /**
    * Reload whenever any configuration changes, from this or any other
    * process: the store's revision is polled. One that cannot be read keeps
-   * the last good set and is reported. Nothing is polled before the first
-   * `refresh`, or for a programmatic host's set.
+   * the last good set and is reported once per change. A store that could
+   * not be reached (a lock held too long, say) is tried again on every
+   * poll, the very read that failed, until it succeeds, whatever the
+   * revision; a failure is reported when it differs from the one before
+   * it, so the one the engine reported as it started is not reported
+   * again, and the recovery once, when that read succeeds. Nothing is
+   * polled before the first `refresh`, or for a programmatic host's set.
    */
   watch(report: (problem: string) => void): () => void {
     if (this.#options.fixed !== undefined) {
       return () => undefined;
     }
     let polling = false;
-    const poll = async () => {
-      const seen = this.#revision;
-      if (seen === undefined || (await this.#store.revision()) === seen) {
-        return;
+    let polls = 0;
+    const poll = async (number: number) => {
+      // A configuration or key read due again (`retriedOn`) is tried by
+      // refreshing; otherwise the revision is read, and only one that
+      // moved is refreshed, so what was invalid at a revision is not read
+      // again until it changes.
+      const retry =
+        retriedOn("configuration", this.#reads.configuration, number) ||
+        retriedOn("identity key", this.#reads["identity key"], number);
+      if (!retry) {
+        const seen = this.#revision;
+        if (seen === undefined) {
+          return;
+        }
+        const revision = await this.#reaching("revision", () =>
+          this.#store.revision()
+        );
+        if (revision === seen) {
+          return;
+        }
       }
       for (const problem of await this.refresh()) {
         report(problem);
@@ -715,9 +844,21 @@ export class ProviderConfiguration {
         return;
       }
       polling = true;
-      poll()
-        .catch((error: unknown) => report(messageOf(error)))
+      polls += 1;
+      const heard = this.#owed.splice(0);
+      this.#heard = heard;
+      poll(polls)
+        .catch((error: unknown) => {
+          // A read's own failure is reported by its state's move.
+          if (!(error instanceof Object && this.#accounted.has(error))) {
+            heard.push(messageOf(error));
+          }
+        })
         .finally(() => {
+          this.#heard = undefined;
+          for (const problem of heard) {
+            report(problem);
+          }
           polling = false;
         });
     }, POLL_MS);

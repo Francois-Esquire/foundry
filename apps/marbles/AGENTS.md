@@ -95,8 +95,17 @@ Five buckets, each importing only what sits below it:
   a `ProcessIdentity`).
   Each engine has an execution context (`lib/execution-context.ts`): its
   workspace id, where its work starts (`cwd`, the root by default) and the
-  environment its commands inherit. Runs reach it through their bindings,
-  observers through `inContext`, and nothing in `lib/` reads
+  environment its commands inherit. Every place the engine calls code an
+  author wrote runs it as that context (`withinContext`, which leaves a
+  run scope inherited from another engine's run): a step's whole
+  execution, schemas and body (`tree.ts`, `materialize`), its retry
+  decision, a launch's input schema and a workflow's setup (`factoryFor`),
+  a host task's body (`launcher.ts`), each observer (`Delivery`), every
+  session the agents manager opens, whichever entry opens it
+  (`openSession`: an agent's own function, and each turn's output
+  schema, stop conditions and harness authority, approval and question
+  callbacks), and a worktree callback outside a run
+  (`managers/workspaces.ts`); whatever that code starts inherits it. Nothing in `lib/` reads
   `process.cwd()` or `process.env` for it.
   `lib/cli-harnesses.ts` describes each CLI harness once (ids in
   preference order, executor, guest artifact and environment). Provider
@@ -240,11 +249,24 @@ Five buckets, each importing only what sits below it:
   copies import a library bound to the load (`authoring/bound.ts`): every
   word that declares or routes runs in the load's scope (`inLoad`), and
   builders and instances keep whom they answer to (`captureScope`: the
-  load, or the workspace of the run that made them, never that run). So a call names its workspace by its run or observer
-  (`lib/execution-context.ts`), else by the load whose library it came
-  from; work naming a workspace whose host closed here is refused, and
-  only work naming none may fall to the one workspace hosted. Nothing
-  reads the stack for it. `hosted.ts` (`HostedWorkspaces`) hosts several
+  load, or the binding of the engine whose run made them, never that run). Each engine bound to its workspace (`setHost`) is a
+  binding, keyed by the execution context its runs and observers run in
+  (`Engine.context`, `lib/execution-context.ts`); a load takes the
+  binding of the engine that takes its catalog. Work answers to its own
+  binding's engine and catalog until that engine is disposed, whatever
+  engine is bound to the workspace after it, and is refused
+  (`WorkspaceReleasedError`) once it is. A released binding keeps
+  neither engine nor catalog, and the loads it took are dropped, only
+  their numbers kept so late calls from them are refused; a host lets
+  its engine go as soon as it disposed it (`releaseEngine`), and any
+  other disposed engine is let go when the next engine is bound or load
+  begins. Work without a
+  binding reaches an engine only while one engine alone is alive for the
+  workspace: a load no engine has taken yet, or work naming nothing in a
+  process hosting one workspace; with two alive it is refused
+  (`AmbiguousWorkspaceError`), as is a run of an engine no host here
+  bound whose workspace another engine is bound to. Nothing reads the
+  stack for it. `hosted.ts` (`HostedWorkspaces`) hosts several
   workspaces in one process over one database handle, refuses work that
   names no workspace, shares one registration of a workspace between
   callers, addresses what each declared by workspace id and local name

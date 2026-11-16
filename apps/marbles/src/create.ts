@@ -48,6 +48,7 @@ import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot, executionEnvironment } from "~/lib/environment";
+import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { localCatalogue } from "~/lib/managers/workspaces";
@@ -358,12 +359,12 @@ class OwnDatabaseEngine extends PublishedEngine {
     this.#database = database;
   }
 
-  override async dispose(): Promise<void> {
-    try {
-      await super.dispose();
-    } finally {
-      await this.#database.close();
-    }
+  override dispose(): Promise<void> {
+    return inTurn(
+      () => super.dispose(),
+      () => this.#database.close(),
+      "Failed to dispose the engine and close its database"
+    );
   }
 }
 

@@ -128,6 +128,9 @@ it("keeps a host running when the accounts cannot be added", async () => {
   );
   await engine.start();
   await expect(check.run()).rejects.toThrow(UNKNOWN_ACCOUNT);
+  // The next host replaces this one; with both alive, a call from outside
+  // any run names neither, and is refused.
+  await engine.dispose();
   await openHost(() => undefined);
   expect(fake.usage.initialize).toHaveBeenCalledTimes(2);
   await expect(check.run()).resolves.toMatchObject({ name: "anthropic" });

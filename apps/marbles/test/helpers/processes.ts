@@ -1,6 +1,17 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import {
+  type Dirent,
+  existsSync,
+  linkSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   lookProcesses,
@@ -77,10 +88,14 @@ export interface ProcessSystem {
 
 const LIMITS: StopLimits = { graceMs: 5000, killMs: 2000 };
 const POLL_MS = 100;
+/** Each pass stops what the processes of the last one recorded meanwhile. */
+const MAX_PASSES = 8;
+/** A partial record this old is a dead writer's: a write takes a moment. */
+const STALE_PARTIAL_MS = 60_000;
 /** How long `ps` gets to answer, so a stop takes a bounded time. */
 const PS_TIMEOUT_MS = 5000;
 const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
-const PID_PAIR = /^\s*(\d+)\s+(\d+)\s*$/;
+const MEMBER_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s*$/;
 const COMMAND_LINE = /^\s*(\d+) (.*)$/;
 const PID = /^\d+$/;
 
@@ -92,8 +107,13 @@ export function recordProcess(dir: string, pid: number, group: boolean): void {
 /**
  * Stop every process recorded under `dir`, proving each one before every
  * signal: SIGTERM, a grace period, SIGKILL, a last wait. Resolves with
- * what went wrong, empty when every recorded process is confirmed gone;
- * the records of those go with them.
+ * what went wrong, empty when every recorded process is confirmed gone.
+ * A process still running may record another meanwhile, so the records
+ * are read again after each stop, and a new one is stopped in turn; the
+ * record of each process confirmed gone is removed, and `dir` goes only
+ * once that leaves it empty. A record written after the last read, or
+ * one still being written, keeps `dir` and is reported, so no caller
+ * takes `dir` for clear and removes it: the next sweep stops it.
  */
 export async function stopRecorded(
   dir: string,
@@ -101,15 +121,179 @@ export async function stopRecorded(
   limits: StopLimits = LIMITS,
   system: ProcessSystem = SYSTEM
 ): Promise<string[]> {
-  const stop = new RecordedStop(readRecords(dir), marker, system);
-  stop.round("SIGTERM");
-  await stop.waitGone(limits.graceMs);
-  stop.round("SIGKILL");
-  const report = stop.report(await stop.waitGone(limits.killMs));
-  if (report.length === 0) {
-    rmSync(dir, { force: true, recursive: true });
+  const problems = new Set<string>();
+  /** The records already stopped, by path and start: a reused pid's is new. */
+  const handled = new Set<string>();
+  for (let pass = 0; pass < MAX_PASSES; pass += 1) {
+    const read = readRecords(dir);
+    for (const problem of read.problems) {
+      problems.add(problem);
+    }
+    const fresh = read.records.filter(
+      (record) => !handled.has(handledKey(record))
+    );
+    if (fresh.length === 0) {
+      if (problems.size > 0 || removeEmpty(dir).length === 0) {
+        return [...problems];
+      }
+      // A record arrived after the read, or is still being written: read
+      // it next pass.
+      await system.sleep(POLL_MS);
+      continue;
+    }
+    const stop = new RecordedStop(
+      { problems: [], records: fresh },
+      marker,
+      system
+    );
+    stop.round("SIGTERM");
+    await stop.waitGone(limits.graceMs);
+    stop.round("SIGKILL");
+    const report = stop.report(await stop.waitGone(limits.killMs));
+    for (const record of fresh) {
+      handled.add(handledKey(record));
+    }
+    for (const problem of report) {
+      problems.add(problem);
+    }
+    if (report.length === 0) {
+      for (const record of fresh) {
+        forgetRecord(record);
+      }
+    }
   }
-  return report;
+  const left = removeEmpty(dir);
+  if (left.length > 0) {
+    problems.add(
+      `${dir} still held, after ${String(MAX_PASSES)} passes, ${left.join(", ")}; kept, not clear`
+    );
+  }
+  return [...problems];
+}
+
+function handledKey(record: ReadRecord): string {
+  return `${record.path}\n${record.started}`;
+}
+
+/** The file operations `forgetRecord` makes; a test replaces them to land a write between two. */
+export interface RecordFiles {
+  /** Make `path` name `existing`'s file; throws `EEXIST` when `path` is taken. */
+  link(existing: string, path: string): void;
+  read(path: string): string;
+  remove(path: string): void;
+  rename(from: string, to: string): void;
+}
+
+const FILES: RecordFiles = {
+  link: (existing, path) => linkSync(existing, path),
+  read: (path) => readFileSync(path, "utf8"),
+  remove: (path) => rmSync(path, { force: true }),
+  rename: (from, to) => renameSync(from, to),
+};
+
+/**
+ * Remove the record file at `record.path`, only if what is removed names
+ * `record`'s process, which has been proved gone. A process that records
+ * another may replace the file at any moment, so nothing read before
+ * decides: the file is moved aside first, under a fresh name in the same
+ * directory (a rename, atomic), read there, and deleted only if it names
+ * that process. One that does not is linked back, never over a file that
+ * took its place meanwhile: that one is newer, and this one then stays
+ * aside, under a name that is still a record's (`.json`), for the next
+ * pass or sweep to read. So no interleaving removes the record of a
+ * process that runs, and a stop cut short leaves every record readable.
+ */
+export function forgetRecord(
+  record: Pick<ReadRecord, "path" | "pid" | "started">,
+  files: RecordFiles = FILES
+): void {
+  const aside = join(
+    dirname(record.path),
+    `.${basename(record.path)}.${randomUUID()}.forget.json`
+  );
+  try {
+    files.rename(record.path, aside);
+  } catch (error) {
+    if (gone(error)) {
+      return;
+    }
+    throw error;
+  }
+  let moved: Partial<SpawnRecord> | undefined;
+  try {
+    moved = JSON.parse(files.read(aside)) as Partial<SpawnRecord>;
+  } catch {
+    moved = undefined;
+  }
+  if (moved?.pid === record.pid && moved.started === record.started) {
+    files.remove(aside);
+    return;
+  }
+  try {
+    files.link(aside, record.path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      return;
+    }
+    throw error;
+  }
+  files.remove(aside);
+}
+
+/**
+ * Remove `dir` and the directories under it, without removing any file
+ * but a stale partial record (`.tmp`), which a writer that died left:
+ * what is left, each named for what it is; empty once nothing is. A
+ * partial record still being written is left: its record may name a
+ * process that runs, so the directory is not clear while it is there.
+ */
+function removeEmpty(dir: string): string[] {
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    if (gone(error)) {
+      return [];
+    }
+    throw error;
+  }
+  const left: string[] = [];
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      left.push(...removeEmpty(path));
+    } else if (entry.name.endsWith(".tmp")) {
+      if (stale(path)) {
+        rmSync(path, { force: true });
+      } else {
+        left.push(`${path}, a record still being written`);
+      }
+    } else {
+      left.push(
+        entry.name.endsWith(".json")
+          ? `${path}, a record written since`
+          : `${path}, not a record`
+      );
+    }
+  }
+  if (left.length > 0) {
+    return left;
+  }
+  try {
+    rmdirSync(dir);
+    return [];
+  } catch (error) {
+    // Not empty: an entry arrived after it was listed.
+    return gone(error) ? [] : [`${dir}, which gained an entry`];
+  }
+}
+
+function stale(path: string): boolean {
+  try {
+    return Date.now() - statSync(path).mtimeMs > STALE_PARTIAL_MS;
+  } catch {
+    return true;
+  }
 }
 
 /** One stop of a set of records: what has been proved, and what went wrong. */
@@ -313,10 +497,15 @@ function signalIfThere(
   }
 }
 
+/** A record, and the file it was read from. */
+interface ReadRecord extends SpawnRecord {
+  readonly path: string;
+}
+
 interface Records {
   /** The records that could not be read: what they name cannot be stopped. */
   readonly problems: readonly string[];
-  readonly records: readonly SpawnRecord[];
+  readonly records: readonly ReadRecord[];
 }
 
 /**
@@ -324,7 +513,7 @@ interface Records {
  * of the same root, is skipped; one that cannot be read is a problem.
  */
 function readRecords(dir: string): Records {
-  const records: SpawnRecord[] = [];
+  const records: ReadRecord[] = [];
   const problems: string[] = [];
   let entries: string[];
   try {
@@ -345,7 +534,7 @@ function readRecords(dir: string): Records {
         typeof record.group === "boolean" &&
         typeof record.started === "string"
       ) {
-        records.push(record);
+        records.push({ ...record, path });
       } else {
         problems.push(`${path} is not a process record`);
       }
@@ -415,14 +604,36 @@ const SYSTEM: ProcessSystem = {
     return seen;
   },
   members(pgid) {
-    return ps(["-A", "-o", "pid=,pgid="])
-      .split("\n")
-      .map((line) => PID_PAIR.exec(line))
-      .filter((parsed) => parsed !== null && Number(parsed[2]) === pgid)
-      .map((parsed) => Number(parsed?.[1]));
+    return parseMembers(ps(["-A", "-o", "pid=,pgid=,state="]), pgid);
   },
   sleep: (ms) => sleep(ms),
 };
+
+/**
+ * A process that has exited and is waiting to be reaped (state `Z`, a
+ * zombie) runs nothing and no signal reaches it: it is gone, as far as a
+ * stop goes. Its pid cannot be given to another process until it is
+ * reaped, so taking it for gone frees nothing early; counting it as
+ * running would wait on it forever where no one reaps it, as in a Linux
+ * container whose first process does not.
+ */
+function exited(state: string): boolean {
+  return state.startsWith("Z");
+}
+
+/** `ps -A -o pid=,pgid=,state=`, read: the processes of `pgid` that still run. */
+export function parseMembers(listed: string, pgid: number): number[] {
+  return listed
+    .split("\n")
+    .map((line) => MEMBER_LINE.exec(line))
+    .filter(
+      (parsed) =>
+        parsed !== null &&
+        Number(parsed[2]) === pgid &&
+        !exited(parsed[3] ?? "")
+    )
+    .map((parsed) => Number(parsed?.[1]));
+}
 
 /** `ps` with its output; it exits 1 when a pid it was given is not running. */
 function ps(args: readonly string[]): string {
