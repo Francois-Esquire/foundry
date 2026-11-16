@@ -1871,12 +1871,20 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       // The record first: a write that fails detaches nothing, so the
       // detach can be tried again; once written, no boot hosts it again.
       await registry.unhost(id);
-      if (current !== undefined) {
-        // It no longer loads this one: no switch for it.
-        current.fingerprint = withSource(current.fingerprint, id, undefined);
+      // It no longer loads this one: no switch for it. Kept, to be put
+      // back if the drain fails.
+      const loadedBy = current;
+      const part = loadedBy?.fingerprint.sources.get(id);
+      if (loadedBy !== undefined) {
+        loadedBy.fingerprint = withSource(loadedBy.fingerprint, id, undefined);
       }
       const hosting = hostsOf(id);
-      const done = finishDetach(workspace, hosting);
+      const done = finishDetach(workspace, hosting, () => {
+        // Its source is that generation's again, as it was.
+        if (loadedBy !== undefined && part !== undefined) {
+          loadedBy.fingerprint = withSource(loadedBy.fingerprint, id, part);
+        }
+      });
       workspace.detaching = done;
       // Going: stopped, with what it waits for, while its runs finish.
       setState(workspace, "stopped", {
@@ -1889,7 +1897,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
 
   async function finishDetach(
     workspace: Hosted,
-    hosting: readonly Generation[]
+    hosting: readonly Generation[],
+    putBack: () => void
   ): Promise<void> {
     const { id } = workspace.summary;
     let failure: { readonly error: unknown } | undefined;
@@ -1908,6 +1917,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       // Still hosted where the drain failed: registered again, so what is
       // stored says what the daemon does, and failed, so an attach loads
       // it afresh. A write that fails too is said, for an attach to repair.
+      putBack();
       const why = `detach failed: ${message(failure.error)}`;
       try {
         await registry.touch(

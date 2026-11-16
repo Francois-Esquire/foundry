@@ -1262,6 +1262,13 @@ describe("engine generations", () => {
       expect(listed?.state).toBe("failed");
       expect(listed?.error).toContain("detach failed");
       expect(await stored(fixture, fixture.summary.id)).toBe(true);
+      // Its source is the current generation's again: past a few of the
+      // daemon's source polls (every second), nothing switches on its own.
+      const generations = await numbered(fixture);
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      expect(await numbered(fixture)).toBe(generations);
+      const [still] = await fixture.client.workspaces();
+      expect(still?.state).toBe("failed");
       const again = await fixture.client.attach(fixture.source);
       expect(again.state).toBe("ready");
       expect(await stored(fixture, fixture.summary.id)).toBe(true);
