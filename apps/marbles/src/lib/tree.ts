@@ -2,7 +2,7 @@ import { isSuspendSignal } from "@foundry/workflows/executable";
 import type { RunExecutionContext } from "@foundry/workflows/orchestrator";
 import type { StepContext, StepSpec } from "@foundry/workflows/step";
 import { Step } from "@foundry/workflows/step";
-import { isBail } from "@foundry/workflows/types";
+import { isBail, type RetryPolicy } from "@foundry/workflows/types";
 
 import type { Bindings } from "./bindings";
 import { asRun } from "./calling-run";
@@ -163,12 +163,9 @@ async function runBody(
   let attempt: Promise<unknown> | undefined;
   const timer = startTimeout(definition, where, frame);
   try {
-    // The step is its run's body: what it launches comes from that run.
     attempt = current.run(store, () =>
-      asRun(scope.id, () =>
-        Promise.resolve(
-          definition.fn(buildContext({ bindings, ctx, frame, input, scope }))
-        )
+      Promise.resolve(
+        definition.fn(buildContext({ bindings, ctx, frame, input, scope }))
       )
     );
     output = await raceAbort(frame, attempt);
@@ -311,17 +308,39 @@ function materialize(
   const children = node.children.map(([childKey, child]) =>
     materialize(child, childKey, scope, bindings, path)
   );
-  const retry = node.definition.config?.retry;
+  const retry = asRunPolicy(scope.id, node.definition.config?.retry);
   return {
     children,
     // Retry only: the timeout is Marbles', since it must abort the body.
     ...(retry === undefined ? {} : { config: { retry } }),
+    // The whole step is its run's own work, its schemas as much as its
+    // body: what any of it launches comes from that run.
     execute: (_input, ctx) =>
-      runBody(node, key, ctx as StepContext, scope, bindings),
+      asRun(scope.id, () =>
+        runBody(node, key, ctx as StepContext, scope, bindings)
+      ),
     // Explicit: an undefined input inherits the launcher's.
     input: node.literal,
     name: key,
   };
+}
+
+/**
+ * `retry` with its `shouldRetry` run as run `runId`'s own work, as the rest
+ * of the step is: the package calls it outside the step's `execute`.
+ */
+function asRunPolicy(
+  runId: string,
+  retry: RetryPolicy | undefined
+): RetryPolicy | undefined {
+  const decide = retry?.shouldRetry;
+  return decide === undefined
+    ? retry
+    : {
+        ...retry,
+        shouldRetry: (error, attempt) =>
+          asRun(runId, () => decide(error, attempt)),
+      };
 }
 
 /** Adapt a named definition to the orchestrator's factory contract. */
@@ -342,7 +361,18 @@ export function factoryFor(
   scopes: RunScopes,
   name: string = nameOf(definition)
 ): DefinitionFactory {
-  return async (rawInput, execution) => {
+  return (rawInput, execution) => {
+    const runId = execution?.runId ?? crypto.randomUUID();
+    // Building the run is its own work: what its input schema or its
+    // setup launches comes from it, whether it starts, is adopted, or is
+    // rebuilt after a restart.
+    return asRun(runId, () => build(rawInput, runId));
+  };
+
+  async function build(
+    rawInput: unknown,
+    runId: string
+  ): Promise<Step<unknown, unknown>> {
     const bound = bindings();
     const input = (
       definition.input
@@ -350,7 +380,7 @@ export function factoryFor(
         : (rawInput ?? {})
     ) as Input;
     return await scopes.open(
-      execution?.runId ?? crypto.randomUUID(),
+      runId,
       bound.context?.cwd ?? bound.root,
       bound.host,
       async (scope) =>
@@ -366,7 +396,7 @@ export function factoryFor(
           )
         )
     );
-  };
+  }
 }
 
 function nameOf(definition: AnyDefinition): string {

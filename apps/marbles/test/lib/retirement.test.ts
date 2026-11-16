@@ -1,6 +1,7 @@
 import { thisProcess } from "@foundry/lib/process-identity";
 import { Tasks } from "@foundry/tasks";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { step } from "~/authoring/builder";
 import type { Engine } from "~/lib/engine";
 import { TASKS } from "~/lib/events/source";
 import { testEngine } from "../helpers/engine";
@@ -280,6 +281,183 @@ describe("an engine that has begun to retire", () => {
     await engine.cancel(parent.id);
     expect(await launched.promise).toBe(42);
     await ended;
+  });
+
+  describe("from a callback the engine runs for an active run", () => {
+    /** A schema whose validation awaits `gate`, then launches `child` and passes its value on. */
+    function launching(
+      engine: Engine,
+      gate: Promise<void>,
+      entered?: () => void
+    ) {
+      return {
+        "~standard": {
+          validate: async () => {
+            entered?.();
+            await gate;
+            return {
+              value: await (await engine.launch<number>("child", {})).result,
+            };
+          },
+          vendor: "test",
+          version: 1 as const,
+        },
+      };
+    }
+
+    it("runs a child an output schema launches", async () => {
+      const engine = engineHere();
+      const gate = Promise.withResolvers<void>();
+      engine.task({ name: "child", queue: "child", run: () => 42 });
+      engine.define({
+        fn: () => 1,
+        kind: "step",
+        name: "parent",
+        output: launching(engine, gate.promise),
+      });
+      await engine.start();
+      const parent = await engine.launch("parent", {});
+      const { ended } = await engine.retire(successor());
+      gate.resolve();
+      expect(await outcome(parent.result)).toBe(42);
+      await ended;
+    });
+
+    it("runs a child a step's input schema launches", async () => {
+      const engine = engineHere();
+      const gate = Promise.withResolvers<void>();
+      const entered = Promise.withResolvers<void>();
+      engine.task({ name: "child", queue: "child", run: () => 42 });
+      const inner = step("inner")
+        .input(launching(engine, gate.promise, entered.resolve))
+        .do(({ input }) => input);
+      engine.define({
+        kind: "workflow",
+        name: "parent",
+        setup: () => inner({}),
+      });
+      await engine.start();
+      const parent = await engine.launch("parent", {});
+      await entered.promise;
+      const { ended } = await engine.retire(successor());
+      gate.resolve();
+      expect(await outcome(parent.result)).toBe(42);
+      await ended;
+    });
+
+    it("runs a child a launch's input schema launches as the run starts", async () => {
+      const engine = engineHere();
+      const gate = Promise.withResolvers<void>();
+      const entered = Promise.withResolvers<void>();
+      const seen = Promise.withResolvers<unknown>();
+      engine.task({ name: "child", queue: "child", run: () => 42 });
+      engine.define({
+        fn: () => "done",
+        input: {
+          "~standard": {
+            validate: async (value: unknown) => {
+              entered.resolve();
+              await gate.promise;
+              seen.resolve(
+                await outcome(
+                  engine
+                    .launch<number>("child", {})
+                    .then((child) => child.result)
+                )
+              );
+              return { value };
+            },
+            vendor: "test",
+            version: 1 as const,
+          },
+        },
+        kind: "step",
+        name: "parent",
+      });
+      await engine.start();
+      const launching_ = engine.launch("parent", {});
+      await entered.promise;
+      const retiring = engine.retire(successor());
+      gate.resolve();
+      const parent = await launching_;
+      expect(await seen.promise).toBe(42);
+      expect(await outcome(parent.result)).toBe("done");
+      await (await retiring).ended;
+    });
+
+    it("runs a child a workflow's setup launches", async () => {
+      const engine = engineHere();
+      const gate = Promise.withResolvers<void>();
+      const entered = Promise.withResolvers<void>();
+      const seen = Promise.withResolvers<unknown>();
+      engine.task({ name: "child", queue: "child", run: () => 42 });
+      const leaf = step("leaf").do(() => "done");
+      engine.define({
+        kind: "workflow",
+        name: "parent",
+        setup: async () => {
+          entered.resolve();
+          await gate.promise;
+          seen.resolve(
+            await outcome(
+              engine.launch<number>("child", {}).then((child) => child.result)
+            )
+          );
+          return leaf({});
+        },
+      });
+      await engine.start();
+      const launching_ = engine.launch("parent", {});
+      await entered.promise;
+      const retiring = engine.retire(successor());
+      gate.resolve();
+      const parent = await launching_;
+      expect(await seen.promise).toBe(42);
+      expect(await outcome(parent.result)).toBe("done");
+      await (await retiring).ended;
+    });
+
+    it("runs a child a retry policy launches", async () => {
+      const engine = engineHere();
+      const gate = Promise.withResolvers<void>();
+      const launched = Promise.withResolvers<unknown>();
+      let attempts = 0;
+      engine.task({ name: "child", queue: "child", run: () => 42 });
+      engine.define({
+        config: {
+          retry: {
+            maxAttempts: 2,
+            shouldRetry: () => {
+              launched.resolve(
+                outcome(
+                  engine
+                    .launch<number>("child", {})
+                    .then((child) => child.result)
+                )
+              );
+              return true;
+            },
+          },
+        },
+        fn: async () => {
+          attempts += 1;
+          if (attempts === 1) {
+            await gate.promise;
+            throw new Error("first attempt fails");
+          }
+          return attempts;
+        },
+        kind: "step",
+        name: "parent",
+      });
+      await engine.start();
+      const parent = await engine.launch("parent", {});
+      const { ended } = await engine.retire(successor());
+      gate.resolve();
+      expect(await launched.promise).toBe(42);
+      expect(await outcome(parent.result)).toBe(2);
+      await ended;
+    });
   });
 
   it("refuses a launch from an observer, and one after its active runs ended", async () => {
