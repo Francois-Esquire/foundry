@@ -51,6 +51,7 @@ import {
   storedProgress,
   storedRetentionGap,
 } from "~/lib/execution-store";
+import { inTurn } from "~/lib/in-turn";
 import type { RecordedScope } from "~/lib/run-scope";
 import type {
   ClaimCondition,
@@ -368,11 +369,11 @@ export function withWorkspaceDatabase(
       released ??= (async () => {
         open -= 1;
         if (open === 0) {
-          try {
-            await side.close();
-          } finally {
-            await database.close();
-          }
+          await inTurn(
+            () => side.close(),
+            () => database.close(),
+            "Failed to close the workspace's database"
+          );
         }
       })();
       return released;
@@ -572,11 +573,15 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
 
   async #shutDown(): Promise<void> {
     await this.#gate.close();
-    try {
-      await (await this.#records.built())?.close();
-    } finally {
-      await this.#release();
-    }
+    // Its claim goes whatever its cleanup did, and neither failure hides
+    // the other.
+    await inTurn(
+      async () => {
+        await (await this.#records.built())?.close();
+      },
+      () => this.#release(),
+      "Failed to close a store and give up its database"
+    );
   }
 
   claimDelivery(): Promise<string | undefined> {
@@ -719,11 +724,15 @@ class ManagedRunStore implements RunStore {
 
   async #shutDown(): Promise<void> {
     await this.#gate.close();
-    try {
-      await (await this.#store.built())?.close();
-    } finally {
-      await this.#release();
-    }
+    // Its claim goes whatever its cleanup did, and neither failure hides
+    // the other.
+    await inTurn(
+      async () => {
+        await (await this.#store.built())?.close();
+      },
+      () => this.#release(),
+      "Failed to close a store and give up its database"
+    );
   }
 
   open(
@@ -795,11 +804,15 @@ class ManagedTriggerStore implements TriggerStore {
 
   async #shutDown(): Promise<void> {
     await this.#gate.close();
-    try {
-      await (await this.#store.built())?.close();
-    } finally {
-      await this.#release();
-    }
+    // Its claim goes whatever its cleanup did, and neither failure hides
+    // the other.
+    await inTurn(
+      async () => {
+        await (await this.#store.built())?.close();
+      },
+      () => this.#release(),
+      "Failed to close a store and give up its database"
+    );
   }
 
   finishTick(key: string, tick?: ScheduleHistory): Promise<void> {
@@ -861,11 +874,15 @@ class ManagedUsageStore implements UsageStore {
 
   async #shutDown(): Promise<void> {
     await this.#gate.close();
-    try {
-      await (await this.#store.built())?.close();
-    } finally {
-      await this.#release();
-    }
+    // Its claim goes whatever its cleanup did, and neither failure hides
+    // the other.
+    await inTurn(
+      async () => {
+        await (await this.#store.built())?.close();
+      },
+      () => this.#release(),
+      "Failed to close a store and give up its database"
+    );
   }
 
   facts(): Promise<{
@@ -943,11 +960,15 @@ class ManagedAutomationStore implements AutomationStore {
 
   async #shutDown(): Promise<void> {
     await this.#gate.close();
-    try {
-      await (await this.#store.built())?.close();
-    } finally {
-      await this.#release();
-    }
+    // Its claim goes whatever its cleanup did, and neither failure hides
+    // the other.
+    await inTurn(
+      async () => {
+        await (await this.#store.built())?.close();
+      },
+      () => this.#release(),
+      "Failed to close a store and give up its database"
+    );
   }
 
   edit<T>(work: (view: AutomationView) => Promise<T>): Promise<T> {
@@ -1015,11 +1036,15 @@ class ManagedExecutionStore implements ExecutionStore {
 
   async #shutDown(): Promise<void> {
     await this.#gate.close();
-    try {
-      await (await this.#store.built())?.close();
-    } finally {
-      await this.#release();
-    }
+    // Its claim goes whatever its cleanup did, and neither failure hides
+    // the other.
+    await inTurn(
+      async () => {
+        await (await this.#store.built())?.close();
+      },
+      () => this.#release(),
+      "Failed to close a store and give up its database"
+    );
   }
 
   get(id: string): Promise<StoredExecution | undefined> {
