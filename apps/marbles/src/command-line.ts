@@ -104,8 +104,9 @@ the listings show this workspace's own and shared resources, or with --all every
 workspace's. .marbles/ in a workspace holds links to its artifact files, rebuilt by
 relink from the database. --dry-run
 hosts the workspace in this process instead, persists nothing, and echoes every
-model turn and git mutation; custom code still runs. attach, daemon, detach, init,
-relink, share, stop and unshare refuse it.
+model turn and git mutation; custom code still runs. It writes nothing under the
+Foundry home but SQLite's shared-memory index of an existing database, which holds
+no data. attach, daemon, detach, init, relink, share, stop and unshare refuse it.
 
 
 Tasks, the workspace backlog (--json prints the result as JSON; --tag needs every tag given,

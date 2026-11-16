@@ -322,7 +322,12 @@ a dry mode, the listings, `status`, `watch` and `help` only read, and
 `attach`, `daemon`, `detach`, `init`, `relink`, `share`, `stop` and
 `unshare` refuse it before anything is opened or written. Where there is
 no source, a dry run offers no starter: `marbles init`, without the flag,
-creates one.
+creates one. A dry run writes nothing under the Foundry home but SQLite's
+shared-memory index of a database that is already there
+(`marbles.db-shm`), which every reader of it maps and which holds no
+data; a definition the source uses as it loads runs dry too, and an
+echoed worktree is an empty directory under the system's temporary
+directory.
 
 ### Resources and workspaces
 
