@@ -36,7 +36,6 @@ export interface SessionTurnSite {
   write(value: unknown): void;
 }
 
-/** How a turn that left `message` ended, as its last event. */
 function endOf(message: SessionReply<Output.Output>): SessionEvent {
   if (message.status === "complete") {
     return { message, type: "finish", usage: message.usage };
@@ -72,11 +71,6 @@ export function replyOf<OUTPUT extends Output.Output>(
   };
 }
 
-/**
- * A finished turn's reply as a stream, no partials: one finish event for a
- * reply that completed, as the live turn ended; one error event, from its
- * last error part, for a reply that did not.
- */
 export function replayedStream<OUTPUT extends Output.Output>(
   reply: SessionReply<OUTPUT>
 ): SessionStream<OUTPUT> {
@@ -232,8 +226,6 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
           const outcome = await current.outcome;
           const usage = await current.usage;
           await site.consumed?.(message, usage);
-          // The turn's own error event has gone out already; only a reply
-          // that completed finishes.
           if (message.status === "complete") {
             controller.enqueue({ message, type: "finish", usage });
           }

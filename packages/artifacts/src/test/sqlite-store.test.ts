@@ -86,7 +86,6 @@ function fileNode(blob: string) {
   } as const;
 }
 
-/** Text SQLite does not give back intact, each made from a plain string. */
 const UNSTORABLE: [string, (plain: string) => string][] = [
   ["U+0000", (plain) => `${plain}\u0000tail`],
   ["a lone high surrogate", (plain) => `${plain}\uD800`],
@@ -105,7 +104,6 @@ async function storeOn(
   });
 }
 
-/** Every record of the store's scope, for comparing before and after. */
 async function everything(store: SqliteArtifactStore) {
   return {
     artifacts: (
@@ -219,7 +217,6 @@ describe("SqliteArtifactStore", () => {
         await expect(store.commit(write)).rejects.toThrow(
           `cannot store ${field}: ${TEXT_REFUSAL}`
         );
-        // A commit through a transaction's view is checked the same way.
         await expect(
           store.transaction((view) => view.commit(write))
         ).rejects.toThrow(`cannot store ${field}: ${TEXT_REFUSAL}`);
@@ -227,7 +224,6 @@ describe("SqliteArtifactStore", () => {
       expect(committed).toBe(1);
       expect(await everything(store)).toEqual(before);
 
-      // JSON columns escape it, so metadata, tree paths and targets keep it.
       const json = contentRecord("json", "kept", {
         metadata: { note: bad("m") },
         tree: {
@@ -406,8 +402,6 @@ describe("SqliteArtifactStore", () => {
     "a read or delete by a key holding %s touches no other row",
     async (_kind, bad) => {
       const store = await storeOn();
-      // What a lone surrogate turns into when bound: U+FFFD on Node, nothing
-      // on Bun; and what a NUL cuts text to.
       const names = ["�", "", "x"];
       const lookalikes = {
         artifacts: names.map((name) =>
@@ -515,7 +509,6 @@ describe("SqliteArtifactStore", () => {
         await attempt(() => outer.listBlobs());
         await attempt(() => outer.commit({}));
         await attempt(() => outer.transaction(() => Promise.resolve()));
-        // The transaction it is given is the way in.
         await transaction.select().from(artifacts);
       },
       scope: "s",
@@ -601,7 +594,6 @@ describe("SqliteArtifactStore", () => {
   });
 });
 
-/** A host table, written in the same transaction as a commit. */
 const changes = sqliteTable("changes", {
   ids: text("ids", { mode: "json" }).$type<readonly string[]>().notNull(),
 });
@@ -663,7 +655,6 @@ describe("Artifact tables", () => {
     expect(columnsOf(artifactContents)).toEqual(
       fieldsOf(contentSchema.unwrap().shape)
     );
-    // A blob row holds one of three sources; each is null on the others.
     expect(columnsOf(artifactBlobs)).toEqual({
       byteLength: false,
       bytes: true,
@@ -700,7 +691,6 @@ describe("Artifact tables", () => {
   });
 });
 
-/** Each record column, by field name, and whether it takes `null`. */
 function columnsOf(
   table: Parameters<typeof getTableColumns>[0],
   extra: readonly string[] = []
@@ -719,7 +709,6 @@ function columnsOf(
   );
 }
 
-/** Each schema field and whether it accepts `null`. */
 function fieldsOf(shape: Readonly<Record<string, z.ZodType>>) {
   return Object.fromEntries(
     Object.entries(shape).map(([key, field]) => [
@@ -730,7 +719,6 @@ function fieldsOf(shape: Readonly<Record<string, z.ZodType>>) {
 }
 
 describe("SqliteArtifactStore query plans", () => {
-  /** What SQLite plans for each statement `run` makes, step by step. */
   async function plansOf(
     run: (store: SqliteArtifactStore) => Promise<unknown>,
     kind: "delete" | "select"
@@ -757,11 +745,6 @@ describe("SqliteArtifactStore query plans", () => {
   }
 
   const after = { createdAt: AT, id: artifactId("a") };
-  /**
-   * Each read, the index each of its statements must search, and what it
-   * must search it by. `null` stands for any index led by `scope`, as a
-   * count or a listing of the whole scope may use.
-   */
   test.each([
     [
       "getArtifact",
@@ -907,12 +890,10 @@ describe("SqliteArtifactStore query plans", () => {
   });
 });
 
-/** `literal` with every regular-expression character escaped. */
 function escapeRegExp(literal: string): string {
   return literal.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
-/** What a commit's put into the Artifact table begins with. */
 const PUT_ARTIFACTS = 'insert into "artifacts"';
 const DELETE = "delete from";
 
@@ -920,11 +901,6 @@ describe.each([
   ["memory", memory],
   ["file", files],
 ] as const)("a commit that fails as it runs (%s)", (_location, databases) => {
-  /**
-   * A store whose next put into the Artifact table, once armed, fails as it
-   * runs, after the statements before it in the same commit have run. `ran`
-   * lists the statements that ran while it was armed.
-   */
   async function failingPut() {
     let armed = false;
     const ran: string[] = [];
@@ -1019,7 +995,6 @@ describe("what onCommit learns of a change", () => {
       },
       scope: "s",
     });
-    /** Which lists the writes `run` committed fill, and how full. */
     const shapes = async (run: () => Promise<unknown>) => {
       const before = writes.length;
       await run();
@@ -1047,7 +1022,6 @@ describe("what onCommit learns of a change", () => {
       })
     ).toEqual([{ putArtifacts: 1, putBlobs: 1, putContents: 1 }]);
     const { id } = created;
-    // A blob only this file names is rewritten in place: the same id, put again.
     expect(
       await shapes(() =>
         manager.write({
@@ -1072,7 +1046,6 @@ describe("what onCommit learns of a change", () => {
     expect(await shapes(() => manager.fork({ contentId: first }))).toEqual([
       { putArtifacts: 1, putContents: 1 },
     ]);
-    // Deleting an Artifact names its Contents; the shared blob stays.
     expect(await shapes(() => manager.delete(id))).toEqual([
       { deleteArtifacts: 1, deleteContents: 1 },
     ]);
@@ -1121,7 +1094,6 @@ describe("SqliteArtifactStore's own copy of a write", () => {
     let change: () => void = () => undefined;
     const database = await memory.open({
       onQuery: (query) => {
-        // After the rows are made, before the lookup rows are written.
         if (query.startsWith('delete from "artifact_content_blobs"')) {
           change();
         }

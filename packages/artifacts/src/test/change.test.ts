@@ -8,7 +8,6 @@ import type { Artifact, Blob } from "../schema";
 import { required } from "./helpers/required";
 import { openStore, STORE_KINDS, type StoreKind } from "./helpers/stores";
 
-/** A store holding one Artifact with one active Content over one blob. */
 async function seeded(kind: StoreKind) {
   const store = await openStore(kind);
   const artifacts = new ArtifactManager({ store });
@@ -137,7 +136,6 @@ describe.each(STORE_KINDS)("%s store: Artifact change listings", (kind) => {
     } satisfies Artifact;
   }
 
-  /** Every page of `input`, walked by cursor. */
   async function pages(change: ArtifactChange, input: ListArtifactsInput) {
     const walked: Awaited<ReturnType<ArtifactChange["listArtifacts"]>>[] = [];
     let cursor: ListArtifactsInput["cursor"];
@@ -173,7 +171,6 @@ describe.each(STORE_KINDS)("%s store: Artifact change listings", (kind) => {
     await change.putArtifact(record("Keep added tied", 2, "c-tied"));
     await change.putArtifact(record("Added last", 7));
 
-    // The same records in a second store, with the change committed.
     const committed = await openStore(kind);
     await committed.commit({ putArtifacts: stored });
     await committed.commit(required(change.write()));

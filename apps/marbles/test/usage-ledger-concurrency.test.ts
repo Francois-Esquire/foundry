@@ -11,12 +11,6 @@ import { stateDatabase } from "~/layout";
 import { UsageLedger } from "~/lib/usage";
 import { directFact } from "./helpers/usage-store";
 
-/*
- * Engines in separate processes share one Marbles database and may
- * continue one session, so a direct session's facts are written by more
- * than one of them.
- */
-
 let state: string;
 let database: MarblesDatabase;
 

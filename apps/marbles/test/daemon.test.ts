@@ -93,7 +93,6 @@ async function daemonFor(machine: Layout, lines: string[] = []) {
   return daemon;
 }
 
-/** A workspace's tasks and recorded changes in the Marbles database, read as a reader does. */
 async function storedTasks(machine: Layout, id: string) {
   return await readDatabase(stateDatabase(machine.state), async (database) => {
     const records = new DatabaseWorkspaceRecords({ database, scope: id });
@@ -393,7 +392,6 @@ describe("the Marbles process", () => {
     if (!(kept && linked && dangling)) {
       throw new Error("the workspaces were not recorded");
     }
-    // A worker would write its runs and claim through these links.
     const outside = join(home, "outside");
     mkdirSync(outside);
     symlinkSync(outside, linked.dir);
@@ -643,7 +641,6 @@ export const hold = step("hold").do(async () => {
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
     const summary = await client.attach(source);
-    // The detach drains its worker, then waits here, in the record write.
     const writing = Promise.withResolvers<void>();
     const gate = Promise.withResolvers<void>();
     const { touch } = WorkspaceRegistry.prototype;
@@ -665,7 +662,6 @@ export const hold = step("hold").do(async () => {
       const detaching = client.detach(summary.id);
       await writing.promise;
       const attaching = client.attach(source);
-      // Long enough for the attach to reach the daemon and do what it may.
       await sleep(300);
       gate.resolve();
       await detaching;
@@ -727,7 +723,6 @@ export const hold = step("hold").do(async () => {
   it("lets go of everything it took when it cannot listen", async () => {
     const { home, machine } = fixture();
     homes.push(home);
-    // The socket's directory is not there, so listening fails.
     const deaf: Layout = {
       ...machine,
       socket: join(home, "no-such-dir", "marbles.sock"),
@@ -736,9 +731,7 @@ export const hold = step("hold").do(async () => {
     await expect(startDaemon({ layout: deaf })).rejects.toThrow();
     expect(Date.now() - started).toBeLessThan(5000);
     expect(readProcess(machine.state)?.alive).not.toBe(true);
-    // Its database handle is closed: no client in this process holds it.
     expect(queuedFiles()).not.toContain(fileIdentity(machine.database));
-    // Nothing is left that would refuse the next Marbles process.
     const daemon = await daemonFor(machine);
     expect(daemon.pid).toBe(process.pid);
   }, 30_000);
@@ -759,7 +752,6 @@ export const hold = step("hold").do(async () => {
       () => undefined,
       (error: unknown) => error
     );
-    // What is thrown is why it could not start, not the cleanup's failure.
     expect(failure).toBeInstanceOf(Error);
     expect(String(failure)).not.toContain("print failed");
     expect(readProcess(machine.state)?.alive).not.toBe(true);
@@ -793,8 +785,6 @@ export const hold = step("hold").do(async () => {
   it("rejects a close with its first failure when a later step fails too", async () => {
     const { home, machine } = fixture();
     homes.push(home);
-    // The socket alone in a directory that can then be made read-only, so
-    // removing it fails after printing has.
     const sockets = join(home, "s");
     mkdirSync(sockets);
     const printing: { fails: boolean } = { fails: false };
@@ -837,7 +827,6 @@ export const hold = step("hold").do(async () => {
     if (pid === undefined) {
       throw new Error("the worker has no pid");
     }
-    // The worker does not answer the stop: the daemon has to kill it.
     const { request } = Channel.prototype;
     vi.spyOn(Channel.prototype, "request").mockImplementation(function (
       this: Channel,
@@ -848,7 +837,6 @@ export const hold = step("hold").do(async () => {
         ? Promise.reject(new Error("the worker would not stop"))
         : request.call(this, method, ...rest);
     });
-    // It may also leave once its connection drops; the kill must be sent anyway.
     const kill = vi.spyOn(ChildProcess.prototype, "kill");
     printing.fails = true;
     try {

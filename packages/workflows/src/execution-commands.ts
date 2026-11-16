@@ -34,7 +34,6 @@ export interface CreateRunInput {
   tags?: Record<string, string>;
 }
 
-/** Correlation accepted for Runs that are not managed by a Job. */
 export type DirectRunLinks = Omit<RunLinks, "jobId"> & {
   readonly jobId?: never;
 };
@@ -161,7 +160,6 @@ export interface RecoverableRun {
   suspension?: SuspensionState;
 }
 
-/** The execution commands `ExecutionCoordinator` carries out over a `WorkflowStore`. */
 export interface ExecutionCommands {
   cancelJob(id: string): Promise<JobCancellation>;
   cancelRun(

@@ -16,19 +16,6 @@ import type { MonitorState, TriggerStore } from "~/lib/trigger-store";
 import { storedMonitorState } from "~/lib/trigger-store";
 import type { Context } from "~/lib/types";
 
-/**
- * A monitor is a schedule whose step detects a change and hands it to the
- * config's handler. What it last saw is its `MonitorState`, under its key
- * in the engine's trigger store, so each poll knows what changed even when
- * the previous poll ran in another process.
- *
- * A launch the handler asked for is kept beside it as `pending` and
- * handed back on every tick until the tick that started it
- * acknowledges it, so a crash between the observation and the start does
- * not lose the launch. Started is delivered: a target that then fails or is
- * cancelled is not started again, any more than a schedule's run would be.
- */
-
 /** What a monitor watches: a glob under the workspace root, or a URL. */
 export const monitorSpecSchema = z.discriminatedUnion("kind", [
   z.object({ glob: z.string().min(1), kind: z.literal("files") }),
@@ -229,9 +216,6 @@ export function detector(
     if (observed.change === undefined) {
       return { changed: false };
     }
-    // In the form it is kept, and refused here if it cannot be, before the
-    // handler runs: after it, a refusal would hand it the same change at
-    // every poll.
     const { observed: seen } = storedMonitorState(key, {
       observed: observed.state,
     });
@@ -251,9 +235,6 @@ export function detector(
         ...(launch === undefined ? {} : { pending: launch }),
       });
     } catch (error) {
-      // The handler has run on this change: what it saw is kept, so no
-      // later poll hands it the change again, and the launch it asked for,
-      // which cannot be kept, fails the tick.
       await triggers.saveMonitorState(key, { observed: seen });
       throw error;
     }
@@ -361,9 +342,6 @@ async function observeHttp(
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
   const contentType = response.headers.get("content-type");
-  // In the form it is kept and compared in at the next poll, which is the
-  // form the handler sees: what JSON can carry, a number too large to be
-  // finite as `null`, and `-0` as `0`.
   const body = storableJson(
     "the response body",
     jsonData(bodyOf(bytes, contentType))

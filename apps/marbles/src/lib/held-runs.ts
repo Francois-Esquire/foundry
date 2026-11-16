@@ -8,14 +8,6 @@ import type { RunScopes } from "~/lib/run-scope";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import { RunOutput } from "~/lib/state/output";
 
-/**
- * Held runs: the workflow runs a started engine dispatched or adopted, from
- * then until they settle. Each is followed to its end (its steps printed,
- * its posts routed, where it has got to recorded as progress, its parks and
- * resumes on its Execution Run). The Run itself is in the run store, which
- * every change commits to as it is made.
- */
-
 /** A run that ended without completing; the message says how and why. */
 export class RunEndedError extends Error {
   override readonly name = "RunEndedError";
@@ -37,18 +29,12 @@ const STEP_LIFECYCLE: ReadonlySet<string> = new Set([
 
 type DispatchedWorkflow = Dispatched<unknown>["workflow"];
 
-/**
- * What is read of a held run while it is live: its state and its steps'
- * events. Named member by member so that it holds for a run of any output
- * type; the root step's body does not.
- */
 interface HeldWorkflow {
   readonly root: Pick<DispatchedWorkflow["root"], "subscribe">;
   readonly state: DispatchedWorkflow["state"];
 }
 
 interface HeldRun {
-  /** Execution, publication and cleanup, owned together. */
   finalized?: Promise<unknown>;
   /**
    * None of it depends on the run's output type, which the workflow's
@@ -64,7 +50,6 @@ export interface HeldRunsOptions {
   readonly print: (line: string) => void;
   readonly router: FeedRouter;
   readonly scopes: RunScopes;
-  /** Where each run's output file goes; without one, nothing is written. */
   readonly state: string | undefined;
 }
 
@@ -121,7 +106,6 @@ export class HeldRuns {
     };
   }
 
-  /** Follow a run to its end: print its steps, route its posts, close what it opened. */
   #track<O>(name: string, dispatched: Dispatched<O>): Promise<O> {
     const { executions, print, router, scopes, state } = this.#options;
     const held: HeldRun = { workflow: dispatched.workflow };
@@ -189,7 +173,6 @@ export class HeldRuns {
     return result;
   }
 
-  /** At a stop, once the Orchestrator has drained: wait for every run that ended to be finalized. */
   async settle(): Promise<void> {
     await Promise.allSettled(
       [...this.#held.values()]

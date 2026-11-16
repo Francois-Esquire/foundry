@@ -1,7 +1,6 @@
 import type { WorkflowStore, WorkflowStoreWrite } from "../../store/index";
 import { MemoryWorkflowStore } from "../../store/memory";
 
-/** `store` without `transaction`, as a store that offers none would be. */
 export function withoutTransaction(store: WorkflowStore): WorkflowStore {
   return {
     commit: (write) => store.commit(write),
@@ -17,16 +16,9 @@ export function withoutTransaction(store: WorkflowStore): WorkflowStore {
   };
 }
 
-/**
- * A store over another that runs `before` on each commit, whether made on
- * it or through a transaction's view, and records the ones it passes on:
- * `before` refuses a write by throwing and holds it by waiting.
- */
 export class FaultyWorkflowStore implements WorkflowStore {
   before: (write: WorkflowStoreWrite) => void | Promise<void> = () => undefined;
-  /** Every write that went through, as it was when committed. */
   readonly commits: WorkflowStoreWrite[] = [];
-  /** Every error the inner store rejected a commit with. */
   readonly failures: unknown[] = [];
   readonly #inner: WorkflowStore;
   readonly #owner: FaultyWorkflowStore;

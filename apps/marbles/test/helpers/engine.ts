@@ -79,14 +79,6 @@ export function testInstances(
   };
 }
 
-/**
- * An engine over mock models, in-memory stores, a real workspace system
- * with echoed git, and a fake container runtime, with everything the
- * authoring catalog holds declared to it. Given a `state`, its workflow
- * Runs and trigger state are kept as the published `Engine` keeps them, in
- * a Marbles database at `<state>/marbles.db`, so a later engine over the
- * same state adopts what this one parked and carries on its triggers. Any option replaces its default.
- */
 export function testEngine(options: TestEngineOptions = {}): Engine {
   const {
     executors: _executors,
@@ -105,7 +97,6 @@ export function testEngine(options: TestEngineOptions = {}): Engine {
     ...testInstances(options),
   };
   const { state } = engineOptions;
-  // The lib engine's tasks stay in memory, as a lib engine's do.
   const engine = new Engine(
     state === undefined
       ? engineOptions

@@ -24,7 +24,6 @@ async function failure(work: Promise<unknown>): Promise<TaskError> {
 
 const sqlite = libsqlDatabases("memory");
 
-/** Every store the domain runs on, each opened fresh and empty. */
 const stores: readonly (readonly [string, () => Promise<TaskStore>])[] = [
   ["memory", () => Promise.resolve(new MemoryTaskStore())],
   [
@@ -541,8 +540,6 @@ describe.each(stores)("Tasks over the %s store", (storeName, open) => {
     expect(stale.code).toBe("conflict");
   });
 
-  // Every store but SQLite takes U+0000 too; the SQLite store refuses it,
-  // a storage limit of libSQL (see sqlite-store.test.ts).
   const separators = ["\u0001", "\u001f", '"', ",", "\u{1F600}"];
   test.each(storeName === "SQLite" ? separators : ["\u0000", ...separators])(
     "ids may contain any character without edges colliding (%j)",

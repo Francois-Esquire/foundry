@@ -40,10 +40,6 @@ afterEach(async () => {
   catalog.reset();
 });
 
-/**
- * A host engine over its own state dir, its tasks in the machine's
- * database, with what the catalog declared.
- */
 function host(state: string, askable = false): Engine {
   const engine = testEngine({
     askable,

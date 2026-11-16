@@ -78,10 +78,8 @@ const ID = /^[a-z0-9][a-z0-9-]*$/;
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
 const FILE = "providers.json";
 const POLL_MS = 500;
-/** How long a plugin's `list` may take before the entry is left without models. */
 const LIST_TIMEOUT_MS = 5000;
 
-/** What a plugin's `list` last answered for one entry's settings and environment. */
 type Listing =
   | {
       readonly models: readonly ProviderModelDefinition[];
@@ -116,13 +114,9 @@ export class ProviderConfiguration {
   #identities = new Map<string, { digest?: string; material: unknown }>();
   #key: Buffer | undefined;
   readonly #owned = new ProviderInstances();
-  /** Keyed by what `list` reads: the plugin, its settings, and the environment. */
   readonly #listings = new Map<string, Listing>();
-  /** The latest `list` started per key, so an older answer never lands. */
   readonly #listed = new Map<string, number>();
-  /** Aborted at dispose: no answer lands after it. */
   readonly #lists = new AbortController();
-  /** Aborted when Airplane Mode turns on, so no list in flight lands; replaced when it turns off. */
   #online = new AbortController();
 
   constructor(options: ProviderConfigurationOptions) {
@@ -227,12 +221,6 @@ export class ProviderConfiguration {
     this.#identities = identities;
   }
 
-  /**
-   * Ask each enabled entry whose plugin lists its models for them, then
-   * {@link load}. Resolves with why each list that failed did, for the host
-   * to report. A file that cannot be read rejects, as `load` throws. While
-   * offline nothing is asked and the last lists stay.
-   */
   async refresh(): Promise<readonly string[]> {
     const problems = await this.#listAll();
     if (!this.#lists.signal.aborted) {
@@ -241,10 +229,6 @@ export class ProviderConfiguration {
     return problems;
   }
 
-  /**
-   * Airplane Mode: while on, no plugin is asked for its models, and turning
-   * it on aborts each list in flight and drops its answer.
-   */
   setOffline(offline: boolean): void {
     if (offline) {
       this.#online.abort();
@@ -268,9 +252,7 @@ export class ProviderConfiguration {
     const drafts: Drafts = new Map();
     try {
       if (await write(drafts)) {
-        // An entry's new settings may need their own list before it builds.
         await this.#listAll();
-        // Disposed meanwhile: the drafts are discarded below, and nothing loads.
         if (!this.#lists.signal.aborted) {
           this.#load(drafts);
         }
@@ -747,7 +729,6 @@ export class ProviderConfiguration {
     let catalog: ReturnType<RegisteredPlugin["catalog"]>;
     try {
       const listed = this.#listingOf(plugin, parsed.data, scope);
-      // Defaults are checked against a list once the server gave one.
       if (plugin.list && !listed?.models) {
         return undefined;
       }
@@ -869,7 +850,6 @@ export class ProviderConfiguration {
       );
     }
     const models = listed?.models ?? plugin.catalog(settings);
-    // A changed list is a new instance, with the models it lists.
     const key = JSON.stringify([scope, entry, env, listed?.models ?? null]);
     const instance =
       this.#owned.get(key) ??
@@ -989,7 +969,6 @@ export class ProviderConfiguration {
       .slice(0, 32);
   }
 
-  /** What `plugin` last listed for these settings at `scope`, if it lists. */
   #listingOf(
     plugin: RegisteredPlugin,
     settings: unknown,
@@ -1000,13 +979,6 @@ export class ProviderConfiguration {
       : undefined;
   }
 
-  /**
-   * Ask each entry the effective set could use whose plugin lists its
-   * models, at once, each bounded by {@link LIST_TIMEOUT_MS}, with why each
-   * failure did. A failed list keeps the last good one; with none, the
-   * failure is the entry's problem. A file that cannot be read lists
-   * nothing; `load` reports it. Offline or disposed, nothing is asked.
-   */
   async #listAll(): Promise<readonly string[]> {
     if (
       this.#lists.signal.aborted ||
@@ -1026,7 +998,6 @@ export class ProviderConfiguration {
       ...(workspace?.providers ?? []),
       ...(machine?.providers ?? []),
     ].filter((entry) => entry.enabled);
-    // Only what `load` could use: in the workspace's order, its id not clashing.
     const order = effectiveOrder(machine, workspace);
     const eligible = (id: string) =>
       order.includes(id) &&
@@ -1054,7 +1025,6 @@ export class ProviderConfiguration {
     return problems.filter((problem) => problem !== undefined);
   }
 
-  /** One entry's list, kept under its key unless a newer one started meanwhile. */
   async #list(
     id: string,
     plugin: RegisteredPlugin,
@@ -1064,7 +1034,6 @@ export class ProviderConfiguration {
     const key = listingKey(plugin, settings, env);
     const started = (this.#listed.get(key) ?? 0) + 1;
     this.#listed.set(key, started);
-    // Disposal, Airplane Mode, or the timeout ends the wait, whatever the plugin does.
     const ended = AbortSignal.any([this.#lists.signal, this.#online.signal]);
     const signal = AbortSignal.any([
       ended,
@@ -1139,7 +1108,6 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Why a list failed, briefly: never a response body. */
 function reason(error: unknown): string {
   if (error instanceof Error && error.name === "TimeoutError") {
     return `no answer within ${LIST_TIMEOUT_MS / 1000} s`;
@@ -1147,7 +1115,6 @@ function reason(error: unknown): string {
   return messageOf(error);
 }
 
-/** The ids the effective set may hold, in order: the workspace's `order`, else every entry's, once each. */
 function effectiveOrder(
   machine: ProvidersFile | undefined,
   workspace: ProvidersFile | undefined
@@ -1160,11 +1127,9 @@ function effectiveOrder(
   return [...new Set(workspace?.order ?? ids)];
 }
 
-/** `promise`, or a rejection with the signal's reason once it aborts, whichever comes first. */
 function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     const abort = () => reject(signal.reason);
-    // Handled even when it loses, so a late rejection is never unhandled.
     promise.then(resolve, reject).finally(() => {
       signal.removeEventListener("abort", abort);
     });
@@ -1176,7 +1141,6 @@ function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-/** The key a list is kept under: everything a plugin's `list` reads. */
 function listingKey(
   plugin: RegisteredPlugin,
   settings: unknown,

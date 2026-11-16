@@ -42,10 +42,6 @@ export function createModulePersistence(store: ArtifactStore) {
     );
     return artifact ? { artifactId: artifact.id, id } : null;
   }
-  // Every method that reads and then writes does both in one Artifact
-  // transaction: the manager joins the reads and writes inside it, and the
-  // store runs one write transaction at a time, so no other registration
-  // lands between a check and its write.
   const modules: ModuleRegistryUnit<
     "loadModule" | "loadRetainedManifest" | "registerModule" | "retainManifest"
   > = {
@@ -110,8 +106,6 @@ export function createModulePersistence(store: ArtifactStore) {
           retainedManifests: { ...retained, [contentId]: manifest },
         });
       }),
-    // One Artifact transaction: every method `work` calls joins it, so the
-    // whole unit commits, or rolls back, as one.
     transaction: (work) =>
       artifacts.transaction((_artifacts, effects) => work(modules, effects)),
   };

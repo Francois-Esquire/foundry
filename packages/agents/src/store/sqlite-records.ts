@@ -2,20 +2,8 @@ import type { SessionMessage, SessionRecord } from "../schema";
 import { MESSAGE_STATUSES, SESSION_ROLES, SESSION_STATUSES } from "../schema";
 import { metadataFault, partsFault } from "./message-shape";
 
-/**
- * What a record must be for `SqliteSessionStore` to keep it: one set of
- * checks, run on every record a commit puts (`./sqlite-rows`) and on every
- * record a row decodes to (`./sqlite-decode`). So anything written reads
- * back, and anything read back can be written again. Each check returns
- * an owned, plain copy of the record, or throws a {@link RecordFault}
- * naming the field below the record and what is wrong with it. A storage
- * limit of the SQLite store, not a rule of the package.
- */
-
-/** A field of a record SQLite cannot keep as it is, and why. */
 export class RecordFault extends Error {
   override readonly name = "RecordFault";
-  /** The field below the record, such as `role` or `parts[2].input.n`; empty for the record itself. */
   readonly path: string;
   readonly reason: string;
 
@@ -26,7 +14,6 @@ export class RecordFault extends Error {
   }
 }
 
-/** `path` below `at`, as one path. */
 export function below(at: string, path: string): string {
   if (path === "") {
     return at;
@@ -34,13 +21,6 @@ export function below(at: string, path: string): string {
   return path.startsWith("[") ? `${at}${path}` : `${at}.${path}`;
 }
 
-/**
- * Whether SQLite gives `text` back as it was bound. It does not when the text
- * holds U+0000 (libSQL reads it back cut at the NUL) or is not well-formed
- * UTF-16: a lone surrogate is bound as U+FFFD on Node and as nothing on Bun,
- * so it reads back changed, and a key holding one would match another key's
- * row. JSON text is exempt: JSON escapes both.
- */
 export function storable(text: string): boolean {
   return text.isWellFormed() && !text.includes("\u0000");
 }
@@ -78,7 +58,6 @@ const MESSAGE_FIELDS = {
   ],
 } as const;
 
-/** An owned copy of a session record SQLite keeps as it is, or a {@link RecordFault}. */
 export function keptSession(value: unknown): SessionRecord {
   const fields = ownFields(value, SESSION_FIELDS, "a session record");
   for (const link of ["parentSessionId", "parentMessageId"] as const) {
@@ -101,7 +80,6 @@ export function keptSession(value: unknown): SessionRecord {
   };
 }
 
-/** An owned copy of a message SQLite keeps as it is, or a {@link RecordFault}. */
 export function keptMessage(value: unknown): SessionMessage {
   const fields = ownFields(value, MESSAGE_FIELDS, "a message");
   missing(fields, MESSAGE_FIELDS.required);
@@ -139,11 +117,6 @@ export function keptMessage(value: unknown): SessionMessage {
   };
 }
 
-/**
- * `value`'s own fields, read once each. Refuses a value that is not an
- * object, a field holding `undefined`, and a field the record does not
- * have, which no column would keep.
- */
 function ownFields(
   value: unknown,
   known: {
@@ -224,13 +197,6 @@ function booleanOf(path: string, value: unknown): boolean {
   return value;
 }
 
-/**
- * An integer field. SQLite does not give back NaN or an infinity (libSQL
- * refuses to bind them), `-0` (it reads back as `0`), or an integer beyond
- * `Number.MAX_SAFE_INTEGER` either way (an integer column keeps it as a
- * 64-bit integer libSQL then refuses to read, which would break every read
- * of the row). Every other number, whole or fractional, reads back exactly.
- */
 function integerOf(path: string, value: unknown): number {
   if (typeof value !== "number") {
     throw new RecordFault(path, `holds ${describe(value)}, not a number`);
@@ -264,24 +230,12 @@ function describe(value: unknown): string {
   return String(value);
 }
 
-/** A key that reads plainly after a dot in a path. */
 const PLAIN_KEY = /^[A-Za-z_$][\w$]*$/;
 
 function keyPath(at: string, key: string): string {
   return PLAIN_KEY.test(key) ? `${at}.${key}` : `${at}[${JSON.stringify(key)}]`;
 }
 
-/**
- * A plain copy of `value` that JSON gives back as it is, or a refusal naming
- * the first part that it would not: NaN, an infinity or `-0` (JSON writes
- * `null`, `null` and `0`, and a number too large for a double parses to an
- * infinity), `undefined`, a hole or a function in an array (`null`), a
- * `bigint` or a value that contains itself (JSON throws), anything but a
- * plain object or an array (a `Date` becomes a string, a `Map` an empty
- * object), and a property holding `undefined` (JSON leaves it out).
- * Strings need no check: JSON escapes U+0000 and lone surrogates, and reads
- * them back intact.
- */
 function jsonOf(at: string, value: unknown, ancestors: Set<object>): unknown {
   switch (typeof value) {
     case "boolean":
@@ -370,6 +324,5 @@ function objectOf(
     }
     entries.push([key, jsonOf(keyPath(at, key), item, ancestors)]);
   }
-  // `fromEntries` defines each key as its own property, `__proto__` too.
   return Object.fromEntries(entries);
 }

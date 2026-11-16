@@ -113,12 +113,6 @@ export function createModuleProjects(options: {
 }): ModuleProjects {
   const { artifacts, store } = options;
 
-  /**
-   * A Module registered already, returned as an idempotent create only once
-   * its Artifact is found and is not archived. One whose Artifact is gone or
-   * archived is refused, not repaired: which of the two to restore (the
-   * Artifact or the registration) is the host's decision.
-   */
   async function registered(module: Module) {
     const artifact = await artifacts.get(module.artifactId);
     if (artifact === null) {
@@ -134,13 +128,6 @@ export function createModuleProjects(options: {
     return { artifactId: module.artifactId, idempotent: true, module };
   }
 
-  /**
-   * After a create failed once its Artifact committed: whether a
-   * registration naming that Artifact committed anyway (its acknowledgment
-   * lost). If one did, the create succeeded. The Artifact is archived only
-   * when a read shows positively that no registration names it; if that
-   * read fails too, nothing is archived and the original error stands.
-   */
   async function reconciled(
     id: ModuleId,
     made: ArtifactResolved,
@@ -151,14 +138,12 @@ export function createModuleProjects(options: {
       () => ({ read: false }) as const
     );
     if (!read.read) {
-      // Whether the registration committed is unknown: archive nothing.
       throw error;
     }
     const current = read.module;
     if (current?.artifactId === made.id) {
       return { artifactId: made.id, idempotent: false, module: current };
     }
-    // Best effort: nothing names the Artifact this create made.
     await artifacts.archive(made.id).catch(() => undefined);
     throw error;
   }
@@ -182,19 +167,6 @@ export function createModuleProjects(options: {
   }
 
   return Object.freeze({
-    /**
-     * One registry transaction holds the check and both writes, so two
-     * creates of one id never both pass the check. Inside it the Artifact
-     * commits first, then the registration that names it commits with the
-     * transaction, so the registry never names an Artifact that does not
-     * exist. The call must own its Artifact commit: inside a caller's
-     * Artifact transaction it is refused before anything is written.
-     *
-     * A create whose Artifact write fails leaves nothing. One that fails
-     * after it reconciles: a registration naming the new Artifact means the
-     * create succeeded; otherwise the Artifact, which nothing names, is
-     * archived and a retry makes another.
-     */
     async create(input: Parameters<ModuleProjects["create"]>[0]) {
       const entries = admittedSourceFiles(input.source);
       validateManifest(input.source);

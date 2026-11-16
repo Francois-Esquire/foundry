@@ -82,12 +82,6 @@ function agentFromFunction<OUTPUT extends Output.Output, INPUT>(
 export function agent<OUTPUT extends Output.Output = never>(
   spec: AgentDeclaration<OUTPUT>
 ): Agent<OUTPUT>;
-/**
- * An agent from a function that returns its definition as each session
- * opens: it can read `usage`, pick a route, and choose skills and MCP
- * servers for it. Until then it is not a definition. Its second parameter
- * is the input `extend({ input })` gives it.
- */
 export function agent<OUTPUT extends Output.Output = never, INPUT = undefined>(
   define: DefineAgent<OUTPUT, INPUT>
 ): DeferredAgent<OUTPUT, INPUT>;
@@ -176,7 +170,6 @@ function skillSet(ops: readonly SkillOp[]): SkillSet {
 }
 
 export const skills = {
-  /** The skills in the home and workspace skill folders. Chain `.add(glob)` and `.pick(...)`. */
   load(): SkillSet {
     return skillSet([{ kind: "load" }]);
   },

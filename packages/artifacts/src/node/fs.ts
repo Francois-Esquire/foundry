@@ -13,12 +13,6 @@ export async function lstatOrNull(path: string): Promise<Stats | null> {
   }
 }
 
-/**
- * Write `data` to `temporary`, sync it, then rename it over `target`. The
- * temporary file is removed on a best-effort basis when a step fails. Lib's
- * `writeFileAtomic` takes whole contents and names its own temporary; this
- * one streams, into a temporary the caller hides from directory scans.
- */
 export async function writeAtomically(
   target: string,
   temporary: string,

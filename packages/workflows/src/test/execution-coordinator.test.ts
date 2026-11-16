@@ -16,13 +16,11 @@ import { SqliteWorkflowStore } from "../store/sqlite";
 import { libsqlDatabases } from "./helpers/sqlite";
 import { orchestratorStoreContract } from "./helpers/store.contract";
 
-/** What a store says to a call from inside its own transaction. */
 const REENTRY = /ReentrantCallError.*use the view/;
 
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
 
-/** Fresh, empty storage of one kind. */
 type OpenStore = () => Promise<WorkflowStore>;
 
 const STORES: readonly [string, OpenStore][] = [
@@ -46,7 +44,6 @@ for (const [name, open] of STORES) {
   );
 
   describe(`two ExecutionCoordinators over one ${name}`, () => {
-    /** Two coordinators sharing one store, as two engines on one database. */
     async function pair() {
       const store = await open();
       return {
@@ -401,7 +398,6 @@ for (const [name, open] of STORES) {
           });
         })
       ).rejects.toBeInstanceOf(JobAlreadySettledError);
-      // Neither the unrelated Run nor the settlement the claim wrote stays.
       expect(await coordinator.getRun("rn-unrelated")).toBeNull();
       expect(await coordinator.getJob(job.id)).toMatchObject({
         status: "active",
@@ -445,7 +441,6 @@ for (const [name, open] of STORES) {
           coordinator.updateRun(run.id, { status: "running" }),
           coordinator.listRuns({}),
         ]);
-        // The store it is handed is the way in.
         await bound.updateRun(run.id, { status: "running" });
         return settled;
       });
@@ -538,7 +533,6 @@ for (const [name, open] of STORES) {
         ],
       ];
       for (const frames of invalid) {
-        // The store enforces nothing; the coordinator refuses to read it.
         await store.commit({ deleteRunFrames: [run.id], putFrames: frames });
         await expect(coordinator.listRunFrames(run.id)).rejects.toBeInstanceOf(
           InvalidRunFrameSequenceError
@@ -631,7 +625,6 @@ for (const [name, open] of STORES) {
   });
 }
 
-/** What a snapshot export holds once read back: `JSON` in, `JSON` out. */
 function validated(snapshot: unknown): unknown {
   return JSON.parse(JSON.stringify(snapshot));
 }

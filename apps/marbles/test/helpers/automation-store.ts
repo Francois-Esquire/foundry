@@ -2,17 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AutomationRecord } from "~/lib/automation/service";
 import type { AutomationStore } from "~/lib/automation/store";
 
-/**
- * Where an automation store under test comes from: `store()` makes another
- * over the same state, as a second engine would have. `close` ends
- * whatever the stores were made over.
- */
 export interface AutomationStoreFixture {
   close(): Promise<void>;
   store(): AutomationStore;
 }
 
-/** An automation agent `worker` created, by id. */
 export function automation(
   id: string,
   extra: Partial<AutomationRecord> = {}
@@ -35,11 +29,6 @@ export function automation(
   };
 }
 
-/**
- * The contract every `AutomationStore` keeps, whatever it keeps the
- * automations in. `shared` says whether two stores from one fixture see
- * one another's automations, as two engines over one database do.
- */
 export function describeAutomationStore(
   name: string,
   open: () => Promise<AutomationStoreFixture>,
@@ -150,7 +139,6 @@ export function describeAutomationStore(
             await view.put(automation(label));
           });
         await Promise.all([editing("x", first), editing("y", second)]);
-        // The second edit read what the first wrote: neither read before the other wrote.
         expect(order.map((line) => line.at(-1)).toSorted()).toEqual(["0", "1"]);
         expect((await second.list()).map(({ id }) => id)).toEqual(["x", "y"]);
       }

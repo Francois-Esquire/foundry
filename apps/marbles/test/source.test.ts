@@ -154,7 +154,6 @@ it("lists what agents created from the same triggers, and leaves the state root 
     const state = join(root, "state");
     const { dir } = workspaceState(state, root);
     step("target").do(() => 1);
-    // What an engine of the workspace's keeps, in the database at the state root.
     const opened = await initializeDatabase(stateDatabase(state));
     const automations = new AutomationService({
       registry: declared(),

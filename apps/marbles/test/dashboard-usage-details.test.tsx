@@ -163,7 +163,6 @@ test("a workflow with no valid facts shows unowned unreadable usage in its Catal
   const launched = await first.launch("healthy", {});
   await launched.result;
   await first.dispose();
-  // A transcript nothing names, which cannot be read: no one's for sure.
   mkdirSync(join(dir, "sessions"), { recursive: true });
   writeFileSync(join(dir, "sessions", "mystery.json"), "{broken");
   const second = await startEngine(durable());
@@ -231,7 +230,6 @@ test("a known workflow whose running run the reader cannot load shows an unattri
   ({ ref } = direct);
   const transcript = join(dir, "sessions", `${direct.ref.id}.json`);
   const { mode } = statSync(transcript);
-  // Both the fact and its marker of the consumer's turn cannot be written.
   const writer = await startEngine({
     ...durable(),
     usageStore: new FailingUsageStore(new MemoryUsageStore(), () => true),

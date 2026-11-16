@@ -6,17 +6,11 @@ import type {
 import { parseStored } from "~/lib/execution-record";
 import type { ExecutionStore, LifecycleChange } from "~/lib/execution-store";
 
-/**
- * Where an execution store under test comes from: `store()` makes another
- * over the same state, as a second engine would have. `close` ends
- * whatever the stores were made over.
- */
 export interface ExecutionStoreFixture {
   close(): Promise<void>;
   store(): ExecutionStore;
 }
 
-/** A queued task run, by id. */
 function queued(id: string, extra: Partial<ExecutionRun> = {}): ExecutionRun {
   return {
     correlation: { moduleId: "notes" },
@@ -49,12 +43,10 @@ function effect(id: string, status: "running" | "complete" = "complete") {
   } satisfies ExecutionObservation;
 }
 
-/** A process that does not own the runs here. */
 const OTHER = 2_147_483_646;
 const AT = "2026-11-01T09:00:01.000Z";
 const LATER = "2026-11-01T09:00:09.000Z";
 
-/** A start of a run this process owns: from queued, its input dropped. */
 function start(extra: Partial<LifecycleChange> = {}): LifecycleChange {
   return {
     dropInput: true,
@@ -67,7 +59,6 @@ function start(extra: Partial<LifecycleChange> = {}): LifecycleChange {
   };
 }
 
-/** The run `id` as `store` gives it back, read as the domain reads it. */
 async function read(
   store: ExecutionStore,
   id: string
@@ -76,11 +67,6 @@ async function read(
   return stored && parseStored(stored);
 }
 
-/**
- * The contract every `ExecutionStore` keeps, whatever it keeps runs in.
- * `shared` says whether two stores from one fixture see one another's
- * runs, as two engines over one database do.
- */
 export function describeExecutionStore(
   name: string,
   open: () => Promise<ExecutionStoreFixture>,
@@ -132,7 +118,6 @@ export function describeExecutionStore(
       expect(
         (await executions.list()).map((stored) => parseStored(stored)?.id)
       ).toEqual(["b", "a", "c"]);
-      // A run of an id kept already is never created over it.
       expect(await executions.create(queued("a", { status: "running" }))).toBe(
         false
       );
@@ -143,7 +128,6 @@ export function describeExecutionStore(
       const executions = await store();
       await executions.create(queued("a", { progress: { step: 1 } }));
       await executions.observe("a", effect("o"), "2026-11-01T09:00:01.000Z");
-      // A status it does not allow, and an owner that does not own it.
       expect(
         await executions.transition("a", start({ from: ["running"] }))
       ).toMatchObject({ applied: false, record: { status: "queued" } });
@@ -184,7 +168,6 @@ export function describeExecutionStore(
         progress: { step: 1 },
         revision: 4,
         status: "failed",
-        // A start is recorded once.
         timestamps: { settledAt: LATER, startedAt: AT, updatedAt: LATER },
       });
       expect(await executions.transition("none", start())).toEqual({
@@ -197,7 +180,6 @@ export function describeExecutionStore(
       const executions = await store();
       await executions.create(queued("a"));
       await executions.transition("a", start());
-      // What a settler last read of it, then progress and an observation land.
       const read1 = await read(executions, "a");
       await executions.advise("a", { progress: { n: 1 }, updatedAt: LATER });
       await executions.observe("a", effect("o"), LATER);
@@ -456,7 +438,6 @@ export function describeExecutionStore(
           second.transition("a", start()),
         ]);
         expect([one.applied, two.applied].sort()).toEqual([false, true]);
-        // The other engine reports progress while the owner settles.
         await second.advise("a", { progress: { n: 1 }, updatedAt: LATER });
         const settled = await first.transition("a", {
           dropInput: true,

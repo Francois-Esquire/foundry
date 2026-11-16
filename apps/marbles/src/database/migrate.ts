@@ -9,47 +9,28 @@ import { readMigrationFiles } from "drizzle-orm/migrator";
 
 import type { StoreDatabase } from "~/database/open";
 
-/**
- * The migrations `drizzle-kit generate` writes from `schema.ts`, committed
- * beside this module. The build copies the folder to `dist/migrations`, next
- * to the chunk this module is bundled into, so the same relative URL finds
- * it in the source tree and in the published package.
- */
 export const MIGRATIONS = fileURLToPath(
   new URL("./migrations", import.meta.url)
 );
 
-/** The table and columns `drizzle-kit` itself records applied migrations in. */
 export const APPLIED = "__drizzle_migrations";
 
-/** One migration this Marbles ships, in the order they apply. */
 export interface ShippedMigration {
   readonly hash: string;
   readonly sql: readonly string[];
-  /** Its name in the journal, `0000_init`. */
   readonly tag: string;
-  /** When it was generated, in ms since the epoch: its `created_at` once applied. */
   readonly when: number;
 }
 
-/** What a database holds compared with what this Marbles ships. */
 export type SchemaState =
-  /** No migration was ever applied: nothing is recorded in it. */
   | { readonly kind: "empty" }
   | { readonly kind: "current" }
-  /** Applied is a prefix of shipped: `missing` would bring it up to date. */
   | { readonly kind: "behind"; readonly missing: readonly ShippedMigration[] };
 
-/**
- * A database this Marbles cannot use as it is: migrated by a newer Marbles,
- * with a history that differs from the one shipped here, or, for a caller
- * that does not migrate, one that has not been brought up to date yet.
- */
 export class IncompatibleDatabaseError extends Error {
   override readonly name = "IncompatibleDatabaseError";
 }
 
-/** The migrations in `folder`, with their journal names. */
 export function shippedMigrations(
   folder: string = MIGRATIONS
 ): readonly ShippedMigration[] {
@@ -66,11 +47,6 @@ export function shippedMigrations(
   );
 }
 
-/**
- * Where `database` stands against `shipped`. Its applied history must be an
- * exact prefix of the shipped one, timestamps and hashes alike; anything
- * else is refused, naming the first place they part.
- */
 export async function schemaState(
   database: StoreDatabase,
   shipped: readonly ShippedMigration[],
@@ -98,20 +74,6 @@ export async function schemaState(
     : { kind: "behind", missing: shipped.slice(applied.length) };
 }
 
-/**
- * Bring the database up to the newest migration in `folder`. A database
- * already there is found with a plain read, so opening it takes no write
- * lock. Otherwise the check and the writes share one write transaction
- * (`BEGIN IMMEDIATE`). Drizzle's own libSQL migrator reads what was applied
- * before its transaction opens, so two processes opening a new file at once
- * would both apply everything; here the second waits, then finds nothing
- * left to do.
- *
- * Foreign keys are off while it writes, as `drizzle-kit`'s table rebuilds
- * need, and a violation they leave behind fails the whole migration. A
- * history that is not a prefix of the shipped one is refused rather than
- * written to (`schemaState`).
- */
 export async function migrate(
   client: Client,
   database: LibSQLDatabase,
@@ -159,11 +121,6 @@ interface AppliedMigration {
   readonly when: number;
 }
 
-/**
- * Every migration applied to `database`, in the order it applied them;
- * undefined before the first. The `id` column `drizzle-kit` declares is
- * never set, so the row order breaks a tie.
- */
 async function appliedMigrations(
   database: StoreDatabase
 ): Promise<readonly AppliedMigration[] | undefined> {
@@ -176,7 +133,6 @@ async function appliedMigrations(
   const rows = await database.values<[string, number]>(
     sql`SELECT hash, created_at FROM ${sql.identifier(APPLIED)} ORDER BY created_at, rowid`
   );
-  // libSQL rows index like arrays but do not iterate.
   return rows.map((row) => ({ hash: String(row[0]), when: Number(row[1]) }));
 }
 

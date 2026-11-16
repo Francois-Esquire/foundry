@@ -157,7 +157,6 @@ describe("enrichFromModelsDev — what it fills", () => {
   });
 
   it("reads rates as already-per-1M, unlike the per-token wire formats", () => {
-    // fromVercelRest multiplies by 1e6; doing that here
     // would price a turn a million times over.
     const [out] = enrich([row({ modelId: "claude-opus-4-7" })]);
     expect(out?.costs?.input).toBe(5);
@@ -277,10 +276,6 @@ describe("enrichFromModelsDev — what it refuses to touch", () => {
   });
 });
 
-/**
- * A trimmed `https://models.dev/catalog.json` payload: model facts under
- * `models`, and each first-party price under `providers.<author>.models`.
- */
 const PAYLOAD = {
   models: {
     "anthropic/claude-opus-5-5": {
@@ -330,7 +325,6 @@ describe("modelsDevCatalog", () => {
       tool_call: true,
     });
     for (const key of Object.keys(catalog ?? {})) {
-      // Every entry is `author/model`: the matcher's whole index depends on it.
       expect(key).toMatch(ASSERTION_PATTERN);
     }
   });
@@ -363,7 +357,6 @@ describe("modelsDevCatalog", () => {
     expect(catalog?.["a/tiered"]).toEqual({ name: "Tiered" });
     expect(catalog?.["a/cached"]).toEqual({ name: "Cached" });
     expect(catalog?.["a/negative"]).toEqual({ name: "Negative" });
-    // Unpriced, so a turn keeps its tokens and has no charge; nothing throws.
     const [tiered] = enrichFromModelsDev(
       [row({ id: "tiered", modelId: "tiered", vendor: "a" })],
       catalog ?? {}

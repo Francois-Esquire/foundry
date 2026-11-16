@@ -6,7 +6,6 @@ import { WorkspaceRegistry, writeAsHost } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import type { Workspace, WorkspaceRecord } from "~/lib/state/workspace";
 
-/** Open the database under `state` as the Marbles process would, for `work`. */
 async function asProcess<T>(
   state: string,
   work: (database: StoreDatabase) => Promise<T>
@@ -19,7 +18,6 @@ async function asProcess<T>(
   }
 }
 
-/** Store `record` as it is, times included, in the database under `state`. */
 export function seedWorkspace(
   state: string,
   record: WorkspaceRecord
@@ -29,7 +27,6 @@ export function seedWorkspace(
   });
 }
 
-/** Record a sight of `workspace` under `state`, as the Marbles process does. */
 export function touchWorkspace(
   state: string,
   workspace: Workspace,
@@ -41,10 +38,6 @@ export function touchWorkspace(
   );
 }
 
-/**
- * Record a sight of `workspace` under `state` as a program hosting it does:
- * a writer under the state root's lock rule (`writeAsHost`).
- */
 export function recordWorkspace(
   state: string,
   workspace: Workspace,
@@ -59,7 +52,6 @@ export function recordWorkspace(
   );
 }
 
-/** What the registry under `state` holds for `id`, read as `status` reads it. */
 export function readWorkspace(
   state: string,
   id: string

@@ -1,9 +1,3 @@
-/**
- * Nothing about a run is acknowledged before the store holds it: a
- * settlement or a cancellation the store has not taken is never paid to
- * its caller, and what the store refused is never shown as done.
- */
-
 import { expect, it, vi } from "vitest";
 import type { ExecutionRun } from "~/lib/execution-record";
 import { parseStored } from "~/lib/execution-record";
@@ -13,7 +7,6 @@ import { Executions } from "~/lib/executions";
 import { Launcher, RunNotRecordedError } from "~/lib/launcher";
 import { seedExecution } from "../helpers/executions";
 
-/** A launcher over `store`, running host tasks only. */
 function launcherOver(store: ExecutionStore) {
   const warnings: string[] = [];
   const executions = new Executions({
@@ -43,10 +36,6 @@ async function stored(
   return kept && parseStored(kept);
 }
 
-/**
- * `store.transition`, failing for a lifecycle change `fails` picks while
- * `failing.on`, counting every one it fails.
- */
 function failingPuts(
   store: MemoryExecutionStore,
   fails: (id: string, change: LifecycleChange) => boolean
@@ -79,7 +68,6 @@ it("pays a caller whose run's settlement could not be stored its failure, not it
   );
 
   expect(outcome).toMatchObject({ error: expect.any(RunNotRecordedError) });
-  // Not settled here either, since the store does not say so.
   expect(executions.get(launched.id)?.status).toBe("running");
   expect((await stored(store, launched.id))?.status).toBe("running");
 
@@ -115,7 +103,6 @@ it("leaves a settlement that could not be stored to its own retry, which another
   const second = await launcher.launch("second", null, {});
   await expect(second.result).resolves.toBe(2);
   await executions.flush();
-  // Another run's settle tries nothing again: the retry's schedule does.
   expect((await stored(store, first.id))?.status).toBe("running");
   await expect(executions.retrySettlements()).resolves.toBeUndefined();
   expect((await stored(store, first.id))?.status).toBe("complete");
@@ -131,7 +118,6 @@ it("returns from cancelling a queued run only once its cancellation is stored", 
   const queued = await launcher.launch("block", null, {});
   queued.result.catch(() => undefined);
 
-  // The cancellation's transaction waits before it reads and writes.
   const transaction = store.transaction.bind(store);
   const written = Promise.withResolvers<void>();
   store.transaction = async (work) => {
@@ -148,7 +134,6 @@ it("returns from cancelling a queued run only once its cancellation is stored", 
   });
   await new Promise((resolve) => setTimeout(resolve, 20));
 
-  // Still queued on disk: neither the cancel nor the caller is answered.
   expect((await stored(store, queued.id))?.status).toBe("queued");
   expect({ rejected, returned }).toEqual({ rejected: false, returned: false });
 
@@ -162,7 +147,6 @@ it("returns from cancelling a queued run only once its cancellation is stored", 
 
 it("leaves a queued run queued, in its place, when its cancellation cannot be stored", async () => {
   const store = new MemoryExecutionStore();
-  // Off until the cancellation: every write of the memory store is one.
   const failing: { on: boolean } = { on: false };
   const transaction = store.transaction.bind(store);
   store.transaction = (work) =>
@@ -226,7 +210,6 @@ it("never prunes a run the store holds unsettled, whatever this process last saw
     warn: () => undefined,
   });
   await reader.load();
-  // The store moves on after the reader looked: it is not settled there.
   await seedExecution(store, { ...settled, revision: 4, status: "running" });
 
   expect(await reader.prune(["rn-1"], () => "host")).toEqual([]);
@@ -242,7 +225,6 @@ it("settles a run its owner finished though another engine's progress changed it
   const gate = Promise.withResolvers<void>();
   launcher.task({ name: "collide", run: () => gate.promise.then(() => 42) });
   const launched = await launcher.launch("collide", null, {});
-  // Another reader of the same store reports progress while it runs.
   const reader = new Executions({ store, warn: () => undefined });
   await reader.load();
   reader.progress(launched.id, { reader: true });
@@ -347,7 +329,6 @@ it("keeps a queue's order while a cancellation is written, and after it fails", 
   const first = await launcher.launch("fifo", 0, {});
   const second = await launcher.launch("fifo", 1, {});
   const third = await launcher.launch("fifo", 2, {});
-  // The cancellation's transaction, and only it, waits and then fails.
   const transaction = store.transaction.bind(store);
   const held = Promise.withResolvers<void>();
   store.transaction = async () => {
@@ -358,8 +339,6 @@ it("keeps a queue's order while a cancellation is written, and after it fails", 
   const cancelling = launcher
     .cancel(second.id)
     .catch((error: unknown) => error);
-  // The first's work ends while the second's cancellation is written: the
-  // third is not let in ahead of the second.
   gates[0]?.resolve();
   await new Promise((resolve) => setTimeout(resolve, 10));
   expect(ran).toEqual([0]);
@@ -398,11 +377,9 @@ it("retries failed settlements on one schedule, each once a try and waiting long
         "simulated disk failure"
       );
     }
-    // One attempt each: a settle never retries the others.
     expect(failing.failed).toBe(40);
     await vi.advanceTimersByTimeAsync(100);
     expect(failing.failed).toBe(80);
-    // The next try waits twice as long.
     await vi.advanceTimersByTimeAsync(199);
     expect(failing.failed).toBe(80);
     await vi.advanceTimersByTimeAsync(1);
