@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { createContainers } from "@foundry/sandbox/container/containers";
+import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { afterEach, expect, it } from "vitest";
 import { workspaceStores } from "~/database/stores";
@@ -139,7 +140,7 @@ it("leaves a VM a live container records though it carries a gone one's id, and 
   const { report } = await recovery(ours(), []).recover(RUNS);
 
   expect(report.steps.find((step) => step.step === "containers")).toEqual({
-    detail: `0 container(s) removed, 0 VM(s) swept; 1 container(s) whose VM would not go kept, removing, for the next start to retry; the VM(s) ${vm} carry the id of one but another container records them, so they were left alone`,
+    detail: `0 container(s) removed, 0 VM(s) swept; 1 container(s) whose VM would not go kept, removing, for the next start to retry; the VM(s) ${vm} bear the id or name of one but are not provably its (another container records them, they carry no label of this store, or their name and label disagree), so they were left alone; one no engine owns is removed with \`msb rm <name>\``,
     outcome: "failed",
     step: "containers",
   });
@@ -149,6 +150,57 @@ it("leaves a VM a live container records though it carries a gone one's id, and 
   });
   await held.close().catch(() => undefined);
   await mine.shutdown().catch(() => undefined);
+});
+
+it("keeps a row whose holder cannot be read, and names it on every start", async () => {
+  const { ours, recovery, runtime, stores, theirs } = await fixture();
+  const left = await theirs.start(SPEC);
+  const row = await stores.containers.get(left.id);
+  if (row === undefined) {
+    throw new Error("no row");
+  }
+  await stores.containers.commit({
+    putContainers: [{ ...row, holder: "not a holder" }],
+  });
+  for (let start = 0; start < 2; start += 1) {
+    const lines: string[] = [];
+    const { report } = await recovery(ours(), lines).recover(RUNS);
+    expect(report.steps.find((step) => step.step === "containers")).toEqual({
+      detail: `0 container(s) removed; 1 container(s) whose holder cannot be told gone or running kept: ${left.id}`,
+      outcome: "done",
+      step: "containers",
+    });
+    expect(lines).toEqual([
+      `[recovery] containers: done, 0 container(s) removed; 1 container(s) whose holder cannot be told gone or running kept: ${left.id}`,
+    ]);
+  }
+  expect(runtime.instances.find((i) => i.id === `${left.id}-1`)?.removed).toBe(
+    false
+  );
+});
+
+it("names, in its report, the VMs its sweep passed over as not provably this engine's", async () => {
+  const { ours, recovery, runtime, theirs } = await fixture();
+  // A row a gone process left, so the start recovers and sweeps.
+  await theirs.start(SPEC);
+  // Another engine's live VM under the same instance label: a store of its own.
+  const other = createContainers({
+    instanceLabel: "marbles-ws",
+    runtime,
+    store: createMemoryContainerStore(),
+  });
+  const held = await other.start(SPEC);
+  const { report } = await recovery(ours(), []).recover(RUNS);
+  expect(
+    report.steps.find((step) => step.step === "containers")?.detail
+  ).toContain(
+    `1 VM(s) passed over, not provably this engine's: ${held.row.nativeId}`
+  );
+  expect(
+    runtime.instances.find((i) => i.id === held.row.nativeId)?.removed
+  ).toBe(false);
+  await held.close();
+  await other.shutdown();
 });
 
 it("reports a row whose VM would not go as failed, keeps it, and the next start removes it", async () => {

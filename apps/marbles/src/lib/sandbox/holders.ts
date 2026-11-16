@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
-  isGone,
   isProcessIdentity,
+  type ProcessState,
+  processState,
   thisProcess,
 } from "@foundry/lib/process-identity";
 import type { ContainerRow } from "@foundry/sandbox/store";
@@ -21,19 +22,27 @@ export function containerHolder(): string {
 }
 
 /**
- * Whether a process that is gone left `row`: its holder names a process
- * that is gone (`isGone`), or names none this can read, as a row written
- * before holders were kept does.
+ * What can be said of `row`'s holder, by the one rule for processes
+ * (`processState`): `gone` only on proof; `running` when it is there;
+ * `unknown` when it cannot be told, which is never taken for gone: a
+ * holder that names no process this can read (a row written before
+ * holders were kept, or one that is not a holder), or one whose process
+ * cannot be told gone or running.
  */
-export function leftBehind(row: ContainerRow): boolean {
+export function holderState(row: ContainerRow): ProcessState {
   if (row.holder === undefined) {
-    return true;
+    return "unknown";
   }
   let holder: unknown;
   try {
     holder = JSON.parse(row.holder);
   } catch {
-    return true;
+    return "unknown";
   }
-  return !isProcessIdentity(holder) || isGone(holder);
+  return isProcessIdentity(holder) ? processState(holder) : "unknown";
+}
+
+/** Whether a process that is gone left `row`: its holder is gone on proof. */
+export function leftBehind(row: ContainerRow): boolean {
+  return holderState(row) === "gone";
 }

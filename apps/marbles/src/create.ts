@@ -387,6 +387,8 @@ function containersFor(
       // This process, so a later start can tell the rows it held are left.
       holder: containerHolder(),
       instanceLabel: `marbles-${workspaceId}`,
+      // What the registry leaves without acting on, said where the engine speaks.
+      report: (line) => print(`[sandbox] ${line}`),
       runtime: await runtime(),
       store: store ?? createMemoryContainerStore(),
     });

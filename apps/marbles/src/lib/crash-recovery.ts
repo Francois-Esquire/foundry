@@ -10,7 +10,7 @@ import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
 import { closeAbandonedRuns } from "./run-recovery";
 import type { RunStore } from "./run-store";
 import type { HarnessActivities } from "./sandbox/activities";
-import { leftBehind } from "./sandbox/holders";
+import { holderState, leftBehind } from "./sandbox/holders";
 
 /** The steps of a recovery, in the order they run. */
 const RECOVERY_STEPS = [
@@ -217,27 +217,44 @@ export class CrashRecovery {
     // Judged here, outside any transaction; the registry's claim checks
     // the holder it was judged by still holds each row. With none left
     // behind, no VM is either: a row goes only with all of its VMs.
-    if (!(await rows.list()).some(leftBehind)) {
-      return done(0, "container(s) removed");
+    const listed = await rows.list();
+    const untold = listed
+      .filter((row) => holderState(row) === "unknown")
+      .map(({ id }) => id);
+    const kept =
+      untold.length === 0
+        ? ""
+        : `; ${String(untold.length)} container(s) whose holder cannot be told gone or running kept: ${untold.join(", ")}`;
+    if (!listed.some(leftBehind)) {
+      return {
+        acted: untold.length > 0,
+        detail: `0 container(s) removed${kept}`,
+        outcome: "done",
+      };
     }
     const containers = await this.#options.containers();
-    const { conflicts, kept, removed, swept } =
-      await containers.recover(leftBehind);
+    const recovered = await containers.recover(leftBehind);
+    const { conflicts, passedOver, removed, swept } = recovered;
     const did = `${String(removed.length)} container(s) removed, ${String(swept.length)} VM(s) swept`;
-    if (kept.length === 0) {
+    const passed =
+      passedOver.length === 0
+        ? ""
+        : `; ${String(passedOver.length)} VM(s) passed over, not provably this engine's: ${passedOver.join(", ")} (one no engine owns is removed with \`msb rm <name>\`)`;
+    if (recovered.kept.length === 0) {
       return {
-        acted: removed.length + swept.length > 0,
-        detail: did,
+        acted:
+          removed.length + swept.length + passedOver.length + untold.length > 0,
+        detail: `${did}${kept}${passed}`,
         outcome: "done",
       };
     }
     const conflicting =
       conflicts.length === 0
         ? ""
-        : `; the VM(s) ${conflicts.join(", ")} carry the id of one but another container records them, so they were left alone`;
+        : `; the VM(s) ${conflicts.join(", ")} bear the id or name of one but are not provably its (another container records them, they carry no label of this store, or their name and label disagree), so they were left alone; one no engine owns is removed with \`msb rm <name>\``;
     return {
       acted: true,
-      detail: `${did}; ${String(kept.length)} container(s) whose VM would not go kept, removing, for the next start to retry${conflicting}`,
+      detail: `${did}; ${String(recovered.kept.length)} container(s) whose VM would not go kept, removing, for the next start to retry${conflicting}${kept}${passed}`,
       outcome: "failed",
     };
   }
