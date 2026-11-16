@@ -33,7 +33,7 @@ interface GenerationStatus {
   readonly alive: boolean;
   readonly number: number;
   readonly pid: number;
-  readonly state: GenerationState;
+  readonly state: GenerationState | "cannot tell";
 }
 
 export interface WorkspaceStatus {
@@ -124,13 +124,15 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
 }
 
 function generationStatus(record: GenerationRecord): GenerationStatus {
+  const unprovable = record.pid > 0 && record.started === null;
   return {
-    // Its start is recorded once it loaded; before then its pid alone says.
     alive:
-      record.pid > 0 && !isGone({ pid: record.pid, started: record.started }),
+      record.pid > 0 &&
+      !unprovable &&
+      !isGone({ pid: record.pid, started: record.started }),
     number: record.number,
     pid: record.pid,
-    state: record.state,
+    state: unprovable ? "cannot tell" : record.state,
   };
 }
 

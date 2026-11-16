@@ -188,6 +188,10 @@ interface Admission {
   readonly settled: PromiseWithResolvers<void>;
 }
 
+export type QueuedTake =
+  | { readonly taken: true }
+  | { readonly taken: false; readonly why: string };
+
 /** How a stop in progress treats what is still running: absent until one begins. */
 type Halting = "stop" | "cancel" | undefined;
 
@@ -497,33 +501,40 @@ export class Launcher {
    * under `owner` exactly when the store is asked
    * (`ExecutionRecords.takeQueuedFrom`).
    */
-  async takeOrphaned(id: string, owner: ProcessIdentity): Promise<boolean> {
+  async takeOrphaned(id: string, owner: ProcessIdentity): Promise<QueuedTake> {
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
     if (this.#retiring) {
-      return false;
+      return { taken: false, why: "this engine is retiring" };
     }
     if (this.#owed.has(id) || this.#admitted.has(id)) {
-      return true;
+      return { taken: true };
     }
     const stored = await this.executions.peek(id);
-    if (stored === undefined || !this.#runnableAs(stored)) {
-      return false;
+    if (stored === undefined) {
+      return { taken: false, why: "it is no longer stored" };
+    }
+    if (!this.#runnableAs(stored)) {
+      return {
+        taken: false,
+        why: `no ${stored.kind} named "${stored.name}" is registered here`,
+      };
     }
     const run = await this.executions.takeQueuedFrom(id, owner);
     if (run === undefined) {
-      return false;
+      return {
+        taken: false,
+        why: "it is no longer queued under a process proved gone",
+      };
     }
     if (this.#owed.has(id) || this.#admitted.has(id)) {
-      return true;
+      return { taken: true };
     }
-    // Taken as this engine began to retire, it waits in its closed queue
-    // and the next pass hands it on with the rest.
     this.#options.print(
       `[run] ${run.name} taken over from a gone process ${id}`
     );
     this.#owe(id, true);
     this.#admit(id);
-    return true;
+    return { taken: true };
   }
 
   /**

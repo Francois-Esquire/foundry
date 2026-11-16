@@ -7,6 +7,7 @@ import type { ExecutionView } from "~/lib/execution-store";
 import { MemoryExecutionStore } from "~/lib/execution-store";
 import { Executions } from "~/lib/executions";
 import { Launcher } from "~/lib/launcher";
+import { exitedPid } from "../helpers/executions";
 
 /**
  * A retiring engine handing its queued runs to its successor: nothing of
@@ -397,6 +398,53 @@ describe("a later pass of a retiring engine's hand-over", () => {
       vi.useRealTimers();
     }
   });
+});
+
+it("hands on, at its next pass, a gone process's queued run it took just as it began to retire", async () => {
+  vi.useFakeTimers();
+  try {
+    const store = new GatedStore();
+    const { executions, launcher } = launcherOver(store);
+    await executions.load();
+    const started: string[] = [];
+    launcher.task({
+      name: "waiting",
+      run: () => {
+        started.push("waiting");
+      },
+    });
+    const dead = { pid: exitedPid(), started: null };
+    const at = new Date().toISOString();
+    await store.create({
+      correlation: {},
+      id: "rn-orphaned",
+      input: {},
+      kind: "task",
+      name: "waiting",
+      observations: [],
+      owner: dead,
+      queue: "marbles",
+      revision: 1,
+      sequence: 1,
+      status: "queued",
+      timestamps: { queuedAt: at, updatedAt: at },
+    });
+    store.holding = true;
+    const taking = launcher.takeOrphaned("rn-orphaned", dead);
+    await store.entered.promise;
+    const next = { pid: thisProcess().pid + 1, started: null };
+    expect(await launcher.handOver(next)).toEqual([]);
+    store.gate.resolve();
+    expect(await taking).toEqual({ taken: true });
+    expect(executions.waiting()).toEqual(["rn-orphaned"]);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(executions.get("rn-orphaned")?.owner).toMatchObject({
+      pid: next.pid,
+    });
+    expect(started).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 describe("handing queued runs over", () => {

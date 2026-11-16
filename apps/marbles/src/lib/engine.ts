@@ -67,7 +67,12 @@ import type { FeedRouter } from "~/lib/feed/route";
 import { feedRouter, movedAway, QuestionMovingError } from "~/lib/feed/route";
 import type { Dispatched } from "~/lib/held-runs";
 import { HeldRuns } from "~/lib/held-runs";
-import type { DispatchedRun, Launched, LaunchOptions } from "~/lib/launcher";
+import type {
+  DispatchedRun,
+  Launched,
+  LaunchOptions,
+  QueuedTake,
+} from "~/lib/launcher";
 import { Launcher } from "~/lib/launcher";
 import { createLog, type LogLevel, type LogOrigin } from "~/lib/log";
 import { AgentsManager } from "~/lib/managers/agents";
@@ -1456,13 +1461,13 @@ export class Engine {
    * `false`, changing nothing, when this engine is not running or has begun
    * to retire, `owner` is not proved gone, or the run moved meanwhile.
    */
-  async takeQueued(runId: string, owner: ProcessIdentity): Promise<boolean> {
+  async takeQueued(runId: string, owner: ProcessIdentity): Promise<QueuedTake> {
     if (this.#running === undefined || this.#phase !== "started") {
-      return false;
+      return { taken: false, why: "this engine is not running" };
     }
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
     if (this.#retiring) {
-      return false;
+      return { taken: false, why: "this engine is retiring" };
     }
     return await this.#launcher.takeOrphaned(runId, owner);
   }

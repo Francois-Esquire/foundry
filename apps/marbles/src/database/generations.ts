@@ -104,7 +104,10 @@ export class GenerationRecords {
         .from(marblesGenerations)
         .where(inArray(marblesGenerations.state, [...LIVE]));
       const at = new Date().toISOString();
-      for (const each of live) {
+      const provable = live.filter(
+        (row) => row.pid <= 0 || row.started !== null
+      );
+      for (const each of provable) {
         const gone =
           each.pid <= 0 || isGone({ pid: each.pid, started: each.started });
         await this.#database
@@ -113,6 +116,29 @@ export class GenerationRecords {
           .where(eq(marblesGenerations.number, each.number));
       }
     });
+  }
+
+  async endGone(): Promise<readonly number[]> {
+    const retiring = await asBusy(() =>
+      this.#database
+        .select({
+          number: marblesGenerations.number,
+          pid: marblesGenerations.pid,
+          started: marblesGenerations.started,
+        })
+        .from(marblesGenerations)
+        .where(eq(marblesGenerations.state, "retiring"))
+    );
+    const gone = retiring.filter(
+      (each) =>
+        each.pid > 0 &&
+        each.started !== null &&
+        isGone({ pid: each.pid, started: each.started })
+    );
+    for (const each of gone) {
+      await this.#set(each.number, { state: "exited" });
+    }
+    return gone.map((each) => each.number);
   }
 
   #set(

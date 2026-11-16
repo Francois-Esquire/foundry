@@ -283,7 +283,15 @@ Five buckets, each importing only what sits below it:
   engine owns (`RunMovedError`); either refusal is a `QuestionMovingError`
   the daemon retries elsewhere. A generation that was current and died is
   replaced after a bounded backoff, and only a candidate that does not
-  load has its fingerprint refused. The fingerprint
+  load has its fingerprint refused. A generation whose daemon is gone (a
+  crash) is out of any daemon's reach: it ticks and delivers no more, lets
+  in its queued runs and finishes them with its running ones on the code
+  it loaded, then exits. The next daemon records it retiring while its
+  process is alive, and leaves its runs to it, since their owner is alive;
+  the sweep records it exited once its pid and start prove it gone, and a
+  record without a start, which proves nothing, shows in `marbles status`
+  as "cannot tell". A queued run whose owner is proved gone is taken by
+  the current generation through the sweep (`Engine.takeQueued`). The fingerprint
   (`process/fingerprint.ts`) is taken before a generation loads: every
   file under each workspace's root, by relative path and content, and
   every file the generation reports reading outside it (`onRead` in

@@ -4,6 +4,7 @@ import { thisProcess } from "@foundry/lib/process-identity";
 
 import { layout } from "~/layout";
 import type { Engine } from "~/lib/engine";
+import type { QueuedTake } from "~/lib/launcher";
 import { Channel, socketTransport } from "~/process/channel";
 import type {
   LoadResult,
@@ -457,10 +458,10 @@ async function main(): Promise<void> {
     return await workspaces().get(id).engine.adopt(runId);
   };
 
-  const takeQueued = async (raw: unknown): Promise<boolean> => {
+  const takeQueued = async (raw: unknown): Promise<QueuedTake> => {
     const { id, owner, runId } = queuedParamsSchema.parse(raw);
     if (retiring !== undefined || stopping !== undefined) {
-      return false;
+      return { taken: false, why: "its generation is retiring or stopping" };
     }
     return await workspaces().get(id).engine.takeQueued(runId, owner);
   };

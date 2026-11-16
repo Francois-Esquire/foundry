@@ -174,6 +174,43 @@ describe("readStatus", () => {
     }
   });
 
+  it("records a retiring generation whose process is proved gone as exited, and shows one with no recorded start as cannot tell", async () => {
+    const { state } = await layout();
+    const database = await initializeDatabase(stateDatabase(state));
+    try {
+      const generations = new GenerationRecords({
+        database: database.database,
+      });
+      const dead = spawnSync("true").pid;
+      const proved = await generations.begin("proved");
+      await generations.spawned(proved, dead);
+      await generations.identify(proved, "linux:never-this-start");
+      await generations.mark(proved, "retiring");
+      const unprovedPid = spawnSync("true").pid;
+      const unproved = await generations.begin("unproved");
+      await generations.spawned(unproved, unprovedPid);
+      await generations.mark(unproved, "retiring");
+      const alive = await generations.begin("alive");
+      await generations.spawned(alive, process.pid);
+      await generations.identify(alive, startedAt(process.pid) ?? null);
+      await generations.mark(alive, "retiring");
+
+      expect(await generations.endGone()).toEqual([proved]);
+      expect((await readStatus(state)).generations).toEqual([
+        { alive: true, number: alive, pid: process.pid, state: "retiring" },
+        {
+          alive: false,
+          number: unproved,
+          pid: unprovedPid,
+          state: "cannot tell",
+        },
+      ]);
+      expect(await generations.endGone()).toEqual([]);
+    } finally {
+      database.close();
+    }
+  });
+
   it("reports a tick under way in a live process as running, and ignores a dead one's", async () => {
     const { state } = await layout();
     await seedTicks(state, "ws1", [

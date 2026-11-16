@@ -63,6 +63,7 @@ import {
   lineParamsSchema,
   loadResultSchema,
   PROTOCOL,
+  queuedTakeSchema,
   readParamsSchema,
   registerParamsSchema,
   releasedParamsSchema,
@@ -152,8 +153,9 @@ export interface Daemon {
    * asked for a switch by then (`idle` says so). For a caller that must
    * not wait on the poll's timer.
    */
-  pollNow(): Promise<void>;
+  pollNow(): Promise<boolean>;
   readonly socket: string;
+  sweepNow(): Promise<void>;
 }
 
 /** How long a generation gets to answer `stop`, and then to exit, before it is killed. */
@@ -786,6 +788,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const offering = new Map<string, Promise<void>>();
   /** When the current generation last declined each run offered, by workspace id and run id. */
   const declined = new Map<string, number>();
+  const orphansDeclined = new Map<string, number>();
+  const orphansReported = new Set<string>();
   /**
    * Runs the current generation answered it holds, by workspace id and run
    * id: not offered it again. Kept for one generation, `holding.of`.
@@ -975,11 +979,41 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       if (!gone || current !== target) {
         continue;
       }
-      try {
-        await ask(target, GENERATION_METHODS.takeQueued, { id, owner, runId });
-      } catch (error) {
-        print(`[${id}] queued run ${runId} not taken over: ${message(error)}`);
+      await offerOrphan(target, id, runId, owner);
+    }
+  }
+
+  async function offerOrphan(
+    target: Generation,
+    id: string,
+    runId: string,
+    owner: ProcessIdentity
+  ): Promise<void> {
+    const key = `${id}\0${runId}`;
+    const at = orphansDeclined.get(key);
+    if (at !== undefined && Date.now() - at < REOFFER_MS) {
+      return;
+    }
+    let why: string;
+    try {
+      const take = queuedTakeSchema.parse(
+        await ask(target, GENERATION_METHODS.takeQueued, { id, owner, runId })
+      );
+      if (take.taken) {
+        orphansDeclined.delete(key);
+        orphansReported.delete(key);
+        return;
       }
+      ({ why } = take);
+    } catch (error) {
+      why = message(error);
+    }
+    orphansDeclined.set(key, Date.now());
+    if (!orphansReported.has(key)) {
+      orphansReported.add(key);
+      print(
+        `[${id}] queued run ${runId} of gone process pid ${String(owner.pid)} left queued: ${why}; offered again every ${String(REOFFER_MS / 1000)} s`
+      );
     }
   }
 
@@ -1626,16 +1660,17 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   }
 
   /** Poll what the current generation loaded; a change asks for a switch. */
-  let polling: Promise<void> | undefined;
-  function pollTick(): Promise<void> {
+  let polling: Promise<boolean> | undefined;
+  function pollTick(): Promise<boolean> {
     if (polling !== undefined) {
       return polling;
     }
     if (stopping || switchRunning || switchTimer !== undefined) {
-      return Promise.resolve();
+      return Promise.resolve(false);
     }
     const done = pollOnce()
       .catch(() => undefined)
+      .then(() => true)
       .finally(() => {
         polling = undefined;
       });
@@ -1648,19 +1683,35 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   poll.unref();
 
   // What was let go and not taken over, notice or none, from the database.
-  let sweeping = false;
-  const sweeper = setInterval(() => {
-    if (sweeping || stopping) {
-      return;
+  let sweeping: Promise<void> | undefined;
+  function sweepTick(): Promise<void> {
+    if (sweeping !== undefined) {
+      return sweeping;
     }
-    sweeping = true;
-    sweep(undefined)
+    if (stopping) {
+      return Promise.resolve();
+    }
+    const done = Promise.all([endGoneGenerations(), sweep(undefined)])
+      .then(() => undefined)
       .catch(() => undefined)
       .finally(() => {
-        sweeping = false;
+        sweeping = undefined;
       });
+    sweeping = done;
+    return done;
+  }
+  const sweeper = setInterval(() => {
+    sweepTick().catch(() => undefined);
   }, SWEEP_MS);
   sweeper.unref();
+
+  async function endGoneGenerations(): Promise<void> {
+    for (const number of await records.endGone()) {
+      print(
+        `[marbles] engine generation ${String(number)} is gone, and recorded exited`
+      );
+    }
+  }
 
   /**
    * The workspace the source names, hosted: in the current generation at
@@ -2514,6 +2565,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     pid: process.pid,
     pollNow: () => pollTick(),
     socket: layout.socket,
+    sweepNow: () => sweepTick(),
   };
 }
 

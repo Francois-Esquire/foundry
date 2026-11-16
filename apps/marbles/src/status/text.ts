@@ -44,7 +44,9 @@ function processLine(report: StatusReport): string {
     return [
       `marbles process: pid ${daemon.pid}${daemon.version === null ? "" : ` · v${daemon.version}`}${daemon.socket === null ? "" : ` · ${daemon.socket}`}`,
       ...report.generations
-        .filter((generation) => generation.alive)
+        .filter(
+          (generation) => generation.alive || generation.state === "cannot tell"
+        )
         .map(
           (generation) =>
             `  engine generation ${String(generation.number)}: pid ${String(generation.pid)} · ${generation.state}`

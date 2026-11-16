@@ -316,6 +316,11 @@ export const queuedParamsSchema = z.object({
   runId: z.string(),
 });
 
+export const queuedTakeSchema = z.discriminatedUnion("taken", [
+  z.object({ taken: z.literal(true) }),
+  z.object({ taken: z.literal(false), why: z.string() }),
+]);
+
 export const retireParamsSchema = z.object({
   /** The generation that takes over: queued runs become its own. */
   successor: identitySchema,
