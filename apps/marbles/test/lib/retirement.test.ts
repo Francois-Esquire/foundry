@@ -76,6 +76,45 @@ describe("an engine that has begun to retire", () => {
     expect(started).toEqual(["active"]);
   });
 
+  it("refuses to resume a paused run once retirement began, before that run is let go", async () => {
+    const engine = engineHere();
+    const entered = Promise.withResolvers<void>();
+    const observing = Promise.withResolvers<void>();
+    const resumed: string[] = [];
+    engine.observe(TASKS, async () => {
+      entered.resolve();
+      await observing.promise;
+    });
+    engine.define({
+      fn: async ({ signal }: { readonly signal: AbortSignal }) => {
+        resumed.push("entered");
+        await new Promise((resolve) =>
+          signal.addEventListener("abort", resolve)
+        );
+      },
+      kind: "step",
+      name: "paused",
+    });
+    await engine.start();
+    const run = await engine.launch("paused", {});
+    run.result.catch(() => undefined);
+    await vi.waitFor(() => expect(resumed).toEqual(["entered"]));
+    expect(engine.pause(run.id, "paused", "hold")).toBe(true);
+    await vi.waitFor(() =>
+      expect(engine.executions.get(run.id)?.status).toBe("suspended")
+    );
+    await new Tasks({ store: engine.taskStore }).create({ title: "held" });
+    await entered.promise;
+    // Retirement waits on the observer: the paused run is not let go yet.
+    const retiring = engine.retire(successor());
+    await expect(engine.resume(run.id, "paused")).rejects.toMatchObject({
+      name: "QuestionMovingError",
+    });
+    expect(resumed).toEqual(["entered"]);
+    observing.resolve();
+    await retiring;
+  });
+
   it("runs a child a task active here launches after retirement began", async () => {
     const engine = engineHere();
     const gate = Promise.withResolvers<void>();

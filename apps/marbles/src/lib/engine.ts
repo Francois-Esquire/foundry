@@ -1184,7 +1184,10 @@ export class Engine {
    */
   async resume(runId: string, stepId: string, prompt?: string): Promise<void> {
     const { orchestrator } = this.#live();
-    if (this.#letGo.has(runId)) {
+    // A retiring engine resumes nothing: a parked run is let go, or about
+    // to be, and the engine taking it resumes it.
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
+    if (this.#retiring || this.#letGo.has(runId)) {
       throw new QuestionMovingError(runId);
     }
     const scope = this.#scopeOf(runId);
@@ -1193,8 +1196,10 @@ export class Engine {
       runId,
       status: "pending",
     });
-    // Let go while the pauses were read: the engine taking it resumes it.
-    if (this.#letGo.has(runId)) {
+    // Let go, or retiring, while the pauses were read: the engine taking
+    // it resumes it.
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
+    if (this.#retiring || this.#letGo.has(runId)) {
       throw new QuestionMovingError(runId);
     }
     // A pause parks a subtree, so a resume releases every pause at or
