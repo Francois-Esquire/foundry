@@ -46,7 +46,6 @@ function configDir(bare = false): string {
 
 let counter = 0;
 
-/** Whether `name` resolves from a module in `dir`, as Node and Bun resolve it. */
 function resolvable(dir: string, name: string): boolean {
   try {
     createRequire(join(dir, "probe.js")).resolve(name);
@@ -164,8 +163,6 @@ test("the stack settings are restored after a capture", async () => {
 
 test("without typescript nothing is inferred and the error says to install it", async () => {
   const dir = configDir(true);
-  // Resolution walks up from the config, so a temp directory below a
-  // `node_modules` holding typescript has it after all.
   expect(
     resolvable(dir, "typescript"),
     `an ancestor of ${dir} has typescript in a node_modules; run with a temp directory outside it`

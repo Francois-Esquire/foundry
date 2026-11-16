@@ -63,11 +63,6 @@ interface RunSummary {
 
 const RECENT = 5;
 
-/**
- * The state root as stored: the process claim, and each workspace the
- * registry records with what its directory holds. Reads only; a state root
- * without a database stays without one.
- */
 export async function readStatus(stateRoot: string): Promise<StatusReport> {
   const records = await recordedWorkspaces(stateRoot);
   const sessions: ReadonlyMap<string, number> =

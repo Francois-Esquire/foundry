@@ -14,26 +14,13 @@ import type {
 } from "./index";
 import { byCodePoint, byPathThenId, pageInputOf, pageOffset } from "./order";
 
-/** Why a call from inside the store's own transaction is refused. */
 const REENTRY =
   "MemoryWorkspaceStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
-/**
- * The default store: plain maps in this process. Every call takes a turn, so
- * a commit made while a transaction runs lands after it, and a call made from
- * inside a transaction's work is refused. A transaction works on a staged
- * copy of the maps that replaces them only when its work succeeds.
- */
 export class MemoryWorkspaceStore implements WorkspaceStore {
   private storage = new Storage();
   private readonly turns = new Turns(REENTRY);
 
-  /**
-   * Takes the write as it stands now: one `structuredClone` of it, made
-   * before the commit waits its turn, so a caller changing the write later
-   * changes nothing. A write the clone refuses rejects whole and changes
-   * nothing. A transaction's view takes its writes the same way.
-   */
   commit(write: WorkspaceStoreWrite): Promise<void> {
     return withOwnCopy(write, (copy) =>
       this.inTurn((storage) => storage.apply(copy))
@@ -95,7 +82,6 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
     return this.inTurn((storage) => storage.findWorkspaceBySourceId(sourceId));
   }
 
-  /** Reads `input` when called; see {@link pageInputOf}. */
   listWorkspaces(
     input?: PageInput<number>
   ): Promise<Page<WorkspaceRegistration, number>> {
@@ -119,7 +105,6 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
     return this.inTurn((storage) => storage.listEntries(workspaceId));
   }
 
-  /** One turn over the maps as they stand when the turn comes. */
   private inTurn<R>(answer: (storage: Storage) => R): Promise<R> {
     return this.turns.run(
       () => new Promise((resolve) => resolve(answer(this.storage)))
@@ -127,10 +112,6 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
   }
 }
 
-/**
- * The maps one store holds. A write never changes an entry map in place, so
- * a copy of the two outer maps is a full, independent snapshot.
- */
 class Storage {
   private readonly workspaces: Map<WorkspaceId, WorkspaceRegistration>;
   private readonly entries: Map<
@@ -153,7 +134,6 @@ class Storage {
     return new Storage(new Map(this.workspaces), new Map(this.entries));
   }
 
-  /** Applies `write`, the store's own copy, which the maps then hold. */
   apply(write: WorkspaceStoreWrite): void {
     if (write.workspace === undefined) {
       this.workspaces.delete(write.removeWorkspace);
@@ -163,10 +143,6 @@ class Storage {
     }
   }
 
-  /**
-   * Deletes the named entries of the saved Workspace, then files each put
-   * under its own `workspaceId`.
-   */
   private save(write: WorkspaceSave): void {
     const { workspace } = write;
     const puts = write.putEntries ?? [];
@@ -249,10 +225,6 @@ class Storage {
   }
 }
 
-/**
- * `take` with the store's own copy of `write`, or a rejection when the
- * write cannot be cloned.
- */
 function withOwnCopy(
   write: WorkspaceStoreWrite,
   take: (copy: WorkspaceStoreWrite) => Promise<void>

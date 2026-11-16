@@ -30,11 +30,6 @@ export type Catalogue = WorkspaceSystem<
 type Loaded = Awaited<ReturnType<Catalogue["load"]>>;
 export type GitOptions = NonNullable<Parameters<typeof Git.at>[1]>;
 
-/**
- * Directories and repositories on this machine: a catalogue over the local
- * filesystem, watched, whose git runs as `gitOptions` says, with its
- * registrations and entries in `store`, in memory when omitted.
- */
 export function localCatalogue(
   gitOptions: GitOptions,
   store?: WorkspaceStore

@@ -73,22 +73,10 @@ import type { StoredUsage, UsageStore } from "~/lib/usage-store";
 import { storedUsageFact } from "~/lib/usage-store";
 
 export interface OpenWorkspaceRecordsOptions extends HostDatabaseOptions {
-  /** The Marbles state root, whose `marbles.db` holds the tasks. */
   readonly state: string;
-  /** The workspace whose tasks these are: the scope of its rows. */
   readonly workspaceId: string;
 }
 
-/**
- * A workspace's tasks and their recorded changes in the Marbles database
- * of the state root `state`, for an engine's `records`: opened on the
- * first call, under the rule a host keeps (`openHostDatabase`: made and
- * migrated only under the state root's lock, otherwise required to be
- * current), and closed with it. The handle these open is theirs: `close`,
- * which the engine calls on dispose, closes it too.
- *
- * An open that fails is tried again by the next call.
- */
 export function openWorkspaceRecords(
   options: OpenWorkspaceRecordsOptions
 ): WorkspaceRecords {
@@ -98,30 +86,17 @@ export function openWorkspaceRecords(
   );
 }
 
-/**
- * A workspace's tasks and its agent sessions over one handle on the Marbles
- * database, opened at the first call to either as `openWorkspaceRecords`
- * opens its own. Closing `records` leaves the handle open, as an engine
- * closes its records before the agents that may still write a session;
- * `close`, after the engine is disposed, closes both and the handle.
- */
 export interface WorkspaceDatabase extends SideStores {
-  /** The workspace's automations over the same handle. */
   readonly automations: AutomationStore;
   close(): Promise<void>;
-  /** The workspace's Execution Runs over the same handle. */
   readonly executions: ExecutionStore;
   readonly records: WorkspaceRecords;
-  /** The workspace's workflow Runs over the same handle. */
   readonly runs: RunStore;
   readonly sessions: ListedSessionStore;
-  /** The workspace's trigger state over the same handle. */
   readonly triggers: TriggerStore;
-  /** The workspace's usage facts over the same handle. */
   readonly usage: UsageStore;
 }
 
-/** `openWorkspaceRecords`, with the workspace's sessions over the same handle. */
 export function openWorkspaceDatabase(
   options: OpenWorkspaceRecordsOptions
 ): WorkspaceDatabase {
@@ -152,11 +127,7 @@ export function openWorkspaceDatabase(
     () => Promise.resolve()
   );
   const side = new RecordsGate("the workspace database is closed");
-  // One close, however often it is asked for.
   let closing: Promise<void> | undefined;
-  // Every store closes, whatever another's close does, each waiting for
-  // its calls under way; the handle closes only once all have settled and
-  // given up their claims, and every failure is reported together.
   const shutDown = async () => {
     const closed = await Promise.allSettled([
       records.close(),
@@ -199,11 +170,6 @@ export function openWorkspaceDatabase(
   };
 }
 
-/**
- * Everything an engine given `state` keeps in the database
- * `defaultStateRoot` chooses, its sessions included, over one handle
- * (`openWorkspaceDatabase`).
- */
 export function defaultWorkspaceDatabase(
   state: string,
   root: string,
@@ -215,12 +181,6 @@ export function defaultWorkspaceDatabase(
   });
 }
 
-/**
- * The run store an engine given `state` and no `runs` keeps its workflow
- * Runs in: the database `defaultStateRoot` chooses, over a handle of
- * its own, opened at the engine's start under the rule a host keeps and
- * closed with the store.
- */
 export function defaultWorkspaceRuns(
   state: string,
   root: string,
@@ -233,10 +193,6 @@ export function defaultWorkspaceRuns(
   return new ManagedRunStore(database, workspaceId, () => database.close());
 }
 
-/**
- * The trigger store an engine given `state` and no `triggers` keeps its
- * schedules' and monitors' state in, as `defaultWorkspaceRuns` keeps runs.
- */
 export function defaultWorkspaceTriggers(
   state: string,
   root: string,
@@ -249,22 +205,10 @@ export function defaultWorkspaceTriggers(
   return new ManagedTriggerStore(database, workspaceId, () => database.close());
 }
 
-/**
- * The stores an engine keeps beside its records whose owners never close
- * them (`grants`, `approvals`, `activityStore`): what is written there
- * happens while agents run.
- */
 type SideStores = Required<
   Pick<EngineOptions, "activityStore" | "approvals" | "grants">
 >;
 
-/**
- * The side stores over `database`, scoped by `workspaceId`, each built at
- * its first call once the database is open. Every call runs through
- * `gate`, which the owner of the handle closes before it closes the
- * handle: that waits for calls under way and refuses later ones, so none
- * opens the handle again.
- */
 function sideStores(
   database: LazyDatabase,
   workspaceId: string,
@@ -299,7 +243,6 @@ function sideStores(
   };
 }
 
-/** What an engine keeps in the Marbles database when it is given `state`. */
 type DatabaseKept = Pick<
   EngineOptions,
   | "automationStore"
@@ -310,29 +253,11 @@ type DatabaseKept = Pick<
   | "usageStore"
 >;
 
-/** An engine's options with the stores it keeps in the Marbles database, and the hold its engine keeps on their handle. */
 export interface WorkspaceDatabaseOptions {
   readonly options: EngineOptions;
-  /**
-   * Give up the engine's own hold on the handle, once it has disposed. The
-   * handle closes when this and every store made here have closed.
-   * Releasing again does nothing.
-   */
   release(): Promise<void>;
 }
 
-/**
- * `options`, with each store it keeps in the Marbles database that it was
- * not handed (its tasks, workflow Runs, Execution Runs, trigger state,
- * automations, usage facts, grants, deferred approvals and activities)
- * over one handle on the database `defaultStateRoot` chooses for
- * `state`, opened at the first call to any of them under the rule a host
- * keeps. The handle closes once every store made here has closed, as the
- * engine closes each on dispose, and the engine has released its own
- * hold, since the grants, approvals and activities have no close of
- * their own and agents write them until the engine is done. A store it
- * was handed is left as it is.
- */
 export function withWorkspaceDatabase(
   options: EngineOptions & { readonly state: string }
 ): WorkspaceDatabaseOptions {
@@ -359,8 +284,6 @@ export function withWorkspaceDatabase(
     (key) => options[key] === undefined
   );
   const side = new RecordsGate("the workspace database is closed");
-  // Each store made here holds the handle, and so does the engine: each
-  // by a claim of its own, given up once however often it is released.
   let open = 0;
   const claim = (): (() => Promise<void>) => {
     open += 1;
@@ -392,15 +315,6 @@ export function withWorkspaceDatabase(
   };
 }
 
-/**
- * The state root whose database an engine given `state` keeps its records
- * in. When `state` is the directory Marbles itself places the workspace at
- * `root` in, under the state root above it (`<stateRoot>/<id>`, the id
- * derived from `root`, and `workspaceId` that id), it is that state root,
- * whose database the CLI and MCP read for that workspace. Otherwise it is
- * `state` itself, a database of the engine's own, `<state>/marbles.db`, so
- * nothing is written outside the directory the caller gave.
- */
 function defaultStateRoot(
   state: string,
   root: string,
@@ -419,21 +333,14 @@ function placedByMarbles(
   try {
     placed = workspaceState(dirname(dir), root);
   } catch {
-    // A root that cannot be resolved is no workspace Marbles placed.
     return false;
   }
   return placed.id === workspaceId && placed.dir === dir;
 }
 
-/**
- * One writer handle on a state root's database, opened at the first call
- * under the rule a host keeps (`openHostDatabase`). An open that fails is
- * tried again by the next call.
- */
 class LazyDatabase {
   readonly #options: OpenWorkspaceRecordsOptions;
   #opening: Promise<MarblesDatabase> | undefined;
-  /** Every close so far, in turn. */
   #closed: Promise<void> = Promise.resolve();
 
   constructor(options: OpenWorkspaceRecordsOptions) {
@@ -451,11 +358,6 @@ class LazyDatabase {
     return this.#opening;
   }
 
-  /**
-   * Close the handle, if one was opened; a later `open` opens another.
-   * Each close resolves only once every close before it has closed what
-   * it took, so one that overlaps a close under way waits for it.
-   */
   close(): Promise<void> {
     const opening = this.#opening;
     this.#opening = undefined;
@@ -468,23 +370,16 @@ class LazyDatabase {
   }
 }
 
-/** The handle `opening` opened, or nothing if it failed or none was opening. */
 async function settledOpen(
   opening: Promise<MarblesDatabase> | undefined
 ): Promise<MarblesDatabase | undefined> {
-  // An open that failed left nothing to close.
   return await opening?.catch(() => undefined);
 }
 
-/**
- * The value `make` builds over the database the first time it is asked
- * for, once the database is open; built again if that open failed.
- */
 class OverDatabase<T> {
   readonly #database: LazyDatabase;
   readonly #make: (database: MarblesDatabase) => T;
   #built: Promise<T> | undefined;
-  /** What `built` hands out, once it has been asked. */
   #taken: Promise<T | undefined> | undefined;
 
   constructor(database: LazyDatabase, make: (database: MarblesDatabase) => T) {
@@ -506,10 +401,6 @@ class OverDatabase<T> {
     return this.#built;
   }
 
-  /**
-   * What was built, if anything was, the same for every call; nothing is
-   * built after the first.
-   */
   built(): Promise<T | undefined> {
     this.#taken ??= (async () => await this.#built?.catch(() => undefined))();
     return this.#taken;
@@ -541,7 +432,6 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
     const store = async () => (await this.#records.get()).taskStore;
     this.taskStore = {
       commit: (write) => {
-        // The write as it stands now: the database may still be opening.
         let owned: TaskStoreWrite;
         try {
           owned = structuredClone(write);
@@ -562,10 +452,6 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
     };
   }
 
-  /**
-   * Close once, cleanup and then the release of this store's claim, and
-   * hand every caller that same close: one meanwhile waits for it.
-   */
   close(): Promise<void> {
     this.#closing ??= this.#shutDown();
     return this.#closing;
@@ -573,8 +459,6 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
 
   async #shutDown(): Promise<void> {
     await this.#gate.close();
-    // Its claim goes whatever its cleanup did, and neither failure hides
-    // the other.
     await inTurn(
       async () => {
         await (await this.#records.built())?.close();
@@ -617,11 +501,6 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
   }
 }
 
-/**
- * A workspace's sessions over a `LazyDatabase`: each call waits for the
- * database to open, and `close` refuses later calls once those made have
- * settled. A commit owns its write from the call, before the open.
- */
 class ManagedSessionStore implements ListedSessionStore {
   readonly #gate = new RecordsGate();
   #closing: Promise<void> | undefined;
@@ -638,15 +517,12 @@ class ManagedSessionStore implements ListedSessionStore {
     );
   }
 
-  /** One close, waiting for the calls under way, for every caller. */
   close(): Promise<void> {
     this.#closing ??= this.#gate.close();
     return this.#closing;
   }
 
   commit(write: SessionStoreWrite): Promise<void> {
-    // The write as it stands now, as the package store takes it, refused as
-    // it refuses it: the database may still be opening.
     let owned: SessionStoreWrite;
     try {
       owned = capturedSessionWrite(write);
@@ -681,11 +557,6 @@ class ManagedSessionStore implements ListedSessionStore {
   }
 }
 
-/**
- * A workspace's workflow Runs over a `LazyDatabase`: each call waits for the
- * database to open, and `close` refuses later calls once those made have
- * settled, then runs `release`.
- */
 class ManagedRunStore implements RunStore {
   readonly durable = true;
   readonly #gate = new RecordsGate("the run store is closed");
@@ -713,10 +584,6 @@ class ManagedRunStore implements RunStore {
     return this.#run((store) => store.claim(runId, when));
   }
 
-  /**
-   * Close once, cleanup and then the release of this store's claim, and
-   * hand every caller that same close: one meanwhile waits for it.
-   */
   close(): Promise<void> {
     this.#closing ??= this.#shutDown();
     return this.#closing;
@@ -724,8 +591,6 @@ class ManagedRunStore implements RunStore {
 
   async #shutDown(): Promise<void> {
     await this.#gate.close();
-    // Its claim goes whatever its cleanup did, and neither failure hides
-    // the other.
     await inTurn(
       async () => {
         await (await this.#store.built())?.close();
@@ -759,10 +624,6 @@ class ManagedRunStore implements RunStore {
   }
 }
 
-/**
- * A workspace's trigger state over a `LazyDatabase`, as `ManagedRunStore`
- * keeps its runs.
- */
 class ManagedTriggerStore implements TriggerStore {
   readonly #gate = new RecordsGate("the trigger store is closed");
   readonly #release: () => Promise<void>;
@@ -793,10 +654,6 @@ class ManagedTriggerStore implements TriggerStore {
     return this.#run((store) => store.clearPendingLaunch(key));
   }
 
-  /**
-   * Close once, cleanup and then the release of this store's claim, and
-   * hand every caller that same close: one meanwhile waits for it.
-   */
   close(): Promise<void> {
     this.#closing ??= this.#shutDown();
     return this.#closing;
@@ -804,8 +661,6 @@ class ManagedTriggerStore implements TriggerStore {
 
   async #shutDown(): Promise<void> {
     await this.#gate.close();
-    // Its claim goes whatever its cleanup did, and neither failure hides
-    // the other.
     await inTurn(
       async () => {
         await (await this.#store.built())?.close();
@@ -836,11 +691,6 @@ class ManagedTriggerStore implements TriggerStore {
   }
 }
 
-/**
- * A workspace's usage facts over a `LazyDatabase`: each call waits for the
- * database to open, and `close` refuses later calls once those made have
- * settled. A fact is owned from the call, before the open.
- */
 class ManagedUsageStore implements UsageStore {
   readonly #gate = new RecordsGate("the usage store is closed");
   readonly #release: () => Promise<void>;
@@ -863,10 +713,6 @@ class ManagedUsageStore implements UsageStore {
     );
   }
 
-  /**
-   * Close once, cleanup and then the release of this store's claim, and
-   * hand every caller that same close: one meanwhile waits for it.
-   */
   close(): Promise<void> {
     this.#closing ??= this.#shutDown();
     return this.#closing;
@@ -874,8 +720,6 @@ class ManagedUsageStore implements UsageStore {
 
   async #shutDown(): Promise<void> {
     await this.#gate.close();
-    // Its claim goes whatever its cleanup did, and neither failure hides
-    // the other.
     await inTurn(
       async () => {
         await (await this.#store.built())?.close();
@@ -904,7 +748,6 @@ class ManagedUsageStore implements UsageStore {
     return this.#owning(fact, (store, owned) => store.save(owned));
   }
 
-  /** `call` on a copy of `fact` taken now: the database may still be opening. */
   #owning(
     fact: RecordedUsageFact,
     call: (store: DatabaseUsageStore, owned: RecordedUsageFact) => Promise<void>
@@ -923,10 +766,6 @@ class ManagedUsageStore implements UsageStore {
   }
 }
 
-/**
- * A workspace's automations over a `LazyDatabase`, as `ManagedUsageStore`
- * keeps its facts: a record put is owned from the call, before the open.
- */
 class ManagedAutomationStore implements AutomationStore {
   readonly #gate = new RecordsGate("the automation store is closed");
   readonly #release: () => Promise<void>;
@@ -949,10 +788,6 @@ class ManagedAutomationStore implements AutomationStore {
     );
   }
 
-  /**
-   * Close once, cleanup and then the release of this store's claim, and
-   * hand every caller that same close: one meanwhile waits for it.
-   */
   close(): Promise<void> {
     this.#closing ??= this.#shutDown();
     return this.#closing;
@@ -960,8 +795,6 @@ class ManagedAutomationStore implements AutomationStore {
 
   async #shutDown(): Promise<void> {
     await this.#gate.close();
-    // Its claim goes whatever its cleanup did, and neither failure hides
-    // the other.
     await inTurn(
       async () => {
         await (await this.#store.built())?.close();
@@ -998,11 +831,6 @@ class ManagedAutomationStore implements AutomationStore {
   }
 }
 
-/**
- * A workspace's Execution Runs over a `LazyDatabase`, as
- * `ManagedUsageStore` keeps its facts: what a write is handed is owned from
- * the call, before the open.
- */
 class ManagedExecutionStore implements ExecutionStore {
   readonly #gate = new RecordsGate("the execution store is closed");
   readonly #release: () => Promise<void>;
@@ -1025,10 +853,6 @@ class ManagedExecutionStore implements ExecutionStore {
     );
   }
 
-  /**
-   * Close once, cleanup and then the release of this store's claim, and
-   * hand every caller that same close: one meanwhile waits for it.
-   */
   close(): Promise<void> {
     this.#closing ??= this.#shutDown();
     return this.#closing;
@@ -1036,8 +860,6 @@ class ManagedExecutionStore implements ExecutionStore {
 
   async #shutDown(): Promise<void> {
     await this.#gate.close();
-    // Its claim goes whatever its cleanup did, and neither failure hides
-    // the other.
     await inTurn(
       async () => {
         await (await this.#store.built())?.close();
@@ -1120,7 +942,6 @@ class ManagedExecutionStore implements ExecutionStore {
     return this.#run((store) => store.withSource(name, source));
   }
 
-  /** `call` on the stored form of `value` taken now: the database may still be opening. */
   #owning<V, T>(
     value: V,
     stored: (value: V) => V,

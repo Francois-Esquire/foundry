@@ -2,10 +2,6 @@ import type { TaskEvent } from "../../schema";
 import type { TaskStore, TaskStoreWrite } from "../../store/index";
 import { MemoryTaskStore } from "../../store/memory";
 
-/**
- * A memory store that keeps a copy of every write it is handed, whether
- * committed directly or through a transaction's view.
- */
 export class RecordingStore implements TaskStore {
   readonly writes: TaskStoreWrite[] = [];
   readonly #inner = new MemoryTaskStore();

@@ -28,7 +28,6 @@ const NO_NAME_PATTERN = /has no name/;
 
 const text = z.object({ text: z.string() });
 
-/** An engine as the loop sees it: these triggers, trigger state in memory, a stub launch. */
 function loopEngine(
   schedules: readonly Schedule[],
   started: () => void

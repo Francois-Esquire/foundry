@@ -50,11 +50,6 @@ export type SessionHarnessSettings = AgentHarnessSettings & {
   mesh?: Mesh;
   /** Node id for this harness in the mesh (defaults to "primary"). */
   nodeId?: string;
-  /**
-   * Auto-compaction: before each turn, if the active context exceeds the turn
-   * model's budget, fold older history into a summary. Best-effort — a failure
-   * never breaks a turn.
-   */
   compaction?: CompactionSettings;
 };
 
@@ -194,7 +189,6 @@ export class SessionHarness {
       if (!appended) {
         return Promise.resolve({ ...message, sessionId });
       }
-      // A rejection fails the turn (see `TransformOptions.commit`).
       return this.#sessions.appendMessage({
         metadata: message.metadata,
         parts: message.parts,

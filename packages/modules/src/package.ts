@@ -200,18 +200,9 @@ export async function importModulePackage(input: {
   const artifact = { id: validated.artifact.id, type: MODULE_MIME };
   const module = defineModule({ artifact, id: validated.module.id });
   await assertOwnsArtifactCommit(input.artifacts, "Module Package import");
-  // One registry transaction holds the ownership check, the landing and the
-  // registration, so nothing can claim the Module id or the Artifact in
-  // between. The registration commits with it, after the Content landed, so
-  // the registry never names a Content that does not exist. Landing is
-  // idempotent, so a retry after either commit fails completes the import.
   return await input.modules.transaction(async (modules) => {
     const version = await input.artifacts.transaction(async (artifacts) => {
-      // Ownership in both directions, before anything lands: a refusal here
-      // rolls this Artifact transaction back, leaving the Artifact as it was.
       if ((await artifacts.get(artifact.id)) === null) {
-        // A new Artifact: the registry names no Artifact that does not
-        // exist, so only the Module id can be taken.
         const registered = await modules.loadModule(module.id);
         if (registered !== null) {
           throw new ModuleStoreConflictError(
@@ -219,8 +210,6 @@ export async function importModulePackage(input: {
           );
         }
       } else {
-        // Refuses a Module id on another Artifact, and an Artifact another
-        // Module owns.
         await modules.registerModule({ module });
       }
       const content = await landContent(artifacts, validated);

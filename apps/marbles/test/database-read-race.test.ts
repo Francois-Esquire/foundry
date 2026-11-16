@@ -16,13 +16,6 @@ import { initializeDatabase, readDatabase } from "~/database/open";
 import { marblesWorkspaces } from "~/database/tables";
 import { recordSpawned } from "~/process/spawned";
 
-/**
- * The race `readDatabase` narrows but cannot close: the last writer closes
- * between the reader's connection opening and its first read. The reader's
- * first schema query is held until the writer, another process, has closed
- * and taken the side files with it, which `holder` makes happen on every
- * run.
- */
 const race = vi.hoisted(() => ({
   before: undefined as (() => Promise<void>) | undefined,
 }));
@@ -56,15 +49,6 @@ const ids = (database: StoreDatabase) =>
     .from(marblesWorkspaces)
     .then((rows) => rows.map(({ id }) => id).sort());
 
-/**
- * A process holding `file` open, with `id` recorded, until told to close.
- * Marbles makes and fills the file in a process of its own, which exits;
- * the holder then opens it with `bun:sqlite`, as its only connection.
- * Its close is SQLite's own, done when `close` returns: as the last
- * connection it checkpoints and takes the side files with it, on every
- * platform. libSQL's would wait for its native connection to be collected,
- * which a process may exit before, leaving them in place.
- */
 async function holder(dir: string, file: string, id: string) {
   const seed = join(dir, "seed.ts");
   writeFileSync(
@@ -141,19 +125,12 @@ it("survives the last writer closing between its open and its first read", async
     raced = !(existsSync(`${file}-wal`) || existsSync(`${file}-shm`));
   };
 
-  // The reader returns what was committed.
   expect(await readDatabase(file, ids)).toEqual(["a"]);
-  // The writer went, and took the side files, between the reader's open
-  // and its first read.
   expect(raced).toBe(true);
-  // What the race may leave is an empty WAL file and the shared-memory
-  // index of it, which no process has open, and nothing else.
   expect(statSync(`${file}-wal`, { throwIfNoEntry: false })?.size ?? 0).toBe(0);
 
-  // The next reader reads past it.
   expect(await readDatabase(file, ids)).toEqual(["a"]);
 
-  // The next Marbles process opens it and migrates it as usual, losing nothing.
   const next = join(dir, "migrations-next");
   cpSync(MIGRATIONS, next, { recursive: true });
   const journal = JSON.parse(

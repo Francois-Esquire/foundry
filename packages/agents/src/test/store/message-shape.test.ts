@@ -14,7 +14,6 @@ import {
   shapeFieldNames,
 } from "../../store/message-shape";
 
-/** One capability of every kind. */
 const CAPABILITIES = [
   { domain: "example.com", kind: "web.fetch" },
   { kind: "mcp.tool", serverId: "server", tool: "search" },
@@ -29,7 +28,6 @@ const CAPABILITIES = [
   { kind: "tool.call", source: "builtin", tool: "read" },
 ] as const;
 
-/** One part of every type, every optional field set, every capability kind. */
 const PARTS: SessionPart[] = [
   {
     event: {
@@ -146,7 +144,6 @@ const METADATA: SessionMessage["metadata"] & object = {
   },
 };
 
-/** Values put in place of each field in turn. */
 const PROBES: readonly unknown[] = [
   null,
   "",
@@ -167,7 +164,6 @@ const PROBES: readonly unknown[] = [
 
 type Path = readonly (string | number)[];
 
-/** Every path to a value inside `value`, the root excluded. */
 function paths(value: unknown, at: Path = []): Path[] {
   if (Array.isArray(value)) {
     return value.flatMap((item, index) => [
@@ -184,7 +180,6 @@ function paths(value: unknown, at: Path = []): Path[] {
   return [];
 }
 
-/** `value` with the node at `path` changed by `change`, which edits its parent. */
 function changed(
   value: unknown,
   path: Path,
@@ -202,7 +197,6 @@ function changed(
   return copy;
 }
 
-/** Every variant of `sample`: each field dropped, replaced by each probe, and each object given an unknown field. */
 function variants(
   sample: unknown
 ): { readonly how: string; readonly value: unknown }[] {
@@ -243,7 +237,6 @@ function variants(
   });
 }
 
-/** The variants on which the shape check and the schema disagree. */
 function disagreements(
   samples: readonly unknown[],
   shapeAccepts: (value: unknown) => boolean,

@@ -15,19 +15,11 @@ export interface ProviderSetupOptions {
   readonly confirm: (question: string) => Promise<boolean>;
   readonly plugins?: readonly RegisteredPlugin[];
   readonly print: (line: string) => void;
-  /** The Marbles state root, whose database the machine's configuration is written to. */
   readonly state: string;
   /** The workspace being run: its own configuration counts as configured. */
   readonly workspace?: Omit<ProviderWorkspace, "env">;
 }
 
-/**
- * First setup for an interactive run with no provider configuration: show
- * what each plugin detects, in preference order, and write it for the whole
- * machine only when the person confirms. An id a workspace already uses is
- * not offered. Nothing is written otherwise, and a configuration another process
- * wrote while the question was open is kept.
- */
 export async function setupProviders(
   options: ProviderSetupOptions
 ): Promise<void> {

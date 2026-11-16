@@ -31,10 +31,6 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-/**
- * A home of the test's own, which the daemon a test starts lives in too:
- * `connect` hands a daemon it starts this process's environment.
- */
 function machine(): Layout {
   const home = testHome({ providers: false });
   vi.stubEnv("FOUNDRY_HOME", home.path);
@@ -136,7 +132,6 @@ describe("connecting to the Marbles process", () => {
 
   it("refuses another artifact store before it would replace an older daemon", async () => {
     const at = machine();
-    // A layout of a host's own making: one home cannot name two stores.
     const elsewhere = {
       ...layout({ home: at.home }),
       artifacts: join(at.home, "elsewhere"),

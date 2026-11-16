@@ -42,7 +42,6 @@ function repository(scope = "ws"): StoredAgentGrantRepository {
   );
 }
 
-/** The document as the database keeps it, or a replacement written in its place. */
 async function stored(): Promise<string | undefined> {
   const [row] = await opened.database
     .select({ grants: marblesAgentGrants.grants })
@@ -92,7 +91,6 @@ it("preserves grant metadata, ordering and unique ids through reopen", async () 
     format: "agent-grants/1",
     sequence: 2,
   });
-  // Each workspace's grants are its own.
   expect(await repository("another").find(address, now)).toEqual([]);
 });
 

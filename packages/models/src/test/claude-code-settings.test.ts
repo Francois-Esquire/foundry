@@ -4,8 +4,6 @@ import {
 } from "ai-sdk-provider-claude-code";
 import { expect, it } from "vitest";
 
-// The fresh-call mark reads the instance's public `settings`. This pins
-// that they hold the provider's default settings merged with the model's.
 it("exposes default settings merged into a Claude Code model's settings", () => {
   const model = createClaudeCode({
     defaultSettings: { resume: "earlier", sdkOptions: { continue: true } },

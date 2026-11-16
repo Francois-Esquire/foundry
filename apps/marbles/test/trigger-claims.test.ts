@@ -1,11 +1,3 @@
-/**
- * Two engines over one Marbles database tick the same trigger: what a tick
- * decides on (whether it is still due, whether a monitor has a launch to
- * start) is read once its claim is held, so a tick that finished between
- * another's look and its claim is never repeated, and a monitor's pending
- * launch is started once.
- */
-
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -46,7 +38,6 @@ async function twoEngines(): Promise<{
   };
 }
 
-/** `triggers`, running `before` ahead of each claim. */
 function claimingAfter(
   triggers: TriggerStore,
   before: () => Promise<void>
@@ -116,7 +107,6 @@ it("does not run a tick another engine finished between this one's look and its 
     }
   );
 
-  // The loop found it due; the first engine ticked it before the claim.
   await expect(
     tick(secondEngine, every, {
       now: () => 10_000,
@@ -142,7 +132,6 @@ it("starts a monitor's pending launch once when two engines tick it", async () =
   });
   const shipped: string[] = [];
   const lines: string[] = [];
-  /** The detector as a monitor runs it: a pending launch first, else nothing changed. */
   const detect = async (triggers: TriggerStore) => {
     const kept = await triggers.monitorState("watch");
     return kept?.pending
@@ -158,7 +147,6 @@ it("starts a monitor's pending launch once when two engines tick it", async () =
       return detect(first);
     }
     shipped.push("first");
-    // While the first engine is starting the launch, the second ticks.
     secondTick = tick(secondEngine, monitor, {
       print: (line) => lines.push(line),
     });
@@ -168,7 +156,6 @@ it("starts a monitor's pending launch once when two engines tick it", async () =
   await tick(firstEngine, monitor, { print: () => undefined });
   expect(await secondTick).toBeUndefined();
   expect(lines).toEqual(["[schedule] watch skipped: held by this process"]);
-  // Its launch was started and cleared: the next tick polls.
   await expect(
     tick(secondEngine, monitor, { print: () => undefined })
   ).resolves.toEqual({ value: { changed: false } });

@@ -18,7 +18,6 @@ export async function inspectDashboard(
       rows: 40,
     },
   });
-  // On a terminal, a session and process group of its own.
   recordSpawned(child.pid, true);
   async function waitFor(text: string) {
     const deadline = Date.now() + 8000;

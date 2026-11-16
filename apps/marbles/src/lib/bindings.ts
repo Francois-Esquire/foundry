@@ -24,7 +24,6 @@ export interface ManagerArgs {
 export interface HostBindings {
   /** The workspace system; file monitors read the tree through it. */
   readonly catalogue?: Catalogue;
-  /** The engine's trigger store; monitors keep what they last saw in it. */
   readonly triggers?: TriggerStore;
 }
 

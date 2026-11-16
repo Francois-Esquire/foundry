@@ -29,7 +29,6 @@ function scratch(): string {
   return root;
 }
 
-/** An engine of the published class over `state`, as an embedder builds one. */
 function published(
   state: string | undefined,
   workspaceId: string,
@@ -45,7 +44,6 @@ function published(
   });
 }
 
-/** Create a task through one engine, dispose it, and read it through a new one. */
 async function across(
   make: () => Engine
 ): Promise<{ readonly id: string; readonly read: string | undefined }> {
@@ -152,7 +150,6 @@ describe("the published Engine", () => {
       const started = Date.now();
       const { read } = await across(() => published(state, "claimed"));
       expect(read).toBe("Kept");
-      // Its own lock: nothing waited for another process to make the database.
       expect(Date.now() - started).toBeLessThan(4000);
       expect(readProcess(state)?.pid).toBe(process.pid);
     } finally {

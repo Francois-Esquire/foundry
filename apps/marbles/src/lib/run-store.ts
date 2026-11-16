@@ -12,92 +12,31 @@ import type { LifecycleChange } from "~/lib/execution-store";
 import type { RecordedScope } from "~/lib/run-scope";
 import { storableJson } from "~/lib/state/json";
 
-/**
- * Where an engine keeps its workflow Runs: the `@foundry/workflows` records
- * its Orchestrator runs over, and beside each Run what the run's scope
- * recorded (`RecordedScope`) and which engine owns it. A Run is owned by
- * the engine that dispatched or adopted it until it settles or the engine
- * stops; an owner that has exited owns nothing.
- *
- * The store enforces no rule of the engine's: which parked Runs an engine
- * takes on at start is `lib/run-recovery.ts`, and which Runs may be removed
- * is the Execution Runs' retention (`ExecutionRecords.prune`). It keeps
- * what it is told, and a claim takes effect atomically, so two engines
- * over one store never both own a Run.
- *
- * `MemoryRunStore` keeps everything in this process; the Marbles database
- * keeps it on disk (`database/runs.ts`), where it outlives the process.
- */
 export interface RunStore {
-  /**
-   * Own a Run no live engine owns, while the Run as stored satisfies
-   * `when`, read in the same atomic step as the claim, so no change to the
-   * Run lands between the decision and the claim; whether this store owns
-   * it now. Every claim says what it requires of the Run
-   * (`ANY_STORED_RUN` when ownership is all it decides on).
-   */
   claim(runId: string, when: ClaimCondition): Promise<boolean>;
-  /** Refuse every call from now on; a handle the store opened itself closes. */
   close(): Promise<void>;
-  /**
-   * Whether what it keeps outlives the process, so a Run parked here is
-   * adopted by the next process that can answer it.
-   */
   readonly durable: boolean;
-  /**
-   * The workflow records, once per engine. Every commit that puts a Run
-   * files beside it, in the same transaction, what `recorded` answers for
-   * it, and makes this store its owner until a commit settles it. A store
-   * that outlives the process also replaces, in that transaction, the
-   * Execution Run `follows` answers for each Run the commit puts, where
-   * it keeps Execution Runs itself, so the two land together or not at
-   * all; one held in memory, which no crash can split, leaves that to the
-   * engine.
-   */
   open(
     recorded: (runId: string) => RecordedScope | undefined,
     follows?: RunFollower
   ): Promise<WorkflowStore>;
-  /** What the Run's scope last recorded: an empty ledger when it recorded nothing. */
   recorded(runId: string): Promise<StoredScope>;
-  /** Give up the Run, or with no id every Run this store owns, as its engine stops. */
   release(runId?: string): Promise<void>;
-  /** A settled Run and everything kept of it, gone in one write. */
   remove(runId: string): Promise<void>;
 }
 
-/**
- * The lifecycle change a Run committed with `status` makes of its
- * Execution Run in the same commit, from what its engine holds now;
- * `undefined` to leave it. Asked inside the commit's transaction, so it
- * changes nothing itself; the store makes the change only when it allows
- * the Execution Run as stored (`ExecutionStore`).
- */
 export type RunFollower = (
   runId: string,
   status: string
 ) => LifecycleChange | undefined;
 
-/**
- * Whether a Run may be claimed: as the store holds it at the claim
- * (`null` when it holds none), and its Execution Run as the store holds it
- * beside the Run, read in the same step (`null` when it holds none;
- * `undefined` from a store that keeps no Execution Runs, as one in memory
- * keeps none). Asked inside the claim's atomic step, so it must only read:
- * what it is told and what this process already holds.
- */
 export type ClaimCondition = (
   stored: RunRecord | null,
   execution?: ExecutionRun | null
 ) => boolean;
 
-/** A claim that requires nothing of the Run: ownership is all it decides. */
 export const ANY_STORED_RUN: ClaimCondition = () => true;
 
-/**
- * What a Run's scope recorded, as the store gives it back: the ledger and
- * literals as they were, and the session's id when one was recorded.
- */
 export interface StoredScope {
   readonly ledger: Readonly<Record<string, unknown>>;
   readonly literals?: RecordedScope["literals"];
@@ -106,15 +45,9 @@ export interface StoredScope {
 
 type TerminalRunStatus = "complete" | "failed" | "cancelled";
 
-/** Run statuses that are settled for good: nothing will run, resume, or need cancelling. */
 export const TERMINAL_RUN_STATUSES: ReadonlySet<string> =
   new Set<TerminalRunStatus>(["complete", "failed", "cancelled"]);
 
-/**
- * The write that removes a Run and everything the workflow records hold of
- * it: its frames, its Suspensions, its Job and itself. Read through
- * `store`, which a caller hands the view of the transaction it commits in.
- */
 export async function removalOf(
   store: WorkflowStore,
   runId: string
@@ -143,14 +76,6 @@ export async function removalOf(
   };
 }
 
-/**
- * How a commit's Runs change what is kept beside them: for each Run put,
- * the scope recorded for it when there is one, as a plain copy, and
- * whether the commit settles it. Shared by every store, so they cannot
- * read a commit differently. A recording JSON would not give back as it
- * is (`storableJson`) throws a `NotStorableError` naming it, and the
- * commit is refused whole.
- */
 export function filedRuns(
   write: WorkflowStoreWrite,
   recorded: (runId: string) => RecordedScope | undefined
@@ -169,7 +94,6 @@ export function filedRuns(
   });
 }
 
-/** The plain copy of what a Run's scope recorded that every store keeps. */
 function storedScope(runId: string, scope: RecordedScope): RecordedScope {
   const at = `run ${JSON.stringify(runId)}`;
   return {
@@ -191,12 +115,6 @@ function storedScope(runId: string, scope: RecordedScope): RecordedScope {
   };
 }
 
-/**
- * The run store held in this process: nothing outlives it, so a parked Run
- * is never adopted by a later process, and no crash can leave a Run and
- * its Execution Run apart: it writes no Execution Run with a Run. Each
- * engine has its own.
- */
 export class MemoryRunStore implements RunStore {
   readonly durable = false;
   readonly #gate = new RecordsGate("the run store is closed");
@@ -207,7 +125,6 @@ export class MemoryRunStore implements RunStore {
 
   claim(runId: string, when: ClaimCondition): Promise<boolean> {
     return this.#gate.run(() =>
-      // In the workflow records' own transaction: nothing commits between.
       this.#workflows.transaction(async (view) => {
         if (!when(await view.getRun(runId))) {
           return false;
@@ -240,8 +157,6 @@ export class MemoryRunStore implements RunStore {
 
   recorded(runId: string): Promise<StoredScope> {
     return this.#gate.run(() => {
-      // A copy, as the database reads one, so a caller changing what it
-      // is given changes nothing kept here.
       const scope = structuredClone(this.#scopes.get(runId));
       return Promise.resolve(
         scope === undefined
@@ -295,11 +210,6 @@ export class MemoryRunStore implements RunStore {
     }
   }
 
-  /**
-   * `store`, handing `filed` what each commit files once it has landed: a
-   * transaction's commits once the transaction has. Each of its calls is
-   * made `through` what is given, a transaction's view's as they are.
-   */
   #filing(
     store: WorkflowStore,
     recorded: (runId: string) => RecordedScope | undefined,
@@ -313,7 +223,6 @@ export class MemoryRunStore implements RunStore {
     const { transaction } = store;
     return {
       commit: (write) => {
-        // Taken as the commit is called, as the store takes its write.
         let taken: Filed;
         try {
           taken = {
@@ -369,7 +278,6 @@ export class MemoryRunStore implements RunStore {
   }
 }
 
-/** What one commit files beside its Runs. */
 interface Filed {
   readonly deleted: readonly string[];
   readonly runs: ReturnType<typeof filedRuns>;

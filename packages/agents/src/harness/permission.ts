@@ -260,7 +260,6 @@ export async function resolveHarnessApproval(
     );
   }
   if (part.approvalMode === "deferred") {
-    // Asked again where the answer is stored, which alone decides.
     if (hasResponse(history, approvalId)) {
       throw new Error(`Approval "${approvalId}" already has a response`);
     }
@@ -320,17 +319,6 @@ function hasResponse(
   );
 }
 
-/**
- * A deferred request is answered once: the first answer stored wins. Its
- * response is appended only to a history that has none, in one store
- * transaction (`Sessions.appendMessageIf`), so of two hosts answering the
- * same request at once, in one process or two, exactly one records its
- * answer; the other is refused as already answered and grants nothing.
- * Only then does the winner resolve the grant through policy, so no
- * authority is issued for an answer that lost. A grant policy refuses
- * after the answer was recorded issues no authority either: a later
- * invocation is decided by the grants, never by the transcript.
- */
 async function answerDeferredApproval(
   settings: Pick<HarnessAuthoritySettings, "store" | "policy">,
   auth: AgentAuthorizationRequest,

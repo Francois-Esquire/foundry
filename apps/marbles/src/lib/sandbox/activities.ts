@@ -14,7 +14,6 @@ const sourceSchema = z.object({
 });
 export type ActivitySource = z.infer<typeof sourceSchema>;
 
-/** An activity as it is kept, read back through this. */
 export const activityRecordSchema = z.object({
   event: z.object({
     actions: z.array(z.literal("stop")).optional(),
@@ -46,15 +45,8 @@ export interface ActivityRecord {
   readonly source: ActivitySource;
 }
 
-/**
- * Where a workspace's harness activities are kept: the Marbles database's
- * for a host (`database/activities.ts`), nowhere but the projection's own
- * memory without one.
- */
 export interface ActivityStore {
-  /** Every activity kept, its latest revision each. */
   load(): Promise<readonly ActivityRecord[]>;
-  /** Keep `record` as the activity `key`, unless a revision as high is kept already. */
   put(key: string, record: ActivityRecord): Promise<void>;
 }
 
@@ -71,11 +63,9 @@ export class HarnessActivities {
     this.#feed = options.feed;
   }
 
-  /** Read what the store keeps, before the engine runs anything; without one there is nothing. */
   async load(): Promise<void> {
     for (const record of (await this.#store?.load()) ?? []) {
       const key = this.#key(record);
-      // One recorded while this read keeps its place if it is newer.
       const kept = this.#records.get(key);
       if (kept === undefined || kept.event.revision < record.event.revision) {
         this.#records.set(key, record);
@@ -141,8 +131,6 @@ export class HarnessActivities {
       return;
     }
     await this.#store?.put(key, record);
-    // Asked again once the store has it: an overlapping call may have kept
-    // a higher revision meanwhile, which the store kept too.
     if (newer()) {
       return;
     }

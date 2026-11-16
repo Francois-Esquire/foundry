@@ -15,7 +15,6 @@ import type {
   WorkflowSnapshot,
 } from "../schema";
 
-/** The Run record contract callers had before the record moved to Zod. */
 interface RunRecordContract {
   definition?: DefinitionReference;
   error: ErrorShape | null;
@@ -41,8 +40,6 @@ test("RunRecord stays assignable to and from its contract", () => {
 });
 
 test("absent definition and links are exact optionals, never undefined", () => {
-  // Under exactOptionalPropertyTypes the contract forbids an explicit
-  // undefined; `.optional()` would infer `?: T | undefined` instead.
   expectTypeOf<Shape["definition"]>().toEqualTypeOf<
     z.ZodExactOptional<typeof DefinitionReferenceSchema>
   >();

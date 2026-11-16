@@ -64,13 +64,6 @@ const catalog = {
   capabilities: [{ capability: WEATHER, version: 1 }],
 } as unknown as Pick<ModuleCapabilityCatalog, "capabilities">;
 
-/**
- * One Module over in-memory Artifacts and Store, with Versions published
- * through `ModuleProjects.publish` from saved source, and a supervisor whose
- * Programs "start" at once without a VM. `registry` replaces the default
- * in-memory one; `files` replaces the recording files fake, and
- * `stopRetainedContainer` the supervisor's no-op one.
- */
 export async function publishedModule(
   options: {
     readonly files?: ModuleInstallationFiles;

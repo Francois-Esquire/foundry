@@ -5,24 +5,6 @@ import type {
   ModuleStoreWrite,
 } from "../store";
 
-/**
- * How every store takes a write or a list query from its caller: each
- * property the interface names is read once, by name, so a property that is
- * a getter on a prototype is read like any other, and nothing else on the
- * object is read. Every record a write puts must be plain data, and is
- * captured field by field into a new plain object, so both stores and their
- * transaction views start from the same capture and cannot keep a write
- * differently. A store then copies the capture (`structuredClone`) so that
- * nothing it keeps is shared with the caller.
- *
- * A capture refuses, with a `TypeError` naming the property, what neither
- * store could keep as the caller sees it: a list that is not an array, a
- * delete key that is not text, a record that is not plain data, and a field
- * of the wrong type. What only SQLite cannot keep (U+0000 in text, `-0`, an
- * invalid `Date`, a value JSON changes) is the SQLite store's own refusal.
- */
-
-/** Every property of a write, each `true`, so a property added to the type must be added here. */
 const WRITE_PROPERTIES = {
   deleteInstallations: true,
   deleteManifests: true,
@@ -43,10 +25,6 @@ const CAPTURES: Record<keyof ModuleStoreWrite, Capture> = {
   putModules: module,
 };
 
-/**
- * `write`'s properties, each read once, in a plain object that holds only
- * the ones that are not `undefined`, every record captured field by field.
- */
 export function capturedWrite(write: ModuleStoreWrite): ModuleStoreWrite {
   const captured: Record<string, unknown> = {};
   for (const property of Object.keys(
@@ -62,7 +40,6 @@ export function capturedWrite(write: ModuleStoreWrite): ModuleStoreWrite {
     const capture = CAPTURES[property];
     const items: unknown[] = [];
     for (let index = 0; index < value.length; index += 1) {
-      // Each entry is read once; the capture holds what that read gave.
       items.push(capture(value[index], `${property}[${index}]`));
     }
     captured[property] = items;
@@ -72,7 +49,6 @@ export function capturedWrite(write: ModuleStoreWrite): ModuleStoreWrite {
 
 type AnyListQuery = InstallationListQuery & ManifestListQuery & ModuleListQuery;
 
-/** Every property of any list query, each `true`. */
 const QUERY_PROPERTIES = {
   after: true,
   artifactId: true,
@@ -80,12 +56,6 @@ const QUERY_PROPERTIES = {
   moduleId: true,
 } as const satisfies Record<keyof AnyListQuery, true>;
 
-/**
- * `query`'s properties, each read once, in a plain object; `undefined` ones
- * left out. Refuses, with a `TypeError`, an `artifactId` or `moduleId` that
- * is not text, which the stores would otherwise match differently. `limit`
- * and `after` are checked by the caller (`ownedQuery`).
- */
 export function capturedQuery<Q extends object>(query: Q): Q {
   const captured: Record<string, unknown> = {};
   for (const property of Object.keys(QUERY_PROPERTIES)) {
@@ -201,12 +171,6 @@ function date(
   return value;
 }
 
-/**
- * `value` as a record whose fields can be read, when it is plain data: an
- * object made by `{}` or `Object.create(null)` with every own property
- * enumerable and none keyed by a symbol. A copy of anything else could keep
- * less than the record shows, and differently in each store.
- */
 function plain(value: unknown, at: string): Readonly<Record<string, unknown>> {
   if (!isPlainObject(value)) {
     throw new TypeError(
@@ -216,15 +180,6 @@ function plain(value: unknown, at: string): Readonly<Record<string, unknown>> {
   return value as Readonly<Record<string, unknown>>;
 }
 
-/**
- * A detached copy of a JSON document, made in one pass that reads each
- * property exactly once and validates what that read gave: every object
- * plain (see {@link plain}), every array a plain array without holes, every
- * other value a string, a number, a boolean or `null`, and no value inside
- * itself. A getter is therefore called once, and the copy holds what it
- * returned; nothing is read again later to copy it. Refuses anything else
- * with a `TypeError` naming the path.
- */
 export function plainCopy(
   value: unknown,
   at: string,
@@ -262,7 +217,6 @@ export function plainCopy(
     const record = plain(value, at);
     const copy: Record<string, unknown> = {};
     for (const field of Object.keys(record)) {
-      // One read per property: the copy keeps exactly what was checked.
       const item: unknown = Reflect.get(record, field);
       Object.defineProperty(copy, field, {
         configurable: true,

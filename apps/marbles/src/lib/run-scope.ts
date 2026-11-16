@@ -97,12 +97,6 @@ export function workingDirectory(fallback: string): string {
 
 type Literal = Readonly<Record<string, unknown>>;
 
-/**
- * What a run's scope recorded: the ledger of what its steps opened, each
- * node's literal input, and the run's own session. Kept beside the Run, so
- * a parked run rebuilt in a later process finds the same sessions and
- * artifacts; consumed when its scope is rebuilt.
- */
 export interface RecordedScope {
   readonly ledger: Readonly<Record<string, unknown>>;
   /** Each node's literal input by step path, as locked when the run started. */
@@ -141,7 +135,6 @@ export class RunScope {
     }
   }
 
-  /** What this scope has recorded so far, as a later process rebuilds it from. */
   recorded(): RecordedScope {
     return {
       ledger: this.ledger.toJSON(),

@@ -33,10 +33,8 @@ import { libsqlDatabases } from "./helpers/sqlite";
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
 
-/** What SQLite says when a lock it needs is held. */
 const LOCKED = /locked|busy/i;
 
-/** Text SQLite does not give back intact, each made from a plain string. */
 const UNSTORABLE: [string, (plain: string) => string][] = [
   ["U+0000", (plain) => `${plain}\u0000tail`],
   ["a lone high surrogate", (plain) => `${plain}\uD800`],
@@ -124,7 +122,6 @@ async function held(store: SqliteModuleStore) {
   };
 }
 
-/** A host table, written in the same transaction as a commit. */
 const changes = sqliteTable("changes", {
   write: text("write", { mode: "json" }).notNull(),
 });
@@ -191,7 +188,6 @@ describe("SqliteModuleStore", () => {
         await expect(store.commit(write)).rejects.toThrow(
           `cannot store ${field}: text holding U+0000 or a lone surrogate`
         );
-        // A commit through a transaction's view is checked the same way.
         await expect(
           store.transaction((view) => view.commit(write))
         ).rejects.toThrow(`cannot store ${field}`);
@@ -204,7 +200,6 @@ describe("SqliteModuleStore", () => {
 
       expect(committed).toBe(1);
       expect(await held(store)).toEqual(before);
-      // JSON columns escape it, so a manifest and a Grant keep it.
       const json = installation("json", kept, {
         grants: [grant(bad("capability"), { constraintsDigest: bad("d") })],
       });
@@ -218,8 +213,6 @@ describe("SqliteModuleStore", () => {
     }
   );
 
-  // What every store refuses (a field of the wrong type, data that is not
-  // plain) is in the conformance suite; these are SQLite's own limits.
   test("refuses, before writing anything, a value SQLite or JSON would give back changed, naming it", async () => {
     let committed = 0;
     const store = await storeOn({
@@ -304,7 +297,6 @@ describe("SqliteModuleStore", () => {
         }),
         installation("fractional", owner, {
           grants: [
-            // Kept in the order put, not sorted.
             grant("z.last", { version: 2.5 }),
             grant("a.first", { createdAt: new Date(-1), version: -3 }),
           ],
@@ -368,8 +360,6 @@ describe("SqliteModuleStore", () => {
     "a read, filter or delete by a key holding %s touches no other row",
     async (_kind, bad) => {
       const store = await storeOn();
-      // What a lone surrogate turns into when bound: U+FFFD on Node, nothing
-      // on Bun; and what a NUL cuts text to.
       const lookalikes = ["�", "", "x"].map((id) => module(id, id));
       await store.commit({
         putInstallations: lookalikes.map((owner) =>
@@ -479,7 +469,6 @@ describe("SqliteModuleStore", () => {
         write.putModules.push(module("late"));
       };
 
-      // Queued behind a transaction, then through a transaction's view.
       const release = Promise.withResolvers<void>();
       const entered = Promise.withResolvers<void>();
       const running = store.transaction(async () => {
@@ -537,7 +526,6 @@ describe("SqliteModuleStore", () => {
         await attempt(() => outer.listManifests());
         await attempt(() => outer.commit({}));
         await attempt(() => outer.transaction(() => Promise.resolve()));
-        // The transaction it is given is the way in.
         await transaction.select().from(modules);
       },
       scope: "s",
@@ -664,7 +652,6 @@ describe("SqliteModuleStore", () => {
     "a scope with rows but no counter yet starts past them, from %s",
     async (_first, write: ModuleStoreWrite) => {
       const database = await memory.open();
-      // Rows a store wrote before it kept a counter.
       await database.insert(modules).values(
         ["a", "b", "c"].map((id, index) => ({
           ...module(id),
@@ -684,7 +671,6 @@ describe("SqliteModuleStore", () => {
         .from(modules)
         .where(eq(modules.scope, "s"));
       const e = positions.find((row) => row.id === "e");
-      // Never 3, the position `c` held, nor any other a row has had.
       expect(e?.position).toBeGreaterThan(3);
       expect(new Set(positions.map((row) => row.position)).size).toBe(
         positions.length
@@ -694,8 +680,6 @@ describe("SqliteModuleStore", () => {
 
   test("a write that fails part-way through its transaction leaves nothing", async () => {
     const database = await memory.open();
-    // The installations table is gone, so the commit fails after it has
-    // written the Module and the manifest, inside its transaction.
     await database.run(sql`DROP TABLE "module_installations"`);
     const store = new SqliteModuleStore({ database, scope: "s" });
     const owner = module("a");
@@ -814,7 +798,6 @@ describe("module tables", () => {
   });
 });
 
-/** Each record column, by field name, and whether it takes `null`. */
 function columnsOf(
   table: typeof modules | typeof moduleManifests | typeof moduleInstallations
 ) {
@@ -825,7 +808,6 @@ function columnsOf(
   );
 }
 
-/** Each schema field and whether it accepts `null`. */
 function fieldsOf(shape: Readonly<Record<string, z.ZodType>>) {
   return Object.fromEntries(
     Object.entries(shape).map(([key, field]) => [

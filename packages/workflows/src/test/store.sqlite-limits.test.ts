@@ -34,7 +34,6 @@ import { libsqlDatabases } from "./helpers/sqlite";
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
 
-/** Text SQLite does not give back intact, each made from a plain string. */
 const UNSTORABLE: [string, (plain: string) => string][] = [
   ["U+0000", (plain) => `${plain}\u0000tail`],
   ["a lone high surrogate", (plain) => `${plain}\uD800`],
@@ -109,7 +108,6 @@ const everything: WorkflowStoreWrite = {
   putSuspensions: [suspension],
 };
 
-/** A host table, written in the same transaction as a commit. */
 const changes = sqliteTable("changes", {
   write: text("write", { mode: "json" }).notNull(),
 });
@@ -120,7 +118,6 @@ async function withChanges() {
   return database;
 }
 
-/** Every record in the store, read whole. */
 async function contents(store: SqliteWorkflowStore) {
   const limit = 1000;
   return {
@@ -196,7 +193,6 @@ describe("SqliteWorkflowStore storage limits", () => {
         await expect(store.commit(write)).rejects.toThrow(
           `cannot store ${field}: text holding U+0000 or a lone surrogate`
         );
-        // A commit through a transaction's view is checked the same way.
         await expect(
           store.transaction((view) => view.commit(write))
         ).rejects.toThrow(`cannot store ${field}`);
@@ -204,7 +200,6 @@ describe("SqliteWorkflowStore storage limits", () => {
 
       expect(committed).toBe(1);
       expect(await contents(store)).toStrictEqual(before);
-      // JSON columns escape it, so the JSON fields keep it.
       const json: RunRecord = {
         ...run,
         id: "rn-json",
@@ -224,8 +219,6 @@ describe("SqliteWorkflowStore storage limits", () => {
         database: await memory.open(),
         scope: "s",
       });
-      // What a lone surrogate turns into when bound: U+FFFD on Node, nothing
-      // on Bun; and what a NUL cuts text to.
       const lookalikes = ["\uFFFD", "x", "\uFFFDx", "x\uFFFD"].map((tail) => ({
         ...run,
         id: `rn-${tail}`,
@@ -475,7 +468,6 @@ describe("SqliteWorkflowStore storage limits", () => {
         await attempt(() => outer.listRuns({ limit: 1 }));
         await attempt(() => outer.commit({}));
         await attempt(() => outer.transaction(() => Promise.resolve()));
-        // The transaction it is given is the way in.
         await transaction.select().from(workflowRuns);
       },
       scope: "s",
@@ -612,7 +604,6 @@ describe("SqliteWorkflowStore writes and positions", () => {
       await new SqliteWorkflowStore({ database: first, scope: "s" }).commit({
         putRuns: [named("rn-a"), named("rn-b"), named("rn-x")],
       });
-      // A scope whose rows predate `workflow_positions`: no counter row.
       await first.run(sql`DELETE FROM workflow_positions WHERE scope = 's'`);
       const before = new SqliteWorkflowStore({
         database: await files.reopen(first),
@@ -645,7 +636,6 @@ describe("SqliteWorkflowStore writes and positions", () => {
       putRuns: [named("rn-a"), named("rn-b"), named("rn-x")],
     });
     const page = await store.listRuns({ limit: 2 });
-    // The two highest positions go, so none is left past the cursor.
     await store.commit({ deleteRuns: ["rn-b", "rn-x"] });
 
     const reopened = new SqliteWorkflowStore({
@@ -657,7 +647,6 @@ describe("SqliteWorkflowStore writes and positions", () => {
     expect(
       (await reopened.listRuns({ after: page.next, limit: 10 })).items
     ).toStrictEqual([named("rn-c")]);
-    // Another scope counts on its own.
     const other = new SqliteWorkflowStore({
       database: await files.reopen(first),
       scope: "t",
@@ -699,7 +688,6 @@ describe("workflow tables", () => {
       for (const [field, column] of Object.entries(columns)) {
         const schema = fields[field] as z.ZodType;
         const fieldKind = (kind as RecordKind<unknown>).fields[field];
-        // A nullable column is a field that takes `null` or may be left out.
         expect([field, !column.notNull]).toEqual([
           field,
           schema.safeParse(null).success || fieldKind === "optional",

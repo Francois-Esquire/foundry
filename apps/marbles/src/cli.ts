@@ -159,7 +159,6 @@ async function createStarterModule(args: ArgsOf<"init">): Promise<void> {
   print(`Created ${file}`);
 }
 
-/** Reads only: an empty state root stays empty. */
 async function showStatus(
   args: Args,
   { workspace }: OpenedWorkspace
@@ -177,7 +176,6 @@ async function listSessions(
   args: Args,
   { workspace }: OpenedWorkspace
 ): Promise<void> {
-  // Read only: no database reads as no sessions, and is left without one.
   const lines = await readSessions(
     resolve(args.state),
     workspace.id,
@@ -256,8 +254,6 @@ async function runTasks(
   try {
     result = await tasks(args.task);
   } catch (error) {
-    // A refusal is the person's to act on: one line, with its stable code.
-    // Anything else they can act on is one line too (`actionable`).
     if (!(error instanceof TaskError)) {
       throw error;
     }
@@ -383,8 +379,6 @@ async function detachWorkspace(
   const { workspace } = opened;
   const where = `${workspace.root} (${workspace.id})`;
   const forget = async (): Promise<void> => {
-    // By id, in one statement: a linked workspace's record is cleared too,
-    // and a Marbles process attaching it meanwhile writes after or before.
     await writeDatabase(stateDatabase(args.state), (database) =>
       new WorkspaceRegistry({ database, state: args.state }).unhost(
         workspace.id
@@ -457,10 +451,6 @@ async function watch(args: ArgsOf<"watch">): Promise<void> {
   }
 }
 
-/**
- * The STDIO MCP server, in two processes (`mcp/relay.ts`): this one relays
- * for the client, unless it is the server a relay started.
- */
 async function serveMcp(args: ArgsOf<"mcp">): Promise<void> {
   const { isServer, relay } = await import("~/mcp/relay");
   if (!isServer()) {
@@ -509,7 +499,6 @@ function envMode(args: { readonly command: Command }): "require" | "warn" {
   return args.command === "roll" ? "require" : "warn";
 }
 
-/** Host the workspace in this process, and report on it; only `--dry-run` does. */
 async function withLocalHost(
   args: Flags & { readonly command: Command },
   run: (hosted: Hosted) => Promise<void>

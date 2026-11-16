@@ -25,14 +25,6 @@ const run = z.object({
   status: z.string(),
 });
 
-/**
- * The workflow as an MCP client sees it: the MCP tools over STDIO, on a
- * throwaway repository hosted under `--dry-run` by a test helper, since
- * `marbles mcp` hosts nothing. The dry run echoes agent turns, so each
- * structured reply is the smallest value its schema accepts: no findings,
- * nothing to challenge. That proves the wiring and the packet, not review
- * quality.
- */
 it("dispatches adversarial-review over STDIO MCP and reads both axes back", async () => {
   const root = await realpath(await seedRepository());
   const git = (...args: string[]) =>

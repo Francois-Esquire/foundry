@@ -73,22 +73,10 @@ export function jsonData(value: unknown): JsonValue {
   }
 }
 
-/** A value a store refuses because JSON would not give it back as it is. */
 export class NotStorableError extends TypeError {
   override readonly name = "NotStorableError";
 }
 
-/**
- * `value` in the form a store keeps it, which is the form it reads back in,
- * from memory as from the database: a plain copy as JSON gives it back,
- * with the two forms JSON changes harmlessly made so here too (`-0` is
- * `0`, and a property holding `undefined` is left out). Anything else JSON
- * would not give back as it is cannot be represented, and means a bug in
- * what produced it: a `NotStorableError` names, from `at`, the first part
- * of it (NaN or an infinity, `undefined` in an array or a hole, a bigint,
- * a function or a symbol, a value that contains itself, and any object
- * that is not plain or an array).
- */
 export function storableJson(at: string, value: unknown): JsonValue {
   return storable(at, value, new Set());
 }
@@ -104,7 +92,6 @@ function storable(at: string, value: unknown, seen: Set<object>): JsonValue {
           `${at} holds ${String(value)}, which does not read back intact from JSON`
         );
       }
-      // `-0` reads back from JSON as `0`; `+ 0` makes it so.
       return value + 0;
     case "object":
       if (value === null) {
@@ -161,7 +148,6 @@ function storableObject(
   const copy: { [key: string]: JsonValue } = {};
   for (const [key, item] of Object.entries(value)) {
     if (item === undefined) {
-      // JSON leaves the property out, and so does the copy.
       continue;
     }
     Object.defineProperty(copy, key, {

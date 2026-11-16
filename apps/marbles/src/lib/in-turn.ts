@@ -1,8 +1,3 @@
-/**
- * Run `first`, then `then` whatever `first` did, and report every
- * failure: one alone as it is, both together as one `AggregateError`.
- * A close that fails after a dispose that failed never hides it.
- */
 export async function inTurn(
   first: () => Promise<void>,
   then: () => Promise<void> | void,

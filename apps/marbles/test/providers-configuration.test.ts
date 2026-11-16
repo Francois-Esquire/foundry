@@ -30,31 +30,21 @@ import {
   writtenTexts,
 } from "~/lib/providers/store";
 
-/**
- * Provider configuration kept as a store keeps it, each scope's JSON text
- * by its scope key, which a test reads and writes directly; `hold` makes
- * the next writes wait, as another process's transaction would.
- */
 class TestStore implements ProviderStore {
   readonly texts = new Map<string, string>();
   key: string | undefined;
   revisions = 0;
-  /** Run once an edit has landed, before its result is handed back: another process's commit. */
   between: (() => void) | undefined;
-  /** Refusals for the next reads, or the next identity key asks, as a write lock held too long would. */
   refusing: { key: Error[]; read: Error[]; revision: Error[] } = {
     key: [],
     read: [],
     revision: [],
   };
-  /** How many times the configuration, and its revision, were read. */
   reads = 0;
   revisionReads = 0;
-  /** How many times the identity key was asked for. */
   keyAsks = 0;
   #held: Promise<undefined> = Promise.resolve(undefined);
 
-  /** Keep `file` as the configuration of `scope`, as another process would. */
   put(scope: string, file: object): void {
     this.texts.set(scope, JSON.stringify({ version: 1, ...file }));
     this.revisions += 1;
@@ -188,7 +178,6 @@ const PLUGINS = [
   ),
 ];
 
-/** Read what the store keeps, then load it: what an engine's start does first. */
 async function loaded(config: ProviderConfiguration): Promise<void> {
   await config.read();
   config.load();
@@ -431,12 +420,9 @@ describe("edits", () => {
     await vi.waitFor(() => expect(problems.length).toBeGreaterThan(0), {
       timeout: 5000,
     });
-    // The last good set stays, and the problem is reported once for the
-    // change, not on every poll after it.
     await new Promise((settle) => setTimeout(settle, 1500));
     expect(problems).toHaveLength(1);
     expect(ids(models)).toEqual(["codex"]);
-    // A repair is noticed, though the broken one was never loaded.
     store.put(MACHINE_SCOPE, {
       providers: [
         { enabled: true, id: "codex", plugin: "codex" },
@@ -500,7 +486,6 @@ describe("a store that could not be reached", () => {
     providers: [{ enabled: true, id: "codex", plugin: "codex" }],
   };
 
-  /** Watch as an engine does once it has started, collecting what it reports. */
   function watched(config: ProviderConfiguration) {
     const problems: string[] = [];
     const stop = config.watch((problem) => problems.push(problem));
@@ -541,7 +526,6 @@ describe("a store that could not be reached", () => {
     store.put(MACHINE_SCOPE, codex);
     const { config, models } = configuration();
     store.refusing.key = [busy(), busy(), busy(), busy("still locked")];
-    // The engine reports the first failure as it starts.
     await expect(config.refresh()).rejects.toThrow("the database is locked");
     const { problems, stop } = watched(config);
     try {
@@ -566,8 +550,6 @@ describe("a store that could not be reached", () => {
     );
     const { problems, stop } = watched(config);
     try {
-      // Every poll asks the revision again; the configuration read that
-      // succeeds meanwhile, if any, recovers nothing.
       await vi.waitFor(() => expect(store.revisionReads).toBe(4), {
         timeout: 8000,
       });
@@ -613,7 +595,6 @@ describe("a store that could not be reached", () => {
     const { problems, stop } = watched(config);
     try {
       await vi.waitFor(() => expect(store.keyAsks).toBe(3), { timeout: 8000 });
-      // The configuration read each poll; the key did not come.
       expect(problems).toEqual([]);
       await vi.waitFor(() => expect(ids(models)).toEqual(["codex"]), {
         timeout: 5000,
@@ -642,7 +623,6 @@ describe("a store that could not be reached", () => {
         timeout: 5000,
       });
       expect(problems[0]).toContain("cannot be read");
-      // Not read again until it changes: no key is needed for it.
       const { reads } = store;
       await new Promise((settle) => setTimeout(settle, 1650));
       expect(store.reads).toBe(reads);
@@ -664,7 +644,6 @@ describe("a store that could not be reached", () => {
       });
       store.texts.delete(MACHINE_SCOPE);
       store.revisions += 1;
-      // Read once for the change, then not again until the next.
       await vi.waitFor(() => expect(store.reads).toBeGreaterThan(2), {
         timeout: 5000,
       });
@@ -685,7 +664,6 @@ describe("a store that could not be reached", () => {
     await expect(config.refresh()).rejects.toThrow("the database is locked");
     const { problems, stop } = watched(config);
     try {
-      // The edit asks for the key, which comes now: the store is reached.
       await config.add(
         { id: "vercel", plugin: "vercel" },
         { scope: "machine" }
@@ -710,7 +688,6 @@ describe("a store that could not be reached", () => {
     await expect(config.refresh()).rejects.toThrow("the identity key");
     const { problems, stop } = watched(config);
     try {
-      // As its error says: remove it, and a new one is made.
       store.key = undefined;
       await vi.waitFor(() => expect(ids(models)).toEqual(["codex"]), {
         timeout: 10_000,
@@ -829,7 +806,6 @@ describe("a write a newer read overtook", () => {
           { enabled: true, id: "vercel", plugin: "vercel" },
         ],
       });
-      // A read of the newer configuration lands before the write loads.
       reading = config.read();
     };
     await config.disable("codex");
@@ -967,7 +943,6 @@ it("keeps a read-only engine's edits in memory and writes nothing", async () => 
   expect(ids(models)).toEqual(["vercel", "codex"]);
   expect(store.texts.has(MACHINE_SCOPE)).toBe(false);
   expect(store.texts.has("ws1")).toBe(false);
-  // Nor an identity key.
   await config.read();
   expect(config.identityOf("codex")).toEqual(expect.any(String));
   expect(store.key).toBeUndefined();
@@ -1419,7 +1394,6 @@ describe("instance ownership", () => {
     expect(built[4]?.dispose).toHaveBeenCalledTimes(1);
   });
 
-  /** Hold the store, so the next write prepares and then waits for it. */
   const holdMachineLock = () => store.hold();
   const machineEntry = (key: string): ScopedRecord => ({
     enabled: true,
