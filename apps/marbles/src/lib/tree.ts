@@ -314,8 +314,6 @@ function materialize(
     children,
     // Retry only: the timeout is Marbles', since it must abort the body.
     ...(retry === undefined ? {} : { config: { retry } }),
-    // The whole step (its input and output schemas, its body, and what
-    // the body starts) runs as its engine's work.
     execute: (_input, ctx) =>
       withinContext(bindings.context, () =>
         runBody(node, key, ctx as StepContext, scope, bindings)
@@ -346,14 +344,12 @@ export function factoryFor(
 ): DefinitionFactory {
   return (rawInput, execution) => {
     const bound = bindings();
-    // Its input schema and a workflow's setup run as the engine's work.
     return withinContext(bound.context, () =>
       openRun(definition, name, scopes, bound, rawInput, execution)
     );
   };
 }
 
-/** Parse the launch's input, and open the run's scope with its tree built. */
 async function openRun(
   definition: AnyDefinition,
   name: string,
@@ -383,7 +379,6 @@ async function openRun(
   );
 }
 
-/** A retry policy whose `shouldRetry`, an author's, runs as the engine's work. */
 function asEngineWork(
   retry: RetryPolicy | undefined,
   bindings: Bindings

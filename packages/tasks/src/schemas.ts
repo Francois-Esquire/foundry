@@ -2,15 +2,6 @@ import { z } from "zod";
 import { taskSchema, taskStatusSchema } from "./schema";
 import { taskId } from "./types";
 
-/**
- * Runtime shapes for reads: what the package returns around its records and
- * the queries it takes, for edges (CLI, MCP tools) that check values crossing
- * a process boundary. The task record itself is `taskSchema` in `./schema`.
- * Queries are strict, so a filter the package does not apply is refused
- * rather than ignored. A field added to a query type belongs here too; the
- * package tests parse real results strictly.
- */
-
 const taskIdInput = z.string().min(1).transform(taskId);
 /** Exact strings, as create and update take them in `taskChangeSchema`. */
 const tagsSchema = z.array(z.string()).readonly();

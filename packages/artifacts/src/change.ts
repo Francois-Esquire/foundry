@@ -20,24 +20,8 @@ import type {
   ListContentsInput,
 } from "./substrate";
 
-/** A record's final state in a change: the record, or `null` once deleted. */
 type Pending<Id, Row> = Map<Id, Row | null>;
 
-/**
- * One change to the records, built over a store and committed as one write.
- * Reads see the store with this change applied; writes stay here until
- * `write()` hands them over. The rules that span records hold here, so a
- * change that breaks one never reaches the store:
- *
- * - An Artifact's `contentId` names one of its own Contents.
- * - A Content's Artifact exists.
- * - Deleting an Artifact deletes its Contents.
- * - The Artifact's active Content cannot be deleted.
- * - A blob passes `validateBlob`, and no two blobs share a backing `path`.
- *
- * The change expires when its transaction settles; later calls reject. A
- * read-only change rejects writes.
- */
 export class ArtifactChange {
   readonly readOnly: boolean;
   readonly #store: ArtifactStore;
@@ -56,7 +40,6 @@ export class ArtifactChange {
     this.#active = false;
   }
 
-  /** Throws unless the change still accepts writes. */
   assertWritable(): void {
     this.#assertActive();
     if (this.readOnly) {
@@ -64,7 +47,6 @@ export class ArtifactChange {
     }
   }
 
-  /** Every record this change puts or deletes; `undefined` when it changes nothing. */
   write(): ArtifactStoreWrite | undefined {
     if (
       this.#artifacts.size === 0 &&
@@ -83,17 +65,10 @@ export class ArtifactChange {
     };
   }
 
-  // ── Artifacts ──
-
   getArtifact(id: ArtifactId): Promise<Artifact | null> {
     return this.#get(this.#artifacts, id, () => this.#store.getArtifact(id));
   }
 
-  /**
-   * The store's page with this change laid over it. The store is asked for
-   * as many more rows as this change touches, so the page stays full after
-   * the touched rows give way to their pending versions.
-   */
   async listArtifacts(
     input: ListArtifactsInput
   ): Promise<Page<Artifact, ArtifactCursor>> {
@@ -163,8 +138,6 @@ export class ArtifactChange {
     this.#artifacts.set(id, null);
   }
 
-  // ── Contents ──
-
   getContent(id: ContentId): Promise<Content | null> {
     return this.#get(this.#contents, id, () => this.#store.getContent(id));
   }
@@ -206,13 +179,10 @@ export class ArtifactChange {
     this.#contents.set(id, null);
   }
 
-  // ── Blobs ──
-
   getBlob(id: BlobId): Promise<Blob | null> {
     return this.#get(this.#blobs, id, () => this.#store.getBlob(id));
   }
 
-  /** Any blob currently holding bytes with this digest. */
   async findBlob(digest: string): Promise<Blob | null> {
     this.#assertActive();
     const stored = (await this.#store.findBlobs(digest)).find(
@@ -243,10 +213,6 @@ export class ArtifactChange {
     return listed;
   }
 
-  /**
-   * Whether a Content tree or a chunked blob references the blob. `except`
-   * skips one file entry, to ask whether that entry owns the blob alone.
-   */
   async isBlobReferenced(
     id: BlobId,
     except?: { readonly contentId: ContentId; readonly path: string }
@@ -317,7 +283,6 @@ export class ArtifactChange {
   }
 }
 
-/** The stored rows this change has not touched, then the rows it puts, detached. */
 function merged<Id, Row extends { readonly id: Id }>(
   stored: readonly Row[],
   pending: Pending<Id, Row>
@@ -336,7 +301,6 @@ function deleted<Id, Row>(pending: Pending<Id, Row>): Id[] {
   return [...pending].flatMap(([id, row]) => (row === null ? [id] : []));
 }
 
-/** Whether a file entry of `content`, other than the one at `skip`, holds the blob. */
 function namesBlob(content: Content, id: BlobId, skip?: string): boolean {
   return Object.entries(content.tree).some(
     ([path, node]) =>

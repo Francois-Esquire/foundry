@@ -1,18 +1,3 @@
-/**
- * A durable {@link GrantRepository}: every Grant in one JSON file, with the
- * semantics and the fail-closed reading of {@link DocumentGrantRepository}.
- *
- * Each operation is one transaction: take the writer lock, read the file,
- * apply one transition, write the file atomically (private mode, flushed
- * before the rename), release. Transactions on one path are queued
- * in-process and exclude other processes through an exclusive lock file,
- * so concurrent hosts cannot both spend a one-shot Grant. A lock left by a
- * crashed writer is reported, never stolen.
- *
- * Node-bound and needs `zod`, so it is kept off the barrel; import it from
- * `@foundry/lib/config/authorization/file`.
- */
-
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
@@ -74,7 +59,6 @@ async function readText(path: string): Promise<string | undefined> {
   }
 }
 
-/** The file at `path` as a document's storage, under its writer lock. */
 function fileStorage(path: string, lockWaitMs: number): GrantDocumentStorage {
   return {
     transact: (apply) =>

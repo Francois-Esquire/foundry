@@ -1,9 +1,3 @@
-/**
- * The state machine the provider watcher keeps over the store's reads
- * (`lib/providers/store-reads.ts`): each read's transitions, what the
- * whole store reports for a move, and what is tried again on a poll.
- */
-
 import { describe, expect, it } from "vitest";
 import type {
   ReadEvent,
@@ -53,7 +47,6 @@ const STATES: readonly [string, ReadState][] = [
 ];
 
 describe("one read of the provider store", () => {
-  /** Every state against every event: the event alone says where it goes. */
   it.each(
     STATES.flatMap(([name, from]) =>
       (
@@ -73,7 +66,6 @@ describe("one read of the provider store", () => {
   });
 });
 
-/** [case, reads before, read, event, reported] */
 const MOVES: readonly [
   string,
   StoreReads,
@@ -210,7 +202,6 @@ describe("what the provider store reports for a move", () => {
     };
     move("revision", failed("busy"));
     move("identity key", failed("busy"));
-    // The key's retry goes first, while the revision is not read.
     move("identity key", succeeded);
     move("revision", succeeded);
     expect(heard).toEqual(["busy", RECOVERED]);

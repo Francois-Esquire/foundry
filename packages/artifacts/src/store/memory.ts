@@ -19,21 +19,12 @@ import type {
 import { ownedRecords, ownedWrite } from "./owned";
 
 export interface InMemoryArtifactStoreOptions {
-  /** Starting records; cloned, so the caller keeps ownership. */
   readonly records?: ArtifactRecords;
 }
 
-/** Why a call from inside the store's own transaction is refused. */
 const REENTRY =
   "InMemoryArtifactStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
-/**
- * The default store: plain maps in this process. Commits and transactions
- * take turns, so a commit never lands inside a running transaction, and a
- * commit or transaction made from inside a transaction's work is refused.
- * A transaction commits to a staged copy, swapped in only when its work
- * succeeds.
- */
 export class InMemoryArtifactStore implements ArtifactStore {
   #records: Records;
   readonly #turns = new Turns(REENTRY);
@@ -46,11 +37,6 @@ export class InMemoryArtifactStore implements ArtifactStore {
     );
   }
 
-  /**
-   * Takes the write as it stands now: one owned copy of it (`ownedWrite`), made
-   * before the commit waits its turn, so a caller changing the write later
-   * changes nothing. A write the clone refuses rejects whole.
-   */
   commit(write: ArtifactStoreWrite): Promise<void> {
     return owned(write, (copy) =>
       this.#turns.run(() => this.#records.apply(copy))
@@ -61,7 +47,6 @@ export class InMemoryArtifactStore implements ArtifactStore {
     return this.#turns.run(async () => {
       let staged: Records | undefined;
       let open = true;
-      /** The records the view reads, rejecting once the transaction settled. */
       const read = <R>(take: (records: Records) => Promise<R>): Promise<R> =>
         open
           ? take(staged ?? this.#records)
@@ -74,7 +59,6 @@ export class InMemoryArtifactStore implements ArtifactStore {
               return staged.apply(copy);
             })
           ),
-        // Its commits stand only if the work succeeds.
         durability: "host",
         findBlobs: (digest) => read((records) => records.findBlobs(digest)),
         findReferences: (id) => read((records) => records.findReferences(id)),
@@ -133,16 +117,11 @@ export class InMemoryArtifactStore implements ArtifactStore {
     return this.#records.listContents(artifactId);
   }
 
-  /** A clone of every record. */
   records(): Promise<ArtifactRecords> {
     return this.#records.all();
   }
 }
 
-/**
- * One set of maps. Records are never changed in place, only replaced, so a
- * copy shares them and costs one entry per record.
- */
 class Records {
   readonly #artifacts: Map<ArtifactId, Artifact>;
   readonly #blobs: Map<BlobId, Blob>;
@@ -158,7 +137,6 @@ class Records {
     this.#contents = contents;
   }
 
-  /** Takes ownership of `records`. */
   static from(records: ArtifactRecords): Records {
     return new Records(
       new Map(records.artifacts.map((row) => [row.id, row])),
@@ -175,7 +153,6 @@ class Records {
     );
   }
 
-  /** Applies `write`, which the records take ownership of. */
   apply(write: ArtifactStoreWrite): Promise<void> {
     for (const id of write.deleteArtifacts ?? []) {
       this.#artifacts.delete(id);
@@ -270,10 +247,6 @@ class Records {
   }
 }
 
-/**
- * `take` with the store's own copy of a listing query, or a rejection of
- * one {@link ownedListQuery} refuses.
- */
 function listed(
   query: ArtifactListQuery,
   take: (copy: ArtifactListQuery) => Promise<ArtifactListing>
@@ -287,10 +260,6 @@ function listed(
   return take(copy);
 }
 
-/**
- * `take` with the store's own copy of `write`, or a rejection when the
- * write cannot be cloned.
- */
 function owned(
   write: ArtifactStoreWrite,
   take: (copy: ArtifactStoreWrite) => Promise<void>

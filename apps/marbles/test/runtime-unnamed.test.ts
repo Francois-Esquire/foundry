@@ -1,10 +1,3 @@
-/**
- * Code that names no workspace and no engine (`authoring/runtime.ts`), in
- * a process of its own: it reaches the one engine hosted here, and is
- * refused while two engines of that workspace are alive, rather than
- * handed to the one bound last.
- */
-
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,9 +28,6 @@ it("reaches the one engine alive for the one workspace hosted, and is refused wh
     await expect(instanceRuntime()).rejects.toThrow(
       expect.objectContaining({ name: "AmbiguousWorkspaceError" })
     );
-    // A declaration naming nothing goes to this process's own catalog, as
-    // in a script no host loaded: never to an engine's, the last one bound
-    // or any other.
     expect(declaringCatalog()).toBe(catalog);
     expect(declaringCatalog()).not.toBe(nextCatalog);
     await old.dispose();

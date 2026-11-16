@@ -54,7 +54,6 @@ interface PendingInput {
 }
 
 export interface HarnessInteractionsOptions {
-  /** Where deferred approvals are kept across restarts; memory when omitted. */
   readonly approvals?: DeferredApprovalStore;
   readonly askable: boolean;
   readonly feed: FeedPublisher;
@@ -110,8 +109,6 @@ export class HarnessInteractions {
     for (const record of records.values()) {
       const history = histories.get(record.sessionId);
       const request = history?.requests.get(record.approvalId);
-      // Read again before a question is reopened: another host may have
-      // answered it since the histories above were read.
       const response =
         history?.responses.get(record.approvalId) ??
         (await this.#histories([record.sessionId]))

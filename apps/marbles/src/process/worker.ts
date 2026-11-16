@@ -38,17 +38,14 @@ import { watchSource } from "~/workspace/watch";
  */
 
 interface WorkerArgs {
-  /** The shared artifact store, under the Foundry home `FOUNDRY_HOME` names. */
   readonly artifacts: string;
   readonly dry: boolean;
-  /** The workspace root, as the daemon registered it: the root without a source. */
   readonly root: string;
   /** A starter the client just wrote: post its milestone once the engine runs. */
   readonly setup?: SetupDraft;
   /** The daemon's socket, and what to say on it. */
   readonly socket: string;
   readonly source: string;
-  /** The Marbles state root, under the Foundry home `FOUNDRY_HOME` names. */
   readonly state: string;
   readonly token: string;
 }
@@ -75,7 +72,6 @@ function parseWorkerArgs(argv: readonly string[]): WorkerArgs {
     return value;
   };
   const setup = values.get("setup");
-  // The daemon names its Foundry home in the worker's environment.
   const { artifacts, state } = layout();
   return {
     artifacts,

@@ -85,12 +85,6 @@ export function exitedPid(): number {
   return pid;
 }
 
-/**
- * `work` on the Execution Runs of the workspace `scope` (a test engine's,
- * `test`, by default) in the Marbles database at the state root `state`,
- * over a handle of its own, as another process would have; the database is
- * made when there is none.
- */
 export async function withExecutions<T>(
   state: string,
   work: (store: ExecutionStore) => Promise<T>,
@@ -106,10 +100,6 @@ export async function withExecutions<T>(
   }
 }
 
-/**
- * The Execution Run `id` as the Marbles database at `state` holds it, read
- * as a later engine would; `undefined` when it holds none.
- */
 export async function storedExecution(
   state: string,
   id: string,
@@ -121,11 +111,6 @@ export async function storedExecution(
   return stored ? parseStored(stored) : undefined;
 }
 
-/**
- * `run`'s record put straight into `store`, whatever it held of the run,
- * as another process, or one that crashed, left it: for a test to set the
- * stage, never what the engine does.
- */
 export async function seedExecution(
   store: ExecutionStore,
   run: ExecutionRun

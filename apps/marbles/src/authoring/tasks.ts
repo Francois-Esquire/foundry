@@ -21,7 +21,6 @@ import { observable, TASKS } from "~/lib/events/source";
 
 const unhosted = new MemoryTaskStore();
 
-/** The store a call reaches: the calling workspace's host's, decided as the call is made. */
 function current(): TaskStore {
   return hostTaskStore() ?? unhosted;
 }
@@ -37,12 +36,6 @@ function tasksOver(store: TaskStore): Tasks {
   return over;
 }
 
-/**
- * Each method decides its workspace's store as it is called, while the
- * caller's own code is on the stack and names its workspace; the package
- * awaits before it reaches its store, by which time it would not. The
- * whole call, a read-modify-write included, then stays on that store.
- */
 const calling = new Proxy(new Tasks({ store: unhosted }), {
   get(target, key, receiver) {
     const value: unknown = Reflect.get(target, key, receiver);
@@ -66,11 +59,6 @@ export const tasks: Tasks & Observable<TaskEvent> = observable(calling, TASKS);
 
 const ofLoads = new Map<number, Tasks & Observable<TaskEvent>>();
 
-/**
- * The builtin `tasks` as load `load`'s modules import it: every call runs
- * as that load's, so it reaches that load's workspace, or is refused once
- * that workspace's host has closed, from wherever it is made.
- */
 export function tasksOfLoad(load: number): Tasks & Observable<TaskEvent> {
   let bound = ofLoads.get(load);
   if (bound === undefined) {

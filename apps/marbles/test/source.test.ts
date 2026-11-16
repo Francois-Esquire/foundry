@@ -34,7 +34,6 @@ afterEach(() => {
 });
 
 const CLI = resolve("src/cli.ts");
-/** The CLI in the test's home, from `root`. */
 function cli(root: string, ...args: string[]): string {
   return execFileSync("bun", [CLI, ...args], {
     cwd: root,
@@ -163,7 +162,6 @@ it("lists what agents created from the same triggers, and leaves the state root 
     const { state } = home.layout;
     const { dir } = workspaceState(state, root);
     step("target").do(() => 1);
-    // What an engine of the workspace's keeps, in the database at the state root.
     const opened = await initializeDatabase(stateDatabase(state));
     const automations = new AutomationService({
       registry: declared(),

@@ -32,23 +32,8 @@ import {
   storedRetentionGap,
 } from "~/lib/execution-store";
 
-/**
- * A workspace's Execution Runs in the Marbles database, scoped by the
- * workspace id: each record in `marbles_executions`, its observations in
- * `marbles_execution_observations`, and what pruning removed in
- * `marbles_execution_gaps`. A lifecycle change, a progress or an
- * observation reads the run's row and writes it, one row more for an
- * observation, in one write transaction, whatever the run holds already,
- * under the rules `ExecutionStore` states. A `transaction` is a write
- * transaction, which takes the database's write lock before it reads, so
- * two engines, in this process or another, never act on one run at once. Every call surfaces a lock waited on too long as
- * a `DatabaseBusyError`.
- */
-
 export interface DatabaseExecutionStoreOptions {
-  /** The database the host keeps open, or one of its transactions. */
   readonly database: StoreDatabase;
-  /** The workspace id. */
   readonly scope: string;
 }
 
@@ -147,10 +132,6 @@ export class DatabaseExecutionStore implements ExecutionStore {
     return new DatabaseView(this.#database, this.#scope);
   }
 
-  /**
-   * `write` on the copy of `value` `stored` makes now, as every store keeps
-   * it; one it refuses rejects, keeping nothing.
-   */
   #owning<V, T>(
     value: V,
     stored: (value: V) => V,
@@ -170,13 +151,6 @@ export class DatabaseExecutionStore implements ExecutionStore {
   }
 }
 
-/**
- * Make `change` on the Execution Run `id` of `scope` on `database`, or a
- * transaction on it, when it allows the run as stored there: whether it
- * was made. A run this database does not keep (its engine keeps Execution
- * Runs elsewhere) is left alone. For a store whose commit carries a run's
- * lifecycle with its own; run it inside that commit's transaction.
- */
 export async function followExecution(
   database: Queries,
   scope: string,
@@ -187,11 +161,6 @@ export async function followExecution(
     .applied;
 }
 
-/**
- * The Execution Run `id` of `scope` as `database`, or a transaction on it,
- * keeps it; `null` when it keeps none, or none that reads as a run. For a
- * store whose transaction decides on a run's record with its own.
- */
 export async function readExecution(
   database: Queries,
   scope: string,
@@ -203,13 +172,10 @@ export async function readExecution(
 
 type ExecutionRow = typeof marblesExecutions.$inferSelect;
 
-/** A run's record as its row holds it, its observations aside. */
 type KeptRecord = Omit<ExecutionRun, "observations">;
 
-/** What a view reads and writes through: the database, or any transaction on it. */
 type Queries = Pick<StoreDatabase, "delete" | "insert" | "select" | "update">;
 
-/** The Execution Runs of `scope` as `database`, or a transaction on it, holds them. */
 class DatabaseView implements ExecutionView {
   readonly #database: Queries;
   readonly #scope: string;
@@ -305,7 +271,6 @@ class DatabaseView implements ExecutionView {
       return { applied: false, record };
     }
     const kept = storedObservation(id, observation);
-    // After every observation the run has, by the index on its positions.
     const position = sql<number>`(select coalesce(max("position"), 0) + 1 from "marbles_execution_observations" where "scope" = ${this.#scope} and "run_id" = ${id})`;
     const row = {
       observation: kept as unknown,
@@ -346,7 +311,6 @@ class DatabaseView implements ExecutionView {
     };
   }
 
-  /** The record of the run `id` as its row holds it, its observations aside. */
   async #record(id: string): Promise<KeptRecord | undefined> {
     const [row] = await this.#database
       .select()
@@ -355,7 +319,6 @@ class DatabaseView implements ExecutionView {
     return row && (recordOf(row) as KeptRecord);
   }
 
-  /** Write `record` over its row, inside the call's transaction: what it holds now. */
   async #replace(record: KeptRecord): Promise<KeptRecord> {
     const {
       id: _id,
@@ -397,7 +360,6 @@ class DatabaseView implements ExecutionView {
     await this.#database.delete(marblesExecutions).where(this.#run(id));
   }
 
-  /** Each row as the store gives it back, with its observations in order. */
   async #stored(
     rows: readonly ExecutionRow[]
   ): Promise<readonly StoredExecution[]> {
@@ -444,12 +406,10 @@ class DatabaseView implements ExecutionView {
   }
 }
 
-/** JSON text for a value that may be `null`; SQL NULL for none. */
 function jsonText(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
 }
 
-/** A stored JSON text's value; one that is not JSON reads as itself, which the record refuses. */
 function fromJsonText(text: string): unknown {
   try {
     return JSON.parse(text);
@@ -458,7 +418,6 @@ function fromJsonText(text: string): unknown {
   }
 }
 
-/** The row of `run`'s record in the form every store keeps it (`storedExecutionRun`). */
 function rowOf(
   given: ExecutionRun,
   scope: string
@@ -487,7 +446,6 @@ function rowOf(
   };
 }
 
-/** A row as the record it holds, its observations aside, unchecked. */
 function recordOf(row: ExecutionRow): unknown {
   return {
     correlation: row.correlation,

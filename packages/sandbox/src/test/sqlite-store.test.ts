@@ -12,14 +12,12 @@ import { libsqlDatabases } from "./helpers/sqlite";
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
 
-/** Text SQLite does not give back intact, each made from a plain string. */
 const UNSTORABLE_TEXT: [string, (plain: string) => string][] = [
   ["U+0000", (plain) => `${plain}\u0000tail`],
   ["a lone high surrogate", (plain) => `${plain}\uD800`],
   ["a lone low surrogate", (plain) => `\uDC00${plain}`],
 ];
 
-/** Numbers the schema accepts that SQLite does not give back intact. */
 const UNSTORABLE_NUMBERS: [string, number][] = [
   ["NaN", Number.NaN],
   ["Infinity", Number.POSITIVE_INFINITY],
@@ -42,7 +40,6 @@ function row(id: string, fields: Partial<ContainerRow> = {}): ContainerRow {
   };
 }
 
-/** A host table, written in the same transaction as a commit. */
 const changes = sqliteTable("changes", {
   write: text("write", { mode: "json" }).notNull(),
 });
@@ -53,7 +50,6 @@ async function withChanges() {
   return database;
 }
 
-/** A store that counts the commits it lets through. */
 async function counted() {
   let committed = 0;
   const store = createSqliteContainerStore({
@@ -117,7 +113,6 @@ describe("the SQLite container store", () => {
         await expect(store.commit(write)).rejects.toThrow(
           `cannot store ${field}: text holding U+0000 or a lone surrogate`
         );
-        // A commit through a transaction's view is checked the same way.
         await expect(
           store.transaction?.((view) => view.commit(write))
         ).rejects.toThrow(`cannot store ${field}`);
@@ -147,7 +142,6 @@ describe("the SQLite container store", () => {
       }
 
       expect(committed()).toBe(1);
-      // No refused row was half-written to break the scope's reads.
       expect(await store.list()).toStrictEqual([kept]);
     }
   );
@@ -188,8 +182,6 @@ describe("the SQLite container store", () => {
         database: await memory.open(),
         scope: "s",
       });
-      // What a lone surrogate turns into when bound: U+FFFD on Node, nothing
-      // on Bun; and what a NUL cuts text to.
       const lookalikes = ["�", "", "x"].map((id) => row(id));
       await store.commit({ putContainers: lookalikes });
       const key = bad("x").slice(0, 2);
@@ -250,7 +242,6 @@ describe("the SQLite container store", () => {
         write.putContainers.push(row("late"));
       };
 
-      // Queued behind a transaction, then through a transaction's view.
       const transaction = store.transaction?.bind(store);
       if (transaction === undefined) {
         throw new Error("the SQLite store has a transaction");
@@ -331,7 +322,6 @@ describe("the SQLite container store", () => {
         await attempt(() => outer.list());
         await attempt(() => outer.commit({}));
         await attempt(() => outer.transaction?.(() => Promise.resolve()));
-        // The transaction it is given is the way in.
         await transaction.select().from(sandboxContainers);
       },
       scope: "s",
@@ -371,7 +361,6 @@ describe("the SQLite container store", () => {
       database: await memory.open(),
       scope: "s",
     });
-    // More rows than one statement can bind, for puts and for deletes.
     const rows = Array.from({ length: 40_000 }, (_, index) =>
       row(`c${index}`, { nativeId: `c${index}-1` })
     );
@@ -404,8 +393,6 @@ describe("the sandbox_containers table", () => {
   it("holds each row field for field, plus scope and position", () => {
     const { position, scope, ...columns } = getTableColumns(sandboxContainers);
     expect([position.notNull, scope.notNull]).toEqual([true, true]);
-    // A column takes NULL exactly where the row takes `undefined`; the schema
-    // takes `null` nowhere.
     const { shape } = containerRowSchema.unwrap();
     expect(
       Object.fromEntries(
@@ -436,7 +423,6 @@ describe("the sandbox_containers table", () => {
   });
 });
 
-/** What a commit's delete and insert into the table begin with. */
 const DELETE = 'delete from "sandbox_containers"';
 const INSERT = 'insert into "sandbox_containers"';
 
@@ -444,11 +430,6 @@ describe.each([
   ["memory", memory],
   ["file", files],
 ] as const)("a commit that fails as it runs (%s)", (_location, databases) => {
-  /**
-   * A store whose next insert into its table, once armed, fails as it runs,
-   * after the statements before it in the same commit have run. `ran` lists
-   * the statements that ran while it was armed.
-   */
   async function failingInsert() {
     let armed = false;
     const ran: string[] = [];

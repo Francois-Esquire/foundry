@@ -498,11 +498,6 @@ describe("WorkspaceCatalog over a store shared with another catalog", () => {
   });
 });
 
-/**
- * Holds the first call to one store read after it answers, until released,
- * so a test can act while a mutation is between its read and its commit. The
- * read is held whether it goes to the store or to a transaction's view.
- */
 function pauseAfterFirst(
   store: WorkspaceStore,
   method: "findWorkspaceByPath" | "listEntries"

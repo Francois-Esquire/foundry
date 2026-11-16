@@ -9,10 +9,6 @@ import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
 import { coordinatorStores } from "./helpers/coordinators";
 
-/**
- * The runtime over every store: each way a Run ends is persisted, and the
- * store refuses none of the records the runtime writes on the way.
- */
 describe.each(coordinatorStores())(
   "an Orchestrator over the %s",
   (_name, open) => {
@@ -90,9 +86,6 @@ describe.each(coordinatorStores())(
 
     test("admission over a Job whose attempt completed leaves it complete, and refuses", async () => {
       const { failures, store } = await open();
-      // The Job lifecycle settles a Job it sees finished before it claims.
-      // Hiding finished Runs from it stands for a Run that finishes between
-      // that look and the claim, so the claim inside admission finds it.
       class LateCompletion extends ExecutionCoordinator {
         override listRuns(query: RunQuery = {}) {
           return query.status === "complete"

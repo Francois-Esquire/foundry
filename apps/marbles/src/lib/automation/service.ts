@@ -84,28 +84,15 @@ export interface AutomationOptions {
   readonly allowHttp?: (url: URL) => boolean;
   /** Where targets are looked up and the triggers agents create are registered. */
   readonly registry: Registry;
-  /**
-   * Where records live, one per id, and where an edit reads them first.
-   * Another process sharing it sees each change.
-   */
   readonly store: AutomationStore;
 }
 
-/**
- * Declarative trigger storage. Execution stays in the host's existing
- * schedule loop. The store is the one source: every read reads it again,
- * one read at a time, and registers the triggers anew only when a record
- * was written or removed, by this service or another process. So a read
- * sees every change any process had made when it began.
- */
 export class AutomationService {
   readonly #options: AutomationOptions;
   readonly #registry: Registry;
   readonly #store: AutomationStore;
   #loaded = new Map<string, Loaded>();
-  /** What the store held at the last read, to tell whether it changed. */
   #read: string | undefined;
-  /** The read under way, after which the next one starts. */
   #reading: Promise<void> = Promise.resolve();
 
   constructor(options: AutomationOptions) {
@@ -144,11 +131,6 @@ export class AutomationService {
     });
   }
 
-  /**
-   * Read the store again, once every read before it has settled, and
-   * register what it holds; a read that fails rejects and leaves what was
-   * registered.
-   */
   #refresh(): Promise<void> {
     const reading = this.#reading.then(async () =>
       this.#take(await this.#store.list())
@@ -157,7 +139,6 @@ export class AutomationService {
     return reading;
   }
 
-  /** Register what the store holds, unless it holds what it did at the last read. */
   #take(stored: readonly StoredAutomation[]): void {
     const read = JSON.stringify(stored);
     if (read === this.#read) {
@@ -216,12 +197,6 @@ export class AutomationService {
     );
   }
 
-  /**
-   * `action` once the store is read inside an edit, so no other process
-   * changes it until the action's writes land; what it wrote is registered
-   * then. The read inside goes ahead of any read waiting outside, which
-   * may be waiting for the edit.
-   */
   async #edit<T>(
     id: string,
     action: (view: AutomationView) => Promise<T>
@@ -280,7 +255,6 @@ export class AutomationService {
     );
   }
 
-  /** The live triggers, what the host declared and what agents created, read afresh. */
   async schedules(): Promise<readonly Schedule[]> {
     await this.#refresh();
     return [...this.#registry.schedules.values()];

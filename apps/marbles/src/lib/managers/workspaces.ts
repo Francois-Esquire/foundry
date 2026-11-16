@@ -32,11 +32,6 @@ export type Catalogue = WorkspaceSystem<
 type Loaded = Awaited<ReturnType<Catalogue["load"]>>;
 export type GitOptions = NonNullable<Parameters<typeof Git.at>[1]>;
 
-/**
- * Directories and repositories on this machine: a catalogue over the local
- * filesystem, watched, whose git runs as `gitOptions` says, with its
- * registrations and entries in `store`, in memory when omitted.
- */
 export function localCatalogue(
   gitOptions: GitOptions,
   store?: WorkspaceStore
@@ -49,7 +44,6 @@ export function localCatalogue(
 
 export interface WorkspacesDeps {
   readonly catalogue: Catalogue;
-  /** What a worktree callback runs as outside a run: the engine's execution context. */
   readonly context?: ExecutionContext;
   /** Passed to `Git.at`; `--dry-run` echoes instead of running git. */
   readonly gitOptions?: GitOptions;
@@ -105,7 +99,6 @@ function wrapGit<G extends Git>(
       target.withWorktree(withHome(options), (worktree) => {
         const wrapped = wrap(worktree);
         const store = current.getStore();
-        // Outside a run, the author's callback runs as the engine's work.
         return store
           ? current.run({ ...store, cwd: worktree.root }, () => body(wrapped))
           : withinContext(context, () => body(wrapped));

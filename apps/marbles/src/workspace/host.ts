@@ -46,29 +46,13 @@ export interface HostWorkspaceOptions {
   readonly artifacts: string;
   /** Whether something here can answer `ask`; the dashboard can. */
   readonly askable?: boolean;
-  /** Where the workspace's runs start and its commands run; its root when omitted. */
   readonly cwd?: string;
-  /**
-   * The Marbles database this host writes through, for a host that keeps
-   * several workspaces over one handle; the host leaves it open. Without
-   * one, the host opens its own (`openHostDatabase`) and closes it with the
-   * engine.
-   */
   readonly database?: MarblesDatabase;
-  /**
-   * The directory the host runs from: a relative `source` resolves from
-   * it, and it is the workspace's root when nothing is at the source.
-   * Needed for either; without it `source` must be absolute and there.
-   */
   readonly directory?: string;
   /** Echo every model turn and git mutation, and persist nothing. */
   readonly dry?: boolean;
   /** What a `.env.schema` that does not resolve does; `warn` when omitted. */
   readonly env?: "require" | "warn";
-  /**
-   * Told once the host begins to close, however its close was started,
-   * with the close it can wait for: what holds the host lets go of it.
-   */
   readonly onClose?: (closing: Promise<void>) => void;
   /** Nothing is at the source: offer to create it. Resolves true once something loads there. */
   readonly onMissing?: (configPath: string) => Promise<boolean>;
@@ -83,10 +67,6 @@ export interface HostWorkspaceOptions {
 }
 
 export interface WorkspaceHost extends WorkspaceConnection {
-  /**
-   * Stop the engine, cancelling live runs, and close what it opened. Every
-   * call shares the first one's close, and `onClose` hears it begin.
-   */
   close(): Promise<void>;
   /** Where the source is, or would be created. */
   readonly configPath: string;
@@ -168,9 +148,6 @@ export async function hostWorkspace(
     onMissing: options.onMissing,
     print,
   });
-  // A host is a writer, and keeps one handle for as long as it hosts: it
-  // makes and migrates the database only under the state root's process
-  // lock (`openHostDatabase`). Under `--dry-run` nothing is persisted.
   const shared = hostOptions.dry ? undefined : options.database;
   let own: MarblesDatabase | undefined;
   try {
@@ -227,7 +204,6 @@ export async function hostWorkspace(
       throw error;
     }
   } catch (error) {
-    // Nothing of it stays bound in this process for the next host to meet.
     abandonHost(loaded.workspace.id, loaded.catalog);
     own?.close();
     throw error;
@@ -236,14 +212,11 @@ export async function hostWorkspace(
 
 interface Status {
   readonly captured: AsyncLocalStorage<string[]>;
-  /** The handle on the Marbles database the host opened itself, closed once the engine is disposed. */
   readonly database: MarblesDatabase | undefined;
   readonly diagnostics: Diagnostics;
   /** An error line: the status, and an error in the Logs tab. */
   readonly fail: (line: string) => void;
-  /** When each trigger last finished a tick, as the host started. */
   readonly lastFinish: ReadonlyMap<string, number>;
-  /** Told once the host begins to close. */
   readonly onClose?: (closing: Promise<void>) => void;
   readonly print: (line: string) => void;
   readonly setStatus: (line: string) => void;
@@ -292,10 +265,6 @@ async function readUsage(
   }
 }
 
-/**
- * When each of the engine's triggers last finished a tick; one whose state
- * cannot be read is left out, as one that has never ticked is.
- */
 async function lastFinishes(
   engine: Engine
 ): Promise<ReadonlyMap<string, number>> {
@@ -391,7 +360,6 @@ function hosted(
     return { lines, value };
   }
 
-  // One close, however often or by whom it is asked for.
   let closing: Promise<void> | undefined;
   const shutDown = async () => {
     try {
@@ -400,7 +368,6 @@ function hosted(
       try {
         await engine.dispose();
       } finally {
-        // Nothing of it stays held here once it is disposed.
         releaseEngine(engine);
         database?.close();
       }

@@ -14,35 +14,21 @@ import {
   modules,
 } from "../../store/tables";
 
-/** Where each database lives: in the connection, or in a temp-dir file. */
 export type DatabaseLocation = "file" | "memory";
 
 export interface LibsqlDatabases {
-  /**
-   * Another client on `database`'s file, as a second process would hold.
-   * `busyTimeout` is how long its writes wait on a lock; none by default.
-   */
   readonly connect: (
     database: LibSQLDatabase,
     options?: {
       readonly busyTimeout?: number;
-      /** Called with each statement's SQL just before it runs. */
       readonly onQuery?: (query: string) => void;
     }
   ) => LibSQLDatabase;
-  /** A new database holding the module tables. */
   readonly open: () => Promise<LibSQLDatabase>;
-  /** The file `database` lives in. */
   readonly path: (database: LibSQLDatabase) => string;
-  /** Closes `database`'s connection and connects to the same database again. */
   readonly reopen: (database: LibSQLDatabase) => Promise<LibSQLDatabase>;
 }
 
-/**
- * libSQL databases for one test file, each closed after the test that opened
- * it. File databases share one temporary directory, removed after the file's
- * tests.
- */
 export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
   const clients: Client[] = [];
   const connections = new WeakMap<

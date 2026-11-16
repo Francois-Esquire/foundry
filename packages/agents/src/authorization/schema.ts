@@ -58,7 +58,6 @@ const subject = z.strictObject({
   version: z.int().nonnegative().optional(),
 });
 
-/** A saved {@link ToolSource}. */
 export const toolSourceSchema: z.ZodType<
   Exactly<z.infer<typeof toolSources>, ToolSource>
 > = toolSources;

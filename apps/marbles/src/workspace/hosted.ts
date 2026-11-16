@@ -10,37 +10,17 @@ import { hostWorkspace } from "~/workspace/host";
 import { findWorkspace } from "~/workspace/open";
 import { DEFAULT_SOURCE } from "~/workspace/source";
 
-/**
- * Every workspace one process hosts, side by side: each registered with
- * its root, its source and where its work starts, loaded into a catalog
- * and an engine of its own, with its own environment, and all of them
- * over one handle on the Marbles database. What each declares is
- * addressed by its workspace and its local name, so two workspaces may
- * use the same one. A workspace that fails to load is reported on its
- * own, and leaves every other one as it was.
- *
- * The Marbles process still hosts each workspace in a worker of its own;
- * this is what one process holding all of them is built on.
- */
-
-/** What a workspace registers: enough, with nothing else, to load it again. */
 export interface WorkspaceRegistration {
-  /** The authoring source; null when the workspace is its root alone. */
   readonly config: string | null;
-  /** Where its runs start and its commands run; its root when omitted. */
   readonly cwd?: string;
-  /** The checkout the workspace is. */
   readonly root: string;
 }
 
-/** A name a workspace declared, with the workspace that declared it. */
 export interface QualifiedName {
   readonly name: string;
-  /** The workspace's id. */
   readonly workspace: string;
 }
 
-/** How one registration's load went. */
 export type WorkspaceLoad =
   | {
       readonly id: string;
@@ -53,7 +33,6 @@ export type WorkspaceLoad =
       readonly root: string;
     };
 
-/** A registered workspace that did not load, named by its root. */
 export class WorkspaceLoadError extends Error {
   override readonly name = "WorkspaceLoadError";
   readonly root: string;
@@ -68,32 +47,20 @@ export class WorkspaceLoadError extends Error {
 }
 
 export interface HostedWorkspacesOptions {
-  /** The shared artifact store. */
   readonly artifacts: string;
-  /** Echo every model turn and git mutation, and persist nothing. */
   readonly dry?: boolean;
-  /** What a `.env.schema` that does not resolve does; `warn` when omitted. */
   readonly env?: "require" | "warn";
-  /** Each workspace's status lines, with the root it was registered at. */
   readonly print?: (root: string, line: string) => void;
-  /** The Marbles state root. */
   readonly state: string;
 }
 
 export class HostedWorkspaces {
   readonly #database: MarblesDatabase | undefined;
   readonly #hosts = new Map<string, WorkspaceHost>();
-  /** Registrations under way, by workspace id: a second one for the same workspace shares the first. */
   readonly #pending = new Map<string, Promise<WorkspaceHost>>();
   readonly #options: HostedWorkspacesOptions;
-  /**
-   * Work under way that still writes through the shared handle once its
-   * host has left `#hosts`: a host closing, and an unregister finishing.
-   * The database closes only after every one of them has settled.
-   */
   readonly #inFlight = new Set<Promise<unknown>>();
   #phase: "open" | "closed" = "open";
-  /** The one shutdown every `close` shares. */
   #closing: Promise<void> | undefined;
 
   private constructor(
@@ -104,27 +71,16 @@ export class HostedWorkspaces {
     this.#database = database;
   }
 
-  /** One host for many workspaces, over one handle on the database; none under `dry`. */
   static async open(
     options: HostedWorkspacesOptions
   ): Promise<HostedWorkspaces> {
     const database = options.dry
       ? undefined
       : await openHostDatabase(options.state);
-    // With several workspaces here, work that names none is refused: the
-    // last one left must never answer for one that closed.
     refuseUnnamedWork();
     return new HostedWorkspaces(options, database);
   }
 
-  /**
-   * Register `registration` with the Marbles process (`hosted` in the
-   * registry, so `loadRegistered` loads it again), load it and host it:
-   * the host already holding its workspace, or the registration already
-   * under way for it, when there is one. Throws `WorkspaceLoadError` when it
-   * does not load, and then nothing it declared is kept; it stays
-   * registered, so the next `loadRegistered` reports it again.
-   */
   register(registration: WorkspaceRegistration): Promise<WorkspaceHost> {
     const root = resolve(registration.root);
     const source = registration.config ?? join(root, DEFAULT_SOURCE);
@@ -140,11 +96,7 @@ export class HostedWorkspaces {
       if (this.#phase === "closed") {
         throw new Error("these hosted workspaces are closed");
       }
-      // Placed before anything is awaited: a second load of a workspace
-      // hosted here would take its catalog and its tasks from the first.
       found = findWorkspace(args);
-      // Only a registration made without a source is its root alone: one
-      // whose source is gone does not load.
       if (registration.config !== null && found.config === null) {
         throw new Error(
           `its registered source ${found.configPath} is gone; restore it, or unregister the workspace`
@@ -198,8 +150,6 @@ export class HostedWorkspaces {
         ...(this.#options.env === undefined ? {} : { env: this.#options.env }),
         directory: root,
         dry: args.dry,
-        // However its close is started, it leaves the hosts here at once,
-        // and the database outlives it.
         onClose: (closing) => {
           if (host !== undefined && this.#hosts.get(host.id) === host) {
             this.#hosts.delete(host.id);
@@ -223,7 +173,6 @@ export class HostedWorkspaces {
     return host;
   }
 
-  /** Load each registration in turn; each is reported, loaded or not. */
   async load(
     registrations: readonly WorkspaceRegistration[]
   ): Promise<readonly WorkspaceLoad[]> {
@@ -242,12 +191,6 @@ export class HostedWorkspaces {
     return loads;
   }
 
-  /**
-   * Load every workspace registered with the Marbles process (`hosted` in
-   * the registry: registered here or attached, and not detached since),
-   * and report each one, loaded or with the `WorkspaceLoadError` it failed
-   * with. Under `dry` nothing is read, and none is.
-   */
   async loadRegistered(): Promise<readonly WorkspaceLoad[]> {
     const database = this.#database;
     if (database === undefined) {
@@ -265,11 +208,6 @@ export class HostedWorkspaces {
     return await this.load(records.filter((record) => record.hosted));
   }
 
-  /**
-   * Drop workspace `id`'s registration with the Marbles process, so no
-   * later `loadRegistered` loads it, and stop it here if it is hosted. Its
-   * stored state stays. Whether it was registered.
-   */
   unregister(id: string): Promise<boolean> {
     if (this.#phase === "closed") {
       return Promise.reject(new Error("these hosted workspaces are closed"));
@@ -294,7 +232,6 @@ export class HostedWorkspaces {
     }).unhost(id);
   }
 
-  /** `work`, kept in flight until it settles, so the database outlives it. */
   #track<T>(work: Promise<T>): Promise<T> {
     this.#inFlight.add(work);
     const settled = () => {
@@ -304,7 +241,6 @@ export class HostedWorkspaces {
     return work;
   }
 
-  /** The host of workspace `id`; throws when none here holds it. */
   get(id: string): WorkspaceHost {
     const host = this.#hosts.get(id);
     if (host === undefined) {
@@ -313,12 +249,10 @@ export class HostedWorkspaces {
     return host;
   }
 
-  /** Every workspace hosted here, in the order each was registered. */
   list(): readonly WorkspaceHost[] {
     return [...this.#hosts.values()];
   }
 
-  /** Every definition each workspace declared, by its workspace and name. */
   definitions(): readonly QualifiedName[] {
     return this.list().flatMap((host) =>
       host.engine
@@ -327,10 +261,6 @@ export class HostedWorkspaces {
     );
   }
 
-  /**
-   * Every trigger each workspace has, declared or agent-made, by its
-   * workspace and key: each schedule, and each monitor's tick.
-   */
   async triggers(): Promise<readonly QualifiedName[]> {
     const triggers = await Promise.all(
       this.list().map(async (host) =>
@@ -343,30 +273,14 @@ export class HostedWorkspaces {
     return triggers.flat();
   }
 
-  /**
-   * Fire `target` in its workspace as `marbles roll` does: a schedule or
-   * monitor by its key, ticked once with the input it carries unless one is
-   * given, else a definition by its name. Resolves with what it returned
-   * and the lines it printed.
-   */
   roll(target: QualifiedName, input?: unknown): Promise<RollResult> {
     return this.get(target.workspace).roll(target.name, input);
   }
 
-  /** Run `target`'s definition in its workspace, and wait for its result. */
   run<O = unknown>(target: QualifiedName, input?: unknown): Promise<O> {
     return this.get(target.workspace).engine.run<O>(target.name, input);
   }
 
-  /**
-   * Stop every workspace, cancelling live runs, then close the database: a
-   * registration still under way is closed as soon as it loads. Every
-   * workspace finishes closing, its last writes through the shared handle
-   * included, before the database closes, whichever of them failed, and
-   * so does every host an unregister was closing; then each failure,
-   * the database's own included, is reported together. Closing again, or
-   * meanwhile, shares that one shutdown.
-   */
   close(): Promise<void> {
     this.#closing ??= this.#shutDown();
     return this.#closing;
@@ -378,7 +292,6 @@ export class HostedWorkspaces {
     const hosts = this.list();
     this.#hosts.clear();
     const closed = await Promise.allSettled(hosts.map((host) => host.close()));
-    // An unregister reports its own failure; here it is only waited for.
     while (this.#inFlight.size > 0) {
       await Promise.allSettled([...this.#inFlight]);
     }

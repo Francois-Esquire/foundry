@@ -132,7 +132,6 @@ describe("Module projects", () => {
       expect((await artifacts.list({ includeArchived: true })).items).toEqual(
         []
       );
-      // Called on its own, the same create succeeds.
       expect(
         (await projects.create({ id, name: "Notes", source })).idempotent
       ).toBe(false);

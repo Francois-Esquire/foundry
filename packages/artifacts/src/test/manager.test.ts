@@ -145,8 +145,6 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager blob objects", (kind) => {
     for await (const part of required(tail).body) {
       expect([...part]).toEqual([...last]);
     }
-    // Locating reads through a transaction's view; the tail then pulls only
-    // its own chunk from the store.
     expect(reads).toHaveBeenCalledTimes(1);
     await artifacts.delete(fork.id);
     expect(await store.listBlobs()).toEqual([]);

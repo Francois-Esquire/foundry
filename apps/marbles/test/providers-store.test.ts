@@ -148,7 +148,6 @@ describe("provider configuration in the Marbles database", () => {
     await opened.database
       .update(marblesProviderConfigurations)
       .set({ configuration: '{ "apiKey": "sk-secret-value' });
-    // Found where the machine's is read, with the revision still known.
     const kept = await store.read();
     expect(kept.revision).toBeGreaterThan(0);
     const refusal = await Promise.resolve()

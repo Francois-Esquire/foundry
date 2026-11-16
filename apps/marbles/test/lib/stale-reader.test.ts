@@ -1,9 +1,3 @@
-/**
- * An engine that read a run before another process took it over never
- * cancels or prunes it from what it read: both decide on the stored
- * record, so the run another process is running keeps its record.
- */
-
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,11 +25,6 @@ afterEach(() => {
   }
 });
 
-/**
- * Another engine, in a process of its own: it takes over the exited
- * process's queued run, starts it, says `running`, and holds it running
- * until its stdin ends, then says what it and the database hold of it.
- */
 function adopter(file: string) {
   const script = `
     const { openDatabase } = await import(${JSON.stringify(join(SOURCE, "database/open.ts"))});
@@ -104,7 +93,6 @@ it("neither cancels nor prunes a run another process took over and is running, f
     store,
     warn: () => undefined,
   });
-  // Read while the run was queued under the exited process.
   await stale.load();
   expect(stale.get("rn-shared")?.status).toBe("queued");
 
@@ -112,7 +100,6 @@ it("neither cancels nor prunes a run another process took over and is running, f
   expect(await other.next()).toBe("running");
 
   expect(await stale.withdraw("rn-shared")).toBe(false);
-  // It holds what the store holds now, not a cancellation it never stored.
   expect(stale.get("rn-shared")?.status).toBe("running");
   expect(await stale.prune(["rn-shared"], () => "host")).toEqual([]);
   expect(removed).toEqual([]);
@@ -127,11 +114,6 @@ it("neither cancels nor prunes a run another process took over and is running, f
   expect(await other.exited).toBe(0);
 });
 
-/**
- * Another engine, in a process of its own, that reports progress on the
- * run `rn-owned` until its stdin ends, then says how many it reported and
- * how many the store dropped.
- */
 function reporter(file: string) {
   const script = `
     const { openDatabase } = await import(${JSON.stringify(join(SOURCE, "database/open.ts"))});
@@ -183,7 +165,6 @@ it("settles a run its owner finished while another process keeps reporting progr
     name: "work",
     queue: "q",
   });
-  // Recorded under a fixed id the other process names.
   const at = new Date().toISOString();
   await store.create({
     ...run,

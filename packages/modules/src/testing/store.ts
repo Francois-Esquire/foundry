@@ -12,25 +12,14 @@ import type {
 } from "../schema";
 import type { ModuleStore, ModuleStorePage, ModuleStoreWrite } from "../store";
 
-/**
- * Fresh, empty storage, reached one scope at a time. The same scope reaches
- * the same records on every call; two scopes never see each other's. A store
- * that has no scopes keeps one store per scope name.
- */
 export type ScopedModuleStores = (scope: string) => ModuleStore;
 
-/** Everything a store holds, in list order. */
 interface Held {
   readonly installations: readonly StoredInstallation[];
   readonly manifests: readonly StoredManifest[];
   readonly modules: readonly Module[];
 }
 
-/**
- * The behaviour every `ModuleStore` shares, as Vitest tests. `open` returns
- * new, empty storage each time it is called. The host's test file closes
- * whatever `open` opened.
- */
 export function describeModuleStore(
   name: string,
   open: () => ScopedModuleStores | Promise<ScopedModuleStores>
@@ -174,8 +163,6 @@ export function describeModuleStore(
         deleteModules: [a.id, moduleId("x")],
       });
 
-      // The store enforces nothing: an Installation and a manifest outlive
-      // the Module they name.
       expect(await held(target)).toEqual({
         installations: [installation("b", b)],
         manifests: [manifest("a", a)],
@@ -230,7 +217,6 @@ export function describeModuleStore(
       const document = {
         get field() {
           reads += 1;
-          // Plain at the first read; what a second read would see is not.
           return reads === 1
             ? { kept: "checked" }
             : Object.create({ inherited: "lost" });
@@ -516,15 +502,12 @@ export function describeModuleStore(
         await target.listModules({ after: first.next as number, limit: 2 })
       ).toEqual({ items: [d] });
 
-      // A deleted record put again is new: it lands past the cursor too.
       await target.commit({ deleteModules: [a?.id] as ModuleId[] });
       await target.commit({ putModules: [a] as Module[] });
       expect(
         await target.listModules({ after: first.next as number, limit: 5 })
       ).toEqual({ items: [d, a] });
 
-      // One counter across every kind: an Installation and a manifest
-      // filed after the deletes land past the cursor as well.
       await target.commit({
         putInstallations: [installation("i", d as Module)],
         putManifests: [manifest("m", d as Module)],
@@ -684,8 +667,6 @@ export function describeModuleStore(
         return { after, before };
       });
       await read.promise;
-      // An independent caller, while the transaction sits between its read
-      // and its commit, given time enough to land if nothing held it back.
       const landed = target.commit({ putModules: [outside] });
       await pause(20);
       proceed.resolve();
@@ -716,7 +697,6 @@ export function describeModuleStore(
         for (const [method, call] of Object.entries(calls)) {
           outcomes[method] = await settlesWithin(call(), 1000);
         }
-        // Scheduled from inside, but run once the transaction has ended.
         later = ended.then(() => target.commit({ putModules: [a] }));
         await view.commit({ putModules: [module("b")] });
         return outcomes;
@@ -735,7 +715,6 @@ export function describeModuleStore(
   });
 }
 
-/** What a store's refusal of a call from inside its own transaction says. */
 const REFUSAL = /refused: .*use the view/;
 
 function pause(ms: number): Promise<void> {
@@ -744,11 +723,6 @@ function pause(ms: number): Promise<void> {
   });
 }
 
-/**
- * How `promise` settled, as `refused: <message>` or `resolved`, or
- * `still pending` after `ms`: a hang becomes a failed assertion, not a
- * stalled suite.
- */
 async function settlesWithin(
   promise: Promise<unknown>,
   ms: number
@@ -771,7 +745,6 @@ async function settlesWithin(
   }
 }
 
-/** The store's `transaction`; every store this suite describes has one. */
 function transactionOf(
   store: ModuleStore
 ): NonNullable<ModuleStore["transaction"]> {
@@ -782,7 +755,6 @@ function transactionOf(
   return transaction.bind(store);
 }
 
-/** Every record of a list read, one page after another. */
 async function all<T>(
   list: (page: {
     readonly after?: number;
@@ -829,7 +801,6 @@ function module(id: string, artifact = `artifact-${id}`): Module {
   return { artifactId: artifactId(artifact), id: moduleId(id) };
 }
 
-/** A retained manifest; the store keeps any JSON value it is given. */
 function manifest(
   content: string,
   owner: Module,
@@ -857,7 +828,6 @@ function grant(capability: string): InstallationGrant {
   };
 }
 
-/** A disabled Installation of `owner`; `overrides` sets any field. */
 function installation(
   id: string,
   owner: Module,
@@ -883,7 +853,6 @@ function installation(
   };
 }
 
-/** A write as a caller holds it, every part of it open to change. */
 function callerWrite(owner: Module) {
   return {
     deleteInstallations: [] as InstallationId[],
@@ -897,7 +866,6 @@ function callerWrite(owner: Module) {
   } satisfies ModuleStoreWrite;
 }
 
-/** What a store holds once `write`, as it stands now, lands on an empty store. */
 function heldAfter(write: ReturnType<typeof callerWrite>): Held {
   return structuredClone({
     installations: write.putInstallations,
@@ -906,11 +874,6 @@ function heldAfter(write: ReturnType<typeof callerWrite>): Held {
   });
 }
 
-/**
- * Changes, in place, every value `write` holds, as a caller might once
- * `commit` has returned: each field of each record, its Dates, Grants and
- * manifest, further records put, and deletes of what it put.
- */
 function scramble(write: ReturnType<typeof callerWrite>): void {
   for (const put of write.putModules) {
     mutable(put).artifactId = artifactId("changed");
@@ -933,7 +896,6 @@ function scramble(write: ReturnType<typeof callerWrite>): void {
   write.deleteManifests.push(contentId("added"));
 }
 
-/** The list a test manifest nests, open to change. */
 function nestedList(value: ModuleManifest | undefined): unknown[] {
   const shaped = value as { nested?: { list?: unknown[] } } | undefined;
   const nested = shaped?.nested?.list;
@@ -943,7 +905,6 @@ function nestedList(value: ModuleManifest | undefined): unknown[] {
   return nested;
 }
 
-/** A manifest that throws when read, so no store can copy or encode it. */
 function unreadable(): ModuleManifest {
   return Object.defineProperty({}, "value", {
     enumerable: true,
@@ -953,7 +914,6 @@ function unreadable(): ModuleManifest {
   }) as ModuleManifest;
 }
 
-/** Drops `readonly` so a test can try to change what a store handed out. */
 function mutable<T>(value: T | null | undefined): {
   -readonly [K in keyof T]: T[K];
 } {

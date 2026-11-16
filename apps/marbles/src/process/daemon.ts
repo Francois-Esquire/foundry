@@ -166,10 +166,6 @@ function lines(onLine: (line: string) => void): (chunk: Buffer) => void {
   };
 }
 
-/**
- * Run `step` on every item, each whatever the others threw, and wait for
- * all of them; then throw the first error, if any.
- */
 async function everyOf<T>(
   items: readonly T[],
   step: (item: T) => unknown
@@ -202,7 +198,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   try {
     database = await initializeDatabase(layout.database);
   } catch (error) {
-    // The open failing is what is thrown, even if releasing fails too.
     try {
       claim.release();
     } catch {
@@ -210,8 +205,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     throw error;
   }
-  // Its records leave out a workspace whose directory links out of the
-  // state root, so none is hosted again at boot.
   const registry = new WorkspaceRegistry({
     database: database.database,
     state: layout.state,
@@ -401,7 +394,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       ],
       {
         cwd: worker.summary.root,
-        // The worker keeps everything under this daemon's Foundry home.
         env: { ...process.env, FOUNDRY_HOME: layout.home },
         stdio: ["ignore", "pipe", "pipe"],
       }
@@ -440,7 +432,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     );
     worker.onNotification = (method, params) =>
       onWorkerNotification(worker, method, params);
-    // Once the child is the worker's; it never throws.
     recordSpawned(child.pid, false);
     return worker.ready.promise;
   }
@@ -505,8 +496,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
           `[${worker.summary.id}] ${error instanceof Error ? error.message : String(error)}; killing it`
         );
       } finally {
-        // Killed even when saying so fails. SIGTERM would only ask it to
-        // drain again.
         child.kill("SIGKILL");
         await exited;
       }
@@ -542,11 +531,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     return existing;
   }
 
-  /**
-   * Attach and detach take turns per workspace, across the record write and
-   * the change to `workers`, so neither acts on a map the other changed
-   * while it waited for the write. A turn's entry goes once it is the last.
-   */
   const turns = new Map<string, Promise<void>>();
 
   function inTurn<T>(id: string, work: () => Promise<T>): Promise<T> {
@@ -572,18 +556,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
   }
 
-  /**
-   * The worker hosting the source's workspace: the one already running it,
-   * or a new one, recorded as hosted before it is listed or started, so
-   * whoever waits for it to be ready finds the record. A write that fails
-   * fails the attach and lists nothing.
-   */
   function attach(
     source: string,
     setup?: SetupDraftParams,
     root?: string
   ): Promise<Worker> {
-    // The client resolved the source; the daemon's own directory names nothing.
     if (!isAbsolute(source)) {
       return Promise.reject(
         new Error(`the source to attach must be absolute, not "${source}"`)
@@ -602,10 +579,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     const workspace = layout.workspace(placed);
     const config = found ? configPath : null;
     return inTurn(workspace.id, async () => {
-      // Checked again in the turn: a shutdown that began while this attach
-      // waited has already stopped every worker it would see.
       refuseWhileStopping();
-      // Its runs, claim and sessions would be written through the link.
       if (!insideState(layout.state, workspace.id)) {
         throw new Error(
           `the state of workspace ${workspace.id} at ${workspace.dir} links out of the state root; it is not hosted`
@@ -617,8 +591,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
       await registry.touch(workspace, config, { hosted: true });
       refuseWhileStopping();
-      // The turn keeps every other attach and detach out; a worker drained
-      // by a detach still in its drain may have exited meanwhile.
       const existing = workers.get(workspace.id);
       if (existing && existing.wanted === "running") {
         return reuse(existing, configPath, setup);
@@ -647,10 +619,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     });
   }
 
-  /**
-   * Start a worker that waited for its predecessor to exit, unless
-   * meanwhile it was stopped, replaced, or spawned by a reload.
-   */
   function startWaited(worker: Worker): Promise<unknown> {
     const current = workers.get(worker.summary.id) === worker;
     if (!current || worker.wanted !== "running" || worker.child) {
@@ -667,17 +635,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     return worker;
   }
 
-  /**
-   * Drain the worker, then, in the workspace's turn, record it as not
-   * hosted and drop it. The drain stays outside the turn: an attach that
-   * lands while it runs hosts the workspace again, and this detach then
-   * leaves that one alone.
-   */
   async function detach(worker: Worker): Promise<void> {
     const { id } = worker.summary;
     await stopWorker(worker);
     await inTurn(id, async () => {
-      // Gone: a detach that overlapped this one has already dropped it.
       const detached = () => {
         const listed = workers.get(id);
         if (listed !== undefined && listed !== worker) {
@@ -690,8 +651,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       if (detached()) {
         return;
       }
-      // The record first: a write that fails leaves the worker listed, so
-      // the detach can be retried, rather than hosted again at the next boot.
       await registry.touch(
         layout.workspace(worker.summary.root),
         worker.summary.config,
@@ -873,9 +832,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   }, CLAIM_CHECK_MS);
   claimCheck.unref();
 
-  // From here on a failure is a shutdown: whatever started is stopped, the
-  // server closed, the database closed, and the claim released, in that
-  // order, as `close` does.
   try {
     if (existsSync(layout.socket)) {
       // We hold the lock, so whoever listened here is gone.
@@ -898,7 +854,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         record.config !== null &&
         sourceFiles(record.config) !== undefined
       ) {
-        // One workspace that cannot be hosted again leaves the rest hosted.
         attach(record.config).catch((error: unknown) => {
           print(
             `[${record.id}] not hosted again: ${error instanceof Error ? error.message : String(error)}`
@@ -907,23 +862,14 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
     }
   } catch (error) {
-    // The startup error is the one thrown; a cleanup that fails too is not.
     await close().catch(() => undefined);
     throw error;
   }
 
-  /**
-   * Stop everything, in order: the workers, the clients and their sockets,
-   * the server and its socket, the database, the claim. Each step is
-   * attempted whatever an earlier one threw, so a failing step, or a
-   * `print` that throws, cannot leave the database open or the claim held;
-   * the first error is the one `close` rejects with.
-   */
   function close({ claimLost = false } = {}): Promise<void> {
     closing ??= (async () => {
       stopping = true;
       clearInterval(claimCheck);
-      // Every step runs whatever an earlier one threw; the first error wins.
       let failure: { readonly error: unknown } | undefined;
       const attempt = async (step: () => unknown): Promise<void> => {
         try {
@@ -944,11 +890,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       await attempt(() => everyOf([...sockets], (socket) => socket.destroy()));
       if (claimLost) {
         // Whoever holds the claim now may listen at this path, and closing
-        // the server unlinks the socket by name (Bun, and libuv under Node).
-        // Leave both alone; the process exits around the listener.
         await attempt(() => server.unref());
       } else {
-        // A server that never listened answers at once, with an error.
         await attempt(
           () => new Promise<void>((resolve) => server.close(() => resolve()))
         );

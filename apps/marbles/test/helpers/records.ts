@@ -12,22 +12,13 @@ import {
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { stateDatabase } from "~/layout";
 
-/**
- * A state root with a migrated Marbles database, opened in this process as
- * the Marbles process would, and workspace state dirs under it, each the
- * scope of its rows (`<root>/<id>`, id = the dir's name).
- */
 export interface TestMachine {
-  /** The recorded changes of the workspace at `state`, oldest first. */
   changes(state: string): Promise<readonly RecordedChange[]>;
   close(): void;
   readonly database: MarblesDatabase;
-  /** The number of handlers that completed each recorded change, oldest first. */
   deliveredCounts(state: string): Promise<number[]>;
-  /** Fresh records for the workspace at `state`, over this machine's database. */
   records(state: string): DatabaseWorkspaceRecords;
   readonly root: string;
-  /** A new workspace state dir under the root. */
   workspace(): string;
 }
 

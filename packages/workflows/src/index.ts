@@ -1,12 +1,3 @@
-/**
- * The execution records' domain API: `ExecutionCoordinator`, which holds
- * every rule of Jobs, Runs, Suspensions, Queues and the Run journal over a
- * `WorkflowStore`, the commands and queries it takes, and the decoders and
- * checks of persisted data. No store lives here: the store seam is
- * `./store`, the stores are `./store/memory` and `./store/sqlite`, and the
- * record schemas and types are `./schema`.
- */
-
 export type {
   CreateJobInput,
   CreateJobRunInput,

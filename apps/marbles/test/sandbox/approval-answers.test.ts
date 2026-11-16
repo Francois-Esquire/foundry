@@ -15,14 +15,6 @@ import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { recordSpawned } from "~/process/spawned";
 import { openFeed } from "../helpers/feed";
 
-/**
- * Two hosts restored from one Marbles database answer the same deferred
- * approval at once, one Allow and one Deny. Each waits inside its grant
- * policy, up to a deadline, for the other to get there too: where the
- * unanswered check and the stored answer are separate steps, both pass
- * the check and both answers are kept.
- */
-
 const SRC = resolve("src");
 const source = { definition: "test", path: [], runId: "run" };
 const profile = {
@@ -157,7 +149,6 @@ it("lets one of two hosts answering the same deferred approval at once win, and 
       run(host(dir, file, "a", "Allow future runs")),
       run(host(dir, file, "b", "Deny")),
     ];
-    // Both restored, then answer together.
     await new Promise((settle) => setTimeout(settle, 1500));
     await writeFile(join(dir, "go"), "");
     const [allow, deny] = await Promise.all(hosts);
@@ -171,7 +162,6 @@ it("lets one of two hosts answering the same deferred approval at once win, and 
       .flatMap((message) => message.parts)
       .filter((part) => part.type === "tool_approval_response");
     expect(responses).toHaveLength(1);
-    // What a later run may do follows the one answer kept.
     await new Sessions({ store: sessions }).createSession({ id: "future" });
     const later = await createHarnessPermission({
       agentId: "coder",
