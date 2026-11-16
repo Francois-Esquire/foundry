@@ -70,6 +70,11 @@ export class ManualClock implements DeliveryClock {
     }
   }
 
+  /** How many ticks are still set: a delivery's poll, until it stops. */
+  get ticking(): number {
+    return this.#ticks.size;
+  }
+
   /** How many waits are still running: a call's limit, or a stop's grace. */
   get waiting(): number {
     return this.#waits.size;

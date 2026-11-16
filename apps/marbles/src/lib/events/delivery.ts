@@ -42,7 +42,8 @@ import { current } from "~/lib/run-scope";
  *
  * Facts every observer registered here, or seen within the retention, has
  * completed, and that committed longer ago than the retention, are removed
- * (`compact`), at most once per `COMPACTION_EVERY_MS`: an observer this
+ * (`compact`), at most once per `COMPACTION_EVERY_MS`, by the deliverer,
+ * which claims delivery and ticks whether or not any observer is declared: an observer this
  * engine has registered holds them back however long it is idle, in
  * backoff or stuck. A place never moves over a gap in silence: a move past
  * positions compaction removed records them as missed in the same write,
@@ -282,13 +283,15 @@ export class Delivery {
 
   /**
    * File every observer's place (from now, for a new one), then claim
-   * delivery. Without observers nothing is filed or claimed. Delivery
+   * delivery, observers or none, since the deliverer compacts. Delivery
    * another process has claimed is left to it, and claimed here once it
    * lets go (or exits), on a later tick; a log that cannot be read fails
    * the start.
    */
   async start(): Promise<void> {
-    if (this.#phase !== "new" || this.#observers.length === 0) {
+    // With no observer too: the deliverer compacts the log, which every
+    // store writes to whether anything observes it or not.
+    if (this.#phase !== "new") {
       return;
     }
     this.#phase = "starting";
@@ -301,9 +304,11 @@ export class Delivery {
       return;
     }
     if (holder !== undefined) {
-      this.#print(
-        `[observe] not delivering here: the changes of this workspace are delivered by ${holder}; delivering here once it stops`
-      );
+      if (this.#observers.length > 0) {
+        this.#print(
+          `[observe] not delivering here: the changes of this workspace are delivered by ${holder}; delivering here once it stops`
+        );
+      }
       this.#phase = "waiting";
       this.#tickEvery();
       return;

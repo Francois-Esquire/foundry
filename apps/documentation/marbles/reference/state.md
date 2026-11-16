@@ -171,7 +171,9 @@ process exits, a host that was refused delivery takes it over within a
 second and delivers what was written meanwhile.
 
 Facts committed more than a week ago that every observer holding them
-back has completed are removed every ten minutes by the delivering host.
+back has completed are removed every ten minutes by the delivering host,
+whether or not any observer is declared: a workspace that observes
+nothing keeps a week of history, not all of it.
 Every observer that host has declared holds them back, whatever it is
 doing, and so does one any host declared in the last week. An observer's
 place never moves past removed facts in silence: the write that moves it

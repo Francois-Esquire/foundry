@@ -1469,6 +1469,79 @@ describe("compaction", () => {
     await records.close();
   });
 
+  it("compacts a workspace no observer watches, on its tick, and leaves no tick once stopped", async () => {
+    const state = stateDir();
+    const records = machine.records(state);
+    const clock = new ManualClock(Date.now());
+    const delivery = new Delivery({
+      clock,
+      print: () => undefined,
+      records,
+      retention: DAY,
+    });
+    await delivery.start();
+    await delivery.idle();
+    await record(state, ["a", "b", "c"], clock.now());
+
+    // Past the retention and the compaction interval: its tick compacts.
+    clock.advance(LONG_AFTER);
+    await delivery.idle();
+    expect(await machine.changes(state)).toEqual([]);
+    expect(await records.log.head()).toBe(3);
+
+    await delivery.stop();
+    expect(clock.ticking).toBe(0);
+    expect(clock.waiting).toBe(0);
+    await records.close();
+  });
+
+  it("starts an observer declared after a compaction no observer held back at a position that still exists", async () => {
+    const state = stateDir();
+    const records = machine.records(state);
+    const clock = new ManualClock(Date.now());
+    const lines: string[] = [];
+    const unwatched = new Delivery({
+      clock,
+      print: () => undefined,
+      records,
+      retention: DAY,
+    });
+    await unwatched.start();
+    await record(state, ["old 1", "old 2"], clock.now());
+    clock.advance(LONG_AFTER);
+    await unwatched.idle();
+    await unwatched.stop();
+    expect(await machine.changes(state)).toEqual([]);
+
+    // Declared later: it starts from now, past what was removed.
+    const seen: string[] = [];
+    const watched = new Delivery({
+      clock,
+      print: (line) => lines.push(line),
+      records,
+      retention: DAY,
+    });
+    watched.observe(
+      TASKS,
+      (handed: Fact) => {
+        seen.push(handed.id);
+      },
+      { name: "later" }
+    );
+    await watched.start();
+    await record(state, ["new"], clock.now());
+    watched.wake();
+    await watched.idle();
+    await watched.stop();
+    expect(seen).toEqual(["new"]);
+    expect(lines.filter((line) => line.includes("missed"))).toEqual([]);
+    expect((await records.log.observers())[0]).toMatchObject({
+      missed: null,
+      position: 3,
+    });
+    await records.close();
+  });
+
   it("records what a compaction landing in the middle of a catch-up removed, in the move that passes it", async () => {
     const state = stateDir();
     const records = machine.records(state);
@@ -1525,7 +1598,10 @@ describe("compaction", () => {
 });
 
 describe("the delivery timer", () => {
-  it("does not keep a process alive", async () => {
+  it.each([
+    ["with an observer", true],
+    ["with none", false],
+  ])("does not keep a process alive, %s", async (_case, observed) => {
     const dir = stateDir();
     const script = join(dir, "never-stopped.ts");
     writeFileSync(
@@ -1534,7 +1610,7 @@ describe("the delivery timer", () => {
 import { MemoryWorkspaceRecords } from ${JSON.stringify(resolvePath("src/lib/events/records.ts"))};
 import { TASKS } from ${JSON.stringify(resolvePath("src/lib/events/source.ts"))};
 const delivery = new Delivery({ print: () => undefined, records: new MemoryWorkspaceRecords() });
-delivery.observe(TASKS, () => undefined, { name: "idle" });
+${observed ? 'delivery.observe(TASKS, () => undefined, { name: "idle" });' : ""}
 await delivery.start();
 process.stdout.write("started\\n");
 `
@@ -1556,6 +1632,17 @@ process.stdout.write("started\\n");
     expect(output).toContain("started");
     expect(code).toBe(0);
     expect(Date.now() - started).toBeLessThan(DELIVERY_POLL_MS * 10);
+  });
+
+  it("holds delivery from its start with no observer, for compaction, and gives it up on dispose", async () => {
+    const state = stateDir();
+    const engine = engineWith(state, {});
+    await engine.start();
+    const other = machine.records(state);
+    expect(await other.claimDelivery()).toBe("another engine in this process");
+    await shutDown(engine);
+    expect(await other.claimDelivery()).toBeUndefined();
+    await other.close();
   });
 
   it("gives up a claim granted after it was stopped, and never starts delivering", async () => {
