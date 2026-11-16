@@ -28,6 +28,9 @@ const REENTRY =
 export function createMemoryContainerStore(): ContainerStore {
   let rows: Rows = new Map();
   const turns = new Turns(REENTRY);
+  // Made fresh for this store: no other store, in this process or another,
+  // has it.
+  const identity = globalThis.crypto.randomUUID();
 
   return {
     commit: (write) =>
@@ -38,6 +41,7 @@ export function createMemoryContainerStore(): ContainerStore {
         })
       ),
     get: (id) => turns.run(() => Promise.resolve(read(rows, id))),
+    identity: () => Promise.resolve(identity),
     list: () => turns.run(() => Promise.resolve(readAll(rows))),
     transaction: (work) =>
       turns.run(async () => {
@@ -54,6 +58,7 @@ export function createMemoryContainerStore(): ContainerStore {
             });
           },
           get: (id) => Promise.resolve(read(staged, id)),
+          identity: () => Promise.resolve(identity),
           list: () => Promise.resolve(readAll(staged)),
         };
         try {

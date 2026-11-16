@@ -30,6 +30,16 @@ export interface ContainerStoreWrite {
 export interface ContainerStore {
   commit(write: ContainerStoreWrite): Promise<void>;
   get(id: string): Promise<ContainerRow | undefined>;
+  /**
+   * This store's own identity, for the registry's label on every VM it
+   * boots, so a VM another store recorded is never taken for one of this
+   * store's (`Containers.sweep`). A durable store keeps it, made once, and
+   * gives the same for its database and scope in every process; a store in
+   * memory makes a fresh one per instance. The same through a
+   * transaction's view. A store that cannot read it rejects; nothing is
+   * then booted or removed.
+   */
+  identity(): Promise<string>;
   list(): Promise<readonly ContainerRow[]>;
   /**
    * Runs one read-modify-write so that no other write to the store lands

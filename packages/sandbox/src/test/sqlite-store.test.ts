@@ -68,6 +68,28 @@ async function counted() {
 }
 
 describe("the SQLite container store", () => {
+  it("keeps its identity in its database: every store over that database and scope gives the same, another database another", async () => {
+    const database = await files.open();
+    const first = await createSqliteContainerStore({
+      database,
+      scope: "s",
+    }).identity();
+    // Another store over the same database and scope, as a later process makes.
+    expect(
+      await createSqliteContainerStore({ database, scope: "s" }).identity()
+    ).toBe(first);
+    expect(
+      await createSqliteContainerStore({
+        database: await files.open(),
+        scope: "s",
+      }).identity()
+    ).not.toBe(first);
+    // Kept out of every read of the store's rows.
+    expect(
+      await createSqliteContainerStore({ database, scope: "s" }).list()
+    ).toEqual([]);
+  });
+
   it("refuses an empty scope", async () => {
     const database = await memory.open();
     expect(() => createSqliteContainerStore({ database, scope: "" })).toThrow(

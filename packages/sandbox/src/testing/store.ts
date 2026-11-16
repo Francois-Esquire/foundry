@@ -135,6 +135,21 @@ export function describeContainerStore(
   }
 
   describe(`${name} container store conformance`, () => {
+    it("has an identity of its own: the same on every call and through a transaction, another per scope, and never a row", async () => {
+      const target = await store();
+      const identity = await target.identity();
+      expect(typeof identity).toBe("string");
+      expect(identity.length).toBeGreaterThan(0);
+      expect(await target.identity()).toBe(identity);
+      if (target.transaction !== undefined) {
+        expect(await target.transaction((view) => view.identity())).toBe(
+          identity
+        );
+      }
+      expect(await (await store("scope-b")).identity()).not.toBe(identity);
+      expect(await target.list()).toEqual([]);
+    });
+
     it("starts empty", async () => {
       const empty = await store();
       expect(await empty.list()).toEqual([]);

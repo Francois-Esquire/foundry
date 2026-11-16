@@ -99,6 +99,11 @@ export function createSqliteContainerStore(
   }
   const turns = new Turns(REENTRY);
   const inScope = eq(sandboxContainers.scope, scope);
+  const identityRow = and(
+    eq(sandboxContainers.scope, identityScope(scope)),
+    eq(sandboxContainers.id, IDENTITY_ID)
+  );
+  let known: string | undefined;
 
   /** A new row takes the next position; one put again keeps its own. */
   const put = async (
@@ -191,6 +196,43 @@ export function createSqliteContainerStore(
         return row === undefined ? undefined : containerRow(row);
       }),
 
+    /**
+     * Kept in the store's own table, as one row under a scope of its own
+     * (`identityScope`) that no read of the store's scope returns: made
+     * once, by whichever process asks first (insert-or-ignore), then read
+     * back, so every store over this database and scope gives the same.
+     * A read that fails rejects, and is asked again next time.
+     */
+    identity: () =>
+      turns.run(async () => {
+        if (known !== undefined) {
+          return known;
+        }
+        await database
+          .insert(sandboxContainers)
+          .values({
+            createdAt: 0,
+            holder: null,
+            id: IDENTITY_ID,
+            nativeId: globalThis.crypto.randomUUID(),
+            position: 0,
+            scope: identityScope(scope),
+            spec: "{}",
+            status: "stopped",
+            updatedAt: 0,
+          })
+          .onConflictDoNothing();
+        const [row] = await database
+          .select({ nativeId: sandboxContainers.nativeId })
+          .from(sandboxContainers)
+          .where(identityRow);
+        if (typeof row?.nativeId !== "string" || row.nativeId === "") {
+          throw new Error("the container store's identity could not be read");
+        }
+        known = row.nativeId;
+        return known;
+      }),
+
     /** One query, so one state; no transaction needed. */
     list: () =>
       turns.run(async () => {
@@ -227,6 +269,18 @@ export function createSqliteContainerStore(
         )
       ),
   };
+}
+
+/** The id of the one row that keeps a store's identity, in its own scope. */
+const IDENTITY_ID = "identity";
+
+/**
+ * The scope the identity of the store over `scope` is kept under: `scope`
+ * and a unit separator (U+001F) no scope a host names holds, so no read of
+ * a store's rows ever returns it.
+ */
+function identityScope(scope: string): string {
+  return `${scope}\u001fstore`;
 }
 
 /** A stored row as the record: a NULL `native_id` or `holder` is `undefined`, and left out. */

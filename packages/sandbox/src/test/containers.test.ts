@@ -10,6 +10,7 @@ import {
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
   CONTAINER_RUNTIME_SCOPE_LABEL,
+  CONTAINER_STORE_LABEL,
 } from "../container/constants";
 import type { ContainerSandboxConstraints } from "../container/constraints";
 import { createContainers } from "../container/containers";
@@ -54,6 +55,7 @@ function sqliteStore(location: keyof typeof databases): ContainerStore {
   return {
     commit: async (write) => await (await ready).commit(write),
     get: async (id) => await (await ready).get(id),
+    identity: async () => await (await ready).identity(),
     list: async () => await (await ready).list(),
     async transaction(work) {
       const store = await ready;
@@ -107,6 +109,7 @@ function gatedStore({ transactional = false } = {}) {
       await target.commit(write);
     },
     get: async (id) => await target.get(id),
+    identity: async () => await target.identity(),
     list: async () => await target.list(),
   });
   const store: ContainerStore = transactional
@@ -498,6 +501,7 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     expect(recovered).toEqual({
       conflicts: [],
       kept: [],
+      passedOver: [],
       removed: [running.id, vanished.id],
       swept: [`${unrowed.id}-1`],
     });
@@ -511,6 +515,7 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     expect(await next.recover(() => true)).toEqual({
       conflicts: [],
       kept: [],
+      passedOver: [],
       removed: [],
       swept: [],
     });
@@ -634,6 +639,7 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     expect(recovered).toEqual({
       conflicts: [vm],
       kept: [left.id],
+      passedOver: [],
       removed: [],
       swept: [],
     });
@@ -720,9 +726,12 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
 
     const recovered = await next.recover((each) => each.id === left.id);
 
+    // Left by the removal as a conflict, and by the sweep as not provably
+    // this registry's (it carries no store label): named both times.
     expect(recovered).toMatchObject({
       conflicts: [claimed],
       kept: [left.id],
+      passedOver: [claimed],
       removed: [],
     });
     const instance = runtime.instances.find((i) => i.id === claimed);
@@ -821,6 +830,7 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     expect(await next.recover((each) => each.id === left.id)).toMatchObject({
       conflicts: [`${left.id}-1`],
       kept: [left.id],
+      passedOver: [`${left.id}-1`],
       removed: [],
     });
     const instance = runtime.instances.find((i) => i.id === `${left.id}-1`);
@@ -904,6 +914,67 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     await containers.shutdown();
   });
 
+  it("sweeps only VMs that carry its own store's identity: another store's live VM, under the same instance label, is passed over and named", async () => {
+    const runtime = createFakeContainerRuntime();
+    const ours = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store: newStore(),
+    });
+    const theirs = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store: createMemoryContainerStore(),
+    });
+    const held = await theirs.start(SPEC);
+    const name = held.row.nativeId ?? "";
+    const swept = await ours.sweep();
+    expect([...swept]).toEqual([]);
+    expect(swept.passedOver).toEqual([name]);
+    expect(runtime.instances.find((i) => i.id === name)?.removed).toBe(false);
+    const recovered = await ours.recover(() => true);
+    expect(recovered.passedOver).toEqual([name]);
+    await held.close();
+    await theirs.shutdown();
+    await ours.shutdown();
+  });
+
+  it("keeps the old VM of a reopened row to retry, and says so, when the inventory cannot be read", async () => {
+    const runtime = createFakeContainerRuntime();
+    const store = newStore();
+    const gone = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const left = await gone.start(SPEC);
+    const lines: string[] = [];
+    const next = createContainers({
+      instanceLabel: "instance-a",
+      report: (line) => lines.push(line),
+      runtime,
+      store,
+    });
+    const list = runtime.listResources.bind(runtime);
+    let failing = true;
+    runtime.listResources = (query) => {
+      if (failing) {
+        failing = false;
+        return Promise.reject(new Error("inventory down"));
+      }
+      return list(query);
+    };
+    const reopened = await next.open(left.id);
+    expect(lines).toEqual([expect.stringContaining(`${left.id}-1`)]);
+    const old = runtime.instances.find((i) => i.id === `${left.id}-1`);
+    expect(old?.removed).toBe(false);
+    // The next sweep judges it, once the inventory can be read: the row's own.
+    expect([...(await next.sweep())]).toEqual([`${left.id}-1`]);
+    expect(old?.removed).toBe(true);
+    await reopened.close();
+    await next.shutdown();
+  });
+
   it("keeps the row of a VM a recovery could not remove, removing, and the next recovery takes it over and removes it", async () => {
     const runtime = createFakeContainerRuntime();
     const store = newStore();
@@ -930,6 +1001,7 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     expect(await first.recover(() => true)).toEqual({
       conflicts: [],
       kept: [left.id],
+      passedOver: [],
       removed: [],
       swept: [],
     });
@@ -946,6 +1018,7 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     expect(await second.recover(() => true)).toEqual({
       conflicts: [],
       kept: [],
+      passedOver: [],
       removed: [left.id],
       swept: [],
     });
@@ -993,6 +1066,7 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     expect(await recovery).toEqual({
       conflicts: [],
       kept: [],
+      passedOver: [],
       removed: [],
       swept: [],
     });
@@ -1014,9 +1088,11 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
   it.each(["created", "starting", "paused"] as const)(
     "sweeps an orphan in the %s runtime state",
     async (status) => {
-      const { runtime, containers } = fixture();
-      // A VM of a row that is gone: its label, and that row's own name.
+      const { runtime, containers, store } = fixture();
+      // A VM of a row that is gone: its store's and its row's labels, and
+      // that row's own name.
       const id = globalThis.crypto.randomUUID();
+      const own = await store.identity();
       try {
         const instance = await runtime.create({
           cpus: 1,
@@ -1028,6 +1104,7 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
             [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
             [CONTAINER_INSTANCE_LABEL]: "instance-a",
             [CONTAINER_ID_LABEL]: id,
+            [CONTAINER_STORE_LABEL]: own,
           },
           memoryMib: 512,
           mounts: [],
