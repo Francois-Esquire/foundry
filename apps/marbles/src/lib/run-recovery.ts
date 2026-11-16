@@ -18,7 +18,8 @@ import type { RunStore } from "~/lib/run-store";
  *   still stored suspended and its Execution Run has not settled (one
  *   cancelled after its process exited stays cancelled): both are read in
  *   the claim's own atomic step, from a run store that keeps Execution
- *   Runs beside its Runs; from one that keeps none, the Execution Run is
+ *   Runs beside its Runs; from one that keeps none, or holds none for the
+ *   Run (the host keeps Execution Runs elsewhere), the Execution Run is
  *   read once the claim is held. It is rebuilt from what its scope
  *   recorded.
  * - A Run left `queued` or `running` is never taken on at start: its
@@ -40,8 +41,8 @@ export interface ParkedRunsOptions {
   readonly runs: RunStore;
   /**
    * Whether the Run's Execution Run is settled, read afresh: asked once the
-   * claim is held, when the run store keeps no Execution Runs to read in
-   * the claim itself.
+   * claim is held, when the run store keeps no Execution Runs, or none for
+   * this Run, to read in the claim itself.
    */
   readonly settled: (runId: string) => Promise<boolean>;
   /** The workflow records over `runs`. */
@@ -89,7 +90,9 @@ async function adopt(
       refused = `it is ${stored === null ? "gone" : stored.status} now, not parked`;
       return false;
     }
-    sawExecution = execution !== undefined;
+    // `null` is no Execution Run beside the Run, which says nothing of one
+    // the host keeps in another store: that is read once the claim is held.
+    sawExecution = execution !== undefined && execution !== null;
     if (execution && SETTLED_EXECUTION_STATUSES.has(execution.status)) {
       refused = "its execution run has settled";
       return false;
@@ -99,7 +102,7 @@ async function adopt(
   if (!claimed) {
     return passed(refused ?? "another live engine owns it");
   }
-  // Asked again with the claim held, only when the claim could not see the
+  // Asked again with the claim held, only when the claim did not read the
   // Execution Run: one read in the claim's own step is current, since a
   // canceller settles it only while it holds the claim, in a write that
   // cannot land inside this one.
