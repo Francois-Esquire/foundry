@@ -1625,6 +1625,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
             return { detaching: existing.detaching };
           }
           if (existing !== undefined && existing.summary.state !== "stopped") {
+            // What attach answers, the stored registration says too.
+            await ensureRegistered(workspace, config);
             const again = await attachAgain(existing, configPath, setup);
             if (again !== undefined) {
               return { summary: again };
@@ -1640,6 +1642,16 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
       // Done or failed, the detach is over: the next try decides.
       await attached.detaching.catch(() => undefined);
+    }
+  }
+
+  /** Register `workspace` as hosted, unless its stored row says so already. */
+  async function ensureRegistered(
+    workspace: Workspace,
+    config: string | null
+  ): Promise<void> {
+    if ((await registry.read(workspace.id))?.hosted !== true) {
+      await registry.touch(workspace, config, { hosted: true });
     }
   }
 
@@ -1822,8 +1834,13 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         // It no longer loads this one: no switch for it.
         current.fingerprint = withSource(current.fingerprint, id, undefined);
       }
-      const done = finishDetach(workspace, hostsOf(id));
+      const hosting = hostsOf(id);
+      const done = finishDetach(workspace, hosting);
       workspace.detaching = done;
+      // Going: stopped, with what it waits for, while its runs finish.
+      setState(workspace, "stopped", {
+        error: `detaching: waiting for engine generation${hosting.length === 1 ? "" : "s"} ${hosting.map((each) => String(each.number)).join(", ")} to finish its work`,
+      });
       return { done };
     });
     await begun?.done;
@@ -1840,13 +1857,31 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     } catch (error) {
       failure = { error };
     }
-    await inTurn(() => {
+    await inTurn(async () => {
       workspace.detaching = undefined;
       if (failure === undefined) {
         hosted.delete(id);
         setState(workspace, "stopped");
+        return;
       }
-      return Promise.resolve();
+      // Still hosted where the drain failed: registered again, so what is
+      // stored says what the daemon does, and failed, so an attach loads
+      // it afresh. A write that fails too is said, for an attach to repair.
+      const why = `detach failed: ${message(failure.error)}`;
+      try {
+        await registry.touch(
+          layout.workspace(workspace.summary.root),
+          workspace.summary.config,
+          { hosted: true }
+        );
+        setState(workspace, "failed", {
+          error: `${why}; attach it again to load it afresh`,
+        });
+      } catch (error) {
+        setState(workspace, "failed", {
+          error: `${why}; its registration was not put back (${message(error)}); attach it again to repair it`,
+        });
+      }
     });
     if (failure !== undefined) {
       throw failure.error;

@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { GenerationRecords, readLiveGenerations } from "~/database/generations";
 import { readDatabase } from "~/database/open";
 import { marblesExecutions, marblesGenerations } from "~/database/tables";
+import { recordedWorkspaces, WorkspaceRegistry } from "~/database/workspaces";
 import { type Layout, stateDatabase } from "~/layout";
 import type { WorkspaceSummary } from "~/model/connection";
 import { connect, type MarblesClient } from "~/process/client";
@@ -196,6 +197,23 @@ function handClock(): DaemonClock & { advance(ms: number): void } {
       return next;
     },
   };
+}
+
+/** The generation helper whose engines refuse one stop (`MARBLES_TEST_FAIL_STOP`). */
+const failingStop = join(
+  import.meta.dirname,
+  "helpers",
+  "generation-failing-stop.ts"
+);
+
+/** Whether the stored registration of workspace `id` says it is hosted. */
+async function stored(
+  fixture: Pick<Fixture, "machine">,
+  id: string
+): Promise<boolean | undefined> {
+  return (await recordedWorkspaces(fixture.machine.state)).find(
+    (each) => each.id === id
+  )?.hosted;
 }
 
 /** How many generations the daemon has ever numbered, live or not. */
@@ -1048,6 +1066,12 @@ describe("engine generations", () => {
         ).toBe(true),
       { interval: 50, timeout: 60_000 }
     );
+    // It says it is detaching, and holds no generation of its own.
+    const listed = (await fixture.client.workspaces()).find(
+      (each) => each.id === fixture.summary.id
+    );
+    expect(listed?.state).toBe("stopped");
+    expect(listed?.error).toContain("detaching");
     // New work for it is refused; attaching it again waits for the detach.
     await expect(workspace.actions.launch("hold2", {})).rejects.toThrow(
       "is detaching"
@@ -1134,6 +1158,115 @@ describe("engine generations", () => {
       other.id,
     ]);
     fixture.client.close();
+  }, 150_000);
+
+  it("detaches nothing when the registration write of a detach fails", async () => {
+    const fixture = await setUp();
+    const unhosting = vi
+      .spyOn(WorkspaceRegistry.prototype, "unhost")
+      .mockRejectedValueOnce(new Error("injected registration failure"));
+    try {
+      await expect(fixture.client.detach(fixture.summary.id)).rejects.toThrow(
+        "injected registration failure"
+      );
+    } finally {
+      unhosting.mockRestore();
+    }
+    const [listed] = await fixture.client.workspaces();
+    expect(listed?.state).toBe("ready");
+    expect(await stored(fixture, fixture.summary.id)).toBe(true);
+    const again = await fixture.client.attach(fixture.source);
+    expect(again.state).toBe("ready");
+    expect(await stored(fixture, fixture.summary.id)).toBe(true);
+    fixture.client.close();
+  }, 150_000);
+
+  it("puts the registration back when a detach's drain fails, says it failed, and loads it afresh on the next attach", async () => {
+    const marker = join(testHome({ providers: false }).path, "fail-stop");
+    process.env.MARBLES_TEST_FAIL_STOP = marker;
+    try {
+      const fixture = await setUp({ daemon: { generationEntry: failingStop } });
+      writeFileSync(marker, "");
+      await expect(fixture.client.detach(fixture.summary.id)).rejects.toThrow(
+        "the test refuses this drain"
+      );
+      const [listed] = await fixture.client.workspaces();
+      expect(listed?.state).toBe("failed");
+      expect(listed?.error).toContain("detach failed");
+      expect(await stored(fixture, fixture.summary.id)).toBe(true);
+      const again = await fixture.client.attach(fixture.source);
+      expect(again.state).toBe("ready");
+      expect(await stored(fixture, fixture.summary.id)).toBe(true);
+      const workspace = fixture.client.workspace(again);
+      expect((await workspace.roll("where")).value).toBe(again.pid);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_FAIL_STOP;
+    }
+  }, 150_000);
+
+  it("says so when it cannot put the registration back after a failed drain, and the next attach repairs it", async () => {
+    const marker = join(testHome({ providers: false }).path, "fail-stop");
+    process.env.MARBLES_TEST_FAIL_STOP = marker;
+    try {
+      const fixture = await setUp({ daemon: { generationEntry: failingStop } });
+      writeFileSync(marker, "");
+      const touching = vi
+        .spyOn(WorkspaceRegistry.prototype, "touch")
+        .mockRejectedValueOnce(new Error("injected restore failure"));
+      try {
+        await expect(fixture.client.detach(fixture.summary.id)).rejects.toThrow(
+          "the test refuses this drain"
+        );
+      } finally {
+        touching.mockRestore();
+      }
+      const [listed] = await fixture.client.workspaces();
+      expect(listed?.state).toBe("failed");
+      expect(listed?.error).toContain("injected restore failure");
+      expect(await stored(fixture, fixture.summary.id)).toBe(false);
+      const again = await fixture.client.attach(fixture.source);
+      expect(again.state).toBe("ready");
+      expect(await stored(fixture, fixture.summary.id)).toBe(true);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_FAIL_STOP;
+    }
+  }, 150_000);
+
+  it("leaves a workspace unregistered and unhosted when the daemon stops between a detach's steps", async () => {
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: { print: (line) => lines.push(line) },
+    });
+    const first = fixture.summary.pid ?? 0;
+    const workspace = fixture.client.workspace(fixture.summary);
+    await workspace.actions.launch("hold1", {});
+    await whenLogged(fixture, `hold1 ${String(first)}`);
+    const detaching = fixture.client.detach(fixture.summary.id);
+    detaching.catch(() => undefined);
+    await vi.waitFor(
+      () =>
+        expect(
+          lines.some((line) =>
+            line.includes("detaching · waiting for engine generation 1")
+          )
+        ).toBe(true),
+      { interval: 50, timeout: 60_000 }
+    );
+    // Registered no more, its drain under way, as the daemon goes.
+    expect(await stored(fixture, fixture.summary.id)).toBe(false);
+    fixture.client.close();
+    await daemons.pop()?.close();
+    expect(processAlive(first)).toBe(false);
+    daemons.push(
+      await startDaemon({ layout: fixture.machine, print: () => undefined })
+    );
+    const client = await connect({ layout: fixture.machine, start: false });
+    // The next daemon hosts what is registered: not this one.
+    expect(await client.workspaces()).toEqual([]);
+    expect(await stored(fixture, fixture.summary.id)).toBe(false);
+    client.close();
   }, 150_000);
 
   it("completes a daemon stop while a detach waits for a retired generation, refusing the attach that waited on it", async () => {
