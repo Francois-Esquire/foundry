@@ -101,6 +101,12 @@ export class Delivery {
   /** A wake came while a pass ran: look again once it ends. */
   #again = false;
   /**
+   * Set once this delivery let go (`letGo`): a handler still running is
+   * left to itself, nothing about it is written, and `stop` waits for it
+   * no more.
+   */
+  #abandoned = false;
+  /**
    * The newest change a pass has covered: the last before it read, or one
    * it handed out; -1 until the first pass, which covers the backlog.
    */
@@ -210,17 +216,42 @@ export class Delivery {
     );
   }
 
-  /** Start no handler again; wait for the one running, then give up the claim. */
+  /**
+   * Start no handler again; wait for the one running, then give up the
+   * claim. After `letGo`, the claim is given up already and the handler
+   * still running is not waited for.
+   */
   async stop(): Promise<void> {
     this.#phase = "stopped";
     clearInterval(this.#timer);
     this.#timer = undefined;
     try {
-      await this.#pass;
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `letGo` sets it.
+      if (!this.#abandoned) {
+        await this.#pass;
+      }
       await this.#claiming;
     } finally {
       await this.#release();
     }
+  }
+
+  /**
+   * Let delivery go to the next engine now, as an engine that begins to
+   * retire does: no handler starts here again, the claim is given up at
+   * once, not when a handler still running returns, and nothing about
+   * that handler is written whenever it returns. The next deliverer hands
+   * its change out again (delivery is at least once), and what it records
+   * is all that is recorded. Resolves once the claim is given up.
+   */
+  async letGo(): Promise<void> {
+    this.#abandoned = true;
+    this.#phase = "stopped";
+    clearInterval(this.#timer);
+    this.#timer = undefined;
+    // A claim being taken now is given up below with any other.
+    await this.#claiming;
+    await this.#release();
   }
 
   /** Take the claim; who holds it instead, when another engine does. */
@@ -374,11 +405,19 @@ export class Delivery {
         // Each handler gets its own copy: one cannot change what another sees.
         await observer.handler(structuredClone(item.payload));
       } catch (error) {
+        if (this.#abandoned) {
+          return false;
+        }
         held.add(observer);
         this.#print(
           `[observe] handler ${observer.hash.slice(0, 8)} failed on ${item.id}: ${error instanceof Error ? error.message : String(error)}`
         );
         continue;
+      }
+      // Let go while it ran: the next deliverer's record is the one kept.
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `letGo` sets it while the handler runs.
+      if (this.#abandoned) {
+        return false;
       }
       try {
         await this.#records.deliver(item.id, observer.hash);

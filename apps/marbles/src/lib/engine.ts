@@ -1374,13 +1374,13 @@ export class Engine {
    * it parks, and `onLetGo` is told, so the engine already running there
    * can take it over (`adopt`): nothing parked is ever held here again, and
    * every answer is refused (`QuestionMovingError`). Every step that moves
-   * work comes before any that waits on author code: the queue is handed
-   * over and parked runs let go first, and an observer still handling a
-   * change is waited for only in `ended`. Resolves once the first of that
-   * is written, with `ended`, which resolves once every run left here has
-   * ended or been let go and no handler runs here; then `stop` finds
-   * nothing to wait for. The delivery claim is given up once that handler
-   * ends. On an engine that has not started, `ended` has resolved already.
+   * work comes before any that waits on author code: the delivery claim is
+   * given up at once, an observer still handling a change left to itself
+   * and never waited for (`Delivery.letGo`), the queue is handed over and
+   * parked runs let go. Resolves once the first of that is written, with
+   * `ended`, which resolves once every run left here has ended or been let
+   * go; then `stop` finds nothing to wait for. On an engine that has not
+   * started, `ended` has resolved already.
    */
   async retire(
     successor: ProcessIdentity,
@@ -1399,12 +1399,10 @@ export class Engine {
     this.#retiring = true;
     this.#launcher.beginRetiring();
     running.router.retire();
-    // No change is delivered here from now on; a handler still running is
-    // waited for only once the work has moved (`ended`): handing a run to
-    // the successor never waits on author code.
-    const delivered = this.#delivery.stop().catch((error: unknown) => {
-      this.#print(`[engine] delivery did not stop cleanly: ${String(error)}`);
-    });
+    // No change is delivered here from now on, and the successor may
+    // deliver at once: the claim is given up now, a handler still running
+    // left to itself, never waited for (`Delivery.letGo`).
+    await this.#delivery.letGo();
     const handedLate = (late: string) => options.onHanded?.(late);
     for (const runId of await this.#launcher.handOver(successor, handedLate)) {
       this.#letGo.add(runId);
@@ -1448,9 +1446,7 @@ export class Engine {
       };
       look();
     });
-    return {
-      ended: Promise.all([runsEnded, delivered]).then(() => undefined),
-    };
+    return { ended: runsEnded };
   }
 
   /**

@@ -116,7 +116,7 @@ describe("an engine that has begun to retire", () => {
     await retiring;
   });
 
-  it("hands its queued runs over without waiting for an observer, and ends only once that observer has", async () => {
+  it("hands its queued runs over without waiting for an observer, and ends once its runs have, the observer still running", async () => {
     const engine = engineHere();
     const entered = Promise.withResolvers<void>();
     const observing = Promise.withResolvers<void>();
@@ -144,17 +144,11 @@ describe("an engine that has begun to retire", () => {
     expect(engine.executions.get(queued.id)?.owner).toMatchObject({
       pid: next.pid,
     });
-    let ended = false;
-    retired.ended.then(() => {
-      ended = true;
-    });
     finishing.resolve();
     await active.result;
-    // Past two of the retirement's looks (every 250 ms) for what is left.
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    expect(ended).toBe(false);
-    observing.resolve();
+    // The observer has not returned: it holds nothing here.
     await retired.ended;
+    observing.resolve();
   });
 
   it("runs a child a task active here launches after retirement began", async () => {
