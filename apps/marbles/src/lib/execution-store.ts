@@ -44,6 +44,12 @@ export interface ExecutionStore extends ExecutionView {
   /** Refuse every call from now on, once those under way have settled. */
   close(): Promise<void>;
   /**
+   * The ids of the queued runs `owner`'s process owns, in admission order:
+   * for a retiring engine to find a run handed to it after it started.
+   * Without it, an engine finds only the runs it holds.
+   */
+  queuedOwnedBy?(owner: ProcessIdentity): Promise<readonly string[]>;
+  /**
    * `work` over a view no other engine writes to until it settles; what it
    * wrote is kept when it resolves, and nothing of it when it rejects.
    */
@@ -81,6 +87,13 @@ export interface ExecutionView {
   putGap(gap: RetentionGap): Promise<void>;
   /** Forget the run `id` and its observations; nothing when none is kept. */
   remove(id: string): Promise<void>;
+  /**
+   * The engine its host hands queued runs to now, when the host keeps one
+   * (the Marbles process: its current engine generation), read in the
+   * view: a hand-over decides who takes a run in the transaction that
+   * writes it. `undefined` when none is current now.
+   */
+  successor?(): Promise<ProcessIdentity | undefined>;
   /** Make the lifecycle change on the run `id`, when it allows the run as stored. */
   transition(id: string, change: LifecycleChange): Promise<Written>;
   /** The run kept for the definition `name` and caller's `source`, if one is. */
@@ -261,6 +274,19 @@ export class MemoryExecutionStore implements ExecutionStore {
 
   close(): Promise<void> {
     return this.#gate.close();
+  }
+
+  queuedOwnedBy(owner: ProcessIdentity): Promise<readonly string[]> {
+    return Promise.resolve(
+      [...this.#runs]
+        .filter(
+          ([, kept]) =>
+            kept.record.status === "queued" &&
+            sameProcess(kept.record.owner, owner)
+        )
+        .sort(([, a], [, b]) => a.record.sequence - b.record.sequence)
+        .map(([id]) => id)
+    );
   }
 
   transaction<T>(work: (view: ExecutionView) => Promise<T>): Promise<T> {

@@ -10,6 +10,7 @@ import {
   type ExecutionRecordsOptions,
 } from "./execution-records";
 import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
+import type { ExecutionView } from "./execution-store";
 
 export type {
   ExecutionObservation,
@@ -228,7 +229,8 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
 
   /**
    * Take every run waiting in this process's queues off them and make each
-   * `successor`'s, still queued (`handQueued`), in their order, but those
+   * the engine's `choose` names in the write's own transaction, still
+   * queued (`handQueued`), in their order, but those
    * kept here (`closeAdmission`, which retirement calls first). `onHanded` is told
    * of each as it is handed over, whatever happens to the runs after it. A
    * run whose hand-over fails is reported in `failed` and stays queued
@@ -236,7 +238,7 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
    * longer queued here stays as it is.
    */
   async handOverAll(
-    successor: ProcessIdentity,
+    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>,
     onHanded: (id: string) => void
   ): Promise<{
     readonly failed: readonly {
@@ -247,7 +249,7 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     const failed: { readonly error: unknown; readonly id: string }[] = [];
     for (const id of this.waiting().filter((each) => !this.#kept.has(each))) {
       try {
-        if (await this.#handOver(id, successor)) {
+        if (await this.#handOver(id, choose)) {
           onHanded(id);
         }
       } catch (error) {
@@ -258,12 +260,16 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
   }
 
   /**
-   * Take a queued run off its queue and make it `successor`'s, still
+   * Take a queued run off its queue and make it the engine's `choose`
+   * names, still
    * queued (`handQueued`); resolves `false`, leaving it here, when it is not
    * queued here. It holds its queue's place while that is written, as a
    * withdrawal does.
    */
-  async #handOver(id: string, successor: ProcessIdentity): Promise<boolean> {
+  async #handOver(
+    id: string,
+    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>
+  ): Promise<boolean> {
     const run = this.get(id);
     if (run?.status !== "queued") {
       return false;
@@ -271,7 +277,7 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     this.#withdrawing.add(id);
     let handed = false;
     try {
-      handed = await this.handQueued(id, successor);
+      handed = await this.handQueued(id, choose);
     } finally {
       this.#withdrawing.delete(id);
       const lane = this.#lane(run.queue);

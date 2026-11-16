@@ -1,4 +1,7 @@
-import { thisProcess } from "@foundry/lib/process-identity";
+import {
+  type ProcessIdentity,
+  thisProcess,
+} from "@foundry/lib/process-identity";
 import { describe, expect, it, vi } from "vitest";
 import type { ExecutionView } from "~/lib/execution-store";
 import { MemoryExecutionStore } from "~/lib/execution-store";
@@ -257,6 +260,143 @@ describe("an engine that has begun to retire", () => {
       lines.filter((line) => line.includes("injected handover write failure"))
     ).toHaveLength(1);
   }, 60_000);
+});
+
+/**
+ * A gated store whose transactions say which engine is current, as the
+ * Marbles database does (`ExecutionView.successor`): `current`, read when
+ * the transaction asks.
+ */
+class CurrentStore extends GatedStore {
+  current: ProcessIdentity | undefined;
+
+  override transaction<T>(
+    work: (view: ExecutionView) => Promise<T>
+  ): Promise<T> {
+    return super.transaction((view) =>
+      work(
+        new Proxy(view, {
+          get: (target, key) => {
+            if (key === "successor") {
+              return () => Promise.resolve(this.current);
+            }
+            const value: unknown = Reflect.get(target, key, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        })
+      )
+    );
+  }
+}
+
+describe("a later pass of a retiring engine's hand-over", () => {
+  it("hands a run to the engine current when the write is made, read in its transaction", async () => {
+    vi.useFakeTimers();
+    try {
+      const store = new CurrentStore();
+      const { executions, launcher } = launcherOver(store);
+      await executions.load();
+      launcher.task({ name: "waiting", run: () => undefined });
+      launcher.task({
+        name: "first",
+        run: () => new Promise(() => undefined),
+      });
+      (await launcher.launch("first", {}, {})).result.catch(() => undefined);
+      const queued = await launcher.launch("waiting", {}, {});
+      queued.result.catch(() => undefined);
+      const retiredFor = { pid: thisProcess().pid + 1, started: null };
+      // The first pass fails: the run stays queued here.
+      store.counting = true;
+      store.failing = () => true;
+      await launcher.handOver(retiredFor);
+      store.counting = false;
+      store.current = retiredFor;
+      // The next pass's write waits; meanwhile another engine is current.
+      store.holding = true;
+      const pass = vi.advanceTimersByTimeAsync(1000);
+      await store.entered.promise;
+      const now = { pid: thisProcess().pid + 2, started: null };
+      store.current = now;
+      store.gate.resolve();
+      await pass;
+      expect(executions.get(queued.id)?.owner).toMatchObject({
+        pid: now.pid,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits while no engine is current, then hands it to the one that is", async () => {
+    vi.useFakeTimers();
+    try {
+      const store = new CurrentStore();
+      const { executions, launcher } = launcherOver(store);
+      await executions.load();
+      launcher.task({ name: "waiting", run: () => undefined });
+      launcher.task({
+        name: "first",
+        run: () => new Promise(() => undefined),
+      });
+      (await launcher.launch("first", {}, {})).result.catch(() => undefined);
+      const queued = await launcher.launch("waiting", {}, {});
+      queued.result.catch(() => undefined);
+      store.counting = true;
+      store.failing = () => true;
+      await launcher.handOver({ pid: thisProcess().pid + 1, started: null });
+      store.counting = false;
+      store.current = undefined;
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(executions.get(queued.id)?.owner).toMatchObject({
+        pid: thisProcess().pid,
+      });
+      const now = { pid: thisProcess().pid + 2, started: null };
+      store.current = now;
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(executions.get(queued.id)?.owner).toMatchObject({
+        pid: now.pid,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("takes up a run handed to this engine after its first pass, and hands it on", async () => {
+    vi.useFakeTimers();
+    try {
+      const store = new CurrentStore();
+      const { executions, launcher } = launcherOver(store);
+      await executions.load();
+      launcher.task({ name: "waiting", run: () => undefined });
+      const now = { pid: thisProcess().pid + 2, started: null };
+      store.current = now;
+      expect(
+        await launcher.handOver({ pid: thisProcess().pid + 1, started: null })
+      ).toEqual([]);
+      // Another engine hands this one a run, as it retires too.
+      const at = new Date().toISOString();
+      await store.create({
+        correlation: {},
+        id: "rn-handed-late",
+        input: {},
+        kind: "task",
+        name: "waiting",
+        observations: [],
+        owner: thisProcess(),
+        queue: "marbles",
+        revision: 1,
+        sequence: 99,
+        status: "queued",
+        timestamps: { queuedAt: at, updatedAt: at },
+      });
+      await vi.advanceTimersByTimeAsync(2000);
+      expect((await executions.peek("rn-handed-late"))?.owner).toMatchObject({
+        pid: now.pid,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("handing queued runs over", () => {

@@ -238,6 +238,11 @@ export const GENERATION_METHODS = {
   start: "start",
   /** Drain running work and exit. */
   stop: "stop",
+  /**
+   * Take a queued run whose owning process is proved gone and let it in
+   * (`Engine.takeQueued`, `queuedParamsSchema`); answers whether it did.
+   */
+  takeQueued: "takeQueued",
   /** Stop hosting one workspace: its running work finishes, then it closes. */
   unhost: "unhost",
 } as const;
@@ -301,6 +306,13 @@ export const readParamsSchema = z.object({
 /** A run of a workspace, as `released` names it and `adopt` takes it. */
 export const releasedParamsSchema = z.object({
   id: z.string(),
+  runId: z.string(),
+});
+
+/** A queued run of a workspace, and the gone process it is queued under. */
+export const queuedParamsSchema = z.object({
+  id: z.string(),
+  owner: identitySchema,
   runId: z.string(),
 });
 

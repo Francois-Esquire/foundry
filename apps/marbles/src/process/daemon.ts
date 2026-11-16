@@ -19,7 +19,11 @@ import {
   sameProcess,
   startedAt as startOf,
 } from "@foundry/lib/process-identity";
-import { queuedRunsOwnedBy, readExecution } from "~/database/executions";
+import {
+  queuedRuns,
+  queuedRunsOwnedBy,
+  readExecution,
+} from "~/database/executions";
 import { GenerationRecords } from "~/database/generations";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
@@ -897,6 +901,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     const offers: Promise<void>[] = [];
     for (const id of ids ?? target.hosts) {
+      offers.push(takeOrphans(target, id));
       for (const runId of await unheld(target, id)) {
         const at = declined.get(`${id}\0${runId}`);
         if (now || at === undefined || Date.now() - at >= REOFFER_MS) {
@@ -929,6 +934,44 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       ];
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * Hand `target` each queued run of workspace `id` whose owning process
+   * is proved gone (`isGone`, never mere absence): a generation stopped or
+   * dead before it handed its queue over, or a successor that died before
+   * letting in what it was handed. `target` takes each in one transaction
+   * that checks again that it is still queued under exactly that owner
+   * (`Engine.takeQueued`), so two sweeps, or an owner that is alive, move
+   * nothing twice or at all.
+   */
+  async function takeOrphans(target: Generation, id: string): Promise<void> {
+    let queued: Awaited<ReturnType<typeof queuedRuns>>;
+    try {
+      queued = await queuedRuns(database.database, id);
+    } catch {
+      return;
+    }
+    const judged = new Map<string, boolean>();
+    for (const { id: runId, owner } of queued) {
+      if (
+        target.identity !== undefined &&
+        sameProcess(owner, target.identity)
+      ) {
+        continue;
+      }
+      const key = `${String(owner.pid)}\0${owner.started ?? ""}`;
+      const gone = judged.get(key) ?? isGone(owner);
+      judged.set(key, gone);
+      if (!gone || current !== target) {
+        continue;
+      }
+      try {
+        await ask(target, GENERATION_METHODS.takeQueued, { id, owner, runId });
+      } catch (error) {
+        print(`[${id}] queued run ${runId} not taken over: ${message(error)}`);
+      }
     }
   }
 

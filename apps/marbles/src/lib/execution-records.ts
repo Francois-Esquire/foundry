@@ -567,15 +567,18 @@ export class ExecutionRecords {
   }
 
   /**
-   * Make a queued run of this process's `successor`'s, still queued, for it
-   * to let in when it starts (`recover`). Decided on the stored record in
-   * the transaction that writes it: `false`, changing nothing, when it is
-   * no longer queued or no longer this process's. Rejects when the store
-   * cannot be read or written, handing over nothing.
+   * Make a queued run of this process's another engine's, still queued, for
+   * it to let in (`recover` when it starts, `Engine.adopt` once it has):
+   * the one `choose` names, asked in the transaction that writes it, so
+   * who takes it is decided where it is written. Decided on the stored
+   * record there too: `false`, changing nothing, when it is no longer
+   * queued or no longer this process's. Rejects, handing over nothing,
+   * when the store cannot be read or written, or `choose` names no engine
+   * but this one or none.
    */
   protected async handQueued(
     id: string,
-    successor: ProcessIdentity
+    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>
   ): Promise<boolean> {
     const written = await this.#persist(() =>
       this.#store.transaction(async (view): Promise<Written> => {
@@ -585,6 +588,10 @@ export class ExecutionRecords {
           !sameProcess(stored.owner, thisProcess())
         ) {
           return { applied: false, record: stored };
+        }
+        const successor = await choose(view);
+        if (successor === undefined || sameProcess(successor, thisProcess())) {
+          throw new Error("no other engine is current to hand it to");
         }
         return await view.transition(id, {
           from: ["queued"],
@@ -597,6 +604,62 @@ export class ExecutionRecords {
     );
     this.#took(id, written);
     return written.applied;
+  }
+
+  /** The run `id` as the store holds it now, read afresh. */
+  async peek(id: string): Promise<ExecutionRun | undefined> {
+    return this.#parse(await this.#store.get(id));
+  }
+
+  /**
+   * The queued runs the store says this process owns: those handed to it,
+   * whenever that was, with those it holds. Only those it holds when the
+   * store cannot list them.
+   */
+  async queuedHere(): Promise<readonly string[]> {
+    return (
+      (await this.#store.queuedOwnedBy?.(thisProcess())) ??
+      this.list()
+        .filter(
+          (run) =>
+            run.status === "queued" && sameProcess(run.owner, thisProcess())
+        )
+        .map((run) => run.id)
+    );
+  }
+
+  /**
+   * Make this process's a queued run whose owner, `owner`, is gone, still
+   * queued, and hold it: for a process that lets it in. `owner` must be
+   * proved gone first (`isGone`, judged before the transaction, as every
+   * owner is); the transaction checks again that the run is still queued
+   * and still `owner`'s, exactly, so two takers, or an owner that came
+   * back, take nothing twice. `undefined`, changing nothing, otherwise.
+   */
+  async takeQueuedFrom(
+    id: string,
+    owner: ProcessIdentity
+  ): Promise<ExecutionRun | undefined> {
+    if (!isGone(owner)) {
+      return;
+    }
+    const written = await this.#persist(() =>
+      this.#store.transaction(async (view): Promise<Written> => {
+        const stored = this.#parse(await view.get(id));
+        if (stored?.status !== "queued" || !sameOwner(stored.owner, owner)) {
+          return { applied: false, record: stored };
+        }
+        return await view.transition(id, {
+          from: ["queued"],
+          newOwner: thisProcess(),
+          owner: stored.owner,
+          status: "queued",
+          updatedAt: now(),
+        });
+      })
+    );
+    const taken = this.#took(id, written);
+    return written.applied ? taken : undefined;
   }
 
   /**

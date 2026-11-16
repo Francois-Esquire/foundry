@@ -959,6 +959,49 @@ describe("engine generations", () => {
     }
   }, 150_000);
 
+  it("runs on the current generation a queued run whose retired generation died before handing it over", async () => {
+    const lines: string[] = [];
+    const marker = join(testHome({ providers: false }).path, "fail-handover");
+    process.env.MARBLES_TEST_FAIL_HANDOVER = marker;
+    try {
+      const fixture = await setUp({
+        daemon: {
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-failing-handover.ts"
+          ),
+          print: (line) => lines.push(line),
+        },
+      });
+      const first = fixture.summary.pid ?? 0;
+      const workspace = fixture.client.workspace(fixture.summary);
+      const holding = workspace.roll("hold1");
+      holding.catch(() => undefined);
+      await whenLogged(fixture, `hold1 ${String(first)}`);
+      await workspace.actions.launch("where", {});
+      // Its hand-over fails, so the run stays queued under the first.
+      writeFileSync(marker, "");
+      const second = await switchFrom(fixture, first, 1);
+      // The retired generation this test's daemon spawned dies before it
+      // hands the run over: proved that process, by its start, right before.
+      await provedGeneration(fixture, first, "retiring");
+      process.kill(first, "SIGKILL");
+      await gone(first);
+      // A generation starts to recover what the dead one held; its start
+      // leaves a gone process's queued run, and the sweep moves it there.
+      const third = await readyOn(fixture, (pid) => pid !== second);
+      await whenLogged(fixture, `where ${String(third)}`);
+      expect(logged(fixture)).not.toContain(`where ${String(first)}`);
+      expect(
+        lines.some((line) => line.includes("taken over from a gone process"))
+      ).toBe(true);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_FAIL_HANDOVER;
+    }
+  }, 150_000);
+
   it("finds a queued run handed over late by the database sweep when its notice is lost", async () => {
     const marker = join(testHome({ providers: false }).path, "fail-handover");
     process.env.MARBLES_TEST_FAIL_HANDOVER = marker;

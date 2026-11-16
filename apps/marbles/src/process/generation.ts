@@ -1,10 +1,6 @@
 #!/usr/bin/env bun
 import { connect as connectSocket, type Socket } from "node:net";
-import {
-  type ProcessIdentity,
-  thisProcess,
-} from "@foundry/lib/process-identity";
-import { readLiveGenerations } from "~/database/generations";
+import { thisProcess } from "@foundry/lib/process-identity";
 
 import { layout } from "~/layout";
 import type { Engine } from "~/lib/engine";
@@ -21,6 +17,7 @@ import {
   GENERATION_NOTIFICATIONS,
   hostParamsSchema,
   isWorkspaceMethod,
+  queuedParamsSchema,
   releasedParamsSchema,
   retireParamsSchema,
   startParamsSchema,
@@ -416,16 +413,6 @@ async function main(): Promise<void> {
     await hosted?.close();
   };
 
-  /** The generation the Marbles database records current now, as a process. */
-  const currentGeneration = async (): Promise<ProcessIdentity | undefined> => {
-    const now = (await readLiveGenerations(args.state)).find(
-      (each) => each.state === "current"
-    );
-    return now === undefined || now.pid <= 0
-      ? undefined
-      : { pid: now.pid, started: now.started };
-  };
-
   const retire = async (raw: unknown): Promise<void> => {
     const { successor } = retireParamsSchema.parse(raw);
     if (retiring !== undefined || stopping !== undefined) {
@@ -452,7 +439,6 @@ async function main(): Promise<void> {
           onLetGo(runId) {
             notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });
           },
-          successorNow: currentGeneration,
         })
       )
     );
@@ -469,6 +455,14 @@ async function main(): Promise<void> {
       return false;
     }
     return await workspaces().get(id).engine.adopt(runId);
+  };
+
+  const takeQueued = async (raw: unknown): Promise<boolean> => {
+    const { id, owner, runId } = queuedParamsSchema.parse(raw);
+    if (retiring !== undefined || stopping !== undefined) {
+      return false;
+    }
+    return await workspaces().get(id).engine.takeQueued(runId, owner);
   };
 
   const stop = (): Promise<void> => {
@@ -495,6 +489,8 @@ async function main(): Promise<void> {
           return retire(raw);
         case GENERATION_METHODS.adopt:
           return adopt(raw);
+        case GENERATION_METHODS.takeQueued:
+          return takeQueued(raw);
         default:
           break;
       }

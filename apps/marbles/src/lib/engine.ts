@@ -1388,11 +1388,6 @@ export class Engine {
       /** A queued run handed over after the first hand-over. */
       readonly onHanded?: (runId: string) => void;
       readonly onLetGo?: (runId: string) => void;
-      /**
-       * The engine current now, for a hand-over tried again later: it may
-       * not be `successor` by then. `successor` when omitted.
-       */
-      readonly successorNow?: () => Promise<ProcessIdentity | undefined>;
     } = {}
   ): Promise<{ readonly ended: Promise<void> }> {
     const running = this.#running;
@@ -1411,11 +1406,7 @@ export class Engine {
       this.#print(`[engine] delivery did not stop cleanly: ${String(error)}`);
     });
     const handedLate = (late: string) => options.onHanded?.(late);
-    for (const runId of await this.#launcher.handOver(
-      successor,
-      handedLate,
-      options.successorNow
-    )) {
+    for (const runId of await this.#launcher.handOver(successor, handedLate)) {
       this.#letGo.add(runId);
     }
     // Every run that parks from now on goes too, as soon as it has parked.
@@ -1460,6 +1451,24 @@ export class Engine {
     return {
       ended: Promise.all([runsEnded, delivered]).then(() => undefined),
     };
+  }
+
+  /**
+   * Take the queued run `runId`, whose owner `owner` is gone, and let it in
+   * here: decided in the transaction that writes it, which checks it is
+   * still queued and still `owner`'s, exactly (`Launcher.takeOrphaned`).
+   * `false`, changing nothing, when this engine is not running or has begun
+   * to retire, `owner` is not proved gone, or the run moved meanwhile.
+   */
+  async takeQueued(runId: string, owner: ProcessIdentity): Promise<boolean> {
+    if (this.#running === undefined || this.#phase !== "started") {
+      return false;
+    }
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
+    if (this.#retiring) {
+      return false;
+    }
+    return await this.#launcher.takeOrphaned(runId, owner);
   }
 
   /**

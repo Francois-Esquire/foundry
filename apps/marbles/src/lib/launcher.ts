@@ -8,6 +8,7 @@ import {
 import type { Container } from "@foundry/sandbox/container/containers";
 import { asRun, callingRun } from "~/lib/calling-run";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
+import type { ExecutionView } from "~/lib/execution-store";
 import type { ExecutionRun, Executions } from "~/lib/executions";
 import { DEFAULT_QUEUE } from "~/lib/executions";
 import { errorCode } from "~/lib/observations";
@@ -173,6 +174,8 @@ class EngineRetiringError extends Error {
 const HAND_OVER_RETRY_MS = 1000;
 /** The longest wait between two tries of a hand-over. */
 const HAND_OVER_RETRY_MAX_MS = 30_000;
+/** How often a retiring engine passes over its queued runs when the last pass failed nothing. */
+const HAND_OVER_PASS_MS = 2000;
 
 /**
  * A run its queue has let in or is about to, until it settles: its abort
@@ -352,20 +355,24 @@ export class Launcher {
   /**
    * Begin to retire (`beginRetiring`), then hand every run waiting in this
    * process's queues, but those kept here, to `successor`, in their order,
-   * still queued, for it to let in: launches already under way among
-   * them. Whoever awaits one here is told it was handed over as soon as it
-   * is. Resolves with the ids the first pass handed over, the ones the
-   * successor finds when it starts. A run whose hand-over fails stays
-   * queued here, unstarted, and the queues are not drained while it does;
-   * it is tried again for as long as this process lives, waiting longer
-   * after each failure up to `HAND_OVER_RETRY_MAX_MS`, each distinct
-   * failure said once. `onHanded` is told of each run a later try hands
-   * over, which a successor that has started does not find by itself.
+   * still queued, for it to let in when it starts: launches already under
+   * way among them. Whoever awaits one here is told it was handed over as
+   * soon as it is. Resolves with the ids this first pass handed over.
+   *
+   * From then until this engine stops, it passes again: each pass takes up
+   * every queued run the store says is this process's, a run handed to it
+   * after it started among them, and hands each to the engine its host
+   * records current in the transaction that writes it (`successor` when
+   * the store keeps none), waiting while none is. A run whose hand-over
+   * fails stays queued here, unstarted, and the queues are not drained
+   * while it does; after a failure the next pass waits longer, up to
+   * `HAND_OVER_RETRY_MAX_MS`, and each distinct failure is said once.
+   * `onHanded` is told of each run a later pass hands over, which an
+   * engine already started does not find by itself.
    */
   async handOver(
     successor: ProcessIdentity,
-    onHanded: (id: string) => void = () => undefined,
-    successorNow?: () => Promise<ProcessIdentity | undefined>
+    onHanded: (id: string) => void = () => undefined
   ): Promise<readonly string[]> {
     this.beginRetiring();
     const handed: string[] = [];
@@ -380,17 +387,23 @@ export class Launcher {
     // settle, and none from outside passes it from now on: one pass takes
     // them all.
     await Promise.all(this.#launching);
-    const { failed } = await this.executions.handOverAll(successor, told);
-    if (failed.length > 0) {
-      const said = new Set<string>();
-      this.#sayFailed(failed, said);
-      this.#handOverLater(
-        successorNow ?? (() => Promise.resolve(successor)),
-        onHanded,
-        said,
-        HAND_OVER_RETRY_MS
-      );
-    }
+    const { failed } = await this.executions.handOverAll(
+      () => Promise.resolve(successor),
+      told
+    );
+    const said = new Set<string>();
+    this.#sayFailed(failed, said);
+    this.#handOverLater(
+      // The one current where the write is made; the first `successor`
+      // only for a store that keeps none.
+      (view) =>
+        view.successor === undefined
+          ? Promise.resolve(successor)
+          : view.successor(),
+      onHanded,
+      said,
+      failed.length > 0 ? HAND_OVER_RETRY_MS : HAND_OVER_PASS_MS
+    );
     return [...handed];
   }
 
@@ -411,17 +424,21 @@ export class Launcher {
   }
 
   /**
-   * Try the runs still waiting to be handed over again, after `delay`, to
-   * the engine `successorNow` names then: the one current when the write is
-   * made, which may not be the one current when retirement began.
+   * Pass over this process's queued runs again after `delay`, and again
+   * after that, until this engine stops: take up each the store says is
+   * this process's that it does not hold yet, and hand every one over to
+   * the engine `choose` names in the write's transaction.
    */
   #handOverLater(
-    successorNow: () => Promise<ProcessIdentity | undefined>,
+    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>,
     onHanded: (id: string) => void,
     said: Set<string>,
     delay: number
   ): void {
     const timer = setTimeout(async () => {
+      if (this.#halting !== undefined) {
+        return;
+      }
       const told = (id: string) => {
         this.#pay(
           id,
@@ -431,27 +448,88 @@ export class Launcher {
       };
       let failed: readonly { readonly error: unknown; readonly id: string }[];
       try {
-        const successor = await successorNow();
-        if (successor === undefined) {
-          throw new Error("no engine is current to hand it to");
-        }
-        ({ failed } = await this.executions.handOverAll(successor, told));
+        await this.#takeUpQueued();
+        ({ failed } = await this.executions.handOverAll(choose, told));
       } catch (error) {
         failed = [{ error, id: "a queued run" }];
       }
-      if (failed.length === 0) {
-        return;
-      }
       this.#sayFailed(failed, said);
       this.#handOverLater(
-        successorNow,
+        choose,
         onHanded,
         said,
-        Math.min(delay * 2, HAND_OVER_RETRY_MAX_MS)
+        failed.length === 0
+          ? HAND_OVER_PASS_MS
+          : Math.min(
+              delay === HAND_OVER_PASS_MS ? HAND_OVER_RETRY_MS : delay * 2,
+              HAND_OVER_RETRY_MAX_MS
+            )
       );
     }, delay);
-    // A retiring process exits once its runs end; a retry keeps nothing alive.
+    // A retiring process exits once its runs end; a pass keeps nothing alive.
     timer.unref?.();
+  }
+
+  /**
+   * Hold, waiting in their queues, the queued runs the store says are this
+   * process's that it does not hold yet: handed to it after it started,
+   * as it began to retire, for its next pass to hand on.
+   */
+  async #takeUpQueued(): Promise<void> {
+    for (const id of await this.executions.queuedHere()) {
+      if (this.#owed.has(id) || this.#admitted.has(id)) {
+        continue;
+      }
+      const run = await this.executions.readHanded(id);
+      if (run === undefined || this.#owed.has(id) || this.#admitted.has(id)) {
+        continue;
+      }
+      this.#owe(id, true);
+      this.#admit(id);
+    }
+  }
+
+  /**
+   * Take a queued run whose owner, `owner`, is gone, and let it in here:
+   * `true` once it waits in its queue here, or already did; `false`,
+   * changing nothing, when this engine has begun to retire, nothing here
+   * can run it, `owner` is not proved gone, or the run is no longer queued
+   * under `owner` exactly when the store is asked
+   * (`ExecutionRecords.takeQueuedFrom`).
+   */
+  async takeOrphaned(id: string, owner: ProcessIdentity): Promise<boolean> {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
+    if (this.#retiring) {
+      return false;
+    }
+    if (this.#owed.has(id) || this.#admitted.has(id)) {
+      return true;
+    }
+    const stored = await this.executions.peek(id);
+    if (stored === undefined || !this.#runnableAs(stored)) {
+      return false;
+    }
+    const run = await this.executions.takeQueuedFrom(id, owner);
+    // Looked at again after the write: a retirement may have begun.
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
+    if (run === undefined || this.#retiring) {
+      // Taken by this process as it began to retire: its next pass hands
+      // it on with the rest of its queue.
+      if (run !== undefined) {
+        this.#owe(id, true);
+        this.#admit(id);
+      }
+      return run !== undefined;
+    }
+    if (this.#owed.has(id) || this.#admitted.has(id)) {
+      return true;
+    }
+    this.#options.print(
+      `[run] ${run.name} taken over from a gone process ${id}`
+    );
+    this.#owe(id, true);
+    this.#admit(id);
+    return true;
   }
 
   /**
