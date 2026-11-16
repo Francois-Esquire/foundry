@@ -7,25 +7,11 @@ import { globToRegExp } from "@foundry/lib/glob";
 
 import type { SkillOp, SkillSet } from "../types";
 
-/**
- * Resolves a skill set recipe against the filesystem. `load` reads the
- * home and workspace skill folders, `add` walks a glob for directories
- * holding a `SKILL.md`, `pick` narrows by name. Resolution is cached per
- * recipe for the life of the resolver, which is one config load.
- */
-
 export interface SkillRoots {
-  /** The user's home, whose skill folders every workspace on this machine shares. */
   readonly home: string;
   readonly workspace: string;
 }
 
-/**
- * The folders `load` reads, under the home and then under the workspace.
- * A later folder wins a name an earlier one also has, so the workspace
- * wins over the home, and in each `skills` or `.foundry/skills` wins over
- * `.claude/skills`, which wins over `.agents/skills`.
- */
 const HOME_SKILL_DIRS = [".agents/skills", ".claude/skills", ".foundry/skills"];
 const WORKSPACE_SKILL_DIRS = [".agents/skills", ".claude/skills", "skills"];
 const SKILL_MANIFEST = "SKILL.md";
@@ -107,10 +93,6 @@ async function skillsIn(dirs: readonly string[]): Promise<Skill[]> {
   return read.filter((skill): skill is Skill => skill !== null);
 }
 
-/**
- * Every skill in the `load` folders, in their order and by name within
- * each. A symlinked entry counts: skill folders are often linked in.
- */
 async function loadRoots(roots: SkillRoots): Promise<Skill[]> {
   const folders = [
     ...HOME_SKILL_DIRS.map((dir) => resolve(roots.home, dir)),

@@ -183,11 +183,6 @@ function wrap(container: Container, site: HandleSite): SandboxHandle {
 export class SandboxesManager implements Sandboxes {
   readonly #deps: SandboxesDeps;
   readonly #handles = new WeakMap<SandboxHandle, Container>();
-  /**
-   * The containers this manager started. Their rows may be kept longer than
-   * the process (in the Marbles database), but a container is never the
-   * same one in another process: a step replayed there starts its own.
-   */
   readonly #started = new Set<string>();
   #opened: Promise<Containers> | undefined;
 
@@ -289,9 +284,6 @@ export class SandboxesManager implements Sandboxes {
         // A runtime that cannot start is an error, not a missing record.
         await this.containers();
         const recorded = scope.ledger.get<string>(key);
-        // A container never outlives the process that started it, though
-        // its row may: a run adopted after a restart starts a fresh one,
-        // files and all, under the same key, rather than restart that row.
         if (recorded !== undefined && this.#started.has(recorded)) {
           try {
             return attach(await this.#open(recorded, frame.signal));

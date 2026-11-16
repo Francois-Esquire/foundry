@@ -5,26 +5,9 @@ import type { ContainerStore, ContainerStoreWrite } from "./index";
 
 type Rows = Map<string, ContainerRow>;
 
-/** Why a call from inside the store's own transaction is refused. */
 const REENTRY =
   "The memory container store was called from inside its own transaction; use the view passed to the transaction's work instead";
 
-/**
- * The default store: a map in this process. Reads hand out frozen copies and
- * list rows in the order they were first put; a put over a kept row keeps
- * its place. Each commit builds new rows and swaps them in only when it
- * succeeds.
- *
- * A commit takes the write as it stands when it is called: one
- * `structuredClone` of it, made before the commit waits its turn, so a
- * caller changing the write later changes nothing; a transaction's view
- * takes its writes the same way. A write the clone refuses rejects whole.
- *
- * Every call takes a turn, so a commit made while a transaction runs lands
- * after it, and a call made from inside a transaction's work is refused: it
- * could only wait for itself. A transaction's commits build on its own
- * staged rows, which replace the store's only when its work succeeds.
- */
 export function createMemoryContainerStore(): ContainerStore {
   let rows: Rows = new Map();
   const turns = new Turns(REENTRY);
@@ -67,10 +50,6 @@ export function createMemoryContainerStore(): ContainerStore {
   };
 }
 
-/**
- * `take` with the store's own copy of `write`, or a rejection when the
- * write cannot be cloned.
- */
 function withOwnCopy(
   write: ContainerStoreWrite,
   take: (copy: ContainerStoreWrite) => Promise<void>
@@ -84,10 +63,6 @@ function withOwnCopy(
   return take(copy);
 }
 
-/**
- * The rows after `write`, the store's own copy, deletes before puts, built
- * on a new map so that `rows` stay exactly as they were.
- */
 function applied(rows: Rows, write: ContainerStoreWrite): Rows {
   const next = new Map(rows);
   for (const id of write.deleteContainers ?? []) {

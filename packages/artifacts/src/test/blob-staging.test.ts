@@ -46,14 +46,8 @@ const text = (value: string) => new TextEncoder().encode(value);
 const decoded = (bytes: Uint8Array | undefined) =>
   new TextDecoder().decode(bytes);
 
-/** A whole chunk of `fill`, so staging writes it before the source ends. */
 const chunk = (fill: number) => new Uint8Array(CHUNK_BYTES).fill(fill);
 
-/**
- * A source that yields `before`, then waits for `release` before yielding
- * `after`. `waiting` resolves once its reader has taken `before` and asked
- * for more, so whatever it did with `before` is done.
- */
 function gated(before: readonly Uint8Array[], after: readonly Uint8Array[]) {
   const waiting = Promise.withResolvers<void>();
   const released = Promise.withResolvers<void>();
@@ -70,10 +64,6 @@ function gated(before: readonly Uint8Array[], after: readonly Uint8Array[]) {
   };
 }
 
-/**
- * How `promise` settled within `ms`: `resolved`, `rejected`, or `pending`,
- * so a call held behind a stalled source fails an assertion, not the suite.
- */
 async function within(promise: Promise<unknown>, ms = 1000): Promise<string> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<string>((resolve) => {
@@ -94,13 +84,11 @@ async function within(promise: Promise<unknown>, ms = 1000): Promise<string> {
 
 const HOUR = 60 * 60 * 1000;
 
-/** Sets a path's modification time `ms` into the past. */
 async function age(path: string, ms: number): Promise<void> {
   const then = new Date(Date.now() - ms);
   await utimes(path, then, then);
 }
 
-/** Staging of an owner outside this process, holding one file, last changed `ms` ago. */
 async function ownerDirectory(blobs: string, ms: number): Promise<string> {
   const owner = crypto.randomUUID();
   const directory = join(blobs, ".staging", owner);
@@ -110,7 +98,6 @@ async function ownerDirectory(blobs: string, ms: number): Promise<string> {
   return owner;
 }
 
-/** Every file waiting in a blob root's staging area. */
 async function stagedFiles(blobs: string): Promise<string[]> {
   const root = join(blobs, ".staging");
   const found: string[] = [];
@@ -122,14 +109,12 @@ async function stagedFiles(blobs: string): Promise<string[]> {
   return found;
 }
 
-/** The published blob files of a blob root. */
 async function publishedFiles(blobs: string): Promise<string[]> {
   return (await readdir(blobs).catch(() => []))
     .filter((name) => !name.startsWith("."))
     .sort();
 }
 
-/** The backing paths the store's records name. */
 async function referencedFiles(store: ArtifactStore): Promise<string[]> {
   return (await store.listBlobs())
     .flatMap((blob) => (blob.path ? [blob.path] : []))
@@ -144,11 +129,6 @@ function file(content: Content | null | undefined, path: string) {
   return entry;
 }
 
-/**
- * Storage two managers share: one memory or SQLite store, or one JSON
- * records file that each manager opens on its own, as two processes would.
- * Every manager gets its own `blobFiles` over one blob root.
- */
 async function storage(kind: StoreKind) {
   const root = await mkdtemp(join(tmpdir(), "artifact-staging-"));
   roots.push(root);
@@ -160,7 +140,6 @@ async function storage(kind: StoreKind) {
   const store = open();
   const manager = (
     options: {
-      /** `null` for none: bytes then stay inline in the records. */
       readonly files?: BlobFiles | null;
       readonly maxFileBytes?: number;
       readonly maxTreeBytes?: number;
@@ -179,7 +158,6 @@ async function storage(kind: StoreKind) {
         ? {}
         : { maxTreeBytes: options.maxTreeBytes }),
     });
-  /** Nothing staged, and exactly the files the records name are published. */
   const settled = async () => {
     expect(await stagedFiles(blobs)).toEqual([]);
     expect(await publishedFiles(blobs)).toEqual(await referencedFiles(store));
@@ -292,7 +270,6 @@ describe.each(STORE_KINDS)("%s store: staged blob bytes", (kind) => {
     let copy: Awaited<ReturnType<ArtifactManager["create"]>> | undefined;
     try {
       expect(await within(gate.waiting)).toBe("resolved");
-      // Another Artifact names the same object while the bytes are staged.
       const copying = other.create({
         entries: { "copy.txt": { blobId: shared } },
         name: "Copy",
@@ -327,7 +304,6 @@ describe.each(STORE_KINDS)("%s store: staged blob bytes", (kind) => {
       })
     );
     try {
-      // Both sources are read before either change commits.
       expect(await within(Promise.all(gates.map((gate) => gate.waiting)))).toBe(
         "resolved"
       );
@@ -347,7 +323,6 @@ describe.each(STORE_KINDS)("%s store: staged blob bytes", (kind) => {
   });
 
   describe("leave no staged file when a change fails", () => {
-    /** A source that, after one staged chunk, notes what was staged and fails as `fail` says. */
     function failing(blobs: string, fail: () => Uint8Array) {
       const seen: { staged?: number } = {};
       async function* source(): AsyncIterable<Uint8Array> {
@@ -431,9 +406,7 @@ describe.each(STORE_KINDS)("%s store: staged blob bytes", (kind) => {
       type: "text/plain",
     });
     const old = await ownerDirectory(blobs, STAGING_ABANDONED_AFTER_MS + HOUR);
-    // Another process's staging, written a moment ago.
     const fresh = await ownerDirectory(blobs, 0);
-    // A crash after promotion, before the commit: a file no record names.
     await writeFile(join(blobs, crypto.randomUUID()), "promoted, never named");
     const live = manager();
     const gate = gated([chunk(4)], [text("live")]);
@@ -444,13 +417,11 @@ describe.each(STORE_KINDS)("%s store: staged blob bytes", (kind) => {
     });
     try {
       expect(await within(gate.waiting)).toBe("resolved");
-      // The live change's staging: the directory holding its staged chunk.
       const own = required(
         (await stagedFiles(blobs))
           .map((path) => path.split("/")[0])
           .find((name) => name !== fresh)
       );
-      // Older than the age, but its owner runs in this process.
       await age(
         join(blobs, ".staging", own),
         STAGING_ABANDONED_AFTER_MS + HOUR
@@ -531,7 +502,6 @@ describe.each(STORE_KINDS)("%s store: Staged blob bytes", (kind) => {
   });
 });
 
-/** `files` without its staging area, as a host's own `BlobFiles` would be. */
 function withoutStaging(files: BlobFiles): BlobFiles {
   return {
     list: () => files.list(),
@@ -593,7 +563,6 @@ describe.each(
       expect(file(one.content, "f.bin").blobId).toBe(
         file(two.content, "f.bin").blobId
       );
-      // One manifest and its two chunks.
       expect(await store.listBlobs()).toHaveLength(3);
       const range = await artifacts.readFileRange(
         required(two.contentId),
@@ -791,7 +760,6 @@ describe.each(STORE_KINDS)("%s store: Staging another owner left", (kind) => {
 describe.each(STORE_KINDS)(
   "%s store: A reference to a missing blob",
   (kind) => {
-    /** A source that notes whether it was ever read. */
     function watched(fail?: () => never) {
       const read = { pulled: false };
       async function* source(): AsyncIterable<Uint8Array> {
@@ -799,9 +767,7 @@ describe.each(STORE_KINDS)(
         if (fail) {
           fail();
         }
-        yield await new Promise<Uint8Array>(() => {
-          // Never yields: a stalled source.
-        });
+        yield await new Promise<Uint8Array>(() => undefined);
       }
       return { read, source: source() };
     }
@@ -901,7 +867,6 @@ describe.each(STORE_KINDS)("%s store: call order per Artifact", (kind) => {
         artifactId: created.id,
         changes: { put: { "f.txt": { bytes: "later" } } },
       });
-      // Held behind the stream on its Artifact, and only there.
       expect(await within(later, 200)).toBe("pending");
       expect(
         await within(
@@ -1199,7 +1164,6 @@ describe.each(["memory", "json"] as const)(
   }
 );
 
-/** A memory store whose next outer `getContent` fails, once. */
 class FailingLookups extends InMemoryArtifactStore {
   failNext: boolean;
 
@@ -1375,7 +1339,6 @@ describe.each(STORE_KINDS)("%s store: ordering re-checks", (kind) => {
         })
     );
     await first.waiting;
-    // The second is released first; it still commits after the first.
     second.release();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(settled).toEqual([]);

@@ -48,17 +48,7 @@ function exited(pid: number): boolean {
 }
 /** Storage and cleanup owned by the durable execution authority. */
 export interface ExecutionRecordsOptions {
-  /**
-   * Told of each settled run being pruned, before its record goes, to
-   * drop what else it kept. One that rejects keeps the record, so pruning
-   * it again retries.
-   */
   readonly removed?: (run: ExecutionRun) => Promise<void> | void;
-  /**
-   * Where workflow Runs are kept, whose claim on a Run a cancelled orphan
-   * takes so no adopter takes it at the same time. Without it, nothing
-   * else can own a workflow's Run.
-   */
   readonly runs?: Pick<RunStore, "claim" | "release">;
   readonly store: StateStore;
   readonly warn: (line: string) => void;
@@ -453,17 +443,6 @@ export class ExecutionRecords {
     return run !== undefined && SETTLED_EXECUTION_STATUSES.has(run.status);
   }
 
-  /**
-   * Record cancelled an unsettled run whose owner has exited and that no
-   * process has adopted; `false`, changing nothing, otherwise. For a
-   * workflow it first takes the claim on its Run that an adopter takes
-   * before it reads the record and keeps for as long as it owns the run,
-   * then the run's `execution-<id>` lock, and reads the record and its
-   * owner again under them; the claim is given up once the record is
-   * settled. The parked Run stays in the run store until the run is
-   * pruned; a process that would adopt it finds the record settled under
-   * its claim and leaves it (see {@link storedSettled}).
-   */
   async cancelOrphan(id: string): Promise<boolean> {
     const known = this.#records.get(id);
     if (
@@ -474,8 +453,6 @@ export class ExecutionRecords {
       return false;
     }
     const runs = known.kind === "workflow" ? this.#runs : undefined;
-    // Ownership is all the claim decides: the record is read again under
-    // the run's `execution-<id>` lock, which every recoverer takes too.
     if (runs && !(await runs.claim(id, ANY_STORED_RUN))) {
       return false;
     }
@@ -486,7 +463,6 @@ export class ExecutionRecords {
     }
   }
 
-  /** `cancelOrphan` once any claim on its Run is held. */
   #cancelOrphan(id: string): boolean {
     const lock = this.#store.lock(`execution-${id}`);
     if ("holder" in lock) {

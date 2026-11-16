@@ -898,7 +898,6 @@ it("a direct session none of whose usage was saved is found through the database
       records.facts.find((fact) => fact.sessionId === orphan.ref.id)
     ).toMatchObject({ agentId: UNATTRIBUTED, lost: RECOVERED });
     expect(records.unreadableAt.unowned).toBe(0);
-    // Another workspace's sessions in the same database are never read.
     catalog.reset();
     const other = await startEngine({
       print: () => undefined,
@@ -1801,7 +1800,6 @@ it("a settled run's record that could not be read is read again, so a repair cou
   await writer.dispose();
 
   const second = await reader();
-  // What its scope recorded, as nothing Marbles writes would leave it.
   await recordLedger(launched.id, sql`'[1]'`);
   const damaged = await second.readUsage();
   expect(damaged.unreadableAt.runs.get(launched.id)).toBe(1);
@@ -1811,7 +1809,6 @@ it("a settled run's record that could not be read is read again, so a repair cou
   expect(repaired.unreadableAt.runs.has(launched.id)).toBe(false);
 });
 
-/** Set the ledger the database keeps beside the test workspace's Run. */
 async function recordLedger(runId: string, ledger: SQL): Promise<void> {
   const opened = await openDatabase(stateDatabase(state));
   if (opened === undefined) {

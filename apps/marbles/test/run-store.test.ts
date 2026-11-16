@@ -1,8 +1,3 @@
-/**
- * Every run store keeps one contract: in memory, and in the Marbles
- * database, where two engines share a workspace's Runs and claim them.
- */
-
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

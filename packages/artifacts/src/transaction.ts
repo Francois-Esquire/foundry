@@ -81,7 +81,6 @@ export interface LocatedFile {
   readonly path: string;
 }
 
-/** The Artifact operations within one change. */
 export class ArtifactTransaction implements ArtifactOperations {
   readonly #change: ArtifactChange;
   readonly #effects: OperationEffects;
@@ -89,7 +88,6 @@ export class ArtifactTransaction implements ArtifactOperations {
   readonly #maxTreeBytes: number;
   readonly #staging: BlobStaging;
 
-  /** `staging` holds the bytes staged ahead of this change; none when omitted. */
   constructor(
     change: ArtifactChange,
     effects: OperationEffects,
@@ -103,12 +101,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     this.#staging = staging;
   }
 
-  /**
-   * The refusals `create` makes before it reads a byte: blank names, an id
-   * already taken, invalid paths, references to blobs that do not exist.
-   * The manager runs them before staging any byte, and `create` runs them
-   * again inside the change.
-   */
   async checkCreate(input: CreateArtifactInput): Promise<void> {
     nonEmpty("name", input.name);
     nonEmpty("type", input.type);
@@ -119,7 +111,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     await this.#checkReferences(input.entries);
   }
 
-  /** The refusals `write` makes before it reads a byte; see `checkCreate`. */
   async checkWrite(input: WriteInput): Promise<ArtifactResolved> {
     const artifact = await this.#requireArtifact(input.artifactId);
     fence(artifact, input);
@@ -133,7 +124,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     return artifact;
   }
 
-  /** The refusals `revise` makes before it reads a byte; see `checkCreate`. */
   async checkRevise(input: ReviseInput): Promise<{
     readonly artifact: ArtifactResolved;
     readonly source: Content;
@@ -152,13 +142,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     return { artifact, source };
   }
 
-  /**
-   * The ownership of each object an in-place write may replace, recorded
-   * when the write is checked before its bytes are staged (a read-only
-   * check) and confirmed once by the change itself. An object shared or freed meanwhile refuses
-   * the write as stale: the bytes were taken in against ownership that no
-   * longer holds.
-   */
   async #checkOwnership(
     artifact: ArtifactResolved,
     entries: EntryInputs | undefined
@@ -183,7 +166,6 @@ export class ArtifactTransaction implements ArtifactOperations {
             }
           : null;
       const key = `${artifact.id}\u0000${path}`;
-      // The check before staging records; the change's own check confirms.
       if (this.#change.readOnly) {
         this.#staging.recordOwnership(key, now);
       } else if (!this.#staging.confirmOwnership(key, now)) {
@@ -195,7 +177,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     }
   }
 
-  /** Every reference in `entries` names an existing blob within the size limit. */
   async #checkReferences(entries: EntryInputs | undefined): Promise<void> {
     for (const [path, entry] of Object.entries(entries ?? {})) {
       if (!isStructural(entry) && isReferenceInput(entry)) {
@@ -869,7 +850,6 @@ async function collect(
   return bytes;
 }
 
-/** Throws unless every path `changes` names is a storage path. */
 function assertStoragePaths(changes: TreeChanges): void {
   for (const path of [
     ...(changes.remove ?? []),

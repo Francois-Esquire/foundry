@@ -17,26 +17,17 @@ afterAll(() =>
   Promise.all(roots.map((root) => rm(root, { force: true, recursive: true })))
 );
 
-/** What a host transaction that rolls back throws, and the test expects. */
 const ROLLED_BACK = "host rolled back";
-/** What a manager over a "host" store says when asked to recover. */
 const REFUSED_RECOVER = "cannot recover over a store whose commits a host";
-/** What SQLite, or libSQL's single in-memory connection, says when held. */
 const HELD = /SQLITE_BUSY|locked|TRANSACTION_ACTIVE|single connection/i;
 
 const fileDatabases = libsqlDatabases("file");
 const memoryDatabases = libsqlDatabases("memory");
 
-/** A blob root's published files, staging aside. */
 async function publishedIn(root: string): Promise<string[]> {
   return (await readdir(root)).filter((name) => !name.startsWith(".")).sort();
 }
 
-/**
- * An Artifact holding `a.txt` ("before") over a file-backed blob root, made
- * by a manager over the plain database, and the means to change it inside
- * a transaction the host owns.
- */
 async function setup(databases: LibsqlDatabases) {
   const database = await databases.open();
   const root = await mkdtemp(join(tmpdir(), "artifact-host-"));
@@ -63,10 +54,6 @@ async function setup(databases: LibsqlDatabases) {
       artifactId: created.id,
       changes: { put: { "a.txt": { bytes: "after" } } },
     });
-  /**
-   * `work` with a manager over a store on the host's own transaction, which
-   * then commits or rolls back.
-   */
   const inHost = async (
     outcome: "commit" | "rollback",
     work: (joined: ArtifactManager) => Promise<unknown>
@@ -142,7 +129,6 @@ describe.each([
       const { durable, inHost, original, published, read, rewrite } =
         await setup(databases);
       await inHost("commit", rewrite);
-      // Not removed in line: the manager could not know the host would commit.
       expect(await published()).toEqual(expect.arrayContaining(original));
 
       await durable.recover();
@@ -193,8 +179,6 @@ describe("a durable recover while a host transaction on its database is open", (
     const databases = fileDatabases;
     const { database, files, inHost, original, published, read, rewrite } =
       await setup(databases);
-    // Another connection, as a durable manager elsewhere would hold. After
-    // SQLITE_BUSY at BEGIN libSQL cannot commit on it again; it is not reused.
     const elsewhere = new ArtifactManager({
       files,
       store: new SqliteArtifactStore({
@@ -259,7 +243,6 @@ describe.each(STORE_KINDS)(
         }
       });
       await written.promise;
-      // An independent caller, while the transaction is open and unsettled.
       let recovered = false;
       const recovering = durable.recover().then(() => {
         recovered = true;
@@ -393,8 +376,6 @@ describe.each([
       const [only] = (await durable.list({})).items;
       const artifact = required(only);
       const first = required(artifact.content);
-      // A second Content holding its own file, then the first selected again:
-      // the second is ready, unpointed and unfrozen, so a sweep takes it.
       const second = await durable.revise({
         artifactId: artifact.id,
         changes: { put: { "b.txt": { bytes: "second only" } } },

@@ -1,10 +1,3 @@
-/**
- * A starting engine decides to adopt a parked Run in the same atomic step
- * as its claim on it: a Run that moved on after the scan that found it,
- * because its owner resumed it and then died, or whose Execution Run
- * settled meanwhile, is not adopted, and nothing runs its body again.
- */
-
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,7 +26,6 @@ afterEach(() => {
   }
 });
 
-/** A Run parked by an owner engine, in a database another engine starts over. */
 async function parkedByAnOwner() {
   const root = mkdtempSync(join(tmpdir(), "marbles-recovery-race-"));
   roots.push(root);
@@ -54,7 +46,6 @@ async function parkedByAnOwner() {
   });
   await owner.updateRun("rn-1", { status: "running" });
   await owner.updateRun("rn-1", { status: "suspended" });
-  /** The owner's process exits: what it owned, it owns no longer. */
   const ownerDies = async () => {
     await database
       .update(marblesWorkflowRuns)
@@ -74,7 +65,6 @@ async function parkedByAnOwner() {
   return { next, owner, ownerDies, store };
 }
 
-/** `runs`, running `between` after the scan and before each claim. */
 function interleaved(runs: RunStore, between: () => Promise<void>): RunStore {
   return {
     claim: async (runId: string, when: ClaimCondition) => {
@@ -98,7 +88,6 @@ it("does not adopt a parked Run its owner resumed, and died running, after the s
     print: (line) => lines.push(line),
     registered: () => true,
     runs: interleaved(next, async () => {
-      // The owner, alive again for a moment, resumes the Run and dies.
       await owner.updateRun("rn-1", { status: "running" });
       await ownerDies();
     }),
@@ -110,7 +99,6 @@ it("does not adopt a parked Run its owner resumed, and died running, after the s
   expect(lines).toEqual([
     "[run] flow rn-1 not adopted: it is running now, not parked",
   ]);
-  // Nothing was claimed either: the Run is left as it stood.
   expect(
     await next.claim("rn-1", (stored) => stored?.status === "running")
   ).toBe(true);
@@ -140,7 +128,6 @@ it("does not adopt a parked Run whose Execution Run settled after the scan", asy
 
 it("does not adopt a Run whose Execution Run a dying canceller settled while this engine claimed it", async () => {
   const { next, store } = await parkedByAnOwner();
-  // Open as the claim's own step reads it; settled by the time it is won.
   let reads = 0;
   const lines: string[] = [];
   const adopted = await adoptParkedRuns({
@@ -160,7 +147,6 @@ it("does not adopt a Run whose Execution Run a dying canceller settled while thi
   expect(lines).toEqual([
     "[run] flow rn-1 not adopted: its execution run has settled",
   ]);
-  // The claim it won is given back.
   const other = new DatabaseRunStore({
     database: handles[0]?.database as MarblesDatabase["database"],
     scope: "ws",

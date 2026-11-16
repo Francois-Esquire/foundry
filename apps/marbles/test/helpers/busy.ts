@@ -6,17 +6,10 @@ import { pathToFileURL } from "node:url";
 
 const CLIENT = resolve("../../node_modules/@libsql/client/lib-esm/node.js");
 
-/** Another process holding a database's write lock until released. */
 export interface WriteLockHolder {
-  /** Let go of the lock and wait for the process to exit. */
   release(): Promise<void>;
 }
 
-/**
- * Take the write lock on the SQLite file `file` in another process and
- * hold it, so a writer here waits for its busy timeout and is refused.
- * `children` collects the process, for a test to kill should it fail first.
- */
 export async function holdWriteLock(
   file: string,
   children: ChildProcess[]

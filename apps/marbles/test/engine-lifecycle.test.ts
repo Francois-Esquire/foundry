@@ -117,7 +117,6 @@ it.each(["factory", "interactions"] as const)(
       await expect(failed.start()).rejects.toThrow("recovery failed");
       await failed.stop();
       expect(failed.scopes.size).toBe(0);
-      // Its claim is given back, and the Run is as it was stored.
       expect(await storedRun(state, launched.id)).toEqual(saved);
       await next.start();
       expect(next.scopes.has(launched.id)).toBe(true);

@@ -102,7 +102,6 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     const listed = marbles("tasks", "list", "--json");
     expect(listed.status, listed.stderr).toBe(0);
     expect(JSON.parse(listed.stdout)).toEqual({ items: tasks, total: 1 });
-    // In the Marbles database at the state root; no file of the workspace's own.
     const stored = await files(join(root, "state"));
     expect(stored).toContain("marbles.db");
     expect(stored.filter((file) => file.includes("tasks"))).toEqual([]);
@@ -145,7 +144,6 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     });
     const ready = marbles("tasks", "ready", "--json");
     expect(JSON.parse(ready.stdout)).toEqual({ items: [], total: 0 });
-    // Not even the state root is made.
     expect(await readdir(root)).toEqual([".foundry"]);
   });
 
@@ -156,7 +154,6 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     const child = marbles("tasks", "create", "Child", "--parent", parent.id);
     expect(child.status, child.stderr).toBe(0);
     const state = join(root, "state");
-    // Stat and bytes, read here, where no connection has the file open.
     const look = async () =>
       await Promise.all(
         (await files(state)).map(async (file) => {
@@ -325,7 +322,6 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     expect(created.status, created.stderr).toBe(0);
     const state = join(root, "state");
     expect(existsSync(join(state, "marbles.db"))).toBe(true);
-    // The state root's lock was taken only while the database was made.
     expect(existsSync(join(state, "locks", "process"))).toBe(false);
   });
 

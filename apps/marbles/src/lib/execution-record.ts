@@ -158,12 +158,6 @@ export interface ExecutionRuns {
   get(id: string): ExecutionRun | undefined;
   /** Every retained run, in admission order. */
   list(): readonly ExecutionRun[];
-  /**
-   * Remove settled runs for good, recording each one's scope in its gap
-   * first. Ids of unknown or unsettled runs are skipped. Returns the runs
-   * removed; subscribers are not told (the caller knows). Rejects without
-   * removing anything if another process holds the retention lock; retry later.
-   */
   prune(
     ids: Iterable<string>,
     scopeOf: (run: ExecutionRun) => string

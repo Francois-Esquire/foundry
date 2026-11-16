@@ -1,8 +1,3 @@
-/**
- * Every trigger store keeps one contract: in memory, shared by the engines
- * handed it, and in the Marbles database, shared by every engine over it.
- */
-
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -56,7 +51,6 @@ it("lets a tick an exited process held be claimed, and says which live process h
       claimed: false,
       holder: `pid ${String(process.ppid)}`,
     });
-    // A claim it does not hold is not given up by its finish.
     await triggers.finishTick("held");
     expect(await fixture.store().claimTick("held")).toMatchObject({
       claimed: false,

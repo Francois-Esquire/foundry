@@ -23,36 +23,17 @@ import type {
 } from "./index";
 import { ownedQuery } from "./page";
 
-/** Why a call from inside the store's own transaction is refused. */
 const REENTRY =
   "MemoryWorkflowStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
-/** Why a view used after its transaction settled is refused. */
 const ENDED =
   "MemoryWorkflowStore transaction view was used after its transaction settled";
 
-/**
- * The default store: plain maps in this process. Reads list records in the
- * order they were first put; a put over a stored record keeps its place.
- * Every call takes a turn, so a commit made while a transaction runs lands
- * after it, and a call made from inside a transaction's work is refused.
- *
- * A transaction stages its commits on a copy of the store's tables, taken
- * at its first commit, and swaps the copy in only if its work succeeds. The
- * tables the store holds are therefore always the last completed state,
- * which {@link snapshot} reads at once.
- */
 export class MemoryWorkflowStore implements WorkflowStore {
-  /** A commit lands in this process's maps at once, for good. */
   readonly durability = "commit";
   #tables = new Tables();
   readonly #turns = new Turns(REENTRY);
 
-  /**
-   * Copies `write` when called, before waiting for its turn, so a caller
-   * changing it afterwards changes nothing the store keeps; a value that
-   * cannot be copied refuses the whole write.
-   */
   commit(write: WorkflowStoreWrite): Promise<void> {
     let copied: OwnedWrite;
     try {
@@ -66,11 +47,6 @@ export class MemoryWorkflowStore implements WorkflowStore {
     });
   }
 
-  /**
-   * Runs `work` over a view that stages its commits, and keeps them only if
-   * `work` succeeds, so a throw after a commit through `view` leaves
-   * nothing.
-   */
   transaction<T>(work: (view: WorkflowStore) => Promise<T>): Promise<T> {
     return this.#turns.run(async () => {
       const view = new MemoryView(this.#tables);
@@ -122,14 +98,6 @@ export class MemoryWorkflowStore implements WorkflowStore {
     return this.#list(query, (tables, taken) => tables.listSuspensions(taken));
   }
 
-  /**
-   * Every record as of the last commit or transaction that completed, read
-   * at once without waiting for a turn, in the store's list order. Not part
-   * of `WorkflowStore`: it lets a host that keeps its own files (Marbles)
-   * read the state synchronously. The records are copies, not checked
-   * against each other; `ExecutionCoordinator.snapshot` returns a checked
-   * one.
-   */
   snapshot(): OrchestratorStoreSnapshot {
     return this.#tables.snapshot();
   }
@@ -152,12 +120,7 @@ export class MemoryWorkflowStore implements WorkflowStore {
   }
 }
 
-/**
- * A transaction's view: reads see the store's tables until the first
- * commit, which copies them; later commits change only the copy.
- */
 class MemoryView implements WorkflowStore {
-  /** Its commits stand only if the transaction's work succeeds. */
   readonly durability = "host";
   tables: Tables;
   readonly #base: Tables;
@@ -233,13 +196,11 @@ class MemoryView implements WorkflowStore {
   }
 }
 
-/** A stored record and its place in its table's list order. */
 interface Row<T> {
   readonly position: number;
   readonly record: T;
 }
 
-/** A write's records, copied so they share nothing with the caller's. */
 interface OwnedWrite {
   readonly deleteJobs: readonly string[];
   readonly deleteRunFrames: readonly string[];
@@ -252,11 +213,6 @@ interface OwnedWrite {
   readonly putSuspensions: readonly SuspensionRecord[];
 }
 
-/**
- * The store's own copy of `write`: the named properties read once
- * (`capturedWrite`, as the SQLite store reads them), then one deep copy of
- * that capture with byte memory unshared (`detached`).
- */
 function owned(write: WorkflowStoreWrite): OwnedWrite {
   const copy = detached(capturedWrite(write));
   return {
@@ -272,18 +228,12 @@ function owned(write: WorkflowStoreWrite): OwnedWrite {
   };
 }
 
-/**
- * The store's records. Rows are never changed in place, so a copy shares
- * them; each Run's frame map is copied the first time a copy writes to it.
- */
 class Tables {
   readonly queues: Map<string, Row<QueueRecord>>;
   readonly jobs: Map<string, Row<JobRecord>>;
   readonly runs: Map<string, Row<RunRecord>>;
   readonly suspensions: Map<string, Row<SuspensionRecord>>;
-  /** Run id → cursor → frame. */
   readonly frames: Map<string, Map<number, Row<RunFrame>>>;
-  /** Frame maps this copy may change: its own, not shared with the original. */
   readonly #ownFrames = new Set<string>();
   #next: number;
 
@@ -395,7 +345,6 @@ class Tables {
     };
   }
 
-  /** A new key takes the next position; one put again keeps its own. */
   #put<K, T>(table: Map<K, Row<T>>, key: K, record: T): void {
     const position = table.get(key)?.position ?? this.#take();
     table.set(key, { position, record });
@@ -407,7 +356,6 @@ class Tables {
     return position;
   }
 
-  /** The Run's frame map, copied first if this copy shares it. */
   #framesOf(runId: string): Map<number, Row<RunFrame>> {
     const shared = this.frames.get(runId);
     if (shared !== undefined && this.#ownFrames.has(runId)) {
@@ -424,7 +372,6 @@ function ordered<T>(rows: Row<T>[]): Row<T>[] {
   return rows.sort((left, right) => left.position - right.position);
 }
 
-/** The matching rows after `query.after`, at most `query.limit`, as copies. */
 function page<T>(
   rows: Row<T>[],
   query: WorkflowStorePageQuery,

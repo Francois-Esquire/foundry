@@ -14,10 +14,8 @@ import { interceptCommits } from "../testing";
 import { required } from "./helpers/required";
 import { libsqlDatabases } from "./helpers/sqlite";
 
-/** A published blob file, not a temporary beside one. */
 const PUBLISHED_BLOB = /^[a-f0-9-]+$/;
 
-/** How the next records-file replacement fails, if it does. */
 const recordsFile: {
   failure?: "before rename" | "after rename" | "stat after rename";
   statFails?: boolean;
@@ -59,7 +57,6 @@ vi.mock("@foundry/lib/atomic-file", async (importOriginal) => {
         recordsFile.statFails = true;
       }
       if (failure === "after rename") {
-        // The directory sync after the rename fails: the file is replaced.
         throw Object.assign(new Error("EIO: directory sync failed"), {
           code: "EIO",
         });
@@ -99,7 +96,6 @@ async function harness(open: (root: string) => ArtifactStore) {
     (await readdir(blobs).catch(() => [])).filter((name) =>
       PUBLISHED_BLOB.test(name)
     );
-  /** Files waiting in the staging area, under any owner. */
   const staged = async () => {
     const area = join(blobs, ".staging");
     const found: string[] = [];
@@ -113,9 +109,7 @@ async function harness(open: (root: string) => ArtifactStore) {
 
 const refuse: CommitInterceptor = () =>
   Promise.reject(new Error("commit refused"));
-/** A memory store whose first transaction that commits fails once its commits landed. */
 
-/** `store`'s methods as plain functions, so a view can be copied and overridden. */
 function bound(store: ArtifactStore): ArtifactStore {
   return {
     commit: (write) => store.commit(write),
@@ -220,9 +214,7 @@ describe("A commit that fails", () => {
   });
 });
 
-/** What SQLite says when a lock it needs is held. */
 const LOCKED = /SQLITE_BUSY|locked/i;
-/** A read of the blob table. */
 const READS_BLOBS = /^select .* from "artifact_blobs"/;
 
 describe("A SQLite commit that fails", () => {
@@ -257,13 +249,11 @@ describe("A SQLite commit that fails", () => {
     await expect(create()).rejects.toThrow("put failed");
     expect(await artifacts.get(id)).toBeNull();
     expect(await files()).toEqual([]);
-    // Nothing of the first attempt stands in the way of the next.
     await create();
     expect(await files()).toHaveLength(1);
   });
 
   it("at COMMIT, busy while another connection reads, removes the files it published", async () => {
-    // A rollback-journal file, the default: COMMIT needs every reader gone.
     const database = await sqlite.open();
     const { artifacts, create, files, id } = await harness(
       () => new SqliteArtifactStore({ database, scope: "s" })
@@ -303,8 +293,6 @@ describe("A SQLite commit that fails", () => {
 
     expect(failure).toMatch(LOCKED);
     expect(await files()).toEqual([]);
-    // Read on another connection: libSQL leaves the refused BEGIN in
-    // progress on this one, so its next COMMIT fails until it is reopened.
     expect(
       await new SqliteArtifactStore({
         database: sqlite.connect(database),
@@ -333,8 +321,6 @@ describe("A SQLite commit that fails", () => {
       name: "Streamed",
       type: "text/markdown",
     });
-    // The check has run; while the bytes arrive, another connection takes
-    // the write lock the change will need.
     await arriving.promise;
     const writer = await sqlite
       .client(sqlite.connect(database))
@@ -379,7 +365,6 @@ describe("A SQLite commit that fails", () => {
     );
     faults.armed = true;
     await expect(create()).rejects.toThrow("put failed");
-    // Unable to tell whether the write landed, the change keeps the file.
     expect(await files()).toHaveLength(1);
     faults.unreadable = false;
     expect(await artifacts.get(id)).toBeNull();

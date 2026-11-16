@@ -565,7 +565,6 @@ it("keeps a run's record when its cleanup fails, so pruning it again retries", a
   await flow.result;
   const file = join(state, "output", `${flow.id}.jsonl`);
   rmSync(file);
-  // A directory where its output file was: removing it fails.
   mkdirSync(join(file, "blocked"), { recursive: true });
 
   expect(await engine.executions.prune([flow.id], () => "host")).toEqual([]);

@@ -41,10 +41,6 @@ export const MODULE_PLATFORM_ALLOWED_PACKAGE_IMPORTS = [
   "@foundry/sandbox/container/types",
 ] as const;
 
-/**
- * Drizzle stays in the SQLite store and its table definitions, which a host
- * imports only when it keeps Module records in SQLite.
- */
 export const MODULE_SQLITE_ALLOWED_PACKAGE_IMPORTS = [
   "drizzle-orm",
   "drizzle-orm/sqlite-core",

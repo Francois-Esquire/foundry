@@ -1,9 +1,3 @@
-/**
- * A workspace's artifacts, containers and catalogue, kept waiting past the
- * busy timeout by another process, say so as every Marbles store does: a
- * `DatabaseBusyError`, not the raw `SQLITE_BUSY` the package store met.
- */
-
 import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -327,18 +327,14 @@ describe("public surface", () => {
 const SOURCE = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE_ROOT = resolve(SOURCE, "..");
 
-/** A name a store implementation would export under. */
 const STORE_NAME = /Store$/;
 
-/** The only entries that may load Drizzle. */
 const SQLITE_ENTRIES = ["./store/sqlite", "./store/tables"];
 
-/** Specifiers that would load the SQLite stack, and each half of it. */
 const SQLITE_STACK = /^(drizzle-orm|@libsql\/)/;
 const DRIZZLE = /^drizzle-orm/;
 const LIBSQL = /^@libsql\//;
 
-/** A static or dynamic import or re-export, and whether it loads at runtime. */
 const STATIC_IMPORT =
   /^\s*(?:import|export)\s+(type\s+)?(?:[^;]*?\s+from\s+)?["']([^"']+)["']/gm;
 const DYNAMIC_IMPORT = /\bimport\(\s*["']([^"']+)["']\s*\)/g;
@@ -355,7 +351,6 @@ const manifest = JSON.parse(
   readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8")
 ) as Manifest;
 
-/** Each import in `file`: its specifier, and whether it is only a type. */
 function importsOf(file: string) {
   const text = readFileSync(file, "utf8");
   return [
@@ -370,7 +365,6 @@ function importsOf(file: string) {
   ];
 }
 
-/** The file a relative specifier names, from `file`. */
 function resolved(file: string, specifier: string): string {
   const base = resolve(dirname(file), specifier);
   for (const candidate of [base, `${base}.ts`, join(base, "index.ts")]) {
@@ -383,7 +377,6 @@ function resolved(file: string, specifier: string): string {
   );
 }
 
-/** Every file `entries` load at runtime, following relative imports. */
 function runtimeGraph(entries: readonly string[]): string[] {
   const seen = new Set<string>();
   const pending = [...entries];
@@ -402,7 +395,6 @@ function runtimeGraph(entries: readonly string[]): string[] {
   return [...seen];
 }
 
-/** Every non-test source file. */
 function sourceFiles(): string[] {
   return readdirSync(SOURCE, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))

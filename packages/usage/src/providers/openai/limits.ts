@@ -171,7 +171,6 @@ export const readCodexLimits = async (options: {
   }
 };
 
-/** An API key or Bedrock has no plan limits; a signed-out CLI has no account, so no limits. */
 const refusal = (response: unknown): Reading | undefined => {
   const { account } = record(response);
   if (account === null || account === undefined) {
