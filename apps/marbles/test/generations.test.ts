@@ -903,6 +903,44 @@ describe("engine generations", () => {
     }
   }, 150_000);
 
+  it("runs a queued run on the current generation that its retired one handed over only after the current one started", async () => {
+    const marker = join(testHome({ providers: false }).path, "fail-handover");
+    process.env.MARBLES_TEST_FAIL_HANDOVER = marker;
+    try {
+      const fixture = await setUp({
+        daemon: {
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-failing-handover.ts"
+          ),
+        },
+      });
+      const first = fixture.summary.pid ?? 0;
+      const workspace = fixture.client.workspace(fixture.summary);
+      const holding = workspace.roll("hold1");
+      await whenLogged(fixture, `hold1 ${String(first)}`);
+      // The queue lets one run in at a time: this one waits behind hold1.
+      await workspace.actions.launch("where", {});
+      // The switch's hand-over of it fails, so the next generation starts
+      // without it.
+      writeFileSync(marker, "");
+      const second = await switchFrom(fixture, first, 1);
+      expect(logged(fixture)).not.toContain("where");
+      // The store answers again: the retired generation hands it over, and
+      // the current one, started already, runs it.
+      rmSync(marker);
+      await whenLogged(fixture, `where ${String(second)}`);
+      expect(logged(fixture)).not.toContain(`where ${String(first)}`);
+      open(1, fixture);
+      expect((await holding).value).toBe(first);
+      await gone(first);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_FAIL_HANDOVER;
+    }
+  }, 150_000);
+
   it("launches again on the current generation a launch a generation refused as retiring, recording it once", async () => {
     const marker = join(testHome({ providers: false }).path, "refuse-launch");
     process.env.MARBLES_TEST_REFUSE_LAUNCH = marker;

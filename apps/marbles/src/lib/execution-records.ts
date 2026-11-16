@@ -549,6 +549,24 @@ export class ExecutionRecords {
   }
 
   /**
+   * A queued run another process handed to this one (`handQueued`), read
+   * from the store and held here: for one handed over after this process
+   * started, which its start's recovery did not find. `undefined` when the
+   * store holds no queued run of this process's by that id.
+   */
+  async readHanded(id: string): Promise<ExecutionRun | undefined> {
+    const stored = this.#parse(await this.#store.get(id));
+    if (
+      stored?.status !== "queued" ||
+      !sameProcess(stored.owner, thisProcess())
+    ) {
+      return;
+    }
+    this.#learn(stored);
+    return this.#records.get(id);
+  }
+
+  /**
    * Make a queued run of this process's `successor`'s, still queued, for it
    * to let in when it starts (`recover`). Decided on the stored record in
    * the transaction that writes it: `false`, changing nothing, when it is

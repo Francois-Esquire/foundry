@@ -741,7 +741,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
       return;
     }
-    if (method === GENERATION_NOTIFICATIONS.released) {
+    // A run let go as it parked, or a queued run handed over late: offered
+    // to the current generation the same way (`Engine.adopt`).
+    if (
+      method === GENERATION_NOTIFICATIONS.released ||
+      method === GENERATION_NOTIFICATIONS.handed
+    ) {
       const parsed = releasedParamsSchema.safeParse(params);
       if (parsed.success) {
         handOver(parsed.data.id, parsed.data.runId).catch(() => undefined);

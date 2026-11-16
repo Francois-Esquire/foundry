@@ -194,6 +194,12 @@ export function isWorkspaceMethod(name: string): name is WorkspaceMethod {
 
 /** What a generation tells the daemon unasked. */
 export const GENERATION_NOTIFICATIONS = {
+  /**
+   * A retired generation handed a queued run to the current one after the
+   * current one started, so its start did not find it; params name the
+   * workspace and the run (`releasedParamsSchema`), for it to let in.
+   */
+  handed: "handed",
   /** A status line; params name the workspace's root, or none for the generation's own. */
   line: "line",
   /**

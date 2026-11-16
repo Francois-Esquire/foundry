@@ -1,5 +1,5 @@
 import { thisProcess } from "@foundry/lib/process-identity";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ExecutionView } from "~/lib/execution-store";
 import { MemoryExecutionStore } from "~/lib/execution-store";
 import { Executions } from "~/lib/executions";
@@ -187,12 +187,13 @@ describe("an engine that has begun to retire", () => {
     queued.store.failing = (index) => index === 0;
     queued.executions.release(queued.first.id);
     queued.store.gate.resolve();
-    const handed = await handing;
+    // The first pass hands over the third; a later try, the second.
+    expect(await handing).toEqual([queued.third.id]);
+    await expect(queued.second.result).rejects.toThrow(
+      "was handed to the next engine generation"
+    );
     await queued.end();
     expect(queued.started).toEqual(["first"]);
-    expect([...handed].sort()).toEqual(
-      [queued.second.id, queued.third.id].sort()
-    );
     for (const run of [queued.second, queued.third]) {
       expect(queued.executions.get(run.id)?.owner).toMatchObject({
         pid: queued.successor.pid,
@@ -203,20 +204,21 @@ describe("an engine that has begun to retire", () => {
     ).toBe(true);
   });
 
-  it("tells each caller as its run is handed over, and keeps one it cannot hand over queued, unstarted and undrained", async () => {
+  it("tells each caller as its run is handed over, and keeps one it cannot hand over queued, unstarted and undrained until it can", async () => {
     const lines: string[] = [];
     const queued = await queuedBehindOne(lines);
     queued.store.holding = true;
-    const handing = queued.launcher.handOver(queued.successor);
+    const late: string[] = [];
+    const handing = queued.launcher.handOver(queued.successor, (id) =>
+      late.push(id)
+    );
     await queued.store.entered.promise;
-    // The second run moves; every try at the third is refused.
+    // The second run moves; every try at the third is refused for now.
     queued.store.counting = true;
     queued.store.failing = (index) => index > 0;
     queued.executions.release(queued.first.id);
     queued.store.gate.resolve();
     const handed = await handing;
-    queued.store.counting = false;
-    await queued.end();
 
     expect(queued.started).toEqual(["first"]);
     expect(handed).toEqual([queued.second.id]);
@@ -229,14 +231,32 @@ describe("an engine that has begun to retire", () => {
     expect(queued.executions.waiting()).toEqual([queued.third.id]);
     expect(await settledYet(queued.third.result)).toBe("pending");
     expect(await settledYet(queued.executions.drained())).toBe("pending");
+
+    // Tried again, the same failure said once, until the store takes it.
+    await vi.waitFor(
+      () =>
+        expect(
+          lines.filter((line) =>
+            line.includes("injected handover write failure")
+          ).length
+        ).toBe(1),
+      { timeout: 5000 }
+    );
+    queued.store.counting = false;
+    await expect(queued.third.result).rejects.toThrow(
+      "was handed to the next engine generation"
+    );
+    expect(late).toEqual([queued.third.id]);
+    expect(queued.executions.waiting()).toEqual([]);
+    expect(queued.executions.get(queued.third.id)?.owner).toMatchObject({
+      pid: queued.successor.pid,
+    });
+    await queued.end();
+    expect(queued.started).toEqual(["first"]);
     expect(
-      lines.some(
-        (line) =>
-          line.includes(queued.third.id) &&
-          line.includes("stays queued here, unstarted")
-      )
-    ).toBe(true);
-  });
+      lines.filter((line) => line.includes("injected handover write failure"))
+    ).toHaveLength(1);
+  }, 60_000);
 });
 
 describe("handing queued runs over", () => {

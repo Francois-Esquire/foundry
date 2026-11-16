@@ -417,6 +417,10 @@ async function main(): Promise<void> {
     const retired = await Promise.all(
       hosts.map((each) =>
         each.engine.retire(successor, {
+          // A queued run handed over late is the current generation's.
+          onHanded(runId) {
+            notify(GENERATION_NOTIFICATIONS.handed, { id: each.id, runId });
+          },
           // A run that parks from now on is the current generation's.
           onLetGo(runId) {
             notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });

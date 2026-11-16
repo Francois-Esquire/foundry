@@ -169,10 +169,10 @@ class EngineRetiringError extends Error {
   }
 }
 
-/** How many times a queued run's hand-over is tried before it is left queued here. */
-const HAND_OVER_TRIES = 5;
-/** The wait before the second try of a hand-over; it doubles for each try after. */
-const HAND_OVER_RETRY_MS = 100;
+/** The wait before a failed hand-over is tried again; it doubles after each failed try. */
+const HAND_OVER_RETRY_MS = 1000;
+/** The longest wait between two tries of a hand-over. */
+const HAND_OVER_RETRY_MAX_MS = 30_000;
 
 /**
  * A run its queue has let in or is about to, until it settles: its abort
@@ -350,17 +350,22 @@ export class Launcher {
   }
 
   /**
-   * Begin to retire: no launch is recorded here again and no queue admits a
-   * run here again, whatever happens next. Then hand every run waiting in
-   * this process's queues to `successor`, in their order, still queued, for
-   * it to let in when it starts, launches already under way among them;
-   * whoever awaits one here is told it was handed over as soon as it is.
-   * A run whose hand-over fails is reported and tried again, a bounded
-   * number of times; one that never moves stays queued here, unstarted,
-   * and the queues are not drained while it does. Resolves with the ids
-   * handed over.
+   * Begin to retire (`beginRetiring`), then hand every run waiting in this
+   * process's queues, but those kept here, to `successor`, in their order,
+   * still queued, for it to let in: launches already under way among
+   * them. Whoever awaits one here is told it was handed over as soon as it
+   * is. Resolves with the ids the first pass handed over, the ones the
+   * successor finds when it starts. A run whose hand-over fails stays
+   * queued here, unstarted, and the queues are not drained while it does;
+   * it is tried again for as long as this process lives, waiting longer
+   * after each failure up to `HAND_OVER_RETRY_MAX_MS`, each distinct
+   * failure said once. `onHanded` is told of each run a later try hands
+   * over, which a successor that has started does not find by itself.
    */
-  async handOver(successor: ProcessIdentity): Promise<readonly string[]> {
+  async handOver(
+    successor: ProcessIdentity,
+    onHanded: (id: string) => void = () => undefined
+  ): Promise<readonly string[]> {
     this.beginRetiring();
     const handed: string[] = [];
     const told = (id: string) => {
@@ -371,26 +376,102 @@ export class Launcher {
       );
     };
     // Every launch past its check is admitted, or refused, once these
-    // settle, and none passes it from now on: one pass takes them all.
+    // settle, and none from outside passes it from now on: one pass takes
+    // them all.
     await Promise.all(this.#launching);
-    for (let tried = 1; ; tried += 1) {
-      const { failed } = await this.executions.handOverAll(successor, told);
-      if (failed.length === 0) {
-        return handed;
-      }
-      const last = tried >= HAND_OVER_TRIES;
-      for (const { error, id } of failed) {
+    const { failed } = await this.executions.handOverAll(successor, told);
+    if (failed.length > 0) {
+      const said = new Set<string>();
+      this.#sayFailed(failed, said);
+      this.#handOverLater(successor, onHanded, said, HAND_OVER_RETRY_MS);
+    }
+    return [...handed];
+  }
+
+  /** Say each failure of a hand-over not said already, by its message. */
+  #sayFailed(
+    failed: readonly { readonly error: unknown; readonly id: string }[],
+    said: Set<string>
+  ): void {
+    for (const { error, id } of failed) {
+      const why = error instanceof Error ? error.message : String(error);
+      if (!said.has(why)) {
+        said.add(why);
         this.#options.print(
-          `[run] ${id} not handed to the next engine generation (try ${String(tried)} of ${String(HAND_OVER_TRIES)}): ${error instanceof Error ? error.message : String(error)}${last ? "; it stays queued here, unstarted" : ""}`
+          `[run] ${id} not handed to the next engine generation: ${why}; it stays queued here, unstarted, and is tried again`
         );
       }
-      if (last) {
-        return handed;
-      }
-      await new Promise((resolve) =>
-        setTimeout(resolve, HAND_OVER_RETRY_MS * 2 ** (tried - 1))
-      );
     }
+  }
+
+  /** Try the runs still waiting to be handed over again, after `delay`. */
+  #handOverLater(
+    successor: ProcessIdentity,
+    onHanded: (id: string) => void,
+    said: Set<string>,
+    delay: number
+  ): void {
+    const timer = setTimeout(async () => {
+      const told = (id: string) => {
+        this.#pay(
+          id,
+          new Error(`run ${id} was handed to the next engine generation`)
+        );
+        onHanded(id);
+      };
+      let failed: readonly { readonly error: unknown; readonly id: string }[];
+      try {
+        ({ failed } = await this.executions.handOverAll(successor, told));
+      } catch (error) {
+        failed = [{ error, id: "a queued run" }];
+      }
+      if (failed.length === 0) {
+        return;
+      }
+      this.#sayFailed(failed, said);
+      this.#handOverLater(
+        successor,
+        onHanded,
+        said,
+        Math.min(delay * 2, HAND_OVER_RETRY_MAX_MS)
+      );
+    }, delay);
+    // A retiring process exits once its runs end; a retry keeps nothing alive.
+    timer.unref?.();
+  }
+
+  /**
+   * Let in a queued run another process handed to this one after this one
+   * started (`handOver` there): `true` once it waits in its queue here, or
+   * already did; `false` when nothing here can run it, or this engine has
+   * begun to retire; `undefined` when the store holds no queued run of
+   * this process's by that id.
+   */
+  async takeHanded(id: string): Promise<boolean | undefined> {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
+    if (this.#retiring) {
+      return false;
+    }
+    if (this.#owed.has(id) || this.#admitted.has(id)) {
+      return true;
+    }
+    const run = await this.executions.readHanded(id);
+    if (run === undefined) {
+      return;
+    }
+    // Looked at again after the read: a retirement or a start may have
+    // come meanwhile.
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
+    if (this.#retiring || !this.#runnableAs(run)) {
+      return false;
+    }
+    if (this.#owed.has(id) || this.#admitted.has(id)) {
+      return true;
+    }
+    this.#options.print(`[run] ${run.name} handed over ${id}`);
+    this.#owe(id, true);
+    this.#admit(id);
+    return true;
   }
 
   /**

@@ -1375,7 +1375,11 @@ export class Engine {
    */
   async retire(
     successor: ProcessIdentity,
-    options: { readonly onLetGo?: (runId: string) => void } = {}
+    options: {
+      /** A queued run handed to `successor` after the first hand-over. */
+      readonly onHanded?: (runId: string) => void;
+      readonly onLetGo?: (runId: string) => void;
+    } = {}
   ): Promise<{ readonly ended: Promise<void> }> {
     const running = this.#running;
     if (running === undefined) {
@@ -1387,7 +1391,8 @@ export class Engine {
     this.#launcher.beginRetiring();
     running.router.retire();
     await this.#delivery.stop();
-    for (const runId of await this.#launcher.handOver(successor)) {
+    const handedLate = (late: string) => options.onHanded?.(late);
+    for (const runId of await this.#launcher.handOver(successor, handedLate)) {
       this.#letGo.add(runId);
     }
     // Every run that parks from now on goes too, as soon as it has parked.
@@ -1440,7 +1445,9 @@ export class Engine {
    * end here, its open question answerable here. Resolves whether this
    * engine holds it now: `false`, holding nothing, when it is not parked,
    * another live engine holds it, nothing here can answer it, or this
-   * engine is not running or is itself retiring.
+   * engine is not running or is itself retiring. A queued run another
+   * engine handed to this one after this one started is let in here
+   * instead (`Launcher.takeHanded`).
    */
   async adopt(runId: string): Promise<boolean> {
     const running = this.#running;
@@ -1449,6 +1456,11 @@ export class Engine {
       this.#running !== running || this.#phase !== "started" || this.#retiring;
     if (running === undefined || away()) {
       return false;
+    }
+    // A queued run handed here after this engine started: let it in.
+    const handed = await this.#launcher.takeHanded(runId);
+    if (handed !== undefined) {
+      return handed;
     }
     const record = await running.store.getRun(runId);
     if (record?.status !== "suspended" || away()) {
