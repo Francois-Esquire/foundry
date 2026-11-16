@@ -93,7 +93,7 @@ export function nextRead(_state: ReadState, event: ReadEvent): ReadState {
 }
 
 /** Why the store cannot be reached, from the first read that could not: undefined when every read can. */
-export function unreachableOf(reads: StoreReads): string | undefined {
+function unreachableOf(reads: StoreReads): string | undefined {
   for (const read of READS) {
     const state = reads[read];
     if (state.kind === "unreachable") {
