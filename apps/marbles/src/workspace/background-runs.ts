@@ -23,12 +23,6 @@ import type {
 
 const AGENT_DISPATCH = "agent-dispatch";
 
-/**
- * A declared agent as a dispatch opens it, its definition changed by
- * `overlay`. One declared with a function is built as the session opens,
- * for the route asked for, so it chooses its skills and servers for that
- * route, and a continued session gives it the input it kept.
- */
 async function dispatched(
   declared: AgentLike<Output.Output>,
   route: AgentRoute,
@@ -44,7 +38,6 @@ async function dispatched(
     value: async (kept: AgentRoute, input: unknown) =>
       overlay(await buildDefinition(declared, { ...kept, ...route }, input)),
   });
-  // Opening a session reads only the data and the builder, never the calls.
   return agent as unknown as AgentLike<Output.Output>;
 }
 interface AgentInput extends DispatchOptions {

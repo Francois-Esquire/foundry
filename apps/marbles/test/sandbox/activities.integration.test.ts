@@ -47,7 +47,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
                   apiKey: process.env.AI_GATEWAY_API_KEY,
                   baseURL: "https://ai-gateway.vercel.sh/v1",
                 },
-                // The model this test names; the gateway supplies none of its own.
                 models: [
                   {
                     id: "openai/gpt-5-mini",
@@ -250,7 +249,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         snapshot.triggers.find((trigger) => trigger.id === automation?.id)
           ?.managed
       ).toBe(true);
-      // Another host over the same database, as a later process has.
       const opened = await openDatabase(stateDatabase(state));
       if (opened === undefined) {
         throw new Error("the engine made no Marbles database");

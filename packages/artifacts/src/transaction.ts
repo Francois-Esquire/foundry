@@ -82,14 +82,6 @@ export interface LocatedFile {
   readonly path: string;
 }
 
-/**
- * Every operation that writes. Each runs as one `ArtifactChange.operation`,
- * all or nothing within its change: one refused after it wrote part of the
- * change marks the change failed, so it cannot commit, whatever the caller
- * of the operation catches. One refused before it wrote anything leaves the
- * change as it was, and the caller may go on, whatever other operations on
- * the change wrote meanwhile: each counts only its own writes.
- */
 const WRITING_OPERATIONS = [
   "archive",
   "clearFailedContent",
@@ -109,7 +101,6 @@ const WRITING_OPERATIONS = [
   "write",
 ] as const satisfies readonly (keyof ArtifactOperations)[];
 
-/** The Artifact operations within one change. */
 export class ArtifactTransaction implements ArtifactOperations {
   static {
     for (const name of WRITING_OPERATIONS) {
@@ -138,7 +129,6 @@ export class ArtifactTransaction implements ArtifactOperations {
   readonly #maxTreeBytes: number;
   readonly #staging: BlobStaging;
 
-  /** `staging` holds the bytes staged ahead of this change; none when omitted. */
   constructor(
     change: ArtifactChange,
     effects: OperationEffects,
@@ -152,12 +142,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     this.#staging = staging;
   }
 
-  /**
-   * The refusals `create` makes before it reads a byte: blank names, an id
-   * already taken, invalid paths, references to blobs that do not exist.
-   * The manager runs them before staging any byte, and `create` runs them
-   * again inside the change.
-   */
   async checkCreate(input: CreateArtifactInput): Promise<void> {
     nonEmpty("name", input.name);
     nonEmpty("type", input.type);
@@ -168,7 +152,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     await this.#checkReferences(input.entries);
   }
 
-  /** The refusals `write` makes before it reads a byte; see `checkCreate`. */
   async checkWrite(input: WriteInput): Promise<ArtifactResolved> {
     const artifact = await this.#requireArtifact(input.artifactId);
     fence(artifact, input);
@@ -182,7 +165,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     return artifact;
   }
 
-  /** The refusals `revise` makes before it reads a byte; see `checkCreate`. */
   async checkRevise(input: ReviseInput): Promise<{
     readonly artifact: ArtifactResolved;
     readonly source: Content;
@@ -201,13 +183,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     return { artifact, source };
   }
 
-  /**
-   * The ownership of each object an in-place write may replace, recorded
-   * when the write is checked before its bytes are staged (a read-only
-   * check) and confirmed once by the change itself. An object shared or freed meanwhile refuses
-   * the write as stale: the bytes were taken in against ownership that no
-   * longer holds.
-   */
   async #checkOwnership(
     artifact: ArtifactResolved,
     entries: EntryInputs | undefined
@@ -232,7 +207,6 @@ export class ArtifactTransaction implements ArtifactOperations {
             }
           : null;
       const key = `${artifact.id}\u0000${path}`;
-      // The check before staging records; the change's own check confirms.
       if (this.#change.readOnly) {
         this.#staging.recordOwnership(key, now);
       } else if (!this.#staging.confirmOwnership(key, now)) {
@@ -244,7 +218,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     }
   }
 
-  /** Every reference in `entries` names an existing blob within the size limit. */
   async #checkReferences(entries: EntryInputs | undefined): Promise<void> {
     for (const [path, entry] of Object.entries(entries ?? {})) {
       if (!isStructural(entry) && isReferenceInput(entry)) {
@@ -355,7 +328,6 @@ export class ArtifactTransaction implements ArtifactOperations {
       this.#releaseTree(content.tree);
     }
     await this.#change.deleteArtifact(id);
-    // The Artifact is gone: the event keeps what identified it.
     this.#change.record({
       artifactId: id,
       artifactType: artifact.type,
@@ -381,8 +353,6 @@ export class ArtifactTransaction implements ArtifactOperations {
       sameJson(active.tree, tree) &&
       sameJson(active.metadata, metadata)
     ) {
-      // The Content as stored, every blob it names untouched: nothing to
-      // write and nothing to say, though a freeze asked for still applies.
       if (input.freeze) {
         await this.freeze(active.id, input.freeze);
       }
@@ -527,7 +497,6 @@ export class ArtifactTransaction implements ArtifactOperations {
       successorMetadata(source)
     );
     await this.#point(id, content.id);
-    // One event for the fork: the Artifact it files is not also `created`.
     this.#change.record({
       artifactId: id,
       contentId: content.id,
@@ -865,11 +834,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     return content;
   }
 
-  /**
-   * Freeze without publishing; `freeze` adds publication. Records
-   * `artifact.frozen` on the Content's own Artifact, whichever operation
-   * froze it (`freeze`, or `revise` and `fork` freezing their source).
-   */
   async #markFrozen(row: Content): Promise<Content> {
     const now = nextTime(row);
     const content: Content = {
@@ -888,10 +852,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     return content;
   }
 
-  /**
-   * Files a new Artifact, empty and a draft, once `checkCreate` passes; the
-   * caller records the event of it.
-   */
   async #file(input: CreateArtifactInput): Promise<ArtifactId> {
     await this.checkCreate(input);
     const id = input.id ?? artifactIdSchema.parse(crypto.randomUUID());
@@ -912,12 +872,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     return id;
   }
 
-  /**
-   * Puts the Artifact with `update` applied and records the event `event`
-   * makes of it, if any. An update that changes no field the Artifact
-   * holds, `updatedAt` aside, writes nothing and records nothing, unless it
-   * `touches` the Artifact: a change to its Content stamps it either way.
-   */
   async #updateArtifact(
     id: ArtifactId,
     update: (artifact: Artifact) => Partial<Artifact>,
@@ -1049,7 +1003,6 @@ async function collect(
   return bytes;
 }
 
-/** Throws unless every path `changes` names is a storage path. */
 function assertStoragePaths(changes: TreeChanges): void {
   for (const path of [
     ...(changes.remove ?? []),
@@ -1103,7 +1056,6 @@ function storedFile(blob: Blob, mime: string | null | undefined): StoredFile {
   };
 }
 
-/** Whether two Artifacts hold the same fields, `updatedAt` aside. */
 function sameArtifact(left: Artifact, right: Artifact): boolean {
   return (
     left.name === right.name &&
@@ -1117,7 +1069,6 @@ function sameArtifact(left: Artifact, right: Artifact): boolean {
   );
 }
 
-/** Whether two metadata objects hold the same JSON, keys in any order. */
 function sameJson(left: Readonly<object>, right: Readonly<object>): boolean {
   return canonicalizeJson(left) === canonicalizeJson(right);
 }

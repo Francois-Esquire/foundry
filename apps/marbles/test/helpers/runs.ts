@@ -21,32 +21,8 @@ import {
   unrecordedMarked,
 } from "./processes";
 
-/**
- * One test run: a root directory that holds everything the run makes, the
- * records of every process it starts (under `spawned/`), and a marker,
- * `MARBLES_SPAWN_OWNER=<root>`, in the environment of each of them. The
- * root names its owner, the run's main process, by pid and start time;
- * the run is over once no process with that pid started then. Anything
- * short of that, a root with no owner or one that cannot be read, or a
- * process list that cannot be had, counts as live: its owner may be
- * starting, or be a suite that knows nothing of this.
- *
- * Roots live in one base directory, and nothing there is believed unless
- * it is private (`notPrivate`: a real directory or file, this user's, with
- * no permission for group or others): the base, each root, its owner, and
- * every directory and record below it, each checked as it is read. What is
- * not is skipped with a warning and never acted on, so a file someone else
- * could have written never decides what is signalled or removed.
- *
- * Ending a run, or sweeping one that is over, stops what its records
- * name (see `stopRecorded`), and removes its root only when every one is
- * confirmed gone and nothing carries its marker unrecorded. Otherwise the
- * root stays, with a warning, for the next sweep.
- */
 export interface Run {
-  /** Stop what the run left running, then remove its root. */
   finish(): Promise<void>;
-  /** Where its processes are recorded: one directory per home, and the run's own. */
   readonly records: string;
   readonly root: string;
 }
@@ -55,24 +31,17 @@ export const RUN_ENV = SPAWN_OWNER_ENV;
 const RUN_PREFIX = "marbles-run-";
 const OWNER_FILE = "owner.json";
 const RECORDS = "spawned";
-/** How long a process that carries the marker unrecorded gets to exit on its own. */
 const UNRECORDED_MS = 2000;
 
 interface Owner {
   readonly pid: number;
-  /** As `startedAt` reads it. */
   readonly started: string;
 }
 
-/** Where the run rooted at `root` records its processes. */
 export function runRecords(root: string): string {
   return join(root, RECORDS);
 }
 
-/**
- * The base directory runs keep their roots in, made private if it is
- * missing; throws if it is there and not private.
- */
 export function privateBase(base: string): string {
   try {
     mkdirSync(base, { mode: 0o700 });
@@ -88,7 +57,6 @@ export function privateBase(base: string): string {
   return base;
 }
 
-/** Start a run in the private base `parent`, owned by this process. */
 export function startRun(parent: string, limits?: StopLimits): Run {
   privateBase(parent);
   const root = mkdtempSync(join(parent, RUN_PREFIX));
@@ -103,8 +71,6 @@ export function startRun(parent: string, limits?: StopLimits): Run {
   );
   return {
     async finish() {
-      // A root that cannot be cleared is kept; once this process exits,
-      // the next run's sweep finds the run over and tries again.
       if (await clear(root, limits)) {
         removeRoot(root);
       }
@@ -114,11 +80,6 @@ export function startRun(parent: string, limits?: StopLimits): Run {
   };
 }
 
-/**
- * Clean up after every run in the base `parent` that is over: stop what
- * its records name, then remove its root. A run that is live, cannot be
- * shown over, or is not private is left alone.
- */
 export async function sweepFinishedRuns(
   parent: string,
   limits?: StopLimits
@@ -136,7 +97,6 @@ export async function sweepFinishedRuns(
       notPrivate(root, "directory") ??
       notPrivate(join(root, OWNER_FILE), "file");
     if (problem !== undefined) {
-      // A root that is being made, or one that is not this user's alone.
       if (!problem.includes("ENOENT")) {
         console.warn(`marbles tests: not sweeping ${root}: ${problem}`);
       }
@@ -172,7 +132,6 @@ function readOwner(root: string): Owner | undefined {
   }
 }
 
-/** Whether the run's recorded processes are confirmed gone and nothing else carries its marker. */
 async function clear(root: string, limits?: StopLimits): Promise<boolean> {
   const marker: Marker = { name: RUN_ENV, value: root };
   const problems: string[] = [];
@@ -187,7 +146,6 @@ async function clear(root: string, limits?: StopLimits): Promise<boolean> {
       );
     }
   } catch (error) {
-    // A process list that cannot be had: nothing more is signalled here.
     problems.push(String(error));
   }
   if (problems.length > 0) {
@@ -196,7 +154,6 @@ async function clear(root: string, limits?: StopLimits): Promise<boolean> {
   return problems.length === 0;
 }
 
-/** What `find` still finds once it has had a moment to empty. */
 export async function outlast(find: () => number[]): Promise<number[]> {
   const deadline = Date.now() + UNRECORDED_MS;
   let found = find();
@@ -207,14 +164,8 @@ export async function outlast(find: () => number[]): Promise<number[]> {
   return found;
 }
 
-/**
- * Remove a run's root, and only it: recursive removal deletes a symbolic
- * link inside it, not what the link points to. A failure warns rather
- * than failing the run; the next run's sweep tries again.
- */
 function removeRoot(root: string): void {
   try {
-    // Forced: another run's sweep of the same root may be removing it too.
     rmSync(root, { force: true, maxRetries: 3, recursive: true });
   } catch (error) {
     console.warn(

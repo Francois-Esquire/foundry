@@ -1,7 +1,6 @@
 import { expect, it } from "vitest";
 import { dispatchSchema } from "~/workspace/dispatch";
 
-// MCP and the daemon's engine generation both validate dispatches with this schema.
 it("keeps a continued session's whole reference", () => {
   const session = {
     id: "s1",

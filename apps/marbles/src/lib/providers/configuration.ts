@@ -36,15 +36,11 @@ import {
   readOnlyProviders,
 } from "~/lib/providers/store";
 
-/** An edit of one scope's configuration: undefined leaves it as it is. */
 type Edit = (current: ProvidersFile | undefined) => ProvidersFile | undefined;
 
-/** One scope as this configuration edits it: what it last read, and a write through the store. */
 interface Scope {
   readonly kind: ProviderScope;
-  /** As the edit under way reads it, else as last read from the store. */
   read(): ProvidersFile | undefined;
-  /** Write through the store; resolves with every scope as that write left them. */
   update(edit: Edit): Promise<ProviderConfigurations>;
 }
 
@@ -76,25 +72,16 @@ export interface ProviderConfigurationOptions {
   readonly fixed?: readonly Provider[];
   readonly models: ModelManager;
   readonly plugins: readonly RegisteredPlugin[];
-  /** Edits change this engine's set only and write nothing: a dry run. */
   readonly readOnly?: boolean;
-  /**
-   * Where the machine's and each workspace's configuration, and the
-   * identity key, are kept: the Marbles database's for a host. In memory
-   * when omitted.
-   */
   readonly store?: ProviderStore;
   readonly workspace?: Omit<ProviderWorkspace, "env">;
 }
 
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
-/** How often, in ms, `watch` asks the store whether any configuration changed. */
 const POLL_MS = 500;
-/** How long a plugin's `list` may take before the entry is left without models. */
 const LIST_TIMEOUT_MS = 5000;
 
-/** What a plugin's `list` last answered for one entry's settings and environment. */
 type Listing =
   | {
       readonly models: readonly ProviderModelDefinition[];
@@ -112,26 +99,14 @@ type Built =
       readonly key: string;
     };
 
-/**
- * The providers one workspace uses, from the machine's configuration and
- * the workspace's own, kept in the manager's set. They are read from the
- * store by `refresh`, which a starting engine runs; until then nothing is
- * configured here. Every edit re-reads the store in one transaction,
- * validates, builds, writes, and then replaces the set; an instance whose
- * entry did not change is kept, so its sessions are not disturbed.
- */
 export class ProviderConfiguration {
   readonly #options: ProviderConfigurationOptions;
   readonly #store: ProviderStore;
   readonly #machine: Scope;
   readonly #workspace: Scope | undefined;
-  /** Every scope as last read from the store or written to it. */
   #kept: ProviderConfigurations = keptConfigurations(new Map(), 0);
-  /** The store's revision `#kept` was read at; undefined before the first read or write. */
   #revision: number | undefined;
-  /** `read` kept a newer `#kept` than the manager's set was loaded from. */
   #unloaded = false;
-  /** Every scope as the edit under way reads it, inside the store's transaction. */
   #editing: ProviderConfigurations | undefined;
   readonly #plugins: ReadonlyMap<string, RegisteredPlugin>;
   #built: readonly Built[] = [];
@@ -139,13 +114,9 @@ export class ProviderConfiguration {
   #identities = new Map<string, { digest?: string; material: unknown }>();
   #key: Buffer | undefined;
   readonly #owned = new ProviderInstances();
-  /** Keyed by what `list` reads: the plugin, its settings, and the environment. */
   readonly #listings = new Map<string, Listing>();
-  /** The latest `list` started per key, so an older answer never lands. */
   readonly #listed = new Map<string, number>();
-  /** Aborted at dispose: no answer lands after it. */
   readonly #lists = new AbortController();
-  /** Aborted when Airplane Mode turns on, so no list in flight lands; replaced when it turns off. */
   #online = new AbortController();
 
   constructor(options: ProviderConfigurationOptions) {
@@ -182,15 +153,10 @@ export class ProviderConfiguration {
           };
   }
 
-  /** Every scope as the edit under way reads it, else as last read. */
   #view(): ProviderConfigurations {
     return this.#editing ?? this.#kept;
   }
 
-  /**
-   * Write through the store: `edit` runs inside its transaction, and every
-   * scope read meanwhile reads what that transaction does.
-   */
   async #write(
     edit: (current: ProviderConfigurations) => ProviderWrites
   ): Promise<ProviderConfigurations> {
@@ -205,18 +171,11 @@ export class ProviderConfiguration {
         }
       }
     );
-    // What this wrote, at the revision its own transaction left: loaded by
-    // the write itself, and a later edit elsewhere is still a change.
     this.#adopt(landed);
     await this.#keyed(landed);
     return landed;
   }
 
-  /**
-   * Keep `kept` as last read, with its own revision, unless a newer read
-   * or write has landed meanwhile: a slow read never replaces a later
-   * write, and the watcher compares against what is loaded.
-   */
   #adopt(kept: ProviderConfigurations): boolean {
     if (this.#revision !== undefined && kept.revision < this.#revision) {
       return false;
@@ -226,12 +185,6 @@ export class ProviderConfiguration {
     return true;
   }
 
-  /**
-   * The store's identity key, made once if need be, as soon as `kept`
-   * configures anything: before any instance it configures is loaded, so
-   * no identity is ever digested with a key the store does not keep. A
-   * dry run's store makes none.
-   */
   async #keyed(kept: ProviderConfigurations): Promise<void> {
     if (this.#key !== undefined || !this.#configuredIn(kept)) {
       return;
@@ -240,7 +193,6 @@ export class ProviderConfiguration {
     this.#key ??= key;
   }
 
-  /** Apply edits to several scopes as one write: every edit runs before any is kept. */
   #together(edits: readonly [Scope, Edit][]): Promise<ProviderConfigurations> {
     return this.#write(() => {
       const writes: { machine?: ProvidersFile; workspace?: ProvidersFile } = {};
@@ -254,18 +206,10 @@ export class ProviderConfiguration {
     });
   }
 
-  /**
-   * Read every scope from the store, and the identity key once anything
-   * is configured: the key is made then, unless this is a dry run. Lists
-   * nothing and loads nothing; {@link refresh} does both after it.
-   */
   async read(): Promise<void> {
     if (this.#options.fixed !== undefined) {
       return;
     }
-    // With the revision of the same read: one that cannot be read is
-    // reported once per change, not on every poll, and a later repair is
-    // still noticed.
     const kept = await this.#store.read();
     if (this.#adopt(kept)) {
       this.#unloaded = true;
@@ -273,14 +217,12 @@ export class ProviderConfiguration {
     await this.#keyed(kept);
   }
 
-  /** Whether any configuration exists: one at either scope, or a programmatic set. */
   get configured(): boolean {
     return (
       this.#options.fixed !== undefined || this.#configuredIn(this.#view())
     );
   }
 
-  /** Whether `kept` holds a configuration at either of this engine's scopes. */
   #configuredIn(kept: ProviderConfigurations): boolean {
     const id = this.#options.workspace?.id;
     return (
@@ -300,10 +242,6 @@ export class ProviderConfiguration {
     );
   }
 
-  /**
-   * Replace the manager's set from both scopes as last read (`refresh`
-   * reads them). A configuration that cannot be read throws.
-   */
   load(): void {
     this.#load(new Map());
   }
@@ -356,17 +294,8 @@ export class ProviderConfiguration {
     this.#identities = identities;
   }
 
-  /**
-   * Read both scopes from the store and, when anything is configured, ask
-   * each enabled entry whose plugin lists its models for them, then
-   * {@link load}. Resolves with why each
-   * list that failed did, for the host to report. A configuration that
-   * cannot be read rejects, as `load` throws. While offline nothing is
-   * asked and the last lists stay.
-   */
   async refresh(): Promise<readonly string[]> {
     await this.read();
-    // Without configuration the set stays as it is, and the first session asks for it.
     if (!this.configured) {
       return [];
     }
@@ -377,10 +306,6 @@ export class ProviderConfiguration {
     return problems;
   }
 
-  /**
-   * Airplane Mode: while on, no plugin is asked for its models, and turning
-   * it on aborts each list in flight and drops its answer.
-   */
   setOffline(offline: boolean): void {
     if (offline) {
       this.#online.abort();
@@ -395,12 +320,6 @@ export class ProviderConfiguration {
     return this.#owned.dispose();
   }
 
-  /**
-   * Run one write with its own drafts, then load what it wrote, as that
-   * write left every scope, whatever an overlapping one wrote since. The load
-   * takes the drafts it keeps; the rest are discarded, so overlapping
-   * writes never dispose or reuse each other's.
-   */
   async #commit(
     write: (drafts: Drafts) => Promise<ProviderConfigurations | false>
   ): Promise<void> {
@@ -408,12 +327,7 @@ export class ProviderConfiguration {
     try {
       const landed = await write(drafts);
       if (landed !== false) {
-        // An entry's new settings may need their own list before it builds.
         await this.#listAll();
-        // Disposed meanwhile: the drafts are discarded below, and nothing
-        // loads. Overtaken by a newer write, which loads what it left
-        // itself, nothing older is loaded over it; by a newer `read`, which
-        // loads nothing, that is loaded here.
         if (this.#lists.signal.aborted) {
           return;
         }
@@ -568,7 +482,6 @@ export class ProviderConfiguration {
     return this.#edit(id, (entry) => ({ ...entry, enabled: false }), false);
   }
 
-  /** Remove `id` from the scope that holds it as stored, or refuse when neither does. */
   async remove(id: string): Promise<void> {
     await this.#write(() => {
       const scope = this.#scopeOf(id);
@@ -664,11 +577,6 @@ export class ProviderConfiguration {
     });
   }
 
-  /**
-   * First setup: write `entries` as the machine's configuration only if
-   * there still is none, checked in the write's own transaction, so one
-   * written meanwhile is never replaced. Resolves false when one appeared.
-   */
   async initialize(entries: readonly ProviderEntryRecord[]): Promise<boolean> {
     let written = false;
     await this.#commit(async (drafts) => {
@@ -690,12 +598,6 @@ export class ProviderConfiguration {
     return written;
   }
 
-  /**
-   * Reload whenever any configuration changes, from this or any other
-   * process: the store's revision is polled. One that cannot be read keeps
-   * the last good set and is reported. Nothing is polled before the first
-   * `refresh`, or for a programmatic host's set.
-   */
   watch(report: (problem: string) => void): () => void {
     if (this.#options.fixed !== undefined) {
       return () => undefined;
@@ -738,7 +640,6 @@ export class ProviderConfiguration {
     return this.#workspace;
   }
 
-  /** The scope that holds `id`, as the edit under way reads it, else as last read. */
   #scopeOf(id: string): ProviderScope {
     if (this.#workspace?.read()?.providers.some((entry) => entry.id === id)) {
       return "workspace";
@@ -757,10 +658,6 @@ export class ProviderConfiguration {
     ) => ProviderEntryRecord,
     validate = true
   ): Promise<void> {
-    // The scope is the one that holds `id` as stored, read in the write's
-    // own transaction: an entry another host moved meanwhile is edited
-    // where it is now, and one no scope holds is refused, never left as
-    // it was by an edit that reports success.
     await this.#commit((drafts) =>
       this.#write(() => {
         const scope = this.#scopeOf(id);
@@ -787,12 +684,6 @@ export class ProviderConfiguration {
     );
   }
 
-  /**
-   * Refuse a write that would reuse an id at the other scope, anywhere on
-   * the machine. Run inside the write's transaction, so it reads what that
-   * write would land over. A workspace configuration that cannot be read
-   * refuses the write.
-   */
   #refuseTaken(
     id: string,
     scope: ProviderScope,
@@ -817,7 +708,6 @@ export class ProviderConfiguration {
     }
   }
 
-  /** The workspace whose own configuration uses `id`, if any. */
   #takenAt(
     id: string,
     options: { readonly replacing?: boolean }
@@ -826,7 +716,6 @@ export class ProviderConfiguration {
       return undefined;
     }
     const view = this.#view();
-    // `replace` rewrites this workspace's own configuration too.
     const own = options.replacing ? this.#options.workspace?.id : undefined;
     return view.workspaces.find(
       (workspace) =>
@@ -902,7 +791,6 @@ export class ProviderConfiguration {
     let catalog: ReturnType<RegisteredPlugin["catalog"]>;
     try {
       const listed = this.#listingOf(plugin, parsed.data, scope);
-      // Defaults are checked against a list once the server gave one.
       if (plugin.list && !listed?.models) {
         return undefined;
       }
@@ -1024,7 +912,6 @@ export class ProviderConfiguration {
       );
     }
     const models = listed?.models ?? plugin.catalog(settings);
-    // A changed list is a new instance, with the models it lists.
     const key = JSON.stringify([scope, entry, env, listed?.models ?? null]);
     const instance =
       this.#owned.get(key) ??
@@ -1129,14 +1016,6 @@ export class ProviderConfiguration {
     });
   }
 
-  /**
-   * A keyed digest: it identifies without revealing, or letting anyone test
-   * a guess at, what went in. The key is the store's, which `refresh`
-   * reads; without one (a programmatic host's set, a dry run with none
-   * kept yet, or no `refresh`) it lasts as long as this configuration, so
-   * its identities match nothing stored and pinned sessions from elsewhere
-   * fail closed.
-   */
   #digest(material: unknown): string {
     if (this.#key === undefined) {
       if (this.#options.fixed === undefined && !this.#options.readOnly) {
@@ -1145,8 +1024,6 @@ export class ProviderConfiguration {
           "an instance identity was asked for before the stored identity key was read"
         );
       }
-      // A programmatic set, or a dry run with no key kept: one for this
-      // configuration alone, which matches nothing stored.
       this.#key = randomBytes(32);
     }
     return createHmac("sha256", this.#key)
@@ -1155,7 +1032,6 @@ export class ProviderConfiguration {
       .slice(0, 32);
   }
 
-  /** What `plugin` last listed for these settings at `scope`, if it lists. */
   #listingOf(
     plugin: RegisteredPlugin,
     settings: unknown,
@@ -1166,13 +1042,6 @@ export class ProviderConfiguration {
       : undefined;
   }
 
-  /**
-   * Ask each entry the effective set could use whose plugin lists its
-   * models, at once, each bounded by {@link LIST_TIMEOUT_MS}, with why each
-   * failure did. A failed list keeps the last good one; with none, the
-   * failure is the entry's problem. A file that cannot be read lists
-   * nothing; `load` reports it. Offline or disposed, nothing is asked.
-   */
   async #listAll(): Promise<readonly string[]> {
     if (
       this.#lists.signal.aborted ||
@@ -1185,7 +1054,6 @@ export class ProviderConfiguration {
     try {
       files = [this.#workspace?.read(), this.#machine.read()];
     } catch {
-      // `load` reports it.
       return [];
     }
     const [workspace, machine] = files;
@@ -1193,7 +1061,6 @@ export class ProviderConfiguration {
       ...(workspace?.providers ?? []),
       ...(machine?.providers ?? []),
     ].filter((entry) => entry.enabled);
-    // Only what `load` could use: in the workspace's order, its id not clashing.
     const order = effectiveOrder(machine, workspace);
     const eligible = (id: string) =>
       order.includes(id) &&
@@ -1221,7 +1088,6 @@ export class ProviderConfiguration {
     return problems.filter((problem) => problem !== undefined);
   }
 
-  /** One entry's list, kept under its key unless a newer one started meanwhile. */
   async #list(
     id: string,
     plugin: RegisteredPlugin,
@@ -1231,7 +1097,6 @@ export class ProviderConfiguration {
     const key = listingKey(plugin, settings, env);
     const started = (this.#listed.get(key) ?? 0) + 1;
     this.#listed.set(key, started);
-    // Disposal, Airplane Mode, or the timeout ends the wait, whatever the plugin does.
     const ended = AbortSignal.any([this.#lists.signal, this.#online.signal]);
     const signal = AbortSignal.any([
       ended,
@@ -1306,7 +1171,6 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Why a list failed, briefly: never a response body. */
 function reason(error: unknown): string {
   if (error instanceof Error && error.name === "TimeoutError") {
     return `no answer within ${LIST_TIMEOUT_MS / 1000} s`;
@@ -1314,7 +1178,6 @@ function reason(error: unknown): string {
   return messageOf(error);
 }
 
-/** The ids the effective set may hold, in order: the workspace's `order`, else every entry's, once each. */
 function effectiveOrder(
   machine: ProvidersFile | undefined,
   workspace: ProvidersFile | undefined
@@ -1327,11 +1190,9 @@ function effectiveOrder(
   return [...new Set(workspace?.order ?? ids)];
 }
 
-/** `promise`, or a rejection with the signal's reason once it aborts, whichever comes first. */
 function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     const abort = () => reject(signal.reason);
-    // Handled even when it loses, so a late rejection is never unhandled.
     promise.then(resolve, reject).finally(() => {
       signal.removeEventListener("abort", abort);
     });
@@ -1343,7 +1204,6 @@ function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-/** The key a list is kept under: everything a plugin's `list` reads. */
 function listingKey(
   plugin: RegisteredPlugin,
   settings: unknown,

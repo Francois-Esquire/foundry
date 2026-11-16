@@ -41,7 +41,6 @@ import { type AnswerHandler, useFeed } from "./use-feed";
 /** The workspace shown, among those the Marbles process hosts. */
 export interface HostedWorkspace {
   readonly count: number;
-  /** Why the workspace failed, or why a change to it did not load. */
   readonly error?: string;
   /** Where this workspace sits in the process's list, from 1. */
   readonly position: number;

@@ -8,7 +8,6 @@ import { ArtifactManager } from "../manager";
 import { blobFiles } from "../node";
 import { openStore, STORE_KINDS, type StoreKind } from "./helpers/stores";
 
-/** Which step of staging fails next, once. */
 const inject: {
   discard?: boolean;
   promotionSync?: boolean;
@@ -37,7 +36,6 @@ vi.mock("@foundry/lib/atomic-file", async (importOriginal) => {
       await actual.writeFileAtomic(...args);
       if (inject.stagingSync && args[0].includes(STAGED)) {
         inject.stagingSync = false;
-        // The file was renamed into place; syncing its directory failed.
         throw Object.assign(new Error("EIO: staging sync failed"), {
           code: "EIO",
         });
@@ -55,7 +53,6 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       if (
         inject.discard &&
         String(path).includes(STAGED) &&
-        // A staged name, not the temporary an atomic write cleans up.
         !String(path).endsWith(".tmp") &&
         options?.recursive !== true
       ) {
@@ -128,15 +125,14 @@ describe.each(STORE_KINDS)("%s store: Staging that fails part way", (kind) => {
 
   it("keeps a change's outcome when discarding its unused staging fails", async () => {
     const { artifacts, published, store } = await harness(kind);
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {
-      // Expected: the failed discard is reported, not thrown.
-    });
+    const logged = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     await artifacts.create({
       entries: entries("same"),
       name: "First",
       type: "text/plain",
     });
-    // The second change dedups to the first's blob, so its staged copy goes unused.
     inject.discard = true;
     const second = await artifacts.create({
       entries: entries("same"),
@@ -154,9 +150,7 @@ describe.each(STORE_KINDS)("%s store: Staging that fails part way", (kind) => {
 
   it("keeps a failed change's own error when discarding its staging fails", async () => {
     const { artifacts } = await harness(kind);
-    vi.spyOn(console, "error").mockImplementation(() => {
-      // Expected: the failed discard is reported, not thrown.
-    });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     async function* source() {
       yield new Uint8Array(CHUNK_BYTES);
       inject.discard = true;

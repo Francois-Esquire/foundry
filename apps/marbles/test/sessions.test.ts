@@ -98,7 +98,6 @@ describe("sessions kept in the Marbles database", () => {
   });
 });
 
-/** The store `marbles sessions` lists. */
 const LISTED: readonly {
   readonly name: string;
   readonly open: () => Promise<ListedSessionStore>;

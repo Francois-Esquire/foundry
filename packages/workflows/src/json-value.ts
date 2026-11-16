@@ -1,4 +1,3 @@
-/** JSON-safe value accepted at persistence and transport seams. */
 export type JsonValue =
   | null
   | boolean
@@ -7,12 +6,10 @@ export type JsonValue =
   | readonly JsonValue[]
   | { readonly [key: string]: JsonValue };
 
-/** True only for data that can cross persistence and transport JSON seams. */
 export function isJsonValue(value: unknown): value is JsonValue {
   try {
     return checkJsonValue(value, new WeakSet());
   } catch {
-    // Proxies and exotic objects may throw while their shape is inspected.
     return false;
   }
 }
@@ -83,7 +80,6 @@ function checkJsonValue(
   return true;
 }
 
-/** A data object: not null, not an array, and created by `{}` or `Object.create(null)`. */
 export function isPlainRecord(
   value: unknown
 ): value is Record<string, unknown> {
@@ -94,7 +90,6 @@ export function isPlainRecord(
   return prototype === Object.prototype || prototype === null;
 }
 
-/** Whether two JSON values hold the same data, object keys in any order. */
 export function jsonValuesEqual(left: JsonValue, right: JsonValue): boolean {
   if (left === right) {
     return true;

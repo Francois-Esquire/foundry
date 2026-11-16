@@ -519,7 +519,6 @@ describe("http detector", () => {
         const detect = detectorIn("r", httpSpec(), handler, { fetch });
 
         await expect(detect(context)).resolves.toEqual({ changed: true });
-        // Kept as it was handed on, the unchanged body is no change.
         await expect(detect(context)).resolves.toEqual({ changed: false });
         expect(changes).toEqual([
           expect.objectContaining({ current: seen, kind: "http" }),

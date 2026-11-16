@@ -1,20 +1,4 @@
-/**
- * The structure a kept message's `parts` and `metadata` must have, checked
- * without Zod, field by field, as `@foundry/agents/schema` defines it: each
- * part's variant, each capability's variant, the fields each requires, the
- * type of every field, the values of every enum, the bounds of every count
- * and the length of every record id. A field the schema does not name is
- * allowed where the schema strips it, and refused inside a capability,
- * which the schema keeps strict. A test holds every check to the schema,
- * field by field and value by value.
- *
- * `Sessions` checks the parts and metadata a caller supplies, and the SQLite
- * store checks every message it writes and every row it reads.
- */
-
-/** Where a value is wrong, below the field checked, and how. */
 export interface ShapeFault {
-  /** A path such as `parts[2].event.revision`. */
   readonly path: string;
   readonly reason: string;
 }
@@ -24,16 +8,13 @@ type Check = (value: unknown, at: string) => ShapeFault | undefined;
 interface Fields {
   readonly optional?: Readonly<Record<string, Check>>;
   readonly required?: Readonly<Record<string, Check>>;
-  /** Refuse a field neither list names, as a strict schema does. */
   readonly strict?: boolean;
 }
 
-/** The first fault in a message's `parts`, or none. */
 export function partsFault(parts: unknown): ShapeFault | undefined {
   return list(part)(parts, "parts");
 }
 
-/** The first fault in a message's `metadata`, or none. `undefined` is the field left out. */
 export function metadataFault(metadata: unknown): ShapeFault | undefined {
   return metadata === undefined ? undefined : METADATA(metadata, "metadata");
 }
@@ -61,7 +42,6 @@ function fault(path: string, value: unknown, wanted: string): ShapeFault {
 const string: Check = (value, at) =>
   typeof value === "string" ? undefined : fault(at, value, "a string");
 
-/** A record id: a nonempty string. */
 const recordId: Check = (value, at) =>
   typeof value === "string" && value.length > 0
     ? undefined
@@ -70,7 +50,6 @@ const recordId: Check = (value, at) =>
 const boolean: Check = (value, at) =>
   typeof value === "boolean" ? undefined : fault(at, value, "a boolean");
 
-/** A safe integer at least `least`, or any safe integer. */
 function integer(least?: number): Check {
   const wanted =
     least === undefined
@@ -84,10 +63,8 @@ function integer(least?: number): Check {
       : fault(at, value, wanted);
 }
 
-/** A token or item count, or epoch milliseconds. */
 const count = integer(0);
 
-/** Any JSON value. */
 const anything: Check = () => undefined;
 
 function oneOf(values: readonly string[]): Check {
@@ -136,10 +113,6 @@ function object(fields: Fields): Check {
       : fault(at, value, "an object");
 }
 
-/**
- * An object whose `discriminator` names its variant in `variants`; `what`
- * names the discriminator's values in a refusal.
- */
 function variant(
   discriminator: string,
   variants: Readonly<Record<string, Fields>>,
@@ -215,7 +188,6 @@ const TOOL_SOURCES = [
   "harness",
 ] as const;
 
-/** Each capability variant's fields, `kind` aside; the schema keeps each strict. */
 const CAPABILITY_FIELDS: Readonly<Record<string, Fields>> = {
   "domain.command": {
     required: {
@@ -306,11 +278,6 @@ const provenance = object({
   },
 });
 
-/**
- * Each part variant's fields, `type` aside. A field the schema types
- * `unknown` (a tool's input or output) may be left out, as JSON leaves
- * out `undefined`.
- */
 const PART_FIELDS: Readonly<Record<string, Fields>> = {
   error: { required: { message: string } },
   harness_activity: { required: { event: harnessActivityEvent } },
@@ -393,11 +360,6 @@ interface FieldNames {
   readonly required: readonly string[];
 }
 
-/**
- * The field names each check knows, required and optional, by part type,
- * by capability kind and for `metadata`, so a test can hold them to
- * `@foundry/agents/schema`.
- */
 export function shapeFieldNames(): {
   readonly capabilities: Readonly<Record<string, FieldNames>>;
   readonly metadata: FieldNames;

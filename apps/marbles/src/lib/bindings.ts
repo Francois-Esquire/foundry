@@ -25,7 +25,6 @@ export interface ManagerArgs {
 export interface HostBindings {
   /** The workspace system; file monitors read the tree through it. */
   readonly catalogue?: Catalogue;
-  /** The engine's trigger store; monitors keep what they last saw in it. */
   readonly triggers?: TriggerStore;
 }
 
@@ -33,12 +32,6 @@ export interface HostBindings {
 export interface Bindings {
   readonly agents: (args: ManagerArgs) => Agents;
   readonly artifacts: (args: ManagerArgs) => Artifacts;
-  /**
-   * What the run executes as: its workspace, where it starts, and the
-   * environment its commands inherit. Every engine sets it; without one a
-   * run starts at `root` and its commands inherit the process's
-   * environment.
-   */
   readonly context?: ExecutionContext;
   /** Commands a step body runs; real ones on the host when omitted. */
   readonly exec?: (args: ManagerArgs) => Exec;

@@ -32,7 +32,6 @@ async function* source(parts: StreamPart[]): AsyncGenerator<StreamPart> {
   await Promise.resolve();
 }
 
-/** A turn that calls a tool with `-0` in its input and provider metadata. */
 function negativeZeroTurn(): StreamPart[] {
   return [
     {
@@ -89,7 +88,6 @@ describe("a turn's reply over the SQLite store", () => {
 });
 
 describe("a reply the store refuses", () => {
-  /** A harness whose store refuses every assistant message. */
   function refusingHarness() {
     const inner = new InMemorySessionStore();
     const { store } = recordingStore(inner, (write) => {
@@ -130,7 +128,6 @@ describe("a reply the store refuses", () => {
       expect(onFinish).not.toHaveBeenCalled();
       expect(events.map((event) => event.type)).not.toContain("finish");
       await expect(turn.outcome).resolves.toBe("failed");
-      // Only the input is kept; no reply is stored as if it had landed.
       expect(
         (await inner.listMessages("s")).map((m) => [m.role, m.status])
       ).toEqual([["user", "complete"]]);

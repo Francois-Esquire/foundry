@@ -92,7 +92,6 @@ export function claudeCodeProvider(
       return markFreshCalls(
         vendor.client.languageModel(modelId, {
           env: liveEnvironmentOverlay(options.env, undefined),
-          // Recorded, so a start after this host died stops a CLI it left.
           spawnClaudeCodeProcess: spawnRecordedCli,
           ...(opts?.workingDirectory ? { cwd: opts.workingDirectory } : {}),
           ...(limit === undefined ? {} : { maxTurns: limit }),
@@ -105,12 +104,6 @@ export function claudeCodeProvider(
   };
 }
 
-/**
- * Whether a call with these settings resumes nothing it was told to: no
- * `resume`, `continue` or `sessionId`, in the settings or their
- * `sdkOptions` overlay, and no `extraArgs`, which could pass the CLI a
- * resume flag of their own. Settings it cannot read prove nothing.
- */
 function resumesNothing(settings: ClaudeCodeSettings | undefined): boolean {
   if (!settings) {
     return false;
@@ -140,15 +133,6 @@ function marked(
   };
 }
 
-/**
- * Mark the call that resumed no session (see `CLAUDE_CODE_FRESH`), and
- * give each call's error what the CLI it started wrote to stderr
- * (`withCliStderr`). The
- * settings are the instance's own, default settings merged in. Only the
- * first call on an instance can be fresh: once a call has started, the
- * instance resumes the session the CLI opened for it. Every other call is
- * passed through unmarked.
- */
 function markFreshCalls(model: LanguageModelV4): LanguageModelV4 {
   let started = false;
   const fresh = () => {

@@ -5,21 +5,6 @@ import type { FileLockHolder } from "@foundry/lib/file-lock";
 import { tryFileLock } from "@foundry/lib/file-lock";
 import { isGone } from "@foundry/lib/process-identity";
 
-/**
- * `<dir>/locks/<name>` holds the pid of the process that has it: the state
- * root's process claim, the one lock left (everything else is a claim in
- * the Marbles database). It is the
- * `@foundry/lib/file-lock` protocol taken without waiting: a lock whose
- * holder has exited, or that stayed empty for 30s (its creator died before
- * writing its pid), is broken and taken over, one breaker at a time through
- * `<name>.break`. A file that is neither a pid nor empty is never broken.
- */
-
-/**
- * The lock at a state root that is the Marbles process's claim on it
- * (`claimProcess`), and that a program hosting a workspace itself holds
- * while it makes or migrates the database there.
- */
 export const PROCESS_LOCK = "process";
 
 export interface Lock {

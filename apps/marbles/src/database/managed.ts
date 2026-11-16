@@ -72,22 +72,10 @@ import type { StoredUsage, UsageStore } from "~/lib/usage-store";
 import { storedUsageFact } from "~/lib/usage-store";
 
 export interface OpenWorkspaceRecordsOptions extends HostDatabaseOptions {
-  /** The Marbles state root, whose `marbles.db` holds the tasks. */
   readonly state: string;
-  /** The workspace whose tasks these are: the scope of its rows. */
   readonly workspaceId: string;
 }
 
-/**
- * A workspace's tasks and their recorded changes in the Marbles database
- * of the state root `state`, for an engine's `records`: opened on the
- * first call, under the rule a host keeps (`openHostDatabase`: made and
- * migrated only under the state root's lock, otherwise required to be
- * current), and closed with it. The handle these open is theirs: `close`,
- * which the engine calls on dispose, closes it too.
- *
- * An open that fails is tried again by the next call.
- */
 export function openWorkspaceRecords(
   options: OpenWorkspaceRecordsOptions
 ): WorkspaceRecords {
@@ -99,30 +87,17 @@ export function openWorkspaceRecords(
   );
 }
 
-/**
- * A workspace's tasks and its agent sessions over one handle on the Marbles
- * database, opened at the first call to either as `openWorkspaceRecords`
- * opens its own. Closing `records` leaves the handle open, as an engine
- * closes its records before the agents that may still write a session;
- * `close`, after the engine is disposed, closes both and the handle.
- */
 export interface WorkspaceDatabase extends SideStores {
-  /** The workspace's automations over the same handle. */
   readonly automations: AutomationStore;
   close(): Promise<void>;
-  /** The workspace's Execution Runs over the same handle. */
   readonly executions: ExecutionStore;
   readonly records: WorkspaceRecords;
-  /** The workspace's workflow Runs over the same handle. */
   readonly runs: RunStore;
   readonly sessions: ListedSessionStore;
-  /** The workspace's trigger state over the same handle. */
   readonly triggers: TriggerStore;
-  /** The workspace's usage facts over the same handle. */
   readonly usage: UsageStore;
 }
 
-/** `openWorkspaceRecords`, with the workspace's sessions over the same handle. */
 export function openWorkspaceDatabase(
   options: OpenWorkspaceRecordsOptions
 ): WorkspaceDatabase {
@@ -176,11 +151,6 @@ export function openWorkspaceDatabase(
   };
 }
 
-/**
- * Everything an engine given `state` keeps in the database
- * `defaultStateRoot` chooses, its sessions included, over one handle
- * (`openWorkspaceDatabase`).
- */
 export function defaultWorkspaceDatabase(
   state: string,
   root: string,
@@ -192,12 +162,6 @@ export function defaultWorkspaceDatabase(
   });
 }
 
-/**
- * The run store an engine given `state` and no `runs` keeps its workflow
- * Runs in: the database `defaultStateRoot` chooses, over a handle of
- * its own, opened at the engine's start under the rule a host keeps and
- * closed with the store.
- */
 export function defaultWorkspaceRuns(
   state: string,
   root: string,
@@ -212,10 +176,6 @@ export function defaultWorkspaceRuns(
   );
 }
 
-/**
- * The trigger store an engine given `state` and no `triggers` keeps its
- * schedules' and monitors' state in, as `defaultWorkspaceRuns` keeps runs.
- */
 export function defaultWorkspaceTriggers(
   state: string,
   root: string,
@@ -228,22 +188,10 @@ export function defaultWorkspaceTriggers(
   return new ManagedTriggerStore(database, workspaceId, () => database.close());
 }
 
-/**
- * The stores an engine keeps beside its records whose owners never close
- * them (`grants`, `approvals`, `activityStore`, `recoveryLog`): what is
- * written there happens while agents run, or once as the engine starts.
- */
 type SideStores = Required<
   Pick<EngineOptions, "activityStore" | "approvals" | "grants" | "recoveryLog">
 >;
 
-/**
- * The side stores over `database`, scoped by `workspaceId`, each built at
- * its first call once the database is open. Every call runs through
- * `gate`, which the owner of the handle closes before it closes the
- * handle: that waits for calls under way and refuses later ones, so none
- * opens the handle again.
- */
 function sideStores(
   database: LazyDatabase,
   workspaceId: string,
@@ -282,7 +230,6 @@ function sideStores(
   };
 }
 
-/** What an engine keeps in the Marbles database when it is given `state`. */
 type DatabaseKept = Pick<
   EngineOptions,
   | "automationStore"
@@ -293,15 +240,6 @@ type DatabaseKept = Pick<
   | "usageStore"
 >;
 
-/**
- * `options`, with each store it keeps in the Marbles database that it was
- * not handed (its tasks, workflow Runs, Execution Runs, trigger state,
- * automations and usage facts)
- * over one handle on the database `defaultStateRoot` chooses for
- * `state`, opened at the first call to any of them under the rule a host
- * keeps. The handle closes once every store made here has closed, as the
- * engine closes each on dispose; a store it was handed is left as it is.
- */
 export function withWorkspaceDatabase(
   options: EngineOptions & { readonly state: string }
 ): EngineOptions {
@@ -355,15 +293,6 @@ export function withWorkspaceDatabase(
   };
 }
 
-/**
- * The state root whose database an engine given `state` keeps its records
- * in. When `state` is the directory Marbles itself places the workspace at
- * `root` in, under the state root above it (`<stateRoot>/<id>`, the id
- * derived from `root`, and `workspaceId` that id), it is that state root,
- * whose database the CLI and MCP read for that workspace. Otherwise it is
- * `state` itself, a database of the engine's own, `<state>/marbles.db`, so
- * nothing is written outside the directory the caller gave.
- */
 function defaultStateRoot(
   state: string,
   root: string,
@@ -382,17 +311,11 @@ function placedByMarbles(
   try {
     placed = workspaceState(dirname(dir), root);
   } catch {
-    // A root that cannot be resolved is no workspace Marbles placed.
     return false;
   }
   return placed.id === workspaceId && placed.dir === dir;
 }
 
-/**
- * One writer handle on a state root's database, opened at the first call
- * under the rule a host keeps (`openHostDatabase`). An open that fails is
- * tried again by the next call.
- */
 class LazyDatabase {
   readonly #options: OpenWorkspaceRecordsOptions;
   #opening: Promise<MarblesDatabase> | undefined;
@@ -412,7 +335,6 @@ class LazyDatabase {
     return this.#opening;
   }
 
-  /** Close the handle, if one was opened; a later `open` opens another. */
   async close(): Promise<void> {
     const opening = this.#opening;
     this.#opening = undefined;
@@ -420,10 +342,6 @@ class LazyDatabase {
   }
 }
 
-/**
- * The value `make` builds over the database the first time it is asked
- * for, once the database is open; built again if that open failed.
- */
 class OverDatabase<T> {
   readonly #database: LazyDatabase;
   readonly #make: (database: MarblesDatabase) => T;
@@ -445,7 +363,6 @@ class OverDatabase<T> {
     return this.#built;
   }
 
-  /** What was built, if anything was; nothing is built after this. */
   async built(): Promise<T | undefined> {
     const built = this.#built;
     this.#built = undefined;
@@ -495,8 +412,6 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
     const store = async () => (await this.#records.get()).taskStore;
     this.taskStore = {
       commit: (write) => {
-        // The write as it stands now, its events by the rule every task
-        // store takes them by: the database may still be opening.
         let owned: TaskStoreWrite;
         try {
           owned = ownedWrite(write);
@@ -543,11 +458,6 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
   }
 }
 
-/**
- * A workspace's sessions over a `LazyDatabase`: each call waits for the
- * database to open, and `close` refuses later calls once those made have
- * settled. A commit owns its write from the call, before the open.
- */
 class ManagedSessionStore implements ListedSessionStore {
   readonly #gate = new RecordsGate();
   readonly #store: OverDatabase<DatabaseSessionStore>;
@@ -569,8 +479,6 @@ class ManagedSessionStore implements ListedSessionStore {
   }
 
   commit(write: SessionStoreWrite): Promise<void> {
-    // The write as it stands now, as the package store takes it, refused as
-    // it refuses it: the database may still be opening.
     let owned: SessionStoreWrite;
     try {
       owned = capturedSessionWrite(write);
@@ -605,11 +513,6 @@ class ManagedSessionStore implements ListedSessionStore {
   }
 }
 
-/**
- * A workspace's workflow Runs over a `LazyDatabase`: each call waits for the
- * database to open, and `close` refuses later calls once those made have
- * settled, then runs `release`.
- */
 class ManagedRunStore implements RunStore {
   readonly durable = true;
   readonly #gate = new RecordsGate("the run store is closed");
@@ -670,10 +573,6 @@ class ManagedRunStore implements RunStore {
   }
 }
 
-/**
- * A workspace's trigger state over a `LazyDatabase`, as `ManagedRunStore`
- * keeps its runs.
- */
 class ManagedTriggerStore implements TriggerStore {
   readonly #gate = new RecordsGate("the trigger store is closed");
   readonly #release: () => Promise<void>;
@@ -733,11 +632,6 @@ class ManagedTriggerStore implements TriggerStore {
   }
 }
 
-/**
- * A workspace's usage facts over a `LazyDatabase`: each call waits for the
- * database to open, and `close` refuses later calls once those made have
- * settled. A fact is owned from the call, before the open.
- */
 class ManagedUsageStore implements UsageStore {
   readonly #gate = new RecordsGate("the usage store is closed");
   readonly #release: () => Promise<void>;
@@ -787,7 +681,6 @@ class ManagedUsageStore implements UsageStore {
     return this.#owning(fact, (store, owned) => store.save(owned));
   }
 
-  /** `call` on a copy of `fact` taken now: the database may still be opening. */
   #owning(
     fact: RecordedUsageFact,
     call: (store: DatabaseUsageStore, owned: RecordedUsageFact) => Promise<void>
@@ -806,10 +699,6 @@ class ManagedUsageStore implements UsageStore {
   }
 }
 
-/**
- * A workspace's automations over a `LazyDatabase`, as `ManagedUsageStore`
- * keeps its facts: a record put is owned from the call, before the open.
- */
 class ManagedAutomationStore implements AutomationStore {
   readonly #gate = new RecordsGate("the automation store is closed");
   readonly #release: () => Promise<void>;
@@ -867,11 +756,6 @@ class ManagedAutomationStore implements AutomationStore {
   }
 }
 
-/**
- * A workspace's Execution Runs over a `LazyDatabase`, as
- * `ManagedUsageStore` keeps its facts: what a write is handed is owned from
- * the call, before the open.
- */
 class ManagedExecutionStore implements ExecutionStore {
   readonly #gate = new RecordsGate("the execution store is closed");
   readonly #release: () => Promise<void>;
@@ -975,7 +859,6 @@ class ManagedExecutionStore implements ExecutionStore {
     return this.#run((store) => store.withSource(name, source));
   }
 
-  /** `call` on the stored form of `value` taken now: the database may still be opening. */
   #owning<V, T>(
     value: V,
     stored: (value: V) => V,

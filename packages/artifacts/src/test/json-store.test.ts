@@ -15,7 +15,6 @@ afterAll(() => rm(root, { force: true, recursive: true }));
 const recordsPath = () => join(root, crypto.randomUUID(), "records.json");
 const store = () => new JsonArtifactStore({ path: recordsPath() });
 
-/** Fresh storage: one directory, a records file per scope. */
 function jsonStorage() {
   const directory = join(root, crypto.randomUUID());
   return (scope: string) =>

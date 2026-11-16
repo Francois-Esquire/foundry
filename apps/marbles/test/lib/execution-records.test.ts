@@ -55,7 +55,6 @@ it("writes a run when it is queued, before it starts, and when it settles", asyn
   const second = await engine.launch("build", { label: "two" });
   await until(() => started.length === 1);
 
-  // Each of these is on disk before the launch, start or result it precedes.
   const stored = async (id: string) => {
     const run = await storedExecution(state, id);
     if (!run) {
@@ -213,7 +212,6 @@ it("records a running run's observations one at a time, beside its record, and k
   expect(live?.observations.map(({ id, status }) => `${id}:${status}`)).toEqual(
     ["call-0:running", "call-2:running", "call-1:complete"]
   );
-  // Each observation raised the stored revision without rewriting the record.
   const running = await vi.waitFor(async () => {
     const run = await storedExecution(state, launched.id);
     expect(run?.revision).toBe(live?.revision);
@@ -234,7 +232,6 @@ it("records a running run's observations one at a time, beside its record, and k
   );
   await engine.dispose();
 
-  // As a crash while it ran leaves it: running, its owner gone.
   const dead = exitedPid();
   await withExecutions(state, async (store) => {
     const stored = await store.get(launched.id);
@@ -275,7 +272,6 @@ it("records an observation at the same cost however many its run has", async () 
     written.push(observation);
     return observed(id, observation, at);
   };
-  // Nothing but the observation is written: no lifecycle change, no progress.
   const transition = store.transition.bind(store);
   let puts = 0;
   store.transition = (id, change) => {
@@ -291,7 +287,6 @@ it("records an observation at the same cost however many its run has", async () 
       type: "write",
     });
   }
-  // One observation handed to the store each time, never the record.
   expect(written).toHaveLength(50);
   expect(written.every((item) => !Array.isArray(item))).toBe(true);
   expect(puts).toBe(0);
@@ -569,7 +564,6 @@ it("returns the run another engine sharing the store started for the same source
   ]);
 
   expect(again.id).toBe(original.id);
-  // Only the engine that launched it holds its value.
   await Promise.allSettled([original.result, again.result]);
   await until(() => runs === 1);
   expect(runs).toBe(1);
@@ -584,7 +578,6 @@ it("keeps a run's record when its cleanup fails, so pruning it again retries", a
   await flow.result;
   const file = join(state, "output", `${flow.id}.jsonl`);
   rmSync(file);
-  // A directory where its output file was: removing it fails.
   mkdirSync(join(file, "blocked"), { recursive: true });
 
   expect(await engine.executions.prune([flow.id], () => "host")).toEqual([]);
@@ -729,7 +722,6 @@ it("parks a workflow's Execution Run with its Run, in one write, and warns of no
     database: opened.database,
     scope: "test",
   });
-  // Each park the engine makes itself, and whether it was made.
   const parks: boolean[] = [];
   const transition = store.transition.bind(store);
   store.transition = async (runId, change) => {
@@ -762,7 +754,6 @@ it("parks a workflow's Execution Run with its Run, in one write, and warns of no
       status: "suspended",
     })
   );
-  // The Run's commit made it: the engine's own park found it made.
   expect(parks).toEqual([false]);
   expect(lines.filter((line) => line.startsWith("[state]"))).toEqual([]);
   await engine.dispose();
@@ -809,7 +800,6 @@ it("has every change on disk once it is disposed, those it never waited for incl
   const queued = await engine.launch("build", { label: "two" });
   queued.result.catch(() => undefined);
   await until(() => started.length === 1);
-  // Withdrawn and recorded cancelled here at once; written in its turn.
   const cancelling = engine.cancel(queued.id);
   await engine.dispose();
   await cancelling;

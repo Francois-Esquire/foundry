@@ -39,15 +39,8 @@ import { GENERATION_METHODS, RemoteError } from "~/process/protocol";
 import { testHome } from "./helpers/home";
 import { readWorkspace, touchWorkspace } from "./helpers/registry";
 
-/**
- * The daemon runs here, under the test runner; the generations it spawns run
- * under Bun, as they always do. The state root sits in a short temp path:
- * a Unix socket path has about a hundred bytes to work with.
- */
-
 const zodPath = createRequire(import.meta.url).resolve("zod");
 
-/** What `lookProcesses` answers in the daemon while a test sets `fake`. */
 const looking = vi.hoisted(() => ({
   fake: undefined as typeof lookProcesses | undefined,
 }));
@@ -108,7 +101,6 @@ async function daemonFor(machine: Layout, lines: string[] = []) {
   return daemon;
 }
 
-/** A workspace's tasks and recorded changes in the Marbles database, read as a reader does. */
 async function storedTasks(machine: Layout, id: string) {
   return await readDatabase(stateDatabase(machine.state), async (database) => {
     const records = new DatabaseWorkspaceRecords({ database, scope: id });
@@ -150,7 +142,6 @@ describe("the Marbles process", () => {
       config: source,
       hosted: true,
     });
-    // Hosted in a generation of its own, not in the daemon.
     expect(summary.pid).toBeGreaterThan(0);
     expect(summary.pid).not.toBe(process.pid);
     expect(processAlive(summary.pid ?? 0)).toBe(true);
@@ -185,7 +176,6 @@ describe("the Marbles process", () => {
     expect(states).toContain("reloading");
     expect(states.at(-1)).toBe("ready");
     expect(lines).toContain(`[${summary.id}] source changed · reloading`);
-    // The edit brought up the next generation, which took over.
     const [reloaded] = await client.workspaces();
     expect(reloaded?.pid).not.toBe(summary.pid);
 
@@ -221,7 +211,6 @@ describe("the Marbles process", () => {
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
     const summary = await client.attach(source);
-    // The next generation cannot load it: its root is gone.
     rmSync(root, { force: true, recursive: true });
     await expect(client.reload(summary.id)).rejects.toThrow("did not load");
     const [kept] = await client.workspaces();
@@ -245,7 +234,6 @@ describe("the Marbles process", () => {
     const client = await connect({ layout: machine, start: false });
     const first = await client.attach(source);
     const reloading = client.reload(first.id);
-    // Asked while the reload runs: answered once the next generation is current.
     const attached = await client.attach(source);
     expect(attached.state).toBe("ready");
     expect(attached.pid).not.toBe(first.pid);
@@ -271,11 +259,9 @@ describe("the Marbles process", () => {
       },
       { interval: 50, timeout: 10_000 }
     );
-    // Long enough for the generation to register, well short of its import.
     await sleep(1000);
     const reloaded = await client.reload(starting?.id ?? "");
     expect(reloaded.state).toBe("ready");
-    // The reload waited for the attach, then a new generation took over.
     expect(reloaded.pid).not.toBe(starting?.pid);
     expect((await attaching).state).toBe("ready");
     expect(await client.workspaces()).toEqual([
@@ -293,7 +279,6 @@ describe("the Marbles process", () => {
     client.close();
     await first.close();
 
-    // Booting re-hosts the workspace; closing right away finds its generation unregistered.
     const again = await daemonFor(machine);
     const began = Date.now();
     await again.close();
@@ -402,7 +387,6 @@ describe("the Marbles process", () => {
     if (!(kept && linked && dangling)) {
       throw new Error("the workspaces were not recorded");
     }
-    // A generation would write its runs and claim through these links.
     const outside = join(home, "outside");
     mkdirSync(outside);
     symlinkSync(outside, linked.dir);
@@ -579,7 +563,6 @@ export const hold = step("hold").do(async () => {
   it("refuses a client that names another artifact store", async () => {
     const { home, machine } = fixture();
     await daemonFor(machine);
-    // A layout of a host's own making: one home cannot name two stores.
     const elsewhere = {
       ...layout({ home }),
       artifacts: join(home, "elsewhere"),
@@ -624,10 +607,8 @@ export const hold = step("hold").do(async () => {
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
     const summary = await client.attach(source);
-    // A run in flight keeps the detach draining for a while.
     const rolling = client.workspace(summary).roll("slow");
     await sleep(200);
-    // Written together: the attach takes its turn once the detach is done.
     const detaching = client.detach(summary.id);
     const attaching = client.attach(source);
     await detaching;
@@ -647,7 +628,6 @@ export const hold = step("hold").do(async () => {
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
     const summary = await client.attach(source);
-    // The detach unhosts it, then waits here, in the record write.
     const writing = Promise.withResolvers<void>();
     const gate = Promise.withResolvers<void>();
     const { unhost } = WorkspaceRegistry.prototype;
@@ -662,7 +642,6 @@ export const hold = step("hold").do(async () => {
       const detaching = client.detach(summary.id);
       await writing.promise;
       const attaching = client.attach(source);
-      // Long enough for the attach to reach the daemon and do what it may.
       await sleep(300);
       gate.resolve();
       await detaching;
@@ -720,7 +699,6 @@ export const hold = step("hold").do(async () => {
 
   it("lets go of everything it took when it cannot listen", async () => {
     const { home, machine } = fixture();
-    // The socket's directory is not there, so listening fails.
     const deaf: Layout = {
       ...machine,
       socket: join(home, "no-such-dir", "marbles.sock"),
@@ -729,9 +707,7 @@ export const hold = step("hold").do(async () => {
     await expect(startDaemon({ layout: deaf })).rejects.toThrow();
     expect(Date.now() - started).toBeLessThan(5000);
     expect(readProcess(machine.state)?.alive).not.toBe(true);
-    // Its database handle is closed: no client in this process holds it.
     expect(queuedFiles()).not.toContain(fileIdentity(machine.database));
-    // Nothing is left that would refuse the next Marbles process.
     const daemon = await daemonFor(machine);
     expect(daemon.pid).toBe(process.pid);
   }, 30_000);
@@ -751,7 +727,6 @@ export const hold = step("hold").do(async () => {
       () => undefined,
       (error: unknown) => error
     );
-    // What is thrown is why it could not start, not the cleanup's failure.
     expect(failure).toBeInstanceOf(Error);
     expect(String(failure)).not.toContain("print failed");
     expect(readProcess(machine.state)?.alive).not.toBe(true);
@@ -783,8 +758,6 @@ export const hold = step("hold").do(async () => {
 
   it("rejects a close with its first failure when a later step fails too", async () => {
     const { home, machine } = fixture();
-    // The socket alone in a directory that can then be made read-only, so
-    // removing it fails after printing has.
     const sockets = join(home, "s");
     mkdirSync(sockets);
     const printing: { fails: boolean } = { fails: false };
@@ -826,7 +799,6 @@ export const hold = step("hold").do(async () => {
     if (pid === undefined) {
       throw new Error("the generation has no pid");
     }
-    // The generation does not answer the stop: the daemon has to kill it.
     const { request } = Channel.prototype;
     vi.spyOn(Channel.prototype, "request").mockImplementation(function (
       this: Channel,
@@ -837,12 +809,10 @@ export const hold = step("hold").do(async () => {
         ? Promise.reject(new Error("the generation would not stop"))
         : request.call(this, method, ...rest);
     });
-    // It may also leave once its connection drops; the kill must be sent anyway.
     const kill = vi.spyOn(process, "kill");
     printing.fails = true;
     try {
       await expect(daemon.close()).rejects.toThrow("print failed");
-      // Its whole process group, children and all.
       expect(kill).toHaveBeenCalledWith(-pid, "SIGKILL");
       await vi.waitFor(() => expect(processAlive(pid)).toBe(false), {
         timeout: 5000,
@@ -876,8 +846,6 @@ export const hold = step("hold").do(async () => {
     if (typeof real !== "string") {
       throw new Error("the generation's start cannot be read");
     }
-    // The generation does not answer the stop, and its pid now reads as
-    // another process: one started at another time.
     const { request } = Channel.prototype;
     vi.spyOn(Channel.prototype, "request").mockImplementation(function (
       this: Channel,
@@ -902,7 +870,6 @@ export const hold = step("hold").do(async () => {
       looking.fake = undefined;
       vi.restoreAllMocks();
     }
-    // Its daemon is gone: it drains and leaves on its own.
     await vi.waitFor(() => expect(processAlive(pid)).toBe(false), {
       timeout: 30_000,
     });

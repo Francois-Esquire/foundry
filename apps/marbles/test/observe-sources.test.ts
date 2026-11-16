@@ -39,13 +39,6 @@ import { current } from "~/lib/run-scope";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
-/**
- * Each source end to end: the package's own domain class changes its
- * objects through the store Marbles builds over the Marbles database, the
- * store's hook records the facts in the workspace's change log in the
- * commit, and delivery hands them to the observers of that source alone.
- */
-
 let machine: TestMachine;
 
 beforeAll(async () => {
@@ -95,7 +88,6 @@ describe("observing every source", () => {
     const unwatch = records.watch(() => delivery.wake());
     await delivery.start();
 
-    // Each package's domain class, over the store Marbles hands it.
     await new Tasks({ store: records.taskStore }).create({ title: "Task" });
     const artifacts = new ArtifactManager({ store: stores.artifacts });
     await artifacts.create({
@@ -151,7 +143,6 @@ describe("observing every source", () => {
     unwatch();
     await delivery.stop();
 
-    // One log, one counter: the positions follow the commits, each once.
     const logged = await machine.changes(state);
     expect(logged.map((change) => change.position)).toEqual(
       logged.map((_, index) => index + 1)
@@ -162,10 +153,8 @@ describe("observing every source", () => {
     for (const change of logged) {
       expect(change.type).toBe(change.payload.type);
       expect(change.id).toBe(change.payload.id);
-      // Nothing here ran inside a run.
       expect(change.runId).toBeNull();
     }
-    // Every observer ended where the log does.
     const head = logged.at(-1)?.position;
     for (const observer of await records.log.observers()) {
       expect(observer.position, observer.name).toBe(head);
@@ -220,7 +209,6 @@ describe("the run a fact is recorded as made by", () => {
       ["sandboxes", (write) => stores.containers.commit(write as never)],
       [
         "workspaces",
-        // A catalogue write names a Workspace: one that is not filed here.
         (write) =>
           stores.workspaces.commit(
             Object.assign(write, {
@@ -244,7 +232,6 @@ describe("the run a fact is recorded as made by", () => {
     const reads = new Map<string, number>();
     for (const [source, commit] of committers) {
       reads.set(source, 0);
-      // A write whose events read differently each time they are read.
       const write = {
         get events(): readonly Fact[] {
           const read = (reads.get(source) ?? 0) + 1;
@@ -300,14 +287,10 @@ describe("a write the recorder hands a store", () => {
     interface Fixture {
       readonly field: string;
       readonly name: string;
-      /** The store of `scope`, as the package makes it, with no recorder. */
       plain(scope: string): object;
       present(store: never, id: string): Promise<boolean>;
-      /** The store of `scope` as Marbles hands it over, through the recorder. */
       recorded(scope: string): Promise<object>;
-      /** The id to name in the write, after filing what it names. */
       seed(store: never): Promise<string>;
-      /** The field's value for `id`. */
       value(id: string): unknown;
     }
     const fixtures: readonly Fixture[] = [
@@ -425,14 +408,12 @@ describe("a write the recorder hands a store", () => {
       const outcome = async (store: object) => {
         const id = await fixture.seed(store as never);
         let reads = 0;
-        // Every field of the write is a getter on its prototype.
         const write = Object.create({
           get [fixture.field]() {
             reads += 1;
             return fixture.value(id);
           },
         }) as object;
-        // As the store takes it: what it keeps, or how it refuses.
         const refused = await (
           store as { commit(write: object): Promise<void> }
         )
@@ -467,7 +448,6 @@ describe("a Run commit the owner check refuses", () => {
     const owned = new ExecutionCoordinator({
       store: await owner.open(() => undefined),
     });
-    // Filed, unsettled, by the owner: its Run is the owner's to change.
     const run = await owned.createRun({ input: null, queueId: "q", step: "s" });
     const before = await machine.changes(state);
     expect(before.map((change) => change.type)).toEqual(["run.queued"]);
@@ -503,7 +483,6 @@ describe("a commit carrying more facts than one statement can bind", () => {
       type: "text/markdown",
     });
     const before = await records.log.head();
-    // Thousands of facts in one commit: past what one insert can bind.
     const renames = 5000;
     await manager.transaction(async (artifact) => {
       for (let index = 0; index < renames; index += 1) {
@@ -515,7 +494,6 @@ describe("a commit carrying more facts than one statement can bind", () => {
       (change) => change.position > before
     );
     expect(logged.length).toBeGreaterThanOrEqual(renames);
-    // One run of positions, in the order the commit carried its facts.
     expect(logged.map((change) => change.position)).toEqual(
       logged.map((_, index) => before + index + 1)
     );

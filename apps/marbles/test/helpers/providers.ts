@@ -8,17 +8,8 @@ import { stateDatabase } from "~/layout";
 /** The CLI providers a test machine is configured with, in preference order. */
 const TEST_PROVIDERS = ["claude-code", "codex", "pi"] as const;
 
-/**
- * Where the run's template database is: a Marbles database with
- * `TEST_PROVIDERS` configured for the machine and nothing else, made once
- * by the run's setup (`makeProvidersTemplate`).
- */
 export const PROVIDERS_TEMPLATE_ENV = "MARBLES_TEST_PROVIDERS_DB";
 
-/**
- * Make the template database in `dir`, closed and in one file, as a
- * machine that has been set up keeps it.
- */
 export async function makeProvidersTemplate(
   dir: string,
   ids: readonly string[] = TEST_PROVIDERS
@@ -38,9 +29,6 @@ export async function makeProvidersTemplate(
   } finally {
     opened.close();
   }
-  // libSQL lets the native connection go, and so checkpoints the WAL into
-  // the file and removes it, only once its statements are collected.
-  // Collected on its own time: for up to five seconds.
   for (let attempt = 0; existsSync(`${file}-wal`); attempt += 1) {
     if (attempt === 100) {
       throw new Error(`the template database at ${file} kept its WAL file`);
@@ -51,10 +39,6 @@ export async function makeProvidersTemplate(
   return file;
 }
 
-/**
- * Configure the CLI providers for the whole machine at the Marbles state
- * root `state`, which has no database yet: a copy of the run's template.
- */
 export function configureProviders(state: string): void {
   const template = process.env[PROVIDERS_TEMPLATE_ENV];
   if (template === undefined || !existsSync(template)) {

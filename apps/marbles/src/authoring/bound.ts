@@ -6,16 +6,6 @@ import { tasksOfLoad } from "~/authoring/tasks";
 import { monitor, schedule } from "~/authoring/triggers";
 import { observable, SOURCE } from "~/lib/events/source";
 
-/**
- * The library a load's modules import in place of `@foundry.sh/marbles`
- * and `@foundry.sh/marbles/prebuilt`: the same exports, but each word that
- * declares or routes runs as that load's (`inLoad`), and `tasks` is the
- * load's own. So a workspace's code names its workspace by what it
- * imported, however late it calls and from wherever: a timer, a listener,
- * a promise or a tail call. Classes and values pass through as they are,
- * so `instanceof`, identity and symbols keep working.
- */
-
 function isClass(value: unknown): boolean {
   return (
     typeof value === "function" &&
@@ -23,10 +13,6 @@ function isClass(value: unknown): boolean {
   );
 }
 
-/**
- * The authoring words that declare or route. Every function those modules
- * export is one; a test holds the list to them.
- */
 export const WORDS: ReadonlySet<unknown> = new Set([
   agent,
   artifact,
@@ -39,14 +25,12 @@ export const WORDS: ReadonlySet<unknown> = new Set([
   workspace,
 ]);
 
-/** `word` run as load `load`'s, still the source it is for `observe`, if it is one. */
 function bind(word: (...args: never[]) => unknown, load: number): unknown {
   const bound = (...args: never[]) => inLoad(load, () => word(...args));
   const source: unknown = Reflect.get(word, SOURCE);
   return typeof source === "symbol" ? observable(bound, source) : bound;
 }
 
-/** `@foundry.sh/marbles` as load `load` imports it. */
 export function libraryOfLoad(
   library: Readonly<Record<string, unknown>>,
   load: number
@@ -66,7 +50,6 @@ export function libraryOfLoad(
   );
 }
 
-/** `@foundry.sh/marbles/prebuilt` as load `load` imports it: every factory runs as the load's. */
 export function prebuiltOfLoad(
   prebuilt: Readonly<Record<string, unknown>>,
   load: number

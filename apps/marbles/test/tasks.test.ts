@@ -49,10 +49,6 @@ afterEach(async () => {
   catalog.reset();
 });
 
-/**
- * A host engine over its own state dir, its tasks in the machine's
- * database, with what the catalog declared.
- */
 function host(state: string, askable = false): Engine {
   const engine = testEngine({
     askable,
@@ -253,14 +249,12 @@ describe("tasks", () => {
         { name: "typed" }
       )
     ).toEqual({ kind: "observer", name: "typed", source: "tasks" });
-    // A handler with a function name names the observer.
     const handed: string[] = [];
     expect(
       observe(tasks, function byFunction(payload) {
         handed.push(payload.type);
       })
     ).toMatchObject({ name: "byFunction" });
-    // Each word that declares objects is the source of their facts.
     expect(
       observe(
         workflow,

@@ -27,33 +27,8 @@ import { CHANGE_BATCH, COMPACTION_STEP } from "~/lib/events/log";
 import { causingRun, EmitListeners } from "~/lib/events/records";
 import type { Fact } from "~/lib/events/source";
 
-/**
- * A workspace's change log in the Marbles database: every change fact its
- * stores commit (`marbles_changes`), each at the next position of the
- * workspace's counter (`marbles_change_logs`), and each observer's place
- * (`marbles_observers`).
- *
- * Facts are written by `ChangeRecorder.record`, which each store's
- * `onCommit` hook calls on the transaction it is handed, so a change and
- * its facts commit or roll back together, and positions are taken in the
- * order commits land. The positions come from the counter, never from the
- * facts that survive, so none is given twice, after compaction too.
- */
-
-/** Whatever transaction a package store hands its `onCommit` hook. */
 type CommitTransaction = Pick<StoreDatabase, "insert">;
 
-/**
- * The one way a workspace's stores record their change facts: shared by
- * every store of the workspace in this process, so a commit through any
- * of them wakes delivery here at once (`watch`).
- *
- * The run a write's facts were made by is read when the store is handed
- * the write, or the transaction it is written in (`causing`), while the
- * caller's code is on the stack, and kept by each fact's id until the
- * commit's hook records it, since a store may run the commit later,
- * behind others, in another async context.
- */
 export class ChangeRecorder {
   readonly scope: string;
   readonly #causes = new Map<string, string>();
@@ -64,20 +39,10 @@ export class ChangeRecorder {
     this.scope = scope;
   }
 
-  /**
-   * `store`, each write handed to it noting the run calling as its facts'
-   * cause; a transaction notes the run calling `transaction`, for every
-   * write through its view. Every other property is the store's own.
-   */
   causing<S extends object>(store: S): S {
     return this.#noting(store, causingRun);
   }
 
-  /**
-   * Record `events`, the facts of `source` one commit carries, in its own
-   * `transaction`: never through a store, which would wait on the commit
-   * that is running this. Each takes the next position of the counter.
-   */
   async record(
     transaction: CommitTransaction,
     source: string,
@@ -108,20 +73,16 @@ export class ChangeRecorder {
       source,
       type: fact.type,
     }));
-    // In batches, each row keeping the position just taken for it, all in
-    // the commit's transaction: one statement binds only so many values.
     for (const batch of batches(rows)) {
       await transaction.insert(marblesChanges).values(batch);
     }
     this.#wake();
   }
 
-  /** Call `listener` soon after a commit here recorded a fact. */
   watch(listener: () => void): () => void {
     return this.#listeners.add(listener);
   }
 
-  /** `store`, each write it is handed noted as made by the run `runOf` reads, then. */
   #noting<S extends object>(store: S, runOf: () => string | null): S {
     return new Proxy(store, {
       get: (target, property) => {
@@ -148,15 +109,6 @@ export class ChangeRecorder {
     });
   }
 
-  /**
-   * Commit `write` through `commit`, its facts noted as made by
-   * `runId`. The write's events are taken once, here, by the rule every
-   * store takes them by (`ownedEvents`), and the store is handed that same
-   * copy in their place, so the facts noted are the facts it stores; a
-   * write whose events break the rule is refused before the store sees
-   * it. Everything else in the write reaches the store as the caller
-   * handed it, for the store to take by its own rules.
-   */
   async #caused(
     write: object,
     runId: string | null,
@@ -181,12 +133,6 @@ export class ChangeRecorder {
     }
   }
 
-  /**
-   * Wake the watchers once the commit running now has settled: on the next
-   * turn of the event loop, by which time a read this process makes waits
-   * behind the commit's transaction, so it sees what it recorded. A commit
-   * rolled back meanwhile only costs a look that finds nothing new.
-   */
   #wake(): void {
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; a wake under way sets it.
     if (this.#waking) {
@@ -200,15 +146,6 @@ export class ChangeRecorder {
   }
 }
 
-/**
- * `write` as the store is to be handed it: the write itself for every
- * property the store reads, own or inherited, getter or not, read when
- * the store reads it, once, and `events` alone answered with the copy
- * already taken, so the store never reads the caller's events again. No
- * field is listed here, so none is lost when a store gains one. A write
- * whose own `events` can never read otherwise (frozen: not configurable,
- * not writable) is handed as it is; the store takes it in this same turn.
- */
 function withEvents(
   write: object,
   events: readonly Fact[] | undefined
@@ -223,14 +160,6 @@ function withEvents(
   });
 }
 
-/**
- * The change log of the workspace `scope` over `database`, its observer
- * rows written by the records whose delivery claim `owner` names: every
- * write to a place, a failure or a stuck mark, and every compaction, is
- * conditional, in the same statement or transaction, on `owner` still
- * holding the workspace's claim (`marbles_delivery_claims`), so a writer
- * that let go, however late its write lands, changes nothing.
- */
 export class DatabaseChangeLog implements ChangeLog {
   readonly #database: StoreDatabase;
   readonly #scope: string;
@@ -242,16 +171,6 @@ export class DatabaseChangeLog implements ChangeLog {
     this.#owner = owner;
   }
 
-  /**
-   * One short transaction, under no claim: the registered observers are
-   * seen now; the floor is the lowest place of an observer seen since
-   * `seenSince`, else the counter, read afresh in every step; what goes is
-   * the next window of positions above the compacted prefix, at most
-   * `limit` of them, up to the floor and to the last before the first fact
-   * that committed at or after `before`. Each step reads and removes by
-   * position range, through the primary key, so its work is the window,
-   * not the log; and it counts what it removed rather than returning it.
-   */
   compact(bound: CompactionBound): Promise<CompactionStep> {
     return this.#database.transaction(async (transaction) => {
       for (const key of bound.registered) {
@@ -313,7 +232,6 @@ export class DatabaseChangeLog implements ChangeLog {
         });
       return {
         done: through < window || window === floor,
-        // libSQL's result of a statement: how many rows it changed.
         removed: (removed as { readonly rowsAffected: number }).rowsAffected,
       };
     });
@@ -372,16 +290,8 @@ export class DatabaseChangeLog implements ChangeLog {
     return (await counterOf(this.#database, this.#scope)).position;
   }
 
-  /**
-   * One statement: the place moves only from `from` and under the claim,
-   * and the positions it passes that the compacted prefix covers are
-   * recorded as missed by the same write, read from the counter as the
-   * statement runs, so a compaction landing at any moment around it
-   * cannot leave a gap unrecorded.
-   */
   async move(key: ObserverKey, move: ObserverMove): Promise<MoveOutcome> {
     const compacted = sql<number>`coalesce((select ${marblesChangeLogs.compacted} from ${marblesChangeLogs} where ${marblesChangeLogs.scope} = ${this.#scope}), 0)`;
-    // The last position passed over unhanded, as `missedBy` reckons it.
     const last = move.handed ? move.to - 1 : move.to;
     const through = sql<number>`min(${compacted}, ${last})`;
     const passesGap = sql`${through} > ${move.from}`;
@@ -436,12 +346,10 @@ export class DatabaseChangeLog implements ChangeLog {
     }));
   }
 
-  /** The condition every observer-row write carries: these records still hold the claim. */
   #holds() {
     return sql`exists (select 1 from ${marblesDeliveryClaims} where ${marblesDeliveryClaims.scope} = ${this.#scope} and ${marblesDeliveryClaims.ownerId} = ${this.#owner})`;
   }
 
-  /** Whether these records hold the claim, as `database` reads it now. */
   async #holding(database: Pick<StoreDatabase, "select">): Promise<boolean> {
     const [row] = await database
       .select({ ownerId: marblesDeliveryClaims.ownerId })
@@ -463,12 +371,6 @@ export class DatabaseChangeLog implements ChangeLog {
   }
 }
 
-/**
- * The query `read` runs: one statement, walking the workspace's facts of
- * one source by position from `query.after`
- * (`marbles_changes_scope_source_position`), so its work is what is left
- * for the observer, not the whole log.
- */
 export function changesAfter(
   database: Pick<StoreDatabase, "select">,
   scope: string,
@@ -496,7 +398,6 @@ export function changesAfter(
     .limit(query.limit ?? CHANGE_BATCH);
 }
 
-/** The workspace's counter: the last position given, and the last compacted. */
 async function counterOf(
   database: Pick<StoreDatabase, "select">,
   scope: string
@@ -511,7 +412,6 @@ async function counterOf(
   return row ?? { compacted: 0, position: 0 };
 }
 
-/** Every observer of the workspace `scope`, by source, then name. */
 async function readObservers(
   database: Pick<StoreDatabase, "select">,
   scope: string
@@ -524,11 +424,6 @@ async function readObservers(
   return rows.map(stateOf);
 }
 
-/**
- * The observers of the workspace `scope` under the state root `state`, and
- * the position of its newest fact, for `marbles status`: read only, with
- * nothing when there is no database yet.
- */
 export async function readStoredObservers(
   state: string,
   scope: string

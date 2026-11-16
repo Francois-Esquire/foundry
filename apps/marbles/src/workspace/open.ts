@@ -43,39 +43,19 @@ import {
 export interface HostOptions {
   readonly artifacts: string;
   readonly config: string;
-  /**
-   * The directory the command runs in: a relative `config` resolves from
-   * it, and it is the workspace root when nothing is at the source. Needed
-   * for either; without it `config` must be absolute and there.
-   */
   readonly directory?: string;
   readonly dry: boolean;
-  /** Where this process's children are recorded for recovery; see `createEngine`. */
   readonly spawned?: string;
   readonly state: string;
 }
 
 export interface OpenedWorkspace {
-  /**
-   * What the workspace's source declared, its own: empty until the source
-   * is loaded, and never shared with another workspace in this process.
-   */
   readonly catalog: Catalog;
-  /**
-   * The source that defines this workspace, or null without one; the
-   * workspace is then its root alone.
-   */
   readonly config: string | null;
   /** Where the authoring source is, or would be created. */
   readonly configPath: string;
-  /** Where its runs start and its commands run: its registration's. */
   readonly cwd: string;
   readonly environment: WorkspaceEnvironment;
-  /**
-   * Every file its source's load read, its modules and the data files they
-   * import alike, sorted: what a change to it reloads. Empty when nothing
-   * was loaded.
-   */
   readonly files: readonly string[];
   readonly workspace: Workspace;
 }
@@ -90,11 +70,6 @@ const libraryUrl = (name: "index" | "prebuilt"): string =>
 
 let sourceLibrary: Promise<void> | undefined;
 
-/**
- * Authoring modules use this installation even outside a project with
- * node_modules, and every workspace's modules share it, so its registry
- * and slots are one instance per process. Registered once.
- */
 function linkSourceLibrary(): Promise<void> {
   sourceLibrary ??= (async () => {
     // The paths are relative to this file: `src/workspace/` in source, and
@@ -116,7 +91,6 @@ function linkSourceLibrary(): Promise<void> {
       },
       target: "bun",
     });
-    // A load's own modules get the library bound to that load.
     linkLibrary("@foundry.sh/marbles", (load) => libraryOfLoad(library, load));
     linkLibrary("@foundry.sh/marbles/prebuilt", (load) =>
       prebuiltOfLoad(prebuilt, load)
@@ -125,15 +99,6 @@ function linkSourceLibrary(): Promise<void> {
   return sourceLibrary;
 }
 
-/**
- * Import every authoring module under `configPath` into `catalog`, the
- * catalog of workspace `workspaceId`, so it holds what they declare and no
- * other workspace's does. False when nothing is there. One that throws
- * leaves `catalog` empty. Each load imports copies of its own of the
- * workspace's modules (`importLoad`), so a load after an edit, or after one
- * that threw, evaluates them again. Resolves with every file the load
- * read (`filesRead`).
- */
 async function loadSource(
   configPath: string,
   {
@@ -157,12 +122,10 @@ async function loadSource(
   await linkSourceLibrary();
   let loaded: readonly string[] = [];
   await loadInto(workspaceId, catalog, async (load) => {
-    // Every file it reads, as it loads and as its runs import more later.
     const reading = read === undefined ? undefined : onRead(load, read);
     try {
       await importLoad(sourceRoot(configPath), files, load);
     } catch (error) {
-      // A load that failed reads nothing more.
       reading?.forget();
       throw error;
     } finally {
@@ -173,7 +136,6 @@ async function loadSource(
   return loaded;
 }
 
-/** Where `args` places its workspace: its source, if any, and its root. */
 function placed(args: HostOptions): {
   readonly configPath: string;
   readonly found: boolean;
@@ -230,13 +192,6 @@ export function findWorkspace(args: HostOptions): OpenedWorkspace {
   });
 }
 
-/**
- * A workspace recorded under the state root, by its id, found without
- * executing anything. Its checkout need not exist: stored state is all a
- * task command reads. Undefined when nothing has that id, or when
- * `<state>/<id>` is a link; a state root without a database is left
- * without one.
- */
 export async function recordedWorkspace(
   args: Pick<HostOptions, "state">,
   id: string
@@ -261,34 +216,21 @@ export async function recordedWorkspace(
 }
 
 export interface OpenWorkspaceOptions {
-  /** Where the workspace's work starts, as it was registered; its root when omitted. */
   readonly cwd?: string;
   /**
    * What a workspace `.env.schema` that does not resolve does: fail, for
    * work about to run, or print and go on. `warn` when omitted.
    */
   readonly env?: "require" | "warn";
-  /**
-   * Nothing is at the source: offer to create it. Resolves true once
-   * something was created there, which is then loaded.
-   */
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   readonly print: (line: string) => void;
-  /** Told of each file the source's load reads, as it loads and as its runs import more. */
   readonly read?: (file: string) => void;
 }
 
-/** A source that was just created and did not load. */
 class StarterLoadError extends Error {
   override readonly name = "StarterLoadError";
 }
 
-/**
- * Load the workspace's environment, then its source into a catalog of its
- * own, and place the workspace it defines. The environment is resolved
- * first and kept for the engine: nothing is written to this process's
- * `process.env`, which another workspace here shares.
- */
 export async function openWorkspace(
   args: HostOptions,
   { cwd, env = "warn", onMissing, print, read }: OpenWorkspaceOptions
@@ -332,11 +274,6 @@ export async function openWorkspace(
 
 interface WorkspaceEngineOptions {
   readonly askable?: boolean;
-  /**
-   * The Marbles database this process hosts the workspace over, which
-   * keeps its tasks and agent sessions; without one (`--dry-run`), they are
-   * in memory.
-   */
   readonly database?: MarblesDatabase;
   /** Definitions' own `log(...)` lines; to `print` when omitted. */
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
@@ -361,12 +298,6 @@ export async function hostEngine(
   return engine;
 }
 
-/**
- * The engine over a workspace, as the flags ask for it, and nothing more:
- * no usage accounts and no host for definitions called outside a run. It
- * keeps the workspace's state, and its tasks and sessions in `database`, under
- * `--dry-run` in memory only.
- */
 function workspaceEngine(
   args: HostOptions,
   { catalog, cwd, environment, workspace }: OpenedWorkspace,
@@ -403,12 +334,6 @@ export function hostTriggers(
   });
 }
 
-/**
- * Record that this workspace ran, for `status`, and register it as it
- * opened: its root and its source, and where its work starts when
- * `registers` names it (kept as it was otherwise), in the database the
- * host opened. Without one (`--dry-run`) nothing is written.
- */
 export async function touchWorkspace(
   database: MarblesDatabase | undefined,
   args: Pick<HostOptions, "state">,
@@ -423,10 +348,6 @@ export async function touchWorkspace(
   }
 }
 
-/**
- * `workspace` working where its registration says: where it was registered to
- * start, unless the host named somewhere itself, else its root.
- */
 export async function asRegistered(
   database: MarblesDatabase | undefined,
   args: Pick<HostOptions, "state">,
@@ -443,13 +364,6 @@ export async function asRegistered(
   return record === undefined ? workspace : { ...workspace, cwd: record.cwd };
 }
 
-/**
- * The tasks of the engine's workspace, for the CLI and the MCP tools: its
- * own store, which the builtin `tasks` also reaches while the engine is the
- * host. Each commit records its change in the same write. After the engine
- * is disposed, reads and writes are refused, never answered from
- * somewhere else.
- */
 export function hostTasks(engine: Engine): Tasks {
   return new Tasks({ store: engine.taskStore });
 }

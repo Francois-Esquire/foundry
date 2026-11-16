@@ -80,7 +80,6 @@ function importPackage(artifacts: ArtifactManager, text: string) {
   });
 }
 
-/** `registry`, refusing to retain a manifest while `refusing.on` holds. */
 function rejectingModules(registry: ModuleRegistry, refusing: { on: boolean }) {
   return faultyRegistry(registry, (commands) => ({
     retainManifest: (input) =>
@@ -616,7 +615,6 @@ describe("Module Package", () => {
   });
 
   describe("refuses, leaving the target Artifact exactly as it was", () => {
-    /** A package of `moduleId` on Artifact `shared-artifact` at `2.0.0`. */
     async function sharedArtifactPackage(moduleId: string) {
       const source = await moduleFixture({
         artifactId: "shared-artifact",
@@ -647,7 +645,6 @@ describe("Module Package", () => {
       });
     }
 
-    /** Everything a reader can see of an Artifact and its Contents. */
     async function state(artifacts: ArtifactManager, id: string) {
       const artifactId = id as Parameters<ArtifactManager["get"]>[0];
       return {

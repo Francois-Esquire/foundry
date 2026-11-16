@@ -135,11 +135,6 @@ type Live =
 
 type Ending = "cancelled" | "failed" | undefined;
 
-/**
- * A run whose work ended but whose settlement could not be recorded: its
- * caller is paid this, `cause` the write's failure, rather than an outcome
- * the store does not hold.
- */
 export class RunNotRecordedError extends Error {
   override readonly name = "RunNotRecordedError";
 
@@ -172,7 +167,6 @@ export class Launcher {
   readonly #owed = new Map<string, Owed>();
   readonly #live = new Map<string, Live>();
   readonly #admitted = new Map<string, Admission>();
-  /** Cancellations of waiting runs a stop began, which it waits for. */
   readonly #withdrawing: Promise<void>[] = [];
   /**
    * Set when a stop begins and kept: the engine never starts again. A task
@@ -268,14 +262,11 @@ export class Launcher {
    */
   async recover(options: {
     readonly adopted: ReadonlySet<string>;
-    /** What a workflow run's own Run says its status is; `undefined` without one. */
     readonly fileStatus: (run: ExecutionRun) => string | undefined;
   }): Promise<void> {
     const readmitted = await this.executions.recover({
       adopted: options.adopted,
       fileStatus: options.fileStatus,
-      // A queued run handed to this process (`handOver`) is let in whatever
-      // the host asked: it was this host's to run already.
       readmit: (run) =>
         (this.#options.recoverQueued ||
           sameProcess(run.owner, thisProcess())) &&
@@ -288,12 +279,6 @@ export class Launcher {
     }
   }
 
-  /**
-   * Hand every run waiting in this process's queues to `successor`, in
-   * their order, still queued, for it to let in when it starts: none of
-   * them starts here. Whoever awaits one here is told it was handed over.
-   * Resolves with the ids handed over.
-   */
   async handOver(successor: ProcessIdentity): Promise<readonly string[]> {
     const handed: string[] = [];
     for (const id of this.executions.waiting()) {
@@ -318,7 +303,6 @@ export class Launcher {
    * already settled is left as it is.
    */
   async cancel(id: string): Promise<void> {
-    // Paid once the cancellation is stored, never before.
     if (await this.executions.withdraw(id)) {
       this.#pay(id, new Error(`run ${id} was cancelled before it started`));
       return;
@@ -357,14 +341,6 @@ export class Launcher {
     await this.#options.workflows.cancel(id);
   }
 
-  /**
-   * Withdraw queued work and abort live dispatches and tasks before
-   * shutdown awaits anything: each waiting run comes off its queue at once,
-   * and its caller is paid its cancellation once that is stored (a stop
-   * waits for it, in `halt`); one whose cancellation cannot be stored is
-   * paid that failure. From now on, a task that starts here is aborted
-   * before its body runs.
-   */
   cancelPending(): void {
     this.#halting = "cancel";
     for (const id of this.executions.waiting()) {
@@ -675,15 +651,6 @@ export class Launcher {
     );
   }
 
-  /**
-   * Record how a run ended, then pay its caller what it ended with, once
-   * the settlement is stored: a run is never acknowledged as ended before
-   * its record says so, and one stored settled otherwise already pays what
-   * is stored. One whose settlement cannot be stored pays its
-   * caller a `RunNotRecordedError` instead, and the settlement is kept to
-   * try again (`ExecutionRecords.settle`). With no `ending` (a run left
-   * parked) nothing is recorded, and the caller is paid at once.
-   */
   async #end(
     id: string,
     ending: "complete" | Ending,
@@ -702,7 +669,6 @@ export class Launcher {
         return;
       }
       if (stored && stored.status !== ending) {
-        // Settled otherwise already: the caller gets what is stored.
         this.#pay(
           id,
           stored.status === "complete"

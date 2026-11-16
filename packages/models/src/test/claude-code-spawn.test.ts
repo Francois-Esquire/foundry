@@ -17,13 +17,6 @@ import { claudeCodeProvider } from "../claude-code";
 import { codexProvider } from "../codex";
 import { silentExecutable } from "./helpers/env-dump";
 
-/**
- * A host Claude Code call starts the CLI recorded, so a later start can
- * stop one its host left, and the call's error still says what the CLI
- * wrote to stderr. The CLI here is a script this test writes, which
- * waits for the test's word, then complains and fails.
- */
-
 const CALL = {
   prompt: [{ content: [{ text: "hi", type: "text" }], role: "user" }],
 } as LanguageModelV4CallOptions;
@@ -67,7 +60,6 @@ wait();
   );
   call.catch(() => undefined);
 
-  // While it runs, it is recorded with this process as its owner.
   let names: string[] = [];
   for (let i = 0; i < 500 && names.length === 0; i += 1) {
     names = existsSync(records)
@@ -80,7 +72,6 @@ wait();
     readFileSync(join(records, names[0] ?? ""), "utf8")
   );
   expect(record.owner).toEqual(thisProcess());
-  // It leads a group of its own, so a stop reaches what it started too.
   expect(record.group).toBe(true);
 
   writeFileSync(go, "");
@@ -116,7 +107,6 @@ it("records the Codex app-server a call starts, once, and forgets it once it exi
     await new Promise((done) => setTimeout(done, 20));
   }
   expect(names).toEqual([`${String(cli.pids()[0])}.json`]);
-  // Going offline stops the app-server, which ends the call.
   await provider.dispose?.();
   await call.catch(() => undefined);
   expect(readdirSync(records).filter((name) => name.endsWith(".json"))).toEqual(

@@ -136,7 +136,6 @@ describe("a Claude Code call that resumed no session", () => {
     },
   } as const;
 
-  /** A vendor model with these settings, as the provider would build it. */
   function opened(settings: ClaudeCodeSettings | undefined) {
     const vendor = Object.assign(
       new MockLanguageModelV4({
@@ -173,7 +172,6 @@ describe("a Claude Code call that resumed no session", () => {
     const model = opened({ cwd: "/repo" });
     const first = await model.doGenerate(CALL);
     expect(claudeCodeCallCost(first.providerMetadata)).toBe(0.25);
-    // The instance now resumes the session the first call opened.
     const second = await model.doGenerate(CALL);
     expect(second.providerMetadata).toEqual(REPORTED);
     expect(claudeCodeCallCost(second.providerMetadata)).toBeUndefined();

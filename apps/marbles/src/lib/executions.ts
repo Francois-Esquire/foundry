@@ -62,7 +62,6 @@ function validConcurrency(queue: string, concurrency: number): number {
 export class Executions extends ExecutionRecords implements ExecutionRuns {
   readonly #lanes = new Map<string, Lane>();
   readonly #idle = new Set<() => void>();
-  /** Runs whose cancellation is being written: each holds its queue's place. */
   readonly #withdrawing = new Set<string>();
   constructor(
     options: ExecutionRecordsOptions & {
@@ -121,11 +120,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     }
   }
 
-  /**
-   * Parked on a question or a pause: its slot goes to the next run, and
-   * its record is parked in its turn (left as it is when its Run's commit
-   * parked it already, `follows`).
-   */
   suspend(id: string): void {
     this.moveRecord(id, "suspended");
     this.release(id);
@@ -141,20 +135,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     this.#lane(run.queue).active.add(id);
   }
 
-  /**
-   * Take a queued run off its queue and record it cancelled; resolves
-   * `false` when it is not queued here or in a process that has exited. The
-   * decision is made on the stored record, in the transaction that cancels
-   * it, never on what this process last saw: a run another process has
-   * since taken over or started is left to it. A run this process recorded
-   * queued but has not yet handed to its queue, which a subscriber told of
-   * it can cancel from that very update, is withdrawn too: nothing of it
-   * has run. While the cancellation is written the run keeps its place in
-   * its queue and nothing behind it is let in, so the queue's order holds
-   * whichever way it goes: cancelled, it leaves; refused or failed, it is
-   * next. Resolves once the cancellation is stored; rejects when it cannot
-   * be, cancelling nothing.
-   */
   async withdraw(id: string): Promise<boolean> {
     const run = this.get(id);
     if (run?.status !== "queued") {
@@ -179,12 +159,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     return cancelled;
   }
 
-  /**
-   * Take a queued run off its queue and make it `successor`'s, still
-   * queued (`handQueued`); resolves `false`, leaving it here, when it is not
-   * queued here. It holds its queue's place while that is written, as a
-   * withdrawal does.
-   */
   async handOver(id: string, successor: ProcessIdentity): Promise<boolean> {
     const run = this.get(id);
     if (run?.status !== "queued") {
@@ -237,10 +211,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     return lane;
   }
 
-  /**
-   * Let in waiting runs, first come first served, while the queue has room;
-   * one being withdrawn holds its place, and nothing behind it goes first.
-   */
   #pump(lane: Lane): void {
     while (lane.active.size < lane.concurrency) {
       const [next] = lane.waiting;
@@ -261,8 +231,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     try {
       await this.startRecord(id);
     } catch (error) {
-      // Settled failed if it can be; a settle that cannot be written is
-      // kept to try again, and the run does not start either way.
       await this.settle(id, "failed", { code: "not_recorded" }).catch(
         () => undefined
       );
@@ -292,12 +260,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     }
     return run;
   }
-  /**
-   * Record how a run ended and free its slot; a run already settled frees
-   * its slot too, whatever settled it. Resolves once the record is on disk;
-   * rejects when it cannot be written, the slot freed all the same, since
-   * the run's work has ended (`ExecutionRecords.settle`).
-   */
   override settle(
     id: string,
     status: "complete" | "failed" | "cancelled" | "interrupted",

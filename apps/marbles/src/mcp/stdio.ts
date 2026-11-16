@@ -25,12 +25,6 @@ interface Served extends McpServerOptions {
   readonly release: () => Promise<void>;
 }
 
-/**
- * Under `--dry-run` the tasks are in memory, so the session keeps one
- * engine over them: opened by the first task call, given up at release.
- * It is the same stored-task access as without `--dry-run`, held longer.
- * An open that fails is tried again by the next call.
- */
 function sessionTasks(flags: Flags, opened: OpenedWorkspace) {
   let runner: Promise<TaskRunner> | undefined;
   let session: Promise<void> = Promise.resolve();
@@ -63,20 +57,10 @@ function sessionTasks(flags: Flags, opened: OpenedWorkspace) {
   };
 }
 
-/**
- * Answer from stored state and the running Marbles process, joined per
- * call and never started. No source is loaded: tasks work for any recorded
- * workspace either way, and everything that runs or reads a run needs a
- * Marbles process that hosts the workspace. Under `--dry-run` only this server's
- * own workspace is addressable, its tasks are in memory, and no Marbles
- * process is joined, so nothing that runs or reads a run is served.
- */
 function serveWorkspace(flags: Flags): Served {
   const opened = findWorkspace(flags);
   const own = opened.workspace;
   const memory = flags.dry ? sessionTasks(flags, opened) : undefined;
-  // Each stored-state call holds the tasks until it ends, so calls a client
-  // sends together take turns rather than refuse each other.
   let turn: Promise<unknown> = Promise.resolve();
   const inTurn = <T>(work: () => Promise<T>): Promise<T> => {
     const next = turn.then(work, work);
@@ -125,7 +109,6 @@ function serveWorkspace(flags: Flags): Served {
       }
     },
     id: own.id,
-    // A call already holding the tasks finishes before the server exits.
     release: () => turn.then(() => memory?.release()),
     tasks: (command, id = own.id) =>
       inTurn(async () => {
@@ -151,7 +134,6 @@ function serveWorkspace(flags: Flags): Served {
           client.close();
         }
       }
-      // This server's own workspace is always there to address.
       return listed.some((entry) => entry.id === own.id)
         ? listed
         : [ownSummary, ...listed];
@@ -159,7 +141,6 @@ function serveWorkspace(flags: Flags): Served {
   };
 }
 
-/** Serve the workspace until the client leaves. */
 async function serve(flags: Flags): Promise<void> {
   const output = protocolOutput();
   const configPath = resolveSource(flags.config, flags.directory);
@@ -181,9 +162,6 @@ async function serve(flags: Flags): Promise<void> {
       await served.release();
     }
   };
-  // A terminal signals the relay and this process together, and the relay
-  // passes its copy on, so a repeat is expected and changes nothing. Work
-  // that ignores cancellation cannot hold the shutdown past its deadline.
   let closing = false;
   const shutdown = (): void => {
     if (closing) {
@@ -202,8 +180,6 @@ async function serve(flags: Flags): Promise<void> {
         process.exitCode = 1;
       })
       .finally(() => {
-        // The relay's pipe and stdin may still be open; neither holds the
-        // process once every frame is out.
         output.end(() => process.exit());
       });
   };
@@ -219,10 +195,6 @@ async function serve(flags: Flags): Promise<void> {
   onRelayGone(shutdown);
 }
 
-/**
- * A server that cannot start says why on stderr and exits non-zero; the
- * protocol stream stays empty. A failure's cause keeps its stack.
- */
 function report(error: unknown): void {
   print(
     `marbles mcp: ${error instanceof Error ? error.message : String(error)}`
@@ -236,7 +208,6 @@ function report(error: unknown): void {
   process.exitCode = 1;
 }
 
-/** `marbles mcp`: serve MCP over STDIO until the client leaves. */
 export async function serveStdio(flags: Flags): Promise<void> {
   await serve(flags).catch(report);
 }

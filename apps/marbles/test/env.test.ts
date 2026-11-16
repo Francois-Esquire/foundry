@@ -75,7 +75,6 @@ describe("loadEnvironment", () => {
       executionEnvironment(loadEnvironment(root, "require", () => undefined))
         .MARBLES_TEST_GREETING
     ).toBe("hello");
-    // The process's own environment, which another workspace shares, is left as it was.
     expect(process.env).not.toHaveProperty("MARBLES_TEST_GREETING");
   });
 

@@ -95,8 +95,6 @@ describe("taskChangeSchema", () => {
         { kind: "task.update", patch: { metadata }, task: { id: "t" } },
       ],
     });
-    // A quoted `__proto__` in an object literal sets the prototype; parsed
-    // JSON defines the key.
     const proto = JSON.parse('{"__proto__":{"owner":"alice"}}');
     const nested = JSON.parse('{"nested":{"list":[{"__proto__":1}]}}');
     let reads = 0;

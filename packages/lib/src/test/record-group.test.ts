@@ -12,13 +12,6 @@ import { afterEach, expect, it } from "vitest";
 import { startedAt } from "../process-identity";
 import { recordGroup, recordPath, SPAWN_RECOVERY_ENV } from "../spawn-record";
 
-/**
- * A group leader recorded as a group is stopped with everything it
- * started. Every process here is this test's own: a shell it starts,
- * leading a group, and the `sleep` that shell starts in it, which the
- * test stops by its pid, proved by its start, if a test leaves it.
- */
-
 const made: string[] = [];
 const leftovers: { pid: number; started: string }[] = [];
 
@@ -33,11 +26,6 @@ afterEach(() => {
   }
 });
 
-/**
- * A shell leading a group of its own, which starts a `sleep` in it, then
- * runs `then`; `record` is handed it in the same turn as the spawn, as a
- * caller records its child.
- */
 async function group(
   then: string,
   record: (child: ChildProcess, dir: string) => () => Promise<boolean>
@@ -119,7 +107,6 @@ it("keeps the record of a group that would not empty, for the next start", async
       env: { [SPAWN_RECOVERY_ENV]: join(at, "records") },
       graceMs: 30,
       killMs: 30,
-      // A system whose group never empties, whatever it is sent.
       system: {
         kill: (_target, signal) => {
           signalled.push(signal);
@@ -135,6 +122,5 @@ it("keeps the record of a group that would not empty, for the next start", async
   expect(existsSync(recordPath(join(dir, "records"), child.pid ?? 0))).toBe(
     true
   );
-  // Stopped for real here, as the next start would.
   process.kill(-(child.pid ?? 0), "SIGKILL");
 });

@@ -1,10 +1,3 @@
-/**
- * Several workspaces hosted in one process (`HostedWorkspaces`): each
- * loaded into a catalog, an engine and an execution context of its own,
- * over one handle on the Marbles database. Source loads through a Bun
- * plugin, so each scenario runs in its own `bun` process.
- */
-
 import { execFileSync } from "node:child_process";
 import { chmodSync, realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
@@ -34,12 +27,6 @@ async function scratch(): Promise<string> {
   return root;
 }
 
-/**
- * A workspace named `name`: its `.env.schema` resolves `MARBLES_TEST_VALUE`
- * to its name (through a stand-in `varlock`), and its source declares the
- * same local names every other one does: a step `build`, its schedule, a
- * monitor, an agent `helper`, and an observer of `tasks`.
- */
 async function workspace(
   root: string,
   name: string,
@@ -81,7 +68,6 @@ observe(tasks, async function pong(payload) {
 ${tail}`;
 }
 
-/** Runs `body` in a fresh `bun` process with `hosted` open; resolves its JSON report. */
 async function inProcess(
   root: string,
   body: string
@@ -156,7 +142,6 @@ it("hosts two workspaces with the same local names in one process, each run in i
   );
   const [alpha, beta] = report.ids as [string, string];
   expect(report.loads).toEqual([true, true]);
-  // Beside what the engine defines for itself, such as agent dispatch.
   expect(
     (report.definitions as { name: string }[]).filter(
       ({ name }) => name === "build"
@@ -170,19 +155,14 @@ it("hosts two workspaces with the same local names in one process, each run in i
       .filter((trigger) => trigger.workspace === id)
       .map((trigger) => trigger.name)
       .sort();
-  // The same schedule and monitor keys, once in each workspace.
   expect(triggers(alpha)).toHaveLength(2);
   expect(triggers(beta)).toEqual(triggers(alpha));
   expect(report.agents).toEqual([["helper"], ["helper"]]);
-  // Each run starts where its registration says, with its own values.
   expect(report.alpha).toBe(`${join(a.dir, "sub")}\nalpha`);
   expect(report.beta).toBe(`${b.dir}\nbeta`);
-  // Steps and observers write their own workspace's tasks.
   expect(report.alphaTasks).toEqual(["built alpha", "ping", "pong alpha"]);
   expect(report.betaTasks).toEqual(["built beta"]);
-  // Nothing was written to the process's own environment.
   expect(report.environmentKept).toBe(true);
-  // Each registration is recorded, with where its work starts.
   const records = await recordedWorkspaces(join(root, "state"));
   expect(
     Object.fromEntries(records.map((record) => [record.root, record.cwd]))
@@ -221,7 +201,6 @@ it("reports a workspace that fails to load on its own, keeps nothing it declared
   );
   expect(failed?.error).toContain("broken on purpose");
   expect(loaded).toEqual({ loaded: true, root: a.dir });
-  // What the failed load declared before it threw is nowhere.
   const [alpha] = report.workspaces as [string];
   expect(report.workspaces).toHaveLength(1);
   expect(report.definitions).toContain(`${alpha}/build`);
@@ -234,7 +213,6 @@ it("loads a workspace again in the same process with fresh copies of its own mod
   const a = await workspace(
     root,
     "alpha",
-    // Extensionless, as authors write it: Bun resolves it with no hook.
     'import { helped } from "./_helper";\nexport { helped };\n'
   );
   await writeFile(
@@ -280,7 +258,6 @@ export const reviewer = agent({ prompt: "Review alpha." });
     join(a.dir, "twice.ts"),
     'import { step } from "@foundry.sh/marbles";\nexport const twice = step("build").do(() => "again");\n'
   );
-  // Names are inferred with the author's own TypeScript, found from the module.
   await symlink(
     resolve("../../node_modules/typescript"),
     join(a.dir, "node_modules", "typescript")
@@ -307,7 +284,6 @@ export const reviewer = agent({ prompt: "Review alpha." });
     await again.close();
   }`
   );
-  // Two files under one folder both name "build": the error names each file as written.
   expect(report.twice).toContain(`${a.dir}/marbles.ts:`);
   expect(report.twice).toContain(`${a.dir}/twice.ts:`);
   expect(report.twice).not.toContain("marbles-load");
@@ -361,7 +337,6 @@ it("keeps what a workspace's module declares late, from a callback, in that work
   const b = await workspace(
     root,
     "beta",
-    // While beta loads, alpha's callback runs, as a timer of alpha's would.
     "globalThis.fireAlphaLate();\nawait globalThis.alphaLate;\n"
   );
   const report = await inProcess(
@@ -460,7 +435,6 @@ it("loads every registered workspace again, reports each that fails, and fires a
     await again.close();
   }`
   );
-  // The schedule's key is the workflow's: rolling it ticks the schedule.
   expect(report.rolled).toBe(`${a.dir}\nalpha`);
   const loads = report.loads as Record<string, unknown>[];
   expect(loads).toHaveLength(2);
@@ -506,7 +480,6 @@ it("refuses what a package declares while a workspace loads, since every workspa
     join(pkg, "package.json"),
     '{ "name": "declaring-package", "type": "module", "main": "index.js" }\n'
   );
-  // It imports the library by name, as a package does: the shared one.
   await writeFile(
     join(pkg, "index.js"),
     'import { step } from "@foundry.sh/marbles";\nstep("from-package").do(() => 1);\n'
@@ -659,8 +632,6 @@ process.exit(0);
     };
     holding: string;
   };
-  // Alpha's command is recorded, with this process as its owner, and beta's
-  // start, in the same process, neither stops it nor forgets it.
   expect(report.before).toHaveLength(1);
   expect(report.after).toEqual(report.before);
   expect(report.holding).toBe("running");
@@ -669,7 +640,6 @@ process.exit(0);
     outcome: "done",
     step: "processes",
   });
-  // A row of its own for each workspace.
   const alpha = await readLastRecovery(state, report.alpha);
   const beta = await readLastRecovery(state, report.beta);
   expect(alpha?.steps.map((step) => step.step)).toEqual([

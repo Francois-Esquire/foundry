@@ -7,15 +7,11 @@ import type { MonitorRecord } from "~/lib/registry";
 import type { Schedule } from "~/lib/triggers";
 import type { AgentLike } from "~/lib/types";
 
-/** An observer as a module declared it. */
 export interface DeclaredObserver {
   readonly handler: Handler<unknown>;
-  /** Its identity within the workspace and source. */
   readonly name: string;
   readonly source: Source;
-  /** How long, in ms, one call of its handler may run; the engine's limit when omitted. */
   readonly timeout?: number;
-  /** Only facts of these types; every type when omitted. */
   readonly types?: readonly string[];
 }
 
@@ -95,7 +91,6 @@ export class Catalog {
     this.monitors.set(record.key, record);
   }
 
-  /** A name already declared for the source is refused: it is the observer's identity. */
   observe(observer: DeclaredObserver): void {
     if (
       this.observers.some(

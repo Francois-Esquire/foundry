@@ -10,7 +10,6 @@ import { RecordingStore } from "./helpers/recording-store";
 
 const clock = () => new Date("2026-10-29T00:00:00.000Z");
 
-/** Every kind of write: puts, edges both ways, a settle, and a removal. */
 async function history(): Promise<RecordingStore> {
   const store = new RecordingStore();
   const tasks = new Tasks({ clock, store });

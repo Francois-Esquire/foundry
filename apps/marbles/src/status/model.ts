@@ -20,17 +20,12 @@ import type { ProcessStatus } from "~/process/instance";
 import { readProcess } from "~/process/instance";
 
 export interface StatusReport {
-  /**
-   * The engine generations recorded live, newest first: the current one,
-   * and any finishing the runs it had when the next took over.
-   */
   readonly generations: readonly GenerationStatus[];
   readonly process: ProcessStatus | null;
   readonly root: string;
   readonly workspaces: readonly WorkspaceStatus[];
 }
 
-/** One engine generation, as its record says, and whether its process is there. */
 interface GenerationStatus {
   readonly alive: boolean;
   readonly number: number;
@@ -39,19 +34,14 @@ interface GenerationStatus {
 }
 
 export interface WorkspaceStatus {
-  /** It is registered, and the current generation's process is alive. */
   readonly alive: boolean;
   readonly config: string | null;
-  /** What hosts the workspace: the current engine generation, while it runs. */
   readonly host: "generation" | null;
-  /** Registered with the Marbles process, which hosts it in its current generation. */
   readonly hosted: boolean;
   readonly id: string;
   readonly lastSeen: string | null;
-  /** Each observer of its changes, by source, then name. */
   readonly observers: readonly ObserverStatus[];
   readonly pid: number | null;
-  /** What its last engine start put right after a crash; `null` when none is kept. */
   readonly recovery: RecoveryReport | null;
   readonly root: string;
   readonly runs: RunsStatus;
@@ -70,9 +60,7 @@ interface ScheduleStatus {
   readonly running: number | null;
 }
 
-/** An observer's place in its workspace's change log, and how it is faring. */
 interface ObserverStatus extends ObserverState {
-  /** How many positions of the log it has yet to pass: 0 when it is caught up. */
   readonly behind: number;
 }
 
@@ -93,11 +81,6 @@ interface RunSummary {
 
 const RECENT = 5;
 
-/**
- * The state root as stored: the process claim, and each workspace the
- * registry records with what its directory holds. Reads only; a state root
- * without a database stays without one.
- */
 export async function readStatus(stateRoot: string): Promise<StatusReport> {
   const records = await recordedWorkspaces(stateRoot);
   const sessions: ReadonlyMap<string, number> =
@@ -130,7 +113,6 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
 
 function generationStatus(record: GenerationRecord): GenerationStatus {
   return {
-    // Its start is recorded once it loaded; before then its pid alone says.
     alive:
       record.pid > 0 && !isGone({ pid: record.pid, started: record.started }),
     number: record.number,

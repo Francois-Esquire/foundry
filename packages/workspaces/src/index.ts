@@ -1,18 +1,3 @@
-/**
- * `@foundry/workspaces` — the Workspace system.
- *
- * A Workspace is durable identity over one authoritative source; an entry is
- * one included path within it. The source owns current bytes, this package
- * owns identity, inclusion, and the last successfully reconciled inventory.
- *
- * The root `Workspace` knows nothing about where bytes come from. A layer
- * (`WithDirectory` with a supplied filesystem) answers that, and further layers
- * (`WithGit` on the git subpath) add capability. `WorkspaceSystem` composes
- * them at open, owns the instance lifecycle, and drives the catalog over a
- * `WorkspaceStore` — the memory store on `@foundry/workspaces/store/memory`
- * unless another is supplied.
- */
-
 export type {
   CatalogChangeInput,
   CommitChangeResult,

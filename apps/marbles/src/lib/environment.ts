@@ -11,10 +11,6 @@ export function environmentSnapshot(
   return snapshot;
 }
 
-/**
- * What a workspace's commands inherit: the machine's environment, over the
- * workspace's own values, which fill only what the machine leaves unset.
- */
 export function executionEnvironment(environment: {
   readonly machine: Readonly<Record<string, string>>;
   readonly workspace: Readonly<Record<string, string>>;

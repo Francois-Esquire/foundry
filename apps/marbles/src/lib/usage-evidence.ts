@@ -87,28 +87,18 @@ export type RunRecorded =
     }
   | "unreadable";
 
-/** A session the store holds and a stamp that changes whenever it is written; `null` when the session is there but its stamp cannot be read. */
 export interface SessionStamp {
   readonly id: string;
   readonly stamp: string | null;
 }
 
-/**
- * A session store that can list every session it holds, each with its
- * stamp, so usage recovery finds a session nothing durable names, and reads
- * again only the sessions that changed. Marbles' JSON store and the Marbles
- * database's store both can.
- */
 export interface ListedSessionStore extends SessionStore {
   stamps(): readonly SessionStamp[] | Promise<readonly SessionStamp[]>;
 }
 
-/** Whether `store` can list its sessions (`ListedSessionStore`). */
 export function listsSessions(
   store: SessionStore
 ): store is ListedSessionStore {
-  // A host in plain JavaScript may build an engine with no store; that
-  // fails when a session is used, not while the engine is constructed.
   const listed = store as Partial<ListedSessionStore> | undefined;
   return typeof listed?.stamps === "function";
 }
@@ -258,10 +248,6 @@ export class UsageEvidence {
     /** What a run recorded; `undefined` when nothing durable is kept for runs. */
     readonly recordedOf: (runId: string) => Promise<RunRecorded | undefined>;
     readonly sessions: SessionStore;
-    /**
-     * Every session the store holds, when it can list them; absent when
-     * it cannot, but keeps its sessions no longer than this process.
-     */
     readonly stamps?: SessionListing;
   }) {
     this.#sessions = deps.sessions;

@@ -48,7 +48,6 @@ export interface ScheduleBuilder {
 
 export function schedule(target: AnyDefinition | LockedNode): ScheduleBuilder {
   const launch = launchTarget(target, "schedule()");
-  // `.at` and `.every` declare in the scope `schedule()` was called in.
   const scope = captureScope();
   const register = (trigger: Trigger) => {
     const hasInput = launch.input !== null;
@@ -102,7 +101,6 @@ export function monitor(source: string): MonitorBuilder {
   const spec: MonitorSpec = HTTP_SOURCE.test(source)
     ? { kind: "http", url: source }
     : { glob: source, kind: "files" };
-  // `.do` declares in the scope `monitor()` was called in.
   const scope = captureScope();
   const build = (every: string, request?: MonitorRequest): MonitorBuilder => ({
     do(handler) {

@@ -10,13 +10,6 @@ import { marblesWorkflowRuns } from "~/database/tables";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
-/**
- * Every list whose length a caller decides, as the Marbles database reads
- * or writes it: past the 32,766 values one SQLite statement can bind, it
- * still goes through, in the statement or transaction it belongs to.
- */
-
-/** More values than one statement can bind. */
 const PAST_THE_LIMIT = 33_000;
 
 let machine: TestMachine;
@@ -29,7 +22,6 @@ afterAll(() => {
   machine.close();
 });
 
-/** `count` ids no record has. */
 function strangers(count: number): string[] {
   return Array.from(
     { length: count },

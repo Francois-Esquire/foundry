@@ -16,32 +16,14 @@ import type {
   WorkflowStoreWrite,
 } from "../store/index";
 
-/**
- * Fresh, empty storage, reached one scope at a time. The same scope reaches
- * the same records on every call; two scopes never see each other's. A store
- * that has no scopes keeps one store per scope name.
- */
 export type ScopedWorkflowStores = (scope: string) => WorkflowStore;
 
-/**
- * Fresh, empty storage whose stores hand each commit's write to a host hook
- * (a SQLite store's `onCommit`), and a record the hook keeps: it writes the
- * write's events, in order, in the commit's own transaction.
- */
 export interface RecordingWorkflowStores {
-  /** Makes the hook throw on its next call, after it has recorded. */
   readonly failNextCommit: () => void;
-  /** The events recorded by every commit that was kept, in the order kept. */
   readonly recorded: () => Promise<readonly RunEvent[]>;
   readonly stores: ScopedWorkflowStores;
 }
 
-/**
- * Whether the storage a suite run opens hands its commits to a host hook.
- * A store with one (a SQLite store's `onCommit`) says `hooked: true` and
- * supplies `recording`, so the suite proves the hook is handed each commit's
- * events; a store with none says `hooked: false`.
- */
 export type WorkflowStoreMode =
   | { readonly hooked: false }
   | {
@@ -49,12 +31,6 @@ export type WorkflowStoreMode =
       readonly recording: () => Promise<RecordingWorkflowStores>;
     };
 
-/**
- * The behaviour every `WorkflowStore` shares, as Vitest tests. `open` returns
- * new, empty storage each time it is called; `mode` says whether it has a
- * host hook (see {@link WorkflowStoreMode}). The host's test file closes
- * whatever `open` and `recording` opened.
- */
 export function describeWorkflowStore(
   name: string,
   open: () => ScopedWorkflowStores | Promise<ScopedWorkflowStores>,
@@ -180,7 +156,6 @@ export function describeWorkflowStore(
         deleteSuspensions: ["su-a", "su-missing"],
       });
 
-      // The store enforces nothing: a Run outlives its frames and its Job.
       expect(await contents(target)).toStrictEqual({
         ...records,
         frames: records.frames.filter((item) => item.runId !== "rn-a"),
@@ -473,8 +448,6 @@ export function describeWorkflowStore(
       await target.commit({ deleteRuns: ["rn-a", "rn-b", "rn-x"] });
       await target.commit({ putRuns: [run("rn-c")] });
 
-      // A record put after the deletes lists after the cursor: no position
-      // is handed out twice, even once every row past it is gone.
       expect(
         (await target.listRuns({ after: page.next, limit: 10 })).items
       ).toStrictEqual([run("rn-c")]);
@@ -497,8 +470,6 @@ export function describeWorkflowStore(
         get(): T | undefined {
           const count = (reads.get(property) ?? 0) + 1;
           reads.set(property, count);
-          // A second read answers differently; a store that asks again
-          // would write one thing and report another.
           return count === 1 ? value : undefined;
         },
       });
@@ -617,7 +588,6 @@ export function describeWorkflowStore(
         refusal = error;
       }
       if (refusal !== undefined) {
-        // A store that cannot keep an Error refuses it, naming the field.
         expect(String(refusal)).toContain("putRuns[0].failure");
         expect(await target.getRun("rn-error")).toBeNull();
         return;
@@ -653,8 +623,6 @@ export function describeWorkflowStore(
         refusal = error;
       }
       if (refusal !== undefined) {
-        // A store that cannot keep bytes refuses them, naming the field,
-        // and keeps nothing of the write.
         expect(String(refusal)).toContain("putRuns[0].archived.bytes");
         expect(await target.getRun("rn-bytes")).toBeNull();
         return;
@@ -817,8 +785,6 @@ export function describeWorkflowStore(
         return { after, before };
       });
       await read.promise;
-      // An independent caller, while the transaction sits between its read
-      // and its commit, given time enough to land if nothing held it back.
       const landed = target.commit({ putRuns: [outside] });
       await pause(20);
       proceed.resolve();
@@ -854,7 +820,6 @@ export function describeWorkflowStore(
         for (const [method, call] of Object.entries(calls)) {
           outcomes[method] = await settlesWithin(call(), 1000);
         }
-        // Scheduled from inside, but run once the transaction has ended.
         later = ended.then(() => target.commit({ putRuns: [run("rn-a")] }));
         await view.commit({ putRuns: [run("rn-b")] });
         return outcomes;
@@ -873,10 +838,8 @@ export function describeWorkflowStore(
   });
 }
 
-/** What a store's refusal of a call from inside its own transaction says. */
 const REFUSAL = /refused: .*use the view/;
 
-/** Every record a store holds, by kind, in list order. */
 interface Contents {
   readonly frames: readonly RunFrame[];
   readonly jobs: readonly JobRecord[];
@@ -893,7 +856,6 @@ const EMPTY: Contents = {
   suspensions: [],
 };
 
-/** Every page of one list read, in order, `limit` at a time. */
 async function all<T>(
   list: (query: WorkflowStorePageQuery) => Promise<WorkflowStorePage<T>>,
   limit = 50
@@ -944,11 +906,6 @@ function pause(ms: number): Promise<void> {
   });
 }
 
-/**
- * How `promise` settled, as `refused: <message>` or `resolved`, or
- * `still pending` after `ms`: a hang becomes a failed assertion, not a
- * stalled suite.
- */
 async function settlesWithin(
   promise: Promise<unknown>,
   ms: number
@@ -971,7 +928,6 @@ async function settlesWithin(
   }
 }
 
-/** The store's `transaction`; every store this suite describes has one. */
 function transactionOf(
   store: WorkflowStore
 ): NonNullable<WorkflowStore["transaction"]> {
@@ -1036,10 +992,6 @@ function removedEvent(runId: string): RunEvent {
   };
 }
 
-/**
- * Arrays a copy of their entries would read less of: one with a hidden
- * function, one with a symbol-keyed bigint, one of a subclass of Array.
- */
 function unplainArrays(): unknown[][] {
   const hidden: unknown[] = ["tags"];
   Object.defineProperty(hidden, "hidden", { value: () => undefined });
@@ -1052,17 +1004,12 @@ function unplainArrays(): unknown[][] {
   return [hidden, symbolic, Entries.from(["tags"])];
 }
 
-/** An array with a hole at index 0, which JSON reads back as `null`. */
 function holed(): number[] {
   const values: number[] = [];
   values[1] = 2;
   return values;
 }
 
-/**
- * Events with a part that has no JSON form reading back the same, each with
- * the text its refusal names.
- */
 function unplainEvents(): [string, unknown][] {
   const base = event("run.queued", "rn-a");
   return [
@@ -1145,12 +1092,6 @@ function frame(
   return { at: 1_700_000_000_000 + cursor, cursor, payload, runId };
 }
 
-/**
- * One of each record, holding every kind of value its columns keep: nested
- * JSON, `null` JSON values, fractional and whole numbers, text beyond
- * ASCII, optional fields present and left out, and a Run field the schema
- * does not declare.
- */
 function everyKind(): Contents {
   const running = run("rn-a", {
     definition: { name: "workflow.full", version: "2" },
@@ -1226,10 +1167,6 @@ function everyKind(): Contents {
   };
 }
 
-/**
- * A Run built from JSON, so each `__proto__` key is an own data property:
- * one at the top of the record, undeclared, and one in each dictionary.
- */
 function protoRun(): RunRecord {
   const base = JSON.stringify(run("rn-proto")).slice(1, -1);
   return JSON.parse(
@@ -1237,10 +1174,6 @@ function protoRun(): RunRecord {
   ) as RunRecord;
 }
 
-/**
- * A write as a caller holds it: records of each kind to put and an empty
- * list of each delete, every part of it open to change.
- */
 function callerWrite() {
   return {
     deleteJobs: [] as string[],
@@ -1255,7 +1188,6 @@ function callerWrite() {
   };
 }
 
-/** What a store holds once `write`, as it stands now, lands in an empty store. */
 function storedAfter(write: ReturnType<typeof callerWrite>): Contents {
   return structuredClone({
     frames: write.putFrames,
@@ -1266,11 +1198,6 @@ function storedAfter(write: ReturnType<typeof callerWrite>): Contents {
   });
 }
 
-/**
- * Changes, in place, every value `write` holds, as a caller might once
- * `commit` has returned: a field of each record it puts and the values
- * nested in them, a further record of each kind, and a delete of each.
- */
 function scramble(write: ReturnType<typeof callerWrite>): void {
   mutable(write.putFrames[0]).cursor = 7;
   (mutable(write.putJobs[0]).input as { list: string[] }).list.push("changed");
@@ -1289,7 +1216,6 @@ function scramble(write: ReturnType<typeof callerWrite>): void {
   write.deleteSuspensions.push("su-a");
 }
 
-/** Metadata that throws when read, so no store can copy or encode it. */
 function unreadable(): Record<string, unknown> {
   return Object.defineProperty({}, "value", {
     enumerable: true,
@@ -1299,7 +1225,6 @@ function unreadable(): Record<string, unknown> {
   });
 }
 
-/** Drops `readonly` so a test can try to change what a store handed out. */
 function mutable<T>(value: T | null | undefined): {
   -readonly [K in keyof T]: T[K];
 } {
@@ -1309,7 +1234,6 @@ function mutable<T>(value: T | null | undefined): {
   return value;
 }
 
-/** The suite's proof that a store hands its host hook every commit's events. */
 function describeRecordedEvents(
   name: string,
   recording: () => Promise<RecordingWorkflowStores>

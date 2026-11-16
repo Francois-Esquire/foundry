@@ -715,7 +715,6 @@ describe("Orchestrator.start — cold-start hydration", () => {
       })
     );
 
-    // "missing" is not registered: a Run left behind does not fail the start.
     await orch.start();
     await (await orch.get("rn-taken"))?.result();
 

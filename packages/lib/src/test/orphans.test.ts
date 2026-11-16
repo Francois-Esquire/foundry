@@ -20,12 +20,6 @@ import {
 } from "../spawn-record";
 import { anotherStart } from "../testing/process-identity";
 
-/**
- * Every process here is one this test started (`sleep`), and the only
- * ones a stop may signal: each record names one of them, its owner
- * another. Whatever is still running at the end is stopped by its pid,
- * which this process has not reaped, so no other process can have it.
- */
 const started: ChildProcess[] = [];
 const made: string[] = [];
 const FAST = { graceMs: 2000, killMs: 1000 };
@@ -47,7 +41,6 @@ function scratch(): string {
   return dir;
 }
 
-/** A `sleep` of this test's, with its identity. */
 function sleeper(detached = false): {
   readonly child: ChildProcess;
   readonly identity: ProcessIdentity & { readonly started: string };
@@ -110,7 +103,6 @@ it("never signals a process that started at another time than its record says", 
   const dir = scratch();
   const owner = sleeper();
   const impostor = sleeper();
-  // The pid is live, but the record was of another process given it before.
   record(dir, {
     group: false,
     owner: owner.identity,
@@ -122,7 +114,6 @@ it("never signals a process that started at another time than its record says", 
   expect(await stopOrphans(dir, FAST)).toEqual({ problems: [], stopped: [] });
   expect(impostor.child.exitCode).toBeNull();
   expect(impostor.child.signalCode).toBeNull();
-  // It names no process now.
   expect(existsSync(recordPath(dir, impostor.identity.pid))).toBe(false);
 });
 
@@ -169,7 +160,6 @@ it("stops a group an orphan leads, and refuses one that no longer leads its grou
   const leader = sleeper(true);
   const follower = sleeper();
   record(dir, { ...leader.identity, group: true, owner: owner.identity });
-  // Recorded as leading a group, but it is in this test's.
   record(dir, { ...follower.identity, group: true, owner: owner.identity });
   await kill(owner.child);
 
@@ -192,7 +182,6 @@ it("kills one that ignores SIGTERM, and keeps the record of one that will not go
     { stdio: "ignore" }
   );
   started.push(stubborn);
-  // Its handler is in place once it has had a moment to start.
   await new Promise((settle) => setTimeout(settle, 300));
   const pid = stubborn.pid ?? 0;
   const when = startedAt(pid);
@@ -289,11 +278,6 @@ it("records the owner of a child on its recovery record, and removes it once the
   expect(existsSync(path)).toBe(false);
 });
 
-/**
- * A group this test starts, leading its own: a shell that starts a Node
- * process ignoring SIGTERM, which writes its pid once its handler is in
- * place. The helper's identity, for proving and, at the end, stopping it.
- */
 async function stubbornGroup(dir: string): Promise<{
   readonly helper: ProcessIdentity & { readonly started: string };
   readonly leader: ChildProcess;
@@ -358,7 +342,6 @@ it("finishes a group a stop cut short after its leader exited, by the members it
   const dir = scratch();
   const owner = sleeper();
   const group = await stubbornGroup(dir);
-  // What a stop cut short leaves: the members it wrote down, the leader gone.
   record(dir, {
     ...group.identity,
     group: true,

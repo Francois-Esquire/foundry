@@ -197,21 +197,11 @@ export class Registry {
 }
 
 export interface OrchestratorOptions {
-  /**
-   * Joins each managed Job attempt: runs inside the claim's store
-   * transaction, after the claim, over the store bound to it. A throw rolls
-   * the claim back. Needs a `store` that offers `transaction`.
-   */
   readonly admissionParticipant?: (input: {
     readonly job: JobRecord;
     readonly run: RunRecord;
     readonly store: OrchestratorStore;
   }) => Promise<JsonValue>;
-  /**
-   * Decides a Run's cancellation inside one store transaction, over the
-   * store bound to it, and returns the Run as it settled, or `null` to
-   * cancel it the default way. Needs a `store` that offers `transaction`.
-   */
   readonly cancellationParticipant?: (input: {
     readonly run: RunRecord;
     readonly store: OrchestratorStore;
@@ -228,22 +218,9 @@ export interface OrchestratorOptions {
   readonly logger?: OrchestratorLogger;
   /** Host-owned JSON-safe annotations persisted with the default queue. */
   readonly queueExtensions?: Extensions;
-  /**
-   * Which of the live Runs in its queue this Orchestrator takes on when it
-   * starts: each queued, running or suspended Run the store holds is asked
-   * once, before its definition is looked up. One it refuses is left in the
-   * store exactly as it is, for another Orchestrator over the same store or
-   * for the host to settle; no definition is needed for it. Every live Run
-   * is taken on when this is absent.
-   */
   readonly recovers?: (run: RecoverableRun) => boolean;
   /** Pre-populated registry, or omit to start empty. */
   readonly registry?: Registry;
-  /**
-   * The execution records. Defaults to an `ExecutionCoordinator` over a
-   * `MemoryWorkflowStore`; pass one over `SqliteWorkflowStore` to keep them
-   * in a database.
-   */
   readonly store?: OrchestratorStore;
 }
 
@@ -847,18 +824,6 @@ export class Orchestrator {
     });
   }
 
-  /**
-   * Take on one suspended Run after start, as `start` takes on those it
-   * recovers: rebuilt from its definition, its recorded steps and its
-   * resolved suspensions, parked again, and resumed here once its pending
-   * suspension is resolved. For a host whose other Orchestrator over the
-   * same store has let the Run go; the host decides that it may (`recovers`
-   * is not asked). Resolves with its handle, or `null` when this queue's
-   * store holds no suspended Run of that id. A Run that is queued or
-   * running is refused: it may be executing elsewhere. Rejects when the
-   * Orchestrator has not started, the Run's definition is not registered,
-   * or this Orchestrator holds the Run already.
-   */
   async adopt(runId: string): Promise<DispatchedWorkflow | null> {
     if (this.#lifecycle !== "started") {
       throw new Error(
@@ -881,17 +846,12 @@ export class Orchestrator {
     if (!this.registry.has(definition)) {
       throw new RecoverableDefinitionMissingError(row.id, definition);
     }
-    // The authority over its pending Suspensions is this Orchestrator's
-    // from here, decided on the stored Run in one commit: a resolution the
-    // one that let it go read before this is refused as stale, and a Run
-    // that was resumed meanwhile is refused here.
     await this.store.claimSuspensions(runId);
     const workflow = await this.#rebuild(row);
     this.#throwIfStopped();
     return queue.adopt(workflow, row);
   }
 
-  /** A recoverable Run's workflow, rebuilt as it stood, its suspension authority restored. */
   async #rebuild(row: RecoverableRun): Promise<Workflow> {
     const definition = row.definition ?? { name: row.step };
     const factory = this.registry.resolve(definition.name);

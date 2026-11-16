@@ -34,7 +34,6 @@ const DEFAULT_TIMEOUT_MS = 5000;
 /** Removed from a login's environment so it reads its own login, not a key. */
 const FOREIGN_AUTH = ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_HOME"];
 
-/** The host's `codex`, recorded where the environment asks (`@foundry/lib/spawn-record`). */
 const spawnCodex: SpawnCodex = (command, args, options) => {
   const child = nodeSpawn(command, args, {
     ...options,
@@ -63,8 +62,6 @@ export const createOpenAI = (machine: OpenAIMachine = {}) => {
         ? { home: codexHomeOf(options.home), kind: "login" }
         : { key: options.apiKey, kind: "api-key" };
     },
-    // Presence only: Codex writes `auth.json` when it signs in, and its
-    // history under `sessions` whatever it signs in with.
     detect: async () => {
       const codexHome = codexHomeOf();
       return (await exists(join(codexHome, "auth.json"))) ||

@@ -16,14 +16,6 @@ import { DatabaseRunStore } from "~/database/runs";
 import { feedRouter } from "~/lib/feed/route";
 import { testEngine } from "./helpers/engine";
 
-/**
- * A parked run moving from one engine to another while something reaches
- * for it: an answer read before the move and applied after it, and an
- * adoption that finds its engine retiring when it completes. Each is
- * stopped at the step that would have trusted an earlier look, so the
- * race is the same every time.
- */
-
 const cleanups: (() => Promise<void> | void)[] = [];
 
 afterEach(async () => {
@@ -32,7 +24,6 @@ afterEach(async () => {
   }
 });
 
-/** Two Orchestrators over one store and one queue, each running `job`, which asks once. */
 async function twoOrchestrators() {
   const store = new ExecutionCoordinator();
   const queue = `handover-${crypto.randomUUID()}`;
@@ -75,10 +66,6 @@ async function parked(orchestrator: Orchestrator, runId: string) {
   });
 }
 
-/**
- * A router over `orchestrator` whose read of the suspension waits until
- * `gate` opens, having said it began.
- */
 function gatedRouter(orchestrator: Orchestrator) {
   const entered = Promise.withResolvers<void>();
   const gate = Promise.withResolvers<void>();
@@ -118,7 +105,6 @@ describe("an answer that meets a handover", () => {
     await old.router.adopt("job", run.id);
     const answering = old.router.answer("entry", "yes");
     await old.entered;
-    // Retired and taken over while the answer read the question.
     old.router.retire();
     old.router.letGo(run.id);
     const adopted = await second.adopt(run.id);
@@ -141,7 +127,6 @@ describe("an answer that meets a handover", () => {
     await old.router.adopt("job", run.id);
     const answering = old.router.answer("entry", "yes");
     await old.entered;
-    // Only the stored suspension says it moved: claimed at a new revision.
     const adopted = await second.adopt(run.id);
     old.open();
     await expect(answering).rejects.toThrow(
@@ -189,7 +174,6 @@ describe("an adoption that meets a retirement", () => {
     );
     await first.retire(thisProcess());
 
-    // The adoption waits in its read of what the run recorded.
     const entered = Promise.withResolvers<void>();
     const gate = Promise.withResolvers<void>();
     const { recorded } = runs;
@@ -204,7 +188,6 @@ describe("an adoption that meets a retirement", () => {
     gate.resolve();
     expect(await adopting).toBe(false);
 
-    // Given back, unowned: the next engine takes it over and resumes it.
     const third = testEngine({ askable: true, state: home });
     cleanups.push(() => third.dispose());
     await third.start();

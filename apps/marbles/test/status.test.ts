@@ -53,7 +53,6 @@ async function layout() {
       owner: null,
     },
   ]);
-  // A session file an earlier Marbles left is not one of them.
   writeJson(join(dir, "sessions", "s3.json"), {});
   return { dir, state };
 }
@@ -129,7 +128,6 @@ describe("readStatus", () => {
       const now = Date.now();
       const steady = { name: "steady", source: "tasks" };
       const flaky = { name: "flaky", source: "tasks" };
-      // The fixture's two sessions are facts already: both start after them.
       expect((await records.log.declare(steady, now)).position).toBe(2);
       await records.log.declare(flaky, now);
       const tasks = new Tasks({ store: records.taskStore });
@@ -215,7 +213,6 @@ describe("readStatus", () => {
       expect((await readStatus(state)).generations).toEqual([
         { alive: true, number: live, pid: process.pid, state: "current" },
       ]);
-      // A workspace not registered is hosted by no generation.
       expect(
         (await readStatus(state)).workspaces.find(
           (workspace) => workspace.id === "ws1"
@@ -263,10 +260,8 @@ describe("readStatus", () => {
     await seedRuns(state, "ws1", [
       { createdAt: 1, id: "rn-ok", owner: null, status: "complete" },
     ]);
-    // Run files an earlier Marbles left are not read.
     writeJson(join(dir, "runs", "rn-old.json"), { pid: 1 });
     writeFileSync(join(dir, "runs", "rn-bad.json"), "{ not json");
-    // Nor are schedule files.
     writeJson(join(dir, "schedules", "old.json"), { lastStatus: "failed" });
     writeJson(join(state, "ws2", "workspace.json"), { id: "ws2", root: "/r" });
     mkdirSync(join(state, "ws3"));

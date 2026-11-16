@@ -19,14 +19,6 @@ import { testHome } from "./helpers/home";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
-/**
- * Every claim Marbles keeps names its holder by pid and start time, and a
- * holder is there only while a process with that pid started then runs:
- * a pid that is alive but was given to another process since, as after a
- * reboot, holds nothing. The live pid here is a `sleep` this test started
- * in a home of its own, or this test's own process.
- */
-
 const LONG_AGO = anotherStart();
 const machines: TestMachine[] = [];
 const children: ChildProcess[] = [];
@@ -42,7 +34,6 @@ afterEach(async () => {
   }
 });
 
-/** A live process of this test's, as an owner: its pid and start time. */
 function liveProcess(): ProcessIdentity {
   const home = testHome({ providers: false });
   const child = spawn("sleep", ["60"], { env: home.env, stdio: "ignore" });
@@ -62,7 +53,6 @@ async function database() {
   return machine.database.database;
 }
 
-/** Each live holder, and the same pid recorded with another start: an impostor. */
 function holders(): readonly [string, ProcessIdentity, boolean][] {
   const live = liveProcess();
   const self = thisProcess();

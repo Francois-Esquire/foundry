@@ -60,10 +60,6 @@ export const createAnthropic = (machine: AnthropicMachine = {}) => {
       configDir === homeDir ? {} : { CLAUDE_CONFIG_DIR: configDir }
     );
 
-  /**
-   * Presence only: the credentials file, the account file a login writes, or
-   * the history Claude Code keeps, which an API key's sessions write too.
-   */
   const looksUsed = async (configDir: string) =>
     (await exists(join(configDir, ".credentials.json"))) ||
     (await exists(

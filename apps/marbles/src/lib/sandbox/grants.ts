@@ -11,15 +11,8 @@ import {
 import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
 import { DocumentGrantRepository } from "@foundry/lib/config/authorization/document";
 
-/** The document's format tag: one written by another host or version is refused. */
 const FORMAT = "agent-grants/1";
 
-/**
- * Private durable host authority: a workspace's agent grants, one
- * document wherever `storage` keeps it (the Marbles database's, for a
- * host), with the reference repository semantics. A document that does
- * not validate fails closed.
- */
 export class StoredAgentGrantRepository
   extends DocumentGrantRepository<AgentSubject, Capability>
   implements AgentGrantRepository

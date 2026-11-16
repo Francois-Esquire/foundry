@@ -5,11 +5,6 @@ interface Wait {
   readonly until: number;
 }
 
-/**
- * A delivery clock that moves only when a test moves it: `now` is what it
- * was set to, a wait ends once `advance` passes its end, and a tick is
- * called as `advance` passes each of its periods, never by itself.
- */
 export class ManualClock implements DeliveryClock {
   #at: number;
   readonly #waits = new Set<Wait>();
@@ -49,11 +44,6 @@ export class ManualClock implements DeliveryClock {
     };
   }
 
-  /**
-   * Move the clock on by `ms`, ending every wait it passes, and calling
-   * each tick that fell due once, however many of its periods passed, as
-   * an interval held up by a busy loop fires once.
-   */
   advance(ms: number): void {
     this.#at += ms;
     for (const wait of [...this.#waits]) {
@@ -70,17 +60,14 @@ export class ManualClock implements DeliveryClock {
     }
   }
 
-  /** The period of each tick still set, in ms: a delivery's poll, its compaction. */
   get periods(): readonly number[] {
     return [...this.#ticks].map((ticking) => ticking.ms);
   }
 
-  /** How many ticks are still set: a delivery's poll, until it stops. */
   get ticking(): number {
     return this.#ticks.size;
   }
 
-  /** How many waits are still running: a call's limit, or a stop's grace. */
   get waiting(): number {
     return this.#waits.size;
   }

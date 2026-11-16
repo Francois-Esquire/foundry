@@ -196,7 +196,6 @@ export function syncDirectorySync(path: string): void {
   }
 }
 
-/** `syncDirectorySync` without blocking the event loop. */
 export async function syncDirectory(path: string): Promise<void> {
   try {
     const directory = await open(path, "r");

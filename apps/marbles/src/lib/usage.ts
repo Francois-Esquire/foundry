@@ -54,28 +54,17 @@ export interface UsageTokens {
 
 /** The list price a turn was estimated at, kept with the fact so later price changes do not rewrite it. */
 export interface PriceBasis {
-  /** USD per million tokens, copied from the catalog or models.dev when the turn finished. */
   readonly rates: ModelCosts;
-  /** Which price: `@foundry/models <provider>/<model>` for a catalog row, `models.dev <provider>/<model>` for a models.dev rate. */
   readonly reference: string;
 }
 
-/**
- * What a turn cost. `reported` is a provider's own figure, with `estimate`
- * set when the provider says the figure is its own estimate rather than a
- * bill; `estimated` is tokens at a list price; `unknown` is neither, and is
- * never read as zero. Where a figure came from is the kind and its
- * reference; whether it is an estimate is `estimate` or the `estimated` kind.
- */
 export type UsageCost =
   | { readonly kind: "unknown"; readonly reason: string }
   | {
       readonly kind: "reported";
       readonly amount: number;
       readonly currency: string;
-      /** The provider computed the figure itself, from its own price table. */
       readonly estimate?: true;
-      /** Which figure: the harness and its field. */
       readonly reference: string;
     }
   | {
@@ -145,12 +134,6 @@ export type PriceLookup = (
   model: string
 ) => PriceBasis | undefined;
 
-/**
- * List prices a route's own catalog row states (one a server reported or a
- * caller supplied), else the models.dev rate for the row's model once
- * models.dev has loaded (the engine holds that load). Pricing stays in
- * `@foundry/models`.
- */
 export function catalogPrices(models: ModelManager): PriceLookup {
   return (provider, model) => {
     const row = models.providers
@@ -194,31 +177,17 @@ function tokensOf(usage: SessionUsage): UsageTokens | undefined {
   };
 }
 
-/** A turn's cost as the harness itself reported it, in USD. */
 export interface ReportedCost {
   readonly amount: number;
-  /** The harness computed it from its own price table. */
   readonly estimate?: true;
-  /** Which figure: the harness and its field. */
   readonly reference: string;
 }
 
-/** Meters what a session's model reports its calls cost. */
 export interface CostMeter {
-  /** What the turn since the last take reported, when that figure is the turn's own. */
   take(): ReportedCost | undefined;
-  /** The session's model, metered; it keeps the model's route and limits. */
   wrap(model: AgentModel): AgentModel;
 }
 
-/**
- * A meter for one session's model. Claude Code's `total_cost_usd` is a
- * running total for its CLI session, so it is a call's own cost only on a
- * call that resumed no session, which the Claude Code provider marks from
- * the call's settings. A turn gets the figure only when it made exactly one
- * call and that call is marked; every other turn reports none. The CLI
- * computes the figure from its own price table, so it is an estimate.
- */
 export function costMeter(): CostMeter {
   let calls = 0;
   let taken = 0;
@@ -339,14 +308,9 @@ function scopeOf(
     : { scope: "direct" };
 }
 
-/**
- * One committed turn as a fact: at the cost the harness reported, else
- * priced from the catalog or models.dev when either lists the model.
- */
 export function usageFact(
   turn: {
     readonly message: SessionMessage;
-    /** What the harness reported this turn cost, when that figure is the turn's own. */
     readonly reported?: ReportedCost;
     readonly route: {
       readonly implementation?: string;
@@ -483,19 +447,7 @@ export interface UsageRecords {
    * fact: among `facts` as `lost` leaves with the transcript's tokens.
    */
   readonly recovered: number;
-  /**
-   * Stored facts that could not be read, and transcripts or run records
-   * that reconciliation needed and could not read: totals over them are
-   * partial.
-   */
   readonly unreadable: number;
-  /**
-   * Where unreadable records were filed: a stored fact where the store
-   * filed it, by run or outside runs; a settled run's record by that run;
-   * anything else,
-   * transcripts included, nowhere (`unowned`). The counts add up to
-   * `unreadable`. A record's own fields are not trusted for this.
-   */
   readonly unreadableAt: UnreadablePlaces;
   /**
    * Turns whose usage, and whose `lost` marker, could not be saved, and that
@@ -506,17 +458,9 @@ export interface UsageRecords {
   readonly unsavedTurns: ReadonlySet<string>;
 }
 
-/**
- * Unreadable records by where they were filed: a stored fact where the
- * store filed it, a settled run's record by its run. Who named a
- * transcript does not own it: any run, or the host, may have continued it.
- */
 export interface UnreadablePlaces {
-  /** A stored fact filed under a direct session. */
   readonly direct: number;
-  /** A stored fact filed under a run, or the run's own record, by run id. */
   readonly runs: ReadonlyMap<string, number>;
-  /** A transcript, a session listing that failed, or a read that did. */
   readonly unowned: number;
 }
 
@@ -575,7 +519,6 @@ export function withRecovered(
 /** What reconciliation found: recovered leaves, and the evidence it could not read, by owner. */
 export interface Reconciled {
   readonly facts: readonly UsageFact[];
-  /** No transcript or run record is a direct session's stored fact. */
   readonly unreadable: Omit<UnreadablePlaces, "direct">;
 }
 
@@ -589,14 +532,6 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * Usage facts in the engine's usage store (`lib/usage-store.ts`), one per
- * turn, so recording a turn again replaces it. A fact goes in with one
- * write, so engines in other processes recording the same session never
- * lose one another's. A saved fact outranks a `lost` marker for its turn:
- * a marker never replaces one. Reads are cached until the store's
- * revision or the unsaved markers change, for a dashboard that polls.
- */
 export class UsageLedger {
   readonly #store: UsageStore;
   /** `lost` markers that could not be saved either, by turn id. */
@@ -613,10 +548,6 @@ export class UsageLedger {
     this.#store = store;
   }
 
-  /**
-   * Save a fact. When that fails, save a `lost` marker for the turn, and
-   * when that fails too, keep the marker in memory. Never rejects.
-   */
   async record(fact: RecordedUsageFact): Promise<RecordOutcome> {
     try {
       await (fact.lost === undefined
@@ -653,11 +584,6 @@ export class UsageLedger {
     }
   }
 
-  /**
-   * Read recorded facts and unsaved markers, counting a stored fact that
-   * cannot be read where the store filed it. A saved fact takes precedence
-   * over a marker for the same turn. A store that cannot be read rejects.
-   */
   async read(): Promise<UsageRecords> {
     const revision = await this.#store.revision();
     if (

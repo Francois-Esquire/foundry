@@ -112,55 +112,11 @@ import { listsSessions, UsageEvidence } from "~/lib/usage-evidence";
 import type { UsageStore } from "~/lib/usage-store";
 import { MemoryUsageStore } from "~/lib/usage-store";
 
-/**
- * The engine: the one place the packages meet. It is handed the instances
- * the packages give a host (models, a session store, a workspace system,
- * containers, an artifact system), each already configured for the machine
- * it runs on, and builds everything that connects them: the managers a step
- * body sees, the feed, agent approvals and activity, the triggers agents
- * create, and a real Orchestrator over its run store (`runs`).
- *
- * What can run is told to it with `define`, `schedule`, `monitor` and
- * `task`. Every launch is an Execution Run (`executions`), which the
- * launcher (`lib/launcher.ts`) records when it is queued, lets in by its
- * named queue, and records as it starts, reports and settles. A workflow is
- * then dispatched here as a Run through the Orchestrator under the same id,
- * so Runs, Jobs and frames all exist and can be inspected, and followed as
- * a held run (`lib/held-runs.ts`); a task runs its body in the launcher.
- * Every change to a Run commits to the run store as it is made, with what
- * its scope recorded beside it. In a durable store (the Marbles
- * database's) a Run parked on a question is adopted by the next process
- * that can answer it, as `lib/run-recovery.ts` decides: the Orchestrator
- * re-parks it, its scope gets the ledger it recorded, and its question
- * stays open on the feed. In memory, nothing survives the process.
- *
- * The workspace's tasks are reached here too, with the changes they
- * record, through the `records` the host hands in, or in memory; `observe`
- * says who receives those changes, and delivery runs from a successful
- * `start` until `stop`.
- */
-
 export interface EngineOptions {
-  /**
-   * Where each agent harness activity is kept for the dashboard, its
-   * latest revision each. Only in the engine's memory when omitted; the
-   * `Engine` the package publishes keeps them in a Marbles database when
-   * `state` is set.
-   */
   readonly activityStore?: ActivityStore;
-  /**
-   * Where approvals agents left waiting for a person are kept across
-   * restarts. In memory when omitted; the `Engine` the package publishes
-   * keeps them in a Marbles database when `state` is set.
-   */
   readonly approvals?: DeferredApprovalStore;
   /** Read by `artifacts.latest` when `artifacts` has nothing: the real store under `--dry-run`. */
   readonly artifactReads?: Pick<ArtifactSubstrate, "get" | "readFile">;
-  /**
-   * Versioned outputs and the feed. One system may serve many workspaces;
-   * the Marbles process hands each workspace a system of its own, over its
-   * scope of the Marbles database.
-   */
   readonly artifacts: ArtifactSubstrate;
   /**
    * Whether someone can answer `ask` in this process (a dashboard).
@@ -168,50 +124,21 @@ export interface EngineOptions {
    * parked runs from earlier processes are left for a process that can.
    */
   readonly askable?: boolean;
-  /**
-   * Where the triggers agents create are kept, by id. In memory when
-   * omitted; the `Engine` the package publishes keeps them in a Marbles
-   * database when `state` is set.
-   */
   readonly automationStore?: AutomationStore;
-  /**
-   * How long, in ms, the change log keeps facts every observer has
-   * completed before compaction removes them: a week when omitted.
-   */
   readonly changeRetention?: number;
-  /**
-   * The container rows kept, read without starting the runtime, so a
-   * start takes back the rows, and their VMs, whose holder is gone
-   * (`lib/crash-recovery.ts`). The host that keeps the rows durably gives
-   * them; without them no container is taken back.
-   */
   readonly containerRows?: Pick<ContainerStore, "list">;
   /**
    * Where sandboxes run. A function is called at the first sandbox and its
    * result kept, for a runtime that is optional or slow to start.
    */
   readonly containers: Containers | (() => Promise<Containers>);
-  /**
-   * Where the workspace's runs start, and its commands run, unless a
-   * worktree narrows it; `root` when omitted.
-   */
   readonly cwd?: string;
   /**
    * Simulation: an agent asked to run in a sandbox runs in this process on
    * `models` instead, so no guest is prepared and no credential is read.
    */
   readonly dry?: boolean;
-  /**
-   * What the workspace's commands inherit: the machine's environment with
-   * the workspace's own values. This process's environment, as it is when
-   * the engine is built, when omitted.
-   */
   readonly environment?: Readonly<Record<string, string>>;
-  /**
-   * Where every run's Execution Run is kept, with its observations, and
-   * what pruning removed. In memory when omitted; the `Engine` the package
-   * publishes keeps them in a Marbles database when `state` is set.
-   */
   readonly executionStore?: ExecutionStore;
   /**
    * How git runs: on the root workspace, and in the `git()` layer of the
@@ -221,20 +148,8 @@ export interface EngineOptions {
    * scanning it, and the root workspace stays unread until a step needs it.
    */
   readonly git?: GitOptions;
-  /**
-   * Where the agent grants a person issued are kept, one document the
-   * engine validates before it trusts it. Without it grants last as long
-   * as the engine; the `Engine` the package publishes keeps them in a
-   * Marbles database when `state` is set.
-   */
   readonly grants?: GrantDocumentStorage;
-  /**
-   * How long, in ms, one call of an observer's handler may run before it
-   * counts as a failure: five minutes when omitted. An observer's own
-   * `timeout` overrides it.
-   */
   readonly handlerTimeout?: number;
-  /** The user's home, whose skill folders `skills.load()` reads; the OS home by default. */
   readonly home?: string;
   /**
    * Where definitions' own `log(...)` lines go, with where each came from:
@@ -255,13 +170,6 @@ export interface EngineOptions {
    * is given here. Change them live with `executions.configure`.
    */
   readonly queues?: Readonly<Record<string, QueueSettings>>;
-  /**
-   * This workspace's tasks and the change log its stores record their
-   * facts in, which delivery hands to observers. When omitted, the `Engine` the package publishes
-   * (`@foundry.sh/marbles/engine` and `/lib`) keeps them in a Marbles
-   * database when `state` is set, and in memory otherwise;
-   * `MemoryWorkspaceRecords` keeps them in memory on purpose.
-   */
   readonly records?: WorkspaceRecords;
   /**
    * Whether queued runs a process that has exited left behind are let in
@@ -274,49 +182,16 @@ export interface EngineOptions {
    * decides (Works fails them as abandoned), rather than leave it queued.
    */
   readonly recoverQueued?: boolean;
-  /**
-   * Where the last start's recovery report is kept (`RecoveryReport`), for
-   * `marbles status`. Only the engine holds it when omitted; the `Engine`
-   * the package publishes keeps it in a Marbles database when `state` is set.
-   */
   readonly recoveryLog?: RecoveryLog;
   /** The workspace root: where definitions resolve paths from. */
   readonly root: string;
-  /**
-   * Where workflow Runs are kept, with what each run's scope recorded and
-   * which engine owns it. In memory when omitted: nothing outlives the
-   * process, and no parked run is adopted at start. The `Engine` the
-   * package publishes keeps them in a Marbles database when `state` is set.
-   */
   readonly runs?: RunStore;
   /** Where agent transcripts live. */
   readonly sessions: SessionStore;
-  /**
-   * Where the processes this one belongs to record the children they
-   * start (`MARBLES_SPAWN_RECOVERY`), so a start stops what one that is
-   * gone left running (`lib/crash-recovery.ts`). The Marbles process hands
-   * its engine generations one; without it no child is stopped.
-   */
   readonly spawned?: string;
-  /**
-   * Workspace state dir: each run's output and worktrees, and, with the
-   * published `Engine`, the Marbles database's stores. Omit for in-memory:
-   * nothing survives the process.
-   */
   readonly state?: string;
 
-  /**
-   * Where each schedule and monitor keeps its last tick, a monitor what it
-   * last saw, and the claim that keeps two ticks of one trigger apart. In
-   * memory when omitted; the `Engine` the package publishes keeps them in
-   * a Marbles database when `state` is set.
-   */
   readonly triggers?: TriggerStore;
-  /**
-   * Where each agent turn's usage fact is kept. In memory when omitted;
-   * the `Engine` the package publishes keeps them in a Marbles database
-   * when `state` is set.
-   */
   readonly usageStore?: UsageStore;
   /** Identity of this workspace: part of a declared artifact's id and of every feed entry. */
   readonly workspaceId: string;
@@ -333,16 +208,6 @@ export interface EngineOptions {
   readonly worktrees?: string;
 }
 
-/**
- * How usage recovery finds sessions in `sessions`: through its listing when
- * it has one (`ListedSessionStore`). A store that cannot list them is read
- * only where a record names a session; that misses a session
- * whose only record was a `lost` marker held in memory by an earlier
- * process. That needs both the ledger and the sessions to outlive the
- * process, so a store kept in memory, or a ledger kept in memory, is not
- * flagged: neither outlives the markers. A store this cannot place is
- * assumed to outlive it.
- */
 function sessionListing(
   sessions: SessionStore,
   usage: UsageStore
@@ -357,11 +222,6 @@ function sessionListing(
   return outlives ? { stamps: "unavailable" } : {};
 }
 
-/**
- * The stores an engine keeps its state in: those the host gave, else each
- * in memory. The published `Engine` hands its own over a Marbles
- * database when it has a `state`.
- */
 function storesOf(options: EngineOptions): {
   readonly automations: AutomationStore;
   readonly executions: ExecutionStore;
@@ -378,11 +238,6 @@ function storesOf(options: EngineOptions): {
   };
 }
 
-/**
- * What a run recorded, for usage recovery: from its scope while this
- * process holds it, which is ahead of the store, else from `runs`; a
- * record the store cannot read is `unreadable`.
- */
 function recordedIn(
   scopes: ReadonlyRunScopes,
   runs: RunStore
@@ -401,16 +256,13 @@ function recordedIn(
 }
 
 /** What a started engine holds; absent until `start` and after a failed one. */
-/** How often a retired engine looks again for the runs still running here. */
 const RETIRED_POLL_MS = 250;
 
 interface Running {
   readonly held: HeldRuns;
-  /** The Runs `runs()` lists. */
   readonly listing: RunListing;
   readonly orchestrator: Orchestrator;
   readonly router: FeedRouter;
-  /** The workflow records the Orchestrator keeps its Runs in, over `runs`. */
   readonly store: ExecutionCoordinator;
 }
 
@@ -432,14 +284,9 @@ export class Engine {
   readonly automations: AutomationService;
   /** What step bodies are built from: the managers, scoped per frame. */
   readonly bindings: Bindings;
-  /**
-   * What every run and observer here executes as: this workspace, where its
-   * work starts, and the environment its commands inherit.
-   */
   readonly context: ExecutionContext;
   /** Every run's lifecycle record, and the named queues they wait in. */
   readonly executions: ExecutionRuns;
-  /** Feed entries from every workspace in the artifact system, newest first: in the Marbles process, this workspace's alone. */
   readonly feed: FeedReader;
   /** Approvals and questions from agents, answered through the feed. */
   readonly interactions: HarnessInteractions;
@@ -454,15 +301,8 @@ export class Engine {
   readonly scopes: ReadonlyRunScopes;
   readonly sessions: SessionStore;
   readonly state: string | undefined;
-  /** Each trigger's last tick, each monitor's state, and their tick claims. */
   readonly triggers: TriggerStore;
-  /** What each agent turn consumed, one fact per turn. */
   readonly usage: UsageLedger;
-  /**
-   * This workspace's tasks, for a `Tasks` to be built over. Each commit
-   * records the change it makes in the same write. Refused once the engine
-   * is disposed.
-   */
   readonly taskStore: TaskStore;
   readonly workspaceId: string;
   readonly workspaces: WorkspacesManager;
@@ -497,18 +337,11 @@ export class Engine {
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
   #starting: Promise<this> | undefined;
   #stopping: Promise<void> | undefined;
-  /** Set once `retire` began: nothing let go comes back here. */
   #retiring = false;
-  /**
-   * The runs this engine let go for another to take over: handed on as it
-   * retired, parked after it retired, or given back by an adoption that
-   * found it retiring. Nothing here answers or resumes them again.
-   */
   readonly #letGo = new Set<string>();
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
   readonly #unwatchRecords: () => void;
-  /** The models.dev load the usage ledger prices from: held while running and online. */
   #prices: ModelsDevHold | undefined;
 
   /**
@@ -527,8 +360,6 @@ export class Engine {
     const askable = options.askable ?? false;
     const { containers } = options;
     this.models = models;
-    // Started now, so list prices are there by the first turn; nothing
-    // waits for it. Airplane Mode gives it up, and leaving it holds it again.
     this.#prices = holdModelsDev();
     const airplane = airplaneMode(models);
     this.airplane = {
@@ -543,7 +374,6 @@ export class Engine {
           this.#releasePrices();
         } else if (!this.#disposing) {
           this.#prices ??= holdModelsDev();
-          // Back online, the servers are asked for their models again.
           this.#listModels();
         }
       },
@@ -724,7 +554,6 @@ export class Engine {
     };
   }
 
-  /** A pruned workflow run's output, then its Run, go before its record. */
   async #removeRun(run: ExecutionRun): Promise<void> {
     if (run.kind !== "workflow") {
       return;
@@ -799,14 +628,6 @@ export class Engine {
     this.#adopt(record.key);
   }
 
-  /**
-   * Hand every fact `source` commits in this workspace from now on to
-   * `handler`, as the observer `options.name` (the handler's own name when
-   * omitted; one of the two is required), only those of `options.types`
-   * when given, each call allowed `options.timeout` ms (the engine's
-   * `handlerTimeout` when omitted). Declared before `start`, as an authoring module's
-   * `observe` is.
-   */
   observe<T extends Fact>(
     source: Source<T>,
     handler: Handler<T>,
@@ -893,7 +714,6 @@ export class Engine {
     }
   }
 
-  /** What this engine's start puts right after a crash (`lib/crash-recovery.ts`). */
   #recoveryOf(
     options: EngineOptions,
     print: (line: string) => void,
@@ -930,7 +750,6 @@ export class Engine {
     const askable = this.#askable;
     const feed = this.#publisher;
     const print = this.#print;
-    // Before anything runs, so a listed model can be named from the first turn.
     await this.#listModels();
     const config = new Config();
     contributeQueueConfig(config, {
@@ -940,11 +759,7 @@ export class Engine {
     let orchestrator: Orchestrator | undefined;
     let adopted: ReadonlyMap<string, RecordedScope> = new Map();
     try {
-      // What the dashboard shows of agents' activities, before any runs;
-      // a store that cannot be read fails the start.
       await this.activities.load();
-      // The run records are read before anything is adopted into them, and
-      // ones that cannot be read fail the start.
       await this.#executions.load();
       const store = new ExecutionCoordinator({
         store: await this.#runs.open(
@@ -952,15 +767,12 @@ export class Engine {
           (runId, status) => this.#executions.follows(runId, status)
         ),
       });
-      // Only runs under a name that is registered by now are adopted: one
-      // whose definition is gone would fail the Orchestrator's start.
       adopted = await adoptParkedRuns({
         askable,
         print,
         registered: (name) => this.#registered(name),
         runs: this.#runs,
         // A run cancelled after its process exited (see
-        // `Executions.cancelOrphan`) keeps its parked Run.
         settled: (runId) => this.#executions.storedSettled(runId),
         store,
       });
@@ -971,7 +783,6 @@ export class Engine {
 
       orchestrator = new Orchestrator({
         config,
-        // Only what was adopted, as the claim found it: parked.
         recovers: (run) =>
           adopted.has(run.id) && run.lastStatus === "suspended",
         store,
@@ -994,8 +805,6 @@ export class Engine {
         dispatched: Dispatched<unknown>;
       }[] = [];
 
-      // Follow each parked run adopted and keep its question open under
-      // this process before abandoned entries are swept.
       for (const runId of adopted.keys()) {
         const dispatched = await orchestrator.get(runId);
         const record = await store.getRun(runId);
@@ -1047,11 +856,8 @@ export class Engine {
         new Set(recovered.map(({ dispatched }) => dispatched.id)),
         statuses
       );
-      // Once the Execution Runs of exited processes have settled, and
-      // before the host schedules anything: what a crash left.
       const recovery = await this.#crashRecovery.recover(store);
       for (const runId of recovery.closed) {
-        // Settled now, after the listing read the settled ones.
         listing.add(runId);
       }
       this.#lastRecovery = recovery.report;
@@ -1081,7 +887,6 @@ export class Engine {
           this.#scopes.forget(runId);
         }
         this.#running = undefined;
-        // Nothing here owns a run now; a later start may adopt them.
         await this.#runs.release().catch(() => undefined);
       }
       throw error;
@@ -1096,7 +901,6 @@ export class Engine {
   ): Promise<void> {
     return this.#launcher.recover({
       adopted,
-      // A Run committed just before a crash can be ahead of its record.
       fileStatus: (run) =>
         run.kind === "workflow" ? statuses.get(run.id) : undefined,
     });
@@ -1220,7 +1024,6 @@ export class Engine {
       runId,
       status: "pending",
     });
-    // Let go while the pauses were read: the engine taking it resumes it.
     if (this.#letGo.has(runId)) {
       throw new QuestionMovingError(runId);
     }
@@ -1245,7 +1048,6 @@ export class Engine {
       if (frame && trimmed !== undefined) {
         frame.resumePrompt = trimmed;
       }
-      // At the revision read: one taken over meanwhile is refused as stale.
       await orchestrator
         .resolve(
           suspension.id,
@@ -1324,7 +1126,6 @@ export class Engine {
     const runs = (await this.runs()).map((record): ReconciledRun => {
       const { timestamps } = record;
       const ended = timestamps.completedAt ?? timestamps.failedAt;
-      // Settled here but its scope still held: read from the scope, afresh.
       const unwritten =
         TERMINAL_RUN_STATUSES.has(record.status) &&
         this.#live().held.workflow(record.id) !== undefined;
@@ -1349,12 +1150,6 @@ export class Engine {
     return withRecovered(await this.usage.read(), found);
   }
 
-  /**
-   * The workspace's settled Runs the store retained at start, and every Run
-   * this engine dispatched or adopted since, oldest first (see
-   * `RunListing`), each one still held here as it stands now.
-   */
-  /** What this engine's start put right after a crash, step by step; `undefined` before it started. */
   get lastRecovery(): RecoveryReport | undefined {
     return this.#lastRecovery;
   }
@@ -1373,10 +1168,6 @@ export class Engine {
     });
   }
 
-  /**
-   * The live triggers: what the host scheduled, plus what agents created,
-   * read afresh, so one another process created or removed is in or out.
-   */
   schedules(): Promise<readonly Schedule[]> {
     return this.automations.schedules();
   }
@@ -1386,20 +1177,6 @@ export class Engine {
     this.#scopeOf(runId).steer(stepId, prompt);
   }
 
-  /**
-   * Make way for `successor`, the engine that takes this workspace over in
-   * another process, while what runs here goes on to its end: no change is
-   * delivered here again (the claim is given up, for it to take), every
-   * queued run is handed to it (`Launcher.handOver`), and every parked run
-   * is let go, its claim and its open questions, for it to adopt when it
-   * starts. A run still running here that parks later is let go the moment
-   * it parks, and `onLetGo` is told, so the engine already running there
-   * can take it over (`adopt`): nothing parked is ever held here again, and
-   * every answer is refused (`QuestionMovingError`). Resolves once the
-   * first of that is written, with `ended`, which resolves once every run
-   * left here has ended or been let go; then `stop` finds nothing to wait
-   * for. On an engine that has not started, `ended` has resolved already.
-   */
   async retire(
     successor: ProcessIdentity,
     options: { readonly onLetGo?: (runId: string) => void } = {}
@@ -1414,7 +1191,6 @@ export class Engine {
     for (const runId of await this.#launcher.handOver(successor)) {
       this.#letGo.add(runId);
     }
-    // Every run that parks from now on goes too, as soon as it has parked.
     running.orchestrator.on("suspended", ({ runId }) => {
       if (
         this.#letGo.has(runId) ||
@@ -1456,19 +1232,8 @@ export class Engine {
     return { ended };
   }
 
-  /**
-   * Take over the parked Run `runId`, which an engine of this workspace in
-   * another process let go as it retired (`retire`), while this one runs:
-   * claimed as a start claims the parked Runs it adopts, its Execution Run
-   * made this process's, rebuilt in the Orchestrator and followed to its
-   * end here, its open question answerable here. Resolves whether this
-   * engine holds it now: `false`, holding nothing, when it is not parked,
-   * another live engine holds it, nothing here can answer it, or this
-   * engine is not running or is itself retiring.
-   */
   async adopt(runId: string): Promise<boolean> {
     const running = this.#running;
-    // Retirement may begin at any wait below: looked at again after each.
     const away = () =>
       this.#running !== running || this.#phase !== "started" || this.#retiring;
     if (running === undefined || away()) {
@@ -1478,7 +1243,6 @@ export class Engine {
     if (record?.status !== "suspended" || away()) {
       return false;
     }
-    // Said by whoever offered it, through what this answers: not here.
     const scope = await adoptParkedRun(record, {
       askable: this.#askable,
       print: () => undefined,
@@ -1515,8 +1279,6 @@ export class Engine {
         throw new Error("this engine began to retire");
       }
     } catch (error) {
-      // Given back, unanswered here: for the engine taking over, whose
-      // start, or whose next adoption, finds it parked and unowned.
       this.#scopes.forget(runId);
       await this.#giveBack(running, runId).catch(() => undefined);
       if (away()) {
@@ -1529,38 +1291,18 @@ export class Engine {
         cause: error,
       });
     }
-    // In the same turn as the last look: a retirement that begins after
-    // this finds the run held here, and lets it go with the rest.
     this.#print(`[run] ${record.step} taken over ${runId}`);
     running.listing.add(runId);
     this.#launcher.follow(runId, running.held.follow(record.step, dispatched));
     return true;
   }
 
-  /**
-   * Let a parked run go for another engine to take over: its open
-   * questions forgotten here, its claim given up, and nothing here
-   * answers or resumes it again.
-   */
   async #giveBack(running: Running, runId: string): Promise<void> {
     this.#letGo.add(runId);
     running.router.letGo(runId);
     await this.#runs.release(runId);
   }
 
-  /**
-   * Settle and write what this process holds. Without `cancel`, queued runs
-   * are let in and run to their end, as before a stop. `cancel` stops work
-   * that cannot outlive the process: queued and running runs, and, in a
-   * run store that does not outlive it, parked ones too. In a durable one a
-   * parked run keeps its question and is adopted by the next process that
-   * can answer. A task
-   * that gave up its slot, a long-lived one, is always stopped, and is
-   * stopped before anything is waited on. A workflow still being set up is
-   * waited on: its factory is handed no signal, so a `setup` that never
-   * resolves keeps the stop, and `dispose`, from resolving. Does nothing
-   * on an engine that never started.
-   */
   stop(options?: { readonly cancel?: boolean }): Promise<void> {
     if (this.#phase === "starting") {
       return (
@@ -1589,10 +1331,6 @@ export class Engine {
       // A running handler finishes first: it may still call into this engine.
       await this.#delivery.stop();
       await this.interactions.close();
-      // In a durable run store a parked run is adopted by the next process
-      // that can answer, so a quit keeps it and its open question. In
-      // memory, cancel open questions because no later process can resume
-      // the run.
       const parkedSurvive = this.#runs.durable;
       if (!parkedSurvive) {
         await router.cancelOpen();
@@ -1613,13 +1351,9 @@ export class Engine {
     } finally {
       try {
         await orchestrator.stop();
-        // Every change to a record made so far is on disk, and every
-        // settlement a write failed is tried again: one that still fails
-        // fails the stop.
         await this.#executions.flush();
         await this.#executions.retrySettlements();
       } finally {
-        // What is parked is left for the next process that can answer it.
         await this.#runs.release();
       }
     }
@@ -1636,10 +1370,6 @@ export class Engine {
     return this.#running?.held.workflow(runId)?.root.subscribe(signal);
   }
 
-  /**
-   * Ask the providers that list their models for them, and reload. Never
-   * rejects: a problem is printed, and the set loaded before is kept.
-   */
   async #listModels(): Promise<void> {
     try {
       if (this.providers === undefined) {
@@ -1655,7 +1385,6 @@ export class Engine {
     }
   }
 
-  /** Give up the models.dev load; one still fetching is aborted when no other engine holds it. */
   #releasePrices(): void {
     this.#prices?.release();
     this.#prices = undefined;
@@ -1712,7 +1441,6 @@ export class Engine {
       await this.providers?.dispose();
     });
     await close(() => this.agents.close());
-    // Last: a turn its agents finished may still be recording its usage.
     await close(() => this.#usageStore.close());
     if (errors.length > 0) {
       throw new AggregateError(errors, "Failed to dispose the engine");

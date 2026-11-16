@@ -1,18 +1,3 @@
-/**
- * The workspace entry, `@foundry.sh/marbles/workspace`: host one workspace
- * in this process, without the CLI. `hostWorkspace` loads the source,
- * builds and starts the engine, and returns the `WorkspaceConnection` the
- * dashboard, the CLI, and MCP are written against; `run` ticks its
- * triggers until a signal aborts. `watchSource` says when the source
- * changed, `createStarter` writes a starter module, and `layout` decides
- * where everything lives. `openWorkspaceRecords` opens a workspace's tasks
- * in the Marbles database of a state root, for an engine's `records`.
- *
- * The host process records its own environment as the machine's, so start
- * Bun with `--no-env-file`; otherwise a `.env` in its working directory
- * counts as machine environment.
- */
-
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for single-workspace hosts.
 export {
   type OpenWorkspaceRecordsOptions,

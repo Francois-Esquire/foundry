@@ -73,7 +73,6 @@ class Batch {
   private readonly putEdges = new Map<string, TaskDependency>();
   private readonly deletedEdges = new Map<string, TaskDependency>();
   private readonly now: () => string;
-  /** The last time the batch stamped on a record: when the change was made. */
   private stamped: string | undefined;
   private readonly availability: AvailabilityOptions;
 
@@ -426,10 +425,6 @@ class Batch {
   }
 }
 
-/**
- * A `tasks.changed` fact over these deltas and edges, built at `at` (an ISO
- * time) with an id of its own, or nothing when the write changes nothing.
- */
 export function changeEvent(
   tasks: readonly TaskDelta[],
   added: readonly TaskDependency[],
@@ -448,14 +443,7 @@ export function changeEvent(
   };
 }
 
-/**
- * `stored` with each top-level key in `patch` set over it, and each key
- * whose patch value is `null` removed. A nested value replaces the stored
- * one whole.
- */
 function mergedMetadata(stored: JsonObject, patch: JsonObject): JsonObject {
-  // `checkedMetadata` refuses a `__proto__` key; spread and `fromEntries`
-  // define own properties, so one could not reach the prototype setter here.
   return Object.fromEntries(
     Object.entries({ ...stored, ...patch }).filter(
       ([key, value]) => value !== null || !Object.hasOwn(patch, key)
@@ -463,10 +451,6 @@ function mergedMetadata(stored: JsonObject, patch: JsonObject): JsonObject {
   );
 }
 
-/**
- * Metadata as `taskChangeSchema` takes it, for callers that skip the schema:
- * a fresh copy of plain JSON, with no `__proto__` key at any depth.
- */
 function checkedMetadata(metadata: JsonObject): JsonObject {
   const checked = taskMetadataSchema.safeParse(metadata);
   if (!checked.success) {
