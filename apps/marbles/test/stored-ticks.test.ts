@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { initializeDatabase } from "~/database/open";
 import { marblesMonitorStates } from "~/database/tables";
+import { DatabaseTriggerStore } from "~/database/triggers";
 import { stateDatabase } from "~/layout";
 import type { ScheduleHistory } from "~/lib/trigger-store";
 import { readStatus } from "~/status/model";
@@ -146,4 +147,41 @@ describe("a stored trigger's kind", () => {
       );
     }
   );
+});
+
+describe("a monitor saved under a key a schedule ticked last", () => {
+  it("shows as a monitor by its key, with none of the schedule's label or times", async () => {
+    const state = await machine();
+    const opened = await initializeDatabase(stateDatabase(state));
+    try {
+      const triggers = new DatabaseTriggerStore({
+        database: opened.database,
+        scope: "ws2",
+      });
+      await triggers.claimTick("renamed");
+      await triggers.finishTick("renamed", {
+        ...HISTORY,
+        kind: "schedule",
+        label: "nightly digest",
+      });
+      await triggers.claimTick("renamed");
+      await triggers.saveMonitorState("renamed", {
+        observed: {},
+        pending: { input: null, workflow: "refresh" },
+      });
+      await triggers.close();
+    } finally {
+      opened.close();
+    }
+    const status = (await readStatus(state)).workspaces
+      .find(({ id }) => id === "ws2")
+      ?.schedules.find((schedule) => schedule.key === "renamed");
+    expect(status).toMatchObject({
+      kind: "monitor",
+      lastFinish: null,
+      lastStatus: null,
+      name: "renamed",
+      nextDue: null,
+    });
+  });
 });

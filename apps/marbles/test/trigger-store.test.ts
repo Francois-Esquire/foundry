@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { eq } from "drizzle-orm";
 import { expect, it } from "vitest";
 import { initializeDatabase } from "~/database/open";
 import { marblesMonitorStates, marblesScheduleTicks } from "~/database/tables";
@@ -78,5 +79,60 @@ it("lets a tick an exited process held be claimed, and says which live process h
     });
   } finally {
     await fixture.close();
+  }
+});
+
+it("returns what it kept when a monitor's save lands between its look and its drop", async () => {
+  const root = mkdtempSync(join(tmpdir(), "marbles-trigger-store-"));
+  const opened = await initializeDatabase(stateDatabase(root));
+  const real = opened.database;
+  let between: (() => Promise<void>) | undefined;
+  const hooked = new Proxy(real, {
+    get(target, property) {
+      const value: unknown = Reflect.get(target, property, target);
+      if (property === "transaction" && typeof value === "function") {
+        return async (...args: unknown[]) => {
+          const land = between;
+          between = undefined;
+          await land?.();
+          return Reflect.apply(value, target, args);
+        };
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const triggers = new DatabaseTriggerStore({ database: hooked, scope: "ws" });
+  try {
+    const time = "2026-11-01T00:00:00.000Z";
+    await triggers.claimTick("k");
+    await triggers.finishTick("k", {
+      kind: "schedule",
+      lastFinish: time,
+      lastStart: time,
+      lastStatus: "complete",
+      nextDue: time,
+    });
+    const left: MonitorState = {
+      observed: { files: {} },
+      pending: { input: null, workflow: "ship" },
+    };
+    await real.insert(marblesMonitorStates).values({
+      key: "k",
+      observed: left.observed,
+      pending: left.pending ?? null,
+      scope: "ws",
+    });
+    // A monitor keeps its state there after the look, before the drop.
+    between = async () => {
+      await real
+        .update(marblesScheduleTicks)
+        .set({ kind: "monitor" })
+        .where(eq(marblesScheduleTicks.key, "k"));
+    };
+    expect(await triggers.monitorState("k")).toEqual(left);
+  } finally {
+    await triggers.close();
+    opened.close();
+    rmSync(root, { force: true, recursive: true });
   }
 });

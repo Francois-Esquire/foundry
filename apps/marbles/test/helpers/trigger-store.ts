@@ -163,7 +163,9 @@ export function describeTriggerStore(
       // The monitor's first tick under the key keeps a launch, and stops.
       expect(await triggers.claimTick("k")).toEqual({ claimed: true });
       await triggers.saveMonitorState("k", left);
-      expect((await triggers.lastTick("k"))?.kind).toBe("monitor");
+      // The schedule's history is none of the monitor's: no label or time
+      // it did not record stays, until its own tick is recorded.
+      expect(await triggers.lastTick("k")).toBeUndefined();
       expect(await triggers.monitorState("k")).toEqual(left);
     });
 

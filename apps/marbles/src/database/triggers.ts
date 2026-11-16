@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
@@ -189,39 +189,43 @@ export class DatabaseTriggerStore implements TriggerStore {
 
   monitorState(key: string): Promise<MonitorState | undefined> {
     return this.#call(async () => {
-      const [row] = await this.#database
-        .select({
-          observed: marblesMonitorStates.observed,
-          pending: marblesMonitorStates.pending,
-        })
-        .from(marblesMonitorStates)
-        .where(this.#monitorKey(key));
+      const row = await this.#monitorRow(this.#database, key);
       if (row === undefined) {
         return;
       }
-      // What a monitor left under a key a schedule ticked last (as an older
-      // Marbles left it) is no monitor's now: dropped here, never handed out.
-      if ((await this.#lastKind(this.#database, key)) === "schedule") {
-        await this.#database.transaction(async (transaction) => {
-          if ((await this.#lastKind(transaction, key)) === "schedule") {
-            await transaction
-              .delete(marblesMonitorStates)
-              .where(this.#monitorKey(key));
-          }
-        });
-        return;
+      if ((await this.#lastKind(this.#database, key)) !== "schedule") {
+        return monitorStateOf(row);
       }
-      const { observed, pending } = monitorStateSchema.parse({
-        observed: row.observed,
-        ...(row.pending === null ? {} : { pending: row.pending }),
+      // What a monitor left under a key a schedule ticked last (as an older
+      // Marbles left it) is no monitor's now: dropped here, never handed
+      // out. Looked at again in the write: a monitor that kept its state
+      // there meanwhile gets back what it kept.
+      const kept = await this.#database.transaction(async (transaction) => {
+        if ((await this.#lastKind(transaction, key)) === "schedule") {
+          await transaction
+            .delete(marblesMonitorStates)
+            .where(this.#monitorKey(key));
+          return;
+        }
+        return this.#monitorRow(transaction, key);
       });
-      return pending === undefined
-        ? { observed }
-        : {
-            observed,
-            pending: { input: pending.input, workflow: pending.workflow },
-          };
+      return kept === undefined ? undefined : monitorStateOf(kept);
     });
+  }
+
+  /** The monitor `key`'s row as `database` holds it. */
+  async #monitorRow(
+    database: StoreDatabase,
+    key: string
+  ): Promise<MonitorRow | undefined> {
+    const [row] = await database
+      .select({
+        observed: marblesMonitorStates.observed,
+        pending: marblesMonitorStates.pending,
+      })
+      .from(marblesMonitorStates)
+      .where(this.#monitorKey(key));
+    return row;
   }
 
   saveMonitorState(key: string, state: MonitorState): Promise<void> {
@@ -244,11 +248,26 @@ export class DatabaseTriggerStore implements TriggerStore {
           });
         // A monitor keeps its state under the key: the key is a monitor's
         // from now, before its tick is recorded, so a stop in between
-        // keeps what it saw and the launch it handed over.
+        // keeps what it saw and the launch it handed over. A schedule's
+        // history there is none of the monitor's: no label or time of it
+        // stays. History that names no kind may be the monitor's own.
+        await transaction
+          .update(marblesScheduleTicks)
+          .set({
+            kind: "monitor",
+            label: null,
+            lastFinish: null,
+            lastStart: null,
+            lastStatus: null,
+            nextDue: null,
+          })
+          .where(
+            and(this.#key(key), eq(marblesScheduleTicks.kind, "schedule"))
+          );
         await transaction
           .update(marblesScheduleTicks)
           .set({ kind: "monitor" })
-          .where(this.#key(key));
+          .where(and(this.#key(key), isNull(marblesScheduleTicks.kind)));
       });
     });
   }
@@ -287,6 +306,25 @@ export class DatabaseTriggerStore implements TriggerStore {
 type TickRow = typeof marblesScheduleTicks.$inferSelect;
 
 /** A row's last tick; `undefined` while it holds only a claim. */
+type MonitorRow = Pick<
+  typeof marblesMonitorStates.$inferSelect,
+  "observed" | "pending"
+>;
+
+/** A monitor's row as the state it keeps. */
+function monitorStateOf(row: MonitorRow): MonitorState {
+  const { observed, pending } = monitorStateSchema.parse({
+    observed: row.observed,
+    ...(row.pending === null ? {} : { pending: row.pending }),
+  });
+  return pending === undefined
+    ? { observed }
+    : {
+        observed,
+        pending: { input: pending.input, workflow: pending.workflow },
+      };
+}
+
 function tickOf(row: TickRow): ScheduleHistory | undefined {
   if (
     row.lastFinish === null ||

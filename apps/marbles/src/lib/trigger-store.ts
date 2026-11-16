@@ -60,8 +60,9 @@ export interface TriggerStore {
   /**
    * Keep `state` as the monitor `key`'s, whole, and record the key as a
    * monitor's in the same write, so what it keeps before its tick is
-   * recorded is handed back to it. Rejects, keeping nothing, a state that
-   * would not read back as it is (`storedMonitorState`).
+   * recorded is handed back to it; a schedule's history under the key goes
+   * with it, as none of the monitor's. Rejects, keeping nothing, a state
+   * that would not read back as it is (`storedMonitorState`).
    */
   saveMonitorState(key: string, state: MonitorState): Promise<void>;
 }
@@ -203,7 +204,11 @@ export class MemoryTriggerStore implements TriggerStore {
     return this.#gate.run(async () => {
       this.#monitors.set(key, storedMonitorState(key, state));
       const tick = this.#ticks.get(key);
-      if (tick !== undefined) {
+      // A schedule's history is none of the monitor's; history naming no
+      // kind may be its own.
+      if (tick?.kind === "schedule") {
+        this.#ticks.delete(key);
+      } else if (tick !== undefined) {
         this.#ticks.set(key, { ...tick, kind: "monitor" });
       }
     });
