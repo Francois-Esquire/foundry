@@ -409,3 +409,46 @@ it("keeps the record of a group the listing shows empty while a signal still rea
     expect.stringContaining("a signal still reaches it"),
   ]);
 });
+
+it("stops its own unreaped leader's group even when the group cannot be listed, and reports a reaped one it cannot list", async () => {
+  const pgid = 4_200_630;
+  const reports: string[] = [];
+  const sent: [number, NodeJS.Signals | 0][] = [];
+  const system: GroupSystem = {
+    kill: (target, signal) => {
+      sent.push([target, signal]);
+    },
+    members: () => undefined,
+    report: (line) => reports.push(line),
+    sleep: () => Promise.resolve(),
+  };
+  // The leader never exits: this process's own, unreaped, so its id is proved.
+  const held = madeUpChild(pgid);
+  const stop = recordGroup(held.child, {
+    env: {},
+    graceMs: 0,
+    killMs: 0,
+    system,
+  });
+  expect((await stop()).emptied).toBe(false);
+  expect(sent.filter(([, signal]) => signal !== 0)).toEqual([
+    [-pgid, "SIGTERM"],
+    [-pgid, "SIGKILL"],
+  ]);
+  expect(reports).toEqual([expect.stringContaining("could not be listed")]);
+
+  // Reaped, and not to be listed: nothing is sent, and it is reported.
+  reports.length = 0;
+  sent.length = 0;
+  const reaped = madeUpChild(pgid + 1);
+  const later = recordGroup(reaped.child, {
+    env: {},
+    graceMs: 0,
+    killMs: 0,
+    system,
+  });
+  reaped.exit();
+  expect(await later()).toEqual({ emptied: false, saved: true });
+  expect(sent.filter(([, signal]) => signal !== 0)).toEqual([]);
+  expect(reports).toEqual([expect.stringContaining("could not be listed")]);
+});

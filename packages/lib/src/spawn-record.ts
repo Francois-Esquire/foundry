@@ -54,6 +54,7 @@ import {
 import { basename, dirname, join } from "node:path";
 import {
   compareStarts,
+  groupIdTaken,
   groupMembers,
   lookProcesses,
   type ProcessIdentity,
@@ -310,8 +311,19 @@ export function recordGroup(
   const record = recovery === undefined ? undefined : recordPath(recovery, pid);
   let reaped = false;
   let saved = true;
-  const save = (members: ReadonlyMap<number, SeenProcess>): void => {
-    if (record !== undefined && !saveMembers(pid, record, members, system)) {
+  let told = false;
+  const save = (
+    members: ReadonlyMap<number, SeenProcess> | undefined
+  ): void => {
+    if (record === undefined) {
+      return;
+    }
+    if (members === undefined) {
+      // The group could not be listed: who is in it is not written down.
+      saved = false;
+      return;
+    }
+    if (!saveMembers(pid, record, members, system)) {
       saved = false;
     }
   };
@@ -321,7 +333,16 @@ export function recordGroup(
       graceMs: options.graceMs ?? GROUP_GRACE_MS,
       held: () => !reaped,
       killMs: options.killMs ?? GROUP_KILL_MS,
+      leader: { pid, started: started ?? null },
       save,
+      unlisted: () => {
+        if (!told) {
+          told = true;
+          (system.report ?? reportLine)(
+            `the members of group ${String(pid)} could not be listed; ${reaped ? "its leader is reaped, so nothing proves the group still its: not signalled, its recovery record kept" : "its own unreaped leader proves the group, so it is signalled without them, and they are not written down"}`
+          );
+        }
+      },
     }).then((emptied) => {
       if (emptied && record !== undefined && started !== undefined) {
         forgetRecord(record, { pid, started });
@@ -346,8 +367,14 @@ interface GroupStop {
   /** Whether the leader is not yet reaped, so its pid, the group's id, is still this process's. */
   readonly held: () => boolean;
   readonly killMs: number;
+  /** The leader, as its record names it: its start is `null` when none was read. */
+  readonly leader: ProcessIdentity;
   /** Write the group's members into its recovery record, if it keeps one. */
-  readonly save: (members: ReadonlyMap<number, SeenProcess>) => void;
+  readonly save: (
+    members: ReadonlyMap<number, SeenProcess> | undefined
+  ) => void;
+  /** Report, once per stop, that the group could not be listed. */
+  readonly unlisted: () => void;
 }
 
 /**
@@ -368,8 +395,9 @@ async function stopGroup(
   if (first !== undefined) {
     return first;
   }
-  if (known !== undefined && known.size > 0) {
-    // Before any signal, so a stop cut short leaves its proof behind.
+  if (known === undefined || known.size > 0) {
+    // Before any signal, so a stop cut short leaves its proof behind; a
+    // group that cannot be listed leaves none, and says so (`saved`).
     stop.save(known);
   }
   for (const [signal, ms] of [
@@ -377,18 +405,11 @@ async function stopGroup(
     ["SIGKILL", stop.killMs],
   ] as const) {
     if (signal === "SIGKILL") {
-      const listedNow = system.members(pgid);
-      const now = running(listedNow);
-      const settled = listing(listedNow, now, pgid, system, stop);
-      if (settled !== undefined) {
-        return settled;
+      const proof = reproved(known, pgid, system, stop);
+      if (typeof proof === "boolean") {
+        return proof;
       }
-      if (now === undefined || !(stop.held() || provedIn(known, now))) {
-        // Nothing proves the id still this group's: the next start decides.
-        return false;
-      }
-      known = now;
-      stop.save(now);
+      known = proof;
     }
     if (!groupSignal(system, pgid, signal)) {
       return true;
@@ -398,6 +419,35 @@ async function stopGroup(
     }
   }
   return false;
+}
+
+/**
+ * The group, proved again before SIGKILL: `true` emptied or its id
+ * another's, `false` not to be signalled (nothing proves it this one), or
+ * the members to go on with. Its own unreaped leader proves the id this
+ * group's, listed or not.
+ */
+function reproved(
+  known: ReadonlyMap<number, SeenProcess> | undefined,
+  pgid: number,
+  system: GroupSystem,
+  stop: GroupStop
+): boolean | ReadonlyMap<number, SeenProcess> | undefined {
+  const listedNow = system.members(pgid);
+  const now = running(listedNow);
+  const settled = listing(listedNow, now, pgid, system, stop);
+  if (settled !== undefined) {
+    return settled;
+  }
+  if (!(stop.held() || (now !== undefined && provedIn(known, now)))) {
+    // Nothing proves the id still this group's: the next start decides.
+    return false;
+  }
+  if (now === undefined) {
+    return known;
+  }
+  stop.save(now);
+  return now;
 }
 
 /** Poll the group `pgid` until it has no process left that runs, or `ms` pass. */
@@ -439,6 +489,12 @@ function listing(
 ): boolean | undefined {
   if (onlyExited(listed) || reused(known, pgid, stop)) {
     return true;
+  }
+  if (listed === undefined) {
+    stop.unlisted();
+    // Its own unreaped leader proves the group's id this one's without a
+    // listing; once reaped, nothing does.
+    return stop.held() ? undefined : false;
   }
   if (unlisted(listed) && !stop.held()) {
     reportUntold(system, pgid);
@@ -482,7 +538,7 @@ function reused(
   pgid: number,
   stop: GroupStop
 ): boolean {
-  return !stop.held() && members?.has(pgid) === true;
+  return groupIdTaken(stop.leader, members?.get(pgid), !stop.held());
 }
 
 /** `members`, without those that have exited and wait to be reaped (zombies). */

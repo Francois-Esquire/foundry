@@ -522,11 +522,7 @@ it("forgets a group whose leader is gone once only exited, unreaped members (zom
 
 const LATER = "ps:Sun Nov 15 09:00:00 2026";
 
-function readRecord(dir: string, pid: number): SpawnRecord {
-  return JSON.parse(readFileSync(recordPath(dir, pid), "utf8")) as SpawnRecord;
-}
-
-it("proves a group again before it records or signals it: one whose id went to another group meanwhile gets nothing", async () => {
+it("proves a group again before it records or signals it: one whose id went to another group meanwhile gets nothing, and is known empty", async () => {
   const dir = scratch();
   const leader = 4_200_010;
   record(dir, { group: true, owner: OWNER, pid: leader, started: MADE_UP });
@@ -553,15 +549,15 @@ it("proves a group again before it records or signals it: one whose id went to a
 
   const stop = await stopOrphans(dir, { graceMs: 0, killMs: 0, system });
 
+  // Nothing is sent to the other group. Its id being another's proves the
+  // old group empty (a pid is not given to a new process while a group
+  // with that id has a member), so the record goes.
   expect(sent).toEqual([]);
-  expect(stop.stopped).toEqual([]);
-  expect(stop.problems).toEqual([
-    expect.stringContaining(`group ${String(leader)}'s leader is gone`),
-  ]);
-  expect(readRecord(dir, leader).members).toBeUndefined();
+  expect(stop).toEqual({ problems: [], stopped: [] });
+  expect(existsSync(recordPath(dir, leader))).toBe(false);
 });
 
-it("signals a group by its id only while a recorded member is proved in it: not once its id is another group's", async () => {
+it("signals a group by its id only while a recorded member is proved in it: not once its id is another group's, which proves it empty", async () => {
   const dir = scratch();
   const leader = 4_200_020;
   const stubborn = 4_200_021;
@@ -580,17 +576,14 @@ it("signals a group by its id only while a recorded member is proved in it: not 
 
   const stop = await stopOrphans(dir, { graceMs: 0, killMs: 0, system: table });
 
+  // No SIGKILL to the other group; its id being another's proves the
+  // stopped group empty, so its record goes.
   expect(sent).toEqual([[-leader, "SIGTERM"]]);
-  expect(stop.problems).toEqual([
-    `group ${String(leader)} still has members after SIGKILL; pending, its record kept`,
-  ]);
-  expect(readRecord(dir, leader).members).toEqual([
-    { pid: leader, started: MADE_UP },
-    { pid: stubborn, started: MADE_UP },
-  ]);
+  expect(stop.problems).toEqual([]);
+  expect(existsSync(recordPath(dir, leader))).toBe(false);
 });
 
-it("never takes an owner a signal still reaches for gone because the listing left it out", async () => {
+it("never takes an owner a signal still reaches for gone because the listing left it out, and says so", async () => {
   const dir = scratch();
   const child = 4_200_120;
   const owner = { pid: 4_200_121, started: MADE_UP };
@@ -602,7 +595,14 @@ it("never takes an owner a signal still reaches for gone because the listing lef
   );
   expect(
     await stopOrphans(dir, { graceMs: 0, killMs: 0, system: table })
-  ).toEqual({ problems: [], stopped: [] });
+  ).toEqual({
+    problems: [
+      expect.stringContaining(
+        `owner ${String(owner.pid)} of process ${String(child)} cannot be told gone or running: it is not listed but a signal still reaches it`
+      ),
+    ],
+    stopped: [],
+  });
   expect(sent).toEqual([]);
   expect(existsSync(recordPath(dir, child))).toBe(true);
 });
@@ -782,4 +782,102 @@ it("does not take an orphan for gone, once signalled, while it is unlisted but a
     expect.stringContaining("a signal still reaches it"),
   ]);
   expect(existsSync(recordPath(dir, pid))).toBe(true);
+});
+
+it("stops a recorded member that still runs as recorded though it left the group, and keeps the record until it is gone", async () => {
+  const dir = scratch();
+  const leader = 4_200_600;
+  const member = 4_200_601;
+  record(dir, {
+    group: true,
+    members: [
+      { pid: leader, started: MADE_UP },
+      { pid: member, started: MADE_UP },
+    ],
+    owner: OWNER,
+    pid: leader,
+    started: MADE_UP,
+  });
+  // The leader is gone; the member runs, in a group of its own now.
+  const { sent, table } = madeUpTable(
+    new Map([[member, { pgid: member, started: MADE_UP }]])
+  );
+  const stop = await stopOrphans(dir, { graceMs: 0, killMs: 0, system: table });
+  expect(sent).toEqual([[member, "SIGTERM"]]);
+  expect(stop).toEqual({ problems: [], stopped: [leader] });
+  expect(existsSync(recordPath(dir, leader))).toBe(false);
+
+  // One that will not stop keeps the record, reported.
+  const kept = scratch();
+  record(kept, {
+    group: true,
+    members: [{ pid: member, started: MADE_UP }],
+    owner: OWNER,
+    pid: leader,
+    started: MADE_UP,
+  });
+  const stubborn = judged(
+    new Map([[member, { pgid: member, started: MADE_UP }]]),
+    new Set()
+  );
+  const refused = await stopOrphans(kept, {
+    graceMs: 0,
+    killMs: 0,
+    system: { ...stubborn.table, kill: () => undefined },
+  });
+  expect(refused.problems).toEqual([expect.stringContaining(String(member))]);
+  expect(existsSync(recordPath(kept, leader))).toBe(true);
+});
+
+it("takes a group whose leader's pid a new process holds for empty: no member of it can be left", async () => {
+  const dir = scratch();
+  const leader = 4_200_610;
+  record(dir, {
+    group: true,
+    members: [{ pid: leader, started: MADE_UP }],
+    owner: OWNER,
+    pid: leader,
+    started: MADE_UP,
+  });
+  const { sent, table } = madeUpTable(
+    new Map([[leader, { pgid: leader, started: LATER }]])
+  );
+  expect(
+    await stopOrphans(dir, { graceMs: 0, killMs: 0, system: table })
+  ).toEqual({
+    problems: [],
+    stopped: [],
+  });
+  expect(sent).toEqual([]);
+  expect(existsSync(recordPath(dir, leader))).toBe(false);
+});
+
+it("reports, every time, an orphan kept because its owner cannot be told gone or running", async () => {
+  for (const [kind, owner] of [
+    [
+      "a start without its kind",
+      { pid: 4_200_620, started: "Sun Nov 15 07:00:00 2026" },
+    ],
+    ["no start", { pid: 4_200_620, started: null }],
+  ] as const) {
+    const dir = scratch();
+    const child = 4_200_621;
+    record(dir, { group: false, owner, pid: child, started: MADE_UP });
+    const { sent, table } = madeUpTable(
+      new Map([
+        // Someone has the owner's pid; the child runs as recorded.
+        [owner.pid, { pgid: owner.pid, started: LATER }],
+        [child, { pgid: 1, started: MADE_UP }],
+      ])
+    );
+    for (let start = 0; start < 2; start += 1) {
+      const stop = await stopOrphans(dir, { system: table });
+      expect({ kind, problems: stop.problems }).toEqual({
+        kind,
+        problems: [expect.stringContaining(`owner ${String(owner.pid)}`)],
+      });
+    }
+    expect(sent).toEqual([]);
+    expect(existsSync(recordPath(dir, child))).toBe(true);
+  }
 });

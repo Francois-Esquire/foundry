@@ -28,7 +28,10 @@ import { readdirSync, readFileSync } from "node:fs";
 
 /**
  * One process: its pid, and its start (see above). `started` is `null`
- * when that could not be read; the pid alone then decides.
+ * when that could not be read. The pid alone can then only show it gone
+ * (no signal reaches it, or it is listed as exited and unreaped); a
+ * process running with that pid is neither proved its nor another's, so
+ * it cannot be told (`processState` says `unknown`).
  */
 export interface ProcessIdentity {
   readonly pid: number;
@@ -230,17 +233,49 @@ function lookProc(
   } catch {
     return;
   }
+  const read = procListing(
+    pids,
+    (pid) => readFileSync(`/proc/${String(pid)}/stat`, "utf8"),
+    boot
+  );
+  if (read === undefined) {
+    return;
+  }
+  for (const [pid, entry] of read) {
+    seen.set(pid, entry);
+  }
+  return seen;
+}
+
+/** Errors reading a process's stat that leave it out of a listing, as not one of this user's or not there. */
+const UNLISTED = new Set(["EACCES", "ENOENT", "EPERM", "ESRCH"]);
+
+/**
+ * What `/proc` says of each of `pids`, each stat read by `read`, under
+ * the boot `bootId`; `undefined` when it says nothing certain. A stat
+ * that is gone, or went while it was read (`ENOENT`, `ESRCH`), is no
+ * process; one this user may not read (`EACCES`, `EPERM`, as under
+ * `hidepid=1`) is another user's process, so never one of this user's:
+ * either is left out, and the rest still listed. Any other failure, or a
+ * stat that is not one, makes the listing say nothing.
+ */
+export function procListing(
+  pids: readonly number[],
+  read: (pid: number) => string,
+  bootId: string
+): Map<number, SeenProcess> | undefined {
+  const seen = new Map<number, SeenProcess>();
   for (const pid of pids) {
     let stat: string;
     try {
-      stat = readFileSync(`/proc/${String(pid)}/stat`, "utf8");
+      stat = read(pid);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      if (UNLISTED.has((error as NodeJS.ErrnoException).code ?? "")) {
         continue;
       }
       return;
     }
-    const found = procStat(stat, boot);
+    const found = procStat(stat, bootId);
     if (found === undefined) {
       return;
     }
@@ -351,14 +386,27 @@ export function startedAt(
  * This process, read once, as the module loads: nothing that records this
  * process as an owner waits on the system, or fails when it cannot answer.
  */
-const SELF: ProcessIdentity = Object.freeze({
+let self: ProcessIdentity = Object.freeze({
   pid: process.pid,
   started: startedAt(process.pid) ?? null,
 });
 
-/** This process, as every record of an owner names it. */
+/**
+ * This process, as every record of an owner names it. Its start is read
+ * once, as the module loads; when that read failed, it is read again on
+ * each call until one succeeds, so a passing failure does not leave every
+ * record this process writes without a start for its whole life. What it
+ * wrote with none stays its own: `sameProcess` takes a missing start for
+ * one that cannot be compared, never for another process's.
+ */
 export function thisProcess(): ProcessIdentity {
-  return SELF;
+  if (self.started === null) {
+    const started = startedAt(process.pid);
+    if (typeof started === "string") {
+      self = Object.freeze({ pid: process.pid, started });
+    }
+  }
+  return self;
 }
 
 /** Whether a process has the pid: `EPERM` counts, since then it belongs to another user. */
@@ -404,9 +452,10 @@ export function processState(
   identity: ProcessIdentity,
   lookup: ProcessLookup = LOOKUP
 ): ProcessState {
-  if (identity.pid === SELF.pid) {
+  if (identity.pid === process.pid) {
     // A process before this one that had its pid, as after a reboot.
-    return compareStarts(identity.started, SELF.started) === "different"
+    return compareStarts(identity.started, thisProcess().started) ===
+      "different"
       ? "gone"
       : "running";
   }
@@ -451,6 +500,25 @@ export function processState(
 }
 
 export type ProcessState = "gone" | "running" | "unknown";
+
+/**
+ * Whether the group `leader` led has another process's pid as its id now,
+ * which proves it empty: a pid is not given to a new process while a
+ * group with that id still has a member. So it is, when `seen` (what the
+ * system lists for the leader's pid) is a process running with a start of
+ * the same kind that differs from the leader's; or, once the leader is
+ * known `reaped`, any process running with that pid.
+ */
+export function groupIdTaken(
+  leader: ProcessIdentity,
+  seen: SeenProcess | undefined,
+  reaped = false
+): boolean {
+  if (seen === undefined || seen.exited === true) {
+    return false;
+  }
+  return reaped || compareStarts(seen.started, leader.started) === "different";
+}
 
 /**
  * Whether the process `owner` names is gone, by `processState`'s rule:

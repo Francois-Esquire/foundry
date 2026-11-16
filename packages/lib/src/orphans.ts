@@ -51,8 +51,8 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   compareStarts,
+  groupIdTaken,
   groupMembers,
-  isGone,
   isProcessIdentity,
   lookProcesses,
   type ProcessIdentity,
@@ -223,8 +223,16 @@ function judge(
   if (state === "unknown") {
     return { problem: `${cannotTell(record, system)}, its record kept` };
   }
-  const ownerThere =
-    record.owner !== undefined && !isGone(record.owner, system.lookup);
+  const owner =
+    record.owner === undefined
+      ? undefined
+      : processState(record.owner, system.lookup);
+  if (owner === "unknown" && state === "running") {
+    // Neither proved gone nor there: its child is left, and it is said so
+    // on every start until the owner can be told.
+    return { problem: `${ownerUntold(record, system)}, its record kept` };
+  }
+  const ownerThere = owner === "running" || owner === "unknown";
   if (record.owner === undefined || ownerThere) {
     // Never an orphan's: its owner is there, or nothing says whose it was.
     return state === "running" || (record.group && ownerThere)
@@ -261,17 +269,74 @@ function cannotTell(identity: ProcessIdentity, system: Table): string {
 }
 
 /**
+ * Why the owner of `record` cannot be told gone or running. With no start
+ * recorded, its pid alone can only show it gone (no signal reaches it, or
+ * it is listed exited): a process running with that pid could be it or
+ * another, so this is said until one of those shows.
+ */
+function ownerUntold(record: ReadRecord, system: Table): string {
+  const { owner } = record;
+  const pid = String(owner?.pid);
+  const child = `process ${String(record.pid)}`;
+  if (owner === undefined) {
+    return `${child} names no owner`;
+  }
+  const seen = system.lookup.look([owner.pid]);
+  let why: string;
+  if (seen === undefined) {
+    why = "it could not be listed";
+  } else if (!seen.has(owner.pid)) {
+    why = "it is not listed but a signal still reaches it";
+  } else if (owner.started === null) {
+    why = "its record names no start, and a process runs with its pid";
+  } else {
+    why = "its start is of another kind than this system reads";
+  }
+  return `owner ${pid} of ${child} cannot be told gone or running: ${why}; ${child} is not signalled`;
+}
+
+/**
+ * The recorded members of `record`'s group, its leader among them, that
+ * run now with their recorded start, wherever their group is: each is
+ * this record's, so stopped by its own signal and waited for.
+ */
+function stillRunning(record: ReadRecord, system: Table): ProcessIdentity[] {
+  return distinct([record, ...(record.members ?? [])]).filter(
+    (member) => processState(member, system.lookup) === "running"
+  );
+}
+
+function distinct(members: readonly ProcessIdentity[]): ProcessIdentity[] {
+  return members.filter(
+    (member, index) =>
+      members.findIndex((other) => other.pid === member.pid) === index
+  );
+}
+
+/**
+ * The processes in `record`'s group now; empty when the group's id is
+ * another process's (`groupIdTaken`), which proves the old group empty;
+ * `undefined` when the system cannot say.
+ */
+function inGroup(
+  record: ReadRecord,
+  system: Table
+): ReadonlyMap<number, SeenProcess> | undefined {
+  const leader = system.lookup.look([record.pid]);
+  if (leader !== undefined && groupIdTaken(record, leader.get(record.pid))) {
+    return new Map();
+  }
+  return system.members(record.pid);
+}
+
+/**
  * Why the group `record` leads cannot be told empty: each of its leader
  * and recorded members that is not gone on proof; `undefined` when every
  * one is.
  */
 function untold(record: ReadRecord, system: Table): string | undefined {
-  const reasons = [record, ...(record.members ?? [])]
-    .filter(
-      (member, index, all) =>
-        all.findIndex((other) => other.pid === member.pid) === index &&
-        processState(member, system.lookup) === "unknown"
-    )
+  const reasons = distinct([record, ...(record.members ?? [])])
+    .filter((member) => processState(member, system.lookup) === "unknown")
     .map((member) => cannotTell(member, system));
   return reasons.length === 0 ? undefined : reasons.join("; ");
 }
@@ -282,11 +347,16 @@ function untold(record: ReadRecord, system: Table): string | undefined {
  * prove, which keep the record, reported.
  */
 function leftMembers(record: ReadRecord, system: Table): Verdict {
-  const members = system.members(record.pid);
+  const members = inGroup(record, system);
   if (members === undefined) {
     return {
       problem: `the members of group ${String(record.pid)} could not be listed; its record is kept`,
     };
+  }
+  // A recorded member still running as recorded is this record's,
+  // whichever group it is in now: stopped by its own signal.
+  if (stillRunning(record, system).length > 0) {
+    return "members";
   }
   if (members.size === 0) {
     // Empty only once its leader and every member it records is gone on proof.
@@ -435,18 +505,22 @@ async function stopGroup(
     }
   }
   const send = (name: NodeJS.Signals): void => {
-    const members = system.members(pgid);
-    if (members === undefined) {
-      return;
-    }
+    const members = inGroup(record, system);
     const known = record.members ?? [];
-    if (whole && known.some((member) => proved(member, members))) {
+    let reached = new Set<number>();
+    if (
+      whole &&
+      members !== undefined &&
+      known.some((member) => proved(member, members))
+    ) {
       record = withMembers(record, members);
       signalTarget(system, -pgid, name);
-      return;
+      reached = new Set(members.keys());
     }
-    for (const member of known) {
-      if (proved(member, members)) {
+    // Each recorded member still running as recorded that the group's own
+    // signal did not reach, wherever it is now, by its own signal.
+    for (const member of stillRunning(record, system)) {
+      if (!reached.has(member.pid)) {
         signalTarget(system, member.pid, name);
       }
     }
@@ -462,9 +536,13 @@ async function stopGroup(
     }
   }
   const reasons = untold(record, system);
-  return reasons === undefined
-    ? `group ${String(pgid)} still has members after SIGKILL; pending, its record kept`
-    : `group ${String(pgid)}: ${reasons}; pending, its record kept`;
+  const stubborn = stillRunning(record, system).map(({ pid }) => String(pid));
+  if (reasons !== undefined) {
+    return `group ${String(pgid)}: ${reasons}; pending, its record kept`;
+  }
+  return stubborn.length > 0
+    ? `group ${String(pgid)}: recorded member(s) ${stubborn.join(", ")} would not stop; its record kept`
+    : `group ${String(pgid)} still has members after SIGKILL; pending, its record kept`;
 }
 
 /**
@@ -503,10 +581,12 @@ async function emptied(
 ): Promise<boolean> {
   const deadline = Date.now() + ms;
   for (;;) {
-    // No member listed in it, and its leader and every member it records
-    // gone on proof: absence from the listing alone proves none gone.
+    // No member listed in it (or its id another's now), and its leader
+    // and every member it records gone on proof, wherever each went:
+    // absence from the listing alone proves none gone.
     if (
-      system.members(record.pid)?.size === 0 &&
+      inGroup(record, system)?.size === 0 &&
+      stillRunning(record, system).length === 0 &&
       untold(record, system) === undefined
     ) {
       return true;

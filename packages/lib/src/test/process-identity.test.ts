@@ -5,12 +5,14 @@ import { join, resolve } from "node:path";
 import { expect, it } from "vitest";
 import {
   compareStarts,
+  groupIdTaken,
   isGone,
   isProcessIdentity,
   lookProcesses,
   ownerOf,
   type ProcessLookup,
   processState,
+  procListing,
   procStat,
   psLine,
   psListing,
@@ -377,4 +379,69 @@ it("says a process is gone only on proof, running only on its start, and cannot 
   // A start read for a pid the listing leaves out while it answers is unknown.
   expect(startedAt(4_200_302, madeUp(true, "absent"))).toBeUndefined();
   expect(startedAt(4_200_303, madeUp(false, "absent"))).toBeNull();
+});
+
+it("passes over, in a /proc listing, a process whose stat another user keeps, or that went mid-read, and fails only on one it cannot make sense of", () => {
+  const rest =
+    "1 4242 4242 0 -1 4194560 120 0 0 0 3 1 0 0 20 0 1 0 987654 1000 200";
+  const failing = (code: string) => {
+    throw Object.assign(new Error(code), { code });
+  };
+  const read = (pid: number): string => {
+    if (pid === 2) {
+      return failing("EACCES"); // hidepid=1: another user's process
+    }
+    if (pid === 3) {
+      return failing("EPERM");
+    }
+    if (pid === 4) {
+      return failing("ESRCH"); // it exited while being read
+    }
+    if (pid === 5) {
+      return failing("ENOENT");
+    }
+    return `${String(pid)} (sleep) S ${rest}`;
+  };
+  expect([...(procListing([1, 2, 3, 4, 5], read, BOOT) ?? []).keys()]).toEqual([
+    1,
+  ]);
+  expect(
+    procListing([1, 6], (pid) => (pid === 6 ? failing("EIO") : read(pid)), BOOT)
+  ).toBeUndefined();
+  expect(
+    procListing([1, 7], (pid) => (pid === 7 ? "garbled" : read(pid)), BOOT)
+  ).toBeUndefined();
+});
+
+it("takes a group's id for another's when a process with the leader's pid runs with another start, or once the leader is reaped", () => {
+  const leader = { pid: 4_200_500, started: AT };
+  expect(
+    groupIdTaken(leader, {
+      pgid: 4_200_500,
+      started: "ps:Sun Nov 15 09:00:00 2026",
+    })
+  ).toBe(true);
+  expect(groupIdTaken(leader, { pgid: 4_200_500, started: AT })).toBe(false);
+  expect(
+    groupIdTaken(leader, {
+      exited: true,
+      pgid: 4_200_500,
+      started: "ps:Sun Nov 15 09:00:00 2026",
+    })
+  ).toBe(false);
+  expect(groupIdTaken(leader, undefined)).toBe(false);
+  // A start that cannot be compared proves nothing, unless the leader is known reaped.
+  expect(
+    groupIdTaken(
+      { pid: 4_200_500, started: null },
+      { pgid: 4_200_500, started: AT }
+    )
+  ).toBe(false);
+  expect(
+    groupIdTaken(
+      { pid: 4_200_500, started: null },
+      { pgid: 4_200_500, started: AT },
+      true
+    )
+  ).toBe(true);
 });
