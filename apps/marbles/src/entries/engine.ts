@@ -19,11 +19,14 @@ import { Engine as LibEngine } from "~/lib/engine";
  * `new MemoryWorkspaceRecords()`, `new MemoryRunStore()`,
  * `new MemoryExecutionStore()`, `new MemoryTriggerStore()`,
  * `new MemoryAutomationStore()` and `new MemoryUsageStore()` for memory on
- * purpose. Without `state`, all are in memory, as before.
+ * purpose. Without `state`, all are in memory, as before, and under `dry`
+ * too, whatever it is given (`Engine.persistence`); stores handed in
+ * explicitly are the caller's, and `dry` does not wrap them.
  */
 export class Engine extends LibEngine {
   constructor(options: EngineOptions) {
-    const { state } = options;
+    // Under `dry`, nothing: every store it is not handed stays in memory.
+    const { state } = LibEngine.persistence(options);
     super(
       state === undefined
         ? options

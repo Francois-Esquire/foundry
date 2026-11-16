@@ -51,8 +51,10 @@ Five buckets, each importing only what sits below it:
   `records` (`lib/events/records.ts`): the host hands in the database's
   (`database/tasks.ts`), and without one the `lib/` class keeps them in
   memory, whatever `state` is. The class the package publishes is
-  `entries/engine.ts`, a tier above `lib/` and `database/`: given `state`,
-  it keeps every store it is not handed in the database, over one handle
+  `entries/engine.ts`, a tier above `lib/` and `database/`: given `state`
+  and not `dry` (`Engine.persistence`, the one rule for where any engine
+  persists, which a dry engine does nowhere), it keeps every store it is
+  not handed in the database, over one handle
   (`withWorkspaceDatabase` in `database/managed.ts`). Each manager has the plain operation as a
   method, usable on the engine directly, and `scoped(frame)` for the view a
   step body gets, which adds replay, cancellation, and cleanup on top; new
@@ -235,7 +237,8 @@ Five buckets, each importing only what sits below it:
   `lib/`, never the reverse. `Engine.execute` runs direct definitions
   through the same orchestration as named launches; calls inside a step
   become dynamic children in that run. `createEngine` in `src/create.ts`
-  is the one place the Marbles defaults and `--dry-run` are decided; it
+  is the one place the Marbles defaults and what `--dry-run` echoes are
+  decided, and where it persists, following `Engine.persistence`; it
   builds the instances, constructs the engine, and copies the catalog in.
   Given the host's `database`, it keeps the tasks, sessions, workflow
   runs, Execution Runs, trigger state, automations, usage, grants,

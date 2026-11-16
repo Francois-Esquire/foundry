@@ -123,11 +123,6 @@ export interface CreateEngineOptions {
   readonly workspaceId: string;
 }
 
-/** The one place `--dry-run` reaches the state dir: a dry engine persists nothing. */
-function persisted(dry: boolean, stateDir: string | undefined) {
-  return dry ? undefined : stateDir;
-}
-
 /**
  * What `define`, `schedule` and `monitor` are called on: an engine, or a
  * bare registry, which has no `observe`.
@@ -479,7 +474,12 @@ function containersFor(
 export function createEngine(options: CreateEngineOptions): Engine {
   const { catalog, dry, print, root, workspaceId } = options;
   const home = options.home ?? homedir();
-  const state = persisted(dry, options.stateDir);
+  // The one rule for where an engine persists, which the engine follows too.
+  const { spawned, state } = Engine.persistence({
+    dry,
+    ...(options.spawned === undefined ? {} : { spawned: options.spawned }),
+    ...(options.stateDir === undefined ? {} : { state: options.stateDir }),
+  });
   // Its sandboxes may mount what is cut there; see `containersFor`.
   const worktrees = Engine.worktreesFor(state);
   const database = dry ? undefined : options.database;
@@ -508,9 +508,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
       ? {}
       : { environment: executionEnvironment(options.environment) }),
     root,
-    ...(dry || options.spawned === undefined
-      ? {}
-      : { spawned: options.spawned }),
+    ...(spawned === undefined ? {} : { spawned }),
     state,
     workspaceId,
     ...(stores === undefined

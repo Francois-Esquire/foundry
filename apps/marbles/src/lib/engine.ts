@@ -199,6 +199,10 @@ export interface EngineOptions {
   /**
    * Simulation: an agent asked to run in a sandbox runs in this process on
    * `models` instead, so no guest is prepared and no credential is read.
+   * It persists nothing either: `state` and `spawned` are not used, and
+   * the published `Engine` keeps no store in the database
+   * (`Engine.persistence`). Stores handed in explicitly are the caller's:
+   * a dry run does not wrap them.
    */
   readonly dry?: boolean;
   /**
@@ -520,8 +524,29 @@ export class Engine {
     return join(state ?? join(tmpdir(), "marbles"), "worktrees");
   }
 
+  /**
+   * Where an engine built with `options` may persist: its state dir and the
+   * recovery records its start acts on. Neither under `dry`, whatever it is
+   * handed: a dry engine keeps everything in memory. The one rule every way
+   * of building an engine follows, the published `Engine` and
+   * `createEngine` included.
+   */
+  static persistence(
+    options: Pick<EngineOptions, "dry" | "spawned" | "state">
+  ): { readonly spawned?: string; readonly state?: string } {
+    if (options.dry === true) {
+      return {};
+    }
+    const { spawned, state } = options;
+    return {
+      ...(spawned === undefined ? {} : { spawned }),
+      ...(state === undefined ? {} : { state }),
+    };
+  }
+
   constructor(options: EngineOptions) {
-    const { models, root, sessions, state, workspaceId } = options;
+    const { models, root, sessions, workspaceId } = options;
+    const { state } = Engine.persistence(options);
     const print = options.print ?? (() => undefined);
     const home = options.home ?? homedir();
     const askable = options.askable ?? false;
@@ -899,7 +924,8 @@ export class Engine {
     print: (line: string) => void,
     runs: RunStore
   ): CrashRecovery {
-    const { containerRows, spawned } = options;
+    const { containerRows } = options;
+    const { spawned } = Engine.persistence(options);
     return new CrashRecovery({
       activities: this.activities,
       artifacts: options.artifacts,
