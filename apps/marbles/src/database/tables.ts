@@ -7,16 +7,6 @@ import {
   text,
 } from "drizzle-orm/sqlite-core";
 
-/**
- * Marbles' own tables. A workspace's id is the scope every package's rows
- * are partitioned by, so this table, the registry of those ids, has none.
- */
-
-/**
- * Every workspace this machine has run, and whether the Marbles process
- * hosts it. One row per id; `first_seen` is set once, `last_seen` on every
- * sight. Times are ISO strings, as the record holds them.
- */
 export const marblesWorkspaces = sqliteTable("marbles_workspaces", {
   config: text(),
   firstSeen: text("first_seen").notNull(),
@@ -26,14 +16,6 @@ export const marblesWorkspaces = sqliteTable("marbles_workspaces", {
   root: text().notNull(),
 });
 
-/**
- * Every change a workspace's tasks committed, as the `TaskEvent` the write
- * carried, for the workspace's observers: written by the task store's
- * `onCommit` hook in the commit's own transaction, so a change and its row
- * land together or not at all. `scope` is the workspace id, as on the
- * tasks' own rows; `position` is the order the changes were committed in.
- * Nothing removes a row.
- */
 export const marblesTaskChanges = sqliteTable(
   "marbles_task_changes",
   {
@@ -51,11 +33,6 @@ export const marblesTaskChanges = sqliteTable(
   ]
 );
 
-/**
- * Which observers completed which change: one row per change and the hash
- * of the handler that completed it (see `lib/events/delivery.ts`). Nothing
- * removes a row.
- */
 export const marblesTaskChangeDeliveries = sqliteTable(
   "marbles_task_change_deliveries",
   {
@@ -68,14 +45,6 @@ export const marblesTaskChangeDeliveries = sqliteTable(
   ]
 );
 
-/**
- * A workspace's sessions, each with a revision that grows with every
- * commit that puts the session or a message in it: written by the session
- * store's `onCommit` hook in the commit's own transaction
- * (`database/sessions.ts`), so it lists exactly the sessions the
- * `@foundry/agents` tables hold, and a reader can tell which of them
- * changed since it last read them without reading their messages.
- */
 export const marblesSessionRevisions = sqliteTable(
   "marbles_session_revisions",
   {

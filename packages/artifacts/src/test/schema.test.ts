@@ -18,7 +18,6 @@ import {
 } from "../schema";
 import { InMemoryArtifactStore } from "../store/memory";
 
-/** `fields` plus an own, enumerable `__proto__` property holding `value`. */
 function withOwnProto<T extends object>(fields: T, value: unknown): T {
   return Object.defineProperty({ ...fields }, "__proto__", {
     configurable: true,
@@ -142,7 +141,6 @@ describe("Artifact record schema", () => {
     );
     const records = await store.records();
     const [stored] = records.contents;
-    // The store keeps every own __proto__ key; the schema must return them.
     expect(ownProto(stored?.tree)).toStrictEqual({ type: "directory" });
 
     const parsed = artifactRecordsSchema.parse(records);

@@ -30,14 +30,8 @@ export function decodeSuspensionRecord(value: unknown): SuspensionRecord {
   return SuspensionRecordSchema.parse(value);
 }
 
-/** The id a Run written before Run ids took the `rn-` prefix is checked as. */
 const LEGACY_RUN_ID = "rn-legacy";
 
-/**
- * `record` as `RunRecordSchema` checks it: a Run whose id predates the `rn-`
- * prefix is admitted, so its id stands in as one. Every other field is
- * checked as it is.
- */
 export function runCheckedAs<T extends Readonly<Record<string, unknown>>>(
   record: T
 ): T {

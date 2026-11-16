@@ -240,8 +240,6 @@ describe("JsonSessionStore across instances", () => {
     const sessions = new Sessions({ store });
     expect(store.sessions().map((session) => session.id)).toEqual(["good"]);
     await expect(store.getSession("broken")).resolves.toBeNull();
-    // An unreadable file reads as no session, so the append is refused before
-    // any write reaches it.
     await expect(
       sessions.appendMessage({ parts, role: "user", sessionId: "wrong" })
     ).rejects.toThrow("unknown session: wrong");
@@ -405,12 +403,10 @@ describe("JsonSessionStore across instances", () => {
     await sessions.appendMessage({ parts, role: "user", sessionId: "s" });
     await expect(store.listMessages("s")).resolves.toHaveLength(1);
     expect(existsSync(join(dir, ".lock"))).toBe(false);
-    // The lock is not a session file.
     expect(store.sessions().map((record) => record.id)).toEqual(["s"]);
   });
 });
 
-/** Each store `marbles sessions` has listed: the JSON files once, the database now. */
 const LISTED: readonly {
   readonly name: string;
   readonly open: () => Promise<ListedSessionStore>;

@@ -68,10 +68,6 @@ export type StreamSource =
   | Promise<AsyncIterable<StreamPart>>;
 
 export interface TransformOptions<OUTPUT extends Output.Output = never> {
-  /** Adapter seam: called with the assembled message before the finish event.
-   *  Return a replacement (e.g. a persisted record) to emit in its place. A
-   *  rejection fails the turn: the message is reported with status `error`
-   *  and an error part saying it was not kept, and `onError` hears why. */
   commit?: (message: SessionMessage) => Promise<SessionMessage>;
   handlers?: StreamHandlers;
   /** The route that ran the turn — recorded on `metadata.model`. */
@@ -83,7 +79,6 @@ export interface TransformOptions<OUTPUT extends Output.Output = never> {
   result?: Promise<
     StreamTextResult<ToolSet, Record<string, unknown>, OUTPUT> | undefined
   >;
-  /** The session the assembled message belongs to; empty when absent. */
   sessionId?: string;
 }
 
@@ -194,7 +189,6 @@ export function transformStream<OUTPUT extends Output.Output = never>(
     let usageAcc: SessionUsage = emptyUsage();
     let finish: Extract<SdkStreamPart, { type: "finish" }> | undefined;
     let hasApprovalRequest = false;
-    /** The first tool output the session could not keep; it fails the turn. */
     let unkept: Error | undefined;
 
     const append = (part: SessionPart) => {
@@ -233,13 +227,11 @@ export function transformStream<OUTPUT extends Output.Output = never>(
           outputContext(assembled.id, options.model, finish),
         error
       );
-      // Puts the output's JSON form on the metadata, before it is kept.
       const output = options.output
         ? keptParse(completed, metadata)
         : completed;
       const kept = await keep(assembled, options.commit);
       const committed = kept.message;
-      // A reply the session could not keep fails the turn, its output too.
       const parsed: Parsed =
         options.output && kept.error ? { error: kept.error } : output;
       resolveText(textBuf);
@@ -367,7 +359,6 @@ export function transformStream<OUTPUT extends Output.Output = never>(
               unkept ??= error;
             });
             append(kept);
-            // A result the session could not keep is reported as the error it was kept as.
             emit(
               kept.isError === true
                 ? {
@@ -428,8 +419,6 @@ export function transformStream<OUTPUT extends Output.Output = never>(
       for await (const part of stream) {
         consume(part);
       }
-      // Read to the end first: the model already has the output, and a
-      // stream left half read rejects where no one listens.
       if (unkept) {
         throw unkept;
       }
@@ -539,11 +528,6 @@ function outputContext(
   };
 }
 
-/**
- * A parsed output as the session keeps it: the value goes to the caller and
- * its JSON form onto the message's metadata. One with no JSON form rejects
- * the output and is not kept.
- */
 function keptParse(parsed: Parsed, metadata: MessageMetadata): Parsed {
   if (!("value" in parsed)) {
     return parsed;
@@ -561,11 +545,6 @@ function keptParse(parsed: Parsed, metadata: MessageMetadata): Parsed {
   }
 }
 
-/**
- * A tool's result as the session keeps it: its output in JSON form. An
- * output with no JSON form is kept as an error result naming the tool, so
- * the call still has its result, and `unkept` hears why; the turn fails.
- */
 function keptToolResult(
   part: { output: unknown; toolCallId: string; toolName: string },
   unkept: (error: Error) => void
@@ -607,7 +586,6 @@ function assembleMessage(
   };
 }
 
-/** A reply not kept failed; a kept one awaits its approval checkpoint, if it holds one. */
 function outcomeOf(
   kept: { readonly error?: Error; readonly message: SessionMessage },
   hasApprovalRequest: boolean
@@ -620,10 +598,6 @@ function outcomeOf(
     : "complete";
 }
 
-/**
- * The events that end a turn: a reply not kept is reported first, then the
- * turn's own error, if it failed, or its finish, if its reply completed.
- */
 function terminalEvents(
   kept: { readonly error?: Error; readonly message: SessionMessage },
   status: MessageStatus,
@@ -641,11 +615,6 @@ function terminalEvents(
   return events;
 }
 
-/**
- * `assembled` through `commit`, or, when `commit` rejects, as a reply that
- * failed: status `error`, with an error part saying why, and the error.
- * Never rejects, so the turn always settles.
- */
 async function keep(
   assembled: SessionMessage,
   commit: TransformOptions["commit"]

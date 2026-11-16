@@ -13,16 +13,9 @@ import { InMemoryArtifactStore } from "../../store/memory";
 import { SqliteArtifactStore } from "../../store/sqlite";
 import { ARTIFACT_TABLES } from "./sqlite";
 
-/** Every kind of Artifact store the package's tests run over. */
 export const STORE_KINDS = ["memory", "json", "sqlite"] as const;
 export type StoreKind = (typeof STORE_KINDS)[number];
 
-/**
- * A fresh, empty store of `kind`: the memory store, a JSON records file in
- * a temporary directory, or the SQLite store on a libSQL `:memory:`
- * database. Call it from inside a test; the file or database goes when the
- * test ends.
- */
 export async function openStore(kind: StoreKind): Promise<ArtifactStore> {
   switch (kind) {
     case "memory":

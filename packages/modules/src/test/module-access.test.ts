@@ -48,10 +48,6 @@ async function fixture(
   return { ...module, access, installation, invocations, version };
 }
 
-/**
- * `registry`, whose transactions hand their work a registry that revokes
- * through `registry` and then fails, before the transaction commits.
- */
 function failingAfterRevokeWrite(registry: ModuleRegistry): AccessRegistry {
   return {
     loadGatewayContext: (id) => registry.loadGatewayContext(id),
@@ -274,7 +270,6 @@ describe("Module access", () => {
       async (operation) => {
         const memory = new MemoryModuleStore();
         let committed = false;
-        // The registry's store, telling when a transaction it runs commits.
         const watched: ModuleStore = {
           commit: (write) => memory.commit(write),
           getInstallation: (id) => memory.getInstallation(id),

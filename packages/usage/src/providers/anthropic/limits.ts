@@ -123,11 +123,6 @@ const unsupported = (why: string): Reading => ({
   unsupported: why,
 });
 
-/**
- * What the account rules out before usage is read. Only Anthropic's own API
- * has plan limits; an API key wins over a login; a signed-out CLI has no
- * token and no account, so it has no limits to read.
- */
 const refusal = (account: Record<string, unknown>): Reading | undefined => {
   const apiProvider = text(account.apiProvider);
   if (apiProvider && apiProvider !== "firstParty") {

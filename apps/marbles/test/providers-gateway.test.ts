@@ -39,19 +39,16 @@ const DROPPED = /served\/chat/;
 const PRINTED =
   /^\[providers\] "gw" has no models; its models could not be listed: /;
 
-/** What the stub serves, how many times it was asked, and whether it answers. */
 let served: string[] = [];
 let asked = 0;
 let hang = false;
 let failing = false;
 let server: Server;
 let baseURL: string;
-/** A port nothing listens on. */
 let closedURL: string;
 let state: string;
 
 function listen(target: Server): Promise<string> {
-  // Port 0: the system picks a free port. A bind error fails the hook at once.
   return new Promise((resolve, reject) => {
     target.once("error", reject);
     target.listen(0, "127.0.0.1", () =>
@@ -61,7 +58,6 @@ function listen(target: Server): Promise<string> {
 }
 
 beforeAll(async () => {
-  // An OpenAI-compatible server: its model list, and one streamed answer.
   server = createServer((request, response) => {
     if (request.method === "GET" && request.url === "/v1/models") {
       asked += 1;
@@ -102,7 +98,6 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-  // A hanging request would hold the server open.
   server.closeAllConnections();
   return new Promise<void>((resolve) => server.close(() => resolve()));
 });
@@ -120,7 +115,6 @@ afterEach(() => {
   rmSync(state, { force: true, recursive: true });
 });
 
-/** A plugin that lists nothing and is always ready: the other providers. */
 const other: ProviderPlugin<Record<string, never>> = {
   catalog: () => [{ id: "local", kind: "text", modelId: "local" }],
   create: ({ id, models }) => {
@@ -181,7 +175,6 @@ function configuration(
   };
 }
 
-/** A plugin named "slow" whose models come from `list`. */
 function lister(
   list: NonNullable<ProviderPlugin<Record<string, never>>["list"]>
 ): RegisteredPlugin {
@@ -194,7 +187,6 @@ function lister(
   });
 }
 
-/** The machine file with these enabled entries, each its plugin's own id. */
 function configureOnly(...plugins: string[]): void {
   writeFileSync(
     join(state, "providers.json"),
@@ -209,7 +201,6 @@ function configureOnly(...plugins: string[]): void {
   );
 }
 
-/** The model a selection routes to now, or undefined while it is refused. */
 function routed(models: ModelManager, selection: string): string | undefined {
   try {
     return models.resolve("text", selection).model;
@@ -315,7 +306,6 @@ it("picks up a changed list when the configuration reloads, and keeps the last l
     await configured.refresh();
     expect(models.resolve("text", "gw/served/chat").model).toBe("served/chat");
 
-    // The file is unchanged; only the server's list is.
     served = ["served/next"];
     const touch = (seconds: number) => {
       const at = new Date(Date.now() + seconds * 1000);
@@ -327,7 +317,6 @@ it("picks up a changed list when the configuration reloads, and keeps the last l
       .toBe("served/next");
     expect(() => models.resolve("text", "gw/served/chat")).toThrow(DROPPED);
 
-    // A list that fails now keeps the one before, and is reported.
     failing = true;
     touch(10);
     await expect.poll(() => reported.length).toBeGreaterThan(0);
@@ -502,7 +491,6 @@ it("drops a list still in flight when Airplane Mode turns on", async () => {
     await expect.poll(() => signal).toBeDefined();
     configured.setOffline(true);
     expect(signal?.aborted).toBe(true);
-    // A server that answers anyway is not heard.
     answer([{ id: "late", kind: "text", modelId: "late" }]);
     expect(await refreshed).toEqual([]);
     expect(entry(configured, "slow")?.state).toBe("unavailable");

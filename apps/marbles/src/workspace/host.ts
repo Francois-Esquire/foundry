@@ -137,9 +137,6 @@ export async function hostWorkspace(
     onMissing: options.onMissing,
     print,
   });
-  // A host is a writer, and keeps one handle for as long as it hosts: it
-  // makes and migrates the database only under the state root's process
-  // lock (`openHostDatabase`). Under `--dry-run` nothing is persisted.
   const database = hostOptions.dry
     ? undefined
     : await openHostDatabase(hostOptions.state);
@@ -182,7 +179,6 @@ export async function hostWorkspace(
 
 interface Status {
   readonly captured: AsyncLocalStorage<string[]>;
-  /** The host's handle on the Marbles database, closed once the engine is disposed. */
   readonly database: MarblesDatabase | undefined;
   readonly diagnostics: Diagnostics;
   /** An error line: the status, and an error in the Logs tab. */

@@ -134,13 +134,6 @@ export function findWorkspace(args: HostOptions): OpenedWorkspace {
   });
 }
 
-/**
- * A workspace recorded under the state root, by its id, found without
- * executing anything. Its checkout need not exist: stored state is all a
- * task command reads. Undefined when nothing has that id, or when
- * `<state>/<id>` is a link; a state root without a database is left
- * without one.
- */
 export async function recordedWorkspace(
   args: HostOptions,
   id: string
@@ -200,11 +193,6 @@ export async function openWorkspace(
 
 interface WorkspaceEngineOptions {
   readonly askable?: boolean;
-  /**
-   * The Marbles database this process hosts the workspace over, which
-   * keeps its tasks and agent sessions; without one (`--dry-run`), they are
-   * in memory.
-   */
   readonly database?: MarblesDatabase;
   /** Definitions' own `log(...)` lines; to `print` when omitted. */
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
@@ -229,12 +217,6 @@ export async function hostEngine(
   return engine;
 }
 
-/**
- * The engine over a workspace, as the flags ask for it, and nothing more:
- * no usage accounts and no host for definitions called outside a run. It
- * keeps the workspace's state, and its tasks and sessions in `database`, under
- * `--dry-run` in memory only.
- */
 function workspaceEngine(
   args: HostOptions,
   { environment, workspace }: OpenedWorkspace,
@@ -265,10 +247,6 @@ export function hostTriggers(
   return readTriggers(catalog, { dry: args.dry, stateDir: workspace.dir });
 }
 
-/**
- * Record that this workspace ran, for `status`, in the database the host
- * opened. Without one (`--dry-run`) nothing is written.
- */
 export async function touchWorkspace(
   database: MarblesDatabase | undefined,
   args: Pick<HostOptions, "state">,
@@ -282,13 +260,6 @@ export async function touchWorkspace(
   }
 }
 
-/**
- * The tasks of the engine's workspace, for the CLI and the MCP tools: its
- * own store, which the builtin `tasks` also reaches while the engine is the
- * host. Each commit records its change in the same write. After the engine
- * is disposed, reads and writes are refused, never answered from
- * somewhere else.
- */
 export function hostTasks(engine: Engine): Tasks {
   return new Tasks({ store: engine.taskStore });
 }

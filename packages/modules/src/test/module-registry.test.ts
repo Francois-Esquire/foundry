@@ -17,10 +17,8 @@ import { moduleFixture, VALID_MANIFEST } from "./helpers/module-fixture";
 import { describeModuleRegistry } from "./helpers/registry-conformance";
 import { libsqlDatabases } from "./helpers/sqlite";
 
-/** A store for the registry under test, and how to reach it again. */
 interface StoreRun {
   readonly name: string;
-  /** Fresh, empty storage; `reopen` reaches the same records anew. */
   readonly open: () => Promise<{
     readonly reopen: () => Promise<ModuleStore>;
     readonly store: ModuleStore;
@@ -53,7 +51,6 @@ const RUNS: readonly StoreRun[] = [
     async open() {
       let database = await fileDatabases.open();
       return {
-        // A new connection to the same file, as a restarted host opens.
         async reopen() {
           database = await fileDatabases.reopen(database);
           return new SqliteModuleStore({ database, scope: "workspace" });
@@ -66,7 +63,6 @@ const RUNS: readonly StoreRun[] = [
 
 for (const run of RUNS) {
   let opened: Awaited<ReturnType<StoreRun["open"]>> | undefined;
-  /** A registry over fresh storage, kept for the test's `reopen`. */
   async function freshRegistry(
     options: Omit<ModuleRegistryOptions, "store"> = {}
   ): Promise<ModuleRegistry> {
@@ -182,7 +178,6 @@ for (const run of RUNS) {
           })
         ).rejects.toBeInstanceOf(ModuleStoreConflictError);
       }
-      // A transaction's registry checks the same way.
       await expect(
         registry.transaction((bound) =>
           bound.createInstallation({
@@ -296,7 +291,6 @@ for (const run of RUNS) {
   });
 }
 
-/** `store` without `transaction`: a registry over it serializes its own commands. */
 function withoutTransaction(store: ModuleStore): ModuleStore {
   return {
     commit: (write) => store.commit(write),
