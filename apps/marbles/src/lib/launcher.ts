@@ -6,6 +6,7 @@ import {
   thisProcess,
 } from "@foundry/lib/process-identity";
 import type { Container } from "@foundry/sandbox/container/containers";
+import { asRun, callingRun } from "~/lib/calling-run";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
 import type { ExecutionRun, Executions } from "~/lib/executions";
 import { DEFAULT_QUEUE } from "~/lib/executions";
@@ -152,10 +153,11 @@ export class RunNotRecordedError extends Error {
 }
 
 /**
- * A launch that reached an engine that has begun to retire: nothing is
- * recorded or started here, and the Marbles process launches it again on
- * the engine generation current now, as it does with a question moving
- * with its run (its name is what it tells them apart by).
+ * A launch from outside this engine's active runs that reached it after it
+ * began to retire: nothing is recorded or started here, and the Marbles
+ * process launches it again on the engine generation current now, as it
+ * does with a question moving with its run (its name is what it tells
+ * them apart by).
  */
 class EngineRetiringError extends Error {
   override readonly name = "EngineRetiringError";
@@ -251,8 +253,11 @@ export class Launcher {
     if (!this.#runnable(name)) {
       throw new Error(`Definition is not registered: ${name}`);
     }
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `handOver` sets it.
-    if (this.#retiring) {
+    // A run active here launches as part of itself: admitted, retiring or
+    // not, and kept here to run on the code it runs on.
+    const parent = this.#activeCaller();
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
+    if (this.#retiring && parent === undefined) {
       throw new EngineRetiringError(name);
     }
     // Until it is admitted, a hand-over that begins meanwhile waits for it,
@@ -264,7 +269,7 @@ export class Launcher {
     };
     this.#launching.add(admitted.promise);
     try {
-      return await this.#launch<O>(name, input, options, done);
+      return await this.#launch<O>(name, input, options, done, parent);
     } finally {
       done();
     }
@@ -274,7 +279,8 @@ export class Launcher {
     name: string,
     input: unknown,
     options: LaunchOptions,
-    admitted: () => void
+    admitted: () => void,
+    parent: string | undefined
   ): Promise<Launched<O>> {
     const task = this.#tasks.get(name);
     const { existing, run } = await this.executions.enqueue({
@@ -296,7 +302,7 @@ export class Launcher {
     }
     const owed = this.#owe(run.id, options.recordErrorMessage ?? true);
     // A subscriber told it is queued may have cancelled it already.
-    const started = this.#admit(run.id);
+    const started = this.#admit(run.id, parent);
     admitted();
     if (started) {
       await started;
@@ -355,8 +361,7 @@ export class Launcher {
    * handed over.
    */
   async handOver(successor: ProcessIdentity): Promise<readonly string[]> {
-    this.#retiring = true;
-    this.executions.closeAdmission();
+    this.beginRetiring();
     const handed: string[] = [];
     const told = (id: string) => {
       handed.push(id);
@@ -558,7 +563,7 @@ export class Launcher {
    * A run no longer queued, cancelled by a subscriber told it was, is paid
    * its cancellation instead.
    */
-  #admit(id: string): Promise<void> | undefined {
+  #admit(id: string, parent?: string): Promise<void> | undefined {
     if (this.executions.get(id)?.status !== "queued") {
       this.#pay(id, new Error(`run ${id} was cancelled before it started`));
       return;
@@ -575,8 +580,30 @@ export class Launcher {
       AsyncResource.bind((input: unknown) =>
         this.#start(id, input, admission.controller)
       ),
-      (error) => this.#pay(id, error)
+      (error) => this.#pay(id, error),
+      parent
     );
+  }
+
+  /**
+   * The run active here whose body is calling, if one is: launched or
+   * adopted here and not yet settled (`#live`). Decided from the run scope
+   * the call is made in (`callingRun`), never from what the caller says.
+   */
+  #activeCaller(): string | undefined {
+    const id = callingRun();
+    return id !== undefined && this.#live.has(id) ? id : undefined;
+  }
+
+  /**
+   * Begin to retire, at once: no launch from outside this engine's active
+   * runs is recorded here from now on, and no queue admits a run but one
+   * an active run here launched (`Executions.closeAdmission`). Nothing
+   * reopens either.
+   */
+  beginRetiring(): void {
+    this.#retiring = true;
+    this.executions.closeAdmission((id) => this.#live.has(id));
   }
 
   /**
@@ -716,7 +743,8 @@ export class Launcher {
       try {
         // Cancelled before its body started: it never runs.
         controller.signal.throwIfAborted();
-        value = await task.run(input, context);
+        // Its body is the run's own: what it launches comes from it.
+        value = await asRun(id, () => task.run(input, context));
       } finally {
         lifetime.abort(new Error(`run ${id} resource lifetime ended`));
         // Last opened first, one at a time, as a run scope closes: a

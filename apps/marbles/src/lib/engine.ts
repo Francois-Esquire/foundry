@@ -1381,7 +1381,10 @@ export class Engine {
     if (running === undefined) {
       return { ended: Promise.resolve() };
     }
+    // Before anything is awaited: from here no run from outside this
+    // engine's active runs starts here, and no answer is applied here.
     this.#retiring = true;
+    this.#launcher.beginRetiring();
     running.router.retire();
     await this.#delivery.stop();
     for (const runId of await this.#launcher.handOver(successor)) {

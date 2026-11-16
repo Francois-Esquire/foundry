@@ -35,6 +35,8 @@ interface Waiting {
   /** Called when the run cannot be recorded as running, instead of `start`. */
   readonly fail: (error: unknown) => void;
   readonly id: string;
+  /** The run here whose body launched it, if one did. */
+  readonly parent?: string;
   /** Called with the run's input once it is admitted and recorded as running. */
   readonly start: (input: unknown) => Promise<void>;
   started?: Promise<void>;
@@ -66,9 +68,16 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
   readonly #withdrawing = new Set<string>();
   /**
    * Set once the engine has begun to retire (`closeAdmission`), and kept:
-   * no queue lets a run in here again, on success or failure.
+   * no queue lets a run in here again, on success or failure, but those
+   * `#kept` here.
    */
   #closed = false;
+  /**
+   * Runs an active run here launched, kept here once admission closed: the
+   * queues still let them in, in their order, and they are never handed
+   * over.
+   */
+  readonly #kept = new Set<string>();
   constructor(
     options: ExecutionRecordsOptions & {
       readonly queues?: Readonly<Record<string, QueueSettings>>;
@@ -106,11 +115,22 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
   admit(
     id: string,
     start: (input: unknown) => Promise<void>,
-    fail: (error: unknown) => void
+    fail: (error: unknown) => void,
+    parent?: string
   ): Promise<void> | undefined {
     const run = this.requireRecord(id);
     const lane = this.#lane(run.queue);
-    const waiting: Waiting = { fail, id, start };
+    const waiting: Waiting = {
+      fail,
+      id,
+      start,
+      ...(parent === undefined ? {} : { parent }),
+    };
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `closeAdmission` sets it.
+    if (this.#closed && parent !== undefined) {
+      // Admitted after retirement began only for an active run here.
+      this.#kept.add(id);
+    }
     lane.waiting.push(waiting);
     this.#pump(lane);
     return waiting.started;
@@ -185,18 +205,31 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
   }
 
   /**
-   * Let no queue admit a run here again. For an engine that has begun to
-   * retire: what waits here from now on waits to be handed over
-   * (`handOverAll`), and nothing reopens the queues.
+   * Let no queue admit a run here again but those an active run here
+   * launched. For an engine that has begun to retire: a run waiting now
+   * that `active` says its parent still runs here is kept, to be let in
+   * here; every other waits to be handed over (`handOverAll`). Nothing
+   * reopens the queues. Only the first call decides.
    */
-  closeAdmission(): void {
+  closeAdmission(active: (runId: string) => boolean): void {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; this sets it.
+    if (this.#closed) {
+      return;
+    }
     this.#closed = true;
+    for (const lane of this.#lanes.values()) {
+      for (const item of lane.waiting) {
+        if (item.parent !== undefined && active(item.parent)) {
+          this.#kept.add(item.id);
+        }
+      }
+    }
   }
 
   /**
    * Take every run waiting in this process's queues off them and make each
-   * `successor`'s, still queued (`handQueued`), in their order, with
-   * admission closed for good first (`closeAdmission`). `onHanded` is told
+   * `successor`'s, still queued (`handQueued`), in their order, but those
+   * kept here (`closeAdmission`, which retirement calls first). `onHanded` is told
    * of each as it is handed over, whatever happens to the runs after it. A
    * run whose hand-over fails is reported in `failed` and stays queued
    * here, unstarted, holding `drained` back, for another try. One no
@@ -211,9 +244,8 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
       readonly id: string;
     }[];
   }> {
-    this.closeAdmission();
     const failed: { readonly error: unknown; readonly id: string }[] = [];
-    for (const id of this.waiting()) {
+    for (const id of this.waiting().filter((each) => !this.#kept.has(each))) {
       try {
         if (await this.#handOver(id, successor)) {
           onHanded(id);
@@ -288,13 +320,17 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
    * one being withdrawn holds its place, and nothing behind it goes first.
    */
   #pump(lane: Lane): void {
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `closeAdmission` sets it.
-    while (!this.#closed && lane.active.size < lane.concurrency) {
-      const [next] = lane.waiting;
+    while (lane.active.size < lane.concurrency) {
+      // Once closed, only a kept run goes in, the first kept in line.
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `closeAdmission` sets it.
+      const index = this.#closed
+        ? lane.waiting.findIndex((item) => this.#kept.has(item.id))
+        : 0;
+      const next = index === -1 ? undefined : lane.waiting[index];
       if (!next || this.#withdrawing.has(next.id)) {
         return;
       }
-      lane.waiting.shift();
+      lane.waiting.splice(index, 1);
       lane.active.add(next.id);
       next.started = this.#start(next);
       // Whoever awaits it sees the failure; `start` and `fail` handle it otherwise.

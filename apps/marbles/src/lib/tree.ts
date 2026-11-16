@@ -5,6 +5,7 @@ import { Step } from "@foundry/workflows/step";
 import { isBail } from "@foundry/workflows/types";
 
 import type { Bindings } from "./bindings";
+import { asRun } from "./calling-run";
 import { buildContext } from "./context";
 import type {
   AnyDefinition,
@@ -162,9 +163,12 @@ async function runBody(
   let attempt: Promise<unknown> | undefined;
   const timer = startTimeout(definition, where, frame);
   try {
+    // The step is its run's body: what it launches comes from that run.
     attempt = current.run(store, () =>
-      Promise.resolve(
-        definition.fn(buildContext({ bindings, ctx, frame, input, scope }))
+      asRun(scope.id, () =>
+        Promise.resolve(
+          definition.fn(buildContext({ bindings, ctx, frame, input, scope }))
+        )
       )
     );
     output = await raceAbort(frame, attempt);
