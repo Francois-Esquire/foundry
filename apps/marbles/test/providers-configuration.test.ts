@@ -678,6 +678,50 @@ describe("a store that could not be reached", () => {
     }
   }, 15_000);
 
+  it("reports a recovery an edit made outside a poll on the next poll", async () => {
+    store.put(MACHINE_SCOPE, codex);
+    const { config } = configuration();
+    store.refusing.key = [busy()];
+    await expect(config.refresh()).rejects.toThrow("the database is locked");
+    const { problems, stop } = watched(config);
+    try {
+      // The edit asks for the key, which comes now: the store is reached.
+      await config.add(
+        { id: "vercel", plugin: "vercel" },
+        { scope: "machine" }
+      );
+      await vi.waitFor(() => expect(problems).toHaveLength(1), {
+        timeout: 5000,
+      });
+      expect(problems).toEqual([
+        "the provider configuration can be read again",
+      ]);
+      await new Promise((settle) => setTimeout(settle, 1100));
+      expect(problems).toHaveLength(1);
+    } finally {
+      stop();
+    }
+  }, 15_000);
+
+  it("notices a stored identity key that is not one being removed, though no revision moves", async () => {
+    store.put(MACHINE_SCOPE, codex);
+    store.key = "not a key";
+    const { config, models } = configuration();
+    await expect(config.refresh()).rejects.toThrow("the identity key");
+    const { problems, stop } = watched(config);
+    try {
+      // As its error says: remove it, and a new one is made.
+      store.key = undefined;
+      await vi.waitFor(() => expect(ids(models)).toEqual(["codex"]), {
+        timeout: 10_000,
+      });
+      expect(store.key).toEqual(expect.any(String));
+      expect(problems).toEqual([]);
+    } finally {
+      stop();
+    }
+  }, 20_000);
+
   it("reports a stored identity key that is not one once, though asking for it failed before, and asks no more until the revision changes", async () => {
     store.put(MACHINE_SCOPE, codex);
     store.key = "not a key";

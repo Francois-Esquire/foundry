@@ -38,10 +38,15 @@ import {
 } from "~/lib/providers/store";
 import type {
   ReadEvent,
-  ReadState,
   StoreRead,
+  StoreReads,
 } from "~/lib/providers/store-reads";
-import { FINE, nextRead, retried } from "~/lib/providers/store-reads";
+import {
+  ALL_FINE,
+  moveReads,
+  RECOVERED,
+  retriedOn,
+} from "~/lib/providers/store-reads";
 
 /** An edit of one scope's configuration: undefined leaves it as it is. */
 type Edit = (current: ProvidersFile | undefined) => ProvidersFile | undefined;
@@ -143,13 +148,15 @@ export class ProviderConfiguration {
    * configuration, the identity key a read or write needed, and the
    * revision the watcher polls.
    */
-  readonly #reads: Record<StoreRead, ReadState> = {
-    configuration: FINE,
-    "identity key": FINE,
-    revision: FINE,
-  };
+  #reads: StoreReads = ALL_FINE;
   /** What a poll under way hears to report: undefined outside one, whose caller reports what it is thrown. */
   #heard: string[] | undefined;
+  /**
+   * A recovery heard outside a poll (an edit, or `refresh` called
+   * directly, that reached the store again): no caller is told of it, so
+   * the next poll reports it.
+   */
+  readonly #owed: string[] = [];
   /** Errors a read's state already accounts for, which a poll does not report again. */
   readonly #accounted = new WeakSet<object>();
   /** Every scope as the edit under way reads it, inside the store's transaction. */
@@ -317,12 +324,20 @@ export class ProviderConfiguration {
     return error;
   }
 
-  /** Move `read`'s state; what the move reports is heard by the poll under way, if one is. */
+  /**
+   * Move `read`'s state (`moveReads`). What the move reports is heard by
+   * the poll under way; outside one, its caller is thrown any failure, and
+   * only a recovery is kept for the next poll.
+   */
   #move(read: StoreRead, event: ReadEvent): void {
-    const { report, state } = nextRead(this.#reads[read], event);
-    this.#reads[read] = state;
-    if (report !== undefined) {
-      this.#heard?.push(report);
+    const { reads, reports } = moveReads(this.#reads, read, event);
+    this.#reads = reads;
+    for (const report of reports) {
+      if (this.#heard !== undefined) {
+        this.#heard.push(report);
+      } else if (report === RECOVERED) {
+        this.#owed.push(report);
+      }
     }
   }
 
@@ -799,14 +814,15 @@ export class ProviderConfiguration {
       return () => undefined;
     }
     let polling = false;
-    const poll = async () => {
-      // A configuration or key read that could not reach the store is
-      // tried again by refreshing; otherwise the revision is read, and only
-      // one that moved is refreshed, so what was invalid at a revision is
-      // not read again until it changes.
+    let polls = 0;
+    const poll = async (number: number) => {
+      // A configuration or key read due again (`retriedOn`) is tried by
+      // refreshing; otherwise the revision is read, and only one that
+      // moved is refreshed, so what was invalid at a revision is not read
+      // again until it changes.
       const retry =
-        retried(this.#reads.configuration) ||
-        retried(this.#reads["identity key"]);
+        retriedOn("configuration", this.#reads.configuration, number) ||
+        retriedOn("identity key", this.#reads["identity key"], number);
       if (!retry) {
         const seen = this.#revision;
         if (seen === undefined) {
@@ -828,9 +844,10 @@ export class ProviderConfiguration {
         return;
       }
       polling = true;
-      const heard: string[] = [];
+      polls += 1;
+      const heard = this.#owed.splice(0);
       this.#heard = heard;
-      poll()
+      poll(polls)
         .catch((error: unknown) => {
           // A read's own failure is reported by its state's move.
           if (!(error instanceof Object && this.#accounted.has(error))) {
