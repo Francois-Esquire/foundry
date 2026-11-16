@@ -1,6 +1,7 @@
 import { ownedEvents } from "@foundry/lib/plain-json";
-import { and, asc, eq, gt, gte, inArray, lt, lte, min, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lt, lte, min, sql } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
+import { inList } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import {
@@ -37,6 +38,12 @@ import type { Fact } from "~/lib/events/source";
  * order commits land. The positions come from the counter, never from the
  * facts that survive, so none is given twice, after compaction too.
  */
+
+/**
+ * Facts per insert: eight values each, far under SQLite's limit on the
+ * values one statement may bind (32,766), however many a commit carries.
+ */
+const CHANGE_ROWS_PER_INSERT = 500;
 
 /** Whatever transaction a package store hands its `onCommit` hook. */
 type CommitTransaction = Pick<StoreDatabase, "insert">;
@@ -96,18 +103,23 @@ export class ChangeRecorder {
       .returning({ position: marblesChangeLogs.position });
     const last = counter?.position ?? events.length;
     const recordedAt = Date.now();
-    await transaction.insert(marblesChanges).values(
-      events.map((fact, index) => ({
-        id: fact.id,
-        payload: fact,
-        position: last - events.length + index + 1,
-        recordedAt,
-        runId: this.#causes.get(fact.id) ?? null,
-        scope: this.scope,
-        source,
-        type: fact.type,
-      }))
-    );
+    const rows = events.map((fact, index) => ({
+      id: fact.id,
+      payload: fact,
+      position: last - events.length + index + 1,
+      recordedAt,
+      runId: this.#causes.get(fact.id) ?? null,
+      scope: this.scope,
+      source,
+      type: fact.type,
+    }));
+    // In batches, each row keeping the position just taken for it, all in
+    // the commit's transaction: one statement binds only so many values.
+    for (let start = 0; start < rows.length; start += CHANGE_ROWS_PER_INSERT) {
+      await transaction
+        .insert(marblesChanges)
+        .values(rows.slice(start, start + CHANGE_ROWS_PER_INSERT));
+    }
     this.#wake();
   }
 
@@ -475,7 +487,7 @@ export function changesAfter(
         gt(marblesChanges.position, query.after),
         query.types === undefined
           ? undefined
-          : inArray(marblesChanges.type, [...query.types])
+          : inList(marblesChanges.type, query.types)
       )
     )
     .orderBy(asc(marblesChanges.position))

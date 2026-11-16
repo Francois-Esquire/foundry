@@ -485,3 +485,42 @@ describe("a Run commit the owner check refuses", () => {
     await other.close();
   });
 });
+
+describe("a commit carrying more facts than one statement can bind", () => {
+  it("records every one, each at the position the commit gave it, in the commit's own transaction", async () => {
+    const state = machine.workspace();
+    const scope = basename(state);
+    const records = machine.records(state);
+    const { artifacts } = workspaceStores(
+      machine.database.database,
+      scope,
+      records.changes
+    );
+    const manager = new ArtifactManager({ store: artifacts });
+    const { id } = await manager.create({
+      entries: { "a.md": { bytes: "# A" } },
+      name: "Renamed",
+      type: "text/markdown",
+    });
+    const before = await records.log.head();
+    // Thousands of facts in one commit: past what one insert can bind.
+    const renames = 5000;
+    await manager.transaction(async (artifact) => {
+      for (let index = 0; index < renames; index += 1) {
+        await artifact.rename(id, `name ${String(index)}`);
+      }
+    });
+
+    const logged = (await machine.changes(state, "artifacts")).filter(
+      (change) => change.position > before
+    );
+    expect(logged.length).toBeGreaterThanOrEqual(renames);
+    // One run of positions, in the order the commit carried its facts.
+    expect(logged.map((change) => change.position)).toEqual(
+      logged.map((_, index) => before + index + 1)
+    );
+    expect(await records.log.head()).toBe(before + logged.length);
+    expect((await manager.get(id))?.name).toBe(`name ${String(renames - 1)}`);
+    await records.close();
+  }, 60_000);
+});

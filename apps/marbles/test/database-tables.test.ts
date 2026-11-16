@@ -131,8 +131,11 @@ describe("the read of what is left to deliver", () => {
         sql: `EXPLAIN QUERY PLAN ${text}`,
       });
       const details = plan.rows.map((row) => String(row.detail));
+      // The facts by their index; the types, one bound list, walked alone.
       expect(details).toEqual([
         "SEARCH marbles_changes USING INDEX marbles_changes_scope_source_position (scope=? AND source=? AND position>?)",
+        "LIST SUBQUERY 1",
+        "SCAN json_each VIRTUAL TABLE INDEX 1:",
       ]);
     } finally {
       machine.close();

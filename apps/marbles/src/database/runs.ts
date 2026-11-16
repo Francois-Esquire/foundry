@@ -6,11 +6,12 @@ import type {
 } from "@foundry/workflows/store";
 import type { WorkflowTransaction } from "@foundry/workflows/store/sqlite";
 import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { aroundCalls, asBusy } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
 import { followExecution, readExecution } from "~/database/executions";
+import { inList } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import {
@@ -312,7 +313,7 @@ export class DatabaseRunStore implements RunStore {
         .where(
           and(
             eq(marblesWorkflowRuns.scope, this.#scope),
-            inArray(marblesWorkflowRuns.runId, [...deleted])
+            inList(marblesWorkflowRuns.runId, deleted)
           )
         );
     }
@@ -401,7 +402,7 @@ export async function unheldParkedRuns(
       .where(
         and(
           eq(marblesWorkflowRuns.scope, scope),
-          inArray(marblesWorkflowRuns.runId, parked)
+          inList(marblesWorkflowRuns.runId, parked)
         )
       )
   );
