@@ -10,13 +10,6 @@ import { seedWorkspace } from "./helpers/registry";
 import { seedTicks } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
-/**
- * Every reader of stored ticks shows a trigger's kind by one rule: history
- * that names a kind decides it, and a launch a monitor left decides only
- * when no history names one. A launch left under a key whose history says
- * schedule is no launch of that trigger's, and is not shown as one.
- */
-
 const SEEN = "2026-11-01T00:00:00.000Z";
 
 const HISTORY: Omit<ScheduleHistory, "kind"> = {
@@ -31,11 +24,9 @@ type History = "absent" | "untyped" | "schedule" | "monitor";
 
 interface Row {
   readonly history: History;
-  /** What the dashboard and `status` show, or `undefined` when the trigger is not listed. */
   readonly kind: "monitor" | "schedule" | undefined;
   readonly pending: boolean;
   readonly running: boolean;
-  /** Whether the launch shows as waiting. */
   readonly waits: boolean;
 }
 

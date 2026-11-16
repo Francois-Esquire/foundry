@@ -67,21 +67,18 @@ afterEach(async () => {
   await rm(state, { force: true, recursive: true });
 });
 
-/** The usage facts of the test workspace in the Marbles database at `state`, over a handle of the test's own. */
 async function databaseUsage(): Promise<UsageStore> {
   const opened = await initializeDatabase(stateDatabase(state));
   handles.push(opened);
   return new DatabaseUsageStore({ database: opened.database, scope: "test" });
 }
 
-/** `databaseUsage`, its saves and marks failing when `fail` says so. */
 async function failingUsage(
   fail: (write: number) => boolean
 ): Promise<UsageStore> {
   return new FailingUsageStore(await databaseUsage(), fail);
 }
 
-/** What a later engine's ledger reads of the test workspace's usage at `state`. */
 async function reread() {
   const records = await storedUsage(state);
   if (records === undefined) {
@@ -90,7 +87,6 @@ async function reread() {
   return records;
 }
 
-/** Price every stored fact of `runId` as a provider could have reported it, at $2 a turn. */
 async function reportStored(runId: string): Promise<void> {
   for (const fact of (await reread()).facts) {
     if (fact.scope === "run" && fact.runId === runId) {
@@ -881,7 +877,6 @@ it("a direct session none of whose usage was saved is found through the database
       records.facts.find((fact) => fact.sessionId === orphan.ref.id)
     ).toMatchObject({ agentId: UNATTRIBUTED, lost: RECOVERED });
     expect(records.unreadableAt.unowned).toBe(0);
-    // Another workspace's sessions in the same database are never read.
     catalog.reset();
     const other = await startEngine({
       print: () => undefined,
@@ -1381,7 +1376,6 @@ it("a direct session a workflow continues in another engine, whose fact and mark
       snapshot.usage?.byWorkflow.find((group) => group.id === id)?.total
     );
   try {
-    // Both the fact and its marker cannot be written.
     const workflowEngine = await started({
       sessions,
       state,
@@ -1640,7 +1634,6 @@ it("damaged stored facts stay with the owner they are filed under: a run's with 
 
 it("one damaged session entry does not hide a healthy orphan already found, or for a new reader, and the totals say they may be incomplete", async () => {
   const damage: { on: boolean } = { on: false };
-  // Once damaged, the listing names a session that cannot be read.
   const damaged = () =>
     new ListingSessions(state, async (inner) => [
       ...(await inner.stamps()),
@@ -1679,7 +1672,6 @@ it("one damaged session entry does not hide a healthy orphan already found, or f
   }
 });
 
-/** Durable sessions whose listing is `listing`'s, over the store's own. */
 class ListingSessions implements ListedSessionStore {
   readonly #inner: ListedSessionStore;
   readonly #listing: (
@@ -1741,7 +1733,6 @@ it("a listing that fails on a new reader's first read still reads the named sess
   step("idle").do(() => "no compute");
   const second = await startEngine({
     print: () => undefined,
-    // A listing that fails, though each session can be read.
     sessions: new ListingSessions(state, () => {
       throw new Error("EACCES: permission denied, scandir");
     }),
@@ -1809,7 +1800,6 @@ it("a settled run's record that could not be read is read again, so a repair cou
   await writer.dispose();
 
   const second = await reader();
-  // What its scope recorded, as nothing Marbles writes would leave it.
   await recordLedger(launched.id, sql`'[1]'`);
   const damaged = await second.readUsage();
   expect(damaged.unreadableAt.runs.get(launched.id)).toBe(1);
@@ -1819,7 +1809,6 @@ it("a settled run's record that could not be read is read again, so a repair cou
   expect(repaired.unreadableAt.runs.has(launched.id)).toBe(false);
 });
 
-/** Set the ledger the database keeps beside the test workspace's Run. */
 async function recordLedger(runId: string, ledger: SQL): Promise<void> {
   const opened = await openDatabase(stateDatabase(state));
   if (opened === undefined) {

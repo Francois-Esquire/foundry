@@ -10,11 +10,6 @@ import {
 import { scopedRuns } from "../src/views/dashboard-tree";
 import { showsOthers, workspaceScoped } from "../src/views/workspace-scope";
 
-/**
- * The run and trigger lists show this workspace's view (its own, and what
- * is shared with it) until every workspace's is asked for.
- */
-
 const [first, second] = dashboardSnapshot.runs;
 const [trigger] = dashboardSnapshot.triggers;
 if (first === undefined || second === undefined || trigger === undefined) {
@@ -77,7 +72,6 @@ describe("the dashboard's workspace scope", () => {
     expect(selectionKey(runSelection(mine))).not.toBe(
       selectionKey(runSelection(theirs))
     );
-    // Neither colon-joined form names the other's run.
     expect(selectionKey({ id: `ws-docs:${id}`, kind: "run" })).not.toBe(
       selectionKey(runSelection(theirs))
     );

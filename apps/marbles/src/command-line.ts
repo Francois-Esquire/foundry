@@ -59,7 +59,6 @@ import { STARTERS } from "~/workspace/templates";
 const print = (line: string) => {
   process.stdout.write(`${line}\n`);
 };
-/** Diagnostics where a command's own output is data, such as `--json`. */
 const diagnose = (line: string) => {
   process.stderr.write(`${line}\n`);
 };
@@ -128,22 +127,6 @@ Tasks are kept with the workspace state (memory only under --dry-run). No source
 the Marbles process, when it already hosts this workspace, answers, else this command
 opens the tasks itself; tasks never starts the process or hosts the workspace.`;
 
-/**
- * What a command needs before it runs, each step a superset of the last:
- * `workspace` finds the source without executing it, `triggers` loads it
- * and reads what would run, `connection` runs against a hosted one.
- * `tasks` is beside them: the found workspace's tasks, from the generation that
- * already hosts it or through an engine this process never starts, so no
- * source runs and nothing is delivered here.
- */
-/**
- * What `--dry-run` means for a command, said beside how it runs. `dry
- * mode`: it has one, keeping in memory what it would persist (a workspace
- * it hosts or loads here, its tasks); `reads only`: it writes nothing
- * either way, so it runs as it is; otherwise the command refuses the
- * flag, saying why. `main` refuses it before anything is loaded, opened or
- * written, and refuses it too for a command that says nothing.
- */
 type DryRun = "dry mode" | "reads only" | { readonly refused: string };
 
 type Handler<A extends Flags> = { readonly dry: DryRun } & (
@@ -161,10 +144,6 @@ type Handler<A extends Flags> = { readonly dry: DryRun } & (
       ): Promise<void> | void;
     }
   | {
-      /**
-       * The command runs against a hosted workspace: by the Marbles process,
-       * or in this process under `--dry-run`.
-       */
       readonly needs: "connection";
       run(args: A, hosted: Hosted): Promise<void>;
     }
@@ -184,7 +163,6 @@ async function createStarterModule(args: ArgsOf<"init">): Promise<void> {
   print(`Created ${file}`);
 }
 
-/** Reads only: an empty state root stays empty. */
 async function showStatus(
   args: Args,
   { workspace }: OpenedWorkspace
@@ -211,7 +189,6 @@ function resourceContext(
   };
 }
 
-/** A listing of one kind, through this workspace's view or, with `--all`, every workspace's. */
 function listing<
   C extends "artifacts" | "modules" | "runs" | "sandboxes" | "sessions",
 >(kind: ResourceKind): Handler<ArgsOf<C>> {
@@ -243,7 +220,6 @@ async function listTriggers(
   const created = new Map(
     (await automations.list()).map((record) => [record.id, record.source])
   );
-  /** What a monitor schedule watches: declared in the config, or by an agent. */
   const watched = (key: string): MonitorSpec | undefined =>
     registry.monitors.get(key)?.source ?? created.get(key);
   for (const entry of registry.entries()) {
@@ -266,7 +242,6 @@ async function listTriggers(
   }
 }
 
-/** `--input` as JSON; anything else is a usage error that names the flag. */
 function inputFrom(json: string): unknown {
   try {
     return JSON.parse(json);
@@ -282,7 +257,6 @@ async function roll(args: ArgsOf<"roll">, hosted: Hosted): Promise<void> {
   const input: unknown =
     args.inputJson === undefined ? undefined : inputFrom(args.inputJson);
   const workspace = hosted.kind === "local" ? hosted.host : hosted.workspace;
-  // A local host prints lines as they happen; a generation's come back with the value.
   const result = await workspace.roll(args.name, input);
   if (hosted.kind === "remote") {
     for (const line of result.lines) {
@@ -302,8 +276,6 @@ async function runTasks(
   try {
     result = await tasks(args.task);
   } catch (error) {
-    // A refusal is the person's to act on: one line, with its stable code.
-    // Anything else they can act on is one line too (`actionable`).
     if (!(error instanceof TaskError)) {
       throw error;
     }
@@ -318,7 +290,6 @@ async function runTasks(
   );
 }
 
-/** Resolves on SIGINT or SIGTERM, once. */
 function interrupted(): { readonly done: Promise<void>; release(): void } {
   let finish: () => void = () => undefined;
   const done = new Promise<void>((settle) => {
@@ -336,12 +307,6 @@ function interrupted(): { readonly done: Promise<void>; release(): void } {
   };
 }
 
-/**
- * Headless `run`: under `--dry-run`, tick this process's triggers until
- * interrupted. Otherwise the workspace is attached to the Marbles process,
- * which keeps hosting it; this command follows its status lines until
- * interrupted, and detaching stops nothing.
- */
 async function runUntilStopped(_args: Args, hosted: Hosted): Promise<void> {
   const signal = interrupted();
   try {
@@ -371,8 +336,6 @@ async function runUntilStopped(_args: Args, hosted: Hosted): Promise<void> {
       if (ended === "interrupted") {
         return;
       }
-      // The daemon went first: say why, since nothing else here will. Only
-      // a stop it was asked for is a clean end of this command.
       print(`[process] ${describeDisconnect(ended)}`);
       if (ended.kind !== "stopped") {
         process.exitCode = 1;
@@ -385,7 +348,6 @@ async function runUntilStopped(_args: Args, hosted: Hosted): Promise<void> {
   }
 }
 
-/** The Marbles process in the foreground, until interrupted. */
 async function runDaemon(): Promise<void> {
   const daemon = await startDaemon({
     layout: layout(),
@@ -400,7 +362,6 @@ async function runDaemon(): Promise<void> {
   }
 }
 
-/** Host this workspace in the Marbles process, starting one when none runs, and leave it there. */
 async function attachWorkspace(args: ArgsOf<"attach">): Promise<void> {
   await attachToProcess(args, (hosted) => {
     if (hosted.kind === "remote") {
@@ -412,11 +373,6 @@ async function attachWorkspace(args: ArgsOf<"attach">): Promise<void> {
   });
 }
 
-/**
- * Stop hosting this workspace: its running work drains, and the Marbles process
- * does not start it again at boot. Without a process, only the record is
- * cleared, and a workspace never recorded is left alone.
- */
 async function detachWorkspace(
   args: ArgsOf<"detach">,
   opened: OpenedWorkspace
@@ -424,8 +380,6 @@ async function detachWorkspace(
   const { workspace } = opened;
   const where = `${workspace.root} (${workspace.id})`;
   const forget = async (): Promise<void> => {
-    // By id, in one statement: a linked workspace's record is cleared too,
-    // and a Marbles process attaching it meanwhile writes after or before.
     await writeDatabase(stateDatabase(args.state), (database) =>
       new WorkspaceRegistry({ database, state: args.state }).unhost(
         workspace.id
@@ -454,11 +408,9 @@ async function detachWorkspace(
   }
 }
 
-/** Stop the Marbles process, whatever version it runs, and return once it has exited. */
 async function stopDaemon(): Promise<void> {
   const stopped = await stopProcess({
     layout: layout(),
-    // Draining can take a while when a run is mid-flight; say so up front.
     onStopping: (hello) =>
       print(
         `stopping Marbles process pid ${String(hello.pid)}; waiting for its engine generations to drain`
@@ -498,10 +450,6 @@ async function watch(args: ArgsOf<"watch">): Promise<void> {
   }
 }
 
-/**
- * The STDIO MCP server, in two processes (`mcp/relay.ts`): this one relays
- * for the client, unless it is the server a relay started.
- */
 async function serveMcp(args: ArgsOf<"mcp">): Promise<void> {
   const { isServer, relay } = await import("~/mcp/relay");
   if (!isServer()) {
@@ -517,7 +465,6 @@ async function serveMcp(args: ArgsOf<"mcp">): Promise<void> {
   await serveStdio(args);
 }
 
-/** Every command: what it needs, how it runs, and what `--dry-run` means for it. */
 export const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   artifacts: listing("artifact"),
   attach: {
@@ -545,7 +492,6 @@ export const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
     run: createStarterModule,
   },
   list: { dry: "dry mode", needs: "triggers", run: listTriggers },
-  // The server keeps the tasks in memory and joins no process.
   mcp: { dry: "dry mode", needs: "nothing", run: serveMcp },
   modules: listing("module"),
   relink: {
@@ -570,12 +516,7 @@ export const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   watch: { dry: "reads only", needs: "nothing", run: watch },
 };
 
-/**
- * Why `command` refuses `--dry-run`, or `undefined` when it takes it: only
- * a command whose handler says it has a dry mode or only reads does.
- */
 export function dryRunRefusal(command: string): string | undefined {
-  // Read as the table holds it at run time, which may say nothing.
   const dry: unknown = Object.hasOwn(COMMANDS, command)
     ? Reflect.get(COMMANDS[command as Command], "dry")
     : undefined;
@@ -608,12 +549,10 @@ async function printErrors(
   }
 }
 
-/** One-shot execution requires its environment; `run` and listing only warn. */
 function envMode(args: { readonly command: Command }): "require" | "warn" {
   return args.command === "roll" ? "require" : "warn";
 }
 
-/** Host the workspace in this process, and report on it; only `--dry-run` does. */
 async function withLocalHost(
   args: Flags & { readonly command: Command },
   run: (hosted: Hosted) => Promise<void>
@@ -667,13 +606,8 @@ async function dispatch<C extends Command>(
   }
 }
 
-/** The CLI's entry file, which `main` is handed: what `marbles mcp` runs its server from. */
 let entryFile: string | undefined;
 
-/**
- * Run the command line this process was started with. `entry` is the CLI's
- * entry file (`cli.ts`, or the built `cli.js`), which runs this.
- */
 export async function main(entry: string): Promise<void> {
   entryFile = entry;
   let args: Args;
@@ -693,7 +627,6 @@ export async function main(entry: string): Promise<void> {
   }
   const interactive = process.stdout.isTTY && process.stdin.isTTY;
   try {
-    // A dry run writes nothing, so it never starts setup.
     if (
       interactive &&
       !args.dry &&
@@ -724,15 +657,12 @@ export async function main(entry: string): Promise<void> {
     process.stderr.write(`marbles: ${error.message}\n`);
     process.exitCode = 1;
   } finally {
-    // A definition the source used as it loaded ran on a default runtime,
-    // which nothing else closes: closed here, so the command ends.
     await disposeDefaultRuntime().catch((error: unknown) => {
       process.stderr.write(`marbles: ${String(error)}\n`);
     });
   }
 }
 
-/** What the person running the command can act on reads as one line. */
 function actionable(error: unknown): error is Error {
   return (
     error instanceof UsageError ||
@@ -758,7 +688,6 @@ function actionable(error: unknown): error is Error {
   );
 }
 
-/** A yes-or-no question on the terminal; an empty answer is yes. */
 async function askYes(question: string): Promise<boolean> {
   const prompt = createInterface({
     input: process.stdin,

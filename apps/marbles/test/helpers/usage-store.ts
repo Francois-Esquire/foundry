@@ -8,17 +8,11 @@ import type { RecordedUsageFact, UsageRecords } from "~/lib/usage";
 import { UsageLedger } from "~/lib/usage";
 import type { UsageStore } from "~/lib/usage-store";
 
-/**
- * Where a usage store under test comes from: `store()` makes another over
- * the same state, as a second engine would have. `close` ends whatever the
- * stores were made over.
- */
 export interface UsageStoreFixture {
   close(): Promise<void>;
   store(): UsageStore;
 }
 
-/** A direct session's turn, reported at half a dollar. */
 export function directFact(
   turnId: string,
   extra: Partial<RecordedUsageFact> = {}
@@ -42,7 +36,6 @@ export function directFact(
   } as RecordedUsageFact;
 }
 
-/** A turn in step `build` of run `runId`. */
 export function runFact(turnId: string, runId: string): RecordedUsageFact {
   return {
     ...directFact(turnId),
@@ -53,11 +46,6 @@ export function runFact(turnId: string, runId: string): RecordedUsageFact {
   };
 }
 
-/**
- * The contract every `UsageStore` keeps, whatever it keeps facts in.
- * `shared` says whether two stores from one fixture see one another's
- * facts, as two engines over one database do.
- */
 export function describeUsageStore(
   name: string,
   open: () => Promise<UsageStoreFixture>,
@@ -193,11 +181,6 @@ export function describeUsageStore(
   });
 }
 
-/**
- * What the usage ledger of the workspace `scope` (a test engine's, `test`,
- * by default) reads from the Marbles database at the state root `state`,
- * as a later engine would; nothing when there is no database.
- */
 export async function storedUsage(
   state: string,
   scope = "test"
@@ -207,11 +190,6 @@ export async function storedUsage(
   );
 }
 
-/**
- * Put `value` as turn `turnId`'s stored fact, filed under `runId` (or a
- * direct session's), whatever it holds, as a damaged or foreign row would
- * read.
- */
 export async function putStoredFact(
   state: string,
   row: {
@@ -245,11 +223,6 @@ export async function putStoredFact(
   }
 }
 
-/**
- * A usage store whose saves and marks fail when `fail` says so, counting
- * every one; reads go to `inner`. Several engines may share one: closing
- * it leaves `inner` open, for the test that made it to close.
- */
 export class FailingUsageStore implements UsageStore {
   writes = 0;
   readonly #fail: (write: number) => boolean;

@@ -15,24 +15,17 @@ import type { SessionRow, UnplacedMessageRow } from "./sqlite-rows";
 import { captured, owned } from "./sqlite-rows";
 import { agentMessages, agentSessions } from "./tables";
 
-/**
- * An async Drizzle SQLite database, with or without a relational schema, or a
- * transaction on one. A `drizzle-orm/libsql` database and its transactions
- * both satisfy it, so a host can hand the store either.
- */
 export type SessionDatabase = BaseSQLiteDatabase<
   "async",
   unknown,
   Record<string, unknown>
 >;
 
-/** How many messages a session holds, and whether one of them is a summary. */
 export interface MessageTally {
   readonly messages: number;
   readonly summarized: boolean;
 }
 
-/** The transaction one `commit` runs in, as `onCommit` receives it. */
 export type SessionTransaction = SQLiteTransaction<
   "async",
   unknown,
@@ -41,49 +34,24 @@ export type SessionTransaction = SQLiteTransaction<
 >;
 
 export interface SqliteSessionStoreOptions {
-  /** Opened, migrated, and owned by the host; the store never closes it. */
   readonly database: SessionDatabase;
-  /**
-   * Runs inside the commit's transaction after the store's own statements,
-   * so the host can record the change atomically with it. A throw rolls the
-   * whole commit back. It receives the store's own copy of the write, taken
-   * when `commit` was called: exactly what the store wrote, every session
-   * and message put, whole, in the write's order. It does not say which put
-   * filed a record and which replaced one, what a replaced record held, or
-   * which session a moved message left; the store has already written when
-   * the hook runs, so that is gone.
-   */
   readonly onCommit?: (
     transaction: SessionTransaction,
     write: SessionStoreWrite
   ) => Promise<void>;
-  /** The partition this store reads and writes; any nonempty string. */
   readonly scope: string;
 }
 
-/**
- * The copy of `write` a `SqliteSessionStore` takes when `commit` is called:
- * each record read once, now, and checked by the rules `commit` checks, so
- * it throws the `RangeError` (or the error a field threw when read) that
- * `commit` would reject with. It shares nothing with `write`, and
- * committing it writes what committing `write` would have. For a host that
- * reads before it commits and must still own the write from the call.
- */
 export function capturedSessionWrite(
   write: SessionStoreWrite
 ): SessionStoreWrite {
   return captured(write);
 }
 
-/** A column as SQLite returns it, with no mapping by Drizzle. */
 function raw(column: SQLiteColumn): SQL<unknown> {
   return sql<unknown>`${column}`;
 }
 
-/**
- * Every column of a session row but `scope`, as SQLite returns it, for
- * `./sqlite-decode` to check.
- */
 const sessionColumns = {
   createdAt: raw(agentSessions.createdAt),
   id: agentSessions.id,
@@ -95,10 +63,6 @@ const sessionColumns = {
   updatedAt: raw(agentSessions.updatedAt),
 };
 
-/**
- * Every column of a message row but `scope` and `position`, as SQLite
- * returns it: the JSON columns as text, `summarized` as an integer.
- */
 const messageColumns = {
   createdAt: raw(agentMessages.createdAt),
   id: agentMessages.id,
@@ -111,14 +75,12 @@ const messageColumns = {
   updatedAt: raw(agentMessages.updatedAt),
 };
 
-/** Where a message is filed: its session and its place there. */
 const placementColumns = {
   id: agentMessages.id,
   position: agentMessages.position,
   sessionId: agentMessages.sessionId,
 };
 
-/** On a conflicting put, every column but the key takes the incoming value. */
 const replaceSession = replacing(getTableColumns(agentSessions), [
   "scope",
   "id",
@@ -128,22 +90,9 @@ const replaceMessage = replacing(getTableColumns(agentMessages), [
   "id",
 ]);
 
-/** Why a call from inside the store's own transaction or hook is refused. */
 const REENTRY =
   "SqliteSessionStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead";
 
-/**
- * A `SessionStore` over the host's SQLite database, in the tables from
- * `@foundry/agents/store/tables`. It behaves as `InMemorySessionStore` does,
- * within its scope.
- *
- * Its calls take turns, as the memory store's do: a call made while a
- * transaction or commit runs waits for it. That keeps two `Sessions` over
- * one store apart in this process, and keeps a `:memory:` database, which
- * has a single connection, from refusing a call while a transaction holds
- * it. Across connections and processes, `transaction` takes the database's
- * write lock (see there).
- */
 export class SqliteSessionStore implements SessionStore {
   readonly #database: SessionDatabase;
   readonly #scope: string;
@@ -161,14 +110,6 @@ export class SqliteSessionStore implements SessionStore {
     this.#onCommit = options.onCommit;
   }
 
-  /**
-   * One database transaction: the sessions put, then the messages put, then
-   * `onCommit`. The store takes its own copy of `write` when it is called,
-   * before it waits for its turn, and writes that copy and hands it to
-   * `onCommit`, so a caller changing `write` afterwards changes neither.
-   * Rejects, before writing anything, a write holding a value SQLite or JSON
-   * would not give back intact, naming its field (see `./sqlite-records`).
-   */
   commit(write: SessionStoreWrite): Promise<void> {
     let taken: ReturnType<typeof owned>;
     try {
@@ -185,16 +126,6 @@ export class SqliteSessionStore implements SessionStore {
     );
   }
 
-  /**
-   * Runs `work` inside one database transaction, over a view whose reads
-   * and commits use it; a throw from `work` rolls everything back. In this
-   * process, the store's other calls wait for it. Across connections, the
-   * transaction holds SQLite's write lock from its first statement: Drizzle's
-   * libSQL driver opens every transaction with libSQL's default mode,
-   * `BEGIN IMMEDIATE`. Another connection's write then waits for it, for as
-   * long as that connection's busy timeout allows, or fails with
-   * `SQLITE_BUSY`; it never lands between `work`'s reads and its commit.
-   */
   transaction<T>(work: (view: SessionStore) => Promise<T>): Promise<T> {
     return this.#turns.run(() =>
       this.#database.transaction((transaction) =>
@@ -211,7 +142,6 @@ export class SqliteSessionStore implements SessionStore {
     );
   }
 
-  /** `null` for an id no row can hold (see {@link storable}). */
   getSession(id: string): Promise<SessionRecord | null> {
     return this.#turns.run(async () => {
       if (!storable(id)) {
@@ -227,11 +157,6 @@ export class SqliteSessionStore implements SessionStore {
     });
   }
 
-  /**
-   * The sessions with these ids, in no particular order, in as few
-   * statements as the parameter limit allows; an id no row holds, or can,
-   * is left out. Beyond `SessionStore`: a listing reads many at once.
-   */
   getSessions(ids: readonly string[]): Promise<SessionRecord[]> {
     return this.#turns.run(async () => {
       const sessions: SessionRecord[] = [];
@@ -254,12 +179,6 @@ export class SqliteSessionStore implements SessionStore {
     });
   }
 
-  /**
-   * How many messages each of these sessions holds, and whether one is a
-   * summary, by session id, in as few statements as the parameter limit
-   * allows, reading no message itself; a session with none is left out.
-   * Beyond `SessionStore`: a listing counts many at once.
-   */
   messageTallies(
     sessionIds: readonly string[]
   ): Promise<Map<string, MessageTally>> {
@@ -294,7 +213,6 @@ export class SqliteSessionStore implements SessionStore {
     });
   }
 
-  /** `null` for an id no row can hold (see {@link storable}). */
   getMessage(id: string): Promise<SessionMessage | null> {
     return this.#turns.run(async () => {
       if (!storable(id)) {
@@ -310,10 +228,6 @@ export class SqliteSessionStore implements SessionStore {
     });
   }
 
-  /**
-   * One session's run of the position index, in order; empty for a key no
-   * row can hold. A row that does not decode rejects the whole list.
-   */
   listMessages(sessionId: string): Promise<SessionMessage[]> {
     return this.#turns.run(async () => {
       if (!storable(sessionId)) {
@@ -337,7 +251,6 @@ export class SqliteSessionStore implements SessionStore {
     transaction: SessionTransaction,
     rows: readonly SessionRow[]
   ): Promise<void> {
-    // A later put of the same id in one statement replaces the earlier.
     await inOrder(batches(rows, MAX_PARAMETERS / SESSION_COLUMNS), (batch) =>
       transaction
         .insert(agentSessions)
@@ -349,12 +262,6 @@ export class SqliteSessionStore implements SessionStore {
     );
   }
 
-  /**
-   * Places each message as the memory store does, replaying the puts in
-   * order: one put again in its session keeps its position; one new to the
-   * store, or put under another session, takes the next position in its
-   * session. Then writes one row per id, as its last put left it.
-   */
   async #putMessages(
     transaction: SessionTransaction,
     rows: readonly UnplacedMessageRow[]
@@ -390,7 +297,6 @@ export class SqliteSessionStore implements SessionStore {
     );
   }
 
-  /** Where each of `ids` is filed now, by id; an id not filed is missing. */
   async #placements(
     transaction: SessionTransaction,
     ids: readonly string[]
@@ -399,7 +305,6 @@ export class SqliteSessionStore implements SessionStore {
       string,
       { position: number; sessionId: string }
     >();
-    // `scope` takes one of the statement's parameters.
     await inOrder(
       batches([...new Set(ids)], MAX_PARAMETERS - 1),
       async (batch) => {
@@ -420,11 +325,6 @@ export class SqliteSessionStore implements SessionStore {
     return placements;
   }
 
-  /**
-   * One past the last position in `sessionId`, read once per session and
-   * counted on in `next` for the rest of the commit. A message that leaves
-   * a session leaves a gap; only the order of positions matters.
-   */
   async #nextPosition(
     transaction: SessionTransaction,
     sessionId: string,
@@ -450,14 +350,11 @@ export class SqliteSessionStore implements SessionStore {
   }
 }
 
-/** SQLite's default limit on the parameters one statement binds. */
 const MAX_PARAMETERS = 32_766;
 
-/** The parameters one row of each table binds in a multi-row insert. */
 const SESSION_COLUMNS = Object.keys(getTableColumns(agentSessions)).length;
 const MESSAGE_COLUMNS = Object.keys(getTableColumns(agentMessages)).length;
 
-/** `items` in order, at most `size` at a time; none when `items` is empty. */
 function batches<T>(items: readonly T[], size: number): T[][] {
   const length = Math.max(1, Math.floor(size));
   const result: T[][] = [];
@@ -467,18 +364,15 @@ function batches<T>(items: readonly T[], size: number): T[][] {
   return result;
 }
 
-/** Runs one statement per batch, each after the one before. */
 async function inOrder<T>(
   items: readonly T[],
   run: (item: T) => PromiseLike<unknown>
 ): Promise<void> {
   for (const item of items) {
-    // In sequence: later batches follow earlier ones.
     await run(item);
   }
 }
 
-/** `set` for an upsert: each column but `key` takes the proposed value. */
 function replacing(
   columns: Record<string, SQLiteColumn>,
   key: readonly string[]
@@ -490,7 +384,6 @@ function replacing(
   );
 }
 
-/** The value an `INSERT` proposed for `column`, inside its `ON CONFLICT`. */
 function excluded(column: SQLiteColumn): SQL {
   return sql.raw(`excluded."${column.name}"`);
 }

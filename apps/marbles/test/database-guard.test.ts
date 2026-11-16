@@ -25,7 +25,6 @@ afterEach(() => {
   }
 });
 
-/** The shipped migrations and one more, as a newer Marbles ships them. */
 function newerMigrations(dir: string): string {
   const folder = join(dir, "migrations-next");
   cpSync(MIGRATIONS, folder, { recursive: true });
@@ -46,7 +45,6 @@ function newerMigrations(dir: string): string {
   return folder;
 }
 
-/** Whether `error`, or anything in its causes, is an `IncompatibleDatabaseError`. */
 function incompatible(error: unknown): boolean {
   for (let cause = error; cause instanceof Error; cause = cause.cause) {
     if (cause instanceof IncompatibleDatabaseError) {
@@ -73,7 +71,6 @@ describe("a writer's handle kept open while a newer Marbles migrates", () => {
       const observer = { name: "h", source: "tasks" };
       const { position } = await records.log.declare(observer, Date.now());
 
-      // Another Marbles, one migration ahead, migrates the file meanwhile.
       const newer = newerMigrations(root);
       (
         await initializeDatabase(stateDatabase(state), { migrations: newer })

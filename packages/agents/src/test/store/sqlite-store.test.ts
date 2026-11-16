@@ -16,7 +16,6 @@ import { libsqlDatabases } from "../helpers/sqlite";
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
 
-/** Text SQLite does not give back intact, each made from a plain string. */
 const UNSTORABLE: [string, (plain: string) => string][] = [
   ["U+0000", (plain) => `${plain}\u0000tail`],
   ["a lone high surrogate", (plain) => `${plain}\uD800`],
@@ -77,7 +76,6 @@ async function storeOn(
   };
 }
 
-/** Every row of both tables, as stored, scope and position included. */
 async function rowsIn(database: SessionDatabase) {
   return {
     messages: await database.select().from(agentMessages),
@@ -173,7 +171,6 @@ describe("SqliteSessionStore text refusals", () => {
         await expect(store.commit(write)).rejects.toThrow(
           `cannot store ${field}: text holding U+0000 or a lone surrogate`
         );
-        // A commit through a transaction's view is checked the same way.
         await expect(
           store.transaction((view) => view.commit(write))
         ).rejects.toThrow(`cannot store ${field}`);
@@ -215,8 +212,6 @@ describe("SqliteSessionStore text refusals", () => {
     "a read by a key holding %s touches no other row",
     async (_kind, bad) => {
       const { store } = await storeOn();
-      // What a lone surrogate turns into when bound: U+FFFD on Node, nothing
-      // on Bun; and what a NUL cuts text to.
       const lookalikes = ["�", "", "x"];
       await store.commit({
         putMessages: lookalikes.map((id) => message(id, id)),
@@ -489,7 +484,6 @@ describe("SqliteSessionStore JSON refusals", () => {
 });
 
 describe("SqliteSessionStore validity, written and read back alike", () => {
-  /** A message row as SQL values by column. */
   function messageColumns(corrupted: Record<string, unknown> = {}) {
     return {
       created_at: 1,
@@ -769,7 +763,6 @@ describe("SqliteSessionStore validity, written and read back alike", () => {
 });
 
 describe("SqliteSessionStore reading a row it did not write", () => {
-  /** A good message row, as SQL values by column, and what to change in it. */
   async function corruptMessage(corrupted: Record<string, unknown>) {
     const { database, store } = await storeOn();
     const row: Record<string, unknown> = {
@@ -985,7 +978,6 @@ describe("SqliteSessionStore reading a row it did not write", () => {
   });
 });
 
-/** A host table, written in the same transaction as a commit. */
 const changes = sqliteTable("changes", {
   ids: text("ids", { mode: "json" }).notNull(),
 });
@@ -1092,7 +1084,6 @@ describe("SqliteSessionStore onCommit", () => {
         await attempt(() => outer.listMessages("a"));
         await attempt(() => outer.commit({}));
         await attempt(() => outer.transaction(() => Promise.resolve()));
-        // The transaction it is given is the way in.
         await transaction.select().from(agentSessions);
       },
       scope: "s",
@@ -1149,10 +1140,8 @@ describe("SqliteSessionStore onCommit", () => {
   });
 });
 
-/** How a commit asks for the last entry of a session's run. */
 const LAST_OF_RUN = /order by "agent_messages"\."position" desc limit \?$/;
 
-/** What a commit's insert into the messages table begins with. */
 const MESSAGE_INSERT = 'insert into "agent_messages"';
 const SESSION_INSERT = 'insert into "agent_sessions"';
 
@@ -1160,11 +1149,6 @@ describe.each([
   ["memory", memory],
   ["file", files],
 ] as const)("a commit that fails as it runs (%s)", (_location, databases) => {
-  /**
-   * A store whose next insert into the messages table, once armed, fails as
-   * it runs, after the statements before it in the same commit have run.
-   * `ran` lists the statements that ran while it was armed.
-   */
   async function failingInsert() {
     let armed = false;
     const ran: string[] = [];
@@ -1251,8 +1235,6 @@ describe("SqliteSessionStore large writes", () => {
       putSessions: [session("x")],
     });
     queries.length = 0;
-    // More ids than one lookup binds, more messages and sessions than one
-    // insert takes.
     const count = 33_000;
     const sessionIds = Array.from({ length: 4000 }, (_, index) => `s${index}`);
     const messages = Array.from({ length: count }, (_, index) =>
@@ -1288,13 +1270,10 @@ describe("SqliteSessionStore large writes", () => {
     await expect(store.getSession("s3999")).resolves.toStrictEqual(
       session("s3999")
     );
-    // Tens of thousands of rows, each checked and decoded: seconds alone,
-    // more beside the rest of the suite.
   }, 30_000);
 
   it("keeps a message of tens of megabytes whole", async () => {
     const { store } = await storeOn();
-    // 32 MiB of text, and a part list of thousands of parts.
     const big = message("big", "a", {
       parts: [
         { text: "x".repeat(32 * 1024 * 1024), type: "text" },
@@ -1312,7 +1291,6 @@ describe("SqliteSessionStore large writes", () => {
 });
 
 describe("SqliteSessionStore query plans", () => {
-  /** What SQLite plans for each statement whose SQL `pick` keeps. */
   async function plansOf(
     act: (store: SqliteSessionStore) => Promise<unknown>,
     pick: (query: string) => boolean = (query) => query.startsWith("select")
@@ -1357,8 +1335,6 @@ describe("SqliteSessionStore query plans", () => {
       [SESSION_RUN],
     ],
     [
-      // Where each message put is filed now, then the next position in each
-      // session it is new to: the last entry of that session's run.
       "commit",
       (store: SqliteSessionStore) =>
         store.commit({ putMessages: [message("m", "a"), message("n", "b")] }),
@@ -1444,7 +1420,6 @@ describe("session tables", () => {
   });
 });
 
-/** Each record column, by field name, and whether it takes NULL. */
 function columnsOf(table: typeof agentSessions | typeof agentMessages) {
   const columns: Record<string, { readonly notNull: boolean }> = {
     ...getTableColumns(table),
@@ -1455,7 +1430,6 @@ function columnsOf(table: typeof agentSessions | typeof agentMessages) {
   );
 }
 
-/** Each schema field and whether it may be absent or `null`. */
 function fieldsOf(shape: Readonly<Record<string, z.ZodType>>) {
   return Object.fromEntries(
     Object.entries(shape).map(([key, field]) => [

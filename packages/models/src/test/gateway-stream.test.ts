@@ -6,7 +6,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { gatewayProvider } from "../gateway";
 
-/** The chunks an OpenAI-compatible server streams, with usage last as `stream_options` asks. */
 const CHUNKS = [
   {
     choices: [{ delta: { content: "hi", role: "assistant" }, index: 0 }],
@@ -45,7 +44,6 @@ beforeAll(async () => {
       const body = JSON.parse(text) as Record<string, unknown>;
       bodies.push(body);
       response.writeHead(200, { "content-type": "text/event-stream" });
-      // Usage is sent only when the request asked for it, as OpenAI does.
       const asked =
         (body.stream_options as { include_usage?: boolean } | undefined)
           ?.include_usage === true;
@@ -55,7 +53,6 @@ beforeAll(async () => {
       response.end("data: [DONE]\n\n");
     });
   });
-  // Port 0: the system picks a free port. A bind error fails the hook at once.
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);

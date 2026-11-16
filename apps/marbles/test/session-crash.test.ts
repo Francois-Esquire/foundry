@@ -1,11 +1,3 @@
-/**
- * An agent session kept in the Marbles database outlives a host killed in
- * the middle of one of its turns: the next host reads the session, and
- * the next turn on it runs. The first host is a process this test starts
- * in a home of its own and kills with SIGKILL while the mock model holds
- * the turn open.
- */
-
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -17,7 +9,6 @@ const HELPERS = resolve("test/helpers");
 const PROCESS_TIMEOUT = 60_000;
 const TEST_TIMEOUT = 180_000;
 
-/** A host over `<home>/state` whose sessions are the database's, then `body`. */
 function host(home: TestHome, name: string, body: string): string {
   const script = join(home.path, `${name}.ts`);
   const state = join(home.path, "state");
@@ -104,7 +95,6 @@ await new Promise(() => undefined);`
           : undefined
       )
     );
-    // The turn is under way, its prompt in the session, when the host dies.
     const peek = host(
       home,
       "peek",
@@ -152,9 +142,7 @@ report.after = (await transcript.listMessages(ref.id)).map((m) => ({ role: m.rol
       reply: string;
     };
     const user = { role: "user", status: "complete" };
-    // Cut after its prompt was kept, before any reply was.
     expect(report.before).toEqual([user]);
-    // The cut prompt stays, unanswered, ahead of the next one.
     expect(report.reply).toBe("reply to again");
     expect(report.after).toEqual([
       user,

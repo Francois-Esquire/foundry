@@ -75,7 +75,6 @@ describe("loadEnvironment", () => {
       executionEnvironment(loadEnvironment(root, "require", () => undefined))
         .MARBLES_TEST_GREETING
     ).toBe("hello");
-    // The process's own environment, which another workspace shares, is left as it was.
     expect(process.env).not.toHaveProperty("MARBLES_TEST_GREETING");
   });
 
@@ -99,7 +98,6 @@ describe("loadEnvironment", () => {
     const bin = join(root, "node_modules", ".bin");
     mkdirSync(bin, { recursive: true });
     const script = join(bin, "varlock");
-    // Anything but a file gets nothing, as a lost read would.
     writeFileSync(
       script,
       `#!/bin/sh

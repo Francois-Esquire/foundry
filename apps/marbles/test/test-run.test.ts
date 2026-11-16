@@ -35,28 +35,20 @@ import {
 } from "./helpers/runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
-/** A marker no other test, run or suite on the machine carries. */
 function uniqueMarker(): Marker {
   return { name: "MARBLES_TEST_PROBE", value: temporaryDirectory("mk-") };
 }
 
 const entry = (marker: Marker) => `${marker.name}=${marker.value}`;
 
-/** A file only this user can read or write, as the records must be. */
 function writePrivateFile(path: string, text: string): void {
   writeFileSync(path, text, { mode: 0o600 });
 }
 
-/** A directory only this user can use, as the run's must be. */
 function mkdirPrivate(path: string): void {
   mkdirSync(path, { mode: 0o700, recursive: true });
 }
 
-/**
- * A Bun process that runs until it is stopped, carrying `env` and nothing
- * else; its pid once it is ready. In a process group of its own unless
- * `inGroup` is false.
- */
 async function sleeper(
   env: Record<string, string>,
   {
@@ -70,7 +62,6 @@ async function sleeper(
     process.execPath,
     [
       "-e",
-      // One line, as `ps` prints a command line on one.
       `${ignoreTerm ? 'process.on("SIGTERM", () => undefined);' : ""}${script} console.log("ready"); setInterval(() => undefined, 1000);`,
       ...args,
     ],
@@ -136,7 +127,6 @@ it("reads a marker from the environment only, never from the command line", asyn
   recordProcess(records, recordedArguments, true);
   try {
     expect(unrecordedMarked(records, marker)).toEqual([inEnvironment]);
-    // Recorded, but its environment says it is not the run's: not signalled.
     const problems = await stopRecorded(records, marker, FAST);
     expect(problems).toEqual([
       expect.stringContaining(
@@ -166,7 +156,6 @@ it("proves a recorded process again before every signal, so a reused pid gets no
     environment: () => [entry(marker)],
     kill(target, signal) {
       sent.push([target, signal]);
-      // It exits, and the system gives its pid to another process.
       started = "Sun Nov 15 09:00:00 2026";
     },
     look: (pids) => new Map(pids.map((pid) => [pid, { pgid: pid, started }])),
@@ -245,7 +234,6 @@ it("reports, and does not signal, what outlives the recorded leader of its group
   const records = temporaryDirectory("rec-");
   const reported = `${marker.value}/child`;
   const ready = `${marker.value}/ready`;
-  // The leader exits on SIGTERM; its child ignores SIGTERM and has no record.
   const leader = await sleeper(
     { [marker.name]: marker.value },
     {
@@ -278,7 +266,6 @@ it("reports, and does not signal, what is left in the group of a recorded leader
   const marker = uniqueMarker();
   const records = temporaryDirectory("rec-");
   const reported = `${marker.value}/child`;
-  // The leader starts a platform binary in its group, then exits by itself.
   const leader = await sleeper(
     { [marker.name]: marker.value },
     {
@@ -374,7 +361,6 @@ it("stops only what its own records name", async () => {
   }
 });
 
-/** A run started in a child process, which is then killed outright. */
 async function killedRun(parent: string): Promise<{
   readonly leftover: number;
   readonly root: string;
@@ -413,7 +399,6 @@ it("sweeps a killed run: stops what its records name and removes its root", asyn
   expect(existsSync(root)).toBe(false);
 });
 
-/** A pid no process holds any more. */
 function exitedPid(): number {
   const exited = spawnSync(
     process.execPath,
@@ -425,7 +410,6 @@ function exitedPid(): number {
   return Number(exited.stdout.trim());
 }
 
-/** A run root in `parent` that looks over, naming `pid` in a record. */
 function forgedRun(
   parent: string,
   name: string,
@@ -521,7 +505,6 @@ it("reads each process's identity again right before its own signal", async () =
     kill(target, signal) {
       sent.push([target, signal]);
       started.delete(target);
-      // While the first is stopped, the other exits and its pid is reused.
       const other = target === 111 ? 222 : 111;
       if (started.has(other)) {
         started.set(other, "Sun Nov 15 09:00:00 2026");
@@ -540,7 +523,6 @@ it("reads each process's identity again right before its own signal", async () =
   expect(
     await stopRecorded(records, marker, { graceMs: 0, killMs: 0 }, system)
   ).toEqual([]);
-  // One signal, to whichever came first; none to the one replaced.
   expect(sent).toHaveLength(1);
   expect(sent[0]?.[1]).toBe("SIGTERM");
 });
@@ -735,8 +717,6 @@ it("records the Marbles process a test's CLI starts in the test's home", () => {
   const recorded = readdirSync(records).map((name) =>
     JSON.parse(readFileSync(join(records, name), "utf8"))
   );
-  // The daemon the CLI started, and the engine generation the daemon
-  // started; each leads a process group of its own.
   const daemonPid = readProcess(home.layout.state)?.pid;
   const daemon = recorded.find((record) => record.pid === daemonPid);
   expect(daemon?.group).toBe(true);
@@ -769,7 +749,6 @@ it("records the MCP server that marbles mcp relays", async () => {
   await client.connect(transport);
   try {
     const records = home.env[SPAWN_RECORD_ENV] ?? "";
-    // The relay this test started, and the server the relay started.
     expect(
       readdirSync(records).map((name) => Number(name.slice(0, -".json".length)))
     ).toEqual(expect.arrayContaining([transport.pid]));
@@ -779,7 +758,6 @@ it("records the MCP server that marbles mcp relays", async () => {
   }
 }, 30_000);
 
-/** The guard, run as a test worker with `env`. */
 function guard(env: NodeJS.ProcessEnv) {
   return spawnSync("bun", [resolve("test/helpers/guard.ts")], {
     encoding: "utf8",
@@ -805,7 +783,6 @@ it("judges the guard's paths with their links resolved", () => {
   mkdirSync(user);
   const outside = temporaryDirectory("gd-out-");
   symlinkSync(outside, join(root, "link"));
-  // Inside the root as written, outside it once the link is resolved.
   const escaped = guard({
     ...process.env,
     FOUNDRY_HOME: join(root, "link", "home"),
@@ -814,8 +791,6 @@ it("judges the guard's paths with their links resolved", () => {
   });
   expect(escaped.status).not.toBe(0);
   expect(escaped.stderr).toContain("would use the developer's home");
-  // A second spelling of the root, through a link to it, passes too, as
-  // `/tmp` and `/private/tmp` do on macOS.
   const other = join(temporaryDirectory("gd-alias-"), "root");
   symlinkSync(root, other);
   const spelled = guard({

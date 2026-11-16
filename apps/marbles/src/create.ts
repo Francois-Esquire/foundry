@@ -75,19 +75,7 @@ export interface CreateEngineOptions {
   readonly artifacts?: string;
   readonly askable?: boolean;
   readonly catalog: Catalog;
-  /** Where the workspace's runs start and commands run; `root` when omitted. */
   readonly cwd?: string;
-  /**
-   * The Marbles database the host keeps open, which holds this workspace's
-   * tasks, their recorded changes, its agent sessions, its workflow Runs,
-   * its artifacts' records (their blob files stay under `artifacts`), its sandbox
-   * containers and its workspace catalogue; the host closes it once the
-   * engine is disposed. Without it, an engine given a state dir opens a
-   * handle of its own at its first task, session or run call and closes it
-   * when disposed, and keeps artifacts, containers and the catalogue in
-   * memory; its provider configuration is read and written per call.
-   * Under `dry` the engine gets neither and keeps everything in memory.
-   */
   readonly database?: StoreDatabase;
   readonly dry: boolean;
   /** The machine environment and the workspace's Varlock values; the process's own when omitted. */
@@ -106,11 +94,6 @@ export interface CreateEngineOptions {
   readonly providers?: readonly Provider[];
   /** The workspace root: the config's directory, or the cwd without one. */
   readonly root: string;
-  /**
-   * Where this process's children are recorded for recovery, so the
-   * engine's start stops what one that is gone left running. Passed over
-   * under `--dry-run`, which persists nothing.
-   */
   readonly spawned?: string;
   /**
    * This workspace's state dir. Under `dry` the engine gets none, so nothing
@@ -152,18 +135,11 @@ export function declareCatalog(target: Declarable, catalog: Catalog): void {
 
 /** What an engine would trigger: the config's declarations and what agents created. */
 export interface Triggers {
-  /** The triggers agents created, read from the Marbles database. */
   readonly automations: AutomationService;
   /** What the config declared, and the step agent-created monitors share. */
   readonly registry: Registry;
 }
 
-/**
- * The triggers an engine created with these options would have, read
- * without building one, the automations read only from the Marbles
- * database at the state root: for commands that only list. Under
- * `--dry-run` no automation is read.
- */
 export function readTriggers(
   catalog: Catalog,
   {
@@ -184,28 +160,14 @@ export function readTriggers(
   return { automations, registry };
 }
 
-/**
- * The artifact system without the database: in memory, records and
- * bytes alike, for as long as the engine lasts. Nothing outside the
- * database could read records kept anywhere else.
- */
 function artifactsInMemory(): Artifacts {
   return new ArtifactManager({ store: new InMemoryArtifactStore() });
 }
 
-/**
- * The engine's artifacts, and what `--dry-run` reads through to: in the
- * database's stores when the host gave one, their blob files in the
- * workspace's directory of the artifact store at `dir`, every linked
- * workspace's links to them kept current after each commit
- * (`keepingLinks`); in memory without one. A dry run writes to memory and reads what real runs left
- * in the database, read only.
- */
 function artifactsFor(
   stores: WorkspaceStores | undefined,
   options: CreateEngineOptions
 ): Pick<EngineOptions, "artifactReads" | "artifacts"> & {
-  /** The link keeping the engine drains when it is disposed. */
   readonly links?: LinksKept;
 } {
   const { artifacts: dir, dry, workspaceId } = options;
@@ -227,7 +189,6 @@ function artifactsFor(
     return { artifacts: artifactsInMemory() };
   }
   const { database, print } = options;
-  // Each workspace's links to these artifacts follow every commit.
   const kept =
     dir === undefined || database === undefined
       ? undefined
@@ -290,20 +251,12 @@ function modelsFor(options: CreateEngineOptions): {
         }
       : {}),
   });
-  // A programmatic host's set is there at once; the stored configuration
-  // is read when the engine starts (`refresh`).
   if (providers.configured) {
     providers.load();
   }
   return { models, providers };
 }
 
-/**
- * Where the engine keeps the workspace's tasks, agent sessions, workflow
- * Runs and trigger state: in the host's database, scoped by the workspace id; without one
- * but with a state dir, in a handle on the database the engine opens
- * itself (`own`), which it closes once disposed; with neither, in memory.
- */
 function recordsFor(
   state: string | undefined,
   database: StoreDatabase | undefined,
@@ -322,7 +275,6 @@ function recordsFor(
   | "triggers"
   | "usageStore"
 > & {
-  /** What the workspace's stores in `database` record their change facts through. */
   readonly changes?: ChangeRecorder;
   readonly own?: WorkspaceDatabase;
 } {
@@ -364,17 +316,8 @@ function recordsFor(
   };
 }
 
-/**
- * How long a disposed engine waits for its link updates before it gives
- * up those with no end of their own (not begun, or waiting for a
- * workspace's `.marbles/.lock`): an update holds the lock for moments, so
- * this outlasts a rebuild in another process, and stays well inside a
- * generation's stop deadline. No deadline for the dispose: an update
- * reading the database is still waited for (`drainLinks`).
- */
 const LINK_DRAIN_MS = 5000;
 
-/** The published `Engine`, over a handle of its own or keeping links in the host's. */
 function engineOver(
   options: EngineOptions,
   own: WorkspaceDatabase | undefined,
@@ -388,13 +331,6 @@ function engineOver(
     : new LinkKeepingEngine(options, links);
 }
 
-/**
- * The published `Engine` whose artifact commits keep links: once disposed,
- * and so writing none, it drains the link updates they queued, so the host
- * closes the database only once none is in a database call or will begin
- * one; after `LINK_DRAIN_MS` it gives up those still waiting, reporting
- * them to `marbles relink`.
- */
 class LinkKeepingEngine extends PublishedEngine {
   readonly #links: LinksKept;
   #disposed: Promise<void> | undefined;
@@ -416,11 +352,6 @@ class LinkKeepingEngine extends PublishedEngine {
   }
 }
 
-/**
- * The published `Engine` over a database handle it opened itself, which it
- * closes after everything else it holds: its agents and interactions may
- * still write a session once its records are closed.
- */
 class OwnDatabaseEngine extends PublishedEngine {
   readonly #database: WorkspaceDatabase;
 
@@ -438,11 +369,6 @@ class OwnDatabaseEngine extends PublishedEngine {
   }
 }
 
-/**
- * Started at the first sandbox: the runtime is optional and slow to start.
- * Its rows go to `store`, the database's when the host gave one, else
- * memory.
- */
 function containersFor(
   { catalog, dry, print, root, workspaceId }: CreateEngineOptions,
   worktreeHome: string,
@@ -461,7 +387,6 @@ function containersFor(
     const declared = [...catalog.workspaces].map((path) => resolve(root, path));
     return createContainers({
       allowedMountRoots: allowedMountRoots([root, worktreeHome, ...declared]),
-      // This process, so a later start can tell the rows it held are left.
       holder: containerHolder(),
       instanceLabel: `marbles-${workspaceId}`,
       runtime: await runtime(),
@@ -474,7 +399,6 @@ function containersFor(
 export function createEngine(options: CreateEngineOptions): Engine {
   const { catalog, dry, print, root, workspaceId } = options;
   const home = options.home ?? homedir();
-  // The one rule for where an engine persists, which the engine follows too.
   const { spawned, state } = Engine.persistence({
     dry,
     ...(options.spawned === undefined ? {} : { spawned: options.spawned }),
@@ -489,7 +413,6 @@ export function createEngine(options: CreateEngineOptions): Engine {
       ? undefined
       : workspaceStores(database, workspaceId, changes);
   const git = dry ? { run: echoGit(print) } : {};
-  // The class the package publishes, so a host's engine is that `Engine`.
   const { links, ...artifacts } = artifactsFor(stores, options);
   const engineOptions: EngineOptions = {
     ...artifacts,
@@ -522,12 +445,6 @@ export function createEngine(options: CreateEngineOptions): Engine {
   return engine;
 }
 
-/**
- * The sources whose facts an engine records, by key: every one over the
- * host's database; its tasks, Runs and sessions when it opens one of its
- * own for a state dir, which keeps its artifacts, containers and
- * catalogue in memory; and its tasks alone in memory.
- */
 function recordedSources(
   database: StoreDatabase | undefined,
   state: string | undefined
@@ -540,7 +457,6 @@ function recordedSources(
   );
 }
 
-/** Say, once at build, which declared observers this engine hands nothing. */
 function unrecordedObservers(
   catalog: Catalog,
   recorded: ReadonlySet<string> | "all",
@@ -559,15 +475,6 @@ function unrecordedObservers(
   }
 }
 
-/**
- * The runtime a definition's instance uses in a script no host loaded, or
- * as a source loads before its host binds an engine: the detected CLI
- * harnesses, the machine's provider configuration, and the current
- * directory as the workspace; its artifacts are in memory, and nothing is
- * persisted. Under `dry` (a source loading under a dry host) it is a dry
- * engine, decided as every other one is. Not started; no run is launched
- * through it.
- */
 export function createDefaultEngine({
   dry,
 }: {

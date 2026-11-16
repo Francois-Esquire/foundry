@@ -37,56 +37,26 @@ import type { OtherWorkspaces } from "~/workspace/snapshot";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { runTaskCommand } from "~/workspace/tasks";
 
-/**
- * One workspace, hosted in this process: its source loaded, its engine
- * built and started, and everything a host does with it behind the
- * `WorkspaceConnection` the dashboard, the CLI, and MCP are written
- * against. An engine generation of the Marbles process runs one of these per workspace;
- * a program that embeds Marbles for a single workspace runs it directly.
- */
-
 export interface HostWorkspaceOptions {
   /** The shared artifact store. */
   readonly artifacts: string;
   /** Whether something here can answer `ask`; the dashboard can. */
   readonly askable?: boolean;
-  /** Where the workspace's runs start and its commands run; its root when omitted. */
   readonly cwd?: string;
-  /**
-   * The Marbles database this host writes through, for a host that keeps
-   * several workspaces over one handle; the host leaves it open. Without
-   * one, the host opens its own (`openHostDatabase`) and closes it with the
-   * engine.
-   */
   readonly database?: MarblesDatabase;
-  /**
-   * The directory the host runs from: a relative `source` resolves from
-   * it, and it is the workspace's root when nothing is at the source.
-   * Needed for either; without it `source` must be absolute and there.
-   */
   readonly directory?: string;
   /** Echo every model turn and git mutation, and persist nothing. */
   readonly dry?: boolean;
   /** What a `.env.schema` that does not resolve does; `warn` when omitted. */
   readonly env?: "require" | "warn";
-  /**
-   * Nothing is at the source: offer to create it. Resolves true once
-   * something loads there. Never offered under `dry`, which creates nothing.
-   */
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   /** Runs on the built engine before it starts: host steps registered beside the source. */
   readonly prepare?: (engine: Engine) => void;
   /** Receives each status line; the last one is the host's `status`. */
   readonly print?: (line: string) => void;
-  /** Told of each file the source's load reads, as it loads and as its runs import more. */
   readonly read?: (file: string) => void;
   /** The authoring folder or module. */
   readonly source: string;
-  /**
-   * Where this process's children are recorded for recovery
-   * (`MARBLES_SPAWN_RECOVERY`), so the engine's start stops what one that
-   * is gone left running; none is stopped without it.
-   */
   readonly spawned?: string;
   /** The Marbles state root. */
   readonly state: string;
@@ -98,13 +68,7 @@ export interface WorkspaceHost extends WorkspaceConnection {
   /** Where the source is, or would be created. */
   readonly configPath: string;
   readonly engine: Engine;
-  /** Every file its source's load read (`OpenedWorkspace.files`). */
   readonly files: readonly string[];
-  /**
-   * Tick the live triggers until `signal` aborts. A tick under way then is
-   * cancelled with it, unless `cancel` is given: then it runs to its end,
-   * and `cancel` cuts it short.
-   */
   run(signal: AbortSignal, cancel?: AbortSignal): Promise<void>;
   setStatus(line: string): void;
   /** The last status line; shown in the dashboard's toolbar. */
@@ -158,27 +122,16 @@ export async function hostWorkspace(
   return await (await stageWorkspace(options)).start();
 }
 
-/**
- * A workspace loaded up to an engine that has not started: its source,
- * environment and catalog loaded, its engine built and prepared, nothing
- * of the workspace's work adopted or ticked yet. `start` starts the engine,
- * which is what takes over parked and queued work; `abandon` drops it
- * unstarted. Either, once.
- */
 export interface StagedWorkspace {
-  /** Give the loaded workspace up without starting its engine. */
   abandon(): Promise<void>;
   readonly config: string | null;
   readonly configPath: string;
-  /** Every file its source's load read (`OpenedWorkspace.files`). */
   readonly files: readonly string[];
   readonly id: string;
   readonly root: string;
-  /** Start the engine and host the workspace; a start that fails abandons it. */
   start(): Promise<WorkspaceHost>;
 }
 
-/** Load `options`' workspace as `hostWorkspace` does, stopping short of the engine's start. */
 export async function stageWorkspace(
   options: HostWorkspaceOptions
 ): Promise<StagedWorkspace> {
@@ -210,12 +163,8 @@ export async function stageWorkspace(
     print,
     ...(options.read === undefined ? {} : { read: options.read }),
   });
-  // A host is a writer, and keeps one handle for as long as it hosts: it
-  // makes and migrates the database only under the state root's process
-  // lock (`openHostDatabase`). Under `--dry-run` nothing is persisted.
   const shared = hostOptions.dry ? undefined : options.database;
   let own: MarblesDatabase | undefined;
-  /** Nothing of it stays bound in this process for the next host to meet. */
   const unbind = (): void => {
     abandonHost(loaded.workspace.id);
     own?.close();
@@ -338,16 +287,12 @@ export async function stageWorkspace(
 
 interface Status {
   readonly captured: AsyncLocalStorage<string[]>;
-  /** The handle on the Marbles database the host opened itself, closed once the engine is disposed. */
   readonly database: MarblesDatabase | undefined;
   readonly diagnostics: Diagnostics;
   /** An error line: the status, and an error in the Logs tab. */
   readonly fail: (line: string) => void;
-  /** What the dashboard's Feed shows: this workspace's entries, and every other workspace's with a database. */
   readonly feed: FeedReader;
-  /** When each trigger last finished a tick, as the host started. */
   readonly lastFinish: ReadonlyMap<string, number>;
-  /** Other workspaces' runs and triggers, with a database. */
   readonly others?: (now: number) => Promise<OtherWorkspaces>;
   readonly print: (line: string) => void;
   readonly setStatus: (line: string) => void;
@@ -396,10 +341,6 @@ async function readUsage(
   }
 }
 
-/**
- * When each of the engine's triggers last finished a tick; one whose state
- * cannot be read is left out, as one that has never ticked is.
- */
 async function lastFinishes(
   engine: Engine
 ): Promise<ReadonlyMap<string, number>> {

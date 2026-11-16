@@ -4,15 +4,6 @@ import { join, resolve } from "node:path";
 import { isRecord, writeJson } from "~/lib/state/json";
 import { THEME_NAMES, type ThemeName } from "~/model/settings";
 
-/**
- * Global Marbles preferences: one JSON file at the state root
- * (`<Foundry home>/marbles/settings.json`), shared by every workspace, and
- * the one file there a person may edit by hand. Defaults apply to whatever the file does not set, or sets
- * to something Marbles does not know; a file that cannot be read leaves the
- * defaults in place and is not overwritten. Keys this version does not know
- * are kept when it saves.
- */
-
 const THEMES: readonly ThemeName[] = THEME_NAMES;
 
 export interface Settings {

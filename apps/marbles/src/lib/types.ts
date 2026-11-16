@@ -167,12 +167,6 @@ export interface SessionRef {
   readonly id: string;
   /** The plugin that built the provider when the session was filed; absent on older refs. */
   readonly implementation?: string;
-  /**
-   * The input `extend` gave an agent declared with a function, as JSON.
-   * Reopening the session gives its function this input again, and fails
-   * for an agent with another one. Absent with `noInput` absent too, the
-   * ref kept no input, and the agent's own is used.
-   */
   readonly input?: unknown;
   /**
    * The configured instance the session ran on: its scope, settings, and
@@ -180,11 +174,6 @@ export interface SessionRef {
    */
   readonly instance?: string;
   readonly model?: string;
-  /**
-   * Set when an agent declared with a function opened the session with no
-   * input, so reopening it with one fails. A ref with `input` as well
-   * fails to open.
-   */
   readonly noInput?: true;
   readonly provider?: string;
 }
@@ -307,27 +296,15 @@ export interface Agent<DEFAULT extends Output.Output = never>
 /** Carries a deferred agent's output type; never present at runtime. */
 declare const DEFERRED_OUTPUT: unique symbol;
 
-/**
- * An agent declared with a function: used like any agent, but not yet a
- * definition. It has its id, and the route and input `extend` set; the
- * function returns the rest each time a session opens, so `prompt` is
- * absent.
- */
 export interface DeferredAgent<
   DEFAULT extends Output.Output = never,
   INPUT = undefined,
 > extends AgentRoute,
     AgentCalls<DEFAULT> {
-  /**
-   * The same agent, its function given this route and this input, and
-   * these settings merged over what it returns, as `Agent.extend` merges
-   * them. An `input` replaces the one before; `undefined` clears it.
-   */
   extend<OUTPUT extends Output.Output = DEFAULT>(
     changes: AgentChanges<OUTPUT> & { readonly input?: INPUT }
   ): DeferredAgent<OUTPUT, INPUT>;
   readonly id: string;
-  /** The input `extend` gave the function, if any. */
   readonly input?: INPUT;
   readonly kind: "agent";
   /** Known only once a session opens. */

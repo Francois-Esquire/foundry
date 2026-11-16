@@ -18,7 +18,6 @@ import { libsqlDatabases } from "./helpers/sqlite";
 const clock = () => new Date("2026-11-01T00:00:00.000Z");
 const id = (value: string) => value as TaskId;
 
-/** Text SQLite does not give back intact, each made from a plain string. */
 const UNSTORABLE: [string, (plain: string) => string][] = [
   ["U+0000", (plain) => `${plain}\u0000tail`],
   ["a lone high surrogate", (plain) => `${plain}\uD800`],
@@ -43,7 +42,6 @@ function taskRecord(name: string, overrides: Partial<Task> = {}): Task {
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
 
-/** A host table, written in the same transaction as a commit. */
 const changes = sqliteTable("changes", {
   event: text("event", { mode: "json" }).notNull(),
 });
@@ -104,7 +102,6 @@ describe("SqliteTaskStore", () => {
         await expect(store.commit(write)).rejects.toThrow(
           `cannot store ${field}: text holding U+0000 or a lone surrogate`
         );
-        // A commit through a transaction's view is checked the same way.
         await expect(
           store.transaction((view) => view.commit(write))
         ).rejects.toThrow(`cannot store ${field}`);
@@ -115,7 +112,6 @@ describe("SqliteTaskStore", () => {
 
       expect(committed).toBe(1);
       expect(await store.snapshot()).toEqual(before);
-      // JSON columns escape it, so metadata and tags keep it.
       const json = await backlog.create({
         metadata: { note: bad("m") },
         tags: [bad("t")],
@@ -132,8 +128,6 @@ describe("SqliteTaskStore", () => {
         database: await memory.open(),
         scope: "s",
       });
-      // What a lone surrogate turns into when bound: U+FFFD on Node, nothing
-      // on Bun; and what a NUL cuts text to.
       const lookalikes = ["\uFFFD", "", "x"].map((name) =>
         taskRecord(name, { title: `lookalike ${JSON.stringify(name)}` })
       );
@@ -238,7 +232,6 @@ describe("SqliteTaskStore", () => {
         write.putTasks.push(taskRecord("late"));
       };
 
-      // Queued behind a transaction, then through a transaction's view.
       const held = Promise.withResolvers<void>();
       const entered = Promise.withResolvers<void>();
       const running = store.transaction(async () => {
@@ -314,7 +307,6 @@ describe("SqliteTaskStore", () => {
         await attempt(() => outer.snapshot());
         await attempt(() => outer.commit({}));
         await attempt(() => outer.transaction(() => Promise.resolve()));
-        // The transaction it is given is the way in.
         await transaction.select().from(tasks);
       },
       scope: "s",
@@ -441,7 +433,6 @@ describe("task tables", () => {
   });
 });
 
-/** Each record column, by field name, and whether it takes `null`. */
 function columnsOf(table: typeof tasks | typeof taskDependencies) {
   const { position, scope, ...columns } = getTableColumns(table);
   expect([position.notNull, scope.notNull]).toEqual([true, true]);
@@ -450,7 +441,6 @@ function columnsOf(table: typeof tasks | typeof taskDependencies) {
   );
 }
 
-/** Each schema field and whether it accepts `null`. */
 function fieldsOf(shape: Readonly<Record<string, z.ZodType>>) {
   return Object.fromEntries(
     Object.entries(shape).map(([key, field]) => [

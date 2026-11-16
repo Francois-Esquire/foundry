@@ -17,18 +17,6 @@ import * as schema from "~/database/schema";
 import * as own from "~/database/tables";
 import { testMachine } from "./helpers/records";
 
-/**
- * A package's tests stand its tables up from the Drizzle definitions
- * (`@foundry/lib/testing/sqlite`); the real database gets them from the
- * migrations Marbles commits. The two must be the same tables, or the
- * package's tests prove nothing about the database Marbles runs on.
- */
-
-/**
- * The package tables Marbles' migrations create: every table the composed
- * schema holds but Marbles' own, so a package added to it is checked here
- * without being named.
- */
 const OWN_TABLES: readonly unknown[] = Object.values(own);
 const PACKAGE_TABLES: readonly SQLiteTable[] = (
   Object.values(schema) as unknown[]
@@ -37,7 +25,6 @@ const PACKAGE_TABLES: readonly SQLiteTable[] = (
     is(value, SQLiteTable) && !OWN_TABLES.includes(value)
 );
 
-/** The tables of every package Marbles composes, by name, as the migrations must create them. */
 const COMPOSED = [
   "agent_messages",
   "agent_sessions",
@@ -63,7 +50,6 @@ const COMPOSED = [
   "workspaces",
 ];
 
-/** Every column, index and indexed column of `table`, as SQLite reports them. */
 async function shape(database: StoreDatabase, table: string) {
   const columns = await database.all(
     sql.raw(`PRAGMA table_xinfo(${JSON.stringify(table)})`)
@@ -122,7 +108,6 @@ describe("the read of what is left to deliver", () => {
         "ws",
         { after: 10, limit: 100, source: "tasks", types: ["tasks.changed"] }
       ).toSQL();
-      // Bound as the query binds them, on the handle's own connection.
       const { $client: client } = machine.database.database as unknown as {
         readonly $client: Client;
       };

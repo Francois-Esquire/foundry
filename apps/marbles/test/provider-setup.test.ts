@@ -42,14 +42,12 @@ afterEach(() => {
   rmSync(state, { force: true, recursive: true });
 });
 
-/** The ids of the machine's providers as kept; undefined while there is no configuration. */
 async function machineIds(): Promise<string[] | undefined> {
   return (await stateProviders(state).read()).machine?.providers.map(
     (entry) => entry.id
   );
 }
 
-/** Keep `ids` as `scope`'s configuration (the machine's without one), as another process would. */
 async function configure(
   ids: readonly string[],
   scope?: string

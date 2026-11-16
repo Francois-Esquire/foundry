@@ -3,14 +3,6 @@ import type { ResourceKind } from "~/lib/resources";
 import type { RunStep } from "~/lib/run-trace";
 import { runSteps } from "~/lib/run-trace";
 
-/**
- * The lines `marbles runs`, `sessions`, `artifacts`, `sandboxes` and
- * `modules` print: one per resource the view shows, newest first, a run's
- * steps under it as its detail. A resource another workspace owns ends with
- * the workspace it is from; one shared with other workspaces names them.
- */
-
-/** The lines listing every resource of `kind` that `view` shows, seen from the workspace `here`. */
 export function resourceLines(
   kind: ResourceKind,
   view: ResourceView,
@@ -69,7 +61,6 @@ function stepLines(steps: readonly RunStep[], indent: string): string[] {
   ]);
 }
 
-/** Where a resource is from, when not `here`, and who else it is shared with. */
 function belonging(shown: Shown<unknown>, here: string): string {
   const [owner, ...shared] = shown.workspaces;
   const from = owner === here ? "" : `  from ${owner}`;

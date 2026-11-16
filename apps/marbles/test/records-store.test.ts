@@ -1,10 +1,3 @@
-/**
- * Every records' `taskStore` is a `TaskStore`, held to the same suite as
- * the package's stores, and owns each write from the moment `commit` is
- * called: the tasks it keeps and the change it records are the write as it
- * stood then, whatever the caller does with it afterwards.
- */
-
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,7 +27,6 @@ afterAll(async () => {
   }
 });
 
-/** One records per scope, from `make`, kept to be closed after the file. */
 function perScope(
   make: (scope: string) => WorkspaceRecords
 ): (scope: string) => WorkspaceRecords {
@@ -50,7 +42,6 @@ function perScope(
   };
 }
 
-/** Fresh storage of each kind, a records per scope over it. */
 const KINDS: readonly {
   readonly name: string;
   readonly open: () => Promise<(scope: string) => WorkspaceRecords>;
@@ -91,7 +82,6 @@ for (const kind of KINDS) {
   });
 }
 
-/** A write creating one task titled `title`, with the change it makes. */
 function creating(title: string): TaskStoreWrite & { events: TaskEvent[] } {
   const at = "2026-11-14T00:00:00.000Z";
   const task: Task = {
@@ -120,7 +110,6 @@ function creating(title: string): TaskStoreWrite & { events: TaskEvent[] } {
   };
 }
 
-/** Change everything in `write` a caller could still reach. */
 function tamper(write: TaskStoreWrite & { events: TaskEvent[] }): void {
   const [task] = write.putTasks ?? [];
   if (task !== undefined) {
@@ -132,7 +121,6 @@ function tamper(write: TaskStoreWrite & { events: TaskEvent[] }): void {
   }
 }
 
-/** The title kept, and the title of every change recorded. */
 async function kept(records: WorkspaceRecords) {
   const { tasks } = await records.taskStore.snapshot();
   const changes = await records.log.read({ after: 0, source: "tasks" });

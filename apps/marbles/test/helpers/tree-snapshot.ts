@@ -8,14 +8,6 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-/**
- * What is at every path under each of `roots`, the roots included, keyed
- * by absolute path: a directory's mode and modification time (so an entry
- * made and removed again shows), a file's mode, size, modification time
- * and a digest of its bytes, a link's mode, time and target. Access times
- * are left out: reading changes them. A root that is not there has no key,
- * so one made later shows; a path in `ignored` is left out, whole.
- */
 export function snapshotTrees(
   roots: readonly string[],
   ignored: ReadonlySet<string> = new Set()
@@ -31,7 +23,6 @@ export function snapshotTrees(
     } catch {
       return;
     }
-    // The whole mode, kind bits too: a change of either shows.
     const mode = stats.mode.toString(8);
     if (stats.isSymbolicLink()) {
       found[path] =

@@ -43,7 +43,6 @@ import { showsOthers, workspaceScoped } from "./workspace-scope";
 /** The workspace shown, among those the Marbles process hosts. */
 export interface HostedWorkspace {
   readonly count: number;
-  /** Why the workspace failed, or why a change to it did not load. */
   readonly error?: string;
   /** Where this workspace sits in the process's list, from 1. */
   readonly position: number;
@@ -235,7 +234,6 @@ export function useDashboard({
     setQuery: (value: string) => send({ type: "query", value }),
     setView: (view: DashboardViewKey) => send({ type: "view", view }),
     showRun: (id: string) => send({ id, type: "show-run" }),
-    /** The host's snapshot, its runs and triggers narrowed to the workspaces shown. */
     snapshot,
     /** A direct launch in flight, and its failure. */
     starting,

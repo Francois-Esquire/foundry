@@ -27,7 +27,6 @@ export const LOG_SOURCES: readonly LogSource[] = ["all", "run", "host"];
 export interface OperatingLogEntry extends LogEntry {
   readonly runId?: string;
   readonly runName?: string;
-  /** The workspace that owns the run, when another workspace's. */
   readonly runWorkspace?: string;
   /** Logged by the run's workflow setup, before any step: it has no step. */
   readonly setup?: boolean;
@@ -46,7 +45,6 @@ function time(timestamp: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-/** The run, or its step, a log line came from: its id, and its owner when another workspace's. */
 export function logRun(
   entry: OperatingLogEntry,
   runId: string
@@ -222,7 +220,6 @@ export function operatingStats(runs: readonly RunSnapshot[]): OperatingStats {
 export interface LatestItem {
   readonly at: number;
   readonly id: string;
-  /** The run it opens: its id, and its owner when another workspace's. */
   readonly run?: {
     readonly id: string;
     readonly workspace?: { readonly id: string };

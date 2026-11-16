@@ -22,7 +22,6 @@ function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
   const [draft, setDraft] = useState("");
   /** The approval choice waiting on its note. */
   const [choosing, setChoosing] = useState<string>();
-  /** The entry the last answer went to (`feedKey`); its progress shows only there. */
   const [target, setTarget] = useState<string>();
   const delivery = useAsyncAction();
   const question =
@@ -112,7 +111,6 @@ export function useFeed(
   onAnswer?: AnswerHandler
 ) {
   const [scope, setScope] = useState(ALL_WORKSPACES);
-  /** The selected entry's `feedKey`: its workspace and id together. */
   const [selectedKey, setSelectedKey] = useState<string>();
   const [focus, setFocus] = useState<FeedFocus>("list");
   const scopes = feedScopes(entries, workspaceId);
@@ -160,8 +158,6 @@ export function useFeed(
     }
   }
 
-  // Only what this workspace posted is answered here: its engine holds no
-  // other workspace's questions.
   const answerable =
     workspaceId === undefined || selected?.workspace.id === workspaceId
       ? selected

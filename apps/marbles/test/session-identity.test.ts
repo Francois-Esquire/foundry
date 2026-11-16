@@ -71,7 +71,6 @@ const DIGEST = /^[0-9a-f]{32}$/;
 let state: string;
 let workspaceDir: string;
 
-/** Keep `providers` as the configuration of `scope`, as another process would. */
 async function write(
   scope: "machine" | "workspace",
   providers: object[],
@@ -85,7 +84,6 @@ async function write(
   );
 }
 
-/** An engine over the workspace, its providers read as a starting engine reads them. */
 async function engine(machine: Record<string, string> = {}) {
   const built = build(machine);
   await built.providers?.refresh();

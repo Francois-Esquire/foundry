@@ -2,14 +2,12 @@ import { describe, expect, test } from "vitest";
 
 import { detached } from "../detached";
 
-/** A view onto fresh shared memory holding `bytes`. */
 function sharedBytes(...bytes: number[]): Uint8Array {
   const view = new Uint8Array(new SharedArrayBuffer(bytes.length));
   view.set(bytes);
   return view;
 }
 
-/** Whether `value`, or anything it holds, sits in shared memory. */
 function holdsShared(value: unknown, seen = new Set<unknown>()): boolean {
   if (typeof value !== "object" || value === null || seen.has(value)) {
     return false;
@@ -24,7 +22,6 @@ function holdsShared(value: unknown, seen = new Set<unknown>()): boolean {
   return entriesOf(value).some((entry) => holdsShared(entry, seen));
 }
 
-/** What a value holds: Map keys and values, Set values, own property values. */
 function entriesOf(value: object): unknown[] {
   if (value instanceof Map) {
     return [...value].flat();
@@ -56,7 +53,6 @@ describe("detached", () => {
     "copies a %o over shared memory into memory of its own",
     (Typed) => {
       const shared = new SharedArrayBuffer(Typed.BYTES_PER_ELEMENT * 4);
-      // Typed-array constructors take shared memory; their types say ArrayBuffer.
       const view = new Typed(
         shared as unknown as ArrayBuffer,
         Typed.BYTES_PER_ELEMENT,
@@ -69,7 +65,6 @@ describe("detached", () => {
 
       expect(copy).toBeInstanceOf(Typed);
       expect(copy.buffer).not.toBeInstanceOf(SharedArrayBuffer);
-      // A view onto part of a buffer keeps its place in it.
       expect([copy.byteOffset, copy.length]).toEqual([
         Typed.BYTES_PER_ELEMENT,
         2,
@@ -158,7 +153,6 @@ describe("detached", () => {
     expect(holdsShared(copy)).toBe(false);
     const cause = (copy.outer.cause as Error).cause as { bytes: Uint8Array };
     expect(cause.bytes[0]).toBe(1);
-    // `cause` stays an own property that is not enumerable.
     expect(
       Object.getOwnPropertyDescriptor(copy.outer, "cause")?.enumerable
     ).toBe(false);
@@ -174,8 +168,6 @@ describe("detached", () => {
     const copy = detached(aggregate);
     bytes[0] = 9;
 
-    // Node's clone keeps an AggregateError as an Error without `errors`;
-    // a runtime that keeps them gets them walked like any other field.
     expect(holdsShared(copy)).toBe(false);
   });
 

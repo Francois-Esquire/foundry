@@ -83,7 +83,6 @@ export interface ExecutionRun {
   /** The definition or task name it was launched by. */
   readonly name: string;
   readonly observations: readonly ExecutionObservation[];
-  /** The process that owns it while it is unsettled, by pid and start time. */
   readonly owner: ProcessIdentity;
   /** The latest progress it reported. */
   readonly progress?: JsonValue;
@@ -137,15 +136,6 @@ export interface ExecutionSubscription {
   unsubscribe(): void;
 }
 
-/**
- * What a host reads and steers: the retained runs, their lifecycle as it
- * happens, and the queues. `get`, `list` and `gaps` answer from this
- * process at once: every change it made, and what it last read of other
- * processes', at start or at the latest `subscribe`. Changes made by
- * another process sharing the store are not announced as they happen;
- * subscribing reads the store again, so a fresh subscription's snapshot
- * carries what other processes wrote or pruned since.
- */
 export interface ExecutionRuns {
   /** Set a queue's concurrency, now; it is created if it does not exist. */
   configure(queue: string, settings: QueueSettings): void;
@@ -154,26 +144,11 @@ export interface ExecutionRuns {
   get(id: string): ExecutionRun | undefined;
   /** Every retained run, in admission order. */
   list(): readonly ExecutionRun[];
-  /**
-   * Remove settled runs for good, recording each one's scope in its gap
-   * first. Ids of unknown or unsettled runs are skipped. Returns the runs
-   * removed; subscribers are not told (the caller knows). Each run's gap
-   * and its removal are one write, so a process pruning at the same time
-   * never counts a removal twice: it waits its turn.
-   */
   prune(
     ids: Iterable<string>,
     scopeOf: (run: ExecutionRun) => string
   ): Promise<readonly ExecutionRun[]>;
   queues(): readonly QueueState[];
-  /**
-   * Every change from now on, each as the whole new record, and a snapshot
-   * read from the store once listening began, so snapshot and updates
-   * together miss nothing: an update may come before the snapshot, or
-   * repeat what it holds. Reconcile by `id`, keeping the highest
-   * `revision`. After a disconnect, or to see what another process sharing
-   * the store did, subscribe again.
-   */
   subscribe(
     listener: (run: ExecutionRun) => void
   ): Promise<ExecutionSubscription>;
@@ -200,7 +175,6 @@ const observationBase = {
   status: z.enum(["running", "complete", "failed", "denied", "cancelled"]),
 };
 
-/** A stored observation, with every field its kind needs; what else it holds is kept. */
 const observationSchema = z.union([
   z.looseObject({
     ...observationBase,
@@ -224,7 +198,6 @@ const observationSchema = z.union([
   }),
 ]);
 
-/** A stored run's record, its observations aside; what else it holds is kept. */
 const recordSchema = z.looseObject({
   correlation: z.record(z.string(), z.string()),
   error: z
@@ -234,7 +207,6 @@ const recordSchema = z.looseObject({
   input: z.unknown().optional(),
   kind: z.enum(["workflow", "task"]),
   name: z.string(),
-  // A record from before start times were kept names its owner by pid alone.
   owner: z.object({
     pid: z.number(),
     started: z.string().nullable().default(null),
@@ -253,11 +225,6 @@ const recordSchema = z.looseObject({
   }),
 });
 
-/**
- * A stored run, when its record has every field a run needs, with each of
- * its observations that is one; one that is not is left out, and counted
- * in `dropped`.
- */
 export function parseStored(
   stored: StoredExecution,
   dropped?: (count: number) => void

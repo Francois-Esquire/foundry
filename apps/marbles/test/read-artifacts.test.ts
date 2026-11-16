@@ -9,12 +9,6 @@ import { artifactBlobs, readArtifacts } from "~/database/stores";
 import { stateDatabase } from "~/layout";
 import { temporaryDirectory } from "./helpers/temporary";
 
-/**
- * A dry run reads what real runs left through `readArtifacts`, which
- * writes nothing: a stored artifact whose blob files are gone reads as
- * missing, and nothing is made in their place.
- */
-
 it("reads an artifact whose blobs directory is gone as missing, and makes no directory", async () => {
   const home = temporaryDirectory("marbles-read-artifacts-");
   const state = join(home, "marbles");

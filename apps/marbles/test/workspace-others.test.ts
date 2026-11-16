@@ -8,12 +8,6 @@ import { seedWorkspace } from "./helpers/registry";
 import { seedRuns, seedTicks } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
-/**
- * A hosted workspace's dashboard lists the other workspaces' runs and
- * triggers from the Marbles database, each owned elsewhere and qualified
- * by its owner, a shared run naming this workspace too.
- */
-
 const SEEN = "2026-11-01T00:00:00.000Z";
 
 async function machine() {
@@ -90,7 +84,6 @@ describe("other workspaces on the dashboard", () => {
           workspace: { id: "ws2", name: "two" },
         }),
       ]);
-      // The workspace's own lists come from its engine, not from here.
       const fromTwo = await otherWorkspaces({
         database,
         state,
@@ -118,7 +111,6 @@ describe("other workspaces on the dashboard", () => {
     const opened = await initializeDatabase(stateDatabase(state));
     try {
       const { database } = opened;
-      // The oldest run of ws2, behind 120 newer ones.
       await resourceAssociations(database, state).share(
         { id: "rn-two", kind: "run", owner: "ws2" },
         "ws1"
@@ -131,7 +123,6 @@ describe("other workspaces on the dashboard", () => {
       expect(runs.find((run) => run.id === "rn-two")).toMatchObject({
         workspaces: ["ws2", "ws1"],
       });
-      // 100 of ws2's own newest, and the one it shares.
       expect(runs).toHaveLength(101);
     } finally {
       opened.close();
@@ -140,7 +131,6 @@ describe("other workspaces on the dashboard", () => {
 
   it("shows a monitor whose first tick handed a launch over and died before its history, as a monitor", async () => {
     const state = await machine();
-    // The tick's claim is left by a process that is gone; no history yet.
     await seedTicks(state, "ws2", [{ key: "first", owner: null }]);
     const opened = await initializeDatabase(stateDatabase(state));
     try {

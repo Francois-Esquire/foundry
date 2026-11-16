@@ -18,14 +18,6 @@ import { touchWorkspace } from "./helpers/registry";
 import { temporaryDirectory } from "./helpers/temporary";
 import { snapshotTrees } from "./helpers/tree-snapshot";
 
-/**
- * `--dry-run` persists nothing. Every command in the CLI's handler table
- * says what the flag means for it, and one without a dry mode refuses it
- * before it opens or writes anything, wherever the flag sits on the line:
- * nothing under the Foundry home, the workspaces, or the home and
- * temporary directory the CLI is given changes.
- */
-
 const REFUSED = /takes no --dry-run/;
 
 const SOURCE = `import { step, workflow } from "@foundry.sh/marbles";
@@ -35,17 +27,10 @@ workflow("hello").do(() => greet({}));
 
 interface Case {
   readonly args: readonly string[];
-  /** The exit status a command that takes the flag ends with; any when absent. */
   readonly exits?: number;
-  /** Stopped with SIGINT after this long: it runs until it is stopped. */
   readonly stopAfterMs?: number;
 }
 
-/**
- * How the test runs each command, doing what it would change. Kept by
- * command name, checked against the handler table at run time: a command
- * added there without a case here fails.
- */
 function cases(artifact: string): Readonly<Record<string, Case>> {
   return {
     artifacts: { args: ["artifacts", "--all"], exits: 0 },
@@ -72,7 +57,6 @@ function cases(artifact: string): Readonly<Record<string, Case>> {
   };
 }
 
-/** A machine whose first workspace has a source, a database holding an artifact it shares, and is hosted. */
 async function seeded(home: TestHome, top: string) {
   const { artifacts, state } = home.layout;
   const root = (name: string) => {
@@ -83,7 +67,6 @@ async function seeded(home: TestHome, top: string) {
   };
   const one = workspaceState(state, root("one"));
   const two = workspaceState(state, root("two"));
-  // Hosted, so a detach would have something to change.
   await touchWorkspace(state, one, null, { hosted: true });
   await touchWorkspace(state, two, null);
   const opened = await initializeDatabase(stateDatabase(state));
@@ -109,12 +92,6 @@ async function seeded(home: TestHome, top: string) {
   }
 }
 
-/**
- * Run every command in the handler table with the flag at each of
- * `positions`, in the workspace at `root`, and prove that nothing under
- * the home, the workspaces or the CLI's own home and temporary directory
- * changed after any of them.
- */
 function walk(
   home: TestHome,
   top: string,
@@ -122,9 +99,7 @@ function walk(
   artifact: string,
   positions: readonly ("before" | "after")[],
   options: {
-    /** Run only the commands this keeps. */
     readonly only?: (command: string) => boolean;
-    /** Checked after each run, beside the snapshot. */
     readonly after?: (what: string) => void;
   } = {}
 ): void {
@@ -133,22 +108,15 @@ function walk(
   const own = temporaryDirectory("marbles-dry-own-");
   const env = {
     ...home.env,
-    // Bun's own cache of what it transpiled, which is Bun's, not Marbles'.
     BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
     HOME: join(own, "home"),
     TMPDIR: join(own, "tmp"),
   };
   mkdirSync(env.HOME);
-  // Made ahead, and left out below: see `ignored`.
   mkdirSync(join(env.TMPDIR, "marbles"), { recursive: true });
   const watched = [home.path, top, own];
-  // SQLite's shared-memory file, which every reader maps read-write; it
-  // keeps nothing.
   const ignored = new Set([
     `${stateDatabase(home.layout.state)}-shm`,
-    // Where a dry engine cuts its echoed worktrees, as its steps do: empty
-    // scratch directories under the temporary directory, for a step to
-    // write in, never under the home, the workspace or its repository.
     join(env.TMPDIR, "marbles"),
   ]);
   const before = snapshotTrees(watched, ignored);
@@ -188,11 +156,6 @@ function walk(
   }
 }
 
-/**
- * A source that uses every kind of definition at its top level, as it
- * loads: a workspace's git, a model, an artifact, a sandbox and a task.
- * Each is tried on its own, so one refused leaves the others tried.
- */
 const AT_LOAD = `import { agent, artifact, sandbox, step, tasks, workspace } from "@foundry.sh/marbles";
 const repo = workspace({ path: "." });
 const writer = agent({ name: "writer", prompt: "Write." });
@@ -213,7 +176,6 @@ await attempt("sandbox", () => box.exec(["true"]));
 await attempt("task", () => tasks.create({ title: "At load" }));
 `;
 
-/** The branches and worktrees of the repository at `root`. */
 function repository(root: string): string {
   const git = (...args: string[]) =>
     spawnSync("git", ["-C", root, ...args], { encoding: "utf8" }).stdout;
@@ -257,7 +219,6 @@ describe("every command under --dry-run", { timeout: 600_000 }, () => {
     );
     writeFileSync(join(root, "marbles.ts"), AT_LOAD);
     const repositoryBefore = repository(root);
-    // The commands that load the source, as the handler table says.
     const loads = (command: string) => {
       const { needs } = COMMANDS[command as keyof typeof COMMANDS];
       return needs === "triggers" || needs === "connection";
@@ -290,7 +251,6 @@ describe("every command under --dry-run", { timeout: 600_000 }, () => {
     expect(attached.status, attached.stderr).toBe(0);
     const dry = marbles("tasks", "create", "Dry", "--dry-run");
     expect(dry.status, dry.stderr).toBe(0);
-    // Asked of the generation that hosts it: the dry task never reached it.
     const listed = marbles("tasks", "list", "--json");
     expect(listed.status, listed.stderr).toBe(0);
     expect(listed.stdout).not.toContain("Dry");

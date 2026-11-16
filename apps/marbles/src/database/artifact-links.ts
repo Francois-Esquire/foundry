@@ -12,75 +12,27 @@ import { WorkspaceRegistry } from "~/database/workspaces";
 import type { ResourceRef } from "~/lib/resources";
 import { sameResource } from "~/lib/resources";
 
-/**
- * An artifact store that keeps the workspaces' links to its artifacts
- * current. Once a write has landed, each artifact it changed (put,
- * deleted, given new Content, or one of whose blobs it rewrote) is
- * relinked in its owner and in every workspace it is shared with, and
- * unlinked in any other that links it (`relinkArtifact`). Only a
- * workspace whose `.marbles` is there is touched: one never linked
- * (`marbles relink`) gets none from here.
- *
- * Linking follows the write; it never fails it. Each workspace and
- * artifact is relinked on its own, so one that cannot be (a link in the
- * way, a root that is gone) is reported through `report` and the rest
- * still are; `marbles relink` repairs what was reported. Updates run one at
- * a time, in the order the writes landed, and `drainLinks` waits for them,
- * for as long as it is given: a host drains before it closes the database.
- */
-
 export interface KeptLinksOptions {
-  /** The shared artifact store, whose blob files the links point at. */
   readonly artifacts: string;
   readonly database: StoreDatabase;
-  /** The workspace whose store this is. */
   readonly owner: string;
   readonly report: (line: string) => void;
-  /** The Marbles state root. */
   readonly state: string;
 }
 
-/** What one write changed, by id. */
 export interface Touched {
   readonly artifacts: readonly string[];
   readonly blobs: readonly string[];
 }
 
-/** What `keepingLinks` adds to the store it keeps links for. */
 export interface LinksKept {
-  /**
-   * Take no new link work from now on, and resolve once no link update is
-   * under way or queued, so nothing of this store's link keeping is in a
-   * database call or will begin one: the database may close then. A write
-   * that lands once this has begun has its links left to `marbles relink`,
-   * reported once, and reads nothing. After `withinMs`, give up what has no
-   * end of its own, the updates not yet begun and one waiting for a
-   * workspace's links lock, reporting them once as `marbles relink` repairs
-   * them; an update reading the database or changing links still reaches
-   * its next step, where it stops, before this resolves. One stopped
-   * changes no link: what it made ahead is removed, and the links are as
-   * they were.
-   *
-   * `withinMs` is no deadline: past it, this still waits for a read of the
-   * database under way, however long it takes, since closing the database
-   * under it is what this is for. What bounds a host's close is the host's
-   * own: a generation's stop timeout; nothing, in a host in this process.
-   */
   drainLinks(withinMs: number): Promise<void>;
 }
 
-/** A store whose commits land only with its host's transaction, which says nothing of when that commits. */
 export class HostBoundStoreError extends Error {
   override readonly name = "HostBoundStoreError";
 }
 
-/**
- * `store`, keeping the workspaces' links current after each write that
- * lands. Refused for a store whose commits land only when a transaction
- * its host owns commits (`durability: "host"`): nothing tells it when that
- * is, or that it rolled back, so its links would follow writes that never
- * land.
- */
 export function keepingLinks<T extends ArtifactStore>(
   store: T,
   options: KeptLinksOptions
@@ -101,15 +53,6 @@ export function keepingLinks<T extends ArtifactStore>(
   }) as T & LinksKept;
 }
 
-/**
- * `store`, calling `landed` with what each write changed once it is there
- * for good: a commit made on the store itself as soon as it resolves; one
- * made through a transaction's view, nested ones included, only once the
- * outermost transaction has resolved, and never for one that rejected.
- * Everything else is the store's own, transaction absent where it offers
- * none; the store takes each write when it is called, before anything here
- * reads it, and nothing here can make a write fail.
- */
 export function followingCommits<T extends ArtifactStore>(
   store: T,
   landed: (touched: Touched) => void
@@ -121,7 +64,6 @@ export function followingCommits<T extends ArtifactStore>(
   });
 }
 
-/** `store`, handing what its commits and transactions changed to `sink` once each resolves. */
 function observed<T extends ArtifactStore>(
   store: T,
   sink: (touched: Touched) => void
@@ -131,7 +73,6 @@ function observed<T extends ArtifactStore>(
       const value: unknown = Reflect.get(target, property, target);
       if (property === "commit" && typeof value === "function") {
         return async (write: ArtifactStoreWrite): Promise<void> => {
-          // Called first: the store takes its own copy of the write now.
           const committed: Promise<void> = Reflect.apply(value, target, [
             write,
           ]);
@@ -145,7 +86,6 @@ function observed<T extends ArtifactStore>(
           work: (view: ArtifactStore) => Promise<R>,
           ...rest: unknown[]
         ): Promise<R> => {
-          // Each id once, however many of the transaction's commits name it.
           const artifacts = new Set<string>();
           const blobs = new Set<string>();
           const result = (await Reflect.apply(value, target, [
@@ -171,7 +111,6 @@ function observed<T extends ArtifactStore>(
   });
 }
 
-/** The ids a write names; nothing when the write cannot be read, which its store has refused already. */
 function touchedBy(write: ArtifactStoreWrite): Touched {
   try {
     return {
@@ -189,17 +128,13 @@ function touchedBy(write: ArtifactStoreWrite): Touched {
   }
 }
 
-/** Queue the relinking of what each write touched, one update at a time, and wait for the queue. */
 function artifactLinker(options: KeptLinksOptions): {
   readonly drain: (withinMs: number) => Promise<void>;
   readonly follow: (touched: Touched) => void;
 } {
   const { owner, report } = options;
   let queue: Promise<void> = Promise.resolve();
-  // Aborted once a drain gave up: an update stops at its next step, before
-  // it reads the database again, and a wait for a links lock ends.
   const giveUp = new AbortController();
-  // Closed once a drain begins: nothing more is queued.
   let admitting = true;
   const live = (): void => {
     giveUp.signal.throwIfAborted();
@@ -235,9 +170,7 @@ function artifactLinker(options: KeptLinksOptions): {
         }
       });
   };
-  /** Whether the queue settled before `timedOut` did. */
   const settled = async (timedOut?: Promise<"timed out">) => {
-    // An update may queue another while it runs: wait until none is left.
     for (;;) {
       const waited = queue;
       const outcome = await (timedOut === undefined
@@ -265,7 +198,6 @@ function artifactLinker(options: KeptLinksOptions): {
     } finally {
       clearTimeout(timer);
     }
-    // Another drain may have given up meanwhile: that one has said so.
     if (giveUp.signal.aborted) {
       await settled();
       return;
@@ -277,22 +209,18 @@ function artifactLinker(options: KeptLinksOptions): {
         `updates were still waiting after ${String(withinMs)} ms, for a workspace's .marbles/.lock or their turn, when the host closed`
       )
     );
-    // What reads the database or changes links now reaches its next step.
     await settled();
   };
   return { drain, follow };
 }
 
-/** An update a drain gave up on, ending before it reads the database again. */
 class LinksAbandoned extends Error {
   override readonly name = "LinksAbandoned";
 }
 
 interface Relinking {
   readonly failed: (what: string, error: unknown) => void;
-  /** Throws `LinksAbandoned` once a drain gave up; called before each read of the database. */
   readonly live: () => void;
-  /** Aborts, with a `LinksAbandoned`, once a drain gave up: ends a wait for a links lock. */
   readonly signal: AbortSignal;
 }
 
@@ -317,9 +245,6 @@ async function relinkTouched(
   for (const id of ids) {
     const ref: ResourceRef = { id, kind: "artifact", owner };
     for (const record of records) {
-      // Read under the workspace's links lock, right before the links are
-      // put in place: what the database says then, not when this began,
-      // and only if no drain gave up while this waited for the lock.
       const files = async (): Promise<readonly ArtifactFile[]> => {
         live();
         const shown =
@@ -355,7 +280,6 @@ async function relinkTouched(
   }
 }
 
-/** The artifacts a write changed: those it named, and those whose Content holds a blob it put. */
 async function changedArtifacts(
   store: SqliteArtifactStore,
   touched: Touched,

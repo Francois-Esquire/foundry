@@ -104,7 +104,6 @@ function RunInspector({
     {
       content:
         tab === "stream" ? (
-          // Only this workspace's own runs stream here.
           <RunStream
             runId={run.id}
             source={run.workspace === undefined ? stream : undefined}

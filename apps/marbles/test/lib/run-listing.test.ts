@@ -1,8 +1,3 @@
-/**
- * What an engine lists as its Runs, and what reading them costs: settled
- * Runs are read once, so a listing reads again only what is live here.
- */
-
 import { ExecutionCoordinator } from "@foundry/workflows";
 import { expect, it, vi } from "vitest";
 import { RunListing } from "~/lib/run-listing";
@@ -62,6 +57,5 @@ it("reads a settled Run once, and only its live Runs on every listing after", as
   expect(await listing.list()).toHaveLength(6);
 
   expect(listRuns).not.toHaveBeenCalled();
-  // Twice while it was live, then never: it is settled now.
   expect(getRun).toHaveBeenCalledTimes(2);
 });

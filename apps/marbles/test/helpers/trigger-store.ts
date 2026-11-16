@@ -6,18 +6,8 @@ import type {
   TriggerStore,
 } from "~/lib/trigger-store";
 
-/**
- * Where a trigger store under test comes from: `store()` makes another
- * over the same state, as a second engine would have. `close` ends
- * whatever the stores were made over.
- */
 export interface TriggerStoreFixture {
   close(): Promise<void>;
-  /**
-   * Keep `state` as the monitor `key`'s the way an older Marbles left it,
-   * whatever is recorded for the key. Only a store that keeps state across
-   * processes can hold what an older one left; one in memory has none.
-   */
   leftover?(key: string, state: MonitorState): Promise<void>;
   store(): TriggerStore;
 }
@@ -31,12 +21,6 @@ const TICK: ScheduleHistory = {
   nextDue: "2026-09-10T01:30:00.000Z",
 };
 
-/**
- * The contract every `TriggerStore` keeps, whatever it keeps the state in.
- * `shared` says whether two stores from one fixture see one another's
- * state, as two engines over one database do, or each keeps its own, as
- * in memory.
- */
 export function describeTriggerStore(
   name: string,
   open: () => Promise<TriggerStoreFixture>,
@@ -79,7 +63,6 @@ export function describeTriggerStore(
       await triggers.finishTick("s", TICK);
       expect(await triggers.lastTick("s")).toEqual(TICK);
       expect(await triggers.claimTick("s")).toEqual({ claimed: true });
-      // A tick that did not run keeps the last one's record.
       await triggers.finishTick("s");
       expect(await triggers.lastTick("s")).toEqual(TICK);
     });
@@ -95,7 +78,6 @@ export function describeTriggerStore(
         expect(await second.lastTick("s")).toEqual(TICK);
 
         expect(await second.claimTick("s")).toEqual({ claimed: true });
-        // Stopping mid-tick gives the claim up at once.
         await second.close();
         expect(await first.claimTick("s")).toEqual({ claimed: true });
       }
@@ -160,11 +142,8 @@ export function describeTriggerStore(
       };
       expect(await triggers.claimTick("k")).toEqual({ claimed: true });
       await triggers.finishTick("k", { ...TICK, kind: "schedule" });
-      // The monitor's first tick under the key keeps a launch, and stops.
       expect(await triggers.claimTick("k")).toEqual({ claimed: true });
       await triggers.saveMonitorState("k", left);
-      // The schedule's history is none of the monitor's: no label or time
-      // it did not record stays, until its own tick is recorded.
       expect(await triggers.lastTick("k")).toBeUndefined();
       expect(await triggers.monitorState("k")).toEqual(left);
     });
@@ -191,7 +170,6 @@ export function describeTriggerStore(
         await leftover(key, left);
       }
       expect(await triggers.monitorState("rescheduled")).toBeUndefined();
-      // Gone for good, for every store over the same state.
       expect(await (await store()).monitorState("rescheduled")).toBeUndefined();
       expect(await triggers.monitorState("watched")).toEqual(left);
     });

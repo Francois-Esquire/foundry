@@ -1,12 +1,7 @@
-import { thisProcess } from "@foundry/lib/process-identity";
-/**
- * Every execution store keeps one contract: in memory, one engine's, and
- * in the Marbles database, shared by every engine over it.
- */
-
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { thisProcess } from "@foundry/lib/process-identity";
 import { expect, it } from "vitest";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { initializeDatabase } from "~/database/open";

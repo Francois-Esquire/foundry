@@ -55,7 +55,6 @@ function attentionOf(
   return values.includes("question") ? "question" : undefined;
 }
 
-/** A run as the dashboard shows another workspace's: its record alone, no live feed, activity or usage. */
 export function storedRunSnapshot(record: RunRecord, now: number): RunSnapshot {
   return runSnapshot(record, now, [], [], undefined);
 }
@@ -265,7 +264,6 @@ function description(
   return `${schedule.workflow} · ${describeTrigger(schedule.trigger)}`;
 }
 
-/** What other workspaces show the dashboard: their runs and triggers, read only. */
 export interface OtherWorkspaces {
   readonly runs: readonly RunSnapshot[];
   readonly triggers: readonly TriggerSnapshot[];
@@ -285,7 +283,6 @@ export interface SnapshotOptions {
   /** What each monitor watches, by trigger key: the engine's `monitors()`. */
   readonly monitors: ReadonlyMap<string, { readonly source: MonitorSpec }>;
   readonly now?: number;
-  /** Other workspaces' runs and triggers, from the Marbles database. */
   readonly others?: OtherWorkspaces;
   /**
    * The engine's `executions`: those queued, and workflows let in but not

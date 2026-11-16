@@ -16,12 +16,6 @@ import { initializeDatabase, readDatabase } from "~/database/open";
 import { marblesWorkspaces } from "~/database/tables";
 import { recordSpawned } from "~/process/spawned";
 
-/**
- * The race `readDatabase` narrows but cannot close: the last writer closes
- * between the reader's connection opening and its first read. The reader's
- * first schema query is held until the writer, another process, has closed
- * and taken the side files with it.
- */
 const race = vi.hoisted(() => ({
   before: undefined as (() => Promise<void>) | undefined,
 }));
@@ -55,7 +49,6 @@ const ids = (database: StoreDatabase) =>
     .from(marblesWorkspaces)
     .then((rows) => rows.map(({ id }) => id).sort());
 
-/** A process holding `file` open, with `id` recorded, until told to close. */
 async function holder(dir: string, file: string, id: string) {
   const script = join(dir, "holder.ts");
   writeFileSync(
@@ -111,17 +104,12 @@ it("survives the last writer closing between its open and its first read", async
     raced = !(existsSync(`${file}-wal`) || existsSync(`${file}-shm`));
   };
 
-  // The reader returns what was committed.
   expect(await readDatabase(file, ids)).toEqual(["a"]);
   expect(raced).toBe(true);
-  // What the race may leave is an empty WAL file and the shared-memory
-  // index of it, which no process has open, and nothing else.
   expect(statSync(`${file}-wal`, { throwIfNoEntry: false })?.size ?? 0).toBe(0);
 
-  // The next reader reads past it.
   expect(await readDatabase(file, ids)).toEqual(["a"]);
 
-  // The next Marbles process opens it and migrates it as usual, losing nothing.
   const next = join(dir, "migrations-next");
   cpSync(MIGRATIONS, next, { recursive: true });
   const journal = JSON.parse(

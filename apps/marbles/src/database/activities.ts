@@ -6,20 +6,10 @@ import type { ActivityRecord, ActivityStore } from "~/lib/sandbox/activities";
 import { activityRecordSchema } from "~/lib/sandbox/activities";
 
 export interface DatabaseActivityStoreOptions {
-  /** The database the host keeps open. */
   readonly database: StoreDatabase;
-  /** The workspace id. */
   readonly scope: string;
 }
 
-/**
- * A workspace's harness activities in the Marbles database: a row of
- * `marbles_harness_activities` each, by the workspace id and the
- * activity's key, replaced only by a higher revision. One that no longer
- * reads back through the activity schema is passed over, as the
- * dashboard's projection always has. A lock waited on too long rejects as
- * a `DatabaseBusyError`.
- */
 export class DatabaseActivityStore implements ActivityStore {
   readonly #database: StoreDatabase;
   readonly #scope: string;

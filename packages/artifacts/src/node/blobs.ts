@@ -6,25 +6,14 @@ import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 import type { BlobFiles } from "../blob";
 import { stagingArea } from "./staging";
 
-/**
- * A published blob, or a temporary left beside one: `<id>.<uuid>.tmp` from
- * `writeFileAtomic`, or `<id>.tmp` from earlier releases.
- */
 const BLOB_FILENAME = /^[a-f0-9-]+(?:\.(?:[a-f0-9-]+\.)?tmp)?$/;
 
-/**
- * Published blobs as files directly under `root`, and staged bytes under
- * `root/.staging`, which listing, reading and removing never reach. Only
- * publishing and staging make `root`: a reader, a dry run's included,
- * finds a missing directory as no blobs, and makes nothing.
- */
 export function blobFiles(root: string): BlobFiles {
   const directory = resolve(root);
   async function ready(): Promise<string> {
     await mkdir(directory, { recursive: true });
     return realpath(directory);
   }
-  /** The directory as it is, without making it; undefined when it is not there. */
   async function located(): Promise<string | undefined> {
     try {
       return await realpath(directory);
@@ -65,7 +54,6 @@ export function blobFiles(root: string): BlobFiles {
       return path;
     },
     async *read(path, { start, end }) {
-      // A missing directory is a missing blob: opening it fails as one.
       const file = await open(
         join((await located()) ?? directory, filename(path)),
         // biome-ignore lint/suspicious/noBitwiseOperators: Node open flags require a bitmask to reject symlinks.

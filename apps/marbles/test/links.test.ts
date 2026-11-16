@@ -14,19 +14,12 @@ import { resourceLinks } from "~/layout";
 import type { ResourceRef } from "~/lib/resources";
 import { temporaryDirectory } from "./helpers/temporary";
 
-/**
- * A workspace's links are made from what its view shows, never through a
- * link, with another owner's artifacts under that owner, and concurrent
- * updates converge.
- */
-
 const HERE = "here";
 
 function ref(owner: string, id: string): ResourceRef {
   return { id, kind: "artifact", owner };
 }
 
-/** A view showing `shown` in turn: each `artifacts()` call reads the next, the last for good. */
 function viewOf(
   ...shown: (readonly {
     readonly ref: ResourceRef;
@@ -205,7 +198,6 @@ describe("links made from the database", () => {
 
   it("read the view again after reconciling, so a write during a rebuild is linked", async () => {
     const { artifacts, linkOf, root } = await arranged();
-    // The first read misses the artifact a commit adds while it reconciles.
     const view = viewOf([], [{ files: FILE, ref: ref(HERE, "late") }]);
     await rebuildLinks({ artifacts, root, view, workspace: HERE });
     expect(await readFile(linkOf(ref(HERE, "late"), "file.txt"), "utf8")).toBe(

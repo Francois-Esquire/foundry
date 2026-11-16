@@ -33,7 +33,6 @@ export function scopedRuns(
   if (!filter) {
     return snapshot.runs;
   }
-  // A trigger filters its own workspace's runs; a definition is this one's.
   return snapshot.runs.filter((run) =>
     filter.kind === "trigger"
       ? run.triggerId === filter.id && run.workspace?.id === filter.workspace

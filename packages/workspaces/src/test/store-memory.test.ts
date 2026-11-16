@@ -12,7 +12,6 @@ import { WorkspaceSystem } from "../workspace-system";
 describeWorkspaceStore(
   "memory",
   () => {
-    // One memory store per scope stands in for one storage holding many scopes.
     const scopes = new Map<string, MemoryWorkspaceStore>();
     return (scope) => {
       const store = scopes.get(scope) ?? new MemoryWorkspaceStore();
@@ -81,12 +80,6 @@ describe("WorkspaceSystem construction", () => {
 });
 
 describe("@foundry/workspaces dependencies", () => {
-  /**
-   * The package must run standalone, so a dependency pointing at another
-   * Foundry package (a database package, say), the Electron host, or an app
-   * is a design failure rather than a lint preference. Drizzle is an optional
-   * peer, needed only on the SQLite paths.
-   */
   it("names no other Foundry package, Electron, or app dependency", () => {
     const manifest = readManifest();
     const declared = [
@@ -158,7 +151,6 @@ describe("@foundry/workspaces SQLite dependencies", () => {
   });
 });
 
-/** Every non-test source file under `src/` whose text matches `pattern`. */
 function importers(pattern: RegExp): string[] {
   const source = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   return readdirSync(source, { recursive: true, withFileTypes: true })

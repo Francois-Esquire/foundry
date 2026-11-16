@@ -33,7 +33,6 @@ export interface ProviderEntryRecord {
   readonly settings?: Readonly<Record<string, unknown>>;
 }
 
-/** One scope's configuration. `order` appears only in a workspace's. */
 export interface ProvidersFile {
   readonly order?: readonly string[];
   readonly providers: readonly ProviderEntryRecord[];
@@ -54,74 +53,30 @@ const SCOPE_CONFIGURATION = z.object({
   version: z.literal(1),
 });
 
-/**
- * Every scope's provider configuration as it is kept: the machine's, and
- * that of each workspace that keeps one of its own. A workspace's is read
- * only when asked for, so one that cannot be read refuses only what needs
- * it.
- */
 export interface ProviderConfigurations {
-  /**
-   * The machine's configuration; `CONFIGURATION_UNREADABLE` when it cannot
-   * be read, which is found when this is read, not when the store was.
-   */
   readonly machine: ProvidersFile | undefined;
-  /**
-   * The store's revision these were read at, in the same read or
-   * transaction: never one an edit made after it.
-   */
   readonly revision: number;
-  /** The configuration the workspace `id` keeps; `CONFIGURATION_UNREADABLE` when it cannot be read. */
   workspace(id: string): ProvidersFile | undefined;
-  /** The ids of the workspaces that keep configuration of their own. */
   readonly workspaces: readonly string[];
 }
 
-/** What one edit writes: a scope it leaves out stays as it is. */
 export interface ProviderWrites {
   readonly machine?: ProvidersFile;
   readonly workspace?: ProvidersFile;
 }
 
-/**
- * Where provider configuration is kept: the Marbles database's for a host
- * (`database/providers.ts`), memory for a programmatic one. Everything a
- * store hands back is a copy.
- */
 export interface ProviderStore {
-  /**
-   * The machine's key for instance identities: made by the first call
-   * with `make` and never rewritten; undefined, without `make`, while there
-   * is none. A key that cannot be used throws `CONFIGURATION_UNREADABLE`.
-   */
   identityKey(make: boolean): Promise<Buffer | undefined>;
-  /** Every scope as kept now, with the revision it was read at. */
   read(): Promise<ProviderConfigurations>;
-  /** A number that grows with every write to any scope, cheap to read: how a change elsewhere is noticed. */
   revision(): Promise<number>;
-  /**
-   * In one transaction: read every scope, run `edit` on them, and write
-   * what it returns for the machine and for the workspace `workspace`;
-   * resolve with every scope as it then stands, and the revision that
-   * transaction left. `edit` may throw to
-   * refuse, and nothing is written then. A store that cannot take the
-   * write before its wait runs out throws `CONFIGURATION_BUSY`.
-   */
   update(
     workspace: string | undefined,
     edit: (current: ProviderConfigurations) => ProviderWrites
   ): Promise<ProviderConfigurations>;
 }
 
-/** The scope key a store keeps the machine's configuration under; a workspace's is its id. */
 export const MACHINE_SCOPE = "";
 
-/**
- * Configuration as a store keeps it, each scope's as JSON text by its
- * scope key (`MACHINE_SCOPE`, or a workspace id), read through the
- * configuration's schema. A scope that does not read refuses with where
- * and why, never with what it holds: a misplaced key is a secret.
- */
 export function keptConfigurations(
   texts: ReadonlyMap<string, string>,
   revision: number
@@ -163,7 +118,6 @@ export function keptConfigurations(
   };
 }
 
-/** One scope's configuration as the JSON text a store keeps, checked against the schema first. */
 function configurationText(file: ProvidersFile): string {
   const checked = SCOPE_CONFIGURATION.safeParse(file);
   if (!checked.success) {
@@ -212,12 +166,10 @@ function unreadable(what: string, why: string): ConfigurationError {
 
 const KEY = /^[0-9a-f]{64}$/;
 
-/** A new identity key, as the hex a store keeps. */
 export function newIdentityKey(): string {
   return randomBytes(32).toString("hex");
 }
 
-/** The identity key a store kept as `text`; `CONFIGURATION_UNREADABLE` when it is not one. */
 export function identityKeyFrom(text: string): Buffer {
   if (!KEY.test(text)) {
     throw new ConfigurationError(
@@ -228,10 +180,6 @@ export function identityKeyFrom(text: string): Buffer {
   return Buffer.from(text, "hex");
 }
 
-/**
- * Provider configuration in this process's memory, as long as it lasts:
- * for a programmatic host, whose sessions match nothing kept elsewhere.
- */
 export class MemoryProviderStore implements ProviderStore {
   readonly #texts = new Map<string, string>();
   #key: string | undefined;
@@ -278,7 +226,6 @@ export class MemoryProviderStore implements ProviderStore {
   }
 }
 
-/** What `writes` puts, by scope key; a workspace's only when there is one. */
 export function writtenTexts(
   workspace: string | undefined,
   writes: ProviderWrites
@@ -299,20 +246,13 @@ export function writtenTexts(
   return texts;
 }
 
-/**
- * `store` read as it is, with every write kept by this view alone: a dry
- * run's. It never makes an identity key.
- */
 export function readOnlyProviders(store: ProviderStore): ProviderStore {
   const own = new Map<string, string>();
   let writes = 0;
   const read = async (): Promise<ProviderConfigurations> => {
     const kept = await store.read();
-    // The store's revision with this view's own writes counted on top, so
-    // either kind of change is seen.
     const revision = kept.revision + writes;
     if (own.size === 0) {
-      // Nothing written here yet, so `writes` is 0 and this is the store's.
       return kept;
     }
     const texts = new Map(textsOf(kept));
@@ -336,7 +276,6 @@ export function readOnlyProviders(store: ProviderStore): ProviderStore {
   };
 }
 
-/** Every scope `kept` holds as the text a store keeps; one that cannot be read throws. */
 function textsOf(kept: ProviderConfigurations): ReadonlyMap<string, string> {
   const texts = new Map<string, string>();
   if (kept.machine !== undefined) {

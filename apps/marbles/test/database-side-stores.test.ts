@@ -40,7 +40,6 @@ const activity: ActivityRecord = {
   source,
 };
 
-/** Close what an engine closes on dispose: every store `withWorkspaceDatabase` counted. */
 async function dispose(options: EngineOptions): Promise<void> {
   await options.records?.close();
   await options.runs?.close();
@@ -115,7 +114,6 @@ describe("who delivers a workspace's task changes", () => {
     const opened = await initializeDatabase(join(scratch(), "marbles.db"));
     try {
       let failing = false;
-      // The database, refusing the next update as a held write lock would.
       const database = new Proxy(opened.database, {
         get(target, property) {
           if (property === "update" && failing) {
@@ -178,7 +176,6 @@ describe("who delivers a workspace's task changes", () => {
       expect(await second.claimDelivery()).toBe(
         "another engine in this process"
       );
-      // Another workspace's delivery is its own.
       expect(
         await new DatabaseWorkspaceRecords({
           database: opened.database,

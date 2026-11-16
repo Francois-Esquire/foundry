@@ -62,18 +62,12 @@ import {
   workflowSuspensions,
 } from "./tables";
 
-/**
- * An async Drizzle SQLite database, with or without a relational schema, or a
- * transaction on one. A `drizzle-orm/libsql` database and its transactions
- * both satisfy it, so a host can hand the store either.
- */
 export type WorkflowDatabase = BaseSQLiteDatabase<
   "async",
   unknown,
   Record<string, unknown>
 >;
 
-/** The transaction one `commit` runs in, as `onCommit` receives it. */
 export type WorkflowTransaction = SQLiteTransaction<
   "async",
   unknown,
@@ -82,45 +76,21 @@ export type WorkflowTransaction = SQLiteTransaction<
 >;
 
 export interface SqliteWorkflowStoreOptions {
-  /** Opened, migrated, and owned by the host; the store never closes it. */
   readonly database: WorkflowDatabase;
-  /**
-   * When a commit that resolved is there for good (see
-   * `WorkflowStoreDurability`). A Drizzle transaction handed in as
-   * `database` is one the host owns and may roll back, so the store is
-   * `"host"` over it whatever this says, and refuses `"commit"`. Over a
-   * plain database the default is `"commit"`; pass `"host"` when the host
-   * has begun a transaction of its own on the connection (a raw `BEGIN`),
-   * which the store cannot see.
-   */
   readonly durability?: WorkflowStoreDurability;
-  /**
-   * Runs inside the commit's transaction after the store's own statements,
-   * so the host can record the change atomically with it. A throw rolls the
-   * whole commit back. It receives the store's own copy of the write, taken
-   * when `commit` was called: exactly what the store wrote, every record
-   * put, whole, in the write's order, and every id a delete named. It does
-   * not say which put filed a record and which replaced one, or what a
-   * replaced or deleted record held; the store has already written when
-   * the hook runs, so that is gone.
-   */
   readonly onCommit?: (
     transaction: WorkflowTransaction,
     write: WorkflowStoreWrite
   ) => Promise<void>;
-  /** The partition this store reads and writes; any nonempty string. */
   readonly scope: string;
 }
 
-/** Why a call from inside the store's own transaction or hook is refused. */
 const REENTRY =
   "SqliteWorkflowStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead";
 
-/** A record kind's table, the columns that key a row, and how a row is told. */
 interface Shelf<T> {
   readonly keys: readonly SQLiteColumn[];
   readonly kind: RecordKind<T>;
-  /** What a row is called in a refusal to read it, such as `Run "rn-1"`. */
   readonly name: (record: Readonly<Record<string, unknown>>) => string;
   readonly table: StoreTable;
 }
@@ -168,18 +138,6 @@ const FRAMES: Shelf<RunFrame> = {
   table: workflowRunFrames,
 };
 
-/**
- * A `WorkflowStore` over the host's SQLite database, in the tables from
- * `@foundry/workflows/store/tables`. It behaves as `MemoryWorkflowStore`
- * does, within its scope.
- *
- * Its calls take turns, as the memory store's do: a call made while a
- * transaction or commit runs waits for it. That keeps two coordinators over
- * one store apart in this process, and keeps a `:memory:` database, which
- * has a single connection, from refusing a call while a transaction holds
- * it. Across connections and processes, `transaction` takes the database's
- * write lock (see there).
- */
 export class SqliteWorkflowStore implements WorkflowStore {
   readonly durability: WorkflowStoreDurability;
   readonly #database: WorkflowDatabase;
@@ -205,15 +163,6 @@ export class SqliteWorkflowStore implements WorkflowStore {
     this.#onCommit = options.onCommit;
   }
 
-  /**
-   * One database transaction: the deletes, then the puts, then `onCommit`.
-   * The store takes its own copy of `write` when it is called, before it
-   * waits for its turn, and writes that copy and hands it to `onCommit`, so
-   * a caller changing `write` afterwards changes neither. Rejects, before
-   * writing anything, a write holding a value SQLite or JSON would not give
-   * back intact, naming its field (see `./sqlite-records`). A delete of a
-   * key no row can hold does nothing.
-   */
   commit(write: WorkflowStoreWrite): Promise<void> {
     let taken: OwnedWrite;
     try {
@@ -223,8 +172,6 @@ export class SqliteWorkflowStore implements WorkflowStore {
     }
     return this.#turns.run(() =>
       this.#database.transaction(async (transaction) => {
-        // Before the deletes: a scope's first counter starts past every
-        // position it holds now, rows about to go included.
         const positions = await this.#positions(transaction, taken);
         await this.#delete(
           transaction,
@@ -257,16 +204,6 @@ export class SqliteWorkflowStore implements WorkflowStore {
     );
   }
 
-  /**
-   * Runs `work` inside one database transaction, over a view whose reads
-   * and commits use it; a throw from `work` rolls everything back. In this
-   * process, the store's other calls wait for it. Across connections, the
-   * transaction holds SQLite's write lock from its first statement: Drizzle's
-   * libSQL driver opens every transaction with libSQL's default mode,
-   * `BEGIN IMMEDIATE`. Another connection's write then waits for it, for as
-   * long as that connection's busy timeout allows, or fails with
-   * `SQLITE_BUSY`; it never lands between `work`'s reads and its commit.
-   */
   transaction<T>(work: (view: WorkflowStore) => Promise<T>): Promise<T> {
     return this.#turns.run(() =>
       this.#database.transaction((transaction) =>
@@ -283,22 +220,18 @@ export class SqliteWorkflowStore implements WorkflowStore {
     );
   }
 
-  /** `null` for an id no row can hold (see {@link storable}). */
   getJob(id: string): Promise<JobRecord | null> {
     return this.#get(JOBS, [id]);
   }
 
-  /** `null` for an id no row can hold (see {@link storable}). */
   getQueue(id: string): Promise<QueueRecord | null> {
     return this.#get(QUEUES, [id]);
   }
 
-  /** `null` for an id no row can hold (see {@link storable}). */
   getRun(id: string): Promise<RunRecord | null> {
     return this.#get(RUNS, [id]);
   }
 
-  /** `null` for an id no row can hold (see {@link storable}). */
   getSuspension(id: string): Promise<SuspensionRecord | null> {
     return this.#get(SUSPENSIONS, [id]);
   }
@@ -315,7 +248,6 @@ export class SqliteWorkflowStore implements WorkflowStore {
     ]);
   }
 
-  /** Every Queue in the scope, in the order first put. */
   listQueues(): Promise<readonly QueueRecord[]> {
     return this.#turns.run(async () => {
       const rows = await this.#database
@@ -362,11 +294,6 @@ export class SqliteWorkflowStore implements WorkflowStore {
     });
   }
 
-  /**
-   * One page of `shelf`'s rows in the scope, in position order, matching
-   * every filter `where` makes of the store's copy of the query. A filter
-   * that no row can match (see {@link Filter}) makes the page empty.
-   */
   #list<Q extends WorkflowStorePageQuery, T>(
     shelf: Shelf<T>,
     query: Q,
@@ -413,7 +340,6 @@ export class SqliteWorkflowStore implements WorkflowStore {
     ids: readonly string[]
   ): Promise<void> {
     const table = column.table as StoreTable;
-    // `scope` takes one of the statement's parameters.
     await inOrder(batches(ids.filter(storable), MAX_PARAMETERS - 1), (batch) =>
       transaction
         .delete(table)
@@ -421,10 +347,6 @@ export class SqliteWorkflowStore implements WorkflowStore {
     );
   }
 
-  /**
-   * A new row takes the next position; one put again keeps its own, and a
-   * later put of one key in a write replaces an earlier one.
-   */
   async #put<T>(
     transaction: WorkflowTransaction,
     shelf: Shelf<T>,
@@ -451,13 +373,6 @@ export class SqliteWorkflowStore implements WorkflowStore {
     );
   }
 
-  /**
-   * The scope's next position, from `workflow_positions`, read once for a
-   * write that puts or deletes anything, before its deletes. A scope with no
-   * counter row yet starts past every position any of its tables holds at
-   * that moment, and the commit records the counter, so a delete-only
-   * commit keeps the high-water mark of the rows it removes.
-   */
   async #positions(
     transaction: WorkflowTransaction,
     taken: OwnedWrite
@@ -494,7 +409,6 @@ export class SqliteWorkflowStore implements WorkflowStore {
     return { next: highest + 1, start: Number.NaN };
   }
 
-  /** Records the scope's counter when it is new or the write moved it. */
   async #savePositions(
     transaction: WorkflowTransaction,
     positions: Positions
@@ -511,13 +425,6 @@ export class SqliteWorkflowStore implements WorkflowStore {
       });
   }
 
-  /**
-   * The record a row holds: each column as SQLite returned it, JSON columns
-   * parsed, NULL in an optional column the field left out and the
-   * `undeclared` fields after the declared ones, then the checks every
-   * write passes. Rejects a row the store would not have written, naming
-   * the scope, the record and the column or field at fault.
-   */
   #decode<T>(shelf: Shelf<T>, row: Readonly<Record<string, unknown>>): T {
     const what = `${shelf.name(row)} in scope ${JSON.stringify(this.#scope)}`;
     const record: Record<string, unknown> = {};
@@ -556,7 +463,6 @@ export class SqliteWorkflowStore implements WorkflowStore {
   }
 }
 
-/** Every table a record is kept in. */
 const TABLES: readonly StoreTable[] = [
   workflowQueues,
   workflowJobs,
@@ -565,33 +471,25 @@ const TABLES: readonly StoreTable[] = [
   workflowRunFrames,
 ];
 
-/**
- * The positions one commit hands out: `next` is the next to give, `start`
- * what the counter row held (NaN when the scope had none).
- */
 interface Positions {
   next: number;
   readonly start: number;
 }
 
-/** The next position, and the counter moved past it. */
 function nextPosition(positions: Positions): number {
   const position = positions.next;
   positions.next += 1;
   return position;
 }
 
-/** A row to put, before the commit places it: every column but `scope` and `position`. */
 type Row = Readonly<Record<string, unknown>>;
 
-/** A write taken over by the store, and the rows it puts, in its order. */
 interface OwnedWrite {
   readonly frames: readonly Row[];
   readonly jobs: readonly Row[];
   readonly queues: readonly Row[];
   readonly runs: readonly Row[];
   readonly suspensions: readonly Row[];
-  /** The store's own copy of the write: what it writes and what `onCommit` receives. */
   readonly write: Required<
     Pick<
       WorkflowStoreWrite,
@@ -601,18 +499,6 @@ interface OwnedWrite {
     WorkflowStoreWrite;
 }
 
-/**
- * `write` as the store's own copy, taken now, and the rows it puts. Each
- * property of the caller's write is read once, by name (`capturedWrite`, as
- * the memory store reads them), and each property of every record in it
- * once:
- * the copy those reads make is what the store checks, writes and hands to
- * `onCommit`, so a getter answering differently a second time changes
- * nothing. Throws a `RangeError` naming the first field SQLite would not give
- * back intact, such as `putRuns[2].queueId` or
- * `putRuns[0].metadata.list[3]`; a field that throws when read rejects the
- * write too.
- */
 function owned(write: WorkflowStoreWrite): OwnedWrite {
   const {
     deleteJobs,
@@ -662,7 +548,6 @@ function owned(write: WorkflowStoreWrite): OwnedWrite {
       deleteRunFrames: [...(deleteRunFrames ?? [])],
       deleteRuns: [...(deleteRuns ?? [])],
       deleteSuspensions: [...(deleteSuspensions ?? [])],
-      // Kept for `onCommit` only; no row holds them.
       ...(events === undefined ? {} : { events: detached(events) }),
       ...(putFrames === undefined ? {} : { putFrames: records(frames) }),
       ...(putJobs === undefined ? {} : { putJobs: records(jobs) }),
@@ -675,7 +560,6 @@ function owned(write: WorkflowStoreWrite): OwnedWrite {
   };
 }
 
-/** The columns a record's declared fields fill; an optional field left out is NULL. */
 function rowOf<T>(kind: RecordKind<T>, record: T): Row {
   const fields = record as Readonly<Record<string, unknown>>;
   return Object.fromEntries(
@@ -686,10 +570,6 @@ function rowOf<T>(kind: RecordKind<T>, record: T): Row {
   );
 }
 
-/**
- * Every column but `scope` and `position`, as SQLite returns it, with no
- * mapping by Drizzle, so `#decode` sees JSON as text and NULL as NULL.
- */
 function rawColumns(shelf: Shelf<unknown>): Record<string, SQL<unknown>> {
   const {
     position: _position,
@@ -704,7 +584,6 @@ function rawColumns(shelf: Shelf<unknown>): Record<string, SQL<unknown>> {
   );
 }
 
-/** On a conflicting put, every column but the key and `position` takes the incoming value. */
 function replacing(shelf: Shelf<unknown>): Record<string, SQL> {
   const keys = new Set(shelf.keys.map((column) => column.name));
   return Object.fromEntries(
@@ -724,15 +603,10 @@ function positionOf(table: StoreTable): SQLiteColumn {
   return (table as SQLiteTable & { position: SQLiteColumn }).position;
 }
 
-/**
- * One condition of a list read, `undefined` for none, or {@link NOTHING}
- * when the query names a value no row can hold, which no row matches.
- */
 type Filter = SQL | typeof NOTHING | undefined;
 
 const NOTHING = Symbol("matches nothing");
 
-/** `column = value`; a value no row can hold matches nothing. */
 function exact(column: SQLiteColumn, value: string | undefined): Filter {
   if (value === undefined) {
     return undefined;
@@ -740,7 +614,6 @@ function exact(column: SQLiteColumn, value: string | undefined): Filter {
   return storable(value) ? eq(column, value) : NOTHING;
 }
 
-/** `column IN values`; an empty list, or one of values no row can hold, matches nothing. */
 function among(
   column: SQLiteColumn,
   values: readonly string[] | undefined
@@ -752,7 +625,6 @@ function among(
   return held.length === 0 ? NOTHING : inArray(column, held);
 }
 
-/** A JSON column's text parsed, or a refusal naming `column` and what is wrong. */
 function parsed(text: unknown, column: string, what: string): unknown {
   if (text === null) {
     return null;
@@ -780,10 +652,8 @@ function unreadable(what: string, fault: string, cause?: unknown): Error {
   });
 }
 
-/** SQLite's default limit on the parameters one statement binds. */
 const MAX_PARAMETERS = 32_766;
 
-/** `items` in order, at most `size` at a time; none when `items` is empty. */
 function batches<T>(items: readonly T[], size: number): T[][] {
   const length = Math.max(1, Math.floor(size));
   const result: T[][] = [];
@@ -793,18 +663,15 @@ function batches<T>(items: readonly T[], size: number): T[][] {
   return result;
 }
 
-/** Runs one statement per batch, each after the one before. */
 async function inOrder<T>(
   items: readonly T[],
   run: (item: T) => PromiseLike<unknown>
 ): Promise<void> {
   for (const item of items) {
-    // In sequence: deletes precede puts, and later batches follow earlier ones.
     await run(item);
   }
 }
 
-/** The value an `INSERT` proposed for `column`, inside its `ON CONFLICT`. */
 function excluded(column: SQLiteColumn): SQL {
   return sql.raw(`excluded."${column.name}"`);
 }

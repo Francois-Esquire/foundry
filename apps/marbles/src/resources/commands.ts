@@ -17,26 +17,14 @@ import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 import { resourceLines } from "~/resources/text";
 
-/**
- * The resource commands of the CLI, all over the Marbles database: the
- * listings read through a view (read only; a state root without a database
- * lists nothing and is left without one), sharing changes associations,
- * and relinking rebuilds a workspace's links from what its view shows.
- */
-
 export interface ResourceCommandContext {
-  /** The shared artifact store. */
   readonly artifacts: string;
-  /** The directory the command line is relative to. */
   readonly directory: string;
   readonly print: (line: string) => void;
-  /** The Marbles state root. */
   readonly state: string;
-  /** The workspace the command runs in. */
   readonly workspace: Workspace;
 }
 
-/** Print every resource of `kind` this workspace shows, or every workspace's with `all`. */
 export async function listResources(
   kind: ResourceKind,
   all: boolean,
@@ -55,15 +43,9 @@ export async function listResources(
 export interface AssociationRequest {
   readonly id: string;
   readonly kind: ResourceKind;
-  /** The other workspace's directory, relative to the command line's. */
   readonly with: string;
 }
 
-/**
- * Share a resource this workspace shows with the workspace at `with`, or
- * stop sharing it there; an artifact's links in that workspace are rebuilt
- * after.
- */
 export async function changeAssociation(
   change: "share" | "unshare",
   request: AssociationRequest,
@@ -93,7 +75,6 @@ export async function changeAssociation(
   }
 }
 
-/** Rebuild this workspace's links, or every registered workspace's with `all`. */
 export async function relink(
   all: boolean,
   context: ResourceCommandContext
@@ -108,7 +89,6 @@ export async function relink(
     if (!existsSync(workspace.root)) {
       context.print(`${workspace.root}: not here, left as it is`);
     } else if (all) {
-      // One workspace that cannot be linked leaves the others to be.
       try {
         await relinkOne(workspace, context);
       } catch (error) {
@@ -158,7 +138,6 @@ function reportLines(root: string, report: LinksReport | undefined): string[] {
   ];
 }
 
-/** The workspace rooted at `directory`. */
 function otherWorkspace(
   directory: string,
   context: ResourceCommandContext
@@ -170,7 +149,6 @@ function otherWorkspace(
   return workspaceState(context.state, root);
 }
 
-/** The one resource of `kind` and `id` this workspace shows. */
 async function shownHere(
   request: AssociationRequest,
   context: ResourceCommandContext

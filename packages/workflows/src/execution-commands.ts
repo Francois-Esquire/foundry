@@ -34,7 +34,6 @@ export interface CreateRunInput {
   tags?: Record<string, string>;
 }
 
-/** Correlation accepted for Runs that are not managed by a Job. */
 export type DirectRunLinks = Omit<RunLinks, "jobId"> & {
   readonly jobId?: never;
 };
@@ -161,7 +160,6 @@ export interface RecoverableRun {
   suspension?: SuspensionState;
 }
 
-/** The execution commands `ExecutionCoordinator` carries out over a `WorkflowStore`. */
 export interface ExecutionCommands {
   cancelJob(id: string): Promise<JobCancellation>;
   cancelRun(
@@ -173,13 +171,6 @@ export interface ExecutionCommands {
     runPatch?: Omit<UpdateRunInput, "status">
   ): Promise<SuspensionCancellation>;
   claimJobRun(jobId: string, input: CreateJobRunInput): Promise<JobRunClaim>;
-  /**
-   * Take the authority over a parked Run's pending Suspensions for the
-   * caller: each one's revision is raised, in one commit, so a resolution
-   * read at an earlier revision, by whoever held the Run before, is
-   * refused as stale. Rejects, changing nothing, when the Run is not
-   * suspended.
-   */
   claimSuspensions(runId: string): Promise<readonly SuspensionRecord[]>;
   createJob(input: CreateJobInput): Promise<JobRecord>;
 

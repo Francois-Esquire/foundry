@@ -16,44 +16,20 @@ import type { HostOptions, OpenedWorkspace } from "~/workspace/open";
 import { resolveSource } from "~/workspace/source";
 import { runTaskCommand } from "~/workspace/tasks";
 
-/**
- * How a command reaches its workspace, for the CLI and the MCP server
- * alike. There are three ways:
- *
- * - Stored state: the workspace's rows in the Marbles database, opened
- *   for each command and closed after it. No source runs.
- * - A running instance: the engine generation of a Marbles process that already hosts
- *   the workspace, joined without starting anything.
- * - Start and host: attach the workspace to the Marbles process, starting
- *   one when none runs, or host it in this process under `--dry-run`. Only
- *   the CLI starts or hosts anything.
- */
-
-/** Runs one task command on a workspace's own tasks; a refusal is a `TaskError`. */
 export type TaskRunner = <K extends TaskCommandKind>(
   command: TaskCommand<K>
 ) => Promise<TaskCommandResult<K>>;
 
-/** No running instance hosts the workspace a command needs one for. */
 export class NotHostedError extends Error {
   override readonly name = "NotHostedError";
 }
 
-/** The Marbles process is about to host the workspace whose tasks a command asked for: retry once it is ready. */
 export class RecordsHeldError extends Error {
   override readonly name = "RecordsHeldError";
 }
 
 const ATTACH_HINT = "`marbles attach` in its root hosts it";
 
-/**
- * The workspace's tasks from stored state, each command on its own opening
- * of the Marbles database: a read through a read-only connection that
- * never creates, migrates or changes it (no database reads as no tasks);
- * a change as a writer under the state root's lock rule, which makes the
- * database when no Marbles process holds the state root. Under `--dry-run`
- * they are in memory, for as long as `work` runs.
- */
 function withStoredTasks<T>(
   args: HostOptions,
   opened: OpenedWorkspace,
@@ -72,7 +48,6 @@ function withStoredTasks<T>(
   );
 }
 
-/** The running Marbles process, joined without starting one; undefined when none runs. */
 export async function joinProcess(): Promise<MarblesClient | undefined> {
   try {
     return await connect({ layout: layout(), start: false });
@@ -84,12 +59,6 @@ export async function joinProcess(): Promise<MarblesClient | undefined> {
   }
 }
 
-/**
- * The engine generation that hosts the workspace now, when a Marbles process runs and
- * has it ready. Nothing is started or attached to find out. A workspace that
- * is starting is about to host the tasks, so the command is refused rather
- * than going around it.
- */
 async function hostingGeneration(
   id: string
 ): Promise<
@@ -120,12 +89,6 @@ async function hostingGeneration(
   return undefined;
 }
 
-/**
- * The workspace's tasks, without running its source here or starting
- * anything that would. A generation that already hosts the workspace owns
- * them, so each command goes to it; otherwise they come from stored state.
- * `--dry-run` never asks the Marbles process.
- */
 export async function withTasks<T>(
   args: HostOptions,
   opened: OpenedWorkspace,
@@ -133,7 +96,6 @@ export async function withTasks<T>(
 ): Promise<T> {
   const { dir, id } = opened.workspace;
   const { state } = args;
-  // A link there would put the tasks, locks and sessions somewhere else.
   if (!(args.dry || insideState(state, id))) {
     throw new Error(
       `the state of workspace ${id} at ${dir} is not a directory inside ${state}`
@@ -150,12 +112,6 @@ export async function withTasks<T>(
   }
 }
 
-/**
- * Run `work` against the generation that hosts workspace `id` and has it ready.
- * Nothing is started or attached: without such a generation this rejects with a
- * `NotHostedError` that names the command that hosts it. `--dry-run` joins
- * no process, so it always rejects.
- */
 export async function withRunningWorkspace<T>(
   args: HostOptions,
   id: string,
@@ -197,7 +153,6 @@ export async function withRunningWorkspace<T>(
   }
 }
 
-/** A workspace hosted for a command: in this process, or by the Marbles process. */
 export type Hosted =
   | { readonly kind: "local"; readonly host: WorkspaceHost }
   | {
@@ -207,7 +162,6 @@ export type Hosted =
       readonly workspace: WorkspaceConnection;
     };
 
-/** Host the workspace in this process; only `--dry-run` does. */
 export function hostHere(
   args: HostOptions,
   options: Pick<HostWorkspaceOptions, "env" | "print">
@@ -222,7 +176,6 @@ export function hostHere(
   });
 }
 
-/** Attach the workspace to the Marbles process, starting one when none runs. */
 export async function attachToProcess(
   args: HostOptions & { readonly directory: string },
   run: (hosted: Hosted) => Promise<void>

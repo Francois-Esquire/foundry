@@ -4,11 +4,6 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { blobFiles } from "../node";
 
-/**
- * Only publishing makes the blobs directory: a reader of a missing one
- * finds no blobs and makes nothing.
- */
-
 it("lists, reads and removes nothing in a missing directory, and makes none", async () => {
   const root = join(
     mkdtempSync(join(tmpdir(), "artifacts-blob-files-")),

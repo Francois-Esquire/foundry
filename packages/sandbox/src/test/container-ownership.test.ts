@@ -13,12 +13,6 @@ import type { FakeContainerRuntime } from "../testing";
 import { createFakeContainerRuntime } from "../testing";
 import { libsqlDatabases } from "./helpers/sqlite";
 
-/**
- * A registry owns every VM it boots until a row it holds live records it, or
- * the VM is gone. These cases make the commit that follows a boot fail, and
- * check that the VM is removed then, or later by `sweep` or `shutdown`.
- */
-
 const SPEC: ContainerSandboxConstraints = {
   format: "foundry.sandbox.container/1",
   image: "docker.io/oven/bun:1",
@@ -30,7 +24,6 @@ const UNREMOVABLE = /could not remove/;
 const files = libsqlDatabases("file");
 const memory = libsqlDatabases("memory");
 
-/** Every store a race is tried over. */
 const STORES: [string, () => Promise<ContainerStore>][] = [
   ["memory", () => Promise.resolve(createMemoryContainerStore())],
   [
@@ -40,10 +33,6 @@ const STORES: [string, () => Promise<ContainerStore>][] = [
   ],
 ];
 
-/**
- * `inner`, a memory store by default, refusing every commit, direct or
- * through a transaction's view, that `refusing` matches while it is set.
- */
 function refusingStore(inner: ContainerStore = createMemoryContainerStore()) {
   let refusing: ((write: ContainerStoreWrite) => boolean) | undefined;
   const refused = (target: ContainerStore): ContainerStore => ({
@@ -75,12 +64,10 @@ function refusingStore(inner: ContainerStore = createMemoryContainerStore()) {
   };
 }
 
-/** The commit that records a booted VM as running. */
 function recordsRunning(write: ContainerStoreWrite): boolean {
   return (write.putContainers ?? []).some((row) => row.status === "running");
 }
 
-/** A fake runtime whose next `count` booted sandboxes fail to remove themselves. */
 function stubbornRuntime(count: number): FakeContainerRuntime {
   const runtime = createFakeContainerRuntime();
   const create = runtime.create.bind(runtime);
@@ -96,7 +83,6 @@ function stubbornRuntime(count: number): FakeContainerRuntime {
   return runtime;
 }
 
-/** A fake runtime whose booted VMs fail their guest setup, and, if asked, their removal. */
 function brokenSetupRuntime(cleanupFails: boolean): FakeContainerRuntime {
   const runtime = createFakeContainerRuntime();
   const create = runtime.create.bind(runtime);
@@ -112,7 +98,6 @@ function brokenSetupRuntime(cleanupFails: boolean): FakeContainerRuntime {
   return runtime;
 }
 
-/** The native names of the runtime's VMs that are still there. */
 function remaining(runtime: FakeContainerRuntime): string[] {
   return runtime.instances
     .filter((instance) => !instance.removed)
@@ -200,8 +185,6 @@ describe("a commit that fails after a boot", () => {
     const locked = Promise.withResolvers<void>();
     const unlock = Promise.withResolvers<void>();
     let holder: Promise<void> | undefined;
-    // While the VM boots, another connection takes the write lock and keeps
-    // it, so the commit that records the boot fails with SQLITE_BUSY.
     runtime.create = (spec) => {
       holder = other.transaction(async () => {
         locked.resolve();
@@ -217,7 +200,6 @@ describe("a commit that fails after a boot", () => {
     expect(remaining(runtime)).toEqual([]);
     unlock.resolve();
     await holder;
-    // Recording `failed` met the same lock, so the row says what it said.
     const [row] = await store.list();
     expect(row).toMatchObject({ nativeId: `${row?.id}-1`, status: "starting" });
     expect(await containers.sweep()).toEqual([]);
@@ -298,7 +280,6 @@ describe.each(STORES)(
       const read = Promise.withResolvers<void>();
       const resume = Promise.withResolvers<void>();
       let gated = true;
-      // The first inventory is read before the VM exists, then held.
       runtime.listResources = async (query) => {
         const page = await list(query);
         if (gated) {
@@ -332,7 +313,6 @@ describe.each(STORES)(
 );
 
 describe("an old VM whose stop fails", () => {
-  /** A registry that finds a row whose VM outlived the registry that booted it. */
   async function reopened() {
     const failStop: string[] = [];
     const runtime = createFakeContainerRuntime({ inventory: { failStop } });
@@ -375,7 +355,6 @@ describe("an old VM whose stop fails", () => {
     failStop.push(`${id}-1`);
 
     await expect(containers.remove(id)).rejects.toThrow("kept to retry");
-    // The row says what is left to do, for any later start to see.
     expect(await store.get(id)).toMatchObject({ status: "removing" });
     expect(remaining(runtime)).toEqual([`${id}-1`]);
     failStop.length = 0;

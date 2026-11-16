@@ -29,20 +29,13 @@ import {
   writtenTexts,
 } from "~/lib/providers/store";
 
-/**
- * Provider configuration kept as a store keeps it, each scope's JSON text
- * by its scope key, which a test reads and writes directly; `hold` makes
- * the next writes wait, as another process's transaction would.
- */
 class TestStore implements ProviderStore {
   readonly texts = new Map<string, string>();
   key: string | undefined;
   revisions = 0;
-  /** Run once an edit has landed, before its result is handed back: another process's commit. */
   between: (() => void) | undefined;
   #held: Promise<undefined> = Promise.resolve(undefined);
 
-  /** Keep `file` as the configuration of `scope`, as another process would. */
   put(scope: string, file: object): void {
     this.texts.set(scope, JSON.stringify({ version: 1, ...file }));
     this.revisions += 1;
@@ -158,7 +151,6 @@ const PLUGINS = [
   ),
 ];
 
-/** Read what the store keeps, then load it: what an engine's start does first. */
 async function loaded(config: ProviderConfiguration): Promise<void> {
   await config.read();
   config.load();
@@ -413,12 +405,9 @@ describe("edits", () => {
     await vi.waitFor(() => expect(problems.length).toBeGreaterThan(0), {
       timeout: 5000,
     });
-    // The last good set stays, and the problem is reported once for the
-    // change, not on every poll after it.
     await new Promise((settle) => setTimeout(settle, 1500));
     expect(problems).toHaveLength(1);
     expect(ids(models)).toEqual(["codex"]);
-    // A repair is noticed, though the broken one was never loaded.
     store.put(MACHINE_SCOPE, {
       providers: [
         { enabled: true, id: "codex", plugin: "codex" },
@@ -521,7 +510,6 @@ describe("a write a newer read overtook", () => {
           { enabled: true, id: "vercel", plugin: "vercel" },
         ],
       });
-      // A read of the newer configuration lands before the write loads.
       reading = config.read();
     };
     await config.disable("codex");
@@ -659,7 +647,6 @@ it("keeps a read-only engine's edits in memory and writes nothing", async () => 
   expect(ids(models)).toEqual(["vercel", "codex"]);
   expect(store.texts.has(MACHINE_SCOPE)).toBe(false);
   expect(store.texts.has("ws1")).toBe(false);
-  // Nor an identity key.
   await config.read();
   expect(config.identityOf("codex")).toEqual(expect.any(String));
   expect(store.key).toBeUndefined();
@@ -1111,7 +1098,6 @@ describe("instance ownership", () => {
     expect(built[4]?.dispose).toHaveBeenCalledTimes(1);
   });
 
-  /** Hold the store, so the next write prepares and then waits for it. */
   const holdMachineLock = () => store.hold();
   const machineEntry = (key: string): ScopedRecord => ({
     enabled: true,

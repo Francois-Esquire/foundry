@@ -34,7 +34,6 @@ import { testMachine } from "./helpers/records";
 const CLOSED = /closed/;
 const REFUSED = /refused/;
 
-/** Whether `error`, or anything in its causes, has a message matching `pattern`. */
 function causedBy(pattern: RegExp): (error: unknown) => boolean {
   return (error) => {
     for (let cause = error; cause instanceof Error; cause = cause.cause) {
@@ -61,15 +60,10 @@ afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
 });
 
-/** A workspace's state dir; its rows are scoped by the dir's name. */
 function stateDir(): string {
   return machine.workspace();
 }
 
-/**
- * An engine over `state`, its records in the machine's database (in memory
- * without a state dir), with these observers of tasks, by name.
- */
 function engineWith(
   state: string | undefined,
   observers: Readonly<Record<string, Handler<TaskEvent>>>,
@@ -92,7 +86,6 @@ async function shutDown(engine: Engine): Promise<void> {
   engines.splice(engines.indexOf(engine), 1);
 }
 
-/** Each observer of the workspace at `state`: its name, place, and failures. */
 async function places(
   state: string
 ): Promise<{ failures: number; name: string; position: number }[]> {
@@ -123,7 +116,6 @@ function titles(events: readonly TaskEvent[]): string[] {
   );
 }
 
-/** `move` on every database change log, failing the first `fail` calls. */
 function losingMoves(fail: number): {
   readonly lost: () => number;
   restore(): void;
@@ -183,7 +175,6 @@ describe("observing tasks", () => {
     await delivery.idle();
     await delivery.stop();
 
-    // The clock never moved, so the failing one was tried once.
     expect(titles(seen)).toEqual(["First", "Second"]);
     expect(failures).toBe(1);
     expect(seen[0]?.tasks[0]?.after?.tags).toEqual(["review"]);
@@ -226,7 +217,6 @@ describe("observing tasks", () => {
     delivery.wake();
     await delivery.idle();
     expect(calls).toEqual(["First"]);
-    // Within its backoff, a newer fact wakes nothing for it.
     await tasks.create({ title: "Second" });
     clock.advance(retryDelay(1) - 1);
     delivery.wake();
@@ -292,7 +282,6 @@ describe("observing tasks", () => {
       { name: "context" }
     );
     await delivery.start();
-    // The start's own pass is over: the wake below starts the next one.
     await delivery.idle();
     await caller.run("a command's output", async () => {
       await new Tasks({ store: records.taskStore }).create({ title: "Woken" });
@@ -333,13 +322,10 @@ describe("observing tasks", () => {
     await new Tasks({ store: first.taskStore }).create({ title: "Kept" });
     await vi.waitFor(() => expect(calls).toEqual(["v1:Kept"]));
     await shutDown(first);
-    // Written while no engine runs: the observer's place is filed, so it is
-    // handed this at its next start.
     const between = machine.records(state);
     await new Tasks({ store: between.taskStore }).create({ title: "Between" });
     await between.close();
 
-    // The same name with another body: the same observer, from its place.
     const edited = engineWith(state, {
       notify: (payload) => {
         const title = titles([payload]).join();
@@ -350,7 +336,6 @@ describe("observing tasks", () => {
     await vi.waitFor(() => expect(calls).toEqual(["v1:Kept", "v2:between"]));
     await shutDown(edited);
 
-    // Another name: a new observer, from now.
     const renamed = engineWith(state, {
       announce: (payload) => {
         calls.push(`v3:${titles([payload]).join()}`);
@@ -377,7 +362,6 @@ describe("observing tasks", () => {
     expect(() => engine.observe(TASKS, () => undefined)).toThrow(
       "give the observer a name"
     );
-    // A named handler names itself.
     engine.observe(TASKS, function byFunctionName() {
       return Promise.resolve();
     });
@@ -436,13 +420,11 @@ describe("observing tasks", () => {
     await tasks.create({ title: "Before" });
     await vi.waitFor(() => expect(titles(seen)).toEqual(["Before"]));
     const { database } = machine.database;
-    // The database refuses the fact's row: the task must go with it.
     await database.run(
       sql.raw(
         "CREATE TRIGGER refuse_change BEFORE INSERT ON marbles_changes WHEN NEW.payload LIKE '%Lost change%' BEGIN SELECT RAISE(ABORT, 'refused'); END"
       )
     );
-    // The database refuses the task's row: no fact may be recorded.
     await database.run(
       sql.raw(
         "CREATE TRIGGER refuse_task BEFORE INSERT ON tasks WHEN NEW.title = 'Lost task' BEGIN SELECT RAISE(ABORT, 'refused'); END"
@@ -464,7 +446,6 @@ describe("observing tasks", () => {
     expect(await machine.changes(state)).toHaveLength(1);
     await tasks.create({ title: "After" });
     await vi.waitFor(() => expect(titles(seen)).toEqual(["Before", "After"]));
-    // A rolled-back commit gave its position to nothing: none is skipped.
     expect(
       (await machine.changes(state)).map((change) => change.position)
     ).toEqual([1, 2]);
@@ -600,7 +581,6 @@ describe("observing tasks", () => {
   });
 });
 
-/** `records`' change log as a plain object of its calls, for a test to replace some of. */
 function logOf(records: WorkspaceRecords): WorkspaceRecords["log"] {
   const { log } = records;
   return {
@@ -615,7 +595,6 @@ function logOf(records: WorkspaceRecords): WorkspaceRecords["log"] {
   };
 }
 
-/** `records`' own calls, as a test's records built over it start from. */
 function delegate(records: WorkspaceRecords): WorkspaceRecords {
   return {
     claimDelivery: () => records.claimDelivery(),
@@ -630,7 +609,6 @@ function delegate(records: WorkspaceRecords): WorkspaceRecords {
 describe("a handler's time, and the observers beside it", () => {
   const LIMIT = 60_000;
 
-  /** Delivery over memory records on a manual clock, and a task writer. */
   function delivering(options: { readonly stopGrace?: number } = {}) {
     const records = new MemoryWorkspaceRecords();
     const clock = new ManualClock();
@@ -646,7 +624,6 @@ describe("a handler's time, and the observers beside it", () => {
     return { clock, delivery, lines, records, tasks };
   }
 
-  /** A handler whose calls settle only when the test says. */
   function held() {
     const calls: { readonly fact: string; release(): void }[] = [];
     const handler = (payload: TaskEvent) => {
@@ -696,7 +673,6 @@ describe("a handler's time, and the observers beside it", () => {
   it("counts a call past its limit as a failure, keeps the place, says it is stuck, and calls again only once the old call settles", async () => {
     const { clock, delivery, lines, records, tasks } = delivering();
     const hung = held();
-    // Its own limit, beside the delivery's.
     delivery.observe(TASKS, hung.handler, { name: "hung", timeout: 5000 });
     await delivery.start();
     const began = clock.now();
@@ -717,14 +693,11 @@ describe("a handler's time, and the observers beside it", () => {
       true
     );
 
-    // Its backoff is long over, but the old call has not settled: no new call.
     clock.advance(retryDelay(1) * 10);
     delivery.wake();
     await delivery.idle();
     expect(hung.calls).toHaveLength(1);
 
-    // Settled late: the place stays, it is no longer stuck, and the fact
-    // is handed to it again.
     hung.calls[0]?.release();
     await vi.waitFor(() => expect(hung.calls).toHaveLength(2));
     expect(hung.calls[1]?.fact).toBe("Slow");
@@ -757,7 +730,6 @@ describe("a handler's time, and the observers beside it", () => {
     const stopping = delivery.stop().then(() => {
       stopped = true;
     });
-    // The grace has not passed: stop waits for the call.
     await vi.waitFor(() => expect(clock.waiting).toBe(2));
     expect(stopped).toBe(false);
     clock.advance(10_000);
@@ -808,8 +780,6 @@ describe("a handler's time, and the observers beside it", () => {
       async (payload: TaskEvent) => {
         const [title = ""] = titles([payload]);
         trace.push(`handed ${title}`);
-        // Each of its first three calls writes a fact of the source it
-        // observes, past the batch the lane is reading.
         if (echoes.length < 3 && title.startsWith("Seed")) {
           echoes.push(`Echo ${String(echoes.length + 1)}`);
           await tasks.create({ title: echoes.at(-1) ?? "" });
@@ -819,7 +789,6 @@ describe("a handler's time, and the observers beside it", () => {
     );
     await traced.start();
     await traced.idle();
-    // A full batch, so the lane reads on past it unless the pass bounds it.
     for (let index = 0; index < CHANGE_BATCH; index += 1) {
       await tasks.create({ title: `Seed ${String(index)}` });
     }
@@ -832,7 +801,6 @@ describe("a handler's time, and the observers beside it", () => {
     await traced.idle();
     await traced.stop();
 
-    // The echoes went to a later pass, which read the counter again.
     const lastSeed = trace.indexOf(`handed Seed ${String(CHANGE_BATCH - 1)}`);
     const firstEcho = trace.indexOf("handed Echo 1");
     expect(firstEcho).toBeGreaterThan(lastSeed);
@@ -887,7 +855,6 @@ describe("delivery lifecycle", () => {
       lines.push(line)
     );
     await second.start();
-    // The handler is still held: the dispose waits for it.
     expect(disposed).toBe(false);
     expect(
       lines.some((line) => line.startsWith("[observe] not delivering"))
@@ -897,7 +864,6 @@ describe("delivery lifecycle", () => {
     await disposing;
     engines.splice(engines.indexOf(first), 1);
     expect(finished).toBe(true);
-    // The handler completed before the stop, so its place moved past it.
     expect(await places(state)).toEqual([
       { failures: 0, name: "slow", position: 1 },
     ]);
@@ -923,7 +889,6 @@ describe("delivery lifecycle", () => {
     );
     const tasks = new Tasks({ store: newer.taskStore });
     await tasks.create({ title: "One" });
-    // Written through the newer's records: the older notices it on its tick.
     await vi.waitFor(() => expect(calls).toEqual(["old:One"]), {
       timeout: DELIVERY_POLL_MS * 5,
     });
@@ -947,7 +912,6 @@ describe("delivery lifecycle", () => {
       (payload) => {
         calls.push(`${generation}:${titles([payload]).join()}`);
       };
-    // The older engine's own records, to try its writes after it retires.
     const olderRecords = machine.records(state);
     const older = testEngine({
       print: () => undefined,
@@ -963,12 +927,10 @@ describe("delivery lifecycle", () => {
     await tasks.create({ title: "Before" });
     await vi.waitFor(() => expect(calls).toEqual(["old:Before"]));
 
-    // Retired, not disposed: its process goes on for the runs it holds.
     const letGo: string[] = [];
     await older.retire(thisProcess(), {
       onLetGo: (runId) => letGo.push(runId),
     });
-    // It gave the claim up: a late write about the observer is refused.
     const key = { name: "notify", source: "tasks" };
     expect(
       await olderRecords.log.fail(key, {
@@ -990,8 +952,6 @@ describe("delivery lifecycle", () => {
     await vi.waitFor(() => expect(calls).toEqual(["old:Before", "new:After"]), {
       timeout: DELIVERY_POLL_MS * 5,
     });
-    // `retire` resolved once the older delivery had stopped, its tick
-    // cancelled and its claim given up: nothing there can call again.
     expect(calls).toEqual(["old:Before", "new:After"]);
     expect(letGo).toEqual([]);
     expect((await places(state))[0]).toMatchObject({
@@ -1013,7 +973,6 @@ describe("delivery lifecycle", () => {
     const move = (to: number) =>
       records.log.move(key, { from: position, handed: false, now, to });
     expect(await move(position + 2)).toEqual({ kind: "moved", missed: null });
-    // A deliverer that read the old place moves from it: nothing changes.
     expect(await move(position + 1)).toEqual({ kind: "elsewhere" });
     expect((await records.log.declare(key, now)).position).toBe(position + 2);
     await records.close();
@@ -1036,7 +995,6 @@ describe("delivery lifecycle", () => {
     };
     expect(await newer.log.fail(key, stuck)).toBe(true);
 
-    // The older one's writes, landing after it let go, change nothing.
     expect(await older.log.unstick(key)).toBe(false);
     expect(await older.log.fail(key, { ...stuck, stuckSince: null })).toBe(
       false
@@ -1091,7 +1049,6 @@ describe("delivery lifecycle", () => {
     delivery.wake();
     await delivery.idle();
     await delivery.stop();
-    // Not retried: one call, one line.
     expect(calls).toBe(1);
     expect(lines).toEqual([
       "[observe] fenced (tasks): not moving its place: this engine no longer delivers this workspace's changes",
@@ -1113,10 +1070,7 @@ describe("delivery across processes", () => {
       { name: "notify" }
     );
     await owner.start();
-    // The start's own pass is over, and nothing here wakes it again: only
-    // the tick noticing the fact can deliver it.
     await owner.idle();
-    // Another process's records, on the same workspace in the same database.
     const elsewhere = machine.records(state);
     try {
       await new Tasks({ store: elsewhere.taskStore }).create({
@@ -1229,7 +1183,6 @@ setInterval(() => undefined, 1000);
         seen.push(payload);
       },
     });
-    // Its tries at the claim, counted: what it is refused while the holder lives.
     const { claimDelivery } = DatabaseWorkspaceRecords.prototype;
     let claims = 0;
     const counting = vi
@@ -1243,7 +1196,6 @@ setInterval(() => undefined, 1000);
       await new Tasks({ store: survivor.taskStore }).create({
         title: "Waiting",
       });
-      // Refused at its start and on two ticks since: nothing delivered.
       await vi.waitFor(() => expect(claims).toBeGreaterThanOrEqual(3), {
         timeout: DELIVERY_POLL_MS * 5,
       });
@@ -1261,17 +1213,14 @@ setInterval(() => undefined, 1000);
 
 describe("compaction", () => {
   const DAY = 24 * 60 * 60 * 1000;
-  /** Past the retention and the compaction interval both. */
   const LONG_AFTER = 2 * DAY;
 
-  /** A fact of the tasks source. */
   const fact = (id: string): Fact => ({
     at: new Date(0).toISOString(),
     id,
     type: "tasks.changed",
   });
 
-  /** Record `ids` as facts of the workspace at `state`, committed at `at` (epoch ms). */
   async function record(
     state: string,
     ids: readonly string[],
@@ -1289,7 +1238,6 @@ describe("compaction", () => {
     }
   }
 
-  /** Records of the workspace at `state` that hold its delivery claim. */
   async function deliverer(state: string) {
     const records = machine.records(state);
     expect(await records.claimDelivery()).toBeUndefined();
@@ -1331,7 +1279,6 @@ describe("compaction", () => {
     await log.move(ahead, { from: 0, handed: false, now, to: 4 });
     await log.move(behind, { from: 0, handed: false, now, to: 2 });
     const later = now + DAY;
-    // Now is always past `seenSince`, as the deliverer's own bound is.
     const bound = (seenSince: number, registered = [] as (typeof ahead)[]) => ({
       before: later,
       now: seenSince + 1,
@@ -1339,22 +1286,17 @@ describe("compaction", () => {
       seenSince,
     });
 
-    // Not the deliverer: nothing goes.
     const other = machine.records(state);
     expect(await other.log.compact(bound(later))).toBe(0);
     await other.close();
-    // Recent facts stay, however far every observer has got.
     expect(await log.compact({ ...bound(now - DAY), before: now - DAY })).toBe(
       0
     );
-    // Old ones go up to the observer furthest behind.
     expect(await log.compact(bound(now - DAY))).toBe(2);
     expect(
       (await machine.changes(state)).map((change) => change.position)
     ).toEqual([3, 4]);
-    // An observer registered with the deliverer holds them back, seen or not.
     expect(await log.compact(bound(later + 1, [ahead, behind]))).toBe(0);
-    // One neither registered nor seen since the bound holds nothing back.
     expect(await log.compact(bound(later + DAY))).toBe(2);
     expect(await machine.changes(state)).toEqual([]);
     await records.close();
@@ -1390,7 +1332,6 @@ describe("compaction", () => {
     clock.advance(10);
     await delivery.idle();
 
-    // Stuck past the retention: compaction runs, and keeps what it needs.
     clock.advance(LONG_AFTER);
     delivery.wake();
     await delivery.idle();
@@ -1428,7 +1369,6 @@ describe("compaction", () => {
       );
       return built;
     };
-    // Filed once, then registered by no engine while the log moves on.
     const first = delivery(() => undefined);
     await first.start();
     await first.stop();
@@ -1459,7 +1399,6 @@ describe("compaction", () => {
       position: 3,
     });
 
-    // Told once: the next start finds it caught up, and says nothing.
     const quiet: string[] = [];
     const again = delivery((line) => quiet.push(line));
     await again.start();
@@ -1476,7 +1415,6 @@ describe("compaction", () => {
     const lines: string[] = [];
     const seen: string[] = [];
     let compactions = 0;
-    // A compaction that holds nothing back lands just as the lane reads.
     const log: WorkspaceRecords["log"] = {
       ...logOf(records),
       read: async (query) => {
@@ -1546,7 +1484,6 @@ process.stdout.write("started\\n");
     child.stdout?.on("data", (chunk: Buffer) => {
       output += chunk.toString();
     });
-    // A process the timer keeps alive is killed, and fails the exit check.
     const deadline = setTimeout(
       () => child.kill("SIGKILL"),
       DELIVERY_POLL_MS * 10
@@ -1588,7 +1525,6 @@ process.stdout.write("started\\n");
     grant(undefined);
     await starting;
     expect(released).toBe(1);
-    // Ticks pass: none reads.
     clock.advance(DELIVERY_POLL_MS);
     clock.advance(DELIVERY_POLL_MS);
     await delivery.idle();
@@ -1654,7 +1590,6 @@ process.stdout.write("started\\n");
     delivery.observe(TASKS, () => undefined, { name: "idle" });
     await delivery.start();
     await delivery.idle();
-    // Running, each tick reads the counter.
     const started = reads;
     clock.advance(DELIVERY_POLL_MS);
     await delivery.idle();
@@ -1670,7 +1605,6 @@ process.stdout.write("started\\n");
   });
 });
 
-// Kept from the file-backed store's days: an old tasks.json is no input.
 describe("an earlier Marbles' files", () => {
   it("ignores a tasks.json an earlier Marbles left, and leaves it as it is", async () => {
     const state = stateDir();

@@ -12,13 +12,6 @@ import type {
   WorkspaceRegistration,
 } from "./types";
 
-/**
- * `workspace-exists` names the Workspace already registered under this id,
- * or for this source — matched on the canonical root first, then on a
- * non-null source reference. One source cannot have two competing catalogs,
- * so every spelling of "already taken" resolves to the incumbent rather
- * than failing.
- */
 export type CommitCreateResult =
   | { readonly kind: "committed" }
   | { readonly kind: "workspace-exists"; readonly existingId: WorkspaceId };
@@ -41,23 +34,6 @@ export interface CatalogChangeInput {
   readonly workspaceId: WorkspaceId;
 }
 
-/**
- * Every rule over the Workspaces a store holds, and the one place catalog
- * changes are published.
- *
- * Each write that changes a Workspace carries the change events that say
- * what it changed (see {@link WorkspaceEvent}), built here from what the
- * store held and what the write puts, so a host records them with the
- * change. A write that changes neither the name nor the entries, such as a
- * reconciliation that found nothing new, carries none.
- *
- * One Workspace per canonical root and per source reference; entries belong
- * to their Workspace; every change leaves a valid tree and lands whole or not
- * at all. Mutations run one at a time, so a rule checked against what the
- * store holds still holds when the write lands. Across catalogs over one
- * store, that holds when the store offers `transaction`; without it, a second
- * catalog can still interleave.
- */
 export class WorkspaceCatalog {
   private readonly store: WorkspaceStore;
   private readonly publish: (changes: readonly WorkspaceChange[]) => void;
@@ -110,8 +86,6 @@ export class WorkspaceCatalog {
     const eventId = crypto.randomUUID();
     return this.mutation<CommitCreateResult>(async (store) => {
       const { workspace, entries } = input;
-      // An id already registered names the incumbent too: a create under it
-      // would replace that registration, not make a new one.
       const incumbent =
         (await store.getWorkspace(workspace.id)) ??
         (await claimant(store, workspace));
@@ -171,8 +145,6 @@ export class WorkspaceCatalog {
         return { result: { kind: "conflict", reason: String(error) } };
       }
 
-      // What the change does to what is stored: an entry put as it already
-      // stands, or removed and put back as it was, changes nothing.
       const effect = effectOf(current, next, input.change);
       const touched =
         effect.deleted.length + effect.updated.length + effect.inserted.length >
@@ -191,8 +163,6 @@ export class WorkspaceCatalog {
               ),
             }),
       };
-      // A change that touches the catalog sets `updatedAt`; one that does
-      // not say when is stamped now.
       const changed = touched
         ? entriesChanged(
             eventId,
@@ -265,7 +235,6 @@ export class WorkspaceCatalog {
       await store.commit({
         events: [
           {
-            // A removal stamps no record, so its time is read here.
             at: new Date().toISOString(),
             id: eventId,
             type: "workspace.removed",
@@ -281,12 +250,6 @@ export class WorkspaceCatalog {
     });
   }
 
-  /**
-   * One read-modify-write: serialized in this catalog, and exclusive in the
-   * store when it offers transactions, so another catalog over the same store
-   * cannot write between the reads and the commit. Changes are published once
-   * the write has landed, outside the store's transaction.
-   */
   private mutation<T>(
     work: (store: WorkspaceStore) => Promise<Mutation<T>>
   ): Promise<T> {
@@ -318,13 +281,6 @@ export class WorkspaceCatalog {
   }
 }
 
-/**
- * What `change` does to the entries stored (`current`), given the catalog it
- * leaves (`next`): the entries it removes, as stored; those it leaves
- * different, as they now stand; and those it adds. Each entry once, in the
- * order the change names it. An entry put as it is stored, or removed and
- * put back as it was, is in none of them.
- */
 function effectOf(
   current: readonly WorkspaceEntry[],
   next: ReadonlyMap<WorkspaceEntryId, WorkspaceEntry>,
@@ -359,7 +315,6 @@ function effectOf(
   };
 }
 
-/** Whether two entries hold the same fields, each the same value or instant. */
 function sameEntry(a: WorkspaceEntry, b: WorkspaceEntry): boolean {
   const keys = Object.keys(a);
   if (keys.length !== Object.keys(b).length) {
@@ -375,10 +330,6 @@ function sameEntry(a: WorkspaceEntry, b: WorkspaceEntry): boolean {
   });
 }
 
-/**
- * The `workspace.entries.changed` event for `change` to a Workspace, made
- * `at`, or nothing when it adds, changes and removes no entry.
- */
 function entriesChanged(
   id: string,
   workspaceId: WorkspaceId,
@@ -404,7 +355,6 @@ function entriesChanged(
   };
 }
 
-/** What one mutation answers, and the changes it publishes once committed. */
 interface Mutation<T> {
   readonly changes?: readonly WorkspaceChange[];
   readonly result: T;

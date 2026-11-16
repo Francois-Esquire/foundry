@@ -33,12 +33,6 @@ import { seedWorkspace } from "./helpers/registry";
 import { seedRuns } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
-/**
- * Resources are kept centrally, each by its owner's store; a workspace
- * shows what it owns and what is shared with it, and the all-workspaces
- * view shows everything once.
- */
-
 const CANNOT_SHARE = /cannot be shared/;
 const NO_ARTIFACT = /no artifact/;
 const NO_WORKSPACE = /no workspace ws9/;
@@ -174,7 +168,6 @@ describe("the resource views", () => {
       { name: "plan", workspaces: ["ws2"] },
       { name: "notes", workspaces: ["ws1", "ws2"] },
     ]);
-    // Across every workspace a shared resource is still one resource.
     expect(
       (await names(state, ALL_WORKSPACES))?.filter(
         (shown) => shown.name === "notes"
@@ -292,7 +285,6 @@ describe("the resource views", () => {
       const resumed = new Promise<void>((settle) => {
         resume = settle;
       });
-      // The share pauses inside its transaction, right after its check.
       const paused = new ResourceAssociations({
         transact: (work) =>
           real((unit) =>
@@ -444,7 +436,6 @@ describe("the resource views", () => {
       const associations = resourceAssociations(database, state);
       await associations.share(artifact, "ws2");
       await associations.unshare(artifact, "ws2");
-      // A run's share is no artifact fact.
       await associations.share(
         { id: "rn-1", kind: "run", owner: "ws1" },
         "ws2"
@@ -497,7 +488,6 @@ describe("the resource views", () => {
   });
 });
 
-/** Put `count` finished Runs, `shared-0` and on, under `scope` in `database`. */
 async function seedRunsOn(
   database: StoreDatabase,
   scope: string,

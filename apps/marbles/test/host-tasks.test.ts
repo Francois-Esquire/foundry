@@ -1,12 +1,3 @@
-/**
- * The builtin `tasks` under a real host, in real processes: source loaded
- * through `openWorkspace` (a Bun plugin, so each scenario runs in its own
- * `bun` process), the engine built by `hostEngine` over the Marbles
- * database a host opens, and the tasks shared by every OS process on it.
- * The last scenario hosts the workspace the way the Marbles process does,
- * in the engine generation it spawns, and switches to the next on an edit.
- */
-
 import type { ChildProcess } from "node:child_process";
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -116,9 +107,7 @@ process.exit(0);
   return JSON.parse(line);
 }
 
-/** Every workspace's task titles and observers under `state`, read as a reader does. */
 async function stored(state: string): Promise<{
-  /** The position of the newest fact logged, of any workspace. */
   readonly head: number;
   readonly observers: readonly {
     readonly failing: boolean;
@@ -180,7 +169,6 @@ report.afterDispose = await attempt(tasks.create({ title: "late" }));`,
   expect(first.afterDispose).toMatch("was disposed");
   const written = await stored(state);
   expect(written.titles).toEqual(["hosted"]);
-  // Filed when the engine started, before the change: it is to receive it.
   expect(written.observers).toEqual([
     { failing: expect.any(Boolean), name: "seenTitles", position: 0 },
   ]);
@@ -256,9 +244,6 @@ it("loses no update when two OS processes change one workspace's tasks at once",
     `import { changeTasks } from ${JSON.stringify(join(SRC, "database/tasks.ts"))};
 report.id = (await changeTasks(${JSON.stringify(state)}, "shared", (tasks) => tasks.create({ metadata: { count: 0 }, title: "counter" }))).id;`
   );
-  // Each process adds one to the count, \`rounds\` times, the way a command
-  // with no generation does: its own opening per change, read then written
-  // against the token it read. A refused token is read again.
   const counter = join(root, "counter.ts");
   await writeFile(
     counter,
@@ -311,7 +296,6 @@ process.stdout.write(JSON.stringify({ refused }) + "\\n");
       tasks: all.length,
     };
   });
-  // Every increment landed once, and every change recorded its own row.
   expect(after).toEqual({
     changes: 1 + 2 * 2 * rounds,
     count: 2 * rounds,
@@ -319,12 +303,6 @@ process.stdout.write(JSON.stringify({ refused }) + "\\n");
   });
 }, 120_000);
 
-/**
- * A source for an engine generation: `observe` appends each payload's titles to
- * `seen.log`, `add` creates a task, and `titles` lists them. `revision`
- * edits the handler's body and changes the bytes, so an edit starts the
- * next generation and keeps the observer.
- */
 function generationSource(dir: string, revision: number): string {
   const zod = createRequire(import.meta.url).resolve("zod");
   return `import { appendFileSync } from "node:fs";
@@ -383,8 +361,6 @@ it("binds tasks to the workspace a generation hosts, and hands its records to th
       { interval: 100, timeout: 30_000 }
     );
 
-    // The generation that delivered gives delivery up as it retires: the
-    // next one reads the same tasks and redelivers nothing.
     await writeFile(source, generationSource(root, 2));
     await vi.waitFor(
       async () => {
@@ -412,7 +388,6 @@ it("binds tasks to the workspace a generation hosts, and hands its records to th
     expect(existsSync(join(machine.state, summary.id, "locks", "tasks"))).toBe(
       false
     );
-    // Detaching stops hosting the workspace; its tasks stay.
     expect((await stored(machine.state)).titles).toEqual([
       "hosted",
       "reloaded",

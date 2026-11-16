@@ -98,7 +98,6 @@ describe("sessions kept in the Marbles database", () => {
   });
 });
 
-/** `marbles sessions` lists what a workspace's view shows. */
 describe("the sessions a workspace shows", () => {
   it("lists id, count, updated, and summary flag, newest first", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });

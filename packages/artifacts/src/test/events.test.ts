@@ -18,17 +18,10 @@ import { libsqlDatabases } from "./helpers/sqlite";
 
 const memory = libsqlDatabases("memory");
 
-/** A host's record of events, written on the commit's own transaction. */
 const recorded = sqliteTable("recorded_events", {
   event: text("event", { mode: "json" }).notNull(),
 });
 
-/**
- * A manager over a SQLite store whose `onCommit` writes each event of a write
- * as a row on the transaction it is handed, as a host's outbox would.
- * `commits` holds the events of each call, in order; `rows` reads what
- * landed.
- */
 async function hosted() {
   const database = await memory.open();
   await database.run(
@@ -49,7 +42,6 @@ async function hosted() {
     (await database.select().from(recorded)).map(
       (row) => row.event as ArtifactEvent
     );
-  /** The event types each commit `run` makes carries, one list per commit. */
   const typesOf = async (run: () => Promise<unknown>) => {
     const from = commits.length;
     await run();
@@ -157,7 +149,6 @@ describe("ArtifactManager change events", () => {
         manager.select({ artifactId: created.id, contentId: first.id })
       )
     ).toStrictEqual([["artifact.selected"]]);
-    // Selecting what is selected already changes nothing: no commit.
     expect(
       await typesOf(() =>
         manager.select({ artifactId: created.id, contentId: first.id })
@@ -212,7 +203,6 @@ describe("ArtifactManager change events", () => {
       contentId: first.id,
       type: "artifact.published",
     });
-    // Frozen already: nothing to freeze, nothing to say.
     expect(await typesOf(() => manager.freeze(first.id))).toStrictEqual([]);
     const next = await manager.revise({
       artifactId: created.id,
@@ -318,7 +308,6 @@ describe("ArtifactManager change events", () => {
         type: "artifact.forked",
       },
     ]);
-    // Frozen now: a second fork freezes nothing.
     expect(
       await typesOf(() => manager.fork({ contentId: sourceContentId }))
     ).toStrictEqual([["artifact.forked"]]);
@@ -392,7 +381,6 @@ describe("ArtifactManager change events", () => {
       entries: { "a.txt": { bytes: "a" } },
     });
     const content = required(created.content);
-    // The store enforces nothing: a host marks the Content failed directly.
     await store.commit({ putContents: [{ ...content, state: "failed" }] });
 
     expect(
@@ -435,8 +423,6 @@ describe("ArtifactManager change events", () => {
       manager.transaction(async (artifacts) => {
         await artifacts.rename(id, "B");
         try {
-          // Files the Artifact, then its first Content refuses: the entry
-          // points at a file the tree does not hold.
           await artifacts.create({
             ...TEXT,
             entries: { "a.txt": { bytes: "a" } },
@@ -559,7 +545,6 @@ describe("ArtifactManager change events", () => {
         throw new Error("gave up");
       })
     ).rejects.toThrow("gave up");
-    // Refused by the store before its transaction: text SQLite would not keep.
     await expect(manager.rename(id, "B\u0000")).rejects.toThrow();
 
     expect((await rows()).map((item) => item.type)).toStrictEqual([

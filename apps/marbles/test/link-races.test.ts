@@ -18,13 +18,6 @@ import { WorkspaceRegistry } from "~/database/workspaces";
 import { resourceLinks } from "~/layout";
 import { temporaryDirectory } from "./helpers/temporary";
 
-/**
- * Links are changed only through directories checked, right before each
- * call, to be real ones inside the real `.marbles`, and every keeper takes
- * the workspace's links lock and reads the database under it. Each test
- * puts a change between a check and the call after it, where a race would.
- */
-
 type Hook = (kind: string, path: string) => Promise<void>;
 const LAST_DIGIT = /\d(?=\D*$)/;
 const hooks: { current: Hook | undefined } = { current: undefined };
@@ -70,7 +63,6 @@ async function arranged() {
   return { artifacts, home, outside, root };
 }
 
-/** Swap the directory at `path` for a link to `outside`, once. */
 function swapper(path: string, outside: string) {
   let swapped = false;
   return async () => {
@@ -133,7 +125,6 @@ describe("links made and removed under a race", () => {
     });
     expect(made).toBe(true);
     expect(report?.refused).toEqual([".marbles/artifacts/note"]);
-    // The directory made through the link is removed again.
     expect(await real.readdir(outside)).toEqual([]);
   });
 
@@ -183,7 +174,6 @@ describe("links made and removed under a race", () => {
       workspace: "one",
     });
     await new Promise((settle) => setTimeout(settle, 100));
-    // Read once ahead of the lock, and not yet under it.
     expect(reads).toBe(1);
     latest = "new";
     held.release();
@@ -202,7 +192,6 @@ describe("the links lock", () => {
     if (started === null) {
       throw new Error("this process's start is readable here");
     }
-    // A start of another kind than this process's would compare as unknown.
     const earlier = started.replace(LAST_DIGIT, (digit) =>
       String((Number(digit) + 1) % 10)
     );
@@ -331,7 +320,6 @@ describe("keepers of one workspace's links", () => {
         { timeout: 10_000 }
       );
       release();
-      // The older keeper reads the database under the lock, and keeps `new`.
       await vi.waitFor(
         async () => expect(await real.readdir(join(path, ".."))).toEqual(["f"]),
         { timeout: 10_000 }

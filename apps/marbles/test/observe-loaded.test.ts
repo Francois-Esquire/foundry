@@ -1,11 +1,3 @@
-/**
- * `observe` as a workspace's own module declares it, through the library
- * its load is bound to: each word is the source of its objects' facts, an
- * observer is named by its handler, and a fact made inside a run records
- * that run. Each scenario runs in its own `bun` process, as
- * `host-tasks.test.ts` explains.
- */
-
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
@@ -31,8 +23,6 @@ it("delivers a loaded module's observers of every word the facts of a step's wor
   roots.push(root);
   const dir = join(root, "ws");
   await mkdir(join(dir, "node_modules"), { recursive: true });
-  // A const names an observer through the author's own TypeScript, found
-  // from the module.
   await symlink(
     resolve("../../node_modules/typescript"),
     join(dir, "node_modules", "typescript")
@@ -123,7 +113,6 @@ process.exit(0);
       .from(marblesObservers)
       .orderBy(asc(marblesObservers.name)),
   }));
-  // Every word a load's library binds is still its source.
   expect(stored?.observers).toEqual([
     { name: "artifactFacts", source: "artifacts" },
     { name: "runFacts", source: "runs" },
@@ -132,7 +121,6 @@ process.exit(0);
     { name: "taskFacts", source: "tasks" },
     { name: "workspaceFacts", source: "workspaces" },
   ]);
-  // The step's own work records its run as the cause.
   const made = (from: string, type: string) =>
     stored?.changes.find(
       (change) => change.source === from && change.type === type

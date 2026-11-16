@@ -50,7 +50,6 @@ export const DEFAULT_CONTAINER_MEMORY_MIB = 1024;
 /** Virtual CPUs when `resources.cpus` is unset. */
 export const DEFAULT_CONTAINER_CPUS = 1;
 
-/** Status of the persisted row, distinct from a runtime's live VM status. */
 export const CONTAINER_ROW_STATUSES = Object.freeze([
   "starting",
   "running",
@@ -58,7 +57,6 @@ export const CONTAINER_ROW_STATUSES = Object.freeze([
   "missing",
   "stopped",
   "failed",
-  /** Its VM is being removed, and the row goes once the runtime confirms it. */
   "removing",
 ] as const);
 

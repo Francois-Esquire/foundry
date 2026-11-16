@@ -27,27 +27,14 @@ import {
   storedMonitorState,
 } from "~/lib/trigger-store";
 
-/**
- * A workspace's trigger state in the Marbles database, scoped by the
- * workspace id: each schedule's tick (`marbles_schedule_ticks`), and each
- * monitor's state (`marbles_monitor_states`), both by the trigger's key. A
- * claim on a tick is a transaction that reads the row's owner and takes
- * it, so two engines, in this process or another, never tick one trigger
- * at once; an owner whose process has exited holds nothing. Every call
- * surfaces a lock waited on too long as a `DatabaseBusyError`.
- */
-
 export interface DatabaseTriggerStoreOptions {
-  /** The database the host keeps open. */
   readonly database: StoreDatabase;
-  /** The workspace id. */
   readonly scope: string;
 }
 
 export class DatabaseTriggerStore implements TriggerStore {
   readonly #database: StoreDatabase;
   readonly #scope: string;
-  /** This store's identity as a tick's owner: one per engine. */
   readonly #owner = randomUUID();
   readonly #gate = new RecordsGate("the trigger store is closed");
 
@@ -74,7 +61,6 @@ export class DatabaseTriggerStore implements TriggerStore {
     return this.#call(() =>
       claimJudged(
         () => look(this.#database),
-        // Asked outside the transaction: no process is asked under its lock.
         (seen) => (seen === undefined ? null : heldBy(seen)),
         (seen, holder) =>
           this.#database.transaction(
@@ -123,11 +109,6 @@ export class DatabaseTriggerStore implements TriggerStore {
     });
   }
 
-  /**
-   * Refuse every call from now on, once those under way have settled, then
-   * give up every tick this store still holds: one cut short by a stop is
-   * claimed by the next engine at once, not once this process exits.
-   */
   async close(): Promise<void> {
     await this.#gate.close();
     await asBusy(() =>
@@ -161,8 +142,6 @@ export class DatabaseTriggerStore implements TriggerStore {
             and(this.#key(key), eq(marblesScheduleTicks.ownerId, this.#owner))
           )
           .returning({ key: marblesScheduleTicks.key });
-        // A schedule's tick, recorded: nothing a monitor left under the key
-        // is its, nor will be a later monitor's there.
         if (finished.length > 0 && tick?.kind === "schedule") {
           await transaction
             .delete(marblesMonitorStates)
@@ -196,10 +175,6 @@ export class DatabaseTriggerStore implements TriggerStore {
       if ((await this.#lastKind(this.#database, key)) !== "schedule") {
         return monitorStateOf(row);
       }
-      // What a monitor left under a key a schedule ticked last (as an older
-      // Marbles left it) is no monitor's now: dropped here, never handed
-      // out. Looked at again in the write: a monitor that kept its state
-      // there meanwhile gets back what it kept.
       const kept = await this.#database.transaction(async (transaction) => {
         if ((await this.#lastKind(transaction, key)) === "schedule") {
           await transaction
@@ -213,7 +188,6 @@ export class DatabaseTriggerStore implements TriggerStore {
     });
   }
 
-  /** The monitor `key`'s row as `database` holds it. */
   async #monitorRow(
     database: StoreDatabase,
     key: string
@@ -246,11 +220,6 @@ export class DatabaseTriggerStore implements TriggerStore {
             set: values,
             target: [marblesMonitorStates.scope, marblesMonitorStates.key],
           });
-        // A monitor keeps its state under the key: the key is a monitor's
-        // from now, before its tick is recorded, so a stop in between
-        // keeps what it saw and the launch it handed over. A schedule's
-        // history there is none of the monitor's: no label or time of it
-        // stays. History that names no kind may be the monitor's own.
         await transaction
           .update(marblesScheduleTicks)
           .set({
@@ -272,7 +241,6 @@ export class DatabaseTriggerStore implements TriggerStore {
     });
   }
 
-  /** The kind the key's last recorded tick names, if any. */
   async #lastKind(
     database: StoreDatabase,
     key: string
@@ -305,13 +273,11 @@ export class DatabaseTriggerStore implements TriggerStore {
 
 type TickRow = typeof marblesScheduleTicks.$inferSelect;
 
-/** A row's last tick; `undefined` while it holds only a claim. */
 type MonitorRow = Pick<
   typeof marblesMonitorStates.$inferSelect,
   "observed" | "pending"
 >;
 
-/** A monitor's row as the state it keeps. */
 function monitorStateOf(row: MonitorRow): MonitorState {
   const { observed, pending } = monitorStateSchema.parse({
     observed: row.observed,
@@ -344,25 +310,13 @@ function tickOf(row: TickRow): ScheduleHistory | undefined {
   });
 }
 
-/** A trigger as `status` and the dashboard list it. */
 export interface StoredTick {
   readonly key: string;
-  /** Its last tick; `undefined` before its first. */
   readonly last?: ScheduleHistory;
-  /**
-   * The workflow a monitor handed a launch to that no tick has started
-   * yet; never set for a trigger whose history says it is a schedule.
-   */
   readonly pending?: string;
-  /** The process whose tick of it is under way, if one is. */
   readonly running: number | null;
 }
 
-/**
- * Whether a stored trigger is a monitor: its history decides when it names
- * a kind; else a launch it handed over says so, which only a monitor does.
- * The one rule every reader of stored ticks shows a trigger's kind by.
- */
 export function isMonitorTick(
   tick: Pick<StoredTick, "last" | "pending">
 ): boolean {
@@ -370,12 +324,6 @@ export function isMonitorTick(
   return named === undefined ? tick.pending !== undefined : named === "monitor";
 }
 
-/**
- * Every trigger the workspace `scope` has ticked, or is ticking now, in
- * the Marbles database at the state root `state`, by key, read only.
- * Empty with no database, or nothing migrated into it. A tick it cannot
- * read is listed as none.
- */
 export async function readStoredTicks(
   state: string,
   scope: string
@@ -389,7 +337,6 @@ export async function readStoredTicks(
   );
 }
 
-/** Every trigger the workspace `scope` has ticked or is ticking, in `database`, by key. */
 export async function storedTicks(
   database: StoreDatabase,
   scope: string
@@ -421,11 +368,7 @@ export async function storedTicks(
       last = undefined;
     }
     const running = heldBy(row)?.pid ?? null;
-    // A launch a monitor left is none of a trigger whose history says it
-    // is a schedule (a database from before a schedule's tick dropped it).
     const launch = last?.kind === "schedule" ? undefined : pending.get(row.key);
-    // A claim its dead owner left, on a trigger that never ticked and has no
-    // launch waiting, is nothing.
     if (last === undefined && running === null && launch === undefined) {
       return [];
     }

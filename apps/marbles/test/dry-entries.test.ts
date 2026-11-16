@@ -12,24 +12,15 @@ import { testInstances } from "./helpers/engine";
 import { temporaryDirectory } from "./helpers/temporary";
 import { snapshotTrees } from "./helpers/tree-snapshot";
 
-/**
- * `dry` wins. An engine built with it, through every way there is to
- * build or host one, keeps everything in memory: nothing under its state
- * directory, nor the recovery records it is pointed at, changes across its
- * start, a run and its dispose, whatever else it is handed.
- */
-
 const SOURCE = `import { step } from "@foundry.sh/marbles";
 step("hello").do(() => "ran");
 `;
 
-/** A machine: a workspace root with a source, and the paths a dry engine is handed but must not write. */
 function machine() {
   const top = temporaryDirectory("marbles-dry-entry-");
   const root = join(top, "root");
   mkdirSync(root);
   writeFileSync(join(root, "marbles.ts"), SOURCE);
-  // A recovery record a start would act on, were it not dry.
   const spawned = join(top, "spawned");
   mkdirSync(spawned);
   writeFileSync(join(spawned, "1.json"), "{}\n");
@@ -46,7 +37,6 @@ const print = (): undefined => undefined;
 
 const SRC = resolve("src");
 
-/** Run `body` in a Bun process of its own, which loads a source as a host does, with `machine`'s paths. */
 function hostedBy(body: string, paths: ReturnType<typeof machine>): void {
   const script = join(paths.top, "..", `host-${String(Date.now())}.ts`);
   writeFileSync(
@@ -84,7 +74,6 @@ describe("an engine built under dry", { timeout: 60_000 }, () => {
       await engine.start();
       engine.define({ fn: () => "ran", kind: "step", name: "hello" });
       await engine.run("hello", {});
-      // It persists nowhere, so it names no state directory either.
       expect(engine.state).toBeUndefined();
       await engine.dispose();
       expect(snapshotTrees([top])).toEqual(before);

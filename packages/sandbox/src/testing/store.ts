@@ -1,28 +1,12 @@
-/**
- * The behaviour every {@link ContainerStore} shares. A store package runs it
- * against each store it ships.
- */
 import { describe, expect, it } from "vitest";
 
 import type { ContainerRow, SandboxEvent } from "../schema";
 import type { ContainerStore } from "../store/index";
 
-/**
- * Fresh, empty storage, reached one scope at a time. The same scope reaches
- * the same rows on every call; two scopes never see each other's. A store
- * that has no scopes keeps one store per scope name.
- */
 export type ScopedContainerStores = (scope: string) => ContainerStore;
 
-/**
- * Fresh, empty storage whose stores hand each commit's write to a host hook
- * (a SQLite store's `onCommit`), and a record the hook keeps: it writes the
- * write's events, in order, in the commit's own transaction.
- */
 export interface RecordingContainerStores {
-  /** Makes the hook throw on its next call, after it has recorded. */
   readonly failNextCommit: () => void;
-  /** The events recorded by every commit that was kept, in the order kept. */
   readonly recorded: () => Promise<readonly SandboxEvent[]>;
   readonly stores: ScopedContainerStores;
 }
@@ -33,10 +17,6 @@ function event(type: SandboxEvent["type"], containerId: string): SandboxEvent {
   return { at: AT, containerId, id: `${type}-${containerId}`, type };
 }
 
-/**
- * Events no store takes, each made fresh: none has a plain-JSON form that
- * reads back as it was written.
- */
 const UNPLAIN_EVENTS: [string, () => SandboxEvent[]][] = [
   [
     "a class instance",
@@ -173,7 +153,6 @@ function ids(rows: readonly ContainerRow[]): string[] {
 
 type Transaction = NonNullable<ContainerStore["transaction"]>;
 
-/** The store's transaction, or the test skipped as not applicable. */
 function transactionOf(
   store: ContainerStore,
   skip: (note: string) => never
@@ -184,7 +163,6 @@ function transactionOf(
     : transaction.bind(store);
 }
 
-/** Ids whose second element throws when read, after the first was taken. */
 function unreadableSecond(values: readonly [string, string]): string[] {
   const list = [values[0]];
   Object.defineProperty(list, 1, {
@@ -196,14 +174,6 @@ function unreadableSecond(values: readonly [string, string]): string[] {
   return list;
 }
 
-/**
- * A store holding row `kept`, and a write as a caller holds it: one row to
- * put beside it and no deletes, with the rows the store should list once
- * the write lands as it stood at the call. `scramble` changes, in place,
- * everything the write holds, as a caller might once `commit` has
- * returned: every field of the row it puts, a further row put, and `kept`
- * deleted.
- */
 async function callerWrite(target: ContainerStore) {
   const kept = row("kept");
   await target.commit({ putContainers: [kept] });
@@ -224,7 +194,6 @@ async function callerWrite(target: ContainerStore) {
   return { expected, scramble, write };
 }
 
-/** Lets every other queued callback run, so a missing exclusion would show. */
 function yieldTurn(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -233,14 +202,8 @@ function pause(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** What a store's refusal of a call from inside its own transaction says. */
 const REFUSAL = /refused: .*use the view/;
 
-/**
- * How `promise` settled, as `refused: <message>` or `resolved`, or
- * `still pending` after `ms`: a hang becomes a failed assertion, not a
- * stalled suite.
- */
 async function settlesWithin(
   promise: Promise<unknown>,
   ms: number
@@ -263,12 +226,6 @@ async function settlesWithin(
   }
 }
 
-/**
- * Whether the storage a suite run opens hands its commits to a host hook.
- * A store with one (a SQLite store's `onCommit`) says `hooked: true` and
- * supplies `recording`, so the suite proves the hook is handed each commit's
- * events; a store with none says `hooked: false`.
- */
 export type ContainerStoreMode =
   | { readonly hooked: false }
   | {
@@ -276,12 +233,6 @@ export type ContainerStoreMode =
       readonly recording: () => Promise<RecordingContainerStores>;
     };
 
-/**
- * Registers the suite. `open` returns new, empty storage each time it is
- * called; `mode` says whether it has a host hook (see
- * {@link ContainerStoreMode}). The host's test file closes whatever `open`
- * opened.
- */
 export function describeContainerStore(
   name: string,
   open: () => ScopedContainerStores | Promise<ScopedContainerStores>,
@@ -364,7 +315,6 @@ export function describeContainerStore(
         updatedAt: Number.MAX_SAFE_INTEGER,
       });
       await target.commit({ putContainers: [before, after, edges] });
-      // Strict: an `undefined` field keeps its key, as the row holds it.
       expect(await target.get("c1")).toStrictEqual(before);
       expect(await target.get("c2")).toStrictEqual(after);
       expect(await target.get("c3")).toStrictEqual(edges);
@@ -383,7 +333,6 @@ export function describeContainerStore(
       expect(await target.get("c1")).toStrictEqual(next);
       expect(await target.list()).toStrictEqual([next]);
 
-      // And back: a native id put as `undefined` reads back as `undefined`.
       const cleared = { ...next, nativeId: undefined };
       await target.commit({ putContainers: [cleared] });
       expect(await target.get("c1")).toStrictEqual(cleared);
@@ -441,11 +390,6 @@ export function describeContainerStore(
     it("keeps nothing from a write that fails", async () => {
       const target = await store();
       await target.commit({ putContainers: [row("kept")] });
-      // Every store copies the whole write when commit is called, so a
-      // `spec` that throws on read fails a write that also carries a delete
-      // and a valid put, before either is applied. A store that runs
-      // statements should also fail a commit partway through its statements
-      // in its own tests.
       const unreadable = row("bad");
       Object.defineProperty(unreadable, "spec", {
         enumerable: true,
@@ -578,7 +522,6 @@ export function describeContainerStore(
       expect(await first.get("c1")).toStrictEqual(row("c1"));
       expect(ids(await first.list())).toEqual(["c1"]);
       expect(ids(await second.list())).toEqual(["c2"]);
-      // The same scope reaches the same rows again.
       expect(await stores("scope-a").get("c1")).toStrictEqual(row("c1"));
     });
 
@@ -621,8 +564,6 @@ export function describeContainerStore(
         return [before?.status, after?.status];
       });
       await read.promise;
-      // An independent caller, while the transaction sits between its read
-      // and its commit, given time enough to land if nothing held it back.
       const outside = target.commit({
         putContainers: [row("c1", { status: "running", updatedAt: 3 })],
       });
@@ -688,7 +629,6 @@ export function describeContainerStore(
         for (const [method, call] of Object.entries(calls)) {
           outcomes[method] = await settlesWithin(call(), 1000);
         }
-        // Scheduled from inside, but run once the transaction has ended.
         later = ended.then(() => target.commit({ putContainers: [row("a")] }));
         await view.commit({ putContainers: [row("b")] });
         return outcomes;
@@ -705,7 +645,6 @@ export function describeContainerStore(
   });
 }
 
-/** The suite's proof that a store hands its host hook every commit's events. */
 function describeRecordedEvents(
   name: string,
   recording: () => Promise<RecordingContainerStores>

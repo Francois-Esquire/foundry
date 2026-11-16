@@ -87,32 +87,14 @@ import type {
 import { MemoryWorkflowStore } from "./store/memory";
 import { validateOrchestratorStoreSnapshot } from "./store-snapshot";
 
-/**
- * The execution records' domain API: Jobs, Runs, Suspensions, Queues and
- * the Run journal. `Queue` and `Orchestrator` work through it; a host may
- * supply its own.
- */
 export interface OrchestratorStore extends ExecutionCommands, RunJournal {
-  /**
-   * When a change that resolved is there for good; `"commit"` when absent
-   * (see `WorkflowStoreDurability`). The `Orchestrator` and `Queue` refuse
-   * a `"host"` store.
-   */
   readonly durability?: WorkflowStoreDurability;
-  /**
-   * Runs `work` over a store bound to one store transaction, so everything
-   * it does lands together or not at all, and no other write lands between
-   * its reads and its writes. Present only over a `WorkflowStore` that
-   * offers `transaction`. `work` uses the store it is given; a call to this
-   * store from inside `work` is refused.
-   */
   readonly transaction?: <T>(
     work: (store: OrchestratorStore) => Promise<T>
   ) => Promise<T>;
 }
 
 export interface ExecutionCoordinatorOptions {
-  /** Where the records live; a new `MemoryWorkflowStore` when absent. */
   readonly store?: WorkflowStore;
 }
 
@@ -121,7 +103,6 @@ function generateId(prefix: string): string {
 }
 
 const EXECUTION_METADATA_KEY = "workflows.execution";
-/** How many records one store read returns when the coordinator reads them all. */
 const STORE_PAGE_LIMIT = 500;
 const LIVE_RUN_STATUSES: readonly RunStatus[] = [
   "queued",
@@ -129,36 +110,12 @@ const LIVE_RUN_STATUSES: readonly RunStatus[] = [
   "suspended",
 ];
 
-/** Set by `ExecutionCoordinator`'s static block: its claim, as an outcome. */
 let claimOn: (
   coordinator: ExecutionCoordinator,
   jobId: string,
   input: CreateJobRunInput
 ) => Promise<JobRunClaimOutcome>;
 
-/**
- * Every rule of the execution records, over a `WorkflowStore` that keeps
- * them: creation defaults, lifecycle transitions, patch semantics, the
- * atomic aggregates (a managed Job attempt, a cancellation, a parked or
- * settled Suspension), first-writer Queues, unique ids, and the frame
- * sequence of each Run's journal. The store enforces none of these.
- *
- * Each change to a Run also builds change events (`RunEvent`: `run.queued`,
- * `run.started`, `run.updated`, ...; see `runEvents`) and carries them in
- * the same write (`WorkflowStoreWrite.events`), so a host's hook inside the
- * commit records them with the change or not at all. A change that leaves
- * every Run's status and own fields as they were carries none.
- *
- * Each change is one read-modify-write ending in one `commit`. When the
- * store offers `transaction`, each runs inside one, so coordinators sharing
- * a store (two engines on one database) never interleave. Otherwise the
- * changes of this coordinator are serialized and no further. A read made
- * of several store reads runs in a transaction too, so it sees one state.
- *
- * The store's list reads filter only by exact values. Searching, matching
- * tags and links, sorting by creation time and paging happen here, over
- * every record the store's filter returns.
- */
 export class ExecutionCoordinator implements OrchestratorStore {
   readonly durability: WorkflowStoreDurability;
   readonly transaction?: <T>(
@@ -182,19 +139,10 @@ export class ExecutionCoordinator implements OrchestratorStore {
       coordinator.#claim(jobId, detached(input));
   }
 
-  /**
-   * A coordinator over a transaction's view, which no other write reaches:
-   * without `transaction`, it runs its work on the view directly.
-   */
   static #over(view: WorkflowStore): ExecutionCoordinator {
     return new ExecutionCoordinator({ store: withoutTransaction(view) });
   }
 
-  /**
-   * Every record, checked against each other as a snapshot is
-   * (`validateOrchestratorStoreSnapshot`), as of one moment when the store
-   * offers transactions.
-   */
   snapshot(): Promise<OrchestratorStoreSnapshot> {
     return this.#consistent(async (store) =>
       validateOrchestratorStoreSnapshot({
@@ -208,11 +156,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
     );
   }
 
-  /**
-   * Puts every record of a snapshot into a store that holds none, in one
-   * commit, once the snapshot validates. Rejects a store that holds a
-   * record already.
-   */
   async restore(snapshot: unknown): Promise<void> {
     const validated = validateOrchestratorStoreSnapshot(snapshot);
     await this.#exclusive(async (store) => {
@@ -379,11 +322,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
     });
   }
 
-  /**
-   * Starts a managed attempt of a Job: the Job becomes active and its Run
-   * is filed in one commit. A Job whose earlier attempt completed is
-   * settled as complete instead, and the claim is refused once that lands.
-   */
   async claimJobRun(
     jobId: string,
     input: CreateJobRunInput
@@ -395,12 +333,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
     return outcome.claim;
   }
 
-  /**
-   * `claimJobRun` as an outcome: the claim, or that the Job was found
-   * settled, as an earlier attempt completed, and was written as complete.
-   * Admission uses it inside its transaction, so the settlement commits and
-   * the refusal follows the commit; see `claimJobAttempt`.
-   */
   #claim(jobId: string, input: CreateJobRunInput): Promise<JobRunClaimOutcome> {
     return this.#exclusive(async (store): Promise<JobRunClaimOutcome> => {
       const job = await store.getJob(jobId);
@@ -475,12 +407,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
     });
   }
 
-  /**
-   * Settle a Run its process left before it finished, as a crash leaves
-   * it: one still `queued` or `running` becomes `failed`, with `error`,
-   * failed at `at`. A parked or settled Run is left as it is, so settling
-   * one twice changes it once. The Run as stored after; `null` without one.
-   */
   abandonRun(
     id: string,
     error: ErrorShape,
@@ -539,7 +465,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
       if (suspensions.items.length > 0 || frames.length > 0) {
         throw new RecordInUseError("run", id);
       }
-      // A Run that is not filed is not removed: nothing to write.
       if (run) {
         await store.commit(
           withEvents(
@@ -577,11 +502,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
     });
   }
 
-  /**
-   * Parks a Run at one Suspension occurrence: the Run becomes suspended and
-   * the Suspension is filed in one commit. The same occurrence parked again
-   * returns the Suspension already filed, and refuses a different request.
-   */
   parkSuspension(
     input: CreateSuspensionInput,
     runPatch: Omit<UpdateRunInput, "status"> = {}
@@ -678,10 +598,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
     });
   }
 
-  /**
-   * Resolves or cancels a pending Suspension at the revision the caller
-   * read, and moves its Run on, in one commit.
-   */
   settleSuspension(
     id: string,
     input: SettleSuspensionInput
@@ -774,10 +690,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
     });
   }
 
-  /**
-   * Appends one frame at the next cursor of the Run's journal. A terminal
-   * lifecycle frame is kept once: appending another returns the first.
-   */
   appendRunFrame(input: AppendRunFrameInput): Promise<RunFrame> {
     return this.#exclusive(async (store) => {
       if (!(await store.getRun(input.runId))) {
@@ -796,10 +708,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
     });
   }
 
-  /**
-   * Appends one effect-claim frame per `(runId, key)`: the frame for the
-   * first claim, and `null` for every later one.
-   */
   claimRunEffect(input: ClaimRunEffectInput): Promise<RunFrame | null> {
     return this.#exclusive(async (store) => {
       const payload = runEffectClaimPayload(input);
@@ -893,7 +801,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
     });
   }
 
-  /** The Queue filed under the id, or this one when none is: the first writer wins. */
   ensureQueue(input: EnsureQueueInput): Promise<QueueRecord> {
     return this.#exclusive(async (store) => {
       const record: QueueRecord = {
@@ -948,11 +855,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
     });
   }
 
-  /**
-   * Cancels a Run and settles each of its pending Suspensions as cancelled,
-   * in one commit. `rejectSettled` refuses a Run that already ended; without
-   * it, an ended Run is returned as it is, unless it was cancelled.
-   */
   #cancelRun(
     runId: string,
     runPatch: Omit<UpdateRunInput, "status">,
@@ -980,7 +882,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
       const nextRun = normalizeRunRecord(
         applyRunPatch(run, { ...runPatch, status: "cancelled" })
       );
-      // Cancelled already, with nothing pending and nothing patched: as stored.
       if (suspensions.length > 0 || !asStored(storedRun, nextRun)) {
         await store.commit(
           withEvents(
@@ -993,11 +894,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
     });
   }
 
-  /**
-   * Runs one read-modify-write so that no other change lands inside it:
-   * through the store's transaction when it offers one, and in turn with
-   * this coordinator's other changes otherwise.
-   */
   #exclusive<T>(work: (store: WorkflowStore) => Promise<T>): Promise<T> {
     if (this.#store.transaction === undefined) {
       return this.#serialized(() => work(this.#store));
@@ -1005,7 +901,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
     return this.#transaction(work);
   }
 
-  /** A read of several store reads, as of one moment where the store allows it. */
   #consistent<T>(work: (store: WorkflowStore) => Promise<T>): Promise<T> {
     if (this.#store.transaction === undefined) {
       return work(this.#store);
@@ -1021,11 +916,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
     return store.transaction(work);
   }
 
-  /**
-   * One change at a time in this coordinator. Not used over a store with
-   * transactions: the store's own queue orders those, and a call from
-   * inside one is refused there at once instead of waiting here forever.
-   */
   #serialized<T>(work: () => Promise<T>): Promise<T> {
     const run = this.#tail.then(work, work);
     this.#tail = run.then(
@@ -1036,12 +926,6 @@ export class ExecutionCoordinator implements OrchestratorStore {
   }
 }
 
-/**
- * Refuses a store whose commits a host transaction may still roll back, for
- * a runtime (`Orchestrator`, `Queue`) that starts workflow code, dispatches,
- * and signals cancellations once a commit resolves: it would act on records
- * a rollback then removes.
- */
 export function requireDurableStore(
   store: OrchestratorStore,
   runtime: string
@@ -1053,15 +937,6 @@ export function requireDurableStore(
   }
 }
 
-/**
- * Makes every public method of `prototype` take its arguments as they stand
- * when it is called: one deep copy, with byte memory unshared, taken before
- * anything else runs, and the only one the method sees. So no command reads
- * a caller's input after an await, and a command added later is covered
- * without asking. A value the copy refuses (a function, say), or an
- * argument with fields it would not keep (`refuseHiddenFields`), rejects
- * the call.
- */
 function takeArgumentsWhenCalled(prototype: object): void {
   for (const name of Object.getOwnPropertyNames(prototype)) {
     const method: unknown = Reflect.get(prototype, name);
@@ -1089,12 +964,6 @@ function takeArgumentsWhenCalled(prototype: object): void {
 
 takeArgumentsWhenCalled(ExecutionCoordinator.prototype);
 
-/**
- * Refuses an argument object the copy would read less of than it shows:
- * one made by a class or another prototype (its getters live there), or
- * one with an own property that is not enumerable. The copy keeps only own
- * enumerable properties, so such a field would be lost without a word.
- */
 function refuseHiddenFields(method: string, index: number, arg: unknown): void {
   if (typeof arg !== "object" || arg === null || Array.isArray(arg)) {
     return;
@@ -1110,22 +979,10 @@ function refuseHiddenFields(method: string, index: number, arg: unknown): void {
   }
 }
 
-/**
- * What a claim of a managed Job attempt did: claimed the attempt, or found
- * the Job settled (an earlier attempt completed) and wrote it as complete.
- */
 type JobRunClaimOutcome =
   | { readonly status: "claimed"; readonly claim: JobRunClaim }
   | { readonly status: "settled"; readonly job: JobRecord };
 
-/**
- * Claims a managed attempt of a Job through `store` without raising on a
- * settled Job, for a caller inside a transaction that must keep the
- * settlement: admission returns the outcome out of its transaction, lets
- * it commit, and refuses afterwards. Over an `ExecutionCoordinator` the
- * settled case is a value; over any other `OrchestratorStore`, which offers
- * only `claimJobRun`, it stays the rejection that store raises.
- */
 export function claimJobAttempt(
   store: OrchestratorStore,
   jobId: string,
@@ -1139,7 +996,6 @@ export function claimJobAttempt(
     .then((claim) => ({ claim, status: "claimed" as const }));
 }
 
-/** `view` without `transaction`: a coordinator over it runs its work directly. */
 function withoutTransaction(view: WorkflowStore): WorkflowStore {
   return {
     commit: (write) => view.commit(write),
@@ -1156,7 +1012,6 @@ function withoutTransaction(view: WorkflowStore): WorkflowStore {
   };
 }
 
-/** Every record of a list read, one store page after another. */
 async function everything<T>(
   list: (page: WorkflowStorePageQuery) => Promise<WorkflowStorePage<T>>
 ): Promise<T[]> {
@@ -1176,7 +1031,6 @@ async function everything<T>(
   }
 }
 
-/** A Job's Runs, hydrated, linked by their own links or legacy metadata. */
 async function runsOfJob(
   store: WorkflowStore,
   jobId: string
@@ -1186,7 +1040,6 @@ async function runsOfJob(
     .filter((run) => run.links?.jobId === jobId);
 }
 
-/** A Run's pending Suspensions, by id. */
 async function pendingSuspensions(
   store: WorkflowStore,
   runId: string
@@ -1198,7 +1051,6 @@ async function pendingSuspensions(
   ).sort((left, right) => left.id.localeCompare(right.id));
 }
 
-/** A Run's journal, checked as one sequence. */
 async function canonicalFrames(
   store: WorkflowStore,
   runId: string
@@ -1209,11 +1061,6 @@ async function canonicalFrames(
   );
 }
 
-/**
- * The journal of each Run the store holds, or of the one Run named, each
- * checked as one sequence. Frames of a Run the store does not hold are left
- * out; naming such a Run is refused.
- */
 async function journals(
   store: WorkflowStore,
   runId?: string
@@ -1237,7 +1084,6 @@ async function journals(
   }));
 }
 
-/** Files the next frame of a Run's checked journal and returns it. */
 async function appendFrame(
   store: WorkflowStore,
   runId: string,
@@ -1291,7 +1137,6 @@ function statusList<T extends string>(
   return typeof status === "string" ? [status] : status;
 }
 
-/** Records by creation time, then id; newest first when asked. */
 function sortRecords<
   T extends { readonly id: string; readonly timestamps: { createdAt: number } },
 >(records: readonly T[], order: "newest" | "oldest" | undefined): T[] {
@@ -1415,11 +1260,6 @@ function cloneValue<T>(value: T): T {
   return structuredClone(value);
 }
 
-/**
- * A copy of `value` without its fields that hold `undefined`, which a store
- * may not keep. Anything but a plain object is returned as it is, for the
- * record's decoder to refuse.
- */
 function definedEntries<T>(value: T): T {
   if (!isUnknownRecord(value)) {
     return value;
@@ -1480,7 +1320,6 @@ function withExecutionMetadata(
   };
 }
 
-/** A Run with the definition and links a legacy record keeps only in its metadata. */
 function hydrateRunRecord(record: RunRecord): RunRecord {
   const execution = record.metadata[EXECUTION_METADATA_KEY];
   if (!isUnknownRecord(execution)) {
@@ -1528,11 +1367,6 @@ function buildRunRecord(
   });
 }
 
-/**
- * A Run as the store keeps it: JSON-safe data normalized, and `definition`
- * and `links` either present without `undefined` entries or left out.
- * Every field the Run does not declare is kept.
- */
 function normalizeRunRecord(record: RunRecord): RunRecord {
   const { definition, links, ...rest } = record;
   const normalized: RunRecord = {
@@ -1632,10 +1466,6 @@ function sameStringArray(
   );
 }
 
-/**
- * Whether `next` holds exactly what `stored` does, as the store keeps it:
- * a change that leaves a record so writes nothing and makes no event.
- */
 function asStored<T extends object>(stored: T, next: T): boolean {
   return jsonValuesEqual(
     stored as unknown as JsonValue,

@@ -22,7 +22,6 @@ afterEach(() => {
 it("removes, at start, an artifact file no record names", async () => {
   const dir = mkdtempSync(join(tmpdir(), "crash-artifacts-"));
   made.push(dir);
-  // What a process that published bytes and died before its commit left.
   const stray = join(dir, randomUUID());
   writeFileSync(stray, "bytes no record names");
   const engine = testEngine({
@@ -63,7 +62,6 @@ it("reports a part that fails and goes on to the next", async () => {
     "ended: true",
     "[recovery] artifacts: failed, Error: disk is gone",
   ]);
-  // Every step is in the report, whatever it did.
   expect(report.steps).toEqual([
     {
       detail: "no recovery records kept here",

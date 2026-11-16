@@ -17,11 +17,6 @@ export type {
   TriggerSnapshot,
 } from "~/model/dashboard";
 
-/**
- * What a list row points at. A run or trigger another workspace owns is
- * named by that workspace and its id together (`workspace`, absent for
- * this workspace's own), so two workspaces' items of one id stay two.
- */
 export type DashboardSelection =
   | {
       readonly kind: "trigger";
@@ -38,13 +33,11 @@ export type DashboardSelection =
       readonly sessionId?: string;
     };
 
-/** A run or trigger as a list holds it: its id, and its owner when another workspace's. */
 interface Owned {
   readonly id: string;
   readonly workspace?: { readonly id: string };
 }
 
-/** Whether `item` is the one `selection` names: the same id of the same owner. */
 export function isSelected(
   item: Owned,
   selection: { readonly id: string; readonly workspace?: string }
@@ -52,7 +45,6 @@ export function isSelected(
   return item.id === selection.id && item.workspace?.id === selection.workspace;
 }
 
-/** The selection naming `run`, or one of its steps or activities. */
 export function runSelection(
   run: Owned,
   within: Pick<
@@ -68,7 +60,6 @@ export function runSelection(
   };
 }
 
-/** The selection naming `trigger`. */
 export function triggerSelection(
   trigger: Owned
 ): Extract<DashboardSelection, { kind: "trigger" }> {
@@ -114,7 +105,6 @@ export function flattenSteps(
   ]);
 }
 
-/** A key no two selections share, whatever their ids hold. */
 export function selectionKey(selection: DashboardSelection): string {
   if (selection.kind === "definition") {
     return JSON.stringify([selection.kind, selection.id]);

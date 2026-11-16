@@ -2,11 +2,6 @@ import type { FeedEntrySnapshot } from "~/lib/feed/read";
 
 export const ALL_WORKSPACES = "all";
 
-/**
- * An entry's identity in the feed: the workspace that posted it and its id
- * there, as one key no two entries share, whatever either holds. Two
- * workspaces' entries of one id stay two in selection, rows and the reader.
- */
 export function feedKey(
   entry: Pick<FeedEntrySnapshot, "id" | "workspace">
 ): string {
@@ -47,7 +42,6 @@ export function feedScopes(
   return scopes;
 }
 
-/** The entries `scope` shows: every one, or those that belong to that workspace, owned or shared with it. */
 export function scopedFeed(
   entries: readonly FeedEntrySnapshot[],
   scope: string

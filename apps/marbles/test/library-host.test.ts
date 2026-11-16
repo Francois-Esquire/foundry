@@ -39,7 +39,6 @@ function scratch(): string {
 
 const processLock = (state: string) => join(state, "locks", PROCESS_LOCK);
 
-/** Migrations with one more after the committed ones: a build newer than the database. */
 function newerBuild(dir: string): string {
   const folder = join(dir, "migrations-next");
   cpSync(MIGRATIONS, folder, { recursive: true });
@@ -68,7 +67,6 @@ function journalLength(folder: string): number {
   ).entries.length;
 }
 
-/** How many migrations the database under `state` has applied, read by the build `folder` ships. */
 async function applied(
   state: string,
   folder: string = MIGRATIONS
@@ -86,7 +84,6 @@ async function applied(
   }
 }
 
-/** A database under `state` migrated with this build's committed migrations. */
 async function current(state: string): Promise<void> {
   (await initializeDatabase(stateDatabase(state))).close();
 }
@@ -118,7 +115,6 @@ await host.close();
     expect(hosted.status, hosted.stderr).toBe(0);
     const { id } = workspaceState(state, workspace);
     expect(await readWorkspace(state, id)).toMatchObject({ hosted: false, id });
-    // The lock it made the database under is let go.
     expect(lockHolder(processLock(state))).toBeUndefined();
   }, 60_000);
 
@@ -152,7 +148,6 @@ await host.close();
       return touch.apply(this, args);
     });
     await recordWorkspace(state, workspace, null);
-    // It made and migrated the database, under the lock no one else held.
     expect((await readWorkspace(state, workspace.id))?.id).toBe(workspace.id);
     expect(seen).toEqual([undefined]);
     expect(lockHolder(processLock(state))).toBeUndefined();
@@ -161,7 +156,6 @@ await host.close();
   it("never migrates while a Marbles process holds the state root", async () => {
     const state = join(scratch(), "state");
     await current(state);
-    // The Marbles process is another process, as it always is.
     const script = join(scratch(), "daemon-claim.ts");
     writeFileSync(
       script,
@@ -190,7 +184,6 @@ setInterval(() => undefined, 1000);
         })
       ).rejects.toBeInstanceOf(IncompatibleDatabaseError);
       expect(await applied(state)).toBe(journalLength(MIGRATIONS));
-      // The claim is still the Marbles process's.
       expect(lockHolder(processLock(state))).toBe(daemon.pid);
     } finally {
       daemon.kill("SIGKILL");

@@ -107,7 +107,6 @@ describe("the Marbles database", () => {
       opened.close();
     }
 
-    // One an earlier Marbles made as the umask had it is tightened.
     const earlier = join(dir, "earlier", "marbles.db");
     (await initializeDatabase(earlier)).close();
     chmodSync(earlier, 0o644);
@@ -138,15 +137,12 @@ describe("the Marbles database", () => {
   it("opens a migrated database while another connection is writing", async () => {
     const file = join(scratch(), "marbles.db");
     (await initializeDatabase(file)).close();
-    // A writer this process's queue does not know of, as another process is.
     const writer = createClient({ url: `file:${file}` });
     const held = await writer.transaction("write");
     try {
       await held.execute(
         "INSERT INTO marbles_workspaces (id, root, first_seen, last_seen) VALUES ('w', '/w', 'x', 'x')"
       );
-      // Up to date, so opening only reads: it neither waits for the lock
-      // nor sees the uncommitted row.
       const reader = await initializeDatabase(file, { busyTimeout: 50 });
       try {
         expect(await rows(reader.database)).toBe(0);
@@ -193,7 +189,6 @@ describe("the Marbles database", () => {
     } finally {
       migrated.close();
     }
-    // The Marbles that shipped without that migration refuses the file.
     await expect(initializeDatabase(file)).rejects.toThrow(NEWER);
   });
 
@@ -201,10 +196,8 @@ describe("the Marbles database", () => {
     const dir = scratch();
     const file = join(dir, "marbles.db");
     (await initializeDatabase(file)).close();
-    // The same migration, its SQL edited since it was applied.
     const edited = join(dir, "edited");
     cpSync(MIGRATIONS, edited, { recursive: true });
-    // Sorted: a directory lists its files in no set order on Linux.
     const [first] = readdirSync(edited)
       .filter((name) => name.endsWith(".sql"))
       .sort();
@@ -215,7 +208,6 @@ describe("the Marbles database", () => {
     await expect(
       initializeDatabase(file, { migrations: edited })
     ).rejects.toThrow(DIFFERS_AT_FIRST);
-    // The same SQL, generated at another time: a history that diverged.
     const moved = join(dir, "moved");
     cpSync(MIGRATIONS, moved, { recursive: true });
     const journal = JSON.parse(
@@ -239,7 +231,6 @@ describe("the Marbles database", () => {
     mkdirSync(real);
     const linkedDir = join(dir, "linked");
     symlinkSync(real, linkedDir);
-    // Not there yet: it is created through the link, then keyed by what it is.
     const a = await initializeDatabase(join(linkedDir, "marbles.db"), {
       busyTimeout: 300,
     });
@@ -275,7 +266,6 @@ describe("the Marbles database", () => {
     const dir = scratch();
     writeFileSync(join(dir, "probe"), "");
     if (!existsSync(join(dir, "PROBE"))) {
-      // This filesystem tells the two names apart: they are two files.
       context.skip();
       return;
     }
@@ -318,13 +308,9 @@ describe("the Marbles database", () => {
       await holder.database.insert(marblesWorkspaces).values(workspaceRow("a"));
       symlinkSync(file, linked);
       const wal = statSync(`${file}-wal`).ino;
-      // Every way in, by its path and through a link: none may close a
-      // descriptor to the file, which would drop the holder's locks.
       (await initializeDatabase(linked)).close();
       await readDatabase(linked, rows);
       await writeDatabase(file, rows);
-      // Another process writes and, finding no lock held, would take the
-      // WAL away as it leaves; the holder would then write into nothing.
       const other = join(dir, "other.ts");
       writeFileSync(
         other,
@@ -367,18 +353,15 @@ Bun.gc(true);
     expect(queued()).toHaveLength(1);
     a.close();
     a.close();
-    // Closing one handle twice lets go of one, not of the other's too.
     expect(queued()).toHaveLength(1);
     const gate = Promise.withResolvers<void>();
     const held = b.database.transaction(() => gate.promise);
     await new Promise((settle) => setTimeout(settle, 20));
     b.close();
-    // Its transaction still holds a turn.
     expect(queued()).toHaveLength(1);
     gate.resolve();
     await held.catch(() => undefined);
     expect(queued()).toEqual([]);
-    // A failed open lets go of its queue too.
     const newer = join(scratch(), "marbles.db");
     const folder = join(scratch(), "migrations");
     cpSync(MIGRATIONS, folder, { recursive: true });
@@ -421,8 +404,6 @@ Bun.gc(true);
   });
 
   it("hands a package store a transaction to commit inside", async () => {
-    // A domain package's store: it names no driver, and commits with one
-    // `database.transaction(...)` of its own, whatever it was handed.
     class PackageStore {
       readonly #database: BaseSQLiteDatabase<"async", unknown>;
       constructor(options: {
@@ -468,13 +449,11 @@ Bun.gc(true);
         opened.database.transaction(async () => {
           await rows(opened.database);
         })
-        // Drizzle wraps the refusal in the query it stopped.
       ).rejects.toMatchObject({
         cause: expect.objectContaining({
           message: expect.stringMatching(WAITING_ON_ITSELF),
         }),
       });
-      // The turn it held came back: the database is usable again.
       expect(await rows(opened.database)).toBe(0);
     } finally {
       opened.close();
@@ -542,8 +521,6 @@ opened.close();
           })
       )
     );
-    // Every writer opens the empty file at once: each migrates, or waits
-    // for the one that does and finds nothing left to apply.
     writeFileSync(go, "");
     for (const exit of await Promise.all(exits)) {
       expect(exit.code, exit.stderr).toBe(0);
@@ -570,14 +547,11 @@ opened.close();
         "sqlite",
         "--schema",
         "./src/database/schema.ts",
-        // drizzle-kit prefixes `./` to an absolute path, fails to find the
-        // snapshots there, and still exits 0.
         "--out",
         relative(resolve("."), out),
       ],
       {
         cwd: resolve("."),
-        // As `bun run db:generate` resolves the workspace packages' sources.
         env: { ...process.env, NODE_OPTIONS: "--conditions=import" },
         stdio: ["ignore", "pipe", "pipe"],
       }

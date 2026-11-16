@@ -1,38 +1,3 @@
-/**
- * Records of the processes Foundry starts in the background, for whoever
- * has to find them again after the process that started them is gone:
- * the Marbles test suite, which stops exactly what its runs started, and
- * the next start of a Marbles engine, which stops what an engine that is
- * gone left running (`@foundry/lib/orphans`).
- *
- * The contract:
- *
- * - Active only while `MARBLES_SPAWN_RECORD` (every record, for a test
- *   run) or `MARBLES_SPAWN_RECOVERY` (the records a later start recovers
- *   from) names a directory in the environment the caller passes (by
- *   default this process's). Neither set, `recordSpawned` returns at once
- *   and runs nothing.
- * - A recovery record also names its owner, the process that recorded it,
- *   by pid and start time. It is removed when the child exits, if the
- *   caller handed the child itself over (`recordChild`), so the directory
- *   holds only what may still be running.
- * - Each directory must be private: a real directory (not a link), owned
- *   by this user, with no permission for group or others. A missing one
- *   is created so. Anything else is refused.
- * - Each record is one file, `<pid>.json`, holding the pid, whether the
- *   process leads a process group of its own, and its start time as `ps`
- *   reports it in UTC, so a later reader can tell it from another process
- *   given the same pid since. It is written to a fresh file created
- *   exclusively, without following links, under an unpredictable name,
- *   and then renamed into place.
- * - It never throws into a spawn path and never holds one up for long: a
- *   record that cannot be made is reported once per process on stderr,
- *   and the start goes on. The suite that asked for records catches the
- *   missing one when it ends.
- *
- * Node-bound: import it from main-process code only.
- */
-
 import {
   type ChildProcess,
   type ExecFileOptions,
@@ -57,35 +22,17 @@ import {
 } from "./process-identity";
 
 export interface SpawnRecord {
-  /** It leads a process group of its own, whose id is its pid. */
   readonly group: boolean;
-  /**
-   * On a group's record: its members as a stop found them while it could
-   * still prove the group by its leader, so a later stop can prove each
-   * one after the leader is gone.
-   */
   readonly members?: readonly ProcessIdentity[];
-  /** The process that started it, on a recovery record. */
   readonly owner?: ProcessIdentity;
   readonly pid: number;
-  /** As `startedAt` reads it. */
   readonly started: string;
 }
 
-/** The directory every record goes to: a test run's. */
 export const SPAWN_RECORD_ENV = "MARBLES_SPAWN_RECORD";
-/**
- * The directory recovery records go to: what a later start reads to stop
- * the children of a process that is gone (`@foundry/lib/orphans`).
- */
 export const SPAWN_RECOVERY_ENV = "MARBLES_SPAWN_RECOVERY";
-/**
- * An owner's mark, carried to every child, that a reader of the records
- * can check a process's environment for.
- */
 export const SPAWN_OWNER_ENV = "MARBLES_SPAWN_OWNER";
 
-/** Create a new file, never an existing one, and never through a link. */
 const CREATE =
   // biome-ignore lint/suspicious/noBitwiseOperators: open(2) takes its flags as one bit set.
   constants.O_CREAT |
@@ -95,11 +42,6 @@ const CREATE =
 
 let reported = false;
 
-/**
- * The recorder's own variables in `env`, for a child started with an
- * environment of its own choosing, so what it starts is recorded and
- * marked too. Empty when recording is off.
- */
 export function spawnRecordEnvironment(
   env: Readonly<Record<string, string | undefined>> = process.env
 ): Record<string, string> {
@@ -113,11 +55,6 @@ export function spawnRecordEnvironment(
   return carried;
 }
 
-/**
- * Why `path` is not private, as the records need it, or `undefined` when
- * it is: a real `kind` (no link), owned by this user, with no permission
- * for group or others.
- */
 export function notPrivate(
   path: string,
   kind: "directory" | "file"
@@ -137,20 +74,11 @@ export function notPrivate(
   if (process.getuid !== undefined && stats.uid !== process.getuid()) {
     return `${path} belongs to another user`;
   }
-  // The low six bits are the group's and others' permissions.
   if (stats.mode % 0o100 !== 0) {
     return `${path} is open to group or others (mode ${(stats.mode % 0o1000).toString(8)})`;
   }
 }
 
-/**
- * Record `pid`, which this process has just started, if `env` asks for
- * records (see the contract above). Call it in the same turn as the
- * spawn, once the child is the caller's: until this process reaps it,
- * which waits for its event loop, no other process can be given that pid.
- * Prefer `recordChild` when the child itself is at hand: its recovery
- * record then goes when it exits.
- */
 export function recordSpawned(
   pid: number | undefined,
   group: boolean,
@@ -173,10 +101,6 @@ export function recordSpawned(
   }
 }
 
-/**
- * Record `child`, as `recordSpawned` does, and remove its recovery record
- * once it exits: it is reaped then, so the record names nothing.
- */
 export function recordChild(
   child: Pick<ChildProcess, "once" | "pid">,
   group = false,
@@ -187,26 +111,20 @@ export function recordChild(
   const { pid } = child;
   if (recovery !== undefined && pid !== undefined) {
     child.once("exit", () => {
-      // The exit is its reaping: no later child can have had this pid yet.
       rmSync(recordPath(recovery, pid), { force: true });
     });
   }
 }
 
-/** How a group stop reaches the system; a test replaces it. */
 export interface GroupSystem {
-  /** Signal `target` (a negative pid: the group); throws as `process.kill` does. */
   kill(target: number, signal: NodeJS.Signals | 0): void;
   sleep(ms: number): Promise<void>;
 }
 
 export interface RecordGroupOptions {
-  /** Read for the record directories; this process's environment when omitted. */
   readonly env?: Readonly<Record<string, string | undefined>>;
-  /** How long the group gets after SIGTERM, then after SIGKILL. */
   readonly graceMs?: number;
   readonly killMs?: number;
-  /** When it aborts, the whole group is stopped. */
   readonly signal?: AbortSignal;
   readonly system?: GroupSystem;
 }
@@ -220,15 +138,6 @@ const GROUP_SYSTEM: GroupSystem = {
   sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
 };
 
-/**
- * Record `child`, which leads a process group of its own (spawned
- * detached), as a group, and stop the whole group, the leader and
- * whatever it started, when `signal` aborts and once the leader exits:
- * SIGTERM, a grace period, SIGKILL, a last wait. Its recovery record goes
- * only once the group is empty; one that would not empty keeps it, so the
- * next start's orphan stop finds the group (`@foundry/lib/orphans`).
- * Returns the stop, which resolves with whether the group emptied.
- */
 export function recordGroup(
   child: Pick<ChildProcess, "once" | "pid">,
   options: RecordGroupOptions = {}
@@ -257,14 +166,12 @@ export function recordGroup(
   options.signal?.addEventListener("abort", () => stop().catch(() => false), {
     once: true,
   });
-  // Its exit is its reaping; what it started may still run in its group.
   child.once("exit", () => {
     stop().catch(() => false);
   });
   return stop;
 }
 
-/** SIGTERM the group `pgid`, wait, SIGKILL it, wait; whether it emptied. */
 async function stopGroup(
   pgid: number,
   system: GroupSystem,
@@ -288,7 +195,6 @@ async function stopGroup(
   return false;
 }
 
-/** Signal the group `pgid`; `false` once it has no process left. */
 function groupSignal(
   system: GroupSystem,
   pgid: number,
@@ -298,12 +204,10 @@ function groupSignal(
     system.kill(-pgid, signal);
     return true;
   } catch (error) {
-    // A group of exited members not yet reaped answers EPERM on macOS.
     return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
 }
 
-/** Where the record of `pid` is kept in `dir`. */
 export function recordPath(dir: string, pid: number): string {
   return join(dir, `${String(pid)}.json`);
 }
@@ -325,7 +229,6 @@ function write(
   }
   const started = startedAt(pid);
   if (started === null) {
-    // It has already exited and been reaped: nothing is left to record.
     return;
   }
   if (started === undefined) {
@@ -344,7 +247,6 @@ function write(
   }
 }
 
-/** Make `dir`, private, if it is missing; refuse one that is not private. */
 function privateDirectory(dir: string): void {
   mkdirSync(dir, { mode: 0o700, recursive: true });
   const problem = notPrivate(dir, "directory");
@@ -353,12 +255,6 @@ function privateDirectory(dir: string): void {
   }
 }
 
-/**
- * Write `text` to `path`, readable by this user alone: to a fresh file
- * beside it under an unpredictable name, created exclusively and without
- * following links, then renamed into place, which replaces a link at
- * `path` rather than writing through it.
- */
 export function writePrivate(path: string, text: string): void {
   const partial = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
   const fd = openSync(partial, CREATE, 0o600);
@@ -375,12 +271,6 @@ export function writePrivate(path: string, text: string): void {
   }
 }
 
-/**
- * `execFile`, as `util.promisify` makes it, with the child recorded (see
- * the contract above) and the recorder's variables carried into an
- * environment the caller gives it. Rejects as `execFile` does, with the
- * output on the error.
- */
 export function execFileRecorded(
   file: string,
   args: readonly string[],

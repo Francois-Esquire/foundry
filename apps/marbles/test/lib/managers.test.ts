@@ -154,8 +154,6 @@ describe("skills.load folders", () => {
       [workspace, ".claude/skills"],
       [workspace, "skills"],
     ] as const;
-    // Each folder has a skill of its own, and a "shared" skill that every
-    // later folder holds again.
     for (const [index, [root, dir]] of folders.entries()) {
       await skill(join(root, dir, `only-${index}`), `only-${index}`);
       await skill(join(root, dir, "shared"), "shared", `${root}/${dir}`);
@@ -740,7 +738,6 @@ describe("sandboxes", () => {
     await mkdir(root, { recursive: true });
     const machine = await testMachine();
     try {
-      // Two processes over the one database: the rows outlive the first.
       const registry = () => {
         const runtime = createFakeContainerRuntime();
         return {

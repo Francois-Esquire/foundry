@@ -7,28 +7,8 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { RESOURCE_KINDS } from "../lib/resources";
 
-/**
- * Marbles' own tables. A workspace's id is the scope every package's rows
- * are partitioned by, so this table, the registry of those ids, has none.
- */
-
-/**
- * Every workspace this machine has run, with enough to load it again from
- * the row alone (its root, its source, and where its work starts). One row
- * per id; `first_seen` is set once, `last_seen` on every sight. Times are
- * ISO strings, as the record holds them.
- *
- * `hosted` says the workspace is registered with the Marbles process:
- * attached (`marbles attach`, a CLI run the process hosts) or registered
- * through `HostedWorkspaces.register`, and not detached since. The Marbles
- * process loads every hosted workspace again when it starts
- * (`HostedWorkspaces.loadRegistered`), and reports each one that fails. A
- * row a command only read or ran, with no Marbles process hosting it,
- * stays unhosted.
- */
 export const marblesWorkspaces = sqliteTable("marbles_workspaces", {
   config: text(),
-  /** Where the workspace's work starts; its root when null. */
   cwd: text(),
   firstSeen: text("first_seen").notNull(),
   hosted: integer({ mode: "boolean" }).notNull().default(false),
@@ -37,19 +17,6 @@ export const marblesWorkspaces = sqliteTable("marbles_workspaces", {
   root: text().notNull(),
 });
 
-/**
- * The workspace's change log: every change fact a store of the workspace
- * committed, whatever package built it (`source`: tasks, runs, artifacts,
- * sandboxes, sessions, workspaces), as the fact the write carried, for the
- * workspace's observers. Written by each store's `onCommit` hook in the
- * commit's own transaction (`database/changes.ts`), so a change and its
- * fact land together or not at all. `scope` is the workspace id;
- * `position` is the order the facts were committed in, taken from the
- * workspace's counter (`marbles_change_logs`), never reused, so a fact
- * compaction removed leaves a gap. `run_id` is the run whose work made the
- * change, when one did; `recorded_at` is when it committed, in epoch ms,
- * which compaction ages it by.
- */
 export const marblesChanges = sqliteTable(
   "marbles_changes",
   {
@@ -72,31 +39,12 @@ export const marblesChanges = sqliteTable(
   ]
 );
 
-/**
- * Each workspace's change counter: the last position given to a fact
- * (`position`) and the highest position compaction removed (`compacted`,
- * 0 before any), one row per workspace. Positions come from here, not from
- * the facts that survive, so none is given twice.
- */
 export const marblesChangeLogs = sqliteTable("marbles_change_logs", {
   compacted: integer().notNull().default(0),
   position: integer().notNull().default(0),
   scope: text().primaryKey(),
 });
 
-/**
- * Each observer of a workspace's changes, by its identity (workspace,
- * source, name), and how far it has got: `position` is the last fact of
- * its source it completed, or passed over; a new observer starts at the
- * counter, so from now. A failing observer keeps its position and counts
- * its `failures` since the last success, with the error and when it is
- * tried again (`retry_at`, epoch ms); one that fell behind compaction says
- * which facts it missed (`missed_from`..`missed_through`). One whose call
- * passed its time limit and has not settled says since when
- * (`stuck_since`, epoch ms). `seen_at` is
- * when an engine last declared it, in epoch ms: only an observer seen
- * within the retention holds compaction back.
- */
 export const marblesObservers = sqliteTable(
   "marbles_observers",
   {
@@ -115,14 +63,6 @@ export const marblesObservers = sqliteTable(
   (table) => [primaryKey({ columns: [table.scope, table.source, table.name] })]
 );
 
-/**
- * A workspace's sessions, each with a revision that grows with every
- * commit that puts the session or a message in it: written by the session
- * store's `onCommit` hook in the commit's own transaction
- * (`database/sessions.ts`), so it lists exactly the sessions the
- * `@foundry/agents` tables hold, and a reader can tell which of them
- * changed since it last read them without reading their messages.
- */
 export const marblesSessionRevisions = sqliteTable(
   "marbles_session_revisions",
   {
@@ -133,17 +73,6 @@ export const marblesSessionRevisions = sqliteTable(
   (table) => [primaryKey({ columns: [table.scope, table.sessionId] })]
 );
 
-/**
- * What Marbles keeps beside each workflow Run of a workspace, the
- * `@foundry/workflows` rows of the same scope and id: what the run's scope
- * recorded (its ledger, each node's literal input, the run's session), so
- * a parked run rebuilt in a later process finds the same sessions and
- * artifacts, and the engine that owns the Run (`owner_id`, unique per
- * engine, and its process, `owner_pid` and `owner_started`), null once no engine does. Written
- * by the workflow store's `onCommit` hook in the commit's own transaction
- * (`database/runs.ts`), and by a claim in a transaction of its own. A row
- * goes with its Run.
- */
 export const marblesWorkflowRuns = sqliteTable(
   "marbles_workflow_runs",
   {
@@ -164,14 +93,6 @@ export const marblesWorkflowRuns = sqliteTable(
   ]
 );
 
-/**
- * Each schedule's and monitor's tick, by the trigger's key, as a newer
- * engine declaring the same trigger finds it: how its last tick went (all
- * null until the first one has run), and the engine whose tick is under
- * way (`owner_id`, unique per engine, and its process, `owner_pid` and `owner_started`), null
- * between ticks. Written by `database/triggers.ts`, a claim and a finished
- * tick each in a transaction of its own.
- */
 export const marblesScheduleTicks = sqliteTable(
   "marbles_schedule_ticks",
   {
@@ -190,10 +111,6 @@ export const marblesScheduleTicks = sqliteTable(
   (table) => [primaryKey({ columns: [table.scope, table.key] })]
 );
 
-/**
- * What each monitor keeps, by its key: what it last saw of its source,
- * and the launch it handed out that no tick has started yet, if any.
- */
 export const marblesMonitorStates = sqliteTable(
   "marbles_monitor_states",
   {
@@ -208,15 +125,6 @@ export const marblesMonitorStates = sqliteTable(
   (table) => [primaryKey({ columns: [table.scope, table.key] })]
 );
 
-/**
- * Every usage fact of a workspace, one per turn (`turn_id`), filed under
- * the run it ran in (`run_id`), or none for a direct session's, as the
- * ledger read it when it saved it. `fact` is the record whole, read back
- * through `usageFactSchema`, a `lost` marker's reason with it. `revision` grows with
- * every fact kept in the scope, so a reader can tell nothing changed
- * without reading the facts. Written by `database/usage.ts`; nothing
- * removes a row.
- */
 export const marblesUsageFacts = sqliteTable(
   "marbles_usage_facts",
   {
@@ -232,14 +140,6 @@ export const marblesUsageFacts = sqliteTable(
   ]
 );
 
-/**
- * The automations agents created in a workspace, one per id: what each
- * targets and when (`workflow`, `at`, `input`, and `source` for a
- * monitor), whether it is on, and the agent session that owns it, which
- * alone may change it. `at`, `input` and `source` are the spec's own
- * shapes, read back through the record's schema. Written by
- * `database/automations.ts`, an edit that reads first in a transaction.
- */
 export const marblesAutomations = sqliteTable(
   "marbles_automations",
   {
@@ -248,7 +148,6 @@ export const marblesAutomations = sqliteTable(
     createdAt: text("created_at").notNull(),
     enabled: integer({ mode: "boolean" }).notNull(),
     id: text().notNull(),
-    /** The launch input as JSON text, `null` included; SQL NULL when the spec has none. */
     input: text(),
     key: text().notNull(),
     ownerDefinition: text("owner_definition").notNull(),
@@ -265,19 +164,6 @@ export const marblesAutomations = sqliteTable(
   (table) => [primaryKey({ columns: [table.scope, table.id] })]
 );
 
-/**
- * Every Execution Run a workspace retains, one per id: what launched it
- * (`kind`, `name`, `queue`, the caller's `source` and `correlation`), where
- * it is (`status`, `progress`, `error_*`, the times), the process that owns
- * it while it is unsettled (`owner_pid` and `owner_started`), its admission order
- * (`sequence`), and the `revision` every change raises. `input` and
- * `progress` are JSON text, `null` included; SQL NULL when the run has
- * none. Its observations are rows of their own
- * (`marbles_execution_observations`). Written by
- * `database/executions.ts`, under the rules `ExecutionStore` states: a
- * lifecycle change only from a status it allows and by the owner it
- * names, an advisory one only while the run is unsettled.
- */
 export const marblesExecutions = sqliteTable(
   "marbles_executions",
   {
@@ -314,12 +200,6 @@ export const marblesExecutions = sqliteTable(
   ]
 );
 
-/**
- * Each Execution Run's observations, one row per observation id, in the
- * order they were last recorded (`position`, after every other the run
- * has): recording one again replaces its row and moves it last, so a
- * record costs the same however many its run has. Goes with its run.
- */
 export const marblesExecutionObservations = sqliteTable(
   "marbles_execution_observations",
   {
@@ -341,12 +221,6 @@ export const marblesExecutionObservations = sqliteTable(
   ]
 );
 
-/**
- * What pruning removed from a workspace's Execution Runs, by host scope
- * (`gap_scope`, such as a Module): how many, the latest settlement among
- * them (`through`), and when one was last removed. Written in the same
- * transaction as the removals it counts.
- */
 export const marblesExecutionGaps = sqliteTable(
   "marbles_execution_gaps",
   {
@@ -359,21 +233,9 @@ export const marblesExecutionGaps = sqliteTable(
   (table) => [primaryKey({ columns: [table.scope, table.gapScope] })]
 );
 
-/**
- * Provider configuration, one row per scope it is kept for: the machine's,
- * whose `scope` is the empty string, and each workspace's own, by the
- * workspace id. `configuration` is the scope's entries (and, for a
- * workspace, its `order`), read back through the configuration's schema;
- * its settings may hold secrets, which is one reason the database file is
- * its owner's only. `revision` is one more than the highest in the table
- * at every write, so a reader notices a change anywhere without reading
- * the entries. Written by `database/providers.ts`, an edit that reads
- * first in a transaction.
- */
 export const marblesProviderConfigurations = sqliteTable(
   "marbles_provider_configurations",
   {
-    /** JSON text, parsed by the store itself, so no parser message can quote a secret. */
     configuration: text().notNull(),
     revision: integer().notNull(),
     scope: text().primaryKey(),
@@ -383,36 +245,16 @@ export const marblesProviderConfigurations = sqliteTable(
   ]
 );
 
-/**
- * The machine's key for provider instance identities: one row, `id` 1,
- * the key as hex. Made once by the first writer that needs it and never
- * rewritten; a new key matches no pinned session.
- */
 export const marblesIdentityKeys = sqliteTable("marbles_identity_keys", {
   id: integer().primaryKey(),
   key: text().notNull(),
 });
 
-/**
- * A workspace's agent grants, as one document: every grant it was issued,
- * revoked and claimed ones too, and the sequence their ids are drawn from,
- * in the form `@foundry/lib`'s grant repository validates before it trusts
- * any of it. Written by `database/grants.ts`, each operation a
- * transaction that reads the document, applies one transition, and
- * writes it.
- */
 export const marblesAgentGrants = sqliteTable("marbles_agent_grants", {
-  /** JSON text, which the repository parses itself, so no parser message can quote it. */
   grants: text().notNull(),
   scope: text().primaryKey(),
 });
 
-/**
- * The approvals a workspace's agents left waiting for a person, and the
- * sessions they belong to, as one document: references to each session's
- * own requests, never tool inputs. Written by `database/approvals.ts`, an
- * edit that reads first in a transaction.
- */
 export const marblesDeferredApprovals = sqliteTable(
   "marbles_deferred_approvals",
   {
@@ -421,12 +263,6 @@ export const marblesDeferredApprovals = sqliteTable(
   }
 );
 
-/**
- * The latest of each harness activity a workspace's agents reported, by
- * its key (the session and the activity), for the dashboard: the event
- * and the step it came from, read back through the activity schema. A
- * row is only ever replaced by a higher `revision` of the same activity.
- */
 export const marblesHarnessActivities = sqliteTable(
   "marbles_harness_activities",
   {
@@ -438,14 +274,6 @@ export const marblesHarnessActivities = sqliteTable(
   (table) => [primaryKey({ columns: [table.scope, table.key] })]
 );
 
-/**
- * Which engine delivers a workspace's changes to its observers: the
- * engine (`owner_id`, unique per engine) and its process (`owner_pid` and
- * `owner_started`, its start time, so a pid given to another since is not
- * taken for it),
- * null once it let go. A claim is a transaction that reads the row and
- * takes it; an owner whose process has exited holds nothing.
- */
 export const marblesDeliveryClaims = sqliteTable("marbles_delivery_claims", {
   ownerId: text("owner_id"),
   ownerPid: integer("owner_pid"),
@@ -453,14 +281,6 @@ export const marblesDeliveryClaims = sqliteTable("marbles_delivery_claims", {
   scope: text().primaryKey(),
 });
 
-/**
- * The workspaces other than its owner each resource is shared with
- * (`lib/resources.ts`): one row per resource, by its kind, its owner (the
- * scope its store keeps it under) and its id there, and per workspace it is
- * shown in. A resource always belongs to its owner, which has no row.
- * Removing a row never touches the resource. Written by
- * `database/resources.ts`.
- */
 export const marblesResourceWorkspaces = sqliteTable(
   "marbles_resource_workspaces",
   {
@@ -481,40 +301,20 @@ export const marblesResourceWorkspaces = sqliteTable(
   ]
 );
 
-/**
- * What a workspace's last engine start put right after a crash, step by
- * step (`RecoveryReport`): one row per workspace, replaced at each start,
- * which `marbles status` shows. Written by `database/recoveries.ts`.
- */
 export const marblesRecoveries = sqliteTable("marbles_recoveries", {
   at: text().notNull(),
   scope: text().primaryKey(),
   steps: text({ mode: "json" }).$type<unknown>().notNull(),
 });
 
-/**
- * Every engine generation the Marbles process has started: one engine
- * subprocess hosting every registered workspace. Owners in the other
- * tables are process identities, and a generation is one process, so the
- * runs, tick claims and delivery claims a generation owns are those whose
- * owner is its `pid` and `started`; this row is what numbers it and says
- * how it is doing. `state` is `loading` while it loads every registered
- * workspace, `current` once it took over, `retiring` while it finishes
- * the runs it had when the next took over, `failed` when it did not load,
- * and `exited` once its process is gone. `fingerprint` is what it loaded:
- * the installation and every workspace's source.
- */
 export const marblesGenerations = sqliteTable(
   "marbles_generations",
   {
     createdAt: text("created_at").notNull(),
-    /** Why it failed, or died. */
     error: text(),
     fingerprint: text().notNull(),
     number: integer().primaryKey({ autoIncrement: true }),
-    /** Its process; 0 until spawned. */
     pid: integer().notNull(),
-    /** Its process's start, as `ProcessIdentity` keeps it; null until it said. */
     started: text(),
     state: text({
       enum: ["loading", "current", "retiring", "failed", "exited"],

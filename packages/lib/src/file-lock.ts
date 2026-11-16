@@ -1,24 +1,3 @@
-/**
- * Cross-process exclusion through a lock file created with `wx`: whoever
- * creates it holds the lock until it removes it. The file records the
- * holder's pid, alone, as every version of this module has written and
- * read it. Beside it, `<path>.owner` records the holder's start
- * (`@foundry/lib/process-identity`) and which lock file it is about, by
- * its inode and change time, so a lock whose pid another process was
- * given since, as after a reboot, counts as abandoned. One that names
- * another lock file, or is missing, says nothing: the pid alone decides,
- * as it does for an earlier version, which never reads it.
- *
- * One protocol, two ways in: `tryFileLock` takes the lock now or says who
- * has it, for callers that skip rather than wait; `acquireFileLock` retries
- * that same attempt until a deadline. Each step of an attempt is a
- * synchronous file operation, so within one process no two attempts
- * interleave; across processes, the steps below are what keep them apart.
- *
- * Node-bound: import it from main-process code only. Exclusion within one
- * process is the caller's job (see `KeyedQueue`); this lock is not reentrant.
- */
-
 import {
   closeSync,
   fstatSync,
@@ -78,13 +57,7 @@ export interface FileLockHolder {
    * `breakStale`, one left empty for 30s is broken.
    */
   readonly empty?: true;
-  /**
-   * The pid the file records, or `undefined` when it records none. A file
-   * that is neither empty nor a holder (unreadable, or written by hand) is
-   * never broken.
-   */
   readonly holder: number | undefined;
-  /** The holder the file records, start time and all, when it records one. */
   readonly owner?: ProcessIdentity;
 }
 
@@ -130,7 +103,6 @@ function readLock(path: string): LockFile {
   if (contents === "") {
     return { ino: file.ino, kind: "empty", mtimeMs: file.mtimeMs };
   }
-  // As every version reads it: the pid, and nothing but space around it.
   const pid = Number(contents);
   return Number.isInteger(pid) && pid > 0
     ? {
@@ -140,7 +112,6 @@ function readLock(path: string): LockFile {
     : { kind: "other" };
 }
 
-/** What `<path>.owner` records of the lock file it is about. */
 interface OwnerNote {
   readonly ctimeMs: number;
   readonly ino: number;
@@ -152,11 +123,6 @@ function ownerNotePath(path: string): string {
   return `${path}.owner`;
 }
 
-/**
- * The start `<path>.owner` records for the holder `pid` of the lock file
- * `file`; `null` when it names another lock file or another pid, or there
- * is none to read.
- */
 function ownerStart(
   path: string,
   pid: number,
@@ -176,7 +142,6 @@ function ownerStart(
     : null;
 }
 
-/** Record this process's start beside the lock file it has just written. */
 function noteOwner(path: string, mode: number, file: OwnerNote): void {
   try {
     writeFileAtomicSync(ownerNotePath(path), JSON.stringify(file), { mode });
@@ -226,19 +191,16 @@ export function lockHolder(path: string): number | undefined {
   return lockOwner(path)?.pid;
 }
 
-/** The holder a lock file records, start time and all, as `lockHolder` reads it. */
 export function lockOwner(path: string): ProcessIdentity | undefined {
   const lock = readLock(path);
   return lock.kind === "holder" ? lock.owner : undefined;
 }
 
-/** Whether the lock at `path` names this process as its holder. */
 export function holdsLock(path: string): boolean {
   const owner = lockOwner(path);
   return owner !== undefined && sameProcess(owner, thisProcess());
 }
 
-/** What a lock file records of this process: its pid, as every version reads it. */
 export function lockContents(): string {
   return String(thisProcess().pid);
 }

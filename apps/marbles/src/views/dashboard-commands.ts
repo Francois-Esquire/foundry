@@ -69,7 +69,6 @@ export interface CommandContext {
     readonly current: SettingsSnapshot;
   };
   readonly state: DashboardState;
-  /** Whether every workspace's runs and triggers are shown, and whether there are others to show. */
   readonly workspaces: {
     readonly everywhere: boolean;
     readonly others: boolean;
@@ -84,7 +83,6 @@ interface CommandEffects {
   readonly send: (event: DashboardEvent) => void;
   /** Show the next workspace the Marbles process hosts. */
   readonly switchWorkspace: () => void;
-  /** Show every workspace's runs and triggers, or this workspace's again. */
   readonly toggleWorkspaces: () => void;
 }
 
@@ -234,7 +232,6 @@ function feedReader(context: CommandContext): boolean {
 }
 
 /** The run or step under the run controls, and its status. */
-/** The run or step a control acts on; none on another workspace's run, which is shown read only. */
 function controlled(context: CommandContext) {
   const { actions, resolved } = context;
   if (

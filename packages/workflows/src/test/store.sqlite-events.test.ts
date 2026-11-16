@@ -9,15 +9,10 @@ import { libsqlDatabases } from "./helpers/sqlite";
 
 const memory = libsqlDatabases("memory");
 
-/** A host's record of events, written on the commit's own transaction. */
 const recorded = sqliteTable("recorded_events", {
   event: text("event", { mode: "json" }).notNull(),
 });
 
-/**
- * A SQLite store whose `onCommit` writes each event of a write as a row on
- * the transaction it is handed, as a host's outbox would, and counts calls.
- */
 async function hosted() {
   const database = await memory.open();
   await database.run(
@@ -66,7 +61,6 @@ describe("SqliteWorkflowStore change events", () => {
       "run.updated",
       "run.completed",
     ]);
-    // One call per commit; the step tree's persist brought none.
     expect(calls.map((made) => made.length)).toStrictEqual([1, 1, 0, 1, 1]);
     expect(calls.flat()).toStrictEqual(events);
   });
@@ -75,11 +69,9 @@ describe("SqliteWorkflowStore change events", () => {
     const { calls, coordinator, rows } = await hosted();
     const run = await coordinator.createRun(RUN);
 
-    // Refused before its transaction: text SQLite would not give back.
     await expect(
       coordinator.createRun({ ...RUN, step: "s\u0000" })
     ).rejects.toThrow(RangeError);
-    // Committed inside a transaction whose work then throws.
     const { transaction } = coordinator;
     if (transaction === undefined) {
       throw new Error("the SQLite store offers transactions");
@@ -94,7 +86,6 @@ describe("SqliteWorkflowStore change events", () => {
     expect((await rows()).map((event) => event.type)).toStrictEqual([
       "run.queued",
     ]);
-    // The rolled-back commit did reach onCommit; its rows went with it.
     expect(
       calls.map((events) => events.map((item) => item.type))
     ).toStrictEqual([["run.queued"], ["run.started"]]);

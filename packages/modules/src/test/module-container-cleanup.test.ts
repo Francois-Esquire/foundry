@@ -57,7 +57,6 @@ describe("Module container cleanup", () => {
       .spyOn(runtime, "stopResource")
       .mockRejectedValue(new Error("still running"));
     await expect(containers.remove(handle.id)).rejects.toThrow("kept to retry");
-    // The row stays, saying what is left to do, until its VM is gone.
     expect(await containers.list()).toEqual([
       expect.objectContaining({ id: handle.id, status: "removing" }),
     ]);

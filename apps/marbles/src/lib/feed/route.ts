@@ -32,10 +32,6 @@ export interface FeedRouter {
   cancelReason(runId: string): string | undefined;
   /** A run ended without answering these: its open questions are marked cancelled. */
   close(runId: string): Promise<void>;
-  /**
-   * Another process takes the run over: forget its open questions here,
-   * leaving their entries open for the one that adopts it.
-   */
   letGo(runId: string): void;
   /** Handle one run's channel events; `settled` awaits the writes they caused. */
   observe(
@@ -45,10 +41,6 @@ export interface FeedRouter {
     readonly onEvent: (event: ChannelEvent) => void;
     readonly settled: () => Promise<void>;
   };
-  /**
-   * Refuse every answer from now on with a `QuestionMovingError`: what this
-   * router holds is moving to another process, which answers it there.
-   */
   retire(): void;
 }
 
@@ -58,7 +50,6 @@ export interface FeedRouter {
  * `marbles.feed.input`. Without `askable` nobody can answer, so a question
  * cancels its run instead of pausing it forever.
  */
-/** The question is moving to another process with its run; answer it there. */
 export class QuestionMovingError extends Error {
   override readonly name = "QuestionMovingError";
 
@@ -69,13 +60,6 @@ export class QuestionMovingError extends Error {
   }
 }
 
-/**
- * What a resolution refused because its run moved meanwhile is: the
- * suspension taken over at another revision (`StaleSuspensionRevisionError`),
- * or the run's claim held by another engine when the resolution was
- * written (`RunMovedError`). Then nothing was applied here, and the answer
- * belongs to the engine that has the run now. Anything else is itself.
- */
 export function movedAway(error: unknown, id: string): unknown {
   return error instanceof Error &&
     (error.name === "StaleSuspensionRevisionError" ||
@@ -92,7 +76,6 @@ export function feedRouter(options: {
 }): FeedRouter {
   const { askable, feed, orchestrator, print } = options;
   const open = new Map<string, OpenQuestion>();
-  /** Set by `retire`: every answer is refused from then on. */
   let retired = false;
   const cancelled = new Map<string, string>();
 
@@ -184,8 +167,6 @@ export function feedRouter(options: {
       const suspension = await orchestrator.getSuspension(
         question.suspensionId
       );
-      // Retired, or the run let go, while the suspension was read: the
-      // engine that takes the run over answers it, not this one.
       if (retired || open.get(entryId) !== question) {
         throw new QuestionMovingError(entryId);
       }
@@ -195,9 +176,6 @@ export function feedRouter(options: {
       }
       // The step reads a plain choice or `{ choice, note }`; keep the plain
       // form when there is no note so older resolutions stay comparable.
-      // Applied only at the revision read, and, in a store that keeps whom
-      // a run answers to, only while this engine holds the run: a run that
-      // moved meanwhile is answered by its new holder instead.
       await orchestrator
         .resolve(
           suspension.id,

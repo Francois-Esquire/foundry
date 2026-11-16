@@ -1,47 +1,3 @@
-/**
- * Stopping what a process that is gone left running: the children it
- * started, as the recovery records in one directory name them
- * (`MARBLES_SPAWN_RECOVERY`, `@foundry/lib/spawn-record`).
- *
- * A record is an orphan's when the process it names still runs, started
- * when the record says, and its owner does not: no process has the
- * owner's pid, or one that started at another time does. Only an orphan
- * is signalled, and only once it is proved again right before each
- * signal. Nothing else is:
- *
- * - this process, whatever its record says;
- * - a record without an owner, or that cannot be read;
- * - a process whose start differs from its record (the pid is someone
- *   else's now): its record is removed, and it is left alone;
- * - one whose start is of another kind than its record's, which says
- *   nothing either way: its record is kept, and reported;
- * - one recorded leading a group of its own that no longer does.
- *
- * An orphan gets SIGTERM, a grace period, SIGKILL, and a last wait. The
- * record of a process confirmed gone is removed; one that would not stop
- * keeps its record and is reported.
- *
- * A group (a record of a leader that leads one) is stopped whole, and its
- * record goes only once no process of the group is left. While a stop
- * proves the leader, it writes the group's members, each with its start,
- * into the record, and signals the group by its id; it keeps doing so
- * until the group is empty, watching it all along, since a group id
- * cannot be given to another group while any member of this one lives,
- * and a stop that has seen it empty is done with it. A later stop that
- * finds the leader gone, as after a stop cut short, signals each member
- * the record names that it can still prove, and no other process; one
- * whose remaining members it cannot prove keeps the record, reported as
- * pending.
- * Stopping an orphan can leave orphans of its own, its recorded
- * children, so the directory is read again until a pass stops nothing.
- *
- * Safe to run at any time and more than once, from any process: a
- * process whose owner is alive is never touched, and a stop cut short
- * leaves records that the next run reads again.
- *
- * Node-bound: import it from main-process code only.
- */
-
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -60,30 +16,20 @@ import {
   writePrivate,
 } from "./spawn-record";
 
-/** What a stop did: the pids it stopped, and what it could not do. */
 export interface OrphanStop {
   readonly problems: readonly string[];
   readonly stopped: readonly number[];
 }
 
 export interface OrphanStopOptions {
-  /** How long an orphan gets to exit after SIGTERM. */
   readonly graceMs?: number;
-  /** How long after SIGKILL before a survivor is reported. */
   readonly killMs?: number;
-  /** How the stop reaches the system; a test replaces it. */
   readonly system?: ProcessTable;
 }
 
-/** The system calls a stop makes. */
 export interface ProcessTable {
   kill(target: number, signal: NodeJS.Signals): void;
-  /**
-   * What the system says about each of `pids` that is running; `undefined`
-   * when it cannot say.
-   */
   look(pids: readonly number[]): ReadonlyMap<number, SeenProcess> | undefined;
-  /** Every process in the group `pgid`; `undefined` when it cannot say. */
   members(pgid: number): ReadonlyMap<number, SeenProcess> | undefined;
   sleep(ms: number): Promise<void>;
 }
@@ -91,10 +37,8 @@ export interface ProcessTable {
 const GRACE_MS = 5000;
 const KILL_MS = 2000;
 const POLL_MS = 100;
-/** Each pass follows the orphans of the last one down a generation. */
 const MAX_PASSES = 8;
 
-/** Stop every orphan the recovery records in `dir` name (see above). */
 export async function stopOrphans(
   dir: string,
   options: OrphanStopOptions = {}
@@ -141,13 +85,11 @@ interface Found {
   readonly problems: readonly string[];
 }
 
-/** A group's record, and whether its leader was proved in this look. */
 interface OrphanGroup {
   readonly leader: boolean;
   readonly record: SpawnRecord;
 }
 
-/** The orphans `dir` records now; the records of processes that are gone go. */
 function orphansIn(dir: string, system: ProcessTable): Found {
   const { problems, records } = readRecords(dir);
   const pids = records.flatMap((record) =>
@@ -208,7 +150,6 @@ function judge(
     return start === "same" || record.group ? "kept" : "gone";
   }
   if (record.owner === undefined) {
-    // Never an orphan's: nothing says whose it was.
     return start === "same" ? "kept" : "gone";
   }
   if (!record.group) {
@@ -224,11 +165,6 @@ function judge(
   return leftMembers(record, system);
 }
 
-/**
- * What is left of a group whose leader is gone: nothing (`gone`), members
- * its record names that can be proved (`members`), or members it cannot
- * prove, which keep the record, reported.
- */
 function leftMembers(record: SpawnRecord, system: ProcessTable): Verdict {
   const members = system.members(record.pid);
   if (members === undefined) {
@@ -246,11 +182,6 @@ function leftMembers(record: SpawnRecord, system: ProcessTable): Verdict {
       };
 }
 
-/**
- * The process `record` names runs now, proved: one has its pid and the
- * start its record says, of the same kind. Only a process proved so is
- * ever signalled.
- */
 function proved(
   record: ProcessIdentity,
   seen: ReadonlyMap<number, SeenProcess>
@@ -262,11 +193,6 @@ function proved(
   );
 }
 
-/**
- * The owner `owner` names may still run: its pid runs, and nothing says
- * the process with it now started at another time. An owner that cannot
- * be told from another is taken as still there, so its children are left.
- */
 function stillThere(
   owner: ProcessIdentity,
   seen: ReadonlyMap<number, SeenProcess>
@@ -278,7 +204,6 @@ function stillThere(
   );
 }
 
-/** SIGTERM, a grace period, SIGKILL, a last wait; each signal on a fresh proof. */
 async function stopAll(
   dir: string,
   orphans: readonly SpawnRecord[],
@@ -306,14 +231,12 @@ async function stopAll(
   };
 }
 
-/** Signal each of `records` still running as recorded. */
 function signal(
   records: readonly SpawnRecord[],
   name: NodeJS.Signals,
   system: ProcessTable
 ): void {
   for (const record of records) {
-    // Proved right before its own signal: what an earlier one changed shows.
     const seen = system.look([record.pid]);
     if (seen === undefined || !proved(record, seen)) {
       continue;
@@ -322,7 +245,6 @@ function signal(
   }
 }
 
-/** Poll until none of `records` runs as recorded, or `ms` pass; those still running. */
 async function waitGone(
   records: readonly SpawnRecord[],
   ms: number,
@@ -331,7 +253,6 @@ async function waitGone(
   const deadline = Date.now() + ms;
   for (;;) {
     const seen = system.look(records.map(({ pid }) => pid));
-    // A table that cannot say proves nothing gone.
     const left =
       seen === undefined
         ? [...records]
@@ -343,14 +264,6 @@ async function waitGone(
   }
 }
 
-/**
- * Stop the group `group` names: whole, by its id, when its leader was
- * proved (its members written into its record first), else each member
- * its record names that is proved right before its signal. SIGTERM, a
- * grace period, SIGKILL, a last wait; the record goes only once no
- * process of the group is left. `undefined` once it is empty; why its
- * record is kept otherwise.
- */
 async function stopGroup(
   dir: string,
   group: OrphanGroup,
@@ -371,12 +284,10 @@ async function stopGroup(
         started: seen.started,
       })),
     };
-    // Before any signal, so a stop cut short leaves its proof behind.
     writePrivate(recordPath(dir, pgid), JSON.stringify(record));
   }
   const send = (name: NodeJS.Signals): void => {
     if (group.leader) {
-      // Proved by its leader in this stop, and watched since: still this group.
       signalTarget(system, -pgid, name);
       return;
     }
@@ -400,7 +311,6 @@ async function stopGroup(
   return `group ${String(pgid)} still has members after SIGKILL; pending, its record kept`;
 }
 
-/** Poll until no process of the group `pgid` is left, or `ms` pass. */
 async function emptied(
   pgid: number,
   ms: number,
@@ -426,8 +336,6 @@ function signalTarget(
   try {
     system.kill(target, name);
   } catch (error) {
-    // Gone between the proof and the signal; a group of exited members
-    // not yet reaped answers EPERM on macOS.
     const { code } = error as NodeJS.ErrnoException;
     if (code !== "ESRCH" && code !== "EPERM") {
       throw error;
@@ -440,11 +348,6 @@ interface Records {
   readonly records: readonly SpawnRecord[];
 }
 
-/**
- * The records directly in `dir`, each file checked private first; one
- * that is not, or cannot be read, is a problem, and names nothing to stop.
- * Files in flight (`.tmp`) are not records yet.
- */
 function readRecords(dir: string): Records {
   const problems: string[] = [];
   const records: SpawnRecord[] = [];
@@ -467,7 +370,6 @@ function readRecords(dir: string): Records {
     const path = join(dir, name);
     const problem = notPrivate(path, "file");
     if (problem !== undefined) {
-      // One removed meanwhile, by another stop, is no problem.
       if (existsSync(path)) {
         problems.push(`skipped ${problem}`);
       }
@@ -496,7 +398,6 @@ function isRecord(value: unknown): value is SpawnRecord {
     return false;
   }
   const { group, members, owner } = value as Partial<SpawnRecord>;
-  // The record's own start time was read when it was written: always there.
   return (
     typeof group === "boolean" &&
     (owner === undefined || isProcessIdentity(owner)) &&

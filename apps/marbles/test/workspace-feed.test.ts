@@ -15,13 +15,6 @@ import { workspaceFeed } from "~/workspace/feed";
 import { seedWorkspace } from "./helpers/registry";
 import { temporaryDirectory } from "./helpers/temporary";
 
-/**
- * A hosted workspace's dashboard shows its own feed and every other
- * workspace's from the Marbles database, each entry with the workspaces it
- * belongs to, so "this workspace" is its own entries and those shared with
- * it.
- */
-
 const SEEN = "2026-11-01T00:00:00.000Z";
 const SOURCE = { definition: "d", path: ["d"], runId: "rn-1" };
 
@@ -75,7 +68,6 @@ describe("the workspace feed", () => {
         state,
         workspace: "ws1",
       });
-      // Each read past the time the other workspaces are kept for.
       let clock = Date.now();
       const later = () => {
         clock += 5000;
@@ -98,7 +90,6 @@ describe("the workspace feed", () => {
       const shared = (await feed(later())).find((entry) => entry.id === theirs);
       expect(shared?.workspace.id).toBe("ws2");
       expect(shared?.workspaces).toEqual(["ws2", "ws1"]);
-      // Read again within that time, the other workspaces are as last read.
       await resourceAssociations(database, state).unshare(
         { id: theirs, kind: "artifact", owner: "ws2" },
         "ws1"

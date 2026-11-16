@@ -17,7 +17,6 @@ import {
   artifacts,
 } from "../../store/tables";
 
-/** Every table the SQLite store reads and writes. */
 export const ARTIFACT_TABLES = [
   artifacts,
   artifactContents,
@@ -26,37 +25,24 @@ export const ARTIFACT_TABLES = [
   artifactBlobChunks,
 ] as const;
 
-/** Where each database lives: in the connection, or in a temp-dir file. */
 export type DatabaseLocation = "file" | "memory";
 
 export interface ConnectOptions {
-  /** How long the client's writes wait on a lock; none by default. */
   readonly busyTimeout?: number;
-  /** Called with each statement's SQL just before it runs; a throw fails it. */
   readonly onQuery?: (query: string) => void;
 }
 
 export interface LibsqlDatabases {
-  /** The libSQL client under `database`, for a transaction of its own mode. */
   readonly client: (database: LibSQLDatabase) => Client;
-  /** Another client on `database`'s file, as a second process would hold. */
   readonly connect: (
     database: LibSQLDatabase,
     options?: ConnectOptions
   ) => LibSQLDatabase;
-  /** A new database holding the Artifact tables. */
   readonly open: (options?: ConnectOptions) => Promise<LibSQLDatabase>;
-  /** The file `database` lives in. */
   readonly path: (database: LibSQLDatabase) => string;
-  /** Closes `database`'s connection and connects to the same database again. */
   readonly reopen: (database: LibSQLDatabase) => Promise<LibSQLDatabase>;
 }
 
-/**
- * libSQL databases for one test file, each closed after the test that opened
- * it. File databases share one temporary directory, removed after the file's
- * tests. Call it at the top of a test file, where Vitest hooks register.
- */
 export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
   const clients: Client[] = [];
   const connections = new WeakMap<
@@ -82,7 +68,6 @@ export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
       return ":memory:";
     }
     directory ??= mkdtemp(join(tmpdir(), "foundry-artifacts-"));
-    // Taken before the await, so databases opened at once get their own.
     count += 1;
     const name = `artifacts-${count}.db`;
     return `file:${join(await directory, name)}`;

@@ -1,11 +1,3 @@
-/**
- * A workspace's agent sessions in the Marbles database: the session store
- * Marbles builds over the host's handle and the one an engine opens for
- * itself are each held to the package's suite, list exactly the sessions
- * they hold with a stamp that moves with every change, and leave the JSON
- * session files an earlier Marbles wrote alone.
- */
-
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -37,7 +29,6 @@ import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 import { temporaryDirectory } from "./helpers/temporary";
 
-/** How many sessions the workspace `scope` shows, as its view reads them. */
 async function sessionCount(state: string, scope: string): Promise<number> {
   const sessions = await readResourceView(state, { workspace: scope }, (view) =>
     view.sessions()
@@ -55,7 +46,6 @@ afterAll(async () => {
   }
 });
 
-/** One store per scope, from `make`, so the suite's two scopes share storage. */
 function perScope<T>(make: (scope: string) => T): (scope: string) => T {
   const stores = new Map<string, T>();
   return (scope) => {
@@ -68,10 +58,8 @@ function perScope<T>(make: (scope: string) => T): (scope: string) => T {
   };
 }
 
-/** Fresh storage of each kind Marbles builds, a store per scope over it. */
 const KINDS: readonly {
   readonly name: string;
-  /** Fresh storage, and the state root whose database holds it. */
   readonly storage: () => Promise<{
     readonly state: string;
     readonly stores: (scope: string) => ListedSessionStore;
@@ -110,11 +98,6 @@ const KINDS: readonly {
   },
 ];
 
-/**
- * Storage whose hook records each commit's facts in the change log, as the
- * Marbles database's session store does, read back from the log; its
- * recorder throws once after it has recorded, when asked to.
- */
 async function recordingSessions(): Promise<RecordingSessionStorage> {
   const machine = await testMachine();
   machines.push(machine);
@@ -150,8 +133,6 @@ async function recordingSessions(): Promise<RecordingSessionStorage> {
 }
 
 for (const kind of KINDS) {
-  // Marbles' hook records each commit's facts in the workspace's change
-  // log, the same hook whichever way the store is opened.
   describeSessionStore(kind.name, async () => (await kind.storage()).stores, {
     hooked: true,
     recording: recordingSessions,
@@ -182,10 +163,6 @@ function filed(id: string, sessionId: string): SessionMessage {
   };
 }
 
-/**
- * The two ways a write reaches a store: a plain commit, and a transaction's
- * view. `after` runs as soon as the commit is called, before it settles.
- */
 const WRITERS: readonly {
   readonly commit: (
     store: ListedSessionStore,
@@ -214,12 +191,10 @@ const WRITERS: readonly {
   },
 ];
 
-/** Not a plain object: the package store refuses one inside a message. */
 class Point {
   readonly x = 1;
 }
 
-/** A message whose tool call's input is a `Point`. */
 function holdingPoint(id: string): SessionMessage {
   return {
     ...filed(id, "a"),
@@ -229,7 +204,6 @@ function holdingPoint(id: string): SessionMessage {
   };
 }
 
-/** What `SqliteSessionStore` itself does with `write`: the error it rejects with. */
 async function packageRefusal(write: SessionStoreWrite): Promise<unknown> {
   const machine = await testMachine();
   machines.push(machine);
@@ -269,7 +243,6 @@ for (const kind of KINDS) {
       expect(appended.get("a")).not.toBe(before.get("a"));
       expect(appended.get("b")).toBe(before.get("b"));
 
-      // A change in the same millisecond still moves it.
       await sessions.updateMessage(message.id, { status: "error" });
       const updated = await stampsOf(store);
       expect(updated.get("a")).not.toBe(appended.get("a"));
@@ -322,7 +295,6 @@ for (const kind of KINDS) {
           putSessions: [session("a"), session("b")],
         });
         const before = await stampsOf(store);
-        // Structurally a write: the package store ignores the extra property.
         const write = {
           annotation: () => undefined,
           putMessages: [filed("m", "b")],
@@ -394,7 +366,6 @@ for (const kind of KINDS) {
         });
         expect((await stampsOf(store)).get("later")).not.toBe(put.get("later"));
 
-        // A session and its message put together are listed at once.
         await through.commit(store, {
           putMessages: [filed("n", "together")],
           putSessions: [session("together")],
@@ -522,7 +493,6 @@ describe("a program hosting a workspace itself", () => {
     const state = join(root, "state");
     const script = join(root, "host.ts");
     const src = resolve("src");
-    // Resolved here: the script sits outside the workspace's node_modules.
     const agentsSessions = fileURLToPath(
       import.meta.resolve("@foundry/agents/session")
     );

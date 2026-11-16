@@ -6,12 +6,6 @@ import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
 import { makeInMemoryStore } from "./helpers/store";
 
-/**
- * A started Orchestrator taking on a parked Run another Orchestrator over
- * the same store let go: the handover a host makes when the process that
- * parked a Run makes way for another that is already running.
- */
-
 const NOT_SUSPENDED = /not suspended/;
 const NOT_STARTED = /only once it has started/;
 
@@ -56,7 +50,6 @@ function register(orchestrator: Orchestrator, executed: string[]): void {
 describe("Orchestrator.adopt", () => {
   test("takes on a Run another Orchestrator parked, and resumes it here once answered", async () => {
     const store = makeInMemoryStore();
-    // One queue name, as two hosts of one workspace keep.
     const queue = `test-${crypto.randomUUID()}`;
     const first = new Orchestrator({
       config: makeOrchestratorConfig({ defaultName: queue }),
@@ -66,7 +59,6 @@ describe("Orchestrator.adopt", () => {
     await first.setup();
     register(first, firstSteps);
     await first.start();
-    // Already running before the Run exists: its start recovers nothing.
     const second = new Orchestrator({
       config: makeOrchestratorConfig({ defaultName: queue }),
       store,
@@ -85,7 +77,6 @@ describe("Orchestrator.adopt", () => {
       status: "complete",
       value: "ship: yes",
     });
-    // It finished here: the first Orchestrator never resumed it.
     expect(secondSteps).toContain("after yes");
     expect(firstSteps).not.toContain("after yes");
     expect((await store.getRun(run.id))?.status).toBe("complete");
@@ -159,7 +150,6 @@ describe("Orchestrator.adopt", () => {
     await second.start();
 
     const run = await first.run("approval", "ship");
-    // Read by the old one before the handover; applied after it.
     const read = await pendingSuspension(first, run.id);
     const adopted = await second.adopt(run.id);
     await expect(

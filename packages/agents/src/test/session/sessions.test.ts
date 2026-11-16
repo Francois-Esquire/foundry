@@ -96,7 +96,6 @@ describe.each(sessionStoreKinds())("over %s", (_kind, open) => {
         sessionId: "known",
       });
 
-      // The append stamped the session; nothing else about it changed.
       await expect(
         sessions.createSession({ id: "known", title: "Other" })
       ).resolves.toEqual({ ...first, updatedAt: kept.createdAt });
@@ -534,7 +533,6 @@ describe.each(sessionStoreKinds())("over %s", (_kind, open) => {
       readonly x = 1;
       readonly y = -0;
     }
-    /** Parts and metadata as a caller may hand them over. */
     function handed(): Pick<SessionMessage, "metadata" | "parts"> {
       return {
         metadata: {
@@ -868,7 +866,6 @@ describe("messagesToSummarize", () => {
 
 describe("Sessions over a store holding a field set to undefined", () => {
   it("writes records back without it", async () => {
-    // Only the memory store can hold one; Sessions never hands one on.
     const inner = new InMemorySessionStore();
     await inner.commit({
       putMessages: [
@@ -919,7 +916,6 @@ describe("Sessions over a store holding a field set to undefined", () => {
 
 describe("Sessions over a store holding a message it would not write now", () => {
   it("folds it and sets its status, and refuses only new parts that are no message", async () => {
-    // A part of a type the vocabulary no longer has, written by another writer.
     const legacy = {
       createdAt: 1,
       id: "old",
@@ -1108,8 +1104,6 @@ describe("Sessions change events", () => {
   it("keeps an event's id when the store runs the same work again", async () => {
     const inner = new InMemorySessionStore();
     const seen: string[] = [];
-    // A store whose transaction runs the work twice, keeping the second
-    // run, as a host retrying a busy commit would.
     const retrying: SessionStore = {
       commit: (write) => {
         seen.push(...(write.events ?? []).map((event) => event.id));

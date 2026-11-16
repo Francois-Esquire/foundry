@@ -23,11 +23,6 @@ import { touchWorkspace } from "./helpers/registry";
 import { seedRuns } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
-/**
- * The resource commands read through the database's views, change only
- * associations, and make a workspace's links from what its view shows.
- */
-
 const CANNOT_SHARE =
   /a sandbox belongs to the workspace that started it and cannot be shared/;
 const RUN_LINE = /^rn-1 {2}guides {2}\[complete\]/;
@@ -110,7 +105,6 @@ describe("the resource commands", () => {
     expect(lines[0]).toBe(
       `shared with ${join(home, "two")}: artifact ${notes.id}`
     );
-    // Another workspace's artifact is under its owner.
     const linked = join(
       resourceLinks(two.root, "artifact"),
       `@${linkName(one.id)}`,
@@ -136,7 +130,6 @@ describe("the resource commands", () => {
     const after = context(one);
     await listResources("artifact", false, after.context);
     expect(after.lines).toHaveLength(1);
-    // The blob files the links pointed at are the artifact's, and stay.
     expect(
       readdirSync(artifactBlobs(artifacts, one.id)).filter(
         (name) => !name.startsWith(".")
@@ -148,12 +141,10 @@ describe("the resource commands", () => {
     const { artifacts, context, notes, one } = await machine();
     const dir = resourceLinks(one.root, "artifact");
     mkdirSync(join(dir, "gone"), { recursive: true });
-    // A link Marbles made, to a blob no artifact names now.
     symlinkSync(
       join(artifactBlobs(artifacts, one.id), "stale"),
       join(dir, "gone", "stale.md")
     );
-    // A link someone else made, and a file.
     symlinkSync("/nowhere", join(dir, "shortcut"));
     await writeFile(join(dir, "mine.txt"), "kept");
     const { context: here, lines } = context(one);

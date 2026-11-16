@@ -3,7 +3,6 @@ import { libraryOfLoad, prebuiltOfLoad, WORDS } from "~/authoring/bound";
 import { Catalog } from "~/authoring/catalog";
 import { loadInto } from "~/authoring/runtime";
 
-// Whole modules, as a load sees them: every export is checked.
 const library = await import("~/authoring");
 const prebuilt = await import("~/authoring/prebuilt");
 const modules = await Promise.all([
@@ -23,7 +22,6 @@ it("binds every authoring word and prebuilt factory to the load that imports it"
       ([, value]) => typeof value === "function" && !isClass(value)
     )
   );
-  // A new word in one of these modules must be bound too.
   expect(new Set(words.map(([, word]) => word))).toEqual(WORDS);
   const bound = libraryOfLoad(library, 1);
   for (const [name, word] of words) {
@@ -33,7 +31,6 @@ it("binds every authoring word and prebuilt factory to the load that imports it"
     }
   }
   expect(bound.tasks).not.toBe(library.tasks);
-  // Classes and values pass through, so instanceof and identity hold.
   expect(bound.Tasks).toBe(library.Tasks);
   expect(bound.TaskError).toBe(library.TaskError);
   const factories = prebuiltOfLoad(prebuilt, 1);
@@ -62,7 +59,6 @@ it("declares what a load's words make into that load's catalog, however late `.d
     },
     { dry: false }
   );
-  // Outside the load, and outside any run: the builder still names its load.
   later?.();
   expect([...into.definitions.keys()]).toEqual(["now", "later"]);
   expect([...into.schedules.keys()]).toEqual(["now"]);

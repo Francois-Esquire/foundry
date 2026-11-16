@@ -10,44 +10,20 @@ import type { FeedEntrySnapshot, FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
 import type { ResourceAssociation } from "~/lib/resources";
 
-/**
- * The feed a hosted workspace's dashboard shows: the workspace's own
- * entries, read by its engine, and every other registered workspace's,
- * read from the Marbles database through that workspace's own artifact
- * store and blob files. Each entry shared with other workspaces names them
- * all (`workspaces`, its owner first), so the dashboard's scopes are views
- * by association: this workspace shows what it owns and what is shared
- * with it, and "all workspaces" shows everything once.
- *
- * Another workspace's entries are read only: an answer goes to this
- * workspace's engine, which holds only its own. They are read again at
- * most every two seconds, and, when they cannot be read, the workspace's
- * own entries are shown alone.
- */
-
 export interface WorkspaceFeedOptions {
-  /** The shared artifact store, where every workspace's blob files are. */
   readonly artifacts: string;
   readonly database: StoreDatabase;
-  /** This workspace's own entries: its engine's reader. */
   readonly own: FeedReader;
-  /** The Marbles state root. */
   readonly state: string;
-  /** This workspace's id. */
   readonly workspace: string;
 }
 
-/**
- * How long what was read of the other workspaces is shown before it is
- * read again: the dashboard polls far more often than they change.
- */
 const ELSEWHERE_MS = 2000;
 
 export function workspaceFeed(options: WorkspaceFeedOptions): FeedReader {
   const { artifacts, database, own, state, workspace } = options;
   const registry = new WorkspaceRegistry({ database, state });
   const associations = new DatabaseAssociationStore({ database });
-  /** One reader per other workspace, kept so each entry's files are read once per version. */
   const readers = new Map<string, FeedReader>();
   const readerOf = (owner: string): FeedReader => {
     let reader = readers.get(owner);
@@ -72,7 +48,6 @@ export function workspaceFeed(options: WorkspaceFeedOptions): FeedReader {
     }
     return entries;
   };
-  /** What was last read of the other workspaces, and when. */
   let last:
     | {
         readonly at: number;
@@ -89,7 +64,6 @@ export function workspaceFeed(options: WorkspaceFeedOptions): FeedReader {
           shared: await asBusy(() => associations.list("artifact")),
         };
       } catch {
-        // Another workspace's entries are extra: this one's still show.
         last = { at: now.getTime(), others: [], shared: [] };
       }
     }
@@ -104,7 +78,6 @@ export function workspaceFeed(options: WorkspaceFeedOptions): FeedReader {
   };
 }
 
-/** `entry`, naming every workspace it belongs to when it is shared. */
 function withWorkspaces(
   entry: FeedEntrySnapshot,
   shared: readonly ResourceAssociation[]

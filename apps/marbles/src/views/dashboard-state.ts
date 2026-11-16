@@ -538,7 +538,6 @@ export function reduce(
       return select(
         {
           ...state,
-          // A run launched here is this workspace's own.
           expanded: new Set([
             ...state.expanded,
             selectionKey({ id: event.id, kind: "run" }),

@@ -116,25 +116,13 @@ export interface TickOptions {
   readonly scheduled?: boolean;
   /** Cancels the run a tick started. */
   readonly signal?: AbortSignal;
-  /**
-   * Once aborted, this tick launches nothing: checked again after every
-   * wait that comes before a launch, never only before the first. The
-   * claim is given up, and a monitor's pending launch is left for the
-   * next tick to start.
-   */
   readonly stopped?: AbortSignal;
 }
 
 export interface LoopOptions {
-  /**
-   * Cancels the run a tick under way started; `signal` when omitted. A
-   * loop stopped by `signal` alone starts no tick after the one under way,
-   * which runs to its end.
-   */
   readonly cancel?: AbortSignal;
   readonly now?: () => number;
   readonly print: (line: string) => void;
-  /** Stops the loop: no tick starts once it aborts. */
   readonly signal: AbortSignal;
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
@@ -179,8 +167,6 @@ export async function tick(
     );
     const launch =
       schedule.kind === "monitor" ? pendingOf(detected) : undefined;
-    // Stopped while the detector ran: its launch stays pending, for the
-    // next tick, wherever it runs.
     const value =
       launch && !options.stopped?.aborted
         ? await startPending(engine, schedule.key, launch, options.signal)
@@ -194,12 +180,6 @@ export async function tick(
   }
 }
 
-/**
- * Record a tick and give up its claim, in one write. A record that cannot
- * be made or written still gives the claim up, so the next tick of the
- * trigger is not refused for as long as this process lives; the failure
- * is the tick's.
- */
 async function finishTick(
   triggers: TriggerStore,
   key: string,
@@ -213,7 +193,6 @@ async function finishTick(
   }
 }
 
-/** How a tick that ran from `start` to `finish` went. */
 function history(
   schedule: Schedule,
   start: number,
@@ -271,7 +250,6 @@ async function startPending(
     );
   }
   const started = await engine.launch(launch.workflow, launch.input, key);
-  // Started is delivered: the next tick polls the source again.
   await engine.triggers.clearPendingLaunch(key);
   return await awaitRun(engine, started, signal);
 }
@@ -330,8 +308,6 @@ export async function runSchedules(
   // waits a cadence from the attempt rather than firing again at once.
   const attempted = new Map<string, number>();
   const baseline = async (schedule: Schedule): Promise<number> => {
-    // Trigger state is advisory: one that cannot be read waits a cadence
-    // from when the loop first saw the trigger, or last tried it.
     const recorded = finishedAt(
       await engine.triggers.lastTick(schedule.key).catch(() => undefined)
     );
@@ -346,7 +322,6 @@ export async function runSchedules(
 
   while (!signal.aborted) {
     const active = await engine.schedules();
-    // Every wait below may span a stop: each is followed by a look at it.
     if (signal.aborted) {
       break;
     }

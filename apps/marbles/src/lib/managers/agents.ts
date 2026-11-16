@@ -97,7 +97,6 @@ export interface AgentsDeps {
   readonly automations: AutomationService;
   /** The container behind a sandbox handle; a sandbox session's harness runs in it. */
   readonly containerOf: (sandbox: SandboxHandle) => Container;
-  /** Where a session opened outside a step works: the engine's execution context's. */
   readonly cwd: string;
   /** The route when an agent names neither model nor provider. */
   readonly defaultExecutor: () => TurnExecutorRef;
@@ -564,13 +563,6 @@ type DefinitionBuilder = (
   input: unknown
 ) => Promise<AgentDefinition<Output.Output>>;
 
-/**
- * The definition a session opens with. A plain definition is itself. An
- * agent declared with a function builds one now, once for this session,
- * and the route and input it is given are kept: a session recorded on one
- * provider continues on it when its body runs again. The input is the
- * agent's own unless one is given.
- */
 export async function buildDefinition<OUTPUT extends Output.Output>(
   agent: AgentLike<OUTPUT>,
   route: AgentRoute = {},
@@ -598,7 +590,6 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-/** Throws at the first missing index of an array, at any depth. */
 function rejectHoles(value: unknown): void {
   if (typeof value !== "object" || value === null) {
     return;
@@ -617,24 +608,13 @@ function rejectHoles(value: unknown): void {
   }
 }
 
-/**
- * An agent's input as a session keeps it: copied into its JSON form and
- * frozen, so neither the caller nor the agent's function can change it
- * after it is recorded. Anything JSON would not carry back unchanged, such
- * as an array with holes, throws.
- */
 export function inputSnapshot(value: unknown): unknown {
   rejectHoles(value);
   return deepFreeze(JSON.parse(canonicalizeJson(value)));
 }
 
-/** What a session ref keeps of the input its agent opened with. */
 type KeptInput = Pick<SessionRef, "input" | "noInput">;
 
-/**
- * What a kept ref says of its input, unchanged. A ref that keeps both an
- * input and `noInput` was not returned by a session, so it fails.
- */
 function keptInput(kept: SessionRef | undefined): KeptInput {
   if (kept === undefined) {
     return {};
@@ -651,15 +631,6 @@ function keptInput(kept: SessionRef | undefined): KeptInput {
   return kept.noInput === true ? { noInput: true } : {};
 }
 
-/**
- * The input a session opens with, as its ref keeps it. An agent declared
- * with a function takes the one `extend` gave it, else the one the
- * session kept, else `noInput` for none. Any other agent keeps what the
- * session kept, so a later reopening is still held to it. A kept session
- * reopened with another input, or with one when it opened with none,
- * would not be built the same, so that fails. A ref that kept neither
- * (only an id) takes the agent's.
- */
 function sessionInput(
   agent: AgentLike<Output.Output>,
   kept: SessionRef | undefined
@@ -963,7 +934,6 @@ async function openBuilt<OUTPUT extends Output.Output>(
     site,
     skills: await deps.skills(definition.skills),
   };
-  // Only a model in this process can be metered for the cost it reports.
   const meter =
     site.consume && !(options.sandbox && !deps.dry) ? costMeter() : undefined;
   const harness =
@@ -1134,7 +1104,6 @@ function retainSession<OUTPUT extends Output.Output>(
     readonly implementation: string | undefined;
     readonly input: KeptInput;
     readonly instance: string | undefined;
-    /** What the session's model reports each turn cost, when it is metered. */
     readonly meter: CostMeter | undefined;
   }
 ): Session<OUTPUT> {

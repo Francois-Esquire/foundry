@@ -28,13 +28,6 @@ import { workspaceState } from "~/lib/state/workspace";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
-/**
- * After an artifact write commits, the links to that artifact follow it in
- * every linked workspace it belongs to; a workspace never linked gets
- * none, and a failure to link never fails the write.
- */
-
-/** Links follow a write after it lands; give a loaded machine time. */
 function settled<T>(check: () => T | Promise<T>): Promise<T> {
   return vi.waitFor(check, { interval: 20, timeout: 10_000 });
 }
@@ -76,14 +69,12 @@ async function arranged() {
   };
 }
 
-/** Hold a workspace's links lock, as another process's rebuild would. */
 function holdLinks(root: string): Promise<() => Promise<void>> {
   return acquireFileLock(join(workspaceLinks(root), ".lock"));
 }
 
 const REPAIRS = /marbles relink repairs it/;
 
-/** The links an update made beside where they go and has not yet put in place. */
 function temporaries(root: string): string[] {
   return readdirSync(workspaceLinks(root), { recursive: true })
     .map(String)
@@ -91,10 +82,6 @@ function temporaries(root: string): string[] {
     .sort();
 }
 
-/**
- * `query` as it resolves, but holding its rows until `gate` opens: a read
- * of the database still under way, as its caller sees it.
- */
 function heldUntil<T extends object>(query: T, gate: Promise<void>): T {
   return new Proxy(query, {
     get(target, property) {
@@ -223,7 +210,6 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     });
     const ref = { id, kind: "artifact", owner: one.id } as const;
     await resourceAssociations(database, machine.root).share(ref, two.id);
-    // The workspace relinked first is the one that cannot be.
     const [broken, healthy] = [one, two].sort((a, b) => (a.id < b.id ? -1 : 1));
     if (broken === undefined || healthy === undefined) {
       throw new Error("two workspaces");
@@ -258,9 +244,6 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     await settled(async () =>
       expect(await readFile(healthyLink, "utf8")).toBe("# A, again\n")
     );
-    // Link work the create started may still be under way when the
-    // workspace breaks, so it may be reported more than once, as a failed
-    // update or a refused link; only the broken workspace is.
     await settled(() => expect(lines.length).toBeGreaterThan(0));
     for (const line of lines) {
       expect(line).toContain(broken.root);
@@ -302,7 +285,6 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
       },
     });
     const drained = store.drainLinks(30_000);
-    // Nothing moves into place while the lock is held.
     expect(readlinkSync(link)).toBe(first);
     await release();
     await drained;
@@ -329,15 +311,12 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     } finally {
       await release();
     }
-    // The update that was waiting ends without a word more, before the
-    // database closes.
     await store.drainLinks(30_000);
     expect(lines).toHaveLength(1);
   });
 
   it("read the database no more once a drain gave up, ending the update under way quietly", async () => {
     const { artifacts, machine, one } = await arranged();
-    // Closed here, under the update still waiting on the lock.
     machines.splice(machines.indexOf(machine), 1);
     const lines: string[] = [];
     const readsAfterClose: string[] = [];
@@ -378,7 +357,6 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     } finally {
       await release();
     }
-    // The update that was waiting on the lock ends, and reads nothing.
     await store.drainLinks(30_000);
     expect(readsAfterClose).toEqual([]);
     expect(lines).toHaveLength(1);
@@ -407,7 +385,6 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
 
   it("wait, when a drain gives up, for a read of the database under way, and begin none once it resolves", async () => {
     const { artifacts, machine, one } = await arranged();
-    // Closed here, once the drain has resolved.
     machines.splice(machines.indexOf(machine), 1);
     const lines: string[] = [];
     const callsAfterDrain: string[] = [];
@@ -440,8 +417,6 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
         return value.bind(target);
       },
     });
-    // The writes go to the database itself; only the link keeping reads
-    // through the one whose first read is held.
     const store = keepingLinks(
       workspaceStores(machine.database.database, one.id).artifacts,
       {
@@ -465,7 +440,6 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     const drain = store.drainLinks(10).then(() => {
       drained = true;
     });
-    // It has given up, and still waits for the read under way.
     await vi.waitFor(() => expect(lines).toHaveLength(1));
     expect(drained).toBe(false);
     open();
@@ -511,9 +485,7 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
           },
         },
       });
-      // The update makes its links beside where they go, then waits.
       await settled(() => expect(temporaries(one.root)).toHaveLength(2));
-      // Resolves though the lock is still held: the wait is given up.
       await store.drainLinks(50);
       expect(temporaries(one.root)).toEqual([]);
       expect(readlinkSync(join(place, "a.md"))).toBe(first);
@@ -536,7 +508,6 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
       const gate = new Promise<void>((resolve) => {
         land = resolve;
       });
-      // A store whose writes land only once the gate opens.
       const memory = new InMemoryArtifactStore();
       const held = new Proxy(memory, {
         get(target, property) {
@@ -555,7 +526,6 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
       }) as ArtifactStore;
       const closed: { drained: boolean } = { drained: false };
       const callsAfterDrain: string[] = [];
-      // A database closed once the drain resolves: any call is recorded.
       const database = new Proxy(
         {},
         {

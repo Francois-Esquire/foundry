@@ -2,10 +2,6 @@ import type { Engine } from "~/lib/engine";
 import { runSchedules } from "~/lib/schedule";
 
 export interface RunLoopOptions {
-  /**
-   * Cancels the run a tick under way started; the loop's own stop when
-   * omitted. Given, a stop lets that tick run to its end.
-   */
   readonly cancel?: AbortSignal;
   readonly print?: (line: string) => void;
   /**

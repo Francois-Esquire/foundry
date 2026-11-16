@@ -27,7 +27,6 @@ const outputRecordSchema = z.discriminatedUnion("type", [
     name: z.string(),
     pid: z.number().int().positive(),
     runId: z.string(),
-    /** The writer's start time, beside its pid; absent from older logs. */
     started: z.string().nullable().optional(),
     type: z.literal("start"),
   }),
@@ -42,14 +41,6 @@ const outputRecordSchema = z.discriminatedUnion("type", [
 
 export type OutputRecord = z.infer<typeof outputRecordSchema>;
 
-/**
- * A run's output is a log stream, not state: one append-only file per run,
- * `<state>/output/<id>.jsonl`, that a watcher in another process follows as
- * it grows. It stays on disk beside the Marbles database, and goes when the
- * run's Execution Run is pruned (`removeRunOutput`).
- */
-
-/** Drop a pruned run's output file. */
 export function removeRunOutput(state: string, runId: string): void {
   rmSync(outputPath(state, runId), { force: true });
 }

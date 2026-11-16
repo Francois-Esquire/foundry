@@ -10,22 +10,13 @@ import { stateDatabase } from "~/layout";
 import type { StoredScope } from "~/lib/run-store";
 import type { ScheduleHistory } from "~/lib/trigger-store";
 
-/** What the Marbles database keeps of one Run, as a later process would find it. */
 export interface StoredRunState {
-  /** The process of the engine that owns it; `null` when none does. */
   readonly owner: number | null;
-  /** What its scope recorded beside it. */
   readonly recorded: StoredScope;
   readonly status: string;
-  /** The status of each Suspension it filed, in order. */
   readonly suspensions: readonly string[];
 }
 
-/**
- * The Run `runId` of the workspace `scope` (a test engine's, `test`, by
- * default) as the Marbles database at the state root `state` holds it,
- * read only; `undefined` when it holds none.
- */
 export async function storedRun(
   state: string,
   runId: string,
@@ -65,20 +56,13 @@ export async function storedRun(
   return read ?? undefined;
 }
 
-/** A Run as an earlier process left it, for `seedRuns`. */
 export interface SeededRun {
   readonly createdAt: number;
   readonly id: string;
-  /** The process of the engine that owned it; `null` for none. */
   readonly owner: number | null;
   readonly status: "complete" | "failed" | "running";
 }
 
-/**
- * Put `runs` in the Marbles database at the state root `state`, under the
- * workspace `scope`, each with its owner beside it, as engines that have
- * since stopped would have left them. The database must be there.
- */
 export async function seedRuns(
   state: string,
   scope: string,
@@ -122,20 +106,12 @@ export async function seedRuns(
   }
 }
 
-/** A trigger's tick row as an engine left it, for `seedTicks`. */
 export interface SeededTick {
   readonly key: string;
-  /** How its last tick went; absent before its first. */
   readonly last?: ScheduleHistory;
-  /** The process whose tick of it is under way; `null` for none. */
   readonly owner: number | null;
 }
 
-/**
- * Put `ticks` in the Marbles database at the state root `state`, under
- * the workspace `scope`, as engines would have left them. The database
- * must be there.
- */
 export async function seedTicks(
   state: string,
   scope: string,
@@ -160,21 +136,14 @@ export async function seedTicks(
   }
 }
 
-/** A workspace's Run as the Marbles database keeps it, for a test to count. */
 export interface ListedRun {
-  /** In ms since the epoch. */
   readonly createdAt: number;
   readonly id: string;
-  /** The process of the engine that owns it; `null` when none does. */
   readonly owner: ProcessIdentity | null;
   readonly status: string;
   readonly step: string;
 }
 
-/**
- * Every Run the workspace `scope` shows in the Marbles database at the
- * state root `state`, read through its view; empty with no database.
- */
 export async function readStoredRuns(
   state: string,
   scope: string

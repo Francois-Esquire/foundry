@@ -1,12 +1,3 @@
-/**
- * Run recovery across real processes over one state dir and its Marbles
- * database. Each phase is
- * its own `bun` process hosting one step on a test engine: a run paused, or
- * parked on a question, is adopted by the next process and resumed or
- * answered there, and a run whose new owner is killed with SIGKILL after it
- * resumed is recorded interrupted by the one after that.
- */
-
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -29,13 +20,6 @@ afterEach(async () => {
   );
 });
 
-/**
- * A host process for `root/state` with one step, `hold`, and `body`. The
- * step records each entry's pid; under `MARBLES_TEST_ASK` it asks a
- * question and records the answer, under `MARBLES_TEST_CRASH` it then kills
- * its process, under `MARBLES_TEST_HOLD` it waits for its signal, and
- * otherwise it returns.
- */
 function phase(root: string, name: string, body: string): string {
   const script = join(root, `${name}.ts`);
   writeFileSync(
@@ -90,7 +74,6 @@ function run(
   return JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
 }
 
-/** The status the run's Run was left with in the Marbles database. */
 async function storedStatus(root: string, runId: string) {
   const stored = await readStoredRuns(join(root, "state"), "test");
   return stored.find((entry) => entry.id === runId)?.status;
@@ -103,7 +86,6 @@ function lines(root: string, file: string): string[] {
     : [];
 }
 
-/** The first process: `hold` launched, paused mid-body, and the host quit. */
 async function pausedRun(root: string): Promise<string> {
   const pause = phase(
     root,
@@ -124,7 +106,6 @@ await engine.stop({ cancel: true });`
   return runId;
 }
 
-/** The first process: `hold` launched, parked on its question, and the host quit. */
 async function parkedRun(root: string): Promise<string> {
   const park = phase(
     root,
@@ -184,7 +165,6 @@ it(
     roots.push(root);
     const runId = await pausedRun(root);
 
-    // The second process adopts and resumes the run, which kills it.
     const resume = phase(
       root,
       "resume",
@@ -200,7 +180,6 @@ await new Promise(() => undefined);`
     expect(killed).toBe("SIGKILL");
     expect(lines(root, "entries.log")).toHaveLength(2);
 
-    // The third finds the run its dead owner was running.
     const inspect = phase(
       root,
       "inspect",
@@ -216,7 +195,6 @@ report.status = await status(id);`
       status: "interrupted",
     });
     expect(inspected.status).not.toBe("suspended");
-    // Nothing ran it again.
     expect(lines(root, "entries.log")).toHaveLength(2);
   },
   TEST_TIMEOUT
@@ -262,7 +240,6 @@ it(
     roots.push(root);
     const runId = await parkedRun(root);
 
-    // The second process answers the question, and the resumed run kills it.
     const answer = phase(
       root,
       "answer",
@@ -280,7 +257,6 @@ await new Promise(() => undefined);`
     expect(lines(root, "answers.log")).toEqual(['"yes"']);
     const entered = lines(root, "entries.log").length;
 
-    // The third finds the run its dead owner was running.
     const inspect = phase(
       root,
       "inspect",
@@ -298,7 +274,6 @@ report.questions = (await engine.feed()).filter((entry) => entry.input?.status =
     });
     expect(inspected.status).not.toBe("suspended");
     expect(inspected.questions).toBe(0);
-    // Nothing ran it again or asked again.
     expect(lines(root, "entries.log")).toHaveLength(entered);
     expect(lines(root, "answers.log")).toEqual(['"yes"']);
   },

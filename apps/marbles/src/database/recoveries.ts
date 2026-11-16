@@ -8,17 +8,10 @@ import type { RecoveryLog, RecoveryReport } from "~/lib/crash-recovery";
 import { recoveryReportSchema } from "~/lib/crash-recovery";
 
 export interface DatabaseRecoveryLogOptions {
-  /** The database the host keeps open. */
   readonly database: StoreDatabase;
-  /** The workspace id. */
   readonly scope: string;
 }
 
-/**
- * A workspace's last recovery report in the Marbles database: its row of
- * `marbles_recoveries`, replaced by each start's. A lock waited on too
- * long rejects as a `DatabaseBusyError`.
- */
 export class DatabaseRecoveryLog implements RecoveryLog {
   readonly #database: StoreDatabase;
   readonly #scope: string;
@@ -40,11 +33,6 @@ export class DatabaseRecoveryLog implements RecoveryLog {
   }
 }
 
-/**
- * The last recovery report of the workspace `scope` in the Marbles
- * database at the state root `state`, read only; `null` with none kept,
- * no database, or a report that no longer reads back.
- */
 export async function readLastRecovery(
   state: string,
   scope: string

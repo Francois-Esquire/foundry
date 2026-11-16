@@ -37,16 +37,11 @@ import { makeRoot } from "./helpers/temp-roots";
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
 
-/** A host's record of the events its stores' commits carry. */
 const recordedEvents = sqliteTable("recorded_events", {
   payload: text("payload", { mode: "json" }).$type<WorkspaceEvent>().notNull(),
   seq: integer("seq").primaryKey({ autoIncrement: true }),
 });
 
-/**
- * Stores over `database` whose `onCommit` writes each event of the write,
- * in order, in the commit's own transaction, as a host's outbox would.
- */
 async function recordingStores(
   database: WorkspaceDatabase
 ): Promise<RecordingWorkspaceStores> {
@@ -100,14 +95,12 @@ for (const [location, databases] of [
   );
 }
 
-/** Text SQLite does not give back intact, each made from a plain string. */
 const UNSTORABLE: [string, (plain: string) => string][] = [
   ["U+0000", (plain) => `${plain}\u0000tail`],
   ["a lone high surrogate", (plain) => `${plain}\uD800`],
   ["a lone low surrogate", (plain) => `\uDC00${plain}`],
 ];
 
-/** A host table, written in the same transaction as a commit. */
 const changes = sqliteTable("changes", {
   workspace: text("workspace").notNull(),
 });
@@ -122,7 +115,6 @@ async function storeOnMemory(scope = "s") {
   return new SqliteWorkspaceStore({ database: await memory.open(), scope });
 }
 
-/** Every row in both tables, in every scope. */
 async function rowCounts(database: Awaited<ReturnType<typeof memory.open>>) {
   const [registrations, entries] = await Promise.all([
     database.select().from(workspaces),
@@ -131,7 +123,6 @@ async function rowCounts(database: Awaited<ReturnType<typeof memory.open>>) {
   return { entries: entries.length, registrations: registrations.length };
 }
 
-/** `count` files at the root, for a valid tree of that size. */
 function rootFiles(workspaceId: WorkspaceId, count: number): WorkspaceFile[] {
   return Array.from({ length: count }, (_, index) =>
     fileRecord(workspaceId, { path: `f${String(index).padStart(5, "0")}.md` })
@@ -240,12 +231,10 @@ describe("SqliteWorkspaceStore", () => {
         await expect(store.commit(write)).rejects.toThrow(
           `cannot store ${field}: text holding U+0000 or a lone surrogate`
         );
-        // A commit through a transaction's view is checked the same way.
         await expect(
           store.transaction((view) => view.commit(write))
         ).rejects.toThrow(`cannot store ${field}`);
       }
-      // So is a catalog's write, which is how Workspaces reach the store.
       const catalog = new WorkspaceCatalog(store, () => undefined);
       await expect(
         catalog.create({
@@ -264,7 +253,6 @@ describe("SqliteWorkspaceStore", () => {
     const store = await storeOnMemory();
     const workspace = hostWorkspace({ path: newRoot("numbers") });
     const negativeZero = fileRecord(workspace.id, { bytes: -0, path: "z" });
-    // The schema accepts -0, and toEqual tells it from the 0 SQLite returns.
     expect(workspaceEntrySchema.safeParse(negativeZero).success).toBe(true);
 
     await expect(
@@ -306,8 +294,6 @@ describe("SqliteWorkspaceStore", () => {
     "a read or delete by a key holding %s touches no other row",
     async (_kind, bad) => {
       const store = await storeOnMemory();
-      // What a lone surrogate turns into when bound: U+FFFD on Node, nothing
-      // on Bun; and what a NUL cuts text to.
       const lookalikes = ["�", "", "x"].map((key) =>
         hostWorkspace({
           id: key as WorkspaceId,
@@ -414,7 +400,6 @@ describe("SqliteWorkspaceStore", () => {
         );
       };
 
-      // Queued behind a transaction, then through a transaction's view.
       const held = Promise.withResolvers<undefined>();
       const entered = Promise.withResolvers<undefined>();
       const running = store.transaction(async () => {
@@ -472,7 +457,6 @@ describe("SqliteWorkspaceStore", () => {
         await attempt(() => outer.listEntries(workspace.id));
         await attempt(() => outer.commit({ workspace }));
         await attempt(() => outer.transaction(() => Promise.resolve()));
-        // The transaction it is given is the way in.
         await transaction.select().from(workspaces);
       },
       scope: "s",
@@ -502,7 +486,6 @@ describe("SqliteWorkspaceStore", () => {
     });
     const workspace = hostWorkspace({ path: newRoot("refused") });
 
-    // More rows than one insert statement can bind.
     await expect(
       seed(store, workspace, rootFiles(workspace.id, 5000))
     ).rejects.toThrow("host refused");
@@ -623,7 +606,6 @@ describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
     const catalog = new WorkspaceCatalog(store, () => undefined);
     const workspace = hostWorkspace({ path: newRoot("large") });
     const kept = hostWorkspace({ path: newRoot("kept") });
-    // More entries than one statement could name by id.
     const entries = rootFiles(workspace.id, 33_000);
     expect(await catalog.create({ entries, workspace })).toEqual({
       kind: "committed",
@@ -632,15 +614,12 @@ describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
     const before = await rowCounts(database);
     expect(before).toEqual({ entries: 33_001, registrations: 2 });
 
-    // A failing removal leaves every row.
     await expect(catalog.remove(workspace.id)).rejects.toThrow("host refused");
     expect(await rowCounts(database)).toEqual(before);
 
     expect(await catalog.remove(workspace.id)).toEqual({ kind: "removed" });
     expect(await rowCounts(database)).toEqual({ entries: 1, registrations: 1 });
     expect(await catalog.getWorkspace(kept.id)).toEqual(kept);
-    // The hook sees the removal as written: the Workspace and its event, and
-    // no entry ids. Each call is its own removal, with its own event.
     const removal = {
       events: [
         {
@@ -683,7 +662,6 @@ describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
 });
 
 describe("SqliteWorkspaceStore query plans", () => {
-  /** What SQLite plans for one read, step by step, and the index it names. */
   async function plansOf(
     read: (store: SqliteWorkspaceStore) => Promise<unknown>
   ) {
@@ -709,7 +687,6 @@ describe("SqliteWorkspaceStore query plans", () => {
 
   const workspaceId = "w" as WorkspaceId;
   const entryId = "e" as WorkspaceEntryId;
-  /** `null` stands for any index led by `scope`, as a count may use. */
   test.each([
     [
       "getWorkspace",
@@ -761,7 +738,6 @@ describe("SqliteWorkspaceStore query plans", () => {
   );
 });
 
-/** The plans a removal's two deletes must have: each searches a primary key. */
 const DELETES_ENTRIES_BY_KEY =
   /^SEARCH workspace_entries USING (COVERING )?INDEX sqlite_autoindex_workspace_entries_1 \(scope=\? AND workspace_id=\?\)$/;
 const DELETES_REGISTRATION_BY_KEY =
@@ -893,7 +869,6 @@ describe("Workspace tables", () => {
       ),
     });
 
-    // Each entry field of any type; nullable where a type lacks it.
     const variants = workspaceEntrySchema
       .unwrap()
       .options.map((option) => fieldsOf(option.shape));
@@ -909,7 +884,6 @@ describe("Workspace tables", () => {
   });
 });
 
-/** Each record column, by field name, and whether it takes `null`. */
 function columnsOf(table: typeof workspaces | typeof workspaceEntries) {
   const { scope, ...columns } = getTableColumns(table);
   expect(scope.notNull).toBe(true);
@@ -918,7 +892,6 @@ function columnsOf(table: typeof workspaces | typeof workspaceEntries) {
   );
 }
 
-/** Each schema field and whether it accepts `null`. */
 function fieldsOf(shape: Readonly<Record<string, z.ZodType>>) {
   return Object.fromEntries(
     Object.entries(shape).map(([key, field]) => [

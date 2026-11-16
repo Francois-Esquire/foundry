@@ -12,22 +12,13 @@ import type {
 } from "~/lib/resources";
 
 export interface DatabaseAssociationStoreOptions {
-  /** The database or one of its transactions; the host opens and closes it. */
   readonly database: StoreDatabase;
-  /** Runs in the commit's transaction, after its statements: where the write's facts are recorded. */
   readonly onCommit?: (
     transaction: StoreTransaction,
     write: AssociationStoreWrite
   ) => Promise<void>;
 }
 
-/**
- * The workspaces resources are shared with, in the Marbles database
- * (`marbles_resource_workspaces`), for every workspace at once: a
- * resource's owner and id are its key, so the table has no scope of its
- * own. A write is one transaction; a lock waited on too long surfaces as a
- * `DatabaseBusyError`.
- */
 export class DatabaseAssociationStore implements AssociationStore {
   readonly #database: StoreDatabase;
   readonly #onCommit: DatabaseAssociationStoreOptions["onCommit"];
@@ -76,10 +67,6 @@ export class DatabaseAssociationStore implements AssociationStore {
     );
   }
 
-  /**
-   * The resources of `kind` shared with `workspace`, read through the
-   * `(kind, workspace)` index alone.
-   */
   sharedWith(
     kind: ResourceKind,
     workspace: string
@@ -120,19 +107,12 @@ export class DatabaseAssociationStore implements AssociationStore {
   }
 }
 
-/**
- * Remove the shares of the resources of `kind` with `ids` that the
- * workspace `owner` keeps, in `transaction`: a store's `onCommit` hook
- * calls it as the commit removes them, so a share never outlives its
- * resource, nor shows a later one given the same id.
- */
 export async function removeShares(
   transaction: Pick<StoreDatabase, "delete">,
   kind: ResourceKind,
   owner: string,
   ids: readonly unknown[]
 ): Promise<void> {
-  // A store passes over a key that is no string; so does this.
   const named = ids.filter((id): id is string => typeof id === "string");
   for (const batch of chunks(named)) {
     await transaction
@@ -147,7 +127,6 @@ export async function removeShares(
   }
 }
 
-/** Ids per statement, well under SQLite's parameter limit. */
 const BATCH = 500;
 
 function chunks(ids: readonly string[]): string[][] {

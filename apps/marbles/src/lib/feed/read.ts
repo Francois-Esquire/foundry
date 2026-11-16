@@ -48,9 +48,7 @@ export interface FeedEntrySnapshot {
   readonly run: string;
   readonly step: string;
   readonly title: string;
-  /** The workspace that posted it, which owns it. */
   readonly workspace: { readonly id: string; readonly name: string };
-  /** Every workspace it belongs to, by id, its owner first: set when it is shared with others. */
   readonly workspaces?: readonly string[];
 }
 
@@ -155,10 +153,6 @@ export function formatPosted(at: Date, now: Date): string {
   return `${day} ${time}`;
 }
 
-/**
- * The input entry's state for a reader: the stored metadata without the
- * question body (the article carries it) and the owning process (bookkeeping).
- */
 function inputSnapshot({
   body: _body,
   pid: _pid,

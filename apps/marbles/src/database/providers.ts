@@ -22,26 +22,10 @@ import {
   writtenTexts,
 } from "~/lib/providers/store";
 
-/**
- * Provider configuration in the Marbles database, for the whole machine:
- * a row of `marbles_provider_configurations` per scope (the machine's,
- * and each workspace's that keeps one), and the identity key, the one
- * row of `marbles_identity_keys`. An edit reads every scope and writes in
- * one transaction, so it lands over exactly what it read, and every write
- * raises the scope's `revision` above every other, which is what a
- * watcher polls.
- *
- * Its settings may hold secrets, so nothing this store throws quotes
- * them: a failure of the database is reported by its SQLite code alone,
- * a lock waited on too long as `CONFIGURATION_BUSY`.
- */
-
 export interface DatabaseProviderStoreOptions {
-  /** The database the host keeps open. */
   readonly database: StoreDatabase;
 }
 
-/** The identity key's row: there is one. */
 const KEY_ROW = 1;
 
 export class DatabaseProviderStore implements ProviderStore {
@@ -103,12 +87,6 @@ export class DatabaseProviderStore implements ProviderStore {
   }
 }
 
-/**
- * Provider configuration in the Marbles database at the state root
- * `state`, for a process that keeps no handle open: each read through a
- * read-only connection (nothing configured while there is no database),
- * each write as a host writes (`writeAsHost`).
- */
 export function stateProviders(state: string): ProviderStore {
   const file = stateDatabase(state);
   const reading = async <T>(
@@ -137,11 +115,6 @@ export function stateProviders(state: string): ProviderStore {
   };
 }
 
-/**
- * Every scope, and the revision they were read at: the highest of their
- * rows, read in the same statement, since every write raises its scope's
- * row above every other.
- */
 async function readAll(
   database: StoreDatabase
 ): Promise<ProviderConfigurations> {
@@ -165,11 +138,6 @@ async function highest(database: StoreDatabase): Promise<number> {
   return top?.revision ?? 0;
 }
 
-/**
- * `call`, with a failure of the database reported without what it held:
- * the query and its parameters, which a driver error quotes, may be a
- * secret.
- */
 async function guarded<T>(call: () => Promise<T>): Promise<T> {
   try {
     return await call();
@@ -185,8 +153,6 @@ async function guarded<T>(call: () => Promise<T>): Promise<T> {
       throw error;
     }
     const { cause } = error;
-    // A refusal of Marbles' own, such as a database a newer Marbles
-    // migrated, says nothing of what was written: it is passed on alone.
     if (cause instanceof Error && sqliteCode(cause) === undefined) {
       throw cause;
     }
@@ -198,7 +164,6 @@ async function guarded<T>(call: () => Promise<T>): Promise<T> {
   }
 }
 
-/** The SQLite code somewhere along `error`'s causes, if it is the database's failure. */
 function sqliteCode(error: unknown): string | undefined {
   for (let at = error; at instanceof Error; at = at.cause) {
     const { code } = at as { readonly code?: unknown };

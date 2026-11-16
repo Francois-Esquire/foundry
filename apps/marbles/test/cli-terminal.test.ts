@@ -22,14 +22,7 @@ import { snapshotTrees } from "./helpers/tree-snapshot";
 /** Configs live in a tmpdir with no node_modules, so zod is imported by URL. */
 const ZOD = import.meta.resolve("zod");
 
-/** How long a screen gets to appear once its process is up. */
 const SCREEN_MS = 8000;
-/**
- * How long the first screen gets when it waits for the Marbles process to
- * start and its engine generation to load the workspace. Under a loaded machine (ten
- * of these tests at once) that took 6.7 to 7.4 seconds, against the 8 a
- * screen gets, and the test failed before the dashboard had drawn.
- */
 const STARTUP_MS = 30_000;
 
 async function until(predicate: () => boolean, ms = SCREEN_MS) {
@@ -86,7 +79,6 @@ for (const command of [[], ["run"]]) {
         },
       }
     );
-    // On a terminal, a session and process group of its own.
     home.track(child.pid, true);
     try {
       await until(() => output.includes("Press Enter to enter"));
@@ -188,7 +180,6 @@ test("a config error restores the terminal and exits instead of leaving the spla
   }
 }, 12_000);
 
-/** The CLI on a terminal, in `home`, for the workspace `config` names. */
 async function openTestCli(
   home: TestHome,
   config: string,
@@ -283,7 +274,6 @@ test("a dry run with no authoring folder offers no starter, writes nothing, and 
   const dir = mkdtempSync(join(tmpdir(), "marbles-setup-"));
   const home = testHome();
   const config = join(dir, ".foundry", "marbles");
-  // The test's own stand-in binaries, made before the snapshot, and left out of it.
   const bin = join(dir, ".foundry", "test-bin");
   mkdirSync(bin, { recursive: true });
   const ignored = new Set([bin, `${stateDatabase(home.layout.state)}-shm`]);
@@ -322,7 +312,6 @@ test("a missing authoring folder onboards against the Marbles process, which pos
     await terminal.see("summarizeCodebase");
     expect(existsSync(config)).toBe(false);
     await terminal.send("\r");
-    // The workspace now attaches to the Marbles process, whose generation loads it.
     await terminal.see("Press Enter to enter", 0, STARTUP_MS);
     expect(readFileSync(file, "utf8")).toContain(
       "@foundry.sh/marbles/prebuilt"
@@ -340,7 +329,6 @@ test("a missing authoring folder onboards against the Marbles process, which pos
     await until(() => terminal.child.exitCode !== null);
     expect(await terminal.child.exited).toBe(0);
   } finally {
-    // The home's teardown stops the Marbles process.
     await terminal.dispose();
     rmSync(dir, { force: true, recursive: true });
   }
@@ -349,7 +337,6 @@ test("a missing authoring folder onboards against the Marbles process, which pos
 test("setup skip leaves the config absent and opens the empty dashboard", async () => {
   const dir = mkdtempSync(join(tmpdir(), "mb-"));
   const config = join(dir, "marbles.config.ts");
-  // Onboarding is offered to a run only: a dry run creates nothing.
   const terminal = await openTestCli(testHome(), config, ["run"]);
   try {
     await terminal.see("Choose a starter", 0, STARTUP_MS);
@@ -489,7 +476,6 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
     const before = tickCount();
     await until(() => tickCount() > before);
   } finally {
-    // The home's teardown stops the Marbles process.
     await terminal.dispose();
     rmSync(dir, { force: true, recursive: true });
   }

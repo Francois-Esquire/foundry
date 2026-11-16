@@ -355,7 +355,6 @@ describe("files detector", () => {
       if (!watching) {
         throw new Error("expected the monitor's schedule");
       }
-      // The monitor handed a launch over and stopped before starting it.
       await hosted.triggers.saveMonitorState(key, {
         observed: {},
         pending: { input: null, workflow: "ship" },
@@ -364,7 +363,6 @@ describe("files detector", () => {
         ...hosted,
         print: () => undefined,
       });
-      // The key is a schedule now: its tick runs its own workflow alone.
       const scheduled = {
         ...watching,
         kind: "schedule" as const,
@@ -375,8 +373,6 @@ describe("files detector", () => {
       ).resolves.toEqual({ value: "tidied" });
       expect(shipped).toBe(0);
       expect(await hosted.triggers.monitorState(key)).toBeUndefined();
-      // A monitor under the key again starts from nothing: the first sight of
-      // the file is a change, and the old launch does not go out.
       await expect(
         tick(engine, watching, { print: () => undefined })
       ).resolves.toEqual({ value: { changed: true } });
@@ -403,7 +399,6 @@ describe("files detector", () => {
         lastStatus: "complete",
         nextDue: time,
       });
-      // As a schedule's tick left it before it dropped a monitor's state.
       await opened.database.insert(marblesMonitorStates).values({
         key: "m",
         observed: {},
@@ -420,7 +415,6 @@ describe("files detector", () => {
         }
       );
       await expect(detect(context)).resolves.toEqual({ changed: true });
-      // Dropped, not only passed over: the old launch is gone for good.
       expect((await triggers.monitorState("m"))?.pending).toBeUndefined();
     } finally {
       await triggers.close();
@@ -472,19 +466,14 @@ describe("files detector", () => {
         lastStatus: "complete",
         nextDue: time,
       });
-      // The monitor's first tick hands a launch over, and stops before it
-      // starts it or records the tick.
       await hosted.triggers.claimTick("m");
       const expected = {
         changed: true,
         launch: { input: { task: "guide.md" }, workflow: "ship" },
       };
       await expect(detect(context)).resolves.toEqual(expected);
-      // The next tick is handed the same launch: it is not lost.
       await expect(detect(context)).resolves.toEqual(expected);
       expect(handled).toBe(1);
-      // Started, then stopped before the tick was recorded: what the
-      // monitor saw stays, so the change is not handled again.
       await hosted.triggers.clearPendingLaunch("m");
       await expect(detect(context)).resolves.toEqual({ changed: false });
       expect(handled).toBe(1);
@@ -684,7 +673,6 @@ describe("http detector", () => {
         const detect = detectorIn("r", httpSpec(), handler, { fetch });
 
         await expect(detect(context)).resolves.toEqual({ changed: true });
-        // Kept as it was handed on, the unchanged body is no change.
         await expect(detect(context)).resolves.toEqual({ changed: false });
         expect(changes).toEqual([
           expect.objectContaining({ current: seen, kind: "http" }),

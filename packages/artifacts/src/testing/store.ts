@@ -36,11 +36,6 @@ function artifact(fields: Partial<Artifact> = {}): Artifact {
   };
 }
 
-/** `input` as an event, at a fixed time. */
-/**
- * Arrays a copy of their entries would read less of: one with a hidden
- * function, one with a symbol-keyed bigint, one of a subclass of Array.
- */
 function unplainArrays(): unknown[][] {
   const hidden: unknown[] = ["a"];
   Object.defineProperty(hidden, "hidden", { value: () => undefined });
@@ -53,14 +48,12 @@ function unplainArrays(): unknown[][] {
   return [hidden, symbolic, Entries.from(["a"])];
 }
 
-/** An array with a hole at index 0, which JSON reads back as `null`. */
 function holed(): number[] {
   const values: number[] = [];
   values[1] = 2;
   return values;
 }
 
-/** Events each with a part that has no JSON form reading back the same. */
 function unplainEvents(): readonly unknown[] {
   const base = event({ artifactId: artifactId(), type: "artifact.created" });
   class Instance {
@@ -88,7 +81,6 @@ function unplainEvents(): readonly unknown[] {
   ];
 }
 
-/** An `artifact.removed` event of an Artifact no store holds. */
 function removedEvent(): ArtifactEvent {
   return event({
     artifactId: artifactId(),
@@ -126,10 +118,6 @@ function content(owner: ArtifactId, blobs: readonly BlobId[] = []): Content {
   };
 }
 
-/**
- * A blob whose inline bytes, `[1, 2]`, sit over a `SharedArrayBuffer`,
- * which `structuredClone` keeps shared on Node.
- */
 function sharedBlob(): Blob & { readonly bytes: Uint8Array } {
   const bytes = new Uint8Array(new SharedArrayBuffer(2));
   bytes.set([1, 2]);
@@ -146,14 +134,8 @@ function inlineBlob(digest = DIGEST): Blob {
   };
 }
 
-/** What a store's refusal of a call from inside its own transaction says. */
 const REFUSAL = /refused: .*use the view/;
 
-/**
- * How `promise` settled, as `refused: <message>` or `resolved`, or
- * `still pending` after `ms`: a hang becomes a failed assertion, not a
- * stalled suite.
- */
 async function settlesWithin(
   promise: Promise<unknown>,
   ms: number
@@ -176,7 +158,6 @@ async function settlesWithin(
   }
 }
 
-/** The store's `transaction`, bound; every Artifact store offers one. */
 function requireTransaction(
   store: ArtifactStore
 ): <T>(work: (view: ArtifactStore) => Promise<T>) => Promise<T> {
@@ -190,7 +171,6 @@ function sorted<T extends { readonly id: string }>(rows: readonly T[]): T[] {
   return [...rows].sort((a, b) => (a.id < b.id ? -1 : 1));
 }
 
-/** Changes, in place, every value a write holds, pointing its blobs at `other`. */
 function scramble(write: ArtifactStoreWrite, other: BlobId): void {
   for (const row of write.putArtifacts ?? []) {
     Object.assign(row, { name: "changed" });
@@ -210,31 +190,14 @@ function scramble(write: ArtifactStoreWrite, other: BlobId): void {
   (write.putArtifacts as Artifact[]).push(artifact({ name: "Added" }));
 }
 
-/**
- * Fresh, empty storage, reached one scope at a time. The same scope reaches
- * the same records on every call; two scopes never see each other's.
- */
 export type ScopedArtifactStores = (scope: string) => ArtifactStore;
 
-/**
- * Fresh, empty storage whose stores hand each commit's write to a host hook
- * (a SQLite store's `onCommit`), and a record the hook keeps: it writes the
- * write's events, in order, in the commit's own transaction.
- */
 export interface RecordingArtifactStores {
-  /** Makes the hook throw on its next call, after it has recorded. */
   readonly failNextCommit: () => void;
-  /** The events recorded by every commit that was kept, in the order kept. */
   readonly recorded: () => Promise<readonly ArtifactEvent[]>;
   readonly stores: ScopedArtifactStores;
 }
 
-/**
- * Whether the storage a suite run opens hands its commits to a host hook.
- * A store with one (a SQLite store's `onCommit`) says `hooked: true` and
- * supplies `recording`, so the suite proves the hook is handed each commit's
- * events; a store with none says `hooked: false`.
- */
 export type ArtifactStoreMode =
   | { readonly hooked: false }
   | {
@@ -242,12 +205,6 @@ export type ArtifactStoreMode =
       readonly recording: () => Promise<RecordingArtifactStores>;
     };
 
-/**
- * Registers the tests every `ArtifactStore` must pass. `open` returns fresh,
- * empty storage, opened per scope: two scopes over one storage never see
- * each other's records, and one scope opened twice sees one set. `mode` says
- * whether the storage has a host hook (see {@link ArtifactStoreMode}).
- */
 export function describeArtifactStore(
   name: string,
   open: () => ScopedArtifactStores | Promise<ScopedArtifactStores>,
@@ -257,7 +214,6 @@ export function describeArtifactStore(
     describeRecordedEvents(name, mode.recording);
   }
   const fresh = async () => (await open())("conformance");
-  /** Every Artifact, oldest first. */
   const everyArtifact = async (store: ArtifactStore) =>
     (await store.listArtifacts({ includeArchived: true, limit: 1000 }))
       .artifacts;
@@ -509,8 +465,6 @@ export function describeArtifactStore(
 
     it("lands a commit made after one that fails in its turn", async () => {
       const store = await fresh();
-      // An invalid date is cloned whole, so a store that refuses it does so
-      // while the commit holds its turn; one that keeps it resolves.
       await store
         .commit({
           putArtifacts: [artifact({ createdAt: new Date(Number.NaN) })],
@@ -608,7 +562,6 @@ export function describeArtifactStore(
     it("lists Artifacts by filter in creation order, paged by cursor", async () => {
       const store = await fresh();
       const at = (seconds: number) => new Date(AT.getTime() + seconds * 1000);
-      // Two share an instant, so ids break the tie.
       const [early, tiedLow, tiedHigh, archived, other] = [
         artifact({ createdAt: at(1), name: "Early Notes" }),
         artifact({
@@ -629,7 +582,6 @@ export function describeArtifactStore(
         }),
         artifact({ createdAt: at(4), name: "Other", type: "image/png" }),
       ];
-      // Committed out of order: the listing orders them, not the commit.
       await store.commit({
         putArtifacts: [other, archived, tiedHigh, early, tiedLow],
       });
@@ -688,10 +640,8 @@ export function describeArtifactStore(
 
       expect(await matching("ärger")).toEqual(["ÄRGER im Büro"]);
       expect(await matching("ÄRGER")).toEqual(["ÄRGER im Büro"]);
-      // "İ" lower-cases to "i" and a combining dot, so "istanbul" is no match.
       expect(await matching("i̇stanbul")).toEqual(["İstanbul"]);
       expect(await matching("istanbul")).toEqual([]);
-      // A final capital sigma lower-cases to the final form.
       expect(await matching("ς")).toEqual(["ΟΔΟΣ"]);
       expect(await matching("σ")).toEqual([]);
       expect(await matching("%")).toEqual(["100% done"]);
@@ -701,10 +651,8 @@ export function describeArtifactStore(
       expect(await matching("%d")).toEqual([]);
       expect(await matching("markdown")).toEqual(["By type"]);
       expect(await matching("id-äb")).toEqual(["By id"]);
-      // Half of a surrogate pair matches by code unit; a NUL matches nothing.
       expect(await matching("\uD83D")).toEqual(["😀 face"]);
       expect(await matching("\u0000")).toEqual([]);
-      // Empty text matches everything.
       expect(await matching("")).toHaveLength(Object.keys(records).length);
     });
 
@@ -716,8 +664,6 @@ export function describeArtifactStore(
           artifact({ id: artifactIdSchema.parse(id), name: id })
         ),
       });
-      // By code unit, a surrogate pair (U+D83D…) sorts before U+E000;
-      // by code point it would sort last.
       const order = ["a", "😀", "", "￿"];
       const page = async (after?: string, limit = 10) =>
         store.listArtifacts({
@@ -732,7 +678,6 @@ export function describeArtifactStore(
       expect(await names()).toEqual(order);
       expect(await names(undefined, 2)).toEqual(order.slice(0, 2));
       expect(await names("😀")).toEqual(order.slice(2));
-      // A cursor need not name a stored Artifact: half a pair sorts first.
       expect(await names("\uD83D")).toEqual(order.slice(1));
       expect((await page("")).total).toBe(4);
     });
@@ -782,7 +727,6 @@ export function describeArtifactStore(
           JSON.stringify(query)
         ).toEqual([listed, total]);
       }
-      // A cursor whose time is no valid Date compares by id alone.
       const [low, ...higher] = sorted(rows);
       const byId = await store.listArtifacts({
         after: { createdAt: new Date(Number.NaN), id: low?.id as ArtifactId },
@@ -791,11 +735,8 @@ export function describeArtifactStore(
       });
       expect(sorted(byId.artifacts)).toEqual(higher);
       expect(byId.total).toBe(5);
-      // Kept in creation order, and paged: the cursor compares by id, the
-      // order stays by time.
       const afterInvalid = (id: string, limit: number) =>
         store.listArtifacts({
-          // Any id, the empty one too: a cursor need not name an Artifact.
           after: { createdAt: new Date(Number.NaN), id: id as ArtifactId },
           includeArchived: true,
           limit,
@@ -816,10 +757,8 @@ export function describeArtifactStore(
       const rows = [
         artifact({ createdAt: at(1), name: "😀 face" }),
         artifact({ createdAt: at(2), name: "😀 other" }),
-        // The pair ends the name and the type follows: no match across them.
         artifact({ createdAt: at(3), name: "x😀", type: "text/plain" }),
         artifact({ createdAt: at(4), name: "🙂 face" }),
-        // Holds no unit U+D83D, though its units' hex digits run "…d83d…".
         artifact({ createdAt: at(5), name: "\u0AD8\u3D00" }),
       ];
       await store.commit({ putArtifacts: rows });
@@ -852,7 +791,6 @@ export function describeArtifactStore(
         names: ["😀 face"],
         total: 4,
       });
-      // NUL matches nothing, whatever else the text holds.
       expect(await names("\uD83D\u0000")).toEqual({ names: [], total: 0 });
     });
 
@@ -878,7 +816,6 @@ export function describeArtifactStore(
         contentIds: [version.id],
       });
 
-      // Put again naming other blobs, each record stops naming the first.
       await store.commit({
         putBlobs: [{ ...manifest, chunks: [other.id] }],
         putContents: [{ ...version, tree: content(owner.id, [other.id]).tree }],
@@ -931,7 +868,6 @@ export function describeArtifactStore(
       const owner = artifact({
         archivedAt: later,
         metadata: {
-          // A computed key: an own property, not the prototype.
           ["__proto__"]: { own: true },
           nested: { list: [1, -1.5, "two", null, true, { deep: [] }] },
           sessionId: "s",
@@ -1011,7 +947,6 @@ export function describeArtifactStore(
         expect(await store.getBlob(blob.id)).toStrictEqual(blob);
       }
       expect(await store.findBlobs(OTHER_DIGEST)).toStrictEqual([backed]);
-      // An own `__proto__` key is kept as a key, in metadata and in a tree.
       const read = await store.getContent(version.id);
       expect(Object.hasOwn(read?.tree ?? {}, "__proto__")).toBe(true);
       const owned = (await store.getArtifact(pointed.id))?.metadata;
@@ -1032,7 +967,6 @@ export function describeArtifactStore(
         contentIds: [version.id],
       });
 
-      // Far more ids than one statement binds; none of them is stored.
       const absent = 33_000;
       await store.commit({
         deleteArtifacts: Array.from({ length: absent }, () => artifactId()),
@@ -1052,8 +986,6 @@ export function describeArtifactStore(
 
     it("commits and deletes thousands of records in one write", async () => {
       const store = await fresh();
-      // Past one statement's rows for each table: 2184 Artifacts, 2978
-      // Contents, 4095 blobs.
       const count = 5000;
       const owners = Array.from({ length: count }, () => artifact());
       const blobs = owners.map(() => inlineBlob());
@@ -1120,7 +1052,6 @@ export function describeArtifactStore(
         putContents: [structuredClone(version)],
       });
 
-      // Changed at once, while the commit waits behind a transaction.
       const held = Promise.withResolvers<void>();
       const entered = Promise.withResolvers<void>();
       const running = transaction(async () => {
@@ -1135,7 +1066,6 @@ export function describeArtifactStore(
       await Promise.all([running, landing]);
       await check(store);
 
-      // And through a transaction's view.
       const second = await fresh();
       await requireTransaction(second)(async (view) => {
         const through = writeOf();
@@ -1185,7 +1115,6 @@ export function describeArtifactStore(
       const durability = await requireTransaction(store)((view) =>
         Promise.resolve(view.durability)
       );
-      // A view's commits stand only if the transaction's work succeeds.
       expect(durability).toBe("host");
     });
 
@@ -1370,7 +1299,6 @@ export function describeArtifactStore(
         expect(named(await everyArtifact(view))).toEqual(["First", "Second"]);
       });
       expect(named(await everyArtifact(store))).toEqual(["First", "Second"]);
-      // Opened again over the same storage: what was saved, not what is cached.
       expect(named(await everyArtifact(storage("conformance")))).toEqual([
         "First",
         "Second",
@@ -1393,7 +1321,6 @@ export function describeArtifactStore(
         for (const [method, call] of Object.entries(calls)) {
           outcomes[method] = await settlesWithin(call(), 1000);
         }
-        // Scheduled from inside, but run once the transaction has ended.
         later = ended.promise.then(() =>
           store.commit({ putArtifacts: [artifact({ name: "Later" })] })
         );
@@ -1463,7 +1390,6 @@ export function describeArtifactStore(
   });
 }
 
-/** The suite's proof that a store hands its host hook every commit's events. */
 function describeRecordedEvents(
   name: string,
   recording: () => Promise<RecordingArtifactStores>

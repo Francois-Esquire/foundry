@@ -19,14 +19,12 @@ const draft: SetupDraft = {
   name: "summary",
   template: "product",
 };
-/** The current test's home, made by its first CLI call. */
 let home: TestHome | undefined;
 
 afterEach(() => {
   home = undefined;
 });
 
-/** The CLI under --dry-run for `config`, in the current test's home. */
 function cli(config: string, ...args: string[]) {
   home ??= testHome();
   const bin = join(dirname(config), "test-bin");

@@ -201,16 +201,12 @@ it("publishes metadata as a JSON object and refuses a __proto__ key in it", asyn
   const { client, tasks } = await connect();
   const { tools } = await client.listTools();
   const change = tools.find(({ name }) => name === "change_tasks");
-  // Typed as JSON on create and update; the `__proto__` refusal is not in
-  // the JSON Schema, so the server answers it.
   const published = JSON.stringify(change?.inputSchema);
   const typed =
     '"metadata":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{"$ref":';
   expect(published.split(typed)).toHaveLength(3);
 
   const task = await tasks.create({ metadata: { keep: 1 }, title: "proto" });
-  // A quoted `__proto__` in an object literal sets the prototype; parsed
-  // JSON defines the key.
   const metadata = JSON.parse('{"x":{"__proto__":1}}');
   const result = await call(client, "change_tasks", {
     operations: [

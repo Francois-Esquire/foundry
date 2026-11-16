@@ -1,10 +1,3 @@
-/**
- * The published Engine keeps everything it is not handed in the Marbles
- * database over one handle: its tasks, workflow and Execution Runs,
- * trigger state, automations and usage, opened once and closed when it is
- * disposed.
- */
-
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

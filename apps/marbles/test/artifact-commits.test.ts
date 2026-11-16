@@ -13,13 +13,6 @@ import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import { workspaceStores } from "~/database/stores";
 
-/**
- * The store Marbles hands its engine's artifacts keeps the store contract,
- * and follows every write that lands, however deep in transactions it was
- * made, and none that did not.
- */
-
-/** One migrated database for the suite; each opening gets scopes of its own, so its storage starts empty. */
 let shared: Promise<{ readonly dir: string; readonly opened: MarblesDatabase }>;
 let openings = 0;
 
@@ -142,7 +135,6 @@ describe("a store that follows its commits", () => {
           type: "text/plain",
         });
       });
-      // Not yet: the outer transaction has not landed.
       expect(landed).toEqual([]);
     });
     expect(landed.flatMap((touched) => touched.artifacts)).toContain(id);

@@ -6,14 +6,6 @@ import type {
 import { SnapshotStateSchema } from "@foundry/workflows/snapshot";
 import { z } from "zod";
 
-/**
- * A workflow Run's steps as its record keeps them: the structural plan
- * (`snapshot.steps`) and what the run observed of each step (the trace in
- * its metadata), which can name dynamic steps the plan does not have yet.
- * The dashboard's snapshot and the run listings both read steps through
- * here, so a step is the same thing in each.
- */
-
 const TraceSchema = z.object({
   workflow: z
     .object({
@@ -34,7 +26,6 @@ const TraceSchema = z.object({
     .optional(),
 });
 
-/** What a Run's metadata recorded of its steps and logs; undefined when it is not that shape. */
 export function decodeTrace(
   metadata: unknown
 ): z.infer<typeof TraceSchema> | undefined {
@@ -42,7 +33,6 @@ export function decodeTrace(
   return decoded.success ? decoded.data : undefined;
 }
 
-/** Dynamic graph steps can appear in the trace before the structural plan includes them. */
 export function observedTree(
   planned: readonly WorkflowStepNode[],
   steps: Readonly<Record<string, ObservedStep>>
@@ -80,18 +70,12 @@ export function observedTree(
   return roots;
 }
 
-/** One step of a run, with the steps under it. */
 export interface RunStep {
   readonly children: readonly RunStep[];
   readonly name: string;
   readonly status: string;
 }
 
-/**
- * The steps of `record`, as a tree: every step the plan names or the run
- * observed, each with the status it reached (`queued` until it starts,
- * `cancelled` when aborted).
- */
 export function runSteps(record: RunRecord): readonly RunStep[] {
   const steps = decodeTrace(record.metadata)?.workflow?.steps ?? {};
   const step = (node: WorkflowStepNode): RunStep => ({
@@ -102,7 +86,6 @@ export function runSteps(record: RunRecord): readonly RunStep[] {
   return observedTree(record.snapshot.steps, steps).map(step);
 }
 
-/** A step's observed status as listings name it. */
 function stepStatus(status: string | undefined): string {
   if (status === undefined || status === "pending") {
     return "queued";

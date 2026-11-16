@@ -31,39 +31,21 @@ import type {
 } from "~/lib/resources";
 import { ResourceAssociations, sameResource } from "~/lib/resources";
 
-/**
- * What a workspace shows of the resources Marbles keeps, read from the
- * Marbles database: the resources it owns and those shared with it
- * (`lib/resources.ts`), or, for `ALL_WORKSPACES`, every resource of every
- * registered workspace. Each resource is read through its package's own
- * store, scoped by its owner, never through the package's tables; each
- * comes with every workspace it belongs to, its owner first.
- *
- * A view only reads: it is as current as the database it is handed, and an
- * association naming a resource its owner no longer keeps shows nothing.
- */
-
-/** Which workspaces a view shows the resources of. */
 export type ViewScope = { readonly workspace: string } | typeof ALL_WORKSPACES;
 
 export const ALL_WORKSPACES = "all";
 
-/** A resource as a view shows it. */
 export interface Shown<T> {
   readonly ref: ResourceRef;
   readonly value: T;
-  /** Every workspace it belongs to, by id: its owner, then the rest by id. */
   readonly workspaces: readonly string[];
 }
 
-/** A workflow Run, and the process of the engine that owns it, if any. */
 export interface RunResource {
-  /** The engine's process, pid and start; `null` when none owns it. */
   readonly owner: ProcessIdentity | null;
   readonly record: RunRecord;
 }
 
-/** A file of an artifact's Content, and the blob file holding its bytes, if one does. */
 export interface ArtifactFile {
   readonly blob: string | null;
   readonly path: string;
@@ -72,17 +54,11 @@ export interface ArtifactFile {
 export interface ResourceViewOptions {
   readonly database: StoreDatabase;
   readonly scope: ViewScope;
-  /** The state root the workspace registry's directories are under. */
   readonly state: string;
 }
 
-/** Rows per page when a view reads a whole store. */
 const PAGE = 200;
 
-/**
- * How a view reads one kind from the store of the owner `owner`: all of
- * it, or the ones with some ids, in as few reads as that store allows.
- */
 interface KindReader<T> {
   get(owner: string, ids: readonly string[]): Promise<readonly T[]>;
   id(value: T): string;
@@ -102,10 +78,6 @@ export class ResourceView {
     this.#registry = new WorkspaceRegistry(options);
   }
 
-  /**
-   * Workflow runs, newest first. Their steps are in each record. With
-   * `limit`, at most that many of each owning workspace, its newest.
-   */
   async runs(limit?: number): Promise<readonly Shown<RunResource>[]> {
     return newestOfEach(
       await this.#show("run", this.#runs()),
@@ -114,11 +86,6 @@ export class ResourceView {
     );
   }
 
-  /**
-   * The runs other workspaces share with this view's workspace, newest
-   * first, at most `limit`: read through this workspace's shares alone,
-   * whatever else their owners keep. None for the all-workspaces view.
-   */
   async sharedRuns(limit?: number): Promise<readonly Shown<RunResource>[]> {
     if (this.scope === ALL_WORKSPACES) {
       return [];
@@ -142,16 +109,11 @@ export class ResourceView {
     ).slice(0, limit);
   }
 
-  /** Agent sessions, most recently updated first. */
   async sessions(): Promise<readonly Shown<SessionRecord>[]> {
     const shown = await this.#show("session", this.#sessions());
     return shown.sort((a, b) => b.value.updatedAt - a.value.updatedAt);
   }
 
-  /**
-   * How many messages each of these sessions holds, and whether one is a
-   * summary, read in a batch per owner; one with none is left out.
-   */
   async messageTallies(
     refs: readonly ResourceRef[]
   ): Promise<ReadonlyMap<ResourceRef, MessageTally>> {
@@ -170,7 +132,6 @@ export class ResourceView {
     return tallies;
   }
 
-  /** Artifacts, newest first. */
   async artifacts(): Promise<readonly Shown<Artifact>[]> {
     const shown = await this.#show("artifact", this.#artifacts());
     return shown.sort(
@@ -178,13 +139,6 @@ export class ResourceView {
     );
   }
 
-  /**
-   * The files of the artifact `ref`'s active Content, by path, each with
-   * the name of the blob file that holds its bytes under its owner's blob
-   * directory, or null when no one file does (bytes kept inline in the
-   * database, or chunked). Empty for an artifact with no active Content,
-   * or one its owner does not keep.
-   */
   artifactFiles(ref: ResourceRef): Promise<readonly ArtifactFile[]> {
     const store = new SqliteArtifactStore({
       database: this.#database,
@@ -206,29 +160,24 @@ export class ResourceView {
     });
   }
 
-  /** Sandbox containers, newest first. */
   async sandboxes(): Promise<readonly Shown<ContainerRow>[]> {
     const shown = await this.#show("sandbox", this.#sandboxes());
     return shown.sort((a, b) => b.value.createdAt - a.value.createdAt);
   }
 
-  /** Modules, in the order each owner registered them. */
   modules(): Promise<readonly Shown<Module>[]> {
     return this.#show("module", this.#modules());
   }
 
-  /** The resources of `kind` with id `id` this view shows. */
   async find(kind: ResourceKind, id: string): Promise<readonly ResourceRef[]> {
     const shown = await this.#show(kind, this.#reader(kind));
     return shown.map(({ ref }) => ref).filter((ref) => ref.id === id);
   }
 
-  /** Whether the owner of `ref` keeps it, whatever this view's scope. */
   async has(ref: ResourceRef): Promise<boolean> {
     return (await this.#reader(ref.kind).get(ref.owner, [ref.id])).length > 0;
   }
 
-  /** Every resource of `kind` this view shows, with the workspaces each belongs to. */
   async #show<T>(
     kind: ResourceKind,
     reader: KindReader<T>
@@ -242,11 +191,6 @@ export class ResourceView {
     }));
   }
 
-  /**
-   * What the scope shows: for one workspace, what its own store keeps and
-   * each resource shared with it that its owner still keeps; for all
-   * workspaces, what every registered workspace's store keeps.
-   */
   async #collect<T>(
     kind: ResourceKind,
     reader: KindReader<T>,
@@ -275,7 +219,6 @@ export class ResourceView {
     ];
   }
 
-  /** The resources `refs` name that their owners keep, read in a batch per owner. */
   async #fetch<T>(
     kind: ResourceKind,
     reader: KindReader<T>,
@@ -312,7 +255,6 @@ export class ResourceView {
 
   #runs(): KindReader<RunResource> {
     const database = this.#database;
-    /** The owner pids of `owner`'s runs, every one or those with `ids`, in one read each batch. */
     const ownerPids = async (owner: string, ids?: readonly string[]) => {
       const pids = new Map<string, ProcessIdentity | null>();
       const read = (batch?: readonly string[]) =>
@@ -485,7 +427,6 @@ export class ResourceView {
   }
 }
 
-/** Every workspace `ref` belongs to: its owner, then those it is shared with, by id. */
 function workspacesOf(
   ref: ResourceRef,
   associations: readonly ResourceAssociation[]
@@ -499,7 +440,6 @@ function workspacesOf(
   ];
 }
 
-/** `refs` by owner, in the order each owner first appears. */
 function byOwner(
   refs: readonly ResourceRef[]
 ): Map<string, readonly ResourceRef[]> {
@@ -512,7 +452,6 @@ function byOwner(
   return grouped;
 }
 
-/** Ids per statement, well under SQLite's parameter limit. */
 const BATCH = 500;
 
 function batches(ids: readonly string[]): (readonly string[])[] {
@@ -523,7 +462,6 @@ function batches(ids: readonly string[]): (readonly string[])[] {
   return all;
 }
 
-/** `shown`, newest first by `at`; with `limit`, at most that many of each owner. */
 function newestOfEach<T>(
   shown: readonly Shown<T>[],
   at: (value: T) => number,
@@ -541,11 +479,6 @@ function newestOfEach<T>(
   });
 }
 
-/**
- * The association rules over the Marbles database: shared resources are
- * checked against what their owners' stores keep and the workspace
- * registry under the state root `state`.
- */
 export function resourceAssociations(
   database: StoreDatabase,
   state: string
@@ -556,13 +489,6 @@ export function resourceAssociations(
   });
 }
 
-/**
- * One write transaction over `database`, taken before it reads, with the
- * associations, the resources' stores and the workspace registry all
- * read and written through it: a delete of a resource, in this process or
- * another, lands before it or after it, never between a check and a
- * write.
- */
 export function associationTransaction(
   database: StoreDatabase,
   state: string
@@ -573,7 +499,6 @@ export function associationTransaction(
     );
 }
 
-/** The associations, and what exists, read and written through `database`, the database or one transaction. */
 function associationUnit(
   database: StoreDatabase,
   state: string
@@ -587,7 +512,6 @@ function associationUnit(
     },
     store: new DatabaseAssociationStore({
       database,
-      // A share's fact goes in its owner's log, in the share's transaction.
       onCommit: async (transaction, write) => {
         for (const { fact, owner } of write.events ?? []) {
           await new ChangeRecorder(owner).record(transaction, ARTIFACTS_KEY, [
@@ -601,12 +525,6 @@ function associationUnit(
 
 const ARTIFACTS_KEY = sourceKey(ARTIFACTS) ?? "artifacts";
 
-/**
- * Run `work` on the view `scope` of the Marbles database at the state root
- * `state`, through a read-only connection (`readDatabase`): nothing is
- * created, migrated or written. Undefined, and `work` not run, with no
- * database or nothing migrated into it: there are no resources yet.
- */
 export function readResourceView<T>(
   state: string,
   scope: ViewScope,

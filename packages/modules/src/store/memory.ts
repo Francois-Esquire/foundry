@@ -18,38 +18,17 @@ import type {
 import { capturedQuery, capturedWrite } from "./captured";
 import { ownedQuery } from "./query";
 
-/** Why a call from inside the store's own transaction is refused. */
 const REENTRY =
   "MemoryModuleStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
-/** Why a view used after its transaction settled is refused. */
 const ENDED =
   "MemoryModuleStore transaction view was used after its transaction settled";
 
-/**
- * The default store: plain maps in this process. Reads list records in the
- * order they were first put; a put over a stored record keeps its place.
- * Every call takes a turn, so a commit made while a transaction runs lands
- * after it, and a call made from inside a transaction's work is refused.
- *
- * Every commit, the store's own and a view's alike, applies its write to a
- * copy of the tables and swaps the copy in only once the whole write has
- * applied, so no failure of any kind leaves part of a write. A transaction
- * keeps its view's tables only if its work succeeds. Copying the tables
- * copies their maps, not the records, which are never changed in place.
- */
 export class MemoryModuleStore implements ModuleStore {
   readonly durability: ModuleStoreDurability = "commit";
   #tables = new Tables();
   readonly #turns = new Turns(REENTRY);
 
-  /**
-   * Takes the write as it stands now: a capture of each property it names
-   * (`./captured`), copied with `structuredClone`, made before the commit
-   * waits its turn, so a caller changing the write later changes nothing. A
-   * write the capture or the copy refuses rejects whole and changes nothing.
-   * A transaction's view commits the same way.
-   */
   commit(write: ModuleStoreWrite): Promise<void> {
     let owned: OwnedWrite;
     try {
@@ -63,11 +42,6 @@ export class MemoryModuleStore implements ModuleStore {
     });
   }
 
-  /**
-   * Runs `work` over a view that stages its commits, and keeps them only if
-   * `work` succeeds, so a throw after a commit through `view` leaves
-   * nothing.
-   */
   transaction<T>(work: (view: ModuleStore) => Promise<T>): Promise<T> {
     return this.#turns.run(async () => {
       const view = new MemoryView(this.#tables);
@@ -135,12 +109,7 @@ export class MemoryModuleStore implements ModuleStore {
   }
 }
 
-/**
- * A transaction's view: reads see the store's tables until the first
- * commit; each commit applies to a copy, which the view then reads.
- */
 class MemoryView implements ModuleStore {
-  /** Its commits stand only if the transaction's work succeeds. */
   readonly durability: ModuleStoreDurability = "host";
   tables: Tables;
   #ended: boolean;
@@ -154,7 +123,6 @@ class MemoryView implements ModuleStore {
     this.#ended = true;
   }
 
-  /** Takes its copy of `write` at once, as the store does. */
   commit(write: ModuleStoreWrite): Promise<void> {
     let owned: OwnedWrite;
     try {
@@ -211,13 +179,11 @@ class MemoryView implements ModuleStore {
   }
 }
 
-/** A stored record and its place in its table's list order. */
 interface Row<T> {
   readonly position: number;
   readonly record: T;
 }
 
-/** A write's records, captured and copied so they share nothing with the caller's. */
 interface OwnedWrite {
   readonly deleteInstallations: readonly InstallationId[];
   readonly deleteManifests: readonly ContentId[];
@@ -227,7 +193,6 @@ interface OwnedWrite {
   readonly putModules: readonly Module[];
 }
 
-/** The store's own copy of `write`: its capture, deeply copied. */
 function ownedWrite(write: ModuleStoreWrite): OwnedWrite {
   const copy = structuredClone(capturedWrite(write));
   return {
@@ -240,12 +205,6 @@ function ownedWrite(write: ModuleStoreWrite): OwnedWrite {
   };
 }
 
-/**
- * The store's records, and `next`, the position its next new record of any
- * table takes. `next` only grows, so a position is never handed out twice
- * and a cursor stays valid across deletes. Rows are never changed in place,
- * so a copy shares them.
- */
 class Tables {
   readonly installations: Map<InstallationId, Row<StoredInstallation>>;
   readonly manifests: Map<ContentId, Row<StoredManifest>>;
@@ -301,10 +260,6 @@ class Tables {
     );
   }
 
-  /**
-   * These tables with `write`, the store's own copy, applied: deletes, then
-   * puts. A new table; this one is left as it was, whatever fails.
-   */
   applied(write: OwnedWrite): Tables {
     const next = new Tables(this);
     for (const id of write.deleteInstallations) {
@@ -328,11 +283,6 @@ class Tables {
     return next;
   }
 
-  /**
-   * Files `record` under `key`. A new key takes the next position; a key put
-   * again keeps its own. A Map keeps the order keys were first set, which is
-   * therefore position order.
-   */
   #put<K, T>(table: Map<K, Row<T>>, key: K, record: T): void {
     const kept = table.get(key);
     if (kept === undefined) {
@@ -348,7 +298,6 @@ function detachedRecord<T>(row: Row<T> | undefined): T | null {
   return row === undefined ? null : structuredClone(row.record);
 }
 
-/** The matching rows after `query.after`, at most `query.limit`, as copies. */
 function page<K, T>(
   table: ReadonlyMap<K, Row<T>>,
   query: ModuleStorePageQuery,

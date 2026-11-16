@@ -97,7 +97,6 @@ let running: Promise<void> | undefined;
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "marbles-settings-production-"));
-  // In-process: the dashboard finds its home through the environment.
   const home = testHome();
   vi.stubEnv("FOUNDRY_HOME", home.path);
   vi.stubEnv(SPAWN_RECORD_ENV, home.env[SPAWN_RECORD_ENV]);

@@ -12,21 +12,6 @@ import { delimiter, join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { environmentSnapshot } from "~/lib/environment";
 
-/**
- * A workspace's environment, loaded through Varlock before any module is
- * imported, so `roll`, `list`, and the dashboard see the same values.
- * A `.env.schema` at the workspace root opts in; without one
- * nothing changes. Values already in the machine's environment win, and
- * nothing is written anywhere, `process.env` included: the values reach
- * the workspace's work through its execution context, so two workspaces
- * hosted in one process never see each other's. A secret is resolved each
- * time a workspace loads.
- */
-
-/**
- * The environment this process had when the workspace loaded, and the
- * values the workspace's schema resolved.
- */
 export interface WorkspaceEnvironment {
   readonly machine: Readonly<Record<string, string>>;
   readonly workspace: Readonly<Record<string, string>>;
@@ -53,13 +38,6 @@ function varlockAt(root: string): string | undefined {
     .find((candidate) => existsSync(candidate));
 }
 
-/**
- * Run `varlock load` for the workspace at `root`, its stdout written to a
- * file rather than a pipe: under load, with other children of this process
- * exiting, Bun's `spawnSync` can lose a child's piped stdout and report it
- * as empty with status 0, which read as a workspace whose schema printed
- * nothing. A file the child writes holds every byte by the time it exits.
- */
 function run(
   varlock: string,
   root: string

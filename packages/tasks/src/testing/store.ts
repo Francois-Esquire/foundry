@@ -2,18 +2,8 @@ import { describe, expect, test } from "vitest";
 import type { Task, TaskDependency, TaskEvent, TaskId } from "../schema";
 import type { TaskStore } from "../store/index";
 
-/**
- * Fresh, empty storage, reached one scope at a time. The same scope reaches
- * the same records on every call; two scopes never see each other's. A store
- * that has no scopes keeps one store per scope name.
- */
 export type ScopedTaskStores = (scope: string) => TaskStore;
 
-/**
- * The behaviour every `TaskStore` shares, as Vitest tests. `open` returns new,
- * empty storage each time it is called. The host's test file closes whatever
- * `open` opened.
- */
 export function describeTaskStore(
   name: string,
   open: () => ScopedTaskStores | Promise<ScopedTaskStores>
@@ -95,8 +85,6 @@ export function describeTaskStore(
     });
 
     test("a record put after the last one was deleted lists after every survivor", async () => {
-      // Only the order is promised: the place the last record held may be
-      // given to the next one put, and nothing reads a place but the order.
       const target = await store();
       const [a, b, c, d] = [task("a"), task("b"), task("c"), task("d")];
       await target.commit({
@@ -132,7 +120,6 @@ export function describeTaskStore(
       });
 
       expect(await target.get(a.id)).toBeNull();
-      // The store enforces nothing: an edge outlives the task it names.
       expect(await target.snapshot()).toEqual({
         dependencies: [dependency(b, a)],
         tasks: [b],
@@ -392,8 +379,6 @@ export function describeTaskStore(
         return { after, before };
       });
       await read.promise;
-      // An independent caller, while the transaction sits between its read
-      // and its commit, given time enough to land if nothing held it back.
       const landed = target.commit({ putTasks: [outside] });
       await pause(20);
       proceed.resolve();
@@ -420,7 +405,6 @@ export function describeTaskStore(
         for (const [method, call] of Object.entries(calls)) {
           outcomes[method] = await settlesWithin(call(), 1000);
         }
-        // Scheduled from inside, but run once the transaction has ended.
         later = ended.then(() => target.commit({ putTasks: [a] }));
         await view.commit({ putTasks: [task("b")] });
         return outcomes;
@@ -439,7 +423,6 @@ export function describeTaskStore(
   });
 }
 
-/** What a store's refusal of a call from inside its own transaction says. */
 const REFUSAL = /refused: .*use the view/;
 
 function pause(ms: number): Promise<void> {
@@ -448,11 +431,6 @@ function pause(ms: number): Promise<void> {
   });
 }
 
-/**
- * How `promise` settled, as `refused: <message>` or `resolved`, or
- * `still pending` after `ms`: a hang becomes a failed assertion, not a
- * stalled suite.
- */
 async function settlesWithin(
   promise: Promise<unknown>,
   ms: number
@@ -475,7 +453,6 @@ async function settlesWithin(
   }
 }
 
-/** The store's `transaction`; every store this suite describes has one. */
 function transactionOf(
   store: TaskStore
 ): NonNullable<TaskStore["transaction"]> {
@@ -490,7 +467,6 @@ function id(value: string): TaskId {
   return value as TaskId;
 }
 
-/** A complete root task; `overrides` sets any field. */
 function task(name: string, overrides: Partial<Task> = {}): Task {
   return {
     createdAt: "2026-11-01T00:00:00.000Z",
@@ -511,7 +487,6 @@ function dependency(from: Task, on: Task): TaskDependency {
   return { dependsOnId: on.id, taskId: from.id };
 }
 
-/** A task fact made by a class: no JSON form reads it back as it is. */
 class ClassEvent {
   readonly at = new Date(0).toISOString();
   readonly dependencies = { added: [], removed: [] };
@@ -520,10 +495,6 @@ class ClassEvent {
   readonly type = "tasks.changed";
 }
 
-/**
- * Events a store refuses: each has a part with no JSON form that reads
- * back the same, though a `structuredClone` would make one of it.
- */
 const UNPLAIN_EVENTS: readonly (readonly [string, () => TaskEvent])[] = [
   ["a class instance", () => new ClassEvent() as unknown as TaskEvent],
   [
@@ -539,10 +510,6 @@ const UNPLAIN_EVENTS: readonly (readonly [string, () => TaskEvent])[] = [
   ],
 ];
 
-/**
- * A write as a caller holds it: one task and one edge to put beside `kept`,
- * one event, and an empty list of deletes, every part of it open to change.
- */
 function callerWrite(kept: Task) {
   const added = task("added", { metadata: { list: ["x"] }, tags: ["t"] });
   const edge = dependency(added, kept);
@@ -563,7 +530,6 @@ function callerWrite(kept: Task) {
   };
 }
 
-/** What a store holds once `write`, as it stands now, lands beside `kept`. */
 function storedAfter(write: ReturnType<typeof callerWrite>, kept: Task) {
   return structuredClone({
     dependencies: write.putDependencies,
@@ -571,12 +537,6 @@ function storedAfter(write: ReturnType<typeof callerWrite>, kept: Task) {
   });
 }
 
-/**
- * Changes, in place, every value `write` holds, as a caller might once
- * `commit` has returned: each field of the task it puts, its metadata and
- * tags, its edge and events, a further task and edge put, and `kept`
- * deleted.
- */
 function scramble(write: ReturnType<typeof callerWrite>, kept: Task): void {
   for (const put of write.putTasks) {
     mutable(put).title = "changed";
@@ -595,7 +555,6 @@ function scramble(write: ReturnType<typeof callerWrite>, kept: Task): void {
   write.deleteDependencies.push(...write.putDependencies);
 }
 
-/** Metadata that throws when read, so no store can copy or encode it. */
 function unreadable(): Task["metadata"] {
   return Object.defineProperty({}, "value", {
     enumerable: true,
@@ -605,7 +564,6 @@ function unreadable(): Task["metadata"] {
   });
 }
 
-/** Drops `readonly` so a test can try to change what a store handed out. */
 function mutable<T>(value: T | null | undefined): {
   -readonly [K in keyof T]: T[K];
 } {

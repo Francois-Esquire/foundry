@@ -8,31 +8,14 @@ import type {
 } from "../schema";
 import type { SessionStore } from "../store";
 
-/**
- * Fresh, empty storage: a store for each scope, all over the same storage.
- * Asking for one scope twice gives two stores over the same data.
- */
 export type SessionStorage = (scope: string) => SessionStore;
 
-/**
- * Fresh, empty storage whose stores hand each commit's write to a host hook
- * (a SQLite store's `onCommit`), and a record the hook keeps: it writes the
- * write's events, in order, in the commit's own transaction.
- */
 export interface RecordingSessionStorage {
-  /** Makes the hook throw on its next call, after it has recorded. */
   readonly failNextCommit: () => void;
-  /** The events recorded by every commit that was kept, in the order kept. */
   readonly recorded: () => Promise<readonly SessionChangeEvent[]>;
   readonly storage: SessionStorage;
 }
 
-/**
- * Whether the storage a suite run opens hands its commits to a host hook.
- * A store with one (a SQLite store's `onCommit`) says `hooked: true` and
- * supplies `recording`, so the suite proves the hook is handed each commit's
- * events; a store with none says `hooked: false`.
- */
 export type SessionStoreMode =
   | { readonly hooked: false }
   | {
@@ -40,12 +23,6 @@ export type SessionStoreMode =
       readonly recording: () => Promise<RecordingSessionStorage>;
     };
 
-/**
- * The behaviour every {@link SessionStore} shares. `open` returns fresh,
- * empty storage for each test; `mode` says whether it has a host hook (see
- * {@link SessionStoreMode}). Registers Vitest tests; call it at module level
- * in a test file.
- */
 export function describeSessionStore(
   name: string,
   open: () => SessionStorage | Promise<SessionStorage>,
@@ -221,8 +198,6 @@ export function describeSessionStore(
     });
 
     it("files each message after every one its session holds, after its last one moved away", async () => {
-      // Only the order of a session's messages is promised: the place a
-      // message left may be taken again, and nothing reads it but the order.
       const store = await fresh();
       await store.commit({
         putMessages: [message("a1", "a", 1), message("a2", "a", 2)],
@@ -724,7 +699,6 @@ export function describeSessionStore(
         for (const [method, call] of Object.entries(calls)) {
           settled[method] = await settlesWithin(call(), 1000);
         }
-        // Scheduled from inside, but run once the transaction has ended.
         later = ended.promise.then(() =>
           store.commit({ putSessions: [session("later")] })
         );
@@ -818,7 +792,6 @@ export function describeSessionStore(
   });
 }
 
-/** Metadata with every field set, nested values included. */
 const FULL_METADATA: SessionMessage["metadata"] = {
   harnessEnvironment: { harness: "codex", id: "env-1" },
   model: { harness: "codex", id: "model", provider: "openai" },
@@ -836,7 +809,6 @@ const FULL_METADATA: SessionMessage["metadata"] = {
   },
 };
 
-/** One part of every type, with each optional field set somewhere. */
 const EVERY_PART: SessionPart[] = [
   { text: "plain, then \u00e9 and \u{1F600}", type: "text" },
   { text: "", type: "reasoning" },
@@ -924,7 +896,6 @@ const EVERY_PART: SessionPart[] = [
   },
 ];
 
-/** The suite's proof that a store hands its host hook every commit's events. */
 function describeRecordedEvents(
   name: string,
   recording: () => Promise<RecordingSessionStorage>
@@ -1049,10 +1020,6 @@ function describeRecordedEvents(
 
 const AT = "2026-01-01T00:00:00.000Z";
 
-/**
- * Events no store takes, each made fresh: none has a plain-JSON form that
- * reads back as it was written.
- */
 const UNPLAIN_EVENTS: [string, () => SessionChangeEvent[]][] = [
   [
     "a class instance",
@@ -1172,14 +1139,8 @@ function appended(sessionId: string, messageIds: string[]): SessionChangeEvent {
   };
 }
 
-/** What a store's refusal of a call from inside its own transaction says. */
 const REFUSAL = /refused: .*use the view/;
 
-/**
- * How `promise` settled, as `refused: <message>` or `resolved`, or `still
- * pending` after `ms`: a hang becomes a failed assertion, not a stalled
- * suite.
- */
 async function settlesWithin(
   promise: Promise<unknown>,
   ms: number
@@ -1236,10 +1197,6 @@ function message(
   };
 }
 
-/**
- * Every own property path in `value`, each marked `=undefined` when it holds
- * `undefined`, so a property left out and one holding `undefined` differ.
- */
 function ownPaths(value: unknown, at = "$"): string[] {
   if (value === undefined) {
     return [`${at}=undefined`];

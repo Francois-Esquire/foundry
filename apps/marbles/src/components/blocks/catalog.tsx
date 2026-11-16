@@ -137,7 +137,6 @@ export function DefinitionsBlock({
   );
 }
 
-/** A trigger row's id: its own for this workspace's, its owner's and its own together for another's. */
 function rowId(item: TriggerSnapshot): string {
   return item.workspace === undefined
     ? `trigger:${item.id}`

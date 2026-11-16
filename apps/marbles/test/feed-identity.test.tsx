@@ -6,11 +6,6 @@ import { feedKey } from "../src/views/feed-model";
 import { useFeed } from "../src/views/use-feed";
 import { mount, unmount } from "./helpers/render";
 
-/**
- * Two workspaces may post entries of one id; the feed tells them apart by
- * workspace and id together, in selection, rows and the reader.
- */
-
 afterEach(unmount);
 
 const template: FeedEntrySnapshot = (() => {

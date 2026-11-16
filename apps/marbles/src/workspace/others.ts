@@ -13,35 +13,12 @@ import type {
 import type { OtherWorkspaces } from "./snapshot";
 import { storedRunSnapshot } from "./snapshot";
 
-/**
- * What a hosted workspace's dashboard shows of the other workspaces, read
- * from the Marbles database: every run another workspace shares with this
- * one, read through this workspace's shares, and each other workspace's
- * newest runs, at most `RUNS` of each, each run with its steps as its
- * detail; and each trigger's last tick and pending launch
- * (`marbles_schedule_ticks`, `marbles_monitor_states`). A run shared with
- * this workspace names it among its `workspaces`, so the dashboard shows
- * it in this workspace's lists too, however many newer runs its owner
- * has.
- *
- * Everything here is read only: a control acts through this workspace's
- * engine, which holds only its own runs and triggers. Each run and
- * trigger keeps its own id, workflow and trigger, and carries its owner
- * (`workspace`); the dashboard tells items apart by owner and id together,
- * so two workspaces' runs or triggers of one id stay two. Names end with
- * the owner's. It is read again at most every `REFRESH_MS`; this
- * workspace's own runs and triggers stay live, from its engine.
- */
-
-/** The most runs of each other workspace a dashboard shows, beside every one shared with this one. */
 const RUNS = 100;
 const REFRESH_MS = 2000;
 
 export interface OtherWorkspacesOptions {
   readonly database: StoreDatabase;
-  /** The Marbles state root. */
   readonly state: string;
-  /** This workspace's id. */
   readonly workspace: string;
 }
 
@@ -104,7 +81,6 @@ export function otherWorkspaces(
       try {
         last = { at: now, read: await asBusy(() => read(now)) };
       } catch {
-        // Other workspaces are extra: this one's lists still show.
         last = { at: now, read: { runs: [], triggers: [] } };
       }
     }
@@ -119,7 +95,6 @@ function ownedElsewhere(
 ): RunSnapshot {
   return {
     ...run,
-    // A log line's id is kept unique beside this workspace's own lines.
     ...(run.logs === undefined
       ? {}
       : {

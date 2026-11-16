@@ -139,7 +139,6 @@ function invocable<INSTANCE extends AgentLike<Output.Output>>(
   extend: (changes: AgentChanges) => AgentLike<Output.Output>
 ): INSTANCE {
   const self = target as AgentLike<Output.Output>;
-  // Called outside a run, it reaches the workspace it was made in.
   const scope = captureScope();
   const generate = <CALL extends Output.Output>(
     input: SessionInput,
@@ -228,14 +227,6 @@ export interface AgentSpec<OUTPUT extends Output.Output = never>
   readonly name?: never;
 }
 
-/**
- * The function an agent is declared with. It runs as each session opens,
- * and is given the route that session must keep: the one `extend` set, or
- * the one a recorded session was opened on. Fields of that route it
- * leaves out are filled in; one it sets otherwise fails the opening. It is
- * also given the input `extend` set, or the one the session kept, and
- * `undefined` when there is neither.
- */
 export type DefineAgent<
   OUTPUT extends Output.Output = never,
   INPUT = undefined,
@@ -248,7 +239,6 @@ export type DefineAgent<
 interface AgentRecipe {
   readonly define: DefineAgent<Output.Output, unknown>;
   readonly id: string;
-  /** The input the latest extension set; JSON, so a session can keep it. */
   readonly input?: unknown;
   /** The route the extensions set, the latest on top. */
   readonly route: AgentRoute;
@@ -308,11 +298,6 @@ async function buildRecipe(
   };
 }
 
-/**
- * The input an extension sets, else the one before it. It must be JSON,
- * so a session can keep it; it is kept as a frozen copy, so changing the
- * object given does not change it.
- */
 function inputOf(
   id: string,
   changes: { readonly input?: unknown },
@@ -334,11 +319,6 @@ function inputOf(
   }
 }
 
-/**
- * An agent declared with a function. Its data is its id, and the route and
- * input its extensions set; the rest comes from the function each time a
- * session opens, so nothing it reads is read on import or on `extend`.
- */
 export function recipeInstance<OUTPUT extends Output.Output, INPUT>(
   recipe: AgentRecipe
 ): DeferredAgent<OUTPUT, INPUT> {

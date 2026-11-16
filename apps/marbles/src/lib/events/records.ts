@@ -6,64 +6,24 @@ import { MemoryChangeLog } from "~/lib/events/log";
 import { sourceKey, TASKS } from "~/lib/events/source";
 import { current } from "~/lib/run-scope";
 
-/**
- * A workspace's durable records, as the engine reads and writes them: its
- * tasks, and its change log (`log`), which every store of the workspace
- * writes its change facts to as it commits them, atomically, whether or
- * not anything observes them; delivery (`delivery.ts`) reads them back
- * later, after a restart too.
- *
- * The engine is handed one (`EngineOptions.records`); Marbles hands it the
- * workspace's rows in the Marbles database (`database/tasks.ts`). Without
- * one it keeps them in memory (`MemoryWorkspaceRecords`), which lasts as
- * long as the engine, and only its tasks' facts reach that log.
- */
 export interface WorkspaceRecords extends DeliveryLease {
-  /** Refuse every later call, once the calls already made have settled; give up a delivery claim still held. */
   close(): Promise<void>;
-  /** The workspace's change log. */
   readonly log: ChangeLog;
-  /** The tasks, through the `@foundry/tasks` store seam. */
   readonly taskStore: TaskStore;
-  /**
-   * Call `listener` soon after a commit in this process recorded a fact,
-   * never inside the commit; the function returned stops that.
-   */
   watch(listener: () => void): () => void;
 }
 
-/**
- * Who delivers a workspace's changes: one engine at a time, the one whose
- * claim was granted, until it gives it up or its process is gone. The one
- * seam a lease of another kind replaces.
- */
 export interface DeliveryLease {
-  /**
-   * Make this engine the one that delivers the workspace's changes to its
-   * observers, unless another engine is: who that is, for people, then
-   * (`pid 1234`), else undefined. Claiming again while holding it is a
-   * claim kept.
-   */
   claimDelivery(): Promise<string | undefined>;
-  /** Stop being the engine that delivers the workspace's changes, if this one is. */
   releaseDelivery(): Promise<void>;
 }
 
-/**
- * The run whose work is calling, read when a store is handed a write: the
- * run its facts are recorded as made by. `null` outside any run.
- */
 export function causingRun(): string | null {
   return current.getStore()?.scope.id ?? null;
 }
 
 const CLOSED = "workspace records are closed";
 
-/**
- * Calls that may still be running, and the refusal of new ones once
- * `close` begins, for a `WorkspaceRecords` or any store that closes the
- * same way; `refusal` is what a call made once closed is told.
- */
 export class RecordsGate {
   readonly #running = new Set<Promise<unknown>>();
   readonly #refusal: string;
@@ -73,7 +33,6 @@ export class RecordsGate {
     this.#refusal = refusal;
   }
 
-  /** Run `call`, unless the records are closed. */
   run<T>(call: () => Promise<T>): Promise<T> {
     if (this.#phase === "closed") {
       return Promise.reject(new Error(this.#refusal));
@@ -94,13 +53,6 @@ export class RecordsGate {
   }
 }
 
-/**
- * Run `work` on a copy of `write` taken now, when the caller hands it
- * over, by the rule every task store takes a write by (`ownedWrite`: its
- * events as plain JSON, the rest cloned), so a write a store would refuse
- * is refused here, before anything clones it into one the store accepts;
- * a write the copy refuses rejects without running `work`.
- */
 function owning(
   write: TaskStoreWrite,
   work: (owned: TaskStoreWrite) => Promise<void>
@@ -114,7 +66,6 @@ function owning(
   return work(owned);
 }
 
-/** Who to tell that a call recorded a change, and the telling. */
 export class EmitListeners {
   readonly #listeners = new Set<() => void>();
 
@@ -132,11 +83,6 @@ export class EmitListeners {
 
 const TASKS_KEY = sourceKey(TASKS) ?? "tasks";
 
-/**
- * The records in this process's memory: a `MemoryTaskStore` for the tasks,
- * and a `MemoryChangeLog` their facts are recorded in. A transaction's
- * facts are kept only if it succeeds, as its tasks are.
- */
 export class MemoryWorkspaceRecords implements WorkspaceRecords {
   readonly taskStore: TaskStore;
   readonly log: ChangeLog;
@@ -147,12 +93,6 @@ export class MemoryWorkspaceRecords implements WorkspaceRecords {
     const store = new MemoryTaskStore();
     const log = new MemoryChangeLog();
     this.log = gated(log, this.#gate);
-    /**
-     * Commit `owned`, then keep its facts in `into`: both from the one
-     * copy each `commit` takes when it is called (`owning`), with the run
-     * calling then, so a caller changing its write later, while the commit
-     * waits its turn or after, changes neither.
-     */
     const recorded =
       (target: TaskStore, into: RecordedFact[]) =>
       (owned: TaskStoreWrite): Promise<void> => {
@@ -201,7 +141,6 @@ export class MemoryWorkspaceRecords implements WorkspaceRecords {
     };
   }
 
-  /** Nothing else reads these records, so this engine always delivers them. */
   claimDelivery(): Promise<string | undefined> {
     return this.#gate.run(() => Promise.resolve(undefined));
   }
@@ -219,7 +158,6 @@ export class MemoryWorkspaceRecords implements WorkspaceRecords {
   }
 }
 
-/** `log`, each call refused once `gate` is closed. */
 function gated(log: ChangeLog, gate: RecordsGate): ChangeLog {
   return {
     compact: (bound) => gate.run(() => log.compact(bound)),

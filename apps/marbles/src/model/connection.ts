@@ -14,14 +14,6 @@ import type {
   TaskCommandResult,
 } from "~/model/tasks";
 
-/**
- * One workspace as a host sees it, wherever its engine runs: in this
- * process (`hostWorkspace`) or in an engine generation behind the Marbles process
- * (`connect().workspace(id)`). The dashboard, the CLI, and the MCP server
- * are written against this once; every method is asynchronous and every
- * value crosses a process boundary as JSON.
- */
-
 export type WorkspaceState =
   | "starting"
   | "ready"
@@ -29,14 +21,11 @@ export type WorkspaceState =
   | "failed"
   | "stopped";
 
-/** A workspace the Marbles process knows, and how its engine generation is doing. */
 export interface WorkspaceSummary {
   /** The authoring source, or null for a workspace without one. */
   readonly config: string | null;
-  /** Why it failed, or why a change to it did not load; it may still run as it was. */
   readonly error?: string;
   readonly id: string;
-  /** The pid of the engine generation hosting it, while one does. */
   readonly pid?: number;
   readonly root: string;
   readonly state: WorkspaceState;

@@ -22,16 +22,11 @@ describeContainerStore(
   { hooked: false }
 );
 
-/** A host's record of the events its stores' commits carry. */
 const recordedEvents = sqliteTable("recorded_events", {
   payload: text("payload", { mode: "json" }).$type<SandboxEvent>().notNull(),
   seq: integer("seq").primaryKey({ autoIncrement: true }),
 });
 
-/**
- * Stores over `database` whose `onCommit` writes each event of the write,
- * in order, in the commit's own transaction, as a host's outbox would.
- */
 async function recordingStores(
   database: ContainerDatabase
 ): Promise<RecordingContainerStores> {

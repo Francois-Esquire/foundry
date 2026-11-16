@@ -14,7 +14,6 @@ import {
 } from "~/process/fingerprint";
 import { temporaryDirectory } from "./helpers/temporary";
 
-/** A built installation: its generation entry, a chunk, a migration and a dot file. */
 function build(): { readonly dist: string; readonly entry: string } {
   const dist = join(temporaryDirectory("marbles-fingerprint-"), "dist");
   mkdirSync(join(dist, "migrations"), { recursive: true });
@@ -40,7 +39,6 @@ describe("installationDigest", () => {
     const chunked = installationDigest(entry, "1.0.0");
     expect(chunked).not.toBe(before);
 
-    // Same size, a later modification time.
     const migration = join(dist, "migrations", "0000_init.sql");
     writeFileSync(migration, "-- edit\n");
     const later = new Date(Date.now() + 60_000);
@@ -85,11 +83,9 @@ describe("sourceDigests", () => {
     writeFileSync(outside, '{ "value": 200 }\n');
     const data = digest();
     expect(data).not.toBe(helped);
-    // Under the root, whether a load read it or not: a run may import it.
     writeFileSync(join(root, "later.ts"), "export {};\n");
     const later = digest();
     expect(later).not.toBe(data);
-    // Outside the root, and read by no load: not part of it.
     writeFileSync(join(shared, "unread.ts"), "export {};\n");
     expect(digest()).toBe(later);
   });
@@ -195,7 +191,6 @@ describe("treeDigest", () => {
     const later = new Date(Date.now() + 60_000);
     utimesSync(config, later, later);
     expect(treeDigest(registration, digests)).toBe(before);
-    // Same size, new content: read again because its time moved.
     writeFileSync(config, "export const a = 2;\n");
     utimesSync(config, later, new Date(Date.now() + 120_000));
     expect(treeDigest(registration, digests)).not.toBe(before);
@@ -216,7 +211,6 @@ describe("withRead", () => {
     const empty = printNow(registration, [], digests);
     const now = printNow(registration, [outside], digests);
 
-    // Read after its last change: recorded as it is, the same as now.
     const read = withRead(
       registration,
       empty,
@@ -227,12 +221,10 @@ describe("withRead", () => {
     expect(fingerprintOf("", new Map([["w", read]])).digest).toBe(
       fingerprintOf("", new Map([["w", now]])).digest
     );
-    // Changed since it was read: matches nothing, so a switch follows.
     const stale = withRead(registration, empty, outside, 0, digests);
     expect(fingerprintOf("", new Map([["w", stale]])).digest).not.toBe(
       fingerprintOf("", new Map([["w", now]])).digest
     );
-    // A file under the root is the tree's.
     expect(withRead(registration, empty, config, 0, digests)).toBe(empty);
   });
 });
