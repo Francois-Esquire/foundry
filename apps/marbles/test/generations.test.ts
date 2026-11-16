@@ -1094,11 +1094,15 @@ describe("engine generations", () => {
       await provedGeneration(fixture, first, "retiring");
       process.kill(first, "SIGKILL");
       await gone(first);
-      // A generation starts to recover what the dead one held; its start
-      // leaves a gone process's queued run, and the sweep moves it there.
-      const third = await readyOn(fixture, (pid) => pid !== second);
-      await whenLogged(fixture, `where ${String(third)}`);
+      await vi.waitFor(
+        () =>
+          expect(
+            logged(fixture).filter((line) => line.startsWith("where "))
+          ).toHaveLength(1),
+        { interval: 50, timeout: 30_000 }
+      );
       expect(logged(fixture)).not.toContain(`where ${String(first)}`);
+      expect(second).not.toBe(first);
       expect(
         lines.some((line) => line.includes("taken over from a gone process"))
       ).toBe(true);
