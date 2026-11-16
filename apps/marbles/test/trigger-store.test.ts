@@ -9,9 +9,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { initializeDatabase } from "~/database/open";
-import { marblesScheduleTicks } from "~/database/tables";
+import { marblesMonitorStates, marblesScheduleTicks } from "~/database/tables";
 import { DatabaseTriggerStore } from "~/database/triggers";
 import { stateDatabase } from "~/layout";
+import type { MonitorState } from "~/lib/trigger-store";
 import { MemoryTriggerStore } from "~/lib/trigger-store";
 import { describeTriggerStore } from "./helpers/trigger-store";
 
@@ -33,6 +34,20 @@ async function database() {
       opened.close();
       rmSync(root, { force: true, recursive: true });
       return Promise.resolve();
+    },
+    async leftover(key: string, state: MonitorState) {
+      await opened.database
+        .insert(marblesMonitorStates)
+        .values({
+          key,
+          observed: state.observed,
+          pending: state.pending ?? null,
+          scope: "ws",
+        })
+        .onConflictDoUpdate({
+          set: { observed: state.observed, pending: state.pending ?? null },
+          target: [marblesMonitorStates.scope, marblesMonitorStates.key],
+        });
     },
     opened,
     store: () =>

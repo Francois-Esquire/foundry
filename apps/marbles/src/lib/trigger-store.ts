@@ -50,11 +50,18 @@ export interface TriggerStore {
   finishTick(key: string, tick?: ScheduleHistory): Promise<void>;
   /** The key's last recorded tick; `undefined` before its first. */
   lastTick(key: string): Promise<ScheduleHistory | undefined>;
-  /** What the monitor `key` keeps; `undefined` before its first change. */
+  /**
+   * What the monitor `key` keeps; `undefined` before its first change. A
+   * key whose last recorded tick names a schedule keeps none: what a
+   * monitor left there (an older Marbles' leftover) is dropped here, in the
+   * same write that finds it, and no launch it holds is handed out.
+   */
   monitorState(key: string): Promise<MonitorState | undefined>;
   /**
-   * Keep `state` as the monitor `key`'s, whole. Rejects, keeping nothing,
-   * a state that would not read back as it is (`storedMonitorState`).
+   * Keep `state` as the monitor `key`'s, whole, and record the key as a
+   * monitor's in the same write, so what it keeps before its tick is
+   * recorded is handed back to it. Rejects, keeping nothing, a state that
+   * would not read back as it is (`storedMonitorState`).
    */
   saveMonitorState(key: string, state: MonitorState): Promise<void>;
 }
@@ -183,14 +190,22 @@ export class MemoryTriggerStore implements TriggerStore {
   }
 
   monitorState(key: string): Promise<MonitorState | undefined> {
-    return this.#gate.run(() =>
-      Promise.resolve(structuredClone(this.#monitors.get(key)))
-    );
+    return this.#gate.run(() => {
+      // Nothing a monitor left under a key a schedule ticked last is handed out.
+      if (this.#ticks.get(key)?.kind === "schedule") {
+        this.#monitors.delete(key);
+      }
+      return Promise.resolve(structuredClone(this.#monitors.get(key)));
+    });
   }
 
   saveMonitorState(key: string, state: MonitorState): Promise<void> {
     return this.#gate.run(async () => {
       this.#monitors.set(key, storedMonitorState(key, state));
+      const tick = this.#ticks.get(key);
+      if (tick !== undefined) {
+        this.#ticks.set(key, { ...tick, kind: "monitor" });
+      }
     });
   }
 }

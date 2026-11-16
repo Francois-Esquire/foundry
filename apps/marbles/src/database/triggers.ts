@@ -195,13 +195,20 @@ export class DatabaseTriggerStore implements TriggerStore {
           pending: marblesMonitorStates.pending,
         })
         .from(marblesMonitorStates)
-        .where(
-          and(
-            eq(marblesMonitorStates.scope, this.#scope),
-            eq(marblesMonitorStates.key, key)
-          )
-        );
+        .where(this.#monitorKey(key));
       if (row === undefined) {
+        return;
+      }
+      // What a monitor left under a key a schedule ticked last (as an older
+      // Marbles left it) is no monitor's now: dropped here, never handed out.
+      if ((await this.#lastKind(this.#database, key)) === "schedule") {
+        await this.#database.transaction(async (transaction) => {
+          if ((await this.#lastKind(transaction, key)) === "schedule") {
+            await transaction
+              .delete(marblesMonitorStates)
+              .where(this.#monitorKey(key));
+          }
+        });
         return;
       }
       const { observed, pending } = monitorStateSchema.parse({
@@ -227,14 +234,42 @@ export class DatabaseTriggerStore implements TriggerStore {
             ? null
             : { input: pending.input, workflow: pending.workflow },
       };
-      await this.#database
-        .insert(marblesMonitorStates)
-        .values({ ...values, key, scope: this.#scope })
-        .onConflictDoUpdate({
-          set: values,
-          target: [marblesMonitorStates.scope, marblesMonitorStates.key],
-        });
+      await this.#database.transaction(async (transaction) => {
+        await transaction
+          .insert(marblesMonitorStates)
+          .values({ ...values, key, scope: this.#scope })
+          .onConflictDoUpdate({
+            set: values,
+            target: [marblesMonitorStates.scope, marblesMonitorStates.key],
+          });
+        // A monitor keeps its state under the key: the key is a monitor's
+        // from now, before its tick is recorded, so a stop in between
+        // keeps what it saw and the launch it handed over.
+        await transaction
+          .update(marblesScheduleTicks)
+          .set({ kind: "monitor" })
+          .where(this.#key(key));
+      });
     });
+  }
+
+  /** The kind the key's last recorded tick names, if any. */
+  async #lastKind(
+    database: StoreDatabase,
+    key: string
+  ): Promise<string | null | undefined> {
+    const [tick] = await database
+      .select({ kind: marblesScheduleTicks.kind })
+      .from(marblesScheduleTicks)
+      .where(this.#key(key));
+    return tick?.kind;
+  }
+
+  #monitorKey(key: string) {
+    return and(
+      eq(marblesMonitorStates.scope, this.#scope),
+      eq(marblesMonitorStates.key, key)
+    );
   }
 
   #key(key: string) {
