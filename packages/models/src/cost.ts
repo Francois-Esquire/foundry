@@ -98,3 +98,23 @@ export function costFromUsage(
     total: input + output + reasoning + cacheRead + cacheWrite,
   };
 }
+
+export const CLAUDE_CODE_FRESH = { field: "claudeCodeFresh", key: "foundry" };
+
+export function claudeCodeCallCost(
+  metadata: Readonly<Record<string, unknown>> | undefined
+): number | undefined {
+  const field = (key: string, name: string): unknown => {
+    const entry = metadata?.[key];
+    return typeof entry === "object" && entry !== null
+      ? (entry as Record<string, unknown>)[name]
+      : undefined;
+  };
+  if (field(CLAUDE_CODE_FRESH.key, CLAUDE_CODE_FRESH.field) !== true) {
+    return;
+  }
+  const cost = field("claude-code", "costUsd");
+  return typeof cost === "number" && Number.isFinite(cost) && cost >= 0
+    ? cost
+    : undefined;
+}

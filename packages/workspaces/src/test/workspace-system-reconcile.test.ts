@@ -5,13 +5,12 @@ import {
   WorkspacePersistenceError,
   WorkspaceSourceUnavailableError,
 } from "../errors";
-import { MemoryWorkspaceStore } from "../memory-store";
 import { nodeFileSystem } from "../node";
 import type { WorkspaceStore } from "../store";
+import { MemoryWorkspaceStore } from "../store/memory";
+import { fileRecord } from "../testing/records";
 import type { WorkspaceFileSystem } from "../types";
-
 import { directorySystem } from "./helpers/directory-system";
-import { fileRecord } from "./helpers/fixtures";
 import { makeRoot, systemOver } from "./helpers/temp-roots";
 
 describe("reconciliation", () => {
@@ -323,7 +322,6 @@ describe("reconciliation", () => {
       getWorkspace: (workspaceId) => store.getWorkspace(workspaceId),
       listEntries: (workspaceId) => store.listEntries(workspaceId),
       listWorkspaces: (input) => store.listWorkspaces(input),
-      removeWorkspace: (workspaceId) => store.removeWorkspace(workspaceId),
     };
     const system = directorySystem({ store: holding });
 
@@ -415,7 +413,6 @@ describe("reconciliation", () => {
         return reads === 2 ? [...rows, phantom] : rows;
       },
       listWorkspaces: (input) => store.listWorkspaces(input),
-      removeWorkspace: (workspaceId) => store.removeWorkspace(workspaceId),
     };
 
     const failure = await directorySystem({ store: refusing })

@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { parseArgs, parseMcpArgs, UsageError } from "~/args";
+import { parseArgs, UsageError } from "~/args";
 
 /** The Foundry home the defaults follow: the test run's own, else the user's. */
 function foundryHome(): string {
@@ -116,19 +116,15 @@ it("parses watch by run ID and refuses missing or extra arguments", () => {
   );
 });
 
-it("parses STDIO host flags without a synthetic CLI command", () => {
+it("parses the mcp command, which takes flags only", () => {
   expect(
-    parseMcpArgs(["--source", "/tmp/source.ts", "--dry-run"])
-  ).toMatchObject({
-    config: "/tmp/source.ts",
-    dry: true,
-    help: false,
-  });
-  expect(() => parseMcpArgs(["list"])).toThrow("MCP accepts flags only");
-  expect(() => parseMcpArgs(["--harness", "codex"])).toThrow(
+    parseArgs(["mcp", "--source", "/tmp/source.ts", "--dry-run"])
+  ).toMatchObject({ command: "mcp", config: "/tmp/source.ts", dry: true });
+  expect(() => parseArgs(["mcp", "list"])).toThrow("mcp takes no arguments");
+  expect(() => parseArgs(["mcp", "--harness", "codex"])).toThrow(
     "--harness was removed"
   );
-  expect(parseMcpArgs(["bogus", "--help", "--harness", "missing"]).help).toBe(
-    true
+  expect(parseArgs(["mcp", "--help", "--harness", "missing"]).command).toBe(
+    "help"
   );
 });

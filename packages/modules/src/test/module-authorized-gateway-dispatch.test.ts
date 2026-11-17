@@ -16,7 +16,7 @@ import type {
   ModuleRuntimeIdentity,
 } from "../gateway/types";
 import { PORTABLE_SCHEMA_DIALECT } from "../manifest";
-import { InMemoryModuleStore } from "../store/memory";
+import { ModuleRegistry } from "../registry";
 import { FakeTransport } from "./helpers/fake-transport";
 import { moduleFixture } from "./helpers/module-fixture";
 
@@ -755,7 +755,7 @@ async function createFixture(input: { readonly grant?: boolean } = {}) {
     },
     module,
   });
-  const store = new InMemoryModuleStore();
+  const store = new ModuleRegistry();
   await store.registerModule({ module });
   const initial = createDisabledInstallation({
     id: installationIdSchema.parse("installation-1"),

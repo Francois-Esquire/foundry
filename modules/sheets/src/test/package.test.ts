@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
-import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { importModulePackage } from "@foundry/modules/package";
-import { createArtifactModuleStore } from "@foundry/modules/store/artifact";
+import { ModuleRegistry } from "@foundry/modules/registry";
 import { expect, it } from "vitest";
 import { SHEETS_PACKAGE_PATH } from "..";
 import { WORKBOOK_MIME } from "../workbook/file";
@@ -12,7 +13,7 @@ it("imports as a strict release registering a workbook write editor", async () =
   const version = await importModulePackage({
     artifacts,
     encoded: await readFile(SHEETS_PACKAGE_PATH, "utf8"),
-    modules: createArtifactModuleStore(artifacts),
+    modules: new ModuleRegistry(),
   });
   expect(version).toMatchObject({
     manifest: {

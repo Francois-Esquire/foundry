@@ -1,0 +1,269 @@
+import type { ChildProcess } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { ReentrantCallError } from "@foundry/lib/turns";
+import { Tasks } from "@foundry/tasks";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { MIGRATIONS } from "~/database/migrate";
+import { initializeDatabase } from "~/database/open";
+import { TaskStorageError } from "~/database/tasks";
+import { stateDatabase } from "~/layout";
+import { cliArgs } from "./helpers/cli";
+import { stopDaemon } from "./helpers/daemon";
+import { testMachine } from "./helpers/records";
+
+const SRC = resolve("src");
+const ONE_LINE = /^marbles: [^\n]+\n$/;
+const UNSTORABLE =
+  /^marbles: this change cannot be stored in the Marbles database: SqliteTaskStore cannot store putTasks\[0\]\.title: [^\n]+\n$/;
+const NEWER = /migrated by a newer Marbles/;
+const BUSY = /the Marbles database is busy/;
+
+const homes: string[] = [];
+const children: ChildProcess[] = [];
+const cleanups: (() => Promise<void>)[] = [];
+
+afterEach(async () => {
+  for (const child of children.splice(0)) {
+    child.kill("SIGKILL");
+  }
+  for (const cleanup of cleanups.splice(0)) {
+    await cleanup();
+  }
+  for (const dir of homes.splice(0)) {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+function home(): string {
+  const dir = mkdtempSync(join(tmpdir(), "mte-"));
+  homes.push(dir);
+  return dir;
+}
+
+function creating(title: string) {
+  return {
+    operations: [{ input: { title }, key: "t", kind: "task.create" }],
+  };
+}
+
+function marbles(cwd: string, state: string, ...argv: readonly string[]) {
+  return spawnSync("bun", cliArgs(...argv, "--state", state), {
+    cwd,
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+}
+
+async function newerDatabase(state: string): Promise<void> {
+  const folder = join(state, "..", "migrations-next");
+  cpSync(MIGRATIONS, folder, { recursive: true });
+  const path = join(folder, "meta", "_journal.json");
+  const journal = JSON.parse(readFileSync(path, "utf8")) as {
+    entries: { tag: string; when: number }[];
+  };
+  const last = journal.entries.at(-1);
+  if (last === undefined) {
+    throw new Error("no migrations are committed");
+  }
+  journal.entries.push({ ...last, tag: "9999_probe", when: last.when + 1 });
+  writeFileSync(path, JSON.stringify(journal));
+  writeFileSync(
+    join(folder, "9999_probe.sql"),
+    "CREATE TABLE `probe` (`id` text PRIMARY KEY NOT NULL);\n"
+  );
+  (
+    await initializeDatabase(stateDatabase(state), { migrations: folder })
+  ).close();
+}
+
+async function holdWriteLock(state: string): Promise<void> {
+  (await initializeDatabase(stateDatabase(state))).close();
+  const script = join(state, "..", "hold.ts");
+  writeFileSync(
+    script,
+    `import { openDatabase } from ${JSON.stringify(join(SRC, "database/open.ts"))};
+const opened = await openDatabase(${JSON.stringify(stateDatabase(state))});
+const held = await opened.database.$client.transaction("write");
+await held.execute("INSERT INTO marbles_workspaces (first_seen, id, last_seen, root) VALUES ('t', 'holder', 't', '/')");
+process.stdout.write("held\\n");
+await new Promise((done) => setTimeout(done, 30_000));
+// Used after the wait, so the transaction is not collected, and rolled back, before.
+await held.rollback();
+`
+  );
+  const holder = spawn("bun", [script], { cwd: resolve(".") });
+  children.push(holder);
+  await new Promise<void>((ready, failed) => {
+    holder.stdout?.on("data", (chunk: Buffer) => {
+      if (chunk.toString().includes("held")) {
+        ready();
+      }
+    });
+    holder.once("exit", (code) => failed(new Error(`holder exited ${code}`)));
+  });
+}
+
+function toolError(value: unknown): string {
+  const result = CallToolResultSchema.parse(value);
+  expect(result.isError).toBe(true);
+  const [block] = result.content;
+  if (block?.type !== "text") {
+    throw new Error("the result carried no text");
+  }
+  expect(block.text).not.toContain("\n    at ");
+  return block.text;
+}
+
+async function mcp(cwd: string, state: string): Promise<Client> {
+  const transport = new StdioClientTransport({
+    args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--state", state],
+    command: "bun",
+    cwd,
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "tasks-errors", version: "1.0.0" });
+  await client.connect(transport);
+  cleanups.push(() => client.close());
+  return client;
+}
+
+function change(client: Client, title: string) {
+  return client.callTool({ arguments: creating(title), name: "change_tasks" });
+}
+
+describe("a task command the database refuses", { timeout: 60_000 }, () => {
+  it("names the field holding text it cannot store, in one line", async () => {
+    const root = home();
+    const state = join(root, "state");
+    for (const title of ["a\u0000b", "lone \ud800"]) {
+      const refused = marbles(
+        root,
+        state,
+        "tasks",
+        "change",
+        "--input",
+        JSON.stringify(creating(title))
+      );
+      expect(refused.status).toBe(1);
+      expect(refused.stdout).toBe("");
+      expect(refused.stderr).toMatch(UNSTORABLE);
+    }
+    const client = await mcp(root, state);
+    expect(toolError(await change(client, "a\u0000b"))).toMatch(
+      "cannot be stored in the Marbles database"
+    );
+    expect(marbles(root, state, "tasks", "list", "--json").stdout).toContain(
+      '"total": 0'
+    );
+  });
+
+  it("names text it cannot store when the worker that hosts the workspace refuses it", async () => {
+    const root = home();
+    const state = join(root, "s");
+    const source = join(root, "marbles.ts");
+    writeFileSync(source, 'import "@foundry.sh/marbles";\n');
+    cleanups.push(() => stopDaemon(state));
+    const attached = marbles(root, state, "attach", "--source", source);
+    expect(attached.status, attached.stderr).toBe(0);
+    const refused = marbles(
+      root,
+      state,
+      "tasks",
+      "change",
+      "--input",
+      JSON.stringify(creating("a\u0000b")),
+      "--source",
+      source
+    );
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toMatch(ONE_LINE);
+    expect(refused.stderr).toContain(
+      "cannot be stored in the Marbles database"
+    );
+  });
+
+  it("says a newer Marbles migrated the database, in one line", async () => {
+    const root = home();
+    const state = join(root, "state");
+    mkdirSync(state);
+    await newerDatabase(state);
+    for (const argv of [
+      ["tasks", "list"],
+      ["tasks", "create", "Refused"],
+    ]) {
+      const refused = marbles(root, state, ...argv);
+      expect(refused.status, argv.join(" ")).toBe(1);
+      expect(refused.stderr).toMatch(ONE_LINE);
+      expect(refused.stderr).toMatch(NEWER);
+    }
+    const client = await mcp(root, state);
+    expect(
+      toolError(await client.callTool({ arguments: {}, name: "list_tasks" }))
+    ).toMatch(NEWER);
+    expect(toolError(await change(client, "Refused"))).toMatch(NEWER);
+  });
+
+  it("says the database stayed busy, in one line", async () => {
+    const root = home();
+    const state = join(root, "state");
+    await holdWriteLock(state);
+    const refused = marbles(root, state, "tasks", "create", "Waiting");
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toMatch(ONE_LINE);
+    expect(refused.stderr).toMatch(BUSY);
+    const client = await mcp(root, state);
+    expect(toolError(await change(client, "Waiting"))).toMatch(BUSY);
+  });
+});
+
+describe("the database's task store", () => {
+  it("refuses a call to itself from inside its own transaction at once, never waiting on itself", async () => {
+    const machine = await testMachine();
+    try {
+      const records = machine.records(machine.workspace());
+      const { taskStore } = records;
+      const { transaction } = taskStore;
+      if (transaction === undefined) {
+        throw new Error("the store offers no transaction");
+      }
+      const started = Date.now();
+      await expect(
+        transaction(() => new Tasks({ store: taskStore }).list())
+      ).rejects.toThrow(ReentrantCallError);
+      expect(Date.now() - started).toBeLessThan(1000);
+      await records.close();
+    } finally {
+      machine.close();
+    }
+  });
+
+  it("refuses text it cannot store as a TaskStorageError, before writing anything", async () => {
+    const machine = await testMachine();
+    try {
+      const state = machine.workspace();
+      const records = machine.records(state);
+      const tasks = new Tasks({ store: records.taskStore });
+      await expect(tasks.create({ title: "a\u0000b" })).rejects.toThrow(
+        TaskStorageError
+      );
+      expect((await tasks.list()).items).toEqual([]);
+      expect(await machine.changes(state)).toEqual([]);
+      await records.close();
+    } finally {
+      machine.close();
+    }
+  });
+});

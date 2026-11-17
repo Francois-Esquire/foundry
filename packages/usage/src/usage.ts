@@ -23,7 +23,6 @@ export interface Account<C = unknown> {
 
 /** What `usage` needs of a provider: its id and its default account. */
 export interface Provider {
-  /** The default account, named after the provider, when it looks signed in. */
   defaultAccount(): Promise<Account | undefined>;
   readonly id: string;
 }
@@ -47,11 +46,6 @@ export interface QueryAllOptions extends QueryOptions {
 export interface Usage {
   /** Adds an account, registers its provider if needed, and returns its name. Throws if the name is used. */
   add(account: Account): string;
-  /**
-   * Adds each registered provider's default account that looks signed in,
-   * under the provider's id, unless that name is taken. Asks for no limits.
-   * Returns every default account now added, whoever added it.
-   */
   initialize(): Promise<readonly Account[]>;
   query(name: string, options?: QueryOptions): Promise<Snapshot>;
   query(options?: QueryAllOptions): Promise<readonly Snapshot[]>;

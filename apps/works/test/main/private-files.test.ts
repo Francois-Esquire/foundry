@@ -15,7 +15,7 @@ import { installationIdSchema } from "@foundry/modules/domain";
 import { createModuleInstallationFiles } from "@foundry/modules/node/installation-files";
 import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { moduleDirectory, moduleFolder } from "~/main/modules/local-library";

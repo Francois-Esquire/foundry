@@ -1,5 +1,5 @@
 import type { Orchestrator } from "@foundry/workflows/orchestrator";
-import type { InMemoryOrchestratorStore } from "@foundry/workflows/store";
+import type { MemoryWorkflowStore } from "@foundry/workflows/store/memory";
 
 import type { Executions } from "~/lib/executions";
 import type { FeedRouter } from "~/lib/feed/route";
@@ -38,8 +38,12 @@ const STEP_LIFECYCLE: ReadonlySet<string> = new Set([
   "step.aborted",
 ]);
 
-/** What is read of a held run while it is live. */
-type HeldWorkflow = Pick<Dispatched<unknown>["workflow"], "root" | "state">;
+type DispatchedWorkflow = Dispatched<unknown>["workflow"];
+
+interface HeldWorkflow {
+  readonly root: Pick<DispatchedWorkflow["root"], "subscribe">;
+  readonly state: DispatchedWorkflow["state"];
+}
 
 interface HeldRun {
   /** Execution, publication, cleanup, and persistence, owned together. */
@@ -73,7 +77,7 @@ export interface HeldRunsOptions {
   readonly scopes: RunScopes;
   /** Where run files go; without one, nothing is written. */
   readonly state: string | undefined;
-  readonly store: InMemoryOrchestratorStore;
+  readonly store: MemoryWorkflowStore;
 }
 
 export class HeldRuns {

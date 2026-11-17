@@ -62,7 +62,10 @@ export function totalOf(
     const { cost } = fact;
     if (fact.lost !== undefined) {
       missing += 1;
-    } else if (cost.kind === "estimated") {
+    } else if (
+      cost.kind === "estimated" ||
+      (cost.kind === "reported" && cost.estimate)
+    ) {
       addMoney(estimated, cost);
     } else if (cost.kind === "reported") {
       addMoney(reported, cost);

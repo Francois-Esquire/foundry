@@ -6,15 +6,16 @@ import type {
   StorageNode,
 } from "@foundry/core/storage";
 
-import type { ContentTree } from "./blob";
-import type {
-  ArtifactLifecycleStatus,
-  ArtifactMetadata,
-  ContentMetadata,
-  ContentState,
-} from "./content";
 import type { ArtifactCursor } from "./listing";
 import type { ArtifactId, BlobId, ContentId } from "./ref";
+import type {
+  Artifact,
+  Content,
+  ContentMetadata,
+  ContentState,
+} from "./schema";
+
+export type { Artifact, Content } from "./schema";
 
 /**
  * The Artifact substrate: a thing people point at, and the versions of what
@@ -23,32 +24,6 @@ import type { ArtifactId, BlobId, ContentId } from "./ref";
  * Vocabulary: a Content is one version. Its bytes are the tree, the files,
  * the blobs; never "content".
  */
-
-export interface Artifact {
-  readonly archivedAt: Date | null;
-  readonly contentId: ContentId | null;
-  readonly createdAt: Date;
-  readonly id: ArtifactId;
-  readonly metadata: ArtifactMetadata;
-  readonly name: string;
-  readonly publishedAt: Date | null;
-  readonly status: ArtifactLifecycleStatus;
-  readonly type: string;
-  readonly updatedAt: Date;
-}
-
-export interface Content {
-  readonly artifactId: ArtifactId;
-  readonly createdAt: Date;
-  readonly digest: string;
-  readonly frozenAt: Date | null;
-  readonly id: ContentId;
-  readonly metadata: ContentMetadata;
-  readonly state: ContentState;
-  readonly tag: string | null;
-  readonly tree: ContentTree;
-  readonly updatedAt: Date;
-}
 
 export interface ArtifactResolved extends Artifact {
   readonly content: Content | null;
@@ -156,12 +131,7 @@ export interface ArtifactOperations {
     readonly expectedContentId: ContentId;
   }): Promise<ArtifactResolved>;
   create(input: CreateArtifactInput): Promise<ArtifactResolved>;
-  /** Cascades to every Content. Throws ArtifactInUseError when a pin holds one. */
   delete(artifactId: ArtifactId): Promise<boolean>;
-  /**
-   * Remove a Content. The active row needs a replacement named in the same
-   * call. Frozen rows held by a pin throw ContentInUseError.
-   */
   deleteContent(input: {
     readonly contentId: ContentId;
     readonly replacementContentId?: ContentId;
@@ -227,11 +197,6 @@ export interface ArtifactOperations {
     patch: Readonly<Record<string, unknown>>
   ): Promise<Content>;
 
-  /**
-   * Reclaim: delete unfrozen, unpointed, unpinned Contents older than
-   * `olderThan`, then every blob nothing references. Each operation already
-   * reclaims the blobs it released; this full scan is the backstop.
-   */
   sweep(input: { readonly olderThan: Date }): Promise<{
     readonly contents: number;
     readonly blobs: number;
@@ -262,13 +227,7 @@ export interface Artifacts extends ArtifactOperations {
   bind(apply: (artifactId: ArtifactId) => Promise<void>): () => void;
   /** Reports committed changes, even when their application failed. */
   observe(changed: ArtifactObserver): () => void;
-  /** Remove abandoned backing files, then reapply every Artifact. */
   recover(): Promise<void>;
-  /**
-   * Run grouped operations through the supplied handle; they commit together.
-   * Effects register with the outermost transaction, never a nested return.
-   * All effects run after commit (even on application failure), none on rollback.
-   */
   transaction<T>(
     operation: (
       artifacts: ArtifactOperations,

@@ -1,12 +1,13 @@
 import { realpathSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineSkill } from "@foundry/agents/skills";
 import type { ArtifactId, ContentId } from "@foundry/artifacts";
-import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
@@ -77,7 +78,7 @@ describe("skills", () => {
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe]);
     await writeFile(join(dir, "logo.png"), png);
     await writeFile(join(dir, "notes.md"), "Use the logo.");
-    const resolve = skillResolver({ global: join(tmp, "none"), workspace });
+    const resolve = skillResolver({ home: join(tmp, "none"), workspace });
 
     const [brand] = await resolve(skills.load());
     expect(brand?.files?.["logo.png"]).toEqual(png);
@@ -105,10 +106,7 @@ describe("skills", () => {
       recursive: true,
     });
     await skill(join(tmp, "sibling", "skills", "shared"), "shared");
-    const resolve = skillResolver({
-      global: join(home, ".foundry", "skills"),
-      workspace,
-    });
+    const resolve = skillResolver({ home, workspace });
 
     const names = async (set: Parameters<typeof resolve>[0]) =>
       (await resolve(set)).map((entry) => entry.name).sort();
@@ -139,6 +137,99 @@ describe("skills", () => {
     expect(loaded.find((entry) => entry.name === "unslop")?.instructions).toBe(
       "Use unslop."
     );
+  });
+});
+
+describe("skills.load folders", () => {
+  it("reads six folders, the workspace winning a name over the home", async () => {
+    const home = join(tmp, "home");
+    const workspace = join(tmp, "ws");
+    const folders = [
+      [home, ".agents/skills"],
+      [home, ".claude/skills"],
+      [home, ".foundry/skills"],
+      [workspace, ".agents/skills"],
+      [workspace, ".claude/skills"],
+      [workspace, "skills"],
+    ] as const;
+    for (const [index, [root, dir]] of folders.entries()) {
+      await skill(join(root, dir, `only-${index}`), `only-${index}`);
+      await skill(join(root, dir, "shared"), "shared", `${root}/${dir}`);
+    }
+    const resolve = skillResolver({ home, workspace });
+    const loaded = await resolve(skills.load());
+
+    expect(loaded.map((entry) => entry.name).sort()).toEqual([
+      "only-0",
+      "only-1",
+      "only-2",
+      "only-3",
+      "only-4",
+      "only-5",
+      "shared",
+    ]);
+    expect(loaded.find((entry) => entry.name === "shared")?.description).toBe(
+      `${workspace}/skills`
+    );
+  });
+
+  it("orders folders within a level: .agents, then .claude, then skills", async () => {
+    const home = join(tmp, "home");
+    const workspace = join(tmp, "ws");
+    await skill(join(home, ".agents/skills/a"), "home", "agents");
+    await skill(join(home, ".claude/skills/a"), "home", "claude");
+    await skill(join(workspace, ".agents/skills/a"), "ws", "agents");
+    await skill(join(workspace, ".claude/skills/a"), "ws", "claude");
+    const descriptions = async () =>
+      Object.fromEntries(
+        (await skillResolver({ home, workspace })(skills.load())).map(
+          (entry) => [entry.name, entry.description]
+        )
+      );
+
+    await expect(descriptions()).resolves.toEqual({
+      home: "claude",
+      ws: "claude",
+    });
+    await skill(join(home, ".foundry/skills/a"), "home", "foundry");
+    await skill(join(workspace, "skills/a"), "ws", "skills");
+    await expect(descriptions()).resolves.toEqual({
+      home: "foundry",
+      ws: "skills",
+    });
+  });
+
+  it("follows a symlinked skill folder", async () => {
+    const workspace = join(tmp, "ws");
+    await skill(join(tmp, "elsewhere", "linked"), "linked");
+    await mkdir(join(workspace, ".claude/skills"), { recursive: true });
+    await symlink(
+      join(tmp, "elsewhere", "linked"),
+      join(workspace, ".claude/skills/linked")
+    );
+    const loaded = await skillResolver({ home: join(tmp, "none"), workspace })(
+      skills.load()
+    );
+    expect(loaded.map((entry) => entry.name)).toEqual(["linked"]);
+  });
+
+  it("adds one skill folder, or a glob of them under a dot folder", async () => {
+    const workspace = join(tmp, "ws");
+    await skill(join(workspace, ".claude/skills/review"), "review");
+    await skill(join(workspace, ".claude/skills/tone"), "tone");
+    const resolve = skillResolver({ home: join(tmp, "none"), workspace });
+    const names = async (set: Parameters<typeof resolve>[0]) =>
+      (await resolve(set)).map((entry) => entry.name).sort();
+
+    await expect(
+      names(skills.none().add(".claude/skills/review"))
+    ).resolves.toEqual(["review"]);
+    await expect(names(skills.none().add(".claude/skills/*"))).resolves.toEqual(
+      ["review", "tone"]
+    );
+    await expect(
+      names(skills.none().add("./.claude/skills/*"))
+    ).resolves.toEqual(["review", "tone"]);
   });
 });
 

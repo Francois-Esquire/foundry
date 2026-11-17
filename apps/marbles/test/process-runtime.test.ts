@@ -108,20 +108,21 @@ it("refuses to start the CLI when Bun loaded a workspace .env, and starts with t
 }, 30_000);
 
 it("refuses the MCP server when Bun loaded a workspace .env, and starts it as documented", () => {
-  const stdio = resolve("src/mcp/stdio.ts");
-  const bare = spawnSync(runtime(), [stdio, "--help"], {
+  const cli = resolve("src/cli.ts");
+  const bare = spawnSync(runtime(), [cli, "mcp", "--help"], {
     cwd: workspace,
     encoding: "utf8",
   });
   expect(bare.status).toBe(1);
   expect(bare.stderr).toContain("Bun loaded .env from");
 
-  const flagged = spawnSync(runtime(), [...RUNTIME_FLAGS, stdio, "--help"], {
-    cwd: workspace,
-    encoding: "utf8",
-  });
+  const flagged = spawnSync(
+    runtime(),
+    [...RUNTIME_FLAGS, cli, "mcp", "--help"],
+    { cwd: workspace, encoding: "utf8" }
+  );
   expect(flagged.status).toBe(0);
-  expect(flagged.stderr).toContain("--no-env-file src/mcp/stdio.ts");
+  expect(flagged.stdout).toContain("mcp   ");
 }, 30_000);
 
 it("refuses a worker started without the flag beside a workspace .env", () => {

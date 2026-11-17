@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { InMemoryArtifactStore } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import type { ModuleVersion } from "@foundry/modules/domain";
 import {
   type ExecutionRun,

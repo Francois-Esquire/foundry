@@ -3,16 +3,13 @@ import type {
   Provider,
   ProviderModelDefinition,
 } from "@foundry/models";
-import {
-  GATEWAY_DEFAULT_MODELS,
-  VERCEL_DEFAULT_MODELS,
-} from "@foundry/models/catalog/defaults";
+import { VERCEL_DEFAULT_MODELS } from "@foundry/models/catalog/defaults";
 import {
   CLAUDE_CODE_DEFAULT_MODELS,
   claudeCodeProvider,
 } from "@foundry/models/claude-code";
 import { CODEX_DEFAULT_MODELS, codexProvider } from "@foundry/models/codex";
-import { gatewayProvider } from "@foundry/models/gateway";
+import { gatewayModels, gatewayProvider } from "@foundry/models/gateway";
 import { PI_DEFAULT_MODELS, piProvider } from "@foundry/models/pi";
 import { vercelProvider } from "@foundry/models/vercel";
 import { z } from "zod";
@@ -88,6 +85,11 @@ export interface ProviderPlugin<S = unknown> {
   }): S | null;
   readonly id: string;
   readonly label: string;
+  list?(context: {
+    readonly env: Readonly<Record<string, string>>;
+    readonly settings: S;
+    readonly signal: AbortSignal;
+  }): Promise<readonly ProviderModelDefinition[]>;
   /** Settings keys holding the name of an environment variable, never a value. */
   readonly secrets?: readonly string[];
   readonly settings: z.ZodType<S>;
@@ -280,21 +282,28 @@ export const vercelPlugin: ProviderPlugin<z.infer<typeof VERCEL>> = {
   settings: VERCEL,
 };
 
-const GATEWAY = z.object({
+const GATEWAY = z.strictObject({
   apiKey: z.string().optional(),
   baseURL: z.string(),
 });
 
+function gatewayConfig(
+  settings: z.infer<typeof GATEWAY>,
+  env: Readonly<Record<string, string>>
+) {
+  return {
+    baseURL: settings.baseURL,
+    ...(settings.apiKey && env[settings.apiKey] !== undefined
+      ? { apiKey: env[settings.apiKey] }
+      : {}),
+  };
+}
+
 export const gatewayPlugin: ProviderPlugin<z.infer<typeof GATEWAY>> = {
-  catalog: () => GATEWAY_DEFAULT_MODELS,
+  catalog: () => [],
   create: ({ defaults, env, id, models, settings }) => ({
     provider: gatewayProvider({
-      config: {
-        baseURL: settings.baseURL,
-        ...(settings.apiKey && env[settings.apiKey] !== undefined
-          ? { apiKey: env[settings.apiKey] }
-          : {}),
-      },
+      config: gatewayConfig(settings, env),
       id,
       models: [...models],
       ...(defaults ? { defaults } : {}),
@@ -302,6 +311,8 @@ export const gatewayPlugin: ProviderPlugin<z.infer<typeof GATEWAY>> = {
   }),
   id: "gateway",
   label: "OpenAI-compatible gateway",
+  list: ({ env, settings, signal }) =>
+    gatewayModels(gatewayConfig(settings, env), { signal }),
   secrets: ["apiKey"],
   settings: GATEWAY,
 };

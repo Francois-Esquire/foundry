@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemoryArtifactStore } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import type { ModuleVersion } from "@foundry/modules/domain";
 import { createRouterClient } from "@orpc/server";
 import { describe, expect, it, vi } from "vitest";

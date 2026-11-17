@@ -1,6 +1,15 @@
 import { z } from "zod";
-import type { JsonObject, Task, TaskId, TaskStatus } from "./types";
-import { TASK_STATUSES } from "./types";
+import {
+  type JsonObject,
+  type Task,
+  type TaskId,
+  type TaskStatus,
+  taskMetadataSchema,
+  taskStatusSchema,
+} from "./schema";
+
+// biome-ignore lint/performance/noBarrelFile: `./operations` is a declared entry point and has always exported the metadata schema.
+export { taskMetadataSchema } from "./schema";
 
 /**
  * The command language. A change is a batch of operations applied atomically;
@@ -96,9 +105,7 @@ export interface TaskChangeResult {
 
 export const MAX_OPERATIONS_PER_CHANGE = 100;
 
-const taskStatusSchema = z.enum(TASK_STATUSES);
 const nonEmpty = z.string().min(1);
-export const taskMetadataSchema = z.record(z.string(), z.json());
 const tagsSchema = z.array(z.string()).readonly();
 
 export const taskRefSchema: z.ZodType<TaskRef, TaskRef> = z.union([

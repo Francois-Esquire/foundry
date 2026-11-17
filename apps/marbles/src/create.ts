@@ -1,23 +1,30 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { SessionStore } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts } from "@foundry/artifacts";
-import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { showArgv } from "@foundry/lib/argv";
 import type { Provider } from "@foundry/models";
 import { ModelManager } from "@foundry/models";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/git";
 import { Catalog } from "~/authoring/catalog";
+import type { WorkspaceDatabase } from "~/database/managed";
+import { defaultWorkspaceDatabase } from "~/database/managed";
+import type { StoreDatabase } from "~/database/open";
+import { DatabaseSessionStore } from "~/database/sessions";
+import { DatabaseWorkspaceRecords } from "~/database/tasks";
+import { Engine as PublishedEngine } from "~/entries/engine";
 import { layout } from "~/layout";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
+import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
@@ -27,7 +34,6 @@ import { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { RegisteredPlugin } from "~/lib/providers/plugins";
 import { FIRST_PARTY_PLUGINS } from "~/lib/providers/plugins";
 import { Registry } from "~/lib/registry";
-import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 
 /**
@@ -43,6 +49,7 @@ export interface CreateEngineOptions {
   readonly artifacts?: string;
   readonly askable?: boolean;
   readonly catalog: Catalog;
+  readonly database?: StoreDatabase;
   readonly dry: boolean;
   /** The machine environment and the workspace's Varlock values; the process's own when omitted. */
   readonly environment?: {
@@ -184,13 +191,42 @@ function modelsFor(options: CreateEngineOptions): {
   return { models, providers };
 }
 
-function sessionsFor(
+function recordsFor(
   state: string | undefined,
-  print: (line: string) => void
-): SessionStore {
-  return state === undefined
-    ? new InMemorySessionStore()
-    : new JsonSessionStore(join(state, "sessions"), { warn: print });
+  database: StoreDatabase | undefined,
+  { root, workspaceId }: CreateEngineOptions
+): Pick<EngineOptions, "records" | "sessions"> & {
+  readonly own?: WorkspaceDatabase;
+} {
+  if (database !== undefined) {
+    const scope = workspaceId;
+    return {
+      records: new DatabaseWorkspaceRecords({ database, scope }),
+      sessions: new DatabaseSessionStore({ database, scope }),
+    };
+  }
+  if (state === undefined) {
+    return { sessions: new InMemorySessionStore() };
+  }
+  const own = defaultWorkspaceDatabase(state, root, workspaceId);
+  return { own, records: own.records, sessions: own.sessions };
+}
+
+class OwnDatabaseEngine extends PublishedEngine {
+  readonly #database: WorkspaceDatabase;
+
+  constructor(options: EngineOptions, database: WorkspaceDatabase) {
+    super(options);
+    this.#database = database;
+  }
+
+  override async dispose(): Promise<void> {
+    try {
+      await super.dispose();
+    } finally {
+      await this.#database.close();
+    }
+  }
 }
 
 /** Started at the first sandbox: the runtime is optional and slow to start. */
@@ -225,7 +261,12 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const state = persisted(dry, options.stateDir);
   // Its sandboxes may mount what is cut there; see `containersFor`.
   const worktrees = Engine.worktreesFor(state);
-  const engine = new Engine({
+  const { own, ...kept } = recordsFor(
+    state,
+    dry ? undefined : options.database,
+    options
+  );
+  const engineOptions: EngineOptions = {
     artifacts: artifactsAt(dry ? undefined : options.artifacts),
     // A dry run writes to memory but reads what real runs left, if any.
     ...(dry && options.artifacts && existsSync(options.artifacts)
@@ -239,12 +280,16 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...(options.log ? { log: options.log } : {}),
     ...modelsFor(options),
     print,
+    ...kept,
     root,
-    sessions: sessionsFor(state, print),
     state,
     workspaceId,
     worktrees,
-  });
+  };
+  const engine =
+    own === undefined
+      ? new PublishedEngine(engineOptions)
+      : new OwnDatabaseEngine(engineOptions, own);
   declareCatalog(engine, catalog);
   return engine;
 }

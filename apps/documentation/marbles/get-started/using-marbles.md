@@ -21,8 +21,10 @@ workspace and follows it with plain output. It cannot answer questions. See
 
 ## Launch work from an MCP client
 
-The source-checkout [MCP server](/marbles/reference/mcp) lets an external
-agent discover your definitions and start work over STDIO. Use
+The [MCP server](/marbles/reference/mcp), `marbles mcp`, lets an external
+agent read your tasks, discover your definitions, and start work over
+STDIO. It starts nothing: dispatching needs the workspace hosted first,
+with `marbles attach`. Use
 `dispatch_workflow` for a named workflow or step, or `dispatch_agent` for
 agent work. Both return a `runId` without waiting for completion.
 

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { type AvailabilityOptions, availabilityIn } from "./availability";
 import { edgeKey } from "./edges";
 import { TaskError } from "./errors";
@@ -8,14 +9,17 @@ import type {
   TaskRef,
   TaskToken,
 } from "./operations";
-import type { TaskSnapshot, TaskStoreWrite } from "./store";
-import type {
-  Task,
-  TaskDelta,
-  TaskDependency,
-  TaskEvent,
-  TaskId,
-} from "./types";
+import {
+  type JsonObject,
+  type Task,
+  type TaskDelta,
+  type TaskDependency,
+  type TaskEvent,
+  type TaskId,
+  type TaskSnapshot,
+  type TaskStoreWrite,
+  taskMetadataSchema,
+} from "./schema";
 import { isSettled, taskId } from "./types";
 
 export interface AppliedChange {
@@ -169,7 +173,7 @@ class Batch {
       createdAt: now,
       description: input.description ?? null,
       id,
-      metadata: input.metadata ?? {},
+      metadata: checkedMetadata(input.metadata ?? {}),
       parentId,
       settledAt: isSettled(status) ? now : null,
       status,
@@ -194,7 +198,14 @@ class Batch {
       ...(patch.description === undefined
         ? {}
         : { description: patch.description }),
-      ...(patch.metadata === undefined ? {} : { metadata: patch.metadata }),
+      ...(patch.metadata === undefined
+        ? {}
+        : {
+            metadata: mergedMetadata(
+              current.metadata,
+              checkedMetadata(patch.metadata)
+            ),
+          }),
       ...(patch.tags === undefined ? {} : { tags: uniqueTags(patch.tags) }),
       updatedAt: this.now(),
     });
@@ -423,6 +434,25 @@ export function changeEvent(
     return;
   }
   return { dependencies: { added, removed }, kind: "tasks.changed", tasks };
+}
+
+function mergedMetadata(stored: JsonObject, patch: JsonObject): JsonObject {
+  return Object.fromEntries(
+    Object.entries({ ...stored, ...patch }).filter(
+      ([key, value]) => value !== null || !Object.hasOwn(patch, key)
+    )
+  );
+}
+
+function checkedMetadata(metadata: JsonObject): JsonObject {
+  const checked = taskMetadataSchema.safeParse(metadata);
+  if (!checked.success) {
+    throw new TaskError(
+      "invalid_operation",
+      `metadata: ${z.prettifyError(checked.error)}`
+    );
+  }
+  return checked.data;
 }
 
 /** Each tag once, where it first appears. Tags are exact strings. */

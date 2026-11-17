@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { InMemoryArtifactStore } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest";
 import { EditorPreferences } from "~/main/artifacts/editor-preferences";
 import { THUMBNAIL_MAX_BYTES } from "~/main/artifacts/explorer";

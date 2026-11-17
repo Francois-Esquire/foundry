@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { InMemoryArtifactStore } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { ModuleSettingsError } from "@foundry/modules/settings";
 import { afterEach, describe, expect, it } from "vitest";
 import { moduleQueue } from "~/main/execution/contract";

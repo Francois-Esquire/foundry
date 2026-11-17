@@ -11,9 +11,9 @@ import type {
 import { SessionHarness } from "../harness/session-harness";
 import type { ToolEffectPort } from "../harness/types";
 import { createModelSummarizer } from "../session/compactor";
-import type { SessionStore } from "../session/store";
 import { createSkillRegistry } from "../skills/registry";
 import type { Skill } from "../skills/types";
+import type { SessionStore } from "../store";
 import { composeTools } from "../tools/compose";
 import { createTodos } from "../tools/todos";
 import type { Mesh } from "./mesh";

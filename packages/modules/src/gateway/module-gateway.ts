@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { ModuleCapabilityRequest } from "../manifest";
-import type { ModuleStore } from "../store/contract";
+import type { ModuleCommands } from "../registry";
 import { ModuleGatewayContractError } from "./catalog";
 import { PendingGatewayWork } from "./pending-work";
 import { loadRuntimeGatewayContext } from "./runtime-context";
@@ -31,7 +31,7 @@ export interface CreateModuleGatewayOptions {
   readonly maximumFrameBytes?: number;
   readonly maximumInFlight?: number;
   readonly runtimeDispatcher?: ModuleGatewayRuntimeDispatcher;
-  readonly store: ModuleStore;
+  readonly store: ModuleCommands;
 }
 
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -69,14 +69,14 @@ class DefaultModuleGateway implements ModuleGateway {
   readonly #sessions = new Map<string, DefaultModuleGatewaySession>();
   readonly #connecting = new Set<string>();
 
-  private readonly store: ModuleStore;
+  private readonly store: ModuleCommands;
   private readonly settings: GatewaySettings;
   private readonly runtimeDispatcher:
     | ModuleGatewayRuntimeDispatcher
     | undefined;
 
   constructor(
-    store: ModuleStore,
+    store: ModuleCommands,
     settings: GatewaySettings,
     runtimeDispatcher: ModuleGatewayRuntimeDispatcher | undefined
   ) {

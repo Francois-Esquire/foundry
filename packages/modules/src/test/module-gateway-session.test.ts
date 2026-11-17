@@ -14,7 +14,7 @@ import type {
   ModuleRuntimeIdentity,
 } from "../gateway/types";
 import { ModuleGatewayError } from "../gateway/types";
-import { InMemoryModuleStore } from "../store/memory";
+import { ModuleRegistry } from "../registry";
 import { FakeTransport } from "./helpers/fake-transport";
 import { moduleFixture } from "./helpers/module-fixture";
 
@@ -669,7 +669,7 @@ async function createFixture() {
     manifest,
     module,
   });
-  const store = new InMemoryModuleStore();
+  const store = new ModuleRegistry();
   await store.registerModule({ module });
   const installation = createDisabledInstallation({
     id: installationIdSchema.parse("installation-1"),

@@ -10,5 +10,6 @@ export default defineConfig({
     },
     globals: true,
     include: ["src/test/**/*.test.ts"],
+    server: { deps: { inline: ["zod"] } },
   },
 });
