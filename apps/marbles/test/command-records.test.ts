@@ -26,7 +26,7 @@ it("records a command a step runs in the spawned directory the engine was given,
   const engine = testEngine({ print: () => undefined, spawned });
   await engine.start();
   try {
-    const listed = String(await engine.run("listing")).split("\n");
+    const listed = String(await engine.run("listing", {})).split("\n");
     const pid = listed.at(-1);
     expect(listed.slice(0, -1)).toEqual([`${String(pid)}.json`]);
     await vi.waitFor(() => expect(readdirSync(spawned)).toEqual([]));
