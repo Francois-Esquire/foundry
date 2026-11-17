@@ -1,6 +1,10 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  recordSpawned,
+  spawnRecordEnvironment,
+} from "@foundry/lib/spawn-record";
 
 import { consumptionOf, listPrices } from "../../consumption";
 import { defineProvider } from "../../provider";
@@ -33,8 +37,15 @@ const DEFAULT_TIMEOUT_MS = 5000;
 /** Removed from a login's environment so it reads its own login, not a key. */
 const FOREIGN_AUTH = ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_HOME"];
 
-const spawnCodex: SpawnCodex = (command, args, options) =>
-  nodeSpawn(command, args, { ...options, stdio: "pipe" });
+const spawnCodex: SpawnCodex = (command, args, options) => {
+  const child = nodeSpawn(command, args, {
+    ...options,
+    env: { ...options.env, ...spawnRecordEnvironment() },
+    stdio: "pipe",
+  });
+  recordSpawned(child.pid, false);
+  return child;
+};
 
 export const createOpenAI = (machine: OpenAIMachine = {}) => {
   const env = machine.env ?? process.env;
