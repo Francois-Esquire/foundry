@@ -43,7 +43,6 @@ vi.mock("@ai-sdk/openai-compatible", () => ({
 
 const { gatewayProvider } = await import("../gateway");
 
-/** What a server listed: the gateway supplies no models of its own. */
 const models = [
   { id: "served/chat", kind: "text" as const, modelId: "served/chat" },
   { id: "served/embed", kind: "embedding" as const, modelId: "served/embed" },

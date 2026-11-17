@@ -26,31 +26,15 @@ import {
 } from "~/lib/events/records";
 import { TASKS } from "~/lib/events/source";
 
-/**
- * A workspace's tasks in the Marbles database: the `@foundry/tasks` rows
- * scoped by the workspace id, and Marbles' record of every change they
- * committed (`marbles_task_changes`), which delivery reads back for the
- * workspace's observers.
- *
- * The change is written by `SqliteTaskStore`'s `onCommit` hook, on the
- * transaction the hook is handed, so a change and its row commit or roll
- * back together. That hook (`recordChange`) is the one seam where anything
- * that keeps a record of task changes, such as an outbox, belongs.
- */
-
-/** A change the Marbles database cannot store as it is. */
 export class TaskStorageError extends Error {
   override readonly name = "TaskStorageError";
 }
 
 export interface DatabaseWorkspaceRecordsOptions {
-  /** The database or one of its transactions; the host opens and closes it. */
   readonly database: StoreDatabase;
-  /** The workspace id. */
   readonly scope: string;
 }
 
-/** The engine's `WorkspaceRecords` over the Marbles database. */
 export class DatabaseWorkspaceRecords implements WorkspaceRecords {
   readonly taskStore: TaskStore;
   readonly #database: StoreDatabase;
@@ -72,7 +56,6 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
       },
       scope,
     });
-    /** Run a call that may commit, then tell the watchers once it settles. */
     const committing = <T>(call: () => Promise<T>): Promise<T> =>
       this.#call(async () => {
         try {
@@ -105,7 +88,6 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     return this.#gate.close();
   }
 
-  /** Only for a change that is recorded; a hash already there stays one row. */
   deliver(id: string, hash: string): Promise<void> {
     return this.#call(() =>
       this.#database.transaction(async (transaction) => {
@@ -159,7 +141,6 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     return this.#listeners.add(listener);
   }
 
-  /** Run `call` unless closed, and say what went wrong in the database's terms. */
   #call<T>(call: () => Promise<T>): Promise<T> {
     return this.#gate.run(async () => {
       try {
@@ -171,19 +152,6 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
   }
 }
 
-/**
- * The query `pending` runs: one statement, so it reads one state without a
- * transaction, and holds no lock another writer waits for. It walks the
- * workspace's changes by position from `query.after` (the
- * `marbles_task_changes_scope_position` index), keeps those that fewer of
- * `query.handlers` completed than there are handlers (the deliveries'
- * primary key, scope first, answers each count), and stops at
- * `query.limit`. A change every handler completed is passed over but still
- * walked, so the work is the span from `query.after` to the last change
- * returned: delivery passes the position below which its observers have
- * completed everything (`Delivery`'s floor), which keeps that span to
- * what is left to deliver.
- */
 export function pendingChanges(
   database: StoreDatabase,
   scope: string,
@@ -216,11 +184,6 @@ export function pendingChanges(
     .limit(query.limit ?? PENDING_BATCH);
 }
 
-/**
- * Record the change `write` carries, if it carries one, in the commit's own
- * `transaction`: never through a store, which would wait on the commit
- * that is running this. Whether a change was recorded.
- */
 async function recordChange(
   transaction: TaskTransaction,
   scope: string,
@@ -242,11 +205,6 @@ async function recordChange(
   return true;
 }
 
-/**
- * A commit, with the task store's one refusal of a write, text that would
- * not read back intact (a `RangeError` naming the field), as a
- * `TaskStorageError`.
- */
 async function storing(commit: Promise<void>): Promise<void> {
   try {
     await commit;
@@ -261,17 +219,10 @@ async function storing(commit: Promise<void>): Promise<void> {
   }
 }
 
-/** A lock the database waited too long for, as a `DatabaseBusyError`. */
 function storageError(error: unknown): Error | undefined {
   return busyError(error);
 }
 
-/**
- * Run `work` on a workspace's tasks for a command that only reads them:
- * through a read-only connection that never creates, migrates or changes
- * the database. With no database, or nothing migrated into it, there are
- * no tasks yet, and `work` reads an empty backlog in memory.
- */
 export async function readTasks<T>(
   state: string,
   scope: string,
@@ -285,12 +236,6 @@ export async function readTasks<T>(
   return read === undefined ? work(new Tasks()) : read.value;
 }
 
-/**
- * Run `work` on a workspace's tasks for a command that changes them,
- * whether or not a Marbles process runs: as a writer under the state
- * root's lock rule (`writeAsHost`), which makes and migrates the database
- * when no process holds the state root.
- */
 export function changeTasks<T>(
   state: string,
   scope: string,
@@ -313,7 +258,6 @@ export function changeTasks<T>(
   );
 }
 
-/** `opening`, with a lock SQLite waited too long for while it opened or migrated as a `DatabaseBusyError`. */
 async function busyAsMarbles<T>(opening: Promise<T>): Promise<T> {
   try {
     return await opening;

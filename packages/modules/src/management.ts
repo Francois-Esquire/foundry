@@ -124,7 +124,6 @@ export function createModuleManagement(options: {
     delete: (input: Parameters<ModuleManagement["delete"]>[0]) =>
       programs.delete(input),
     async deleteModule({ moduleId }: { readonly moduleId: ModuleId }) {
-      // Before anything is deleted, Installations included.
       await assertOwnsArtifactCommit(artifacts, "Module delete");
       const module = await store.loadModule(moduleId);
       if (module === null) {
@@ -148,11 +147,6 @@ export function createModuleManagement(options: {
           installationId: installation.id,
         });
       }
-      // One registry transaction holds the checks, the archive and the
-      // retirement, so no Installation can be created between them. The
-      // Artifact is archived first, and an archived Artifact still exists,
-      // so the registry names nothing missing whichever commit fails; a
-      // retry archives again (a no-op) and then retires the Module.
       await store.transaction(async (registry) => {
         if ((await registry.loadModule(moduleId)) === null) {
           throw new ModuleStoreConflictError(

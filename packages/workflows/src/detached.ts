@@ -1,25 +1,7 @@
-/**
- * A deep copy of `value` that shares no memory with it: `structuredClone`,
- * then every `SharedArrayBuffer` in the copy, bare or behind a view, moved
- * into a fresh `ArrayBuffer` of its own. `structuredClone` keeps a
- * `SharedArrayBuffer` shared, so a copy that held one would still change
- * when the original's bytes do, on Node.
- *
- * Each shared buffer becomes one fresh `ArrayBuffer` holding its bytes, and
- * every view onto it (each typed-array kind and `DataView`) becomes a view
- * of the same kind, offset and length onto that buffer, so views the copy
- * held onto one buffer still share it with each other, and with the buffer
- * where the copy holds it bare. The walk reaches everything the clone
- * keeps: object and array entries, `Map` keys and values, `Set` values, and
- * an `Error`'s own properties, its non-enumerable `cause` included (and an
- * `AggregateError`'s `errors`, where the runtime's clone keeps them).
- * Throws what `structuredClone` throws for a value it cannot copy.
- */
 export function detached<T>(value: T): T {
   return unshared(structuredClone(value), new Map()) as T;
 }
 
-/** `value`, which this module owns, with shared memory replaced in place. */
 function unshared(value: unknown, seen: Map<object, unknown>): unknown {
   if (typeof value !== "object" || value === null) {
     return value;
@@ -54,7 +36,6 @@ function unshared(value: unknown, seen: Map<object, unknown>): unknown {
       value.add(entry);
     }
   } else {
-    // An Error's `cause` (and `errors`) are own but not enumerable.
     const keys =
       value instanceof Error
         ? Object.getOwnPropertyNames(value)
@@ -66,7 +47,6 @@ function unshared(value: unknown, seen: Map<object, unknown>): unknown {
   return value;
 }
 
-/** Replaces `target[key]`, an own data property, keeping its attributes. */
 function replaceOwn(
   target: object,
   key: string,
@@ -89,7 +69,6 @@ function isSharedBuffer(value: unknown): value is SharedArrayBuffer {
   );
 }
 
-/** The one fresh `ArrayBuffer` that stands for `shared` in this copy. */
 function ownBuffer(
   shared: SharedArrayBuffer,
   seen: Map<object, unknown>
@@ -104,7 +83,6 @@ function ownBuffer(
   return fresh;
 }
 
-/** A view of `view`'s kind, offset and length onto `buffer`. */
 function viewOnto(view: ArrayBufferView, buffer: ArrayBuffer): ArrayBufferView {
   if (view instanceof DataView) {
     return new DataView(buffer, view.byteOffset, view.byteLength);

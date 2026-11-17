@@ -2,19 +2,12 @@ import type { LanguageModelUsage } from "ai";
 
 import type { MessageMetadata, SessionUsage } from "./types";
 
-/** The {@link MessageMetadata} fields normalization reads. */
 type NormalizedMetadata = Omit<MessageMetadata, "providerOptions">;
 
-/**
- * The metadata blob a store hands back before normalization: each field
- * normalization reads, also allowed to be `null`, so a concrete store's row
- * type assigns to it without a cast.
- */
 export type RawMessageMetadata = {
   [Field in keyof NormalizedMetadata]?: NormalizedMetadata[Field] | null;
 };
 
-/** The token usage a store reads back. */
 export type RawUsage = SessionUsage;
 
 /**

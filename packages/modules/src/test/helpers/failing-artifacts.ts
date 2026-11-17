@@ -2,12 +2,6 @@ import { ArtifactManager } from "@foundry/artifacts";
 import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { interceptCommits } from "@foundry/artifacts/testing";
 
-/**
- * Artifacts over an in-memory store whose commits fail while `fail` holds,
- * so a writing transaction fails just before it would commit and nothing it
- * did stays: the case a cross-store operation must survive and a retry must
- * finish.
- */
 export function failingArtifacts(): {
   readonly artifacts: ArtifactManager;
   fail: boolean;

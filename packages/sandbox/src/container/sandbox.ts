@@ -80,7 +80,6 @@ export async function startContainerSandbox<TNative>(
     await instance.ensureDirectory(provisioned.spec.workdir);
     return new ContainerSandboxHandle(instance, provisioned.spec);
   } catch (error) {
-    // The setup's error is the one to report, whatever the removal does.
     try {
       await instance.remove();
     } catch (cleanup: unknown) {
@@ -95,12 +94,6 @@ export async function startContainerSandbox<TNative>(
 }
 
 export interface StartContainerSandboxOptions {
-  /**
-   * Called when the VM was created, its setup failed, and removing it failed
-   * too, with the removal's error. The VM may still be there under the spec's
-   * name; the start still rejects with the setup's error, even if this
-   * callback throws.
-   */
   readonly onLeftBehind?: (error: unknown) => void;
 }
 

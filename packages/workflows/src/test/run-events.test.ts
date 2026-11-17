@@ -8,13 +8,11 @@ import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
 import { FaultyWorkflowStore } from "./helpers/workflow-stores";
 
-/** A coordinator over a store that records every write it commits. */
 function recorded() {
   const store = new FaultyWorkflowStore(new MemoryWorkflowStore());
   return { coordinator: new ExecutionCoordinator({ store }), store };
 }
 
-/** The events of every write committed after `from`, in commit order. */
 function eventsSince(store: FaultyWorkflowStore, from = 0): RunEvent[] {
   return store.commits.slice(from).flatMap((write) => write.events ?? []);
 }
@@ -199,8 +197,6 @@ describe("ExecutionCoordinator change events", () => {
       metadata: { stream: [], workflow: { status: "running" } },
     });
 
-    // The same status and the same tags leave the Run as stored: no write.
-    // The step tree and the runtime's metadata are written, with no event.
     expect(store.commits.length).toBe(from + 2);
     for (const write of store.commits.slice(from)) {
       expect(write).not.toHaveProperty("events");
@@ -215,7 +211,6 @@ describe("ExecutionCoordinator change events", () => {
     });
     const from = store.commits.length;
 
-    // A metadata patch replaces the host's namespaces with what it holds.
     await coordinator.updateRun(run.id, { metadata: { workflow: {} } });
 
     expect(
@@ -293,7 +288,6 @@ describe("ExecutionCoordinator change events", () => {
     const { run } = await coordinator.claimJobRun(job.id, RUN);
     await coordinator.cancelJob(job.id);
 
-    // Job changes alone carry no events: only the claim and the cancellation do.
     expect(
       store.commits.map((write) => types(write.events ?? []))
     ).toStrictEqual([[], ["run.queued"], ["run.cancelled"]]);
@@ -375,7 +369,6 @@ describe("ExecutionCoordinator change events", () => {
 });
 
 describe("Run events of a Run the Orchestrator drives", () => {
-  /** An Orchestrator over a recording store, with one workflow of one step. */
   async function driven() {
     const { coordinator, store } = recorded();
     const orchestrator = new Orchestrator({
@@ -399,7 +392,6 @@ describe("Run events of a Run the Orchestrator drives", () => {
     return { coordinator, orchestrator, store };
   }
 
-  /** Each write naming `runId`: the status it stores, and the events it carries. */
   function writesOf(store: FaultyWorkflowStore, runId: string) {
     return store.commits
       .filter((write) => write.putRuns?.some((run) => run.id === runId))

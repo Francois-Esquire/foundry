@@ -1089,10 +1089,6 @@ export class Queue {
               run.step,
               {
                 ...startSnap,
-                // A Run resumed from a Suspension keeps the time it first
-                // started, as its workflow's own state does. A Run
-                // recovered after a crash is rebuilt without that state,
-                // so it is stamped again here.
                 startedAt: startSnap.startedAt ?? new Date().toISOString(),
                 status: "running",
               },
@@ -1442,11 +1438,6 @@ export class Queue {
    * Writes are not throttled.
    */
   #persistenceLoop(run: DispatchedWorkflow): Effect.Effect<void> {
-    // The boundary write at #runOne stored the Run as running. The workflow's
-    // own state reads queued until its status mirror catches up (its input
-    // lands first), and only a suspension sends a running Run back to
-    // queued: a queued snapshot straight after a running one is that lag,
-    // and is stored as running, not as the Run going back to its queue.
     let last: WorkflowState["status"] = "running";
     return workflowEffectAccess(run.workflow).stateChanges.pipe(
       // SubscriptionRef.changes replays the current value as the first
@@ -1455,8 +1446,6 @@ export class Queue {
       // through here would race the boundary write through the mutex
       // and could clobber it back to a pre-run status. Drop it.
       Stream.drop(1),
-      // Before the filter below, so a suspension it keeps from this loop
-      // still counts as the status the next snapshot follows.
       Stream.map((snap) => {
         const status =
           snap.status === "queued" && last === "running"

@@ -9,35 +9,6 @@ import type {
 import type { ShippedMigration } from "~/database/migrate";
 import { APPLIED, IncompatibleDatabaseError } from "~/database/migrate";
 
-/**
- * A writer's client that refuses to touch the database once another
- * Marbles has migrated it past what this one ships. A handle is checked
- * in full when it opens (`schemaState`: every applied migration's hash
- * against the shipped one, in order); this keeps that true for as long as
- * the handle stays open, which for a host is hours.
- *
- * Every transaction checks, first thing, on that same transaction, that
- * the applied history is still the one the open verified, and fails with
- * `IncompatibleDatabaseError` otherwise, before any of its reads and
- * writes. A statement that may write, run outside a transaction, runs in
- * one of its own (`BEGIN IMMEDIATE`), checked the same way. So every store
- * over the handle (tasks, recorded changes and deliveries, the workspace
- * registry) is guarded here, in one place. A lone `SELECT` or `EXPLAIN`
- * outside a transaction passes as it is: it changes nothing, and a reader
- * must never wait for another process's writer.
- *
- * The check is one small query: the count of applied migrations and the
- * newest one's `created_at`, against the shipped count and the last
- * shipped migration's time. That is enough because, after the full check
- * at open, the applied history can change only by appending: every Marbles
- * migrates only a database whose history is an exact prefix of the one it
- * ships (`migrate` refuses anything else), and nothing in Marbles deletes
- * or rewrites an applied row. So a history that was exactly this Marbles'
- * at open and still has its length now is unchanged; a newer Marbles that
- * migrated meanwhile made it longer. The newest time also catches a row
- * edited by hand.
- */
-/** A statement that cannot write: a plain query or a query plan. */
 const READ_ONLY = /^\s*(select|explain)\b/i;
 
 export function guardedClient(

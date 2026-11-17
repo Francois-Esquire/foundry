@@ -10,15 +10,8 @@ const responseSchema = z.looseObject({
   result: z.unknown().optional(),
 });
 
-/**
- * A JSON-RPC client over a spawned MCP server's stdio that keeps every byte
- * the server wrote, so a test can check that its stdout holds protocol
- * frames and nothing else. The SDK's client skips a line it cannot parse.
- */
 export interface RawMcpSession {
-  /** End stdin and wait for the server to exit. */
   close(): Promise<Ended>;
-  /** Wait for the server to exit, leaving stdin open. */
   ended(): Promise<Ended>;
   notify(method: string, params?: unknown): void;
   readonly pid: number;
@@ -32,11 +25,6 @@ interface Ended {
   readonly stdout: string;
 }
 
-/**
- * Start `command` and complete the MCP `initialize` handshake. Vitest's own
- * marker is dropped from the child's environment: a library that sees it
- * behaves as under test, and would hide what it writes to stdout.
- */
 export async function rawMcpSession(
   command: string,
   args: readonly string[],
@@ -128,7 +116,6 @@ function safeJson(line: string): unknown {
   }
 }
 
-/** Every stdout line that is not a JSON-RPC 2.0 message. */
 export function strayLines(stdout: string): string[] {
   return stdout.split("\n").filter((line) => {
     if (line === "") {
@@ -144,12 +131,6 @@ export function strayLines(stdout: string): string[] {
   });
 }
 
-/**
- * Run `body` at the start of the `marbles mcp` server process, never in its
- * relay, by writing it as a Bun preload under `dir`. The server loads no
- * source, so this is how a test makes it print or misbehave on purpose.
- * Resolves the environment to start `marbles mcp` with.
- */
 export async function serverPreload(
   dir: string,
   body: string

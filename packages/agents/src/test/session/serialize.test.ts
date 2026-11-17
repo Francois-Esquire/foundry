@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { keptValue } from "../../session/serialize";
 
-/** An array whose element at `index` throws when read. */
 function throwingAt(index: number): unknown[] {
   const list: unknown[] = [1, 2, 3];
   Object.defineProperty(list, index, {

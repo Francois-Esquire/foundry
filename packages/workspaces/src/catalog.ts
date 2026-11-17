@@ -39,17 +39,6 @@ export interface CatalogChangeInput {
   readonly workspaceId: WorkspaceId;
 }
 
-/**
- * Every rule over the Workspaces a store holds, and the one place catalog
- * changes are published.
- *
- * One Workspace per canonical root and per source reference; entries belong
- * to their Workspace; every change leaves a valid tree and lands whole or not
- * at all. Mutations run one at a time, so a rule checked against what the
- * store holds still holds when the write lands. Across catalogs over one
- * store, that holds when the store offers `transaction`; without it, a second
- * catalog can still interleave.
- */
 export class WorkspaceCatalog {
   private readonly store: WorkspaceStore;
   private readonly publish: (changes: readonly WorkspaceChange[]) => void;
@@ -217,12 +206,6 @@ export class WorkspaceCatalog {
     });
   }
 
-  /**
-   * One read-modify-write: serialized in this catalog, and exclusive in the
-   * store when it offers transactions, so another catalog over the same store
-   * cannot write between the reads and the commit. Changes are published once
-   * the write has landed, outside the store's transaction.
-   */
   private mutation<T>(
     work: (store: WorkspaceStore) => Promise<Mutation<T>>
   ): Promise<T> {
@@ -254,7 +237,6 @@ export class WorkspaceCatalog {
   }
 }
 
-/** What one mutation answers, and the changes it publishes once committed. */
 interface Mutation<T> {
   readonly changes?: readonly WorkspaceChange[];
   readonly result: T;

@@ -6,17 +6,10 @@ import type { RunEvent } from "../../schema";
 import { SqliteWorkflowStore } from "../../store/sqlite";
 import type { RecordingWorkflowStores } from "../../testing/store";
 
-/** A host's record of events, written on the commit's own transaction. */
 const recordedEvents = sqliteTable("recorded_events", {
   event: text("event", { mode: "json" }).notNull(),
 });
 
-/**
- * SQLite storage over `database` whose `onCommit` writes each event of a
- * write as a row on the transaction it is handed, as a host's outbox would,
- * one store per scope. `failNextCommit` makes the hook throw once, after it
- * has written its rows.
- */
 export async function recordingStores(
   database: LibSQLDatabase
 ): Promise<RecordingWorkflowStores> {

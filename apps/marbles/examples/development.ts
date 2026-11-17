@@ -32,7 +32,6 @@ const implementer = agent({
 });
 
 // Named: `review-with-arguments.ts` also has a `reviewer`, and a workspace
-// may register both.
 const reviewer = agent({
   name: "development-reviewer",
   prompt:

@@ -6,12 +6,6 @@ import { capturedSessionWrite, SqliteSessionStore } from "../../store/sqlite";
 import { describeSessionStore } from "../../testing/store";
 import { libsqlDatabases } from "../helpers/sqlite";
 
-/**
- * One store per scope over one database, as a host keeps it: each store's
- * turns cover only itself, and two over one database would not wait for
- * each other (the README's host requirement). Asking for a scope again
- * returns that same store, as the memory store's storage does.
- */
 function scopedStores(
   database: SessionDatabase,
   wrap: (store: SessionStore) => SessionStore = (store) => store
@@ -30,8 +24,6 @@ for (const location of ["memory", "file"] as const) {
   describeSessionStore(`SqliteSessionStore on libSQL (${location})`, async () =>
     scopedStores(await databases.open())
   );
-  // A window forwards the store it wraps, refusals from inside a
-  // transaction included.
   describeSessionStore(
     `SessionWindow over SqliteSessionStore on libSQL (${location})`,
     async () =>

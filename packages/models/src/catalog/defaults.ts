@@ -1,9 +1,6 @@
 import type { ProviderModelDefinition } from "../types";
 
 // Rows are keyed by the real upstream model id (`id === modelId`) so live
-// discovery of the same model replaces them in place. They carry no price:
-// a price comes from the server, from the caller's own rows, or from
-// models.dev at run time, never from a figure kept here.
 export const VERCEL_DEFAULT_MODELS: ProviderModelDefinition[] = [
   {
     // Baseline so a freshly-keyed Vercel surfaces in chat (function-calling

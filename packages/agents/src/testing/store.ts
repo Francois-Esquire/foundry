@@ -3,17 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { SessionMessage, SessionPart, SessionRecord } from "../schema";
 import type { SessionStore } from "../store";
 
-/**
- * Fresh, empty storage: a store for each scope, all over the same storage.
- * Asking for one scope twice gives two stores over the same data.
- */
 export type SessionStorage = (scope: string) => SessionStore;
 
-/**
- * The behaviour every {@link SessionStore} shares. `open` returns fresh,
- * empty storage for each test. Registers Vitest tests; call it at module
- * level in a test file.
- */
 export function describeSessionStore(
   name: string,
   open: () => SessionStorage | Promise<SessionStorage>
@@ -620,7 +611,6 @@ export function describeSessionStore(
         for (const [method, call] of Object.entries(calls)) {
           settled[method] = await settlesWithin(call(), 1000);
         }
-        // Scheduled from inside, but run once the transaction has ended.
         later = ended.promise.then(() =>
           store.commit({ putSessions: [session("later")] })
         );
@@ -714,7 +704,6 @@ export function describeSessionStore(
   });
 }
 
-/** Metadata with every field set, nested values included. */
 const FULL_METADATA: SessionMessage["metadata"] = {
   harnessEnvironment: { harness: "codex", id: "env-1" },
   model: { harness: "codex", id: "model", provider: "openai" },
@@ -732,7 +721,6 @@ const FULL_METADATA: SessionMessage["metadata"] = {
   },
 };
 
-/** One part of every type, with each optional field set somewhere. */
 const EVERY_PART: SessionPart[] = [
   { text: "plain, then \u00e9 and \u{1F600}", type: "text" },
   { text: "", type: "reasoning" },
@@ -820,14 +808,8 @@ const EVERY_PART: SessionPart[] = [
   },
 ];
 
-/** What a store's refusal of a call from inside its own transaction says. */
 const REFUSAL = /refused: .*use the view/;
 
-/**
- * How `promise` settled, as `refused: <message>` or `resolved`, or `still
- * pending` after `ms`: a hang becomes a failed assertion, not a stalled
- * suite.
- */
 async function settlesWithin(
   promise: Promise<unknown>,
   ms: number
@@ -884,10 +866,6 @@ function message(
   };
 }
 
-/**
- * Every own property path in `value`, each marked `=undefined` when it holds
- * `undefined`, so a property left out and one holding `undefined` differ.
- */
 function ownPaths(value: unknown, at = "$"): string[] {
   if (value === undefined) {
     return [`${at}=undefined`];

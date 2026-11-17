@@ -4,19 +4,6 @@ import { dirname, join, resolve } from "node:path";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 
-/**
- * Where Marbles keeps things on this machine, decided once. The opinionated
- * default is one Foundry home, `~/.foundry`, holding the Marbles state root
- * (`marbles/`, one directory per workspace plus the process files and the
- * Marbles database) and the artifact store (`artifacts/`) that every
- * workspace shares. Each location
- * can be set on its own; the others follow from it, so a custom state root
- * keeps its artifacts beside it rather than in the user's home.
- *
- * `FOUNDRY_HOME` moves the whole home. Flags (`--state`, `--artifacts`)
- * move one location and win over it.
- */
-
 export interface LayoutOptions {
   /** The artifact store; `<home>/artifacts`, or beside a custom state root. */
   readonly artifacts?: string;
@@ -31,7 +18,6 @@ export interface LayoutOptions {
 export interface Layout {
   /** The shared artifact store: records, blobs, and the feed. */
   readonly artifacts: string;
-  /** The Marbles database, one file for every workspace under the state root. */
   readonly database: string;
   /** The Foundry home the defaults hang off. */
   readonly home: string;
@@ -72,11 +58,6 @@ export function layout(options: LayoutOptions = {}): Layout {
   };
 }
 
-/**
- * The Marbles database under the state root `state`. It follows the state
- * root, as the process claim and socket do, so a state root moved with
- * `--state` keeps its own registry instead of sharing the home's.
- */
 export function stateDatabase(state: string): string {
   return join(resolve(state), DATABASE_FILE);
 }
