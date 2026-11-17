@@ -385,7 +385,10 @@ export class Launcher {
     delay: number
   ): void {
     const timer = setTimeout(async () => {
-      if (this.#halting !== undefined) {
+      if (
+        this.#halting === "cancel" ||
+        (this.#halting === "stop" && this.executions.waiting().length === 0)
+      ) {
         return;
       }
       const told = (id: string) => {
