@@ -18,7 +18,10 @@ identity. Keep it stable to retain access to the same saved runs and artifacts. 
 
 Discovery walks subdirectories and imports JavaScript and TypeScript modules
 in sorted path order: `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, and
-`.cjs`. A module also imported by another module executes only once per process.
+`.cjs`. Every module, and every file it imports by path, must be an ES module:
+a file that uses `require()`, `module.exports` or `exports` and has no `import`
+or `export` fails the load with an error naming it. Installed packages may be
+CommonJS. A module also imported by another module executes only once per process.
 Names must be unique across the whole catalog.
 
 A leading underscore excludes a file or directory from automatic discovery.
