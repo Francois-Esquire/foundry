@@ -112,8 +112,8 @@ Five buckets, each importing only what sits below it:
   scoped by the workspace id, handed over as the package makes it, with no
   hook. Artifact blob files stay on disk, under
   `<artifacts>/workspaces/<id>/blobs`; `readArtifacts` is the read-only
-  view of them a dry run reads through to. The modules and workflows
-  tables are composed and migrated, but nothing in Marbles uses them yet:
+  view of them a dry run reads through to. The workflows tables are
+  composed and migrated, but nothing in Marbles uses them yet:
   workflow runs are still the in-memory store and `runs/*.json`. Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no worker opens the database per
