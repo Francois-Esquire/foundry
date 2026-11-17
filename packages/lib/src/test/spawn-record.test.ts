@@ -213,6 +213,28 @@ it("keeps, as a child exits, a recovery record that names another process", asyn
   expect(JSON.parse(readFileSync(path, "utf8")).started).toBe(NEWER.started);
 });
 
+it("reports, and keeps, the recovery record of an exited child it cannot remove", async () => {
+  const dir = scratch();
+  const child = spawn("sleep", ["60"], { stdio: "ignore" });
+  recordChild(child, false, { [SPAWN_RECOVERY_ENV]: dir });
+  const path = recordPath(dir, child.pid ?? 0);
+  const stderr = vi
+    .spyOn(process.stderr, "write")
+    .mockImplementation(() => true);
+  chmodSync(dir, 0o500);
+  try {
+    const exited = new Promise((done) => child.once("exit", done));
+    child.kill("SIGKILL");
+    await exited;
+  } finally {
+    chmodSync(dir, 0o700);
+  }
+  expect(existsSync(path)).toBe(true);
+  expect(stderr.mock.calls.flat().join("")).toContain(
+    `could not remove the recovery record ${path}`
+  );
+});
+
 it("reports, and writes no record of, a process the listing leaves out while a signal still reaches it", async () => {
   vi.resetModules();
   const fresh = await import("../spawn-record");

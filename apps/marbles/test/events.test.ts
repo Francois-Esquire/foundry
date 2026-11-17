@@ -21,7 +21,7 @@ import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import type { Engine } from "~/lib/engine";
 import { DELIVERY_POLL_MS, Delivery, retryDelay } from "~/lib/events/delivery";
 import type { ChangeLog } from "~/lib/events/log";
-import { CHANGE_BATCH } from "~/lib/events/log";
+import { CHANGE_BATCH, MemoryChangeLog } from "~/lib/events/log";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Fact, Handler } from "~/lib/events/source";
@@ -2059,3 +2059,26 @@ describe("an earlier Marbles' files", () => {
     expect(readFileSync(path, "utf8")).toBe(old);
   });
 });
+
+it("compacts a memory log that retains more changes than a call takes arguments", async () => {
+  const log = new MemoryChangeLog();
+  const change = {
+    fact: { at: "", id: "change", type: "changed" },
+    recordedAt: 0,
+    runId: null,
+    source: "tasks",
+  };
+  const retained = 1_100_000;
+  log.record(Array.from({ length: retained + 2 }, () => change));
+  expect(
+    await log.compact({
+      before: 1,
+      limit: 2,
+      now: 1,
+      registered: [],
+      seenSince: 1,
+    })
+  ).toEqual({ done: false, removed: 2 });
+  const [next] = await log.read({ after: 0, limit: 1, source: "tasks" });
+  expect(next?.position).toBe(3);
+}, 60_000);

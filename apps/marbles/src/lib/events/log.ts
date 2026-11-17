@@ -145,9 +145,11 @@ export class MemoryChangeLog implements ChangeLog {
     if (through <= this.#compacted) {
       return Promise.resolve({ done: true, removed: 0 });
     }
-    const kept = this.#changes.filter((change) => change.position > through);
-    const removed = this.#changes.length - kept.length;
-    this.#changes.splice(0, this.#changes.length, ...kept);
+    const first = this.#changes.findIndex(
+      (change) => change.position > through
+    );
+    const removed = first === -1 ? this.#changes.length : first;
+    this.#changes.splice(0, removed);
     this.#compacted = through;
     return Promise.resolve({
       done: through < window || window === floor,
