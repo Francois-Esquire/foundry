@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { MODULE_MIME } from "@foundry/modules/constants";
 import { defineModuleVersion, moduleIdSchema } from "@foundry/modules/domain";
 import { parseModuleManifest } from "@foundry/modules/manifest";
