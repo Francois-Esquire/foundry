@@ -143,8 +143,7 @@ Five buckets, each importing only what sits below it:
   two land together. `automations.ts` is the triggers agents created, one
   row of `marbles_automations` each, an edit a transaction that reads
   first; `usage.ts` is each agent turn's usage fact, a row of
-  `marbles_usage_facts` by turn. The modules
-  tables are composed and migrated, but nothing in Marbles uses them yet. Every writer handle goes through `guard.ts`, which
+  `marbles_usage_facts` by turn. Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no worker opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
