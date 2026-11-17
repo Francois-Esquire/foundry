@@ -2,6 +2,7 @@ import type {
   JobRecord,
   JobStatus,
   QueueRecord,
+  RunEvent,
   RunFrame,
   RunRecord,
   RunStatus,
@@ -14,6 +15,7 @@ export interface WorkflowStoreWrite {
   readonly deleteRunFrames?: readonly string[];
   readonly deleteRuns?: readonly string[];
   readonly deleteSuspensions?: readonly string[];
+  readonly events?: readonly RunEvent[];
   readonly putFrames?: readonly RunFrame[];
   readonly putJobs?: readonly JobRecord[];
   readonly putQueues?: readonly QueueRecord[];
