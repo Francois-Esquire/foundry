@@ -548,9 +548,15 @@ function withoutMessage(file: SessionFile, id: string): SessionFile {
   };
 }
 
-function ownedWrite(write: SessionStoreWrite): SessionStoreWrite {
-  ownedEvents(write.events);
-  return JSON.parse(JSON.stringify(write)) as SessionStoreWrite;
+function ownedWrite({
+  events,
+  putMessages,
+  putSessions,
+}: SessionStoreWrite): SessionStoreWrite {
+  ownedEvents(events);
+  return JSON.parse(
+    JSON.stringify({ putMessages, putSessions })
+  ) as SessionStoreWrite;
 }
 
 function encoded(file: SessionFile): StagedFile {

@@ -46,6 +46,33 @@ export function describeSessionStore(
       ]);
     });
 
+    it("reads each of a write's events once: a value read again is never asked for", async () => {
+      const store = await fresh();
+
+      await store.commit({
+        events: [readableOnce(created("s"))],
+        putSessions: [session("s")],
+      });
+
+      await expect(store.getSession("s")).resolves.toStrictEqual(session("s"));
+    });
+
+    it("reads each of a write's events once through a transaction's view", async () => {
+      const store = await fresh();
+      if (store.transaction === undefined) {
+        return;
+      }
+
+      await store.transaction((view) =>
+        view.commit({
+          events: [readableOnce(created("s"))],
+          putSessions: [session("s")],
+        })
+      );
+
+      await expect(store.getSession("s")).resolves.toStrictEqual(session("s"));
+    });
+
     it.each(UNPLAIN_EVENTS)(
       "refuses whole, with a TypeError, a write whose events are %s",
       async (_kind, events) => {
@@ -920,6 +947,17 @@ function describeRecordedEvents(
       await expect(recorded()).resolves.toStrictEqual([...first, updated("s")]);
     });
 
+    it("hands on an event read once, as it read it", async () => {
+      const { recorded, store } = await recorder();
+
+      await store.commit({
+        events: [readableOnce(created("s"))],
+        putSessions: [session("s")],
+      });
+
+      await expect(recorded()).resolves.toStrictEqual([created("s")]);
+    });
+
     it("hands on the events as they were when commit was called", async () => {
       const { recorded, store } = await recorder();
       const event = appended("s", ["m1"]);
@@ -1110,6 +1148,22 @@ const UNPLAIN_EVENTS: [string, () => SessionChangeEvent[]][] = [
     () => Object.assign([created("s")], { "-1": created("s") }),
   ],
 ];
+
+function readableOnce(event: SessionChangeEvent): SessionChangeEvent {
+  const { id, ...rest } = event;
+  let read = false;
+  return Object.defineProperty({ ...rest }, "id", {
+    configurable: true,
+    enumerable: true,
+    get: () => {
+      if (read) {
+        throw new Error("the event's id was read twice");
+      }
+      read = true;
+      return id;
+    },
+  }) as SessionChangeEvent;
+}
 
 function created(sessionId: string): SessionChangeEvent {
   return {
