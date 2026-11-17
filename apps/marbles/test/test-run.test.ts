@@ -1046,6 +1046,9 @@ it("makes a process that lost FOUNDRY_HOME but kept HOME fail instead of using t
 }, 30_000);
 
 it("runs the integration suite under the same setup and guard", () => {
-  expect(integration.test?.globalSetup).toEqual(["test/helpers/setup.ts"]);
+  expect(integration.test?.globalSetup).toEqual([
+    "test/helpers/migrations.ts",
+    "test/helpers/setup.ts",
+  ]);
   expect(integration.test?.setupFiles).toEqual(["test/helpers/guard.ts"]);
 });
