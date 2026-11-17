@@ -1691,6 +1691,47 @@ describe("engine generations", () => {
     fixture.client.close();
   }, 150_000);
 
+  it("keeps writing a generation's record as current, after the backoff, while the write keeps failing", async () => {
+    const clock = handClock();
+    const lines: string[] = [];
+    const original = GenerationRecords.prototype.mark;
+    let failures = 0;
+    GenerationRecords.prototype.mark = function (number, state, error) {
+      if (state === "current" && failures < 2) {
+        failures += 1;
+        return Promise.reject(new Error("injected current write failure"));
+      }
+      return original.call(this, number, state, error);
+    };
+    try {
+      const fixture = await setUp({
+        daemon: { clock, print: (line) => lines.push(line) },
+      });
+      expect(failures).toBe(2);
+      const status = async () =>
+        (await readStatus(fixture.machine.state)).workspaces.find(
+          (each) => each.id === fixture.summary.id
+        );
+      const idle = await fixture.daemon.idle();
+      expect(idle.scheduled, lines.join("\n")).toBe(true);
+      expect(await status()).toMatchObject({ alive: false });
+
+      clock.advance(1000);
+      expect(await fixture.daemon.idle()).toEqual({
+        reasons: [],
+        scheduled: false,
+      });
+      expect(await status()).toMatchObject({
+        alive: true,
+        host: "generation",
+        pid: fixture.summary.pid,
+      });
+      fixture.client.close();
+    } finally {
+      GenerationRecords.prototype.mark = original;
+    }
+  }, 150_000);
+
   it("writes which workspaces a generation hosts again, after the backoff, when the write failed", async () => {
     const clock = handClock();
     const lines: string[] = [];
