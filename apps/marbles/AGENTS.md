@@ -248,7 +248,7 @@ Five buckets, each importing only what sits below it:
   copies of its own of every module and data file its source imports by
   path (`copies.ts`: anything but packages and Marbles' own code; it
   rewrites only import specifiers, found with `oxc-parser`, and a file
-  that does not parse fails the load), and those
+  that does not parse, or is CommonJS, fails the load), and those
   copies import a library bound to the load (`authoring/bound.ts`): every
   word that declares or routes runs in the load's scope (`inLoad`), and
   builders and instances keep whom they answer to (`captureScope`: the
@@ -275,7 +275,9 @@ Five buckets, each importing only what sits below it:
   callers, addresses what each declared by workspace id and local name
   (`run`, `roll`), and loads every registered (`hosted`) workspace again,
   reporting each that fails (`loadRegistered`; a registration whose source
-  is gone fails, one made without a source is its root alone), and drops
+  is gone fails; one made with no source path reads the default
+  `.foundry/marbles` under its root when that is there, and is its root
+  alone when it is not), and drops
   a registration (`unregister`). An engine generation of the
   Marbles process is one of these: it loads every registered workspace up
   to engines not yet started (`stageRegistered`) and starts them when it
