@@ -264,7 +264,7 @@ class RecordedStop {
       } else if (proof === "unproven") {
         this.#unproven.add(record.pid);
         left.push(record.pid);
-      } else if (record.group && found === undefined) {
+      } else if (record.group && groupMayRemain(record, found)) {
         this.#groups.add(record.pid);
       }
     }
@@ -335,6 +335,12 @@ export function unrecordedMarked(dir: string, marker: Marker): number[] {
 }
 
 type Proof = "gone" | "recorded" | "unproven" | { readonly problem: string };
+
+function groupMayRemain(record: SpawnRecord, found: Seen | undefined): boolean {
+  return (
+    found === undefined || (found.exited === true && found.pgid === record.pid)
+  );
+}
 
 function prove(
   record: SpawnRecord,

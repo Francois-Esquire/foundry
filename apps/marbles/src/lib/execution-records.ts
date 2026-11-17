@@ -27,6 +27,7 @@ import type {
   StoredExecution,
   Written,
 } from "./execution-store";
+import { storedProgress } from "./execution-store";
 import type { RunStore } from "./run-store";
 import { ANY_STORED_RUN } from "./run-store";
 
@@ -47,6 +48,11 @@ type Ending = "complete" | "failed" | "cancelled" | "interrupted";
 interface Failure {
   readonly code: string;
   readonly message?: string;
+}
+
+interface Known {
+  readonly complete: boolean;
+  readonly run: ExecutionRun;
 }
 
 const UNSETTLED: readonly ExecutionStatus[] = EXECUTION_STATUSES.filter(
@@ -92,6 +98,7 @@ export class ExecutionRecords {
   readonly #store: ExecutionStore;
   readonly #warn: (line: string) => void;
   readonly #records = new Map<string, ExecutionRun>();
+  readonly #unread = new Set<string>();
   readonly #listeners = new Set<(run: ExecutionRun) => void>();
   readonly #removed: (run: ExecutionRun) => Promise<void> | void;
   readonly #runs: Pick<RunStore, "claim" | "release"> | undefined;
@@ -148,7 +155,7 @@ export class ExecutionRecords {
     for (const candidate of candidates) {
       const run = this.#parse(await this.#store.get(candidate.id));
       if (run === undefined) {
-        this.#records.delete(candidate.id);
+        this.#forget(candidate.id);
         continue;
       }
       if (!SETTLED_EXECUTION_STATUSES.has(run.status)) {
@@ -172,7 +179,7 @@ export class ExecutionRecords {
     );
     this.#gaps = gaps;
     for (const run of removed) {
-      this.#records.delete(run.id);
+      this.#forget(run.id);
     }
     return removed;
   }
@@ -194,6 +201,7 @@ export class ExecutionRecords {
     this.#gaps = gapsOf(await this.#store.gaps());
     for (const run of await this.#stored()) {
       this.#records.set(run.id, run);
+      this.#unread.delete(run.id);
       this.#sequence = Math.max(this.#sequence, run.sequence);
     }
   }
@@ -243,7 +251,7 @@ export class ExecutionRecords {
     }
     for (const [id, local] of this.#records) {
       if (!(seen.has(id) || ownedHere(local))) {
-        this.#records.delete(id);
+        this.#forget(id);
       }
     }
   }
@@ -298,18 +306,23 @@ export class ExecutionRecords {
   }
 
   progress(id: string, value: JsonValue): void {
-    this.#persist(async () => {
+    this.#saveProgress(id, value).catch((error: unknown) => {
+      this.#warn(
+        `[state] execution ${id} progress not saved: ${String(error)}`
+      );
+    });
+  }
+
+  async #saveProgress(id: string, value: JsonValue): Promise<void> {
+    const progress = storedProgress(id, value);
+    await this.#persist(async () => {
       const run = this.#records.get(id);
       if (!run || SETTLED_EXECUTION_STATUSES.has(run.status)) {
         return;
       }
-      this.#took(
+      await this.#took(
         id,
-        await this.#store.advise(id, { progress: value, updatedAt: now() })
-      );
-    }).catch((error: unknown) => {
-      this.#warn(
-        `[state] execution ${id} progress not saved: ${String(error)}`
+        await this.#store.advise(id, { progress, updatedAt: now() })
       );
     });
   }
@@ -337,7 +350,7 @@ export class ExecutionRecords {
       if (written.applied) {
         this.#indexes.set(observations, index);
       }
-      this.#took(id, written, written.applied ? observations : undefined);
+      await this.#took(id, written, written.applied ? observations : undefined);
       return written.applied;
     }).catch((error: unknown) => {
       this.#warn(
@@ -394,7 +407,7 @@ export class ExecutionRecords {
         updatedAt: at,
       })
     );
-    const stored = this.#took(id, written);
+    const stored = await this.#took(id, written);
     if (!written.applied) {
       throw new Error(
         `execution run ${id} is ${stored?.status ?? "gone"} now; it does not start`
@@ -404,16 +417,17 @@ export class ExecutionRecords {
 
   protected moveRecord(id: string, status: "running" | "suspended"): void {
     const at = now();
-    this.#persist(async () =>
-      this.#took(
-        id,
-        await this.#store.transition(id, {
-          from: [status === "running" ? "suspended" : "running"],
-          owner: process.pid,
-          status,
-          updatedAt: at,
-        })
-      )
+    this.#persist(
+      async () =>
+        await this.#took(
+          id,
+          await this.#store.transition(id, {
+            from: [status === "running" ? "suspended" : "running"],
+            owner: process.pid,
+            status,
+            updatedAt: at,
+          })
+        )
     ).catch((error: unknown) => {
       this.#warn(`[state] execution ${id} not saved: ${String(error)}`);
     });
@@ -435,7 +449,7 @@ export class ExecutionRecords {
         });
       })
     );
-    this.#took(id, written);
+    await this.#took(id, written);
     return written.applied;
   }
 
@@ -493,7 +507,7 @@ export class ExecutionRecords {
           );
         })
       );
-      this.#took(id, written);
+      await this.#took(id, written);
       return written.applied;
     } finally {
       await runs?.release(id);
@@ -534,7 +548,7 @@ export class ExecutionRecords {
         );
         continue;
       }
-      const stored = this.#took(orphan.id, taken.written);
+      const stored = await this.#took(orphan.id, taken.written);
       if (taken.readmit && stored) {
         readmitted.push(stored);
       }
@@ -575,7 +589,7 @@ export class ExecutionRecords {
       }
       throw failure;
     }
-    const stored = this.#took(id, written);
+    const stored = await this.#took(id, written);
     if (
       written.applied ||
       (stored && SETTLED_EXECUTION_STATUSES.has(stored.status))
@@ -635,21 +649,43 @@ export class ExecutionRecords {
     this.#retry.timer = timer;
   }
 
-  #took(
+  async #took(
     id: string,
     written: Written,
     observations?: readonly ExecutionObservation[]
-  ): ExecutionRun | undefined {
+  ): Promise<ExecutionRun | undefined> {
     if (written.record === undefined) {
       return;
     }
+    const local = this.#records.get(id);
     const run = parseStored({
       id,
-      observations: observations ?? this.#records.get(id)?.observations ?? [],
+      observations: observations ?? local?.observations ?? [],
       value: written.record,
     });
-    this.#learn(run);
-    return run;
+    if (run === undefined) {
+      return;
+    }
+    const known =
+      observations === undefined && revealsUnread(written, run, local)
+        ? await this.#reread(run)
+        : { complete: !this.#unread.has(id), run };
+    this.#learn(known.run, known.complete);
+    return known.run;
+  }
+
+  async #reread(run: ExecutionRun): Promise<Known> {
+    try {
+      return {
+        complete: true,
+        run: this.#parse(await this.#store.get(run.id)) ?? run,
+      };
+    } catch (error) {
+      this.#warn(
+        `[state] execution ${run.id} not read back after a write: ${String(error)}`
+      );
+      return { complete: false, run };
+    }
   }
 
   #persist<T>(write: () => Promise<T>): Promise<T> {
@@ -658,14 +694,29 @@ export class ExecutionRecords {
     return landing;
   }
 
-  #learn(stored: ExecutionRun | undefined): void {
+  #learn(stored: ExecutionRun | undefined, complete = true): void {
     if (stored === undefined) {
       return;
     }
     const local = this.#records.get(stored.id);
-    if (!local || stored.revision > local.revision) {
-      this.#publish(stored);
+    const replaces =
+      !local ||
+      stored.revision > local.revision ||
+      (stored.revision === local.revision && this.#unread.has(stored.id));
+    if (!replaces) {
+      return;
     }
+    if (complete) {
+      this.#unread.delete(stored.id);
+    } else {
+      this.#unread.add(stored.id);
+    }
+    this.#publish(stored);
+  }
+
+  #forget(id: string): void {
+    this.#records.delete(id);
+    this.#unread.delete(id);
   }
 
   #publish(run: ExecutionRun): void {
@@ -678,6 +729,18 @@ export class ExecutionRecords {
       }
     }
   }
+}
+
+function revealsUnread(
+  written: Written,
+  run: ExecutionRun,
+  local: ExecutionRun | undefined
+): boolean {
+  if (local === undefined) {
+    return true;
+  }
+  const own = written.applied ? 1 : 0;
+  return run.revision > local.revision + own;
 }
 
 function gapsOf(gaps: readonly RetentionGap[]): Map<string, RetentionGap> {

@@ -1,5 +1,5 @@
 import { ModelManager } from "@foundry/models";
-import { stateProviders } from "~/database/providers";
+import { DatabaseProviderStore } from "~/database/providers";
 import { environmentSnapshot } from "~/lib/environment";
 import type { Proposal } from "~/lib/providers/configuration";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
@@ -28,7 +28,7 @@ export async function setupProviders(
     environment: { machine: environmentSnapshot(), workspace: {} },
     models: new ModelManager(),
     plugins,
-    store: stateProviders(options.state),
+    store: DatabaseProviderStore.forState(options.state),
     ...(options.workspace ? { workspace: options.workspace } : {}),
   });
   await configuration.read();
