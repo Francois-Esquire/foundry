@@ -23,10 +23,6 @@ import type { Factory } from "@foundry/workflows/orchestrator";
 import { Orchestrator } from "@foundry/workflows/orchestrator";
 import type { RunRecord } from "@foundry/workflows/schema";
 import { MemoryWorkflowStore } from "@foundry/workflows/store/memory";
-import { WorkspaceSystem } from "@foundry/workspaces";
-import { git } from "@foundry/workspaces/git";
-import { directory } from "@foundry/workspaces/node";
-import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import type { Bindings } from "~/lib/bindings";
@@ -61,7 +57,7 @@ import { ArtifactsManager } from "~/lib/managers/artifacts";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
 import { skillResolver } from "~/lib/managers/skills";
 import type { Catalogue, GitOptions } from "~/lib/managers/workspaces";
-import { WorkspacesManager } from "~/lib/managers/workspaces";
+import { localCatalogue, WorkspacesManager } from "~/lib/managers/workspaces";
 import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
@@ -89,8 +85,7 @@ import { listsSessions, UsageEvidence } from "~/lib/usage-evidence";
 
 export interface EngineOptions {
   /** Read by `artifacts.latest` when `artifacts` has nothing: the real store under `--dry-run`. */
-  readonly artifactReads?: ArtifactSubstrate;
-  /** Versioned outputs and the feed; one system may serve many workspaces. */
+  readonly artifactReads?: Pick<ArtifactSubstrate, "get" | "readFile">;
   readonly artifacts: ArtifactSubstrate;
   /**
    * Whether someone can answer `ask` in this process (a dashboard).
@@ -216,7 +211,6 @@ export class Engine {
   readonly bindings: Bindings;
   /** Every run's lifecycle record, and the named queues they wait in. */
   readonly executions: ExecutionRuns;
-  /** Feed entries from every workspace in the artifact system, newest first. */
   readonly feed: FeedReader;
   /** Approvals and questions from agents, answered through the feed. */
   readonly interactions: HarnessInteractions;
@@ -372,12 +366,7 @@ export class Engine {
     });
     this.#unwatchRecords = this.#records.watch(() => this.#delivery.wake());
     this.taskStore = this.#records.taskStore;
-    const catalogue =
-      options.workspaces ??
-      new WorkspaceSystem().extend(
-        directory({ observer: nodeObserver }),
-        git(options.git ?? {})
-      );
+    const catalogue = options.workspaces ?? localCatalogue(options.git ?? {});
     this.#askable = askable;
     this.#print = print;
     this.#publisher = feedPublisher(options.artifacts, {

@@ -107,7 +107,14 @@ Five buckets, each importing only what sits below it:
   exists only for a session record put; a commit that puts messages first
   reads, through a view of its own transaction, the session each leaves,
   and puts that record again so it is raised too. Nothing reads the
-  package's tables directly. Every writer handle goes through `guard.ts`, which
+  package's tables directly. `stores.ts` is a workspace's artifacts,
+  sandbox containers and workspace catalogue: each package's SQLite store
+  scoped by the workspace id, handed over as the package makes it, with no
+  hook. Artifact blob files stay on disk, under
+  `<artifacts>/workspaces/<id>/blobs`; `readArtifacts` is the read-only
+  view of them a dry run reads through to. The workflows tables are
+  composed and migrated, but nothing in Marbles uses them yet:
+  workflow runs are still the in-memory store and `runs/*.json`. Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no worker opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
@@ -125,9 +132,11 @@ Five buckets, each importing only what sits below it:
   become dynamic children in that run. `createEngine` in `src/create.ts`
   is the one place the Marbles defaults and `--dry-run` are decided; it
   builds the instances, constructs the engine, and copies the catalog in.
-  Given the host's `database`, it keeps the tasks and sessions there;
-  given only a state dir, the engine opens one handle of its own for both
-  (`openWorkspaceDatabase` in `database/managed.ts`) and closes it after
+  Given the host's `database`, it keeps the tasks, sessions, artifacts,
+  sandbox containers and workspace catalogue there;
+  given only a state dir, the engine opens one handle of its own for its
+  tasks and sessions (`openWorkspaceDatabase` in `database/managed.ts`),
+  keeps the rest as it would with no database, and closes it after
   everything else it holds, since its agents may write a session after its
   records close.
 - `src/workspace/` hosts one workspace in the process it runs in: source

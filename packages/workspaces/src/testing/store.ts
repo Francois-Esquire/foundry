@@ -34,6 +34,7 @@ export function describeWorkspaceStore(
     describeLargeWrites(open);
     describeTransactions(open);
     describeReentry(open);
+    describeFailedTurns(open);
   });
 }
 
@@ -893,6 +894,66 @@ function describeReentry(open: Open): void {
       await later;
       expect(await store.getWorkspace(workspace.id)).toEqual(workspace);
       expect(await store.listEntries(workspace.id)).toEqual([readme]);
+    });
+  });
+}
+
+function describeFailedTurns(open: Open): void {
+  describe("after a failure", () => {
+    test("a commit made after a transaction whose work throws lands, and nothing of the transaction stays", async ({
+      skip,
+    }) => {
+      const store = (await open())(SCOPE);
+      if (store.transaction === undefined) {
+        return skip();
+      }
+      const doomed = hostWorkspace({ path: newRoot("doomed") });
+      await expect(
+        store.transaction(async (view) => {
+          await seed(view, doomed);
+          throw new Error("work failed");
+        })
+      ).rejects.toThrow("work failed");
+      const after = hostWorkspace({ path: newRoot("after") });
+
+      expect(await settlesWithin(seed(store, after), 2000)).toBe("resolved");
+      expect(await store.getWorkspace(doomed.id)).toBeNull();
+      expect(await store.getWorkspace(after.id)).toEqual(after);
+    });
+
+    test("commits queued behind a transaction that fails land, and so does one behind a failing commit", async ({
+      skip,
+    }) => {
+      const store = (await open())(SCOPE);
+      if (store.transaction === undefined) {
+        return skip();
+      }
+      const entered = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
+      const failing = store.transaction(async () => {
+        entered.resolve(undefined);
+        await release.promise;
+        throw new Error("work failed");
+      });
+      await entered.promise;
+      const queued = hostWorkspace({ path: newRoot("queued") });
+      const waiting = seed(store, queued);
+      const refused = store.commit({
+        workspace: hostWorkspace({
+          createdAt: unstorableDate(),
+          path: newRoot("refused"),
+        }),
+      });
+      const last = hostWorkspace({ path: newRoot("last") });
+      const behind = seed(store, last);
+      release.resolve(undefined);
+
+      await expect(failing).rejects.toThrow("work failed");
+      await expect(refused).rejects.toThrow();
+      expect(await settlesWithin(waiting, 2000)).toBe("resolved");
+      expect(await settlesWithin(behind, 2000)).toBe("resolved");
+      expect(await store.getWorkspace(queued.id)).toEqual(queued);
+      expect(await store.getWorkspace(last.id)).toEqual(last);
     });
   });
 }
