@@ -72,3 +72,6 @@ temp
 
 # Worktrees
 .worktrees/
+
+# Marbles migrations, generated from the tables by `bun run db:generate`
+apps/marbles/src/database/migrations/
