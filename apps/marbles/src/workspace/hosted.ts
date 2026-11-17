@@ -347,7 +347,7 @@ export class HostedWorkspaces {
       return Promise.reject(new Error("these hosted workspaces are closed"));
     }
     const underway = this.#unregistering.get(id);
-    if (underway !== undefined) {
+    if (underway !== undefined && !this.#pending.has(id)) {
       return underway;
     }
     const unregistering = this.#track(this.#unregister(id));
