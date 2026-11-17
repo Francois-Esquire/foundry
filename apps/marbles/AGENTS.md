@@ -231,7 +231,7 @@ Five buckets, each importing only what sits below it:
   copies of its own of every module and data file its source imports by
   path (`copies.ts`: anything but packages and Marbles' own code; it
   rewrites only import specifiers, found with `oxc-parser`, and a file
-  that does not parse fails the load), and those
+  that does not parse, or is CommonJS, fails the load), and those
   copies import a library bound to the load (`authoring/bound.ts`): every
   word that declares or routes runs in the load's scope (`inLoad`), and
   builders and instances keep whom they answer to (`captureScope`: the
