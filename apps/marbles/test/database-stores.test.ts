@@ -53,7 +53,21 @@ async function arranged() {
     engines.push(built);
     return built;
   };
-  return { artifacts, engine, machine, root };
+  const engineWithoutDatabase = () => {
+    const built = createEngine({
+      artifacts,
+      catalog: new Catalog(),
+      dry: false,
+      print: () => undefined,
+      providers: [],
+      root,
+      stateRoot: machine.root,
+      workspaceId: "ws",
+    });
+    engines.push(built);
+    return built;
+  };
+  return { artifacts, engine, engineWithoutDatabase, machine, root };
 }
 
 describe("an engine over the Marbles database", () => {
@@ -111,6 +125,24 @@ describe("an engine over the Marbles database", () => {
       "ws"
     ).artifacts.listContents(artifactIdFor("ws", NOTES.name));
     expect(stored).toHaveLength(1);
+  });
+
+  it("under dry, reads through to what a real run without the database saved in its records file", async () => {
+    const { artifacts, engine, engineWithoutDatabase } = await arranged();
+    await engineWithoutDatabase().artifacts.write(NOTES, { "a.md": "# Json" });
+    expect(existsSync(join(artifacts, "records.json"))).toBe(true);
+
+    const latest = await engine(true).artifacts.latest(NOTES);
+    expect(await latest?.text("a.md")).toBe("# Json");
+  });
+
+  it("under dry, reads what the database holds before what the records file holds", async () => {
+    const { engine, engineWithoutDatabase } = await arranged();
+    await engineWithoutDatabase().artifacts.write(NOTES, { "a.md": "# Json" });
+    await engine(false).artifacts.write(NOTES, { "a.md": "# Database" });
+
+    const latest = await engine(true).artifacts.latest(NOTES);
+    expect(await latest?.text("a.md")).toBe("# Database");
   });
 
   it("keeps its workspace catalogue there under its workspace id", async () => {

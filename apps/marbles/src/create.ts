@@ -1,9 +1,9 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts } from "@foundry/artifacts";
-import { ArtifactManager } from "@foundry/artifacts";
+import { ArtifactManager, ContentNotFoundError } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { showArgv } from "@foundry/lib/argv";
@@ -153,6 +153,40 @@ function artifactsAt(dir: string | undefined): Artifacts {
       });
 }
 
+type ArtifactReads = NonNullable<EngineOptions["artifactReads"]>;
+
+function savedArtifacts(
+  dir: string,
+  { stateRoot, workspaceId }: CreateEngineOptions
+): ArtifactReads {
+  const database = readArtifacts(stateRoot ?? layout().state, dir, workspaceId);
+  if (!existsSync(join(dir, "records.json"))) {
+    return database;
+  }
+  const sources: readonly ArtifactReads[] = [database, artifactsAt(dir)];
+  const first = async <T>(
+    read: (source: ArtifactReads) => Promise<T | null>
+  ): Promise<T | null> => {
+    for (const source of sources) {
+      const found = await read(source).catch((error: unknown) => {
+        if (error instanceof ContentNotFoundError) {
+          return null;
+        }
+        throw error;
+      });
+      if (found !== null) {
+        return found;
+      }
+    }
+    return null;
+  };
+  return {
+    get: (id) => first((source) => source.get(id)),
+    readFile: (contentId, path) =>
+      first((source) => source.readFile(contentId, path)),
+  };
+}
+
 function artifactsFor(
   stores: WorkspaceStores | undefined,
   options: CreateEngineOptions
@@ -163,13 +197,7 @@ function artifactsFor(
       artifacts: artifactsAt(undefined),
       ...(dir === undefined
         ? {}
-        : {
-            artifactReads: readArtifacts(
-              options.stateRoot ?? layout().state,
-              dir,
-              workspaceId
-            ),
-          }),
+        : { artifactReads: savedArtifacts(dir, options) }),
     };
   }
   if (stores === undefined) {
