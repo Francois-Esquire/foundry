@@ -315,7 +315,10 @@ export async function runSchedules(
   };
 
   while (!signal.aborted) {
-    const active = await engine.schedules();
+    const active = await engine.schedules().catch((error: unknown) => {
+      options.print(`[schedule] reading schedules failed: ${String(error)}`);
+      return [];
+    });
     if (active.length === 0) {
       await sleep(POLL_MS, signal);
       continue;
