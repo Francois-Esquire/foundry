@@ -200,6 +200,33 @@ it("gives a scope captured while a load ran the engine that took that load", asy
   expect(() => scope(declaringCatalog)).toThrow(RELEASED);
 });
 
+it("gives a scope captured by a workspace's load inside another workspace's run that load's engine, and refuses it once that workspace closed", async () => {
+  const ownCatalog = new Catalog();
+  const own = await load("capture-owner", ownCatalog);
+  const owner = engine("capture-owner");
+  setHost(owner, ownCatalog);
+  const otherCatalog = new Catalog();
+  await load("capture-host", otherCatalog);
+  const other = engine("capture-host");
+  setHost(other, otherCatalog);
+  const scope: Scope = inRunOf(other, () => inLoad(own, captureScope));
+
+  expect(await reached((call) => scope(call))).toEqual({
+    catalog: ownCatalog,
+    runtime: owner,
+  });
+  expect(await reached((call) => inRunOf(other, () => scope(call)))).toEqual({
+    catalog: ownCatalog,
+    runtime: owner,
+  });
+
+  owner.disposed = true;
+  expect(await reached((call) => inRunOf(other, () => scope(call)))).toEqual({
+    catalog: "WorkspaceReleasedError",
+    runtime: "WorkspaceReleasedError",
+  });
+});
+
 it("keeps an old run's timers and promises on its engine while it lives, and refuses them once it is disposed", async () => {
   const w = await replaced("timers");
   const { promise: firstGate, resolve: openFirst } =

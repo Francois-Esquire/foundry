@@ -116,10 +116,8 @@ export type Scope = <T>(work: () => T) => T;
 
 export function captureScope(): Scope {
   const context = activeContext();
-  let route: Route | undefined;
-  if (context === undefined) {
-    route = routeScope.getStore();
-  } else {
+  let route = routeScope.getStore();
+  if (context !== undefined && !loadOfAnother(route, context)) {
     const binding = contextBindings.get(context);
     route =
       binding === undefined
