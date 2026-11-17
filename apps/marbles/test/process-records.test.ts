@@ -365,3 +365,30 @@ it("never passes over a run root that holds records and names no owner: its reco
   await sweepFinishedRuns(parent, { graceMs: 0, killMs: 0 }, system);
   expect(existsSync(making)).toBe(true);
 });
+
+it("reports a live member of a recorded group whose leader is an unreaped zombie, and signals none of it", async () => {
+  const dir = temporaryDirectory("rec-");
+  const member = PID + 1;
+  const path = join(dir, `${String(PID)}.json`);
+  put(path, { ...OLD, group: true });
+  const problems = await stopRecorded(
+    dir,
+    MARKER,
+    { graceMs: 0, killMs: 0 },
+    {
+      alive: () => true,
+      environment: () => [`${MARKER.name}=${MARKER.value}`],
+      kill: () => {
+        throw new Error("nothing here may be signalled");
+      },
+      look: () =>
+        new Map([[PID, { exited: true, pgid: PID, started: OLD.started }]]),
+      members: (pgid) => (pgid === PID ? [member] : []),
+      sleep: () => Promise.resolve(),
+    }
+  );
+  expect(problems).toEqual([
+    `process ${String(member)} is in the group of the recorded process ${String(PID)} and has no record of its own; not signalled`,
+  ]);
+  expect(existsSync(path)).toBe(true);
+});
