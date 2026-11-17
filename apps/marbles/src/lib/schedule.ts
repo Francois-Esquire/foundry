@@ -2,11 +2,9 @@ import { Cron } from "croner";
 import type { Engine } from "~/lib/engine";
 import type { Launch } from "~/lib/launch";
 import { isLaunch } from "~/lib/launch";
-import { acknowledgeLaunch } from "~/lib/monitor";
 import { isRecord } from "~/lib/state/json";
-import { scheduleLockName } from "~/lib/state/locks";
-import type { ScheduleHistory } from "~/lib/state/schedules";
-import { lastFinish, recordTick } from "~/lib/state/schedules";
+import type { ScheduleHistory, TriggerStore } from "~/lib/trigger-store";
+import { finishedAt } from "~/lib/trigger-store";
 import type { CalendarSlot, Schedule, Trigger, Weekday } from "~/lib/triggers";
 
 const UNITS: Record<string, number> = {
@@ -106,7 +104,7 @@ export function nextDue(schedule: Schedule, last: number): number {
 /** What the scheduler needs of an engine: its live triggers, its store, and launching. */
 export type ScheduledEngine = Pick<
   Engine,
-  "cancel" | "has" | "launch" | "schedules" | "store"
+  "cancel" | "has" | "launch" | "schedules" | "triggers"
 >;
 
 export interface TickOptions {
@@ -138,11 +136,13 @@ export async function tick(
   schedule: Schedule,
   options: TickOptions
 ): Promise<{ readonly value: unknown } | undefined> {
-  const { store } = engine;
+  const { triggers } = engine;
   const now = options.now ?? Date.now;
-  const lock = store.lock(scheduleLockName(schedule.key));
-  if ("holder" in lock) {
-    options.print(`[schedule] ${schedule.key} skipped: held by ${lock.holder}`);
+  const claim = await triggers.claimTick(schedule.key);
+  if (!claim.claimed) {
+    options.print(
+      `[schedule] ${schedule.key} skipped: held by ${claim.holder}`
+    );
     return undefined;
   }
 
@@ -150,7 +150,7 @@ export async function tick(
   let status: ScheduleHistory["lastStatus"] = "failed";
   let dispatched = false;
   try {
-    if (!shouldDispatch(engine, schedule, options, now())) {
+    if (!(await shouldDispatch(engine, schedule, options, now()))) {
       return undefined;
     }
     dispatched = true;
@@ -168,31 +168,48 @@ export async function tick(
     status = "complete";
     return { value };
   } finally {
-    try {
-      const finish = now();
-      if (dispatched) {
-        recordTick(store, schedule.key, {
-          kind: schedule.kind,
-          label: schedule.label,
-          lastFinish: new Date(finish).toISOString(),
-          lastStart: new Date(start).toISOString(),
-          lastStatus: status,
-          nextDue: new Date(nextDue(schedule, finish)).toISOString(),
-        });
-      }
-    } finally {
-      lock.release();
-    }
+    await finishTick(triggers, schedule.key, () =>
+      dispatched ? history(schedule, start, now(), status) : undefined
+    );
   }
 }
 
-function shouldDispatch(
+async function finishTick(
+  triggers: TriggerStore,
+  key: string,
+  record: () => ScheduleHistory | undefined
+): Promise<void> {
+  try {
+    await triggers.finishTick(key, record());
+  } catch (error) {
+    await triggers.finishTick(key).catch(() => undefined);
+    throw error;
+  }
+}
+
+function history(
+  schedule: Schedule,
+  start: number,
+  finish: number,
+  status: ScheduleHistory["lastStatus"]
+): ScheduleHistory {
+  return {
+    kind: schedule.kind,
+    label: schedule.label,
+    lastFinish: new Date(finish).toISOString(),
+    lastStart: new Date(start).toISOString(),
+    lastStatus: status,
+    nextDue: new Date(nextDue(schedule, finish)).toISOString(),
+  };
+}
+
+async function shouldDispatch(
   engine: ScheduledEngine,
   schedule: Schedule,
   options: TickOptions,
   now: number
-): boolean {
-  const last = lastFinish(engine.store, schedule.key);
+): Promise<boolean> {
+  const last = finishedAt(await engine.triggers.lastTick(schedule.key));
   const noLongerDue =
     options.scheduled && last !== undefined && nextDue(schedule, last) > now;
   return !noLongerDue && options.canRun?.(schedule) !== false;
@@ -221,13 +238,13 @@ async function startPending(
   signal: AbortSignal | undefined
 ): Promise<unknown> {
   if (!engine.has(launch.workflow)) {
-    acknowledgeLaunch(engine.store, key);
+    await engine.triggers.clearPendingLaunch(key);
     throw new Error(
       `${key}: launch target "${launch.workflow}" is not registered`
     );
   }
   const started = await engine.launch(launch.workflow, launch.input, key);
-  acknowledgeLaunch(engine.store, key);
+  await engine.triggers.clearPendingLaunch(key);
   return await awaitRun(engine, started, signal);
 }
 
@@ -284,8 +301,10 @@ export async function runSchedules(
   // tick that recorded nothing (its lock was held, it was no longer live)
   // waits a cadence from the attempt rather than firing again at once.
   const attempted = new Map<string, number>();
-  const baseline = (schedule: Schedule): number => {
-    const recorded = lastFinish(engine.store, schedule.key);
+  const baseline = async (schedule: Schedule): Promise<number> => {
+    const recorded = finishedAt(
+      await engine.triggers.lastTick(schedule.key).catch(() => undefined)
+    );
     const tried = attempted.get(schedule.key);
     if (tried === undefined) {
       const first = recorded ?? schedule.registeredAt ?? now();
@@ -301,11 +320,13 @@ export async function runSchedules(
       await sleep(POLL_MS, signal);
       continue;
     }
-    const [schedule, due] = active
-      .map((entry) => [entry, nextDue(entry, baseline(entry))] as const)
-      .reduce((soonest, candidate) =>
-        candidate[1] < soonest[1] ? candidate : soonest
-      );
+    const dues: (readonly [Schedule, number])[] = [];
+    for (const entry of active) {
+      dues.push([entry, nextDue(entry, await baseline(entry))]);
+    }
+    const [schedule, due] = dues.reduce((soonest, candidate) =>
+      candidate[1] < soonest[1] ? candidate : soonest
+    );
     const wait = due - now();
     if (wait > 0) {
       await sleep(Math.min(wait, POLL_MS), signal);

@@ -1,19 +1,27 @@
-import { defaultWorkspaceRecords } from "~/database/managed";
+import {
+  defaultWorkspaceRecords,
+  defaultWorkspaceRuns,
+  defaultWorkspaceTriggers,
+} from "~/database/managed";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine as LibEngine } from "~/lib/engine";
 
 export class Engine extends LibEngine {
   constructor(options: EngineOptions) {
+    const { root, state, workspaceId } = options;
     super(
-      options.records !== undefined || options.state === undefined
+      state === undefined
         ? options
         : {
             ...options,
-            records: defaultWorkspaceRecords(
-              options.state,
-              options.root,
-              options.workspaceId
-            ),
+            records:
+              options.records ??
+              defaultWorkspaceRecords(state, root, workspaceId),
+            runs:
+              options.runs ?? defaultWorkspaceRuns(state, root, workspaceId),
+            triggers:
+              options.triggers ??
+              defaultWorkspaceTriggers(state, root, workspaceId),
           }
     );
   }

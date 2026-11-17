@@ -72,3 +72,90 @@ export function jsonData(value: unknown): JsonValue {
       return null;
   }
 }
+
+export class NotStorableError extends TypeError {
+  override readonly name = "NotStorableError";
+}
+
+export function storableJson(at: string, value: unknown): JsonValue {
+  return storable(at, value, new Set());
+}
+
+function storable(at: string, value: unknown, seen: Set<object>): JsonValue {
+  switch (typeof value) {
+    case "boolean":
+    case "string":
+      return value;
+    case "number":
+      if (!Number.isFinite(value)) {
+        throw new NotStorableError(
+          `${at} holds ${String(value)}, which does not read back intact from JSON`
+        );
+      }
+      return value + 0;
+    case "object":
+      if (value === null) {
+        return null;
+      }
+      if (seen.has(value)) {
+        throw new NotStorableError(`${at} contains itself`);
+      }
+      seen.add(value);
+      try {
+        return Array.isArray(value)
+          ? storableArray(at, value, seen)
+          : storableObject(at, value, seen);
+      } finally {
+        seen.delete(value);
+      }
+    default:
+      throw new NotStorableError(
+        `${at} holds ${value === undefined ? "undefined" : `a ${typeof value}`}, which has no JSON form`
+      );
+  }
+}
+
+function storableArray(
+  at: string,
+  value: readonly unknown[],
+  seen: Set<object>
+): JsonValue[] {
+  return Array.from({ length: value.length }, (_, index) => {
+    if (!Object.hasOwn(value, index)) {
+      throw new NotStorableError(`${at}[${index}] is a hole in an array`);
+    }
+    const item = value[index];
+    if (item === undefined) {
+      throw new NotStorableError(
+        `${at}[${index}] holds undefined, which reads back from JSON as null`
+      );
+    }
+    return storable(`${at}[${index}]`, item, seen);
+  });
+}
+
+function storableObject(
+  at: string,
+  value: object,
+  seen: Set<object>
+): { [key: string]: JsonValue } {
+  const prototype: unknown = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new NotStorableError(
+      `${at} holds an object that is not plain, which does not read back intact from JSON`
+    );
+  }
+  const copy: { [key: string]: JsonValue } = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (item === undefined) {
+      continue;
+    }
+    Object.defineProperty(copy, key, {
+      configurable: true,
+      enumerable: true,
+      value: storable(`${at}.${key}`, item, seen),
+      writable: true,
+    });
+  }
+  return copy;
+}

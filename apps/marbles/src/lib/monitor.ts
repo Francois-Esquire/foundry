@@ -8,25 +8,13 @@ import type { HostBindings } from "~/lib/bindings";
 import type { StepFn } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
 import type { Launch } from "~/lib/launch";
-import { isLaunch, launchTarget } from "~/lib/launch";
+import { launchTarget } from "~/lib/launch";
 import type { Catalogue } from "~/lib/managers/workspaces";
 import { current } from "~/lib/run-scope";
-import { isRecord, jsonData } from "~/lib/state/json";
-import type { StateStore } from "~/lib/state/store";
+import { isRecord, jsonData, storableJson } from "~/lib/state/json";
+import type { MonitorState, TriggerStore } from "~/lib/trigger-store";
+import { storedMonitorState } from "~/lib/trigger-store";
 import type { Context } from "~/lib/types";
-
-/**
- * A monitor is a schedule whose step detects a change and hands it to the
- * config's handler. What it last saw is the `monitors` document under its
- * key in the engine's state store, so each poll knows what changed even
- * when the previous poll ran in another process.
- *
- * A launch the handler asked for is written into that document as
- * `pending` and handed back on every tick until the tick that started it
- * acknowledges it, so a crash between the observation and the start does
- * not lose the launch. Started is delivered: a target that then fails or is
- * cancelled is not started again, any more than a schedule's run would be.
- */
 
 /** What a monitor watches: a glob under the workspace root, or a URL. */
 export const monitorSpecSchema = z.discriminatedUnion("kind", [
@@ -161,29 +149,11 @@ export function handlerResponse(
   };
 }
 
-function pendingLaunch(previous: unknown): Launch | undefined {
-  return isRecord(previous) && isLaunch(previous.pending)
-    ? previous.pending
-    : undefined;
-}
-
-/**
- * The tick that started (or gave up on) a monitor's pending launch clears
- * it, so the next poll reads the source again.
- */
-export function acknowledgeLaunch(store: StateStore, key: string): void {
-  const previous = store.read("monitors", key);
-  if (isRecord(previous) && "pending" in previous) {
-    const { pending: _, ...rest } = previous;
-    store.write("monitors", key, rest);
+function triggersOf(key: string, host: MonitorHost): TriggerStore {
+  if (!host.triggers) {
+    throw new Error(`monitor "${key}" needs a host with a trigger store`);
   }
-}
-
-function storeOf(key: string, host: MonitorHost): StateStore {
-  if (!host.store) {
-    throw new Error(`monitor "${key}" needs a host with a state store`);
-  }
-  return host.store;
+  return host.triggers;
 }
 
 /** Read the source; a files monitor without a catalogue is the host's mistake, not a failed poll. */
@@ -226,14 +196,14 @@ export function detector(
     const { log, signal } = context;
     signal.throwIfAborted();
     const host = hostOf(key, options);
-    const store = storeOf(key, host);
-    const previous = store.read("monitors", key);
+    const triggers = triggersOf(key, host);
+    const kept = await triggers.monitorState(key);
     // A launch from an earlier tick that was never started goes out again
     // before anything is polled.
-    const pending = pendingLaunch(previous);
-    if (pending) {
-      return { changed: true, launch: pending };
+    if (kept?.pending) {
+      return { changed: true, launch: kept.pending };
     }
+    const previous = kept?.observed;
     const observe = observer(key, spec, host, options);
     let observed: Observation;
     try {
@@ -246,6 +216,9 @@ export function detector(
     if (observed.change === undefined) {
       return { changed: false };
     }
+    const { observed: seen } = storedMonitorState(key, {
+      observed: observed.state,
+    });
     const launch = await respond({
       ...context,
       change: observed.change,
@@ -255,12 +228,20 @@ export function detector(
         : { response: observed.response }),
     });
     signal.throwIfAborted();
-    store.write("monitors", key, {
-      version: 1,
-      ...observed.state,
-      ...(launch === undefined ? {} : { pending: launch }),
-    });
-    return launch === undefined ? { changed: true } : { changed: true, launch };
+    let state: MonitorState;
+    try {
+      state = storedMonitorState(key, {
+        observed: seen,
+        ...(launch === undefined ? {} : { pending: launch }),
+      });
+    } catch (error) {
+      await triggers.saveMonitorState(key, { observed: seen });
+      throw error;
+    }
+    await triggers.saveMonitorState(key, state);
+    return state.pending === undefined
+      ? { changed: true }
+      : { changed: true, launch: state.pending };
   };
 }
 
@@ -361,7 +342,10 @@ async function observeHttp(
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
   const contentType = response.headers.get("content-type");
-  const body = bodyOf(bytes, contentType);
+  const body = storableJson(
+    "the response body",
+    jsonData(bodyOf(bytes, contentType))
+  );
   // A JSON or text body hashes as it always has, so a key order change is
   // no change; other bytes hash as bytes. `jsonData`: JSON text can hold a
   // number too large to be finite. A non-2xx status is part of the reading.

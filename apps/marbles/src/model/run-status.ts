@@ -1,4 +1,4 @@
-import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
+import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 
 /**
  * What the views make of a status: the groups that decide which controls a
