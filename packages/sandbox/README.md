@@ -160,7 +160,8 @@ read-modify-write through it when offered, and serializes its own writes
 either way. `@foundry/sandbox/schema` defines `ContainerRow` as a Zod schema.
 
 A store reads a write once, when `commit` is called. Both stores here take
-one `structuredClone` of the whole write then, before the commit waits its
+its events by the event rule (see Change events) and the rest by one
+`structuredClone` then, before the commit waits its
 turn, and check, store and hand on (to `onCommit`) only that copy, through
 a transaction's view as well. A caller that changes its write after the
 call changes nothing, even while the commit is still queued. A write the
@@ -174,7 +175,54 @@ clone refuses, such as one holding a function, rejects and writes nothing.
 | `@foundry/sandbox/store/tables`  | The Drizzle table it uses: `sandbox_containers`.                   |
 | `@foundry/sandbox/testing/store` | `describeContainerStore`, the suite every store passes.            |
 
+`describeContainerStore(name, open, mode)` says, in `mode`
+(`ContainerStoreMode`), whether the storage has a host hook: `{ hooked: false }`,
+or `{ hooked: true, recording }`, where `recording` opens storage whose hook
+records each write's events in the commit's own transaction
+(`RecordingContainerStores`). Every store is held to the event rule above;
+a hooked one is also proven to hand its hook every kept commit's events
+once, in order, as they were when `commit` was called, and none for a
+commit that fails.
+
 `CONTAINER_ROW_STATUSES` lives in `@foundry/sandbox/container/constants`.
+
+### Change events
+
+Each registry write that changes a container's life carries the events that
+say so, in `events` on the write, so a host can record them in the same
+transaction as the change (the SQLite store's `onCommit`). The registry
+builds them, from the row as stored against the row it puts. A store keeps
+none, and one with a host hook hands them to it unchanged and in order.
+Every store takes the events when `commit` is
+called, by one rule: each is copied as plain JSON, and a write holding one
+that is not (anything but plain objects whose own properties are all
+enumerable, arrays without holes, text, finite numbers other than `-0`,
+booleans and `null`) is refused whole with a `TypeError` naming it, through
+a transaction's view too. It is the rule the workflows and artifacts stores
+take their events by. The schema is
+`sandboxEventSchema` on `@foundry/sandbox/schema`, which also exports the
+type, `SandboxEvent` (re-exported from `@foundry/sandbox/store`). Every event
+has `type`, `id` (unique to it, made once per registry call, before its
+transaction), `at` (an ISO time, the stamp of the row it changed)
+and `containerId`:
+
+| `type`              | Emitted by                                                                         |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| `sandbox.created`   | `start`, in the write that inserts the row                                         |
+| `sandbox.started`   | the write that moves the row into `running`: a first boot, a reopen (after a failure too) or a restart |
+| `sandbox.stopped`   | the write that moves the row into `stopped`: its last handle closing, or `shutdown` |
+| `sandbox.failed`    | the write that moves the row into `failed`: a boot that does not come up           |
+| `sandbox.destroyed` | `remove`, in the write that deletes the row; none if it was already gone           |
+
+A row that enters `starting` or `restarting`, a new native name, a spec
+recorded for the next boot, and a row put again in the status it already has
+carry no event.
+
+`at` is the stamp of the record a change wrote, or the time the event was
+built where the change stamps none; it is not the commit time, and two
+writers' events can commit in the other order from their `at`. It cannot
+establish commit order: a host that needs one orders events by its own
+sequence, assigned in `onCommit`.
 
 Both stores take their calls in turns: a call made while a transaction runs
 waits for it, and a call to the store from inside its own transaction's work
@@ -207,7 +255,8 @@ const containers = createContainers({ instanceLabel, runtime, store });
 ```
 
 Each `commit` is one database transaction, and a throwing `onCommit` rolls
-it back. `onCommit` uses the `transaction` it is given. `get` and `list` are
+it back. `onCommit` receives the store's copy of the write, its `events`
+included, and uses the `transaction` it is given. `get` and `list` are
 one query each. `transaction(work)` runs `work` in one database transaction;
 a commit through its view that fails rolls back only itself. Across
 connections, each transaction takes SQLite's write lock at its first

@@ -44,8 +44,10 @@ import {
 } from "./execution-records";
 import { createExtensions, mergeExtensions } from "./extensions";
 import type { JsonValue } from "./json-value";
+import { jsonValuesEqual } from "./json-value";
 import { rowToRecoverable } from "./metadata-codec";
 import { defineOwnEntry } from "./own-entry";
+import { runEvents, withEvents } from "./run-events";
 import type {
   AppendRunFrameInput,
   ClaimRunEffectInput,
@@ -225,7 +227,9 @@ export class ExecutionCoordinator implements OrchestratorStore {
           ? {}
           : { timestamps: { ...existing.timestamps, ...patch.timestamps } }),
       });
-      await store.commit({ putJobs: [updated] });
+      if (!asStored(existing, updated)) {
+        await store.commit({ putJobs: [updated] });
+      }
       return updated;
     });
   }
@@ -250,7 +254,9 @@ export class ExecutionCoordinator implements OrchestratorStore {
       if (runs.length > 0) {
         throw new RecordInUseError("job", id);
       }
-      await store.commit({ deleteJobs: [id] });
+      if (await store.getJob(id)) {
+        await store.commit({ deleteJobs: [id] });
+      }
     });
   }
 
@@ -282,11 +288,16 @@ export class ExecutionCoordinator implements OrchestratorStore {
       const suspensions = pending.map((record) =>
         cancelSuspensionRecord(record, cancelledAt)
       );
-      await store.commit({
-        putJobs: [nextJob],
-        ...(nextRun ? { putRuns: [nextRun] } : {}),
-        putSuspensions: suspensions,
-      });
+      await store.commit(
+        withEvents(
+          {
+            putJobs: [nextJob],
+            ...(nextRun ? { putRuns: [nextRun] } : {}),
+            putSuspensions: suspensions,
+          },
+          active && nextRun ? runEvents(active, nextRun) : []
+        )
+      );
       return { job: nextJob, run: nextRun, suspensions };
     });
   }
@@ -304,7 +315,9 @@ export class ExecutionCoordinator implements OrchestratorStore {
         );
       }
       const record = buildRunRecord(id, input);
-      await store.commit({ putRuns: [record] });
+      await store.commit(
+        withEvents({ putRuns: [record] }, runEvents(null, record))
+      );
       return record;
     });
   }
@@ -358,7 +371,9 @@ export class ExecutionCoordinator implements OrchestratorStore {
         ...input,
         links: { ...(input.links ?? {}), jobId },
       });
-      await store.commit({ putJobs: [nextJob], putRuns: [run] });
+      await store.commit(
+        withEvents({ putJobs: [nextJob], putRuns: [run] }, runEvents(null, run))
+      );
       return { claim: { job: nextJob, run }, status: "claimed" };
     });
   }
@@ -383,7 +398,11 @@ export class ExecutionCoordinator implements OrchestratorStore {
         return existing;
       }
       const updated = normalizeRunRecord(applyRunPatch(existing, patch));
-      await store.commit({ putRuns: [updated] });
+      if (!asStored(stored, updated)) {
+        await store.commit(
+          withEvents({ putRuns: [updated] }, runEvents(existing, updated))
+        );
+      }
       return updated;
     });
   }
@@ -436,14 +455,22 @@ export class ExecutionCoordinator implements OrchestratorStore {
 
   deleteRun(id: string): Promise<void> {
     return this.#exclusive(async (store) => {
-      const [suspensions, frames] = await Promise.all([
+      const [run, suspensions, frames] = await Promise.all([
+        store.getRun(id),
         store.listSuspensions({ limit: 1, runId: id }),
         canonicalFrames(store, id),
       ]);
       if (suspensions.items.length > 0 || frames.length > 0) {
         throw new RecordInUseError("run", id);
       }
-      await store.commit({ deleteRuns: [id] });
+      if (run) {
+        await store.commit(
+          withEvents(
+            { deleteRuns: [id] },
+            runEvents(hydrateRunRecord(run), null)
+          )
+        );
+      }
     });
   }
 
@@ -512,7 +539,12 @@ export class ExecutionCoordinator implements OrchestratorStore {
       const nextRun = normalizeRunRecord(
         applyRunPatch(run, { ...runPatch, status: "suspended" })
       );
-      await store.commit({ putRuns: [nextRun], putSuspensions: [suspension] });
+      await store.commit(
+        withEvents(
+          { putRuns: [nextRun], putSuspensions: [suspension] },
+          runEvents(run, nextRun)
+        )
+      );
       return { created: true, suspension };
     });
   }
@@ -613,10 +645,12 @@ export class ExecutionCoordinator implements OrchestratorStore {
           status: input.outcome.status === "resolved" ? "queued" : "cancelled",
         })
       );
-      await store.commit({
-        putRuns: [nextRun],
-        putSuspensions: [nextSuspension],
-      });
+      await store.commit(
+        withEvents(
+          { putRuns: [nextRun], putSuspensions: [nextSuspension] },
+          runEvents(run, nextRun)
+        )
+      );
       return { run: nextRun, suspension: nextSuspension };
     });
   }
@@ -649,8 +683,8 @@ export class ExecutionCoordinator implements OrchestratorStore {
         if (referenced) {
           throw new RecordInUseError("suspension", id);
         }
+        await store.commit({ deleteSuspensions: [id] });
       }
-      await store.commit({ deleteSuspensions: [id] });
     });
   }
 
@@ -757,9 +791,12 @@ export class ExecutionCoordinator implements OrchestratorStore {
   }
 
   deleteRunFrames(runId: string): Promise<void> {
-    return this.#exclusive((store) =>
-      store.commit({ deleteRunFrames: [runId] })
-    );
+    return this.#exclusive(async (store) => {
+      const { items } = await store.listFrames({ limit: 1, runId });
+      if (items.length > 0) {
+        await store.commit({ deleteRunFrames: [runId] });
+      }
+    });
   }
 
   ensureQueue(input: EnsureQueueInput): Promise<QueueRecord> {
@@ -809,7 +846,9 @@ export class ExecutionCoordinator implements OrchestratorStore {
               ),
             }),
       };
-      await store.commit({ putQueues: [updated] });
+      if (!asStored(existing, updated)) {
+        await store.commit({ putQueues: [updated] });
+      }
       return updated;
     });
   }
@@ -841,7 +880,14 @@ export class ExecutionCoordinator implements OrchestratorStore {
       const nextRun = normalizeRunRecord(
         applyRunPatch(run, { ...runPatch, status: "cancelled" })
       );
-      await store.commit({ putRuns: [nextRun], putSuspensions: suspensions });
+      if (suspensions.length > 0 || !asStored(storedRun, nextRun)) {
+        await store.commit(
+          withEvents(
+            { putRuns: [nextRun], putSuspensions: suspensions },
+            runEvents(run, nextRun)
+          )
+        );
+      }
       return { run: nextRun, suspensions };
     });
   }
@@ -1418,47 +1464,10 @@ function sameStringArray(
   );
 }
 
-function jsonValuesEqual(left: JsonValue, right: JsonValue): boolean {
-  if (left === right) {
-    return true;
-  }
-  if (Array.isArray(left) || Array.isArray(right)) {
-    if (!(Array.isArray(left) && Array.isArray(right))) {
-      return false;
-    }
-    const leftArray = left as readonly JsonValue[];
-    const rightArray = right as readonly JsonValue[];
-    return (
-      leftArray.length === rightArray.length &&
-      leftArray.every((value, index) => {
-        const rightValue = rightArray[index];
-        return rightValue !== undefined && jsonValuesEqual(value, rightValue);
-      })
-    );
-  }
-  if (
-    typeof left !== "object" ||
-    left === null ||
-    typeof right !== "object" ||
-    right === null
-  ) {
-    return false;
-  }
-  const leftRecord = left as Readonly<Record<string, JsonValue>>;
-  const rightRecord = right as Readonly<Record<string, JsonValue>>;
-  const leftKeys = Object.keys(leftRecord).sort();
-  const rightKeys = Object.keys(rightRecord).sort();
-  return (
-    sameStringArray(leftKeys, rightKeys) &&
-    leftKeys.every((key) => {
-      const leftValue = leftRecord[key];
-      const rightValue = rightRecord[key];
-      return (
-        leftValue !== undefined &&
-        rightValue !== undefined &&
-        jsonValuesEqual(leftValue, rightValue)
-      );
-    })
+function asStored<T extends object>(stored: T, next: T): boolean {
+  return jsonValuesEqual(
+    stored as unknown as JsonValue,
+    next as unknown as JsonValue
   );
 }
 

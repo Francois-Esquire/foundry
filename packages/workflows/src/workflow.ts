@@ -855,6 +855,20 @@ export abstract class Workflow<
     });
   }
 
+  #markStarted(at: string): Effect.Effect<string> {
+    const self = this;
+    return Effect.gen(function* () {
+      const { startedAt } = yield* SubscriptionRef.get(self.#state);
+      if (startedAt !== undefined) {
+        return startedAt;
+      }
+      return yield* SubscriptionRef.modify(self.#state, (row) => {
+        const kept = row.startedAt ?? at;
+        return [kept, { ...row, startedAt: kept }];
+      });
+    });
+  }
+
   seedState(
     persisted: Partial<WorkflowState> & { status: RunStatus }
   ): Promise<void> {
@@ -865,6 +879,7 @@ export abstract class Workflow<
   [workflowEffectAccessKey](): WorkflowEffectAccess<I, O> {
     return {
       cancel: (reason) => this.#cancel(reason),
+      markStarted: (at) => this.#markStarted(at),
       resolve: (name, value) => this.#resolve(name, value),
       resolveOccurrence: (path, name, occurrence, value) =>
         this.#resolveOccurrence(path, name, occurrence, value),

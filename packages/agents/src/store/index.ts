@@ -1,6 +1,14 @@
-import type { SessionMessage, SessionRecord } from "../schema";
+import type {
+  SessionChangeEvent,
+  SessionMessage,
+  SessionRecord,
+} from "../schema";
+
+// biome-ignore lint/performance/noBarrelFile: the rule every SessionStore takes a write's events by, for stores outside this package.
+export { ownedEvents } from "./events";
 
 export interface SessionStoreWrite {
+  readonly events?: readonly SessionChangeEvent[];
   readonly putMessages?: readonly SessionMessage[];
   readonly putSessions?: readonly SessionRecord[];
 }

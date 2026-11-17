@@ -5,6 +5,7 @@ import { InMemoryArtifactStore } from "../store/memory";
 import { SqliteArtifactStore } from "../store/sqlite";
 import { describeArtifactManager } from "../testing/manager";
 import { describeArtifactStore } from "../testing/store";
+import { recordingStores } from "./helpers/recording";
 import { libsqlDatabases } from "./helpers/sqlite";
 
 function memoryStorage() {
@@ -16,7 +17,7 @@ function memoryStorage() {
   };
 }
 
-describeArtifactStore("In-memory", memoryStorage);
+describeArtifactStore("In-memory", memoryStorage, { hooked: false });
 describeArtifactManager("In-memory", () => new InMemoryArtifactStore());
 
 for (const location of ["memory", "file"] as const) {
@@ -31,7 +32,10 @@ for (const location of ["memory", "file"] as const) {
       return store;
     };
   }
-  describeArtifactStore(`SQLite on libSQL (${location})`, sqliteStorage);
+  describeArtifactStore(`SQLite on libSQL (${location})`, sqliteStorage, {
+    hooked: true,
+    recording: async () => recordingStores(await databases.open()),
+  });
   describeArtifactManager(
     `SQLite on libSQL (${location})`,
     async () =>
