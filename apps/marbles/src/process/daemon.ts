@@ -277,6 +277,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const records = new GenerationRecords({ database: database.database });
   let hostsWritten: Promise<void> = Promise.resolve();
   const hostsDue = new Set<Generation>();
+  const currentDue = new Set<Generation>();
   let hostsTimer: unknown;
   let hostsDelay = REPLACE_MIN_MS;
   const hosted = new Map<string, Hosted>();
@@ -1033,7 +1034,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       throw error;
     }
     candidate.since = Date.now();
-    await records.mark(number, "current");
+    await markCurrent(candidate);
     if (candidate.exit !== undefined || current !== candidate) {
       return;
     }
@@ -1056,6 +1057,17 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       );
     }
     await recordHosts(candidate);
+  }
+
+  async function markCurrent(generation: Generation): Promise<void> {
+    try {
+      await records.mark(generation.number, "current");
+    } catch (error) {
+      print(
+        `[marbles] engine generation ${String(generation.number)} was not recorded current: ${message(error)}; it is written again with the workspaces it hosts`
+      );
+      currentDue.add(generation);
+    }
   }
 
   async function announceSwitch(
@@ -1128,7 +1140,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     successor: ProcessIdentity
   ): Promise<void> {
     previous.role = "retiring";
-    await records.mark(previous.number, "retiring");
+    await records.mark(previous.number, "retiring").catch((error: unknown) => {
+      print(
+        `[marbles] engine generation ${String(previous.number)} was not recorded retiring: ${message(error)}`
+      );
+    });
     try {
       await timeout(
         ask(previous, GENERATION_METHODS.retire, { successor }),
@@ -1176,9 +1192,14 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         generation.role === "retiring" ||
         generation.exit !== undefined
       ) {
+        currentDue.delete(generation);
         continue;
       }
       try {
+        if (currentDue.has(generation)) {
+          await records.mark(generation.number, "current");
+          currentDue.delete(generation);
+        }
         await records.hosting(generation.number, [...generation.hosts]);
       } catch (error) {
         print(
