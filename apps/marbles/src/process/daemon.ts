@@ -380,10 +380,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       [
         ...RUNTIME_FLAGS,
         entry,
-        "--state",
-        layout.state,
-        "--artifacts",
-        layout.artifacts,
         "--source",
         worker.source,
         "--socket",
@@ -396,7 +392,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       ],
       {
         cwd: worker.summary.root,
-        env: process.env,
+        env: { ...process.env, FOUNDRY_HOME: layout.home },
         stdio: ["ignore", "pipe", "pipe"],
       }
     );

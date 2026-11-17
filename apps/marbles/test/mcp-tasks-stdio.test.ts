@@ -74,7 +74,9 @@ async function files(state: string) {
     names.sort().map(async (name) => {
       const path = join(state, name);
       const { mtimeMs, size } = await stat(path);
-      return { bytes: await readFile(path, "base64"), mtimeMs, name, size };
+      return name.endsWith("-shm")
+        ? { name, size }
+        : { bytes: await readFile(path, "base64"), mtimeMs, name, size };
     })
   );
 }

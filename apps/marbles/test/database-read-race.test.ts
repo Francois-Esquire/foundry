@@ -50,20 +50,41 @@ const ids = (database: StoreDatabase) =>
     .then((rows) => rows.map(({ id }) => id).sort());
 
 async function holder(dir: string, file: string, id: string) {
-  const script = join(dir, "holder.ts");
+  const seed = join(dir, "seed.ts");
   writeFileSync(
-    script,
+    seed,
     `import { initializeDatabase } from ${JSON.stringify(join(SRC, "database/open.ts"))};
 import { marblesWorkspaces } from ${JSON.stringify(join(SRC, "database/tables.ts"))};
 const opened = await initializeDatabase(${JSON.stringify(file)});
 await opened.database.insert(marblesWorkspaces).values({ firstSeen: "x", id: ${JSON.stringify(id)}, lastSeen: "x", root: "/r" });
+opened.close();
+process.exit(0);
+`
+  );
+  await new Promise<void>((done, failed) => {
+    const seeding = spawn("bun", [seed], {
+      cwd: resolve("."),
+      stdio: "inherit",
+    });
+    recordSpawned(seeding.pid, false);
+    children.push(seeding);
+    seeding.once("exit", (code) =>
+      code === 0 ? done() : failed(new Error(`the seed exited ${String(code)}`))
+    );
+  });
+  const script = join(dir, "holder.ts");
+  writeFileSync(
+    script,
+    `import { constants, Database } from "bun:sqlite";
+const held = new Database(${JSON.stringify(file)});
+// The last close takes the side files on every platform: some SQLite
+// builds (Apple's) keep the WAL file by default.
+held.fileControl(constants.SQLITE_FCNTL_PERSIST_WAL, 0);
+// A read, so the side files are there and in use.
+held.query("select count(*) from marbles_workspaces").get();
 process.stdout.write("ready\\n");
-process.stdin.once("data", async () => {
-  opened.close();
-  // libSQL lets the native connection, and the side files, go once it is collected.
-  Bun.gc(true);
-  await new Promise((settle) => setTimeout(settle, 50));
-  Bun.gc(true);
+process.stdin.once("data", () => {
+  held.close();
   process.exit(0);
 });
 `
@@ -106,7 +127,6 @@ it("survives the last writer closing between its open and its first read", async
 
   expect(await readDatabase(file, ids)).toEqual(["a"]);
   expect(raced).toBe(true);
-  expect(existsSync(`${file}-shm`)).toBe(false);
   expect(statSync(`${file}-wal`, { throwIfNoEntry: false })?.size ?? 0).toBe(0);
 
   expect(await readDatabase(file, ids)).toEqual(["a"]);

@@ -1,18 +1,14 @@
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 
 export interface LayoutOptions {
-  /** The artifact store; `<home>/artifacts`, or beside a custom state root. */
-  readonly artifacts?: string;
   /** Read for `FOUNDRY_HOME`; `process.env` when omitted. */
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** The Foundry home; `$FOUNDRY_HOME`, else `~/.foundry`. */
   readonly home?: string;
-  /** The Marbles state root; `<home>/marbles`. */
-  readonly state?: string;
 }
 
 export interface Layout {
@@ -41,13 +37,8 @@ export function layout(options: LayoutOptions = {}): Layout {
   const home = resolve(
     options.home ?? env.FOUNDRY_HOME ?? join(homedir(), HOME_DIR)
   );
-  const state = resolve(options.state ?? join(home, STATE_DIR));
-  const artifacts = resolve(
-    options.artifacts ??
-      (options.state === undefined
-        ? join(home, ARTIFACTS_DIR)
-        : join(dirname(state), ARTIFACTS_DIR))
-  );
+  const state = join(home, STATE_DIR);
+  const artifacts = join(home, ARTIFACTS_DIR);
   return {
     artifacts,
     database: stateDatabase(state),

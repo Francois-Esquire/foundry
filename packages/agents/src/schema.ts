@@ -132,6 +132,7 @@ export const sessionPartSchema = z.discriminatedUnion("type", [
   z.object({
     approvalId: z.string(),
     approved: z.boolean(),
+    granted: z.boolean().optional(),
     reason: z.string().optional(),
     scope: z.enum(["once", "always"]).optional(),
     type: z.literal("tool_approval_response"),

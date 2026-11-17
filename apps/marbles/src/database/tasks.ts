@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { processAlive } from "@foundry/lib/file-lock";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import type { TaskTransaction } from "@foundry/tasks/store/sqlite";
@@ -8,6 +9,7 @@ import { busyError } from "~/database/client";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import {
+  marblesDeliveryClaims,
   marblesTaskChangeDeliveries,
   marblesTaskChanges,
 } from "~/database/tables";
@@ -39,6 +41,8 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
   readonly taskStore: TaskStore;
   readonly #database: StoreDatabase;
   readonly #scope: string;
+  readonly #owner = randomUUID();
+  #claimed = false;
   readonly #gate = new RecordsGate();
   readonly #listeners = new EmitListeners();
 
@@ -84,8 +88,77 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     };
   }
 
-  close(): Promise<void> {
-    return this.#gate.close();
+  async close(): Promise<void> {
+    await this.#gate.close();
+    await this.#release();
+  }
+
+  claimDelivery(): Promise<string | undefined> {
+    return this.#call(async () => {
+      const holder = await this.#claim();
+      if (holder === undefined) {
+        this.#claimed = true;
+      }
+      return holder;
+    });
+  }
+
+  #claim(): Promise<string | undefined> {
+    return this.#database.transaction(
+      async (transaction): Promise<string | undefined> => {
+        const [row] = await transaction
+          .select({
+            ownerId: marblesDeliveryClaims.ownerId,
+            ownerPid: marblesDeliveryClaims.ownerPid,
+          })
+          .from(marblesDeliveryClaims)
+          .where(eq(marblesDeliveryClaims.scope, this.#scope));
+        const holder = row?.ownerPid ?? null;
+        if (
+          holder !== null &&
+          row?.ownerId !== this.#owner &&
+          processAlive(holder)
+        ) {
+          return holder === process.pid
+            ? "another engine in this process"
+            : `pid ${String(holder)}`;
+        }
+        const owner = { ownerId: this.#owner, ownerPid: process.pid };
+        await transaction
+          .insert(marblesDeliveryClaims)
+          .values({ ...owner, scope: this.#scope })
+          .onConflictDoUpdate({
+            set: owner,
+            target: marblesDeliveryClaims.scope,
+          });
+        return undefined;
+      }
+    );
+  }
+
+  releaseDelivery(): Promise<void> {
+    return this.#call(() => this.#release());
+  }
+
+  async #release(): Promise<void> {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; a claim sets it.
+    if (!this.#claimed) {
+      return;
+    }
+    try {
+      await this.#database
+        .update(marblesDeliveryClaims)
+        .set({ ownerId: null, ownerPid: null })
+        .where(
+          and(
+            eq(marblesDeliveryClaims.scope, this.#scope),
+            eq(marblesDeliveryClaims.ownerId, this.#owner)
+          )
+        );
+    } catch (error) {
+      throw busyError(error) ?? error;
+    }
+    this.#claimed = false;
   }
 
   deliver(id: string, hash: string): Promise<void> {

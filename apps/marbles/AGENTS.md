@@ -64,7 +64,16 @@ Five buckets, each importing only what sits below it:
   written in the order it was made, and a step that reads and decides
   across processes in one store transaction. Agent-created triggers are
   kept in an `AutomationStore` (`lib/automation/store.ts`) and usage facts
-  in a `UsageStore` (`lib/usage-store.ts`).
+  in a `UsageStore` (`lib/usage-store.ts`). Agent grants are one validated
+  document in a `GrantDocumentStorage` (`@foundry/lib`), deferred approvals
+  are kept in a `DeferredApprovalStore` (`lib/sandbox/deferred-approvals.ts`)
+  and harness activities in an `ActivityStore` (`lib/sandbox/activities.ts`),
+  each in memory without one. Which engine delivers a workspace's task
+  changes is a claim its `records` grant (`claimDelivery`). Provider
+  configuration, the machine's and each workspace's, and the identity key
+  are kept in a `ProviderStore` (`lib/providers/store.ts`); the
+  configuration reads it when the engine starts (`refresh`), not when it
+  is built.
   `lib/held-runs.ts` follows held workflow runs to their end;
   `lib/run-store.ts` is where their Runs are kept (`RunStore`, in memory
   by default), and `lib/run-recovery.ts` is the one rule for which parked
@@ -86,8 +95,10 @@ Five buckets, each importing only what sits below it:
   and current; `readDatabase` reads through a read-only connection and never
   creates the database file, migrates it, or changes its content. It
   makes no side file either, but for one narrow race, described on
-  `readDatabase`, that can leave an empty WAL file, which holds nothing
-  and which readers and writers pass over. `client.ts` makes everything this
+  `readDatabase`, that can leave an empty WAL file and its shared-memory
+  file, which hold nothing and which readers and writers pass over. A
+  reader opens the shared-memory file read-write: SQLite maps it once per
+  process, so a read-only mapping would refuse this process's writers. `client.ts` makes everything this
   process does on the file take turns, keyed by the file's device and
   inode (a link or another spelling of its name shares the queue), since
   the native driver blocks the thread while it waits for a lock. Nothing
@@ -143,7 +154,18 @@ Five buckets, each importing only what sits below it:
   two land together. `automations.ts` is the triggers agents created, one
   row of `marbles_automations` each, an edit a transaction that reads
   first; `usage.ts` is each agent turn's usage fact, a row of
-  `marbles_usage_facts` by turn. Every writer handle goes through `guard.ts`, which
+  `marbles_usage_facts` by turn. `grants.ts`, `approvals.ts` and
+  `activities.ts` are a workspace's agent grants (one document the grant
+  repository validates), deferred approvals (one document) and harness
+  activities (a row each, replaced only by a higher revision); the
+  workspace's records (`tasks.ts`) keep who delivers its task changes in
+  `marbles_delivery_claims`, a claim a transaction on that row, as tick
+  claims are. `providers.ts` is the machine's provider configuration, a row
+  per scope with a revision the configuration's watcher polls, and the
+  identity key; `DatabaseProviderStore.forState` is the same for a
+  process that keeps no handle open. Its settings may hold secrets: `initializeDatabase` keeps
+  the database file and its side files mode 0600, and nothing the provider
+  store throws quotes a setting. Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no worker opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
@@ -162,12 +184,15 @@ Five buckets, each importing only what sits below it:
   is the one place the Marbles defaults and `--dry-run` are decided; it
   builds the instances, constructs the engine, and copies the catalog in.
   Given the host's `database`, it keeps the tasks, sessions, workflow
-  runs, Execution Runs, trigger state, automations, usage, artifacts,
+  runs, Execution Runs, trigger state, automations, usage, grants,
+  deferred approvals, activities, provider configuration, artifacts,
   sandbox containers and workspace catalogue there;
   given only a state dir, the engine opens one handle of its own for its
-  tasks, sessions, runs, Execution Runs, trigger state, automations and
-  usage (`openWorkspaceDatabase` in `database/managed.ts`), keeps the rest
-  as it would with no database, and closes it after
+  tasks, sessions, runs, Execution Runs, trigger state, automations,
+  usage, grants, deferred approvals and activities
+  (`openWorkspaceDatabase` in `database/managed.ts`), reads and writes its
+  provider configuration per call (`DatabaseProviderStore.forState`),
+  keeps its artifacts, containers and catalogue in memory, and closes the handle after
   everything else it holds, since its agents may write a session after its
   records close.
 - `src/workspace/` hosts one workspace in the process it runs in: source
@@ -221,11 +246,11 @@ Five buckets, each importing only what sits below it:
   server hosts nothing even then: it keeps the tasks in memory and joins
   no process.
 
-`src/layout.ts` decides where things live: the Foundry home
-(`$FOUNDRY_HOME`, else `~/.foundry`), the Marbles state root under it, the
+`src/layout.ts` decides where things live, all of it under the Foundry
+home (`$FOUNDRY_HOME`, else `~/.foundry`): the Marbles state root, the
 Marbles database and the process socket in that root, and the shared
-artifact store; `--state` and
-`--artifacts` move one location each. `src/model/` holds the plain data
+artifact store. Nothing moves on its own; the daemon hands its workers the
+home in `FOUNDRY_HOME`. The README lists the final layout on disk. `src/model/` holds the plain data
 types the tiers share (snapshots, the `WorkspaceConnection`, run status,
 task commands);
 it imports types from `lib/` and nothing else.

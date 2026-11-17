@@ -66,8 +66,8 @@ What already supports these targets:
 - The wire protocol is one step from JSON-RPC: id, method, params, result,
   error, and id-less notifications over a `Transport` interface. Methods
   are namespaced `workspace.*`.
-- Every location is parameterized through `layout()`: `FOUNDRY_HOME`,
-  `--state`, `--artifacts`.
+- Every location is parameterized through `layout()`, from one Foundry home
+  (`FOUNDRY_HOME`).
 
 What blocks them:
 

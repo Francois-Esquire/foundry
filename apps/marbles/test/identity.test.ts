@@ -10,6 +10,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -44,6 +45,15 @@ function configDir(bare = false): string {
 }
 
 let counter = 0;
+
+function resolvable(dir: string, name: string): boolean {
+  try {
+    createRequire(join(dir, "probe.js")).resolve(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function load(dir: string, source: string, name = "marbles.config") {
   counter += 1;
@@ -153,6 +163,10 @@ test("the stack settings are restored after a capture", async () => {
 
 test("without typescript nothing is inferred and the error says to install it", async () => {
   const dir = configDir(true);
+  expect(
+    resolvable(dir, "typescript"),
+    `an ancestor of ${dir} has typescript in a node_modules; run with a temp directory outside it`
+  ).toBe(false);
   const module = await load(
     dir,
     `

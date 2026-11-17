@@ -29,8 +29,9 @@ examples; create and choose directories appropriate for the account:
 ```sh
 cd /srv/my-project
 marbles list
-marbles roll inventory --state /srv/marbles-state --artifacts /srv/marbles-artifacts
-marbles run --state /srv/marbles-state --artifacts /srv/marbles-artifacts </dev/null
+export FOUNDRY_HOME=/srv/foundry
+marbles roll inventory
+marbles run </dev/null
 ```
 
 `inventory` must be a definition in that project. Use an attended terminal
@@ -55,9 +56,9 @@ it does not resume an interrupted running step. A scheduler that launches
 relaunching.
 
 State is scoped to the canonical workspace path. Changing that path changes
-the workspace ID, even with the same `--state` directory. Artifacts live in
-a separate store. Preserve both stores when continuity matters, and stop
-active processes before moving state. The run snapshots from
+the workspace ID, even with the same `FOUNDRY_HOME`. Everything Marbles
+keeps is under that home. Preserve it when continuity matters, and stop
+active processes before moving it. The run snapshots from
 [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
 [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md) transcripts,
 and [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) content

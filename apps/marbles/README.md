@@ -205,8 +205,8 @@ bun --no-env-file apps/marbles/src/cli.ts watch <runId>
 
 `watch` replays earlier output, follows new output, prints the result and
 terminal status, and exits. It reads saved output across workspaces under
-`--state`, so it needs neither the original working directory nor
-`--source`. Use the same `--state` value as the MCP server if you customized it.
+the Foundry home, so it needs neither the original working directory nor
+`--source`. Give it the same `FOUNDRY_HOME` as the MCP server if you moved it.
 It never imports configuration or starts an engine. Multiple watchers can
 follow the same run independently.
 
@@ -231,8 +231,8 @@ too. The server exits when stdin closes, when the
 SIGTERM. Shutdown takes a few seconds at most. A task call that does not
 finish in time is cut off, and the server is killed if it still runs. A
 Marbles process that hosts the workspace keeps hosting it, and several MCP
-clients can use one process at once. Use `--state` to select a separate
-state root (each root has its own process). Under `--dry-run` the server
+clients can use one process at once. Set `FOUNDRY_HOME` to use a separate
+Foundry home (each home has its own process). Under `--dry-run` the server
 joins no process, lists only its own workspace, keeps its tasks in memory
 for the session, and writes nothing. `list_config`, the dispatch tools,
 `get_run`, and `cancel_run` then return an error. A dry run of a workflow
@@ -249,12 +249,39 @@ answer questions; a run that asks waits on the Feed for one, and is
 cancelled at the ask only under `--dry-run`. Source edits reload the
 workspace's worker on their own.
 
-State is stored under `~/.foundry/marbles/<workspace-id>/`, with artifacts
-under `~/.foundry/artifacts/` by default; `FOUNDRY_HOME` moves both. The
-Marbles process claims `locks/process` at the state root and listens on
-`marbles.sock` beside it; each worker claims the same lock under its
-workspace's directory, so a second process for the same root or workspace
-is refused with the holder's pid. `marbles daemon` runs the process in the
+Everything Marbles keeps is under one Foundry home, `$FOUNDRY_HOME`, else
+`~/.foundry`; moving the home moves all of it, and nothing moves on its own:
+
+```text
+<home>/
+  marbles/                    the state root
+    marbles.db                the Marbles database, readable by its owner only, with its
+    marbles.db-wal, -shm      SQLite side files while a process has it open
+    marbles.sock              the Marbles process's socket
+    locks/process             the Marbles process's claim on the state root
+    process.json              who holds that claim, for `marbles status`
+    daemon.log                what a Marbles process started in the background prints
+    settings.json             preferences, the one file meant to be edited by hand
+    <workspace-id>/
+      output/<runId>.jsonl    each run's output, for `marbles watch`
+      worktrees/              git worktrees cut for its steps
+      locks/process           the claim of the worker that hosts it
+      process.json            who holds that claim
+  artifacts/
+    workspaces/<workspace-id>/blobs/   each artifact's bytes
+```
+
+The database holds the rest, for every workspace: its record, tasks and
+their recorded changes, agent sessions, workflow runs and Execution Runs,
+trigger state, automations, usage facts, artifact and sandbox records, the
+workspace catalogue, agent grants, deferred approvals, harness activities,
+who delivers its task changes, and the machine's and each workspace's
+provider configuration with the identity key. Provider settings can hold
+secrets, which is why the database is its owner's only. The Marbles process
+claims `locks/process` at the state root and listens on `marbles.sock`
+beside it; each worker claims the same lock under its workspace's
+directory, so a second process for the same home or workspace is refused
+with the holder's pid. `marbles daemon` runs the process in the
 foreground for a service manager, and `marbles status` shows it and which
 workspaces it hosts. `--dry-run` hosts the workspace in the calling process
 instead, substitutes Marbles-owned operations, and avoids state writes;

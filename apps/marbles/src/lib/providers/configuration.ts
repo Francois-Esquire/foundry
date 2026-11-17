@@ -1,6 +1,4 @@
-import { createHmac } from "node:crypto";
-import { existsSync, readdirSync, unwatchFile, watchFile } from "node:fs";
-import { join } from "node:path";
+import { createHmac, randomBytes } from "node:crypto";
 import type {
   ModelKind,
   ModelManager,
@@ -23,21 +21,40 @@ import type {
   RegisteredPlugin,
 } from "~/lib/providers/plugins";
 import type {
-  Edit,
+  ProviderConfigurations,
   ProviderEntryRecord,
+  ProviderStore,
   ProvidersFile,
-  Store,
+  ProviderWrites,
 } from "~/lib/providers/store";
 import {
   ConfigurationError,
   describeIssues,
   empty,
-  fileStore,
-  identityKey,
-  memoryStore,
-  readProvidersFile,
-  together,
+  InvalidStoredConfiguration,
+  keptConfigurations,
+  MemoryProviderStore,
+  readOnlyProviders,
 } from "~/lib/providers/store";
+import type {
+  ReadEvent,
+  StoreRead,
+  StoreReads,
+} from "~/lib/providers/store-reads";
+import {
+  ALL_FINE,
+  moveReads,
+  RECOVERED,
+  retriedOn,
+} from "~/lib/providers/store-reads";
+
+type Edit = (current: ProvidersFile | undefined) => ProvidersFile | undefined;
+
+interface Scope {
+  readonly kind: ProviderScope;
+  read(): ProvidersFile | undefined;
+  update(edit: Edit): Promise<ProviderConfigurations>;
+}
 
 /** An entry as `list()` reports it, with where it applies and why it does not. */
 export interface ProviderEntry extends ProviderEntryRecord {
@@ -67,16 +84,13 @@ export interface ProviderConfigurationOptions {
   readonly fixed?: readonly Provider[];
   readonly models: ModelManager;
   readonly plugins: readonly RegisteredPlugin[];
-  /** Edits change this engine's set only and write no file: a dry run. */
   readonly readOnly?: boolean;
-  /** The Marbles state root, holding the machine file and each workspace's dir. */
-  readonly state?: string;
+  readonly store?: ProviderStore;
   readonly workspace?: Omit<ProviderWorkspace, "env">;
 }
 
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
-const FILE = "providers.json";
 const POLL_MS = 500;
 const LIST_TIMEOUT_MS = 5000;
 
@@ -97,17 +111,19 @@ type Built =
       readonly key: string;
     };
 
-/**
- * The providers one workspace uses, from the machine file and the
- * workspace's own file, kept in the manager's set. Every edit re-reads its
- * file under its lock, validates, builds, writes, and then replaces the set;
- * an instance whose entry did not change is kept, so its sessions are not
- * disturbed.
- */
 export class ProviderConfiguration {
   readonly #options: ProviderConfigurationOptions;
-  readonly #machine: Store;
-  readonly #workspace: Store | undefined;
+  readonly #store: ProviderStore;
+  readonly #machine: Scope;
+  readonly #workspace: Scope | undefined;
+  #kept: ProviderConfigurations = keptConfigurations(new Map(), 0);
+  #revision: number | undefined;
+  #unloaded = false;
+  #reads: StoreReads = ALL_FINE;
+  #heard: string[] | undefined;
+  readonly #owed: string[] = [];
+  readonly #accounted = new WeakSet<object>();
+  #editing: ProviderConfigurations | undefined;
   readonly #plugins: ReadonlyMap<string, RegisteredPlugin>;
   #built: readonly Built[] = [];
   #instances = new Map<string, ProviderInstance>();
@@ -124,39 +140,173 @@ export class ProviderConfiguration {
     this.#plugins = new Map(
       options.plugins.map((plugin) => [plugin.id, plugin])
     );
-    const files = options.fixed === undefined && options.state !== undefined;
-    this.#machine = files
-      ? fileStore(
-          join(options.state as string, FILE),
-          options.state as string,
-          options.readOnly
-        )
-      : memoryStore();
-    this.#workspace = this.#workspaceStoreFor(options, files);
+    const store =
+      options.fixed === undefined && options.store !== undefined
+        ? options.store
+        : new MemoryProviderStore();
+    this.#store = options.readOnly ? readOnlyProviders(store) : store;
+    this.#machine = {
+      kind: "machine",
+      read: () => this.#view().machine,
+      update: (edit) =>
+        this.#write((current) => {
+          const next = edit(current.machine);
+          return next === undefined ? {} : { machine: next };
+        }),
+    };
+    const id = options.workspace?.id;
+    this.#workspace =
+      id === undefined
+        ? undefined
+        : {
+            kind: "workspace",
+            read: () => this.#view().workspace(id),
+            update: (edit) =>
+              this.#write((current) => {
+                const next = edit(current.workspace(id));
+                return next === undefined ? {} : { workspace: next };
+              }),
+          };
   }
 
-  #workspaceStoreFor(
-    options: ProviderConfigurationOptions,
-    files: boolean
-  ): Store | undefined {
-    if (options.workspace === undefined) {
-      return undefined;
+  #view(): ProviderConfigurations {
+    return this.#editing ?? this.#kept;
+  }
+
+  async #write(
+    edit: (current: ProviderConfigurations) => ProviderWrites
+  ): Promise<ProviderConfigurations> {
+    const landed = await this.#store.update(
+      this.#options.workspace?.id,
+      (current) => {
+        this.#editing = current;
+        try {
+          return edit(current);
+        } finally {
+          this.#editing = undefined;
+        }
+      }
+    );
+    this.#adopt(landed);
+    await this.#keyed(landed);
+    return landed;
+  }
+
+  #adopt(kept: ProviderConfigurations): boolean {
+    if (this.#revision !== undefined && kept.revision < this.#revision) {
+      return false;
     }
-    return files
-      ? fileStore(
-          join(options.workspace.dir, FILE),
-          options.workspace.dir,
-          options.readOnly
-        )
-      : memoryStore();
+    this.#kept = kept;
+    this.#revision = kept.revision;
+    return true;
   }
 
-  /** Whether any configuration exists: a file at either scope, or a programmatic set. */
+  async #keyed(kept: ProviderConfigurations): Promise<void> {
+    if (this.#key !== undefined) {
+      return;
+    }
+    let configured: boolean;
+    try {
+      configured = this.#configuredIn(kept);
+    } catch (error) {
+      this.#move("identity key", { kind: "not needed" });
+      throw this.#invalidContent("configuration", error, kept.revision);
+    }
+    if (!configured) {
+      this.#move("identity key", { kind: "not needed" });
+      return;
+    }
+    const key = await this.#reaching(
+      "identity key",
+      () => this.#store.identityKey(true),
+      kept.revision
+    );
+    this.#key ??= key;
+  }
+
+  async #reaching<T>(
+    read: StoreRead,
+    call: () => Promise<T>,
+    revision?: number
+  ): Promise<T> {
+    let result: T;
+    try {
+      result = await call();
+    } catch (error) {
+      if (error instanceof InvalidStoredConfiguration) {
+        throw this.#invalidContent(read, error, revision);
+      }
+      this.#move(read, { kind: "unreachable", message: messageOf(error) });
+      if (error instanceof Object) {
+        this.#accounted.add(error);
+      }
+      throw error;
+    }
+    this.#move(read, { kind: "succeeded" });
+    return result;
+  }
+
+  #invalidContent(
+    read: StoreRead,
+    error: unknown,
+    revision: number | undefined
+  ): unknown {
+    if (error instanceof InvalidStoredConfiguration) {
+      this.#move(read, { kind: "invalid", message: error.message, revision });
+      this.#accounted.add(error);
+    }
+    return error;
+  }
+
+  #move(read: StoreRead, event: ReadEvent): void {
+    const { reads, reports } = moveReads(this.#reads, read, event);
+    this.#reads = reads;
+    for (const report of reports) {
+      if (this.#heard !== undefined) {
+        this.#heard.push(report);
+      } else if (report === RECOVERED) {
+        this.#owed.push(report);
+      }
+    }
+  }
+
+  #together(edits: readonly [Scope, Edit][]): Promise<ProviderConfigurations> {
+    return this.#write(() => {
+      const writes: { machine?: ProvidersFile; workspace?: ProvidersFile } = {};
+      for (const [scope, edit] of edits) {
+        const next = edit(scope.read());
+        if (next !== undefined) {
+          writes[scope.kind] = next;
+        }
+      }
+      return writes;
+    });
+  }
+
+  async read(): Promise<void> {
+    if (this.#options.fixed !== undefined) {
+      return;
+    }
+    const kept = await this.#reaching("configuration", () =>
+      this.#store.read()
+    );
+    if (this.#adopt(kept)) {
+      this.#unloaded = true;
+    }
+    await this.#keyed(kept);
+  }
+
   get configured(): boolean {
     return (
-      this.#options.fixed !== undefined ||
-      this.#machine.read() !== undefined ||
-      this.#workspace?.read() !== undefined
+      this.#options.fixed !== undefined || this.#configuredIn(this.#view())
+    );
+  }
+
+  #configuredIn(kept: ProviderConfigurations): boolean {
+    const id = this.#options.workspace?.id;
+    return (
+      kept.machine !== undefined ||
+      (id !== undefined && kept.workspace(id) !== undefined)
     );
   }
 
@@ -165,22 +315,21 @@ export class ProviderConfiguration {
     if (this.configured) {
       return;
     }
-    const where = this.#machine.watched;
     throw new ConfigurationError(
       "PROVIDERS_NOT_CONFIGURED",
-      `No model providers are configured. Run marbles${this.#options.readOnly ? " without --dry-run" : ""} in a terminal to set them up${where ? `, or write ${where}` : ""}.`
+      `No model providers are configured. Run marbles${this.#options.readOnly ? " without --dry-run" : ""} in a terminal to set them up.`
     );
   }
 
-  /** Read both scopes and replace the manager's set. An unreadable file throws. */
   load(): void {
     this.#load(new Map());
   }
 
   /** {@link load}, taking out of `drafts` each instance it keeps. */
-  #load(drafts: Drafts): void {
-    const machine = this.#machine.read();
-    const workspace = this.#workspace?.read();
+  #load(drafts: Drafts, kept: ProviderConfigurations = this.#view()): void {
+    const id = this.#options.workspace?.id;
+    const { machine } = kept;
+    const workspace = id === undefined ? undefined : kept.workspace(id);
     const { built, cache } = this.#effective(machine, workspace, drafts);
     const fixed = this.#options.fixed ?? [];
     const used = built
@@ -216,17 +365,28 @@ export class ProviderConfiguration {
       used.map((each) => each.instance)
     );
     // Only once the manager took the set, so a refused set changes nothing.
+    if (kept === this.#kept) {
+      this.#unloaded = false;
+    }
     this.#built = built;
     this.#instances = instances;
     this.#identities = identities;
   }
 
   async refresh(): Promise<readonly string[]> {
-    const problems = await this.#listAll();
-    if (!this.#lists.signal.aborted) {
-      this.load();
+    await this.read();
+    try {
+      if (!this.configured) {
+        return [];
+      }
+      const problems = await this.#listAll();
+      if (!this.#lists.signal.aborted) {
+        this.load();
+      }
+      return problems;
+    } catch (error) {
+      throw this.#invalidContent("configuration", error, this.#revision);
     }
-    return problems;
   }
 
   setOffline(offline: boolean): void {
@@ -243,17 +403,21 @@ export class ProviderConfiguration {
     return this.#owned.dispose();
   }
 
-  /**
-   * Run one write with its own drafts, then load what it wrote. The load
-   * takes the drafts it keeps; the rest are discarded, so overlapping
-   * writes never dispose or reuse each other's.
-   */
-  async #commit(write: (drafts: Drafts) => Promise<boolean>): Promise<void> {
+  async #commit(
+    write: (drafts: Drafts) => Promise<ProviderConfigurations | false>
+  ): Promise<void> {
     const drafts: Drafts = new Map();
     try {
-      if (await write(drafts)) {
+      const landed = await write(drafts);
+      if (landed !== false) {
         await this.#listAll();
-        if (!this.#lists.signal.aborted) {
+        if (this.#lists.signal.aborted) {
+          return;
+        }
+        if (landed.revision >= (this.#revision ?? 0)) {
+          this.#load(drafts, landed);
+          // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; a read sets it.
+        } else if (this.#unloaded) {
           this.#load(drafts);
         }
       }
@@ -363,8 +527,8 @@ export class ProviderConfiguration {
   ): Promise<void> {
     const entry: ProviderEntryRecord = { enabled: true, ...record };
     this.#check(entry, at.scope);
-    await this.#commit(async (drafts) => {
-      await this.#store(at.scope).update((current) => {
+    await this.#commit((drafts) =>
+      this.#scope(at.scope).update((current) => {
         const file = current ?? empty();
         if (file.providers.some((existing) => existing.id === entry.id)) {
           throw taken(
@@ -381,9 +545,8 @@ export class ProviderConfiguration {
             ? insert(file.order, entry.id, at.index)
             : file.order;
         return { ...file, providers, ...(order ? { order } : {}) };
-      });
-      return true;
-    });
+      })
+    );
   }
 
   async update(
@@ -403,14 +566,16 @@ export class ProviderConfiguration {
   }
 
   async remove(id: string): Promise<void> {
-    const scope = this.#scopeOf(id);
-    await this.#store(scope).update((current) => {
-      const file = current ?? empty();
+    await this.#write(() => {
+      const scope = this.#scopeOf(id);
+      const file = this.#scope(scope).read() ?? empty();
       const order = file.order?.filter((each) => each !== id);
       return {
-        ...file,
-        providers: file.providers.filter((entry) => entry.id !== id),
-        ...(order ? { order } : {}),
+        [scope]: {
+          ...file,
+          providers: file.providers.filter((entry) => entry.id !== id),
+          ...(order ? { order } : {}),
+        },
       };
     });
     this.load();
@@ -473,7 +638,7 @@ export class ProviderConfiguration {
         entries
           .filter((entry) => entry.scope === scope)
           .map(({ scope: _, ...entry }) => entry);
-      const edits: [Store, Edit][] = [
+      const edits: [Scope, Edit][] = [
         [
           this.#machine,
           () => {
@@ -491,23 +656,17 @@ export class ProviderConfiguration {
         const providers = of("workspace");
         edits.push([this.#workspace, () => ({ providers, version: 1 })]);
       }
-      await together(edits);
-      return true;
+      return await this.#together(edits);
     });
   }
 
-  /**
-   * First setup: write `entries` as the machine file only if there still is
-   * none, checked under its lock, so a file written meanwhile is never
-   * replaced. Resolves false when one appeared.
-   */
   async initialize(entries: readonly ProviderEntryRecord[]): Promise<boolean> {
     let written = false;
     await this.#commit(async (drafts) => {
       for (const entry of entries) {
         this.#ready(entry, "machine", drafts);
       }
-      await this.#machine.update((current) => {
+      const landed = await this.#machine.update((current) => {
         if (current !== undefined) {
           return;
         }
@@ -517,46 +676,68 @@ export class ProviderConfiguration {
         written = true;
         return { providers: [...entries], version: 1 };
       });
-      return written;
+      return written ? landed : false;
     });
     return written;
   }
 
-  /**
-   * Reload whenever either file changes, from this or any other process. A
-   * file that cannot be read keeps the last good set and is reported.
-   */
   watch(report: (problem: string) => void): () => void {
-    const paths = [this.#machine.watched, this.#workspace?.watched].filter(
-      (path): path is string => path !== undefined
-    );
-    const reload = () => {
-      this.refresh().then(
-        (problems) => {
-          for (const problem of problems) {
-            report(problem);
-          }
-        },
-        (error: unknown) => report(messageOf(error))
-      );
-    };
-    // Polled, not evented: platform file events miss or coalesce changes,
-    // and a poll also sees a file replaced by rename.
-    for (const path of paths) {
-      watchFile(path, { interval: POLL_MS, persistent: false }, reload);
+    if (this.#options.fixed !== undefined) {
+      return () => undefined;
     }
-    return () => {
-      for (const path of paths) {
-        unwatchFile(path, reload);
+    let polling = false;
+    let polls = 0;
+    const poll = async (number: number) => {
+      const retry =
+        retriedOn("configuration", this.#reads.configuration, number) ||
+        retriedOn("identity key", this.#reads["identity key"], number);
+      if (!retry) {
+        const seen = this.#revision;
+        if (seen === undefined) {
+          return;
+        }
+        const revision = await this.#reaching("revision", () =>
+          this.#store.revision()
+        );
+        if (revision === seen) {
+          return;
+        }
+      }
+      for (const problem of await this.refresh()) {
+        report(problem);
       }
     };
+    const timer = setInterval(() => {
+      if (polling) {
+        return;
+      }
+      polling = true;
+      polls += 1;
+      const heard = this.#owed.splice(0);
+      this.#heard = heard;
+      poll(polls)
+        .catch((error: unknown) => {
+          if (!(error instanceof Object && this.#accounted.has(error))) {
+            heard.push(messageOf(error));
+          }
+        })
+        .finally(() => {
+          this.#heard = undefined;
+          for (const problem of heard) {
+            report(problem);
+          }
+          polling = false;
+        });
+    }, POLL_MS);
+    timer.unref?.();
+    return () => clearInterval(timer);
   }
 
-  #store(scope: ProviderScope): Store {
+  #scope(scope: ProviderScope): Scope {
     return scope === "machine" ? this.#machine : this.#workspaceStore();
   }
 
-  #workspaceStore(): Store {
+  #workspaceStore(): Scope {
     if (!this.#workspace) {
       throw invalid(
         "this engine hosts no workspace, so it has no workspace scope"
@@ -583,37 +764,32 @@ export class ProviderConfiguration {
     ) => ProviderEntryRecord,
     validate = true
   ): Promise<void> {
-    const scope = this.#scopeOf(id);
-    await this.#commit(async (drafts) => {
-      await this.#store(scope).update((current) => {
-        const file = current ?? empty();
+    await this.#commit((drafts) =>
+      this.#write(() => {
+        const scope = this.#scopeOf(id);
+        const file = this.#scope(scope).read() ?? empty();
         return {
-          ...file,
-          providers: file.providers.map((entry) => {
-            if (entry.id !== id) {
-              return entry;
-            }
-            const next = change(entry, scope);
-            if (validate) {
-              this.#ready(next, scope, drafts);
-              if (next.enabled) {
-                this.#refuseTaken(next.id, scope);
+          [scope]: {
+            ...file,
+            providers: file.providers.map((entry) => {
+              if (entry.id !== id) {
+                return entry;
               }
-            }
-            return next;
-          }),
+              const next = change(entry, scope);
+              if (validate) {
+                this.#ready(next, scope, drafts);
+                if (next.enabled) {
+                  this.#refuseTaken(next.id, scope);
+                }
+              }
+              return next;
+            }),
+          },
         };
-      });
-      return true;
-    });
+      })
+    );
   }
 
-  /**
-   * Refuse a write that would reuse an id at the other scope, anywhere under
-   * the state root. Run under the written file's lock; the other scope's
-   * files are read, not locked, and a collision a race still makes leaves
-   * both entries unloadable. An unreadable workspace file refuses the write.
-   */
   #refuseTaken(
     id: string,
     scope: ProviderScope,
@@ -638,31 +814,23 @@ export class ProviderConfiguration {
     }
   }
 
-  /** The workspace under the state root whose own file uses `id`, if any. */
   #takenAt(
     id: string,
     options: { readonly replacing?: boolean }
   ): string | undefined {
-    const { state } = this.#options;
-    if (
-      state === undefined ||
-      this.#options.fixed !== undefined ||
-      !existsSync(state)
-    ) {
+    if (this.#options.fixed !== undefined) {
       return undefined;
     }
-    // `replace` rewrites this workspace's own file too.
-    const own = options.replacing ? this.#options.workspace?.dir : undefined;
-    for (const dir of readdirSync(state, { withFileTypes: true })) {
-      if (!dir.isDirectory() || join(state, dir.name) === own) {
-        continue;
-      }
-      const file = readProvidersFile(join(state, dir.name, FILE));
-      if (file?.providers.some((entry) => entry.id === id && entry.enabled)) {
-        return dir.name;
-      }
-    }
-    return undefined;
+    const view = this.#view();
+    const own = options.replacing ? this.#options.workspace?.id : undefined;
+    return view.workspaces.find(
+      (workspace) =>
+        workspace !== own &&
+        (view
+          .workspace(workspace)
+          ?.providers.some((entry) => entry.id === id && entry.enabled) ??
+          false)
+    );
   }
 
   /** Validate an entry for a write; a failure refuses the write. */
@@ -954,15 +1122,16 @@ export class ProviderConfiguration {
     });
   }
 
-  /**
-   * A keyed digest: it identifies without revealing, or letting anyone test
-   * a guess at, what went in. The key is the state root's; without one (a
-   * programmatic host with no state root), or read-only with none yet, it
-   * lasts as long as this configuration, so its identities match nothing
-   * stored and pinned sessions from elsewhere fail closed.
-   */
   #digest(material: unknown): string {
-    this.#key ??= identityKey(this.#options.state, this.#options.readOnly);
+    if (this.#key === undefined) {
+      if (this.#options.fixed === undefined && !this.#options.readOnly) {
+        throw new ConfigurationError(
+          "CONFIGURATION_UNREADABLE",
+          "an instance identity was asked for before the stored identity key was read"
+        );
+      }
+      this.#key = randomBytes(32);
+    }
     return createHmac("sha256", this.#key)
       .update(JSON.stringify(material))
       .digest("hex")

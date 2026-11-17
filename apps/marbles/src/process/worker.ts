@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { connect as connectSocket, type Socket } from "node:net";
+import { layout } from "~/layout";
 import type { Engine } from "~/lib/engine";
 
 import { Channel, socketTransport } from "~/process/channel";
@@ -70,13 +71,14 @@ function parseWorkerArgs(argv: readonly string[]): WorkerArgs {
     return value;
   };
   const setup = values.get("setup");
+  const { artifacts, state } = layout();
   return {
-    artifacts: required("artifacts"),
+    artifacts,
     dry,
     ...(setup === undefined ? {} : { setup: JSON.parse(setup) as SetupDraft }),
     socket: required("socket"),
     source: required("source"),
-    state: required("state"),
+    state,
     token: required("token"),
   };
 }

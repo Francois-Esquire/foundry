@@ -211,3 +211,50 @@ export const marblesExecutionGaps = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.scope, table.gapScope] })]
 );
+
+export const marblesProviderConfigurations = sqliteTable(
+  "marbles_provider_configurations",
+  {
+    configuration: text().notNull(),
+    revision: integer().notNull(),
+    scope: text().primaryKey(),
+  },
+  (table) => [
+    index("marbles_provider_configurations_revision").on(table.revision),
+  ]
+);
+
+export const marblesIdentityKeys = sqliteTable("marbles_identity_keys", {
+  id: integer().primaryKey(),
+  key: text().notNull(),
+});
+
+export const marblesAgentGrants = sqliteTable("marbles_agent_grants", {
+  grants: text().notNull(),
+  scope: text().primaryKey(),
+});
+
+export const marblesDeferredApprovals = sqliteTable(
+  "marbles_deferred_approvals",
+  {
+    approvals: text({ mode: "json" }).$type<unknown>().notNull(),
+    scope: text().primaryKey(),
+  }
+);
+
+export const marblesHarnessActivities = sqliteTable(
+  "marbles_harness_activities",
+  {
+    key: text().notNull(),
+    record: text({ mode: "json" }).$type<unknown>().notNull(),
+    revision: integer().notNull(),
+    scope: text().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.scope, table.key] })]
+);
+
+export const marblesDeliveryClaims = sqliteTable("marbles_delivery_claims", {
+  ownerId: text("owner_id"),
+  ownerPid: integer("owner_pid"),
+  scope: text().primaryKey(),
+});

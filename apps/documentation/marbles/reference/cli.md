@@ -63,15 +63,15 @@ marbles watch <runId>
 ```
 
 `watch` replays earlier output, follows the live stream, prints the result
-and terminal status, and exits. It reads across the workspaces under
-`--state`; it needs neither the launching process's working directory nor
+and terminal status, and exits. It reads across the workspaces under the
+Foundry home; it needs neither the launching process's working directory nor
 `--source`. It imports no authoring modules and starts no engine. Multiple
 watchers can follow the same run.
 
-Use the same `--state` as the owner when it is customized:
+Use the same `FOUNDRY_HOME` as the owner when it is moved:
 
 ```sh
-marbles watch <runId> --state /path/to/state
+FOUNDRY_HOME=/path/to/home marbles watch <runId>
 ```
 
 Exit codes are 0 for completion, 1 for failure, cancellation, missing output,
@@ -133,15 +133,15 @@ dashboard, where the question can be answered as it comes.
 | --- | --- | --- |
 | `--source <path>` | `./.foundry/marbles` | Authoring folder or single module. Missing sources offer setup in the dashboard; other commands use an empty catalog. A workspace root is hosted from one source: attaching another under a hosted root is refused until that workspace is detached. |
 | `--config <path>` | Same as `--source` | Compatibility alias. A legacy `marbles.config.ts` is used when the default folder is absent. |
-| `--state <dir>` | `~/.foundry/marbles` | Root directory for the Marbles process's files and every workspace's state. Each root has its own process. |
-| `--artifacts <dir>` | `~/.foundry/artifacts`, or `artifacts/` beside a custom `--state` | Shared artifact store holding declared artifacts and feed entries from every workspace. Fixed when the Marbles process starts: a command naming another store than the running process's is refused with both paths; `marbles stop` first to change it. |
 | `--input <json>` | A schedule's input, or none | Input for `roll`, or the batch for `tasks change`. Overrides a schedule's recorded input. |
-| `--dry-run` | Off | Host the workspace in this process, echo agent turns, git mutations, and sandbox commands instead of running them, and write no state. Never touches the Marbles process. `mcp` hosts nothing under it. See [safety and limits](/marbles/reference/safety). |
+| `--dry-run` | Off | Host the workspace in this process, echo agent turns, git mutations, and sandbox commands instead of running them, and write no state: reading the Marbles database may create or update its SQLite side files (`marbles.db-shm`, `marbles.db-wal`), and nothing else is written. Never touches the Marbles process. `mcp` hosts nothing under it. See [safety and limits](/marbles/reference/safety). |
 
 `FOUNDRY_HOME` moves the whole home (default `~/.foundry`): the state root,
-the artifact store, and the process socket under it. `--state` and
-`--artifacts` each move one location and win over it. Workers inherit the
-environment of the Marbles process, not of the command that attached them.
+the Marbles database, the artifact store, and the process socket under it.
+Nothing moves on its own; the `--state` and `--artifacts` flags were
+removed, and a command line with either is refused. Each home has its own
+Marbles process. Workers inherit the environment of the Marbles process,
+not of the command that attached them.
 
 Agents can select any retained harness through `provider`. Without one,
 Claude Code takes precedence over Codex. Dry execution echoes allowed
@@ -247,7 +247,7 @@ attaches the workspace, and the worker posts a setup milestone to the Feed.
 ### Settings and local diagnostics
 
 Settings are global: `settings.json` at the state root
-(`~/.foundry/marbles/settings.json`, or beside a custom `--state`). A missing
+(`~/.foundry/marbles/settings.json`, under `FOUNDRY_HOME` when set). A missing
 file or key uses the default theme, `dark`. A value Marbles does not know, or
 a file it cannot read, falls back to the default and is named on the Settings
 tab; Marbles does not overwrite a file it cannot read. Saving keeps keys it
@@ -333,8 +333,11 @@ then each workspace with `hosted: yes|no` and `process: pid N (worker)` or
 `not running`.
 
 Pi is configured like any other provider: setup offers it when its CLI is
-installed, or add `{ "id": "pi", "plugin": "pi", "enabled": true }` to
-`providers.json`. Pi reads the process environment itself, so it does not
+installed. Provider configuration lives in the Marbles database; there is
+no file to edit and no command for it yet, so an entry setup does not offer
+is added through the library, `ProviderConfiguration.add` over
+`DatabaseProviderStore.forState` (`@foundry.sh/marbles/lib`), for example
+`{ "id": "pi", "plugin": "pi", "enabled": true }`. Pi reads the process environment itself, so it does not
 serve a workspace whose `.env.schema` adds variables until it is configured
 for that workspace. Host model
 calls use `ai-sdk-provider-pi` 0.1.0, which embeds Pi 0.52.12,
@@ -346,13 +349,14 @@ tools. Supply a session API key or sign in with Pi on the host for the selected
 `provider/model`; the host resolves the current key, and only that key enters
 the guest environment. Refresh credentials remain on the host.
 
-An OpenAI-compatible gateway is configured with the `gateway` plugin:
+An OpenAI-compatible gateway is configured with the `gateway` plugin, added
+the same way:
 `{ "id": "gw", "plugin": "gateway", "enabled": true, "settings": { "baseURL": "https://gateway.example/v1", "apiKey": "GATEWAY_API_KEY" } }`.
 `apiKey` names the environment variable that holds the key, never the key
 itself, and the instance is available once that variable is set. Any other
 setting is an error. Its models are the ones its server lists at
-`GET <baseURL>/models`. Marbles asks when it starts, when `providers.json`
-changes, and when Airplane Mode turns off, and never while Airplane Mode is
+`GET <baseURL>/models`. Marbles asks when it starts, when the provider
+configuration changes, and when Airplane Mode turns off, and never while Airplane Mode is
 on. Each listed id is a text model. Name the model, or set the entry's
 `defaults`; otherwise the first listed id is used. Its capabilities and limits are unknown,
 and its price comes from models.dev when that knows the id. A model the

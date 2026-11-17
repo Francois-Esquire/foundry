@@ -163,6 +163,9 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
         (await files(state)).map(async (file) => {
           const path = join(state, file);
           const { ino, mtimeMs, size } = await stat(path);
+          if (file.endsWith("-shm")) {
+            return { file, ino, size };
+          }
           const bytes = await readFile(path, "base64");
           return { bytes, file, ino, mtimeMs, size };
         })

@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,14 +7,20 @@ import {
 } from "@foundry/agents/authorization";
 import { createHarnessPermission } from "@foundry/agents/harness";
 import { Sessions } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
+import { DatabaseDeferredApprovalStore } from "~/database/approvals";
+import { DatabaseGrantStorage } from "~/database/grants";
+import { initializeDatabase } from "~/database/open";
+import { DatabaseSessionStore } from "~/database/sessions";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
+import type { DeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
+import { MemoryDeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
+import { StoredAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
-import { JsonSessionStore } from "~/lib/sessions/json-store";
 
 import { startEngine } from "../helpers/engine";
 import { openFeed } from "../helpers/feed";
@@ -29,7 +34,7 @@ afterEach(async () => {
   }
 });
 
-async function fixture(pendingPath?: string) {
+async function fixture(approvals?: DeferredApprovalStore) {
   const feed = openFeed(undefined, { id: "test", root: "/workspace" });
   const sessions = new InMemorySessionStore();
   await new Sessions({ store: sessions }).createSession({ id: "session-1" });
@@ -37,7 +42,7 @@ async function fixture(pendingPath?: string) {
   const bridge = new HarnessInteractions({
     askable: true,
     feed: feed.publisher,
-    pendingPath,
+    ...(approvals ? { approvals } : {}),
     policy,
     sessions,
   });
@@ -111,18 +116,59 @@ it("keeps an attended permission pending, validates answers, and scopes a rememb
   await f.bridge.close();
 });
 
+it("does not reopen a question another host answered while it was restoring", async () => {
+  const approvals = new MemoryDeferredApprovalStore();
+  const f = await fixture(approvals);
+  expect(await f.permission(false)()).toMatchObject({ behavior: "deny" });
+  const entry = await f.open();
+  const { promise: held, resolve: resume } = Promise.withResolvers<undefined>();
+  let entered: (() => void) | undefined;
+  const reading = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let first = true;
+  const sessions: SessionStore = {
+    commit: (write) => f.sessions.commit(write),
+    getMessage: (id) => f.sessions.getMessage(id),
+    getSession: (id) => f.sessions.getSession(id),
+    async listMessages(sessionId) {
+      const messages = await f.sessions.listMessages(sessionId);
+      if (first) {
+        first = false;
+        entered?.();
+        await held;
+      }
+      return messages;
+    },
+  };
+  const stale = new HarnessInteractions({
+    approvals,
+    askable: true,
+    feed: f.feed.publisher,
+    policy: f.policy,
+    sessions,
+  });
+  const restoring = stale.restore();
+  await reading;
+  await f.bridge.answer(entry.id, "Deny");
+  resume(undefined);
+  await restoring;
+  expect((await f.feed.read())[0]?.input?.status).toBe("answered");
+  expect(await stale.answer(entry.id, "Allow future runs")).toBe(false);
+  await f.bridge.close();
+  await stale.close();
+});
+
 it("restores a scheduled refusal as an actionable grant without replaying its effect", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-deferred-"));
-  roots.push(root);
-  const pendingPath = join(root, "pending.json");
-  const f = await fixture(pendingPath);
+  const approvals = new MemoryDeferredApprovalStore();
+  const f = await fixture(approvals);
   expect(await f.permission(false)()).toMatchObject({ behavior: "deny" });
   const entry = await f.open();
   await f.bridge.close();
   const restored = new HarnessInteractions({
+    approvals,
     askable: true,
     feed: f.feed.publisher,
-    pendingPath,
     policy: f.policy,
     sessions: f.sessions,
   });
@@ -301,10 +347,8 @@ it("does not reopen an aborted choice question via its other-answer action", asy
 });
 
 it("recovers a canonical deferred request even if its publication callback never ran", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-orphan-"));
-  roots.push(root);
-  const pendingPath = join(root, "pending.json");
-  const f = await fixture(pendingPath);
+  const approvals = new MemoryDeferredApprovalStore();
+  const f = await fixture(approvals);
   await f.bridge.registerSession(
     { agentId: "coder", sessionId: "session-1", source },
     f.bridge.authority(source)
@@ -331,9 +375,9 @@ it("recovers a canonical deferred request even if its publication callback never
   expect(await f.feed.read()).toEqual([]);
   await f.bridge.close();
   const restored = new HarnessInteractions({
+    approvals,
     askable: true,
     feed: f.feed.publisher,
-    pendingPath,
     policy: f.policy,
     sessions: f.sessions,
   });
@@ -349,10 +393,8 @@ it("recovers a canonical deferred request even if its publication callback never
 });
 
 it("keeps sessions across restarts only under an authority the host built over its own policy", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-durable-"));
-  roots.push(root);
-  const pendingPath = join(root, "pending.json");
-  const f = await fixture(pendingPath);
+  const approvals = new MemoryDeferredApprovalStore();
+  const f = await fixture(approvals);
   const session = { agentId: "coder", sessionId: "session-1", source };
   const custom = createInMemoryAgentAuthorizer().authorizer;
   await f.bridge.registerSession(
@@ -364,19 +406,18 @@ it("keeps sessions across restarts only under an authority the host built over i
   await f.bridge.registerSession(session, {
     ...f.bridge.authority(source),
   });
-  expect(existsSync(pendingPath)).toBe(false);
+  expect((await approvals.load()).sessions).toEqual([]);
   await f.bridge.registerSession(session, f.bridge.authority(source));
-  expect(existsSync(pendingPath)).toBe(true);
+  expect((await approvals.load()).sessions).toEqual([session]);
   await f.bridge.close();
 });
 
 it("repairs a deferred answer's feed state after publication failed without issuing another grant", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-feed-repair-"));
-  roots.push(root);
-  const pendingPath = join(root, "pending.json");
-  const f = await fixture(pendingPath);
+  const approvals = new MemoryDeferredApprovalStore();
+  const f = await fixture(approvals);
   await f.permission(false)();
   const entry = await f.open();
+  const grants = vi.spyOn(f.policy, "resolveApproval");
   const publish = f.feed.publisher.publishInput.bind(f.feed.publisher);
   const spy = vi
     .spyOn(f.feed.publisher, "publishInput")
@@ -392,9 +433,9 @@ it("repairs a deferred answer's feed state after publication failed without issu
   await f.bridge.close();
   spy.mockRestore();
   const restored = new HarnessInteractions({
+    approvals,
     askable: true,
     feed: f.feed.publisher,
-    pendingPath,
     policy: f.policy,
     sessions: f.sessions,
   });
@@ -409,7 +450,104 @@ it("repairs a deferred answer's feed state after publication failed without issu
       .flatMap((message) => message.parts)
       .filter((part) => part.type === "tool_approval_response")
   ).toHaveLength(1);
+  expect(grants).toHaveBeenCalledTimes(1);
   await restored.close();
+});
+
+it("issues on restore the grant a stored deferred answer never got, and only once", async () => {
+  const approvals = new MemoryDeferredApprovalStore();
+  const f = await fixture(approvals);
+  await f.permission(false)();
+  const entry = await f.open();
+  const resolveApproval = f.policy.resolveApproval.bind(f.policy);
+  let failures = 1;
+  const grants = vi
+    .spyOn(f.policy, "resolveApproval")
+    .mockImplementation((auth, resolution) => {
+      if (failures > 0) {
+        failures -= 1;
+        return Promise.reject(new Error("grants unavailable"));
+      }
+      return resolveApproval(auth, resolution);
+    });
+  await expect(f.bridge.answer(entry.id, "Allow future runs")).rejects.toThrow(
+    "grants unavailable"
+  );
+  await f.bridge.close();
+  const restore = () => {
+    const restored = new HarnessInteractions({
+      approvals,
+      askable: true,
+      feed: f.feed.publisher,
+      policy: f.policy,
+      sessions: f.sessions,
+    });
+    onTestFinished(() => restored.close());
+    return restored.restore();
+  };
+
+  await restore();
+
+  expect((await f.feed.read())[0]?.input).toMatchObject({
+    answer: "Allow future runs",
+    status: "answered",
+  });
+  expect((await approvals.load()).requests).toEqual([]);
+  await new Sessions({ store: f.sessions }).createSession({
+    id: "new-run-session",
+  });
+  expect(await f.permission(false, "new-run-session")()).toEqual({
+    behavior: "allow",
+  });
+  await restore();
+  expect(grants).toHaveBeenCalledTimes(2);
+});
+
+it("leaves a stored deferred answer's question open, and its record kept, when its grant fails again on restore", async () => {
+  const approvals = new MemoryDeferredApprovalStore();
+  const f = await fixture(approvals);
+  await f.permission(false)();
+  const entry = await f.open();
+  const resolveApproval = f.policy.resolveApproval.bind(f.policy);
+  let failures = 2;
+  vi.spyOn(f.policy, "resolveApproval").mockImplementation(
+    (auth, resolution) => {
+      if (failures > 0) {
+        failures -= 1;
+        return Promise.reject(new Error("grants unavailable"));
+      }
+      return resolveApproval(auth, resolution);
+    }
+  );
+  await expect(f.bridge.answer(entry.id, "Allow future runs")).rejects.toThrow(
+    "grants unavailable"
+  );
+  await f.bridge.close();
+  const restored = new HarnessInteractions({
+    approvals,
+    askable: true,
+    feed: f.feed.publisher,
+    policy: f.policy,
+    sessions: f.sessions,
+  });
+  onTestFinished(() => restored.close());
+
+  await restored.restore();
+
+  expect(failures).toBe(0);
+  const reopened = await f.open();
+  expect((await approvals.load()).requests).toHaveLength(1);
+  await expect(restored.answer(reopened.id, "Deny")).rejects.toThrow(
+    "already has a response"
+  );
+  expect(await restored.answer(reopened.id, "Allow future runs")).toBe(true);
+  expect((await approvals.load()).requests).toEqual([]);
+  await new Sessions({ store: f.sessions }).createSession({
+    id: "new-run-session",
+  });
+  expect(await f.permission(false, "new-run-session")()).toEqual({
+    behavior: "allow",
+  });
 });
 
 it("records an unattended question and returns a decline without waiting", async () => {
@@ -436,18 +574,20 @@ it("records an unattended question and returns a decline without waiting", async
 it("remembers a deferred grant after reopening both session and authority stores", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-durable-input-"));
   roots.push(root);
-  const pendingPath = join(root, "pending.json");
+  const opened = await initializeDatabase(join(root, "marbles.db"));
+  onTestFinished(() => opened.close());
   const feed = openFeed(undefined, { id: "durable", root });
   const open = () => {
-    const sessions = new JsonSessionStore(join(root, "sessions"));
+    const kept = { database: opened.database, scope: "durable" };
+    const sessions = new DatabaseSessionStore(kept);
     const policy = createAgentAuthorizer({
-      grants: new JsonAgentGrantRepository(join(root, "grants.json")),
+      grants: new StoredAgentGrantRepository(new DatabaseGrantStorage(kept)),
     });
     return {
       bridge: new HarnessInteractions({
+        approvals: new DatabaseDeferredApprovalStore(kept),
         askable: true,
         feed: feed.publisher,
-        pendingPath,
         policy,
         sessions,
       }),

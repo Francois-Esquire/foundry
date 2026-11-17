@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LanguageModelV4StreamPart } from "@ai-sdk/provider";
@@ -9,6 +9,9 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
+import { DatabaseProviderStore } from "~/database/providers";
+import { marblesIdentityKeys } from "~/database/tables";
+import { writeAsHost } from "~/database/workspaces";
 import { registered } from "~/lib/providers/plugins";
 import type { AgentDefinition, SessionRef } from "~/lib/types";
 
@@ -68,14 +71,26 @@ const DIGEST = /^[0-9a-f]{32}$/;
 let state: string;
 let workspaceDir: string;
 
-function write(path: string, providers: object[], extra: object = {}) {
-  writeFileSync(path, JSON.stringify({ providers, version: 1, ...extra }));
+async function write(
+  scope: "machine" | "workspace",
+  providers: object[],
+  extra: object = {}
+): Promise<void> {
+  const configuration = { providers, version: 1, ...extra } as never;
+  await DatabaseProviderStore.forState(state).update("ws1", () =>
+    scope === "machine"
+      ? { machine: configuration }
+      : { workspace: configuration }
+  );
 }
 
-const machineFile = () => join(state, "providers.json");
-const workspaceFile = () => join(workspaceDir, "providers.json");
+async function engine(machine: Record<string, string> = {}) {
+  const built = build(machine);
+  await built.providers?.refresh();
+  return built;
+}
 
-function engine(machine: Record<string, string> = {}) {
+function build(machine: Record<string, string>) {
   return createEngine({
     catalog,
     // Persisted, so a later engine sees that a session ran.
@@ -93,18 +108,20 @@ function engine(machine: Record<string, string> = {}) {
   });
 }
 
-async function opened(e: ReturnType<typeof engine>): Promise<SessionRef> {
+async function opened(e: ReturnType<typeof build>): Promise<SessionRef> {
   const session = await e.agents.session(reviewer);
   await session.generate("Look.");
   return session.ref;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   state = mkdtempSync(join(tmpdir(), "marbles-identity-"));
   workspaceDir = join(state, "ws1");
   mkdirSync(workspaceDir);
   // One machine key for every engine here, as on one machine.
-  writeFileSync(join(state, "identity.key"), "a".repeat(64));
+  await writeAsHost(state, (database) =>
+    database.insert(marblesIdentityKeys).values({ id: 1, key: "a".repeat(64) })
+  );
 });
 
 afterEach(() => {
@@ -112,33 +129,33 @@ afterEach(() => {
 });
 
 it("never resumes a session on the other scope's instance with the same id and plugin", async () => {
-  write(machineFile(), [{ enabled: false, id: "work", plugin: "cli" }]);
-  write(workspaceFile(), [{ enabled: true, id: "work", plugin: "cli" }]);
-  const e = engine();
+  await write("machine", [{ enabled: false, id: "work", plugin: "cli" }]);
+  await write("workspace", [{ enabled: true, id: "work", plugin: "cli" }]);
+  const e = await engine();
   try {
     const ref = await opened(e);
     expect(ref.instance).toMatch(DIGEST);
 
     // The workspace's entry is disabled and the machine's enabled: same id
     // and plugin, another scope and account.
-    write(machineFile(), [{ enabled: true, id: "work", plugin: "cli" }]);
-    write(workspaceFile(), [{ enabled: false, id: "work", plugin: "cli" }]);
-    e.providers?.load();
+    await write("machine", [{ enabled: true, id: "work", plugin: "cli" }]);
+    await write("workspace", [{ enabled: false, id: "work", plugin: "cli" }]);
+    await e.providers?.refresh();
     await expect(
       e.agents.session(reviewer, { session: ref })
     ).rejects.toMatchObject({ code: "SESSION_ROUTE_CONFLICT" });
 
     // Removed rather than disabled: the same.
-    write(workspaceFile(), []);
-    e.providers?.load();
+    await write("workspace", []);
+    await e.providers?.refresh();
     await expect(
       e.agents.session(reviewer, { session: ref })
     ).rejects.toMatchObject({ code: "SESSION_ROUTE_CONFLICT" });
 
     // Back as it was: the session's own instance, so it resumes.
-    write(machineFile(), [{ enabled: false, id: "work", plugin: "cli" }]);
-    write(workspaceFile(), [{ enabled: true, id: "work", plugin: "cli" }]);
-    e.providers?.load();
+    await write("machine", [{ enabled: false, id: "work", plugin: "cli" }]);
+    await write("workspace", [{ enabled: true, id: "work", plugin: "cli" }]);
+    await e.providers?.refresh();
     const resumed = await e.agents.session(reviewer, { session: ref });
     expect(resumed.ref.instance).toBe(ref.instance);
   } finally {
@@ -147,18 +164,18 @@ it("never resumes a session on the other scope's instance with the same id and p
 });
 
 it("keeps a session across edits that leave its account alone, and refuses one that changes it", async () => {
-  write(machineFile(), [
+  await write("machine", [
     { enabled: true, id: "other", plugin: "cli" },
     { enabled: true, id: "work", plugin: "cli" },
   ]);
-  let e = engine();
+  let e = await engine();
   const ref = await opened(e);
   // Reordered, a default added, disabled and enabled again.
-  write(machineFile(), [
+  await write("machine", [
     { defaults: { text: "m" }, enabled: true, id: "work", plugin: "cli" },
     { enabled: true, id: "other", plugin: "cli" },
   ]);
-  e.providers?.load();
+  await e.providers?.refresh();
   await e.providers?.disable("work");
   await e.providers?.enable("work");
   const kept = await e.agents.session(reviewer, { session: ref });
@@ -176,11 +193,11 @@ it("keeps a session across edits that leave its account alone, and refuses one t
   ];
   // The control: a new engine on the same configuration and environment
   // resumes, so the refusals below come from the account, not the engine.
-  write(machineFile(), [
+  await write("machine", [
     { enabled: true, id: "other", plugin: "cli" },
     { enabled: true, id: "work", plugin: "cli" },
   ]);
-  e = engine();
+  e = await engine();
   try {
     const resumed = await e.agents.session(reviewer, { session: ref });
     expect(resumed.ref.instance).toBe(ref.instance);
@@ -188,7 +205,7 @@ it("keeps a session across edits that leave its account alone, and refuses one t
     await e.dispose();
   }
   for (const machine of accounts) {
-    e = engine(machine);
+    e = await engine(machine);
     try {
       await expect(
         e.agents.session(reviewer, { session: ref })
@@ -200,8 +217,8 @@ it("keeps a session across edits that leave its account alone, and refuses one t
 });
 
 it("starts afresh a ref whose session never ran, even if its instance changed", async () => {
-  write(machineFile(), [{ enabled: true, id: "work", plugin: "cli" }]);
-  const e = engine({ ACCOUNT_HOME: "/accounts/other" });
+  await write("machine", [{ enabled: true, id: "work", plugin: "cli" }]);
+  const e = await engine({ ACCOUNT_HOME: "/accounts/other" });
   try {
     const unrun = await e.agents.session(reviewer, {
       session: {
@@ -219,8 +236,8 @@ it("starts afresh a ref whose session never ran, even if its instance changed", 
 });
 
 it("refuses a ref that ran before instances were identified, and starts one that never ran", async () => {
-  write(machineFile(), [{ enabled: true, id: "work", plugin: "cli" }]);
-  const e = engine();
+  await write("machine", [{ enabled: true, id: "work", plugin: "cli" }]);
+  const e = await engine();
   try {
     const ref = await opened(e);
     const { instance: _, ...legacy } = ref;

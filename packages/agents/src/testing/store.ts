@@ -881,6 +881,13 @@ const EVERY_PART: SessionPart[] = [
     type: "tool_approval_response",
   },
   {
+    approvalId: "ap-2",
+    approved: true,
+    granted: false,
+    scope: "always",
+    type: "tool_approval_response",
+  },
+  {
     harness: "codex",
     nativeSessionId: "native",
     type: "harness_session",

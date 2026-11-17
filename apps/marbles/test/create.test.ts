@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readdir,
+  readFile,
   realpath,
   rm,
   writeFile,
@@ -17,6 +18,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
+import { DatabaseProviderStore } from "~/database/providers";
+import { stateDatabase } from "~/layout";
 import { Engine } from "~/lib/engine";
 import { RunScope } from "~/lib/run-scope";
 
@@ -43,7 +46,7 @@ it("exposes the config directory and dry-run git through the engine's workspaces
   });
   const scope = new RunScope("runtime-test", root);
   try {
-    // Nothing is installed, yet --dry-run still echoes every harness.
+    await engine.providers?.refresh();
     expect(engine.harnesses).toEqual(["claude-code", "codex", "pi"]);
     await writeFile(join(root, "notes.md"), "initial");
     const workspaces = engine.bindings.workspaces({
@@ -232,7 +235,7 @@ it("runs model-free work without provider configuration, and refuses a session w
     await engine.start();
     await expect(engine.run("count", {})).resolves.toBe(1);
     await expect(engine.run("review", {})).rejects.toThrow(
-      `No model providers are configured. Run marbles without --dry-run in a terminal to set them up, or write ${join(stateRoot, "providers.json")}.`
+      "No model providers are configured. Run marbles without --dry-run in a terminal to set them up."
     );
     await engine.providers?.add(
       { id: "codex", plugin: "codex" },
@@ -250,13 +253,13 @@ it("runs model-free work without provider configuration, and refuses a session w
 
 it("echoes the configured providers under dry, lets a programmatic set supersede them, and gives each engine its own Airplane", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "create-configured-"));
-  await writeFile(
-    join(stateRoot, "providers.json"),
-    JSON.stringify({
+  await DatabaseProviderStore.forState(stateRoot).update(undefined, () => ({
+    machine: {
       providers: [{ enabled: true, id: "codex", plugin: "codex" }],
       version: 1,
-    })
-  );
+    },
+  }));
+  const before = await readFile(stateDatabase(stateRoot));
   const base = {
     catalog,
     print: () => undefined,
@@ -267,6 +270,7 @@ it("echoes the configured providers under dry, lets a programmatic set supersede
   const dry = createEngine({ ...base, dry: true });
   const other = createEngine({ ...base, dry: true });
   const programmatic = createEngine({ ...base, dry: false, providers: [] });
+  await Promise.all([dry, other].map((each) => each.providers?.refresh()));
   try {
     expect(dry.models.providers.map((provider) => provider.id)).toEqual([
       "codex",
@@ -292,7 +296,12 @@ it("echoes the configured providers under dry, lets a programmatic set supersede
     });
     await session.generate("Look.");
     expect(session.ref.instance).toEqual(expect.any(String));
-    expect(await readdir(stateRoot)).toEqual(["providers.json"]);
+    expect(
+      await DatabaseProviderStore.forState(stateRoot).identityKey(false)
+    ).toBeUndefined();
+    expect((await readFile(stateDatabase(stateRoot))).equals(before)).toBe(
+      true
+    );
   } finally {
     await Promise.all([dry.dispose(), other.dispose(), programmatic.dispose()]);
     await rm(stateRoot, { force: true, recursive: true });

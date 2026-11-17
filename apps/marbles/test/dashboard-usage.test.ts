@@ -14,13 +14,13 @@ import { step, workflow } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
 import type { Engine } from "~/lib/engine";
-import { JsonSessionStore } from "~/lib/sessions/json-store";
 import type { DirectUsageFact, RunUsageFact, UsageCost } from "~/lib/usage";
 import { filterLogs, operatingLogs } from "~/views/operating-model";
 import { costCell, costLabel, tokensLabel } from "~/views/usage-format";
 import { Diagnostics, hostOutput } from "~/workspace/diagnostics";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { stepUsages, totalOf, workspaceUsage } from "~/workspace/usage";
+import { durableSessions } from "./helpers/durable-sessions";
 import { startEngine } from "./helpers/engine";
 import { putStoredFact, storedUsage } from "./helpers/usage-store";
 
@@ -380,7 +380,7 @@ it("after a restart, a malformed leaf in a run's document makes that run's, its 
     // Durable sessions beside durable state, as the host builds an engine.
     const durable = () => ({
       print: () => undefined,
-      sessions: new JsonSessionStore(join(state, "sessions")),
+      sessions: durableSessions(state),
       state,
     });
     const first = await startEngine(durable());

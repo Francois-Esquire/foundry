@@ -121,7 +121,7 @@ function serveWorkspace(flags: Flags): Served {
       if (flags.dry) {
         return [ownSummary];
       }
-      const client = await joinProcess(flags);
+      const client = await joinProcess();
       let listed: readonly WorkspaceSummary[];
       if (client === undefined) {
         listed = (await recordedWorkspaces(flags.state)).map(

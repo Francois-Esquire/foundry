@@ -7,7 +7,7 @@ import type {
 import { validateApprovalResponse } from "../session/converter";
 import type { AgentApprovalRequest } from "../session/events";
 import { Sessions } from "../session/sessions";
-import type { SessionPart } from "../session/types";
+import type { SessionMessage, SessionPart } from "../session/types";
 import { raceAbort } from "./abortable";
 import { harnessProfileDecision } from "./permission-profile";
 import { toolAuthorizationRequest } from "./tool-compiler";
@@ -260,17 +260,7 @@ export async function resolveHarnessApproval(
     );
   }
   if (part.approvalMode === "deferred") {
-    if (
-      history.some((message) =>
-        message.parts.some(
-          (value) =>
-            value.type === "tool_approval_response" &&
-            value.approvalId === approvalId
-        )
-      )
-    ) {
-      throw new Error(`Approval "${approvalId}" already has a response`);
-    }
+    refuseOtherAnswer(history, approvalId, resolution);
   } else {
     validateApprovalResponse(history, {
       approvalId,
@@ -295,6 +285,16 @@ export async function resolveHarnessApproval(
     toolCallId: part.toolCallId,
     toolName: part.name,
   });
+  if (part.approvalMode === "deferred") {
+    await answerDeferredApproval(
+      settings,
+      auth,
+      sessionId,
+      approvalId,
+      resolution
+    );
+    return;
+  }
   await recordApprovalResponse(
     settings,
     auth,
@@ -302,4 +302,136 @@ export async function resolveHarnessApproval(
     approvalId,
     resolution
   );
+}
+
+type ApprovalResponse = Extract<
+  SessionPart,
+  { type: "tool_approval_response" }
+>;
+
+function storedResponse(
+  history: readonly SessionMessage[],
+  approvalId: string
+): ApprovalResponse | undefined {
+  return history
+    .flatMap((message) => message.parts)
+    .find(
+      (value): value is ApprovalResponse =>
+        value.type === "tool_approval_response" &&
+        value.approvalId === approvalId
+    );
+}
+
+function responseScope(resolution: ApprovalResolution): "always" | "once" {
+  return resolution.lifetime === "persistent" ? "always" : "once";
+}
+
+function sameAnswer(
+  stored: ApprovalResponse,
+  resolution: ApprovalResolution
+): boolean {
+  return (
+    stored.approved === resolution.approved &&
+    stored.scope === responseScope(resolution)
+  );
+}
+
+function alreadyAnswered(approvalId: string): Error {
+  return new Error(`Approval "${approvalId}" already has a response`);
+}
+
+function refuseOtherAnswer(
+  history: readonly SessionMessage[],
+  approvalId: string,
+  resolution: ApprovalResolution
+): void {
+  const stored = storedResponse(history, approvalId);
+  if (stored && !sameAnswer(stored, resolution)) {
+    throw alreadyAnswered(approvalId);
+  }
+}
+
+async function answerDeferredApproval(
+  settings: Pick<HarnessAuthoritySettings, "store" | "policy">,
+  auth: AgentAuthorizationRequest,
+  sessionId: string,
+  approvalId: string,
+  resolution: ApprovalResolution
+): Promise<void> {
+  const sessions = new Sessions({ store: settings.store });
+  const recorded = await sessions.appendMessageIf(
+    {
+      parts: [
+        {
+          approvalId,
+          approved: resolution.approved,
+          ...(resolution.approved
+            ? { granted: false }
+            : { reason: resolution.reason }),
+          scope: responseScope(resolution),
+          type: "tool_approval_response",
+        },
+      ],
+      role: "system",
+      sessionId,
+    },
+    (history) => storedResponse(history, approvalId) === undefined
+  );
+  if (recorded !== undefined) {
+    await grantAnswer(settings, sessions, recorded, auth, resolution);
+    return;
+  }
+  const answer = storedAnswer(
+    await settings.store.listMessages(sessionId),
+    approvalId
+  );
+  if (!(answer && sameAnswer(answer.response, resolution))) {
+    throw alreadyAnswered(approvalId);
+  }
+  if (answer.response.granted !== false) {
+    return;
+  }
+  if ((await settings.policy.decide(auth)).kind === "allow") {
+    await markGranted(sessions, answer.message);
+    return;
+  }
+  await grantAnswer(settings, sessions, answer.message, auth, resolution);
+}
+
+async function grantAnswer(
+  settings: Pick<HarnessAuthoritySettings, "policy">,
+  sessions: Sessions,
+  message: SessionMessage,
+  auth: AgentAuthorizationRequest,
+  resolution: ApprovalResolution
+): Promise<void> {
+  const decision = await settings.policy.resolveApproval(auth, resolution);
+  if (resolution.approved && decision.kind === "allow") {
+    await markGranted(sessions, message);
+  }
+}
+
+async function markGranted(
+  sessions: Sessions,
+  message: SessionMessage
+): Promise<void> {
+  await sessions.updateMessage(message.id, {
+    parts: message.parts.map((part) =>
+      part.type === "tool_approval_response" ? { ...part, granted: true } : part
+    ),
+  });
+}
+
+function storedAnswer(
+  history: readonly SessionMessage[],
+  approvalId: string
+):
+  | { readonly message: SessionMessage; readonly response: ApprovalResponse }
+  | undefined {
+  for (const message of history) {
+    const response = storedResponse([message], approvalId);
+    if (response !== undefined) {
+      return { message, response };
+    }
+  }
 }

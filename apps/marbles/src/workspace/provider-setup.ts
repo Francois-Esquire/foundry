@@ -1,5 +1,5 @@
-import { join } from "node:path";
 import { ModelManager } from "@foundry/models";
+import { DatabaseProviderStore } from "~/database/providers";
 import { environmentSnapshot } from "~/lib/environment";
 import type { Proposal } from "~/lib/providers/configuration";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
@@ -15,19 +15,11 @@ export interface ProviderSetupOptions {
   readonly confirm: (question: string) => Promise<boolean>;
   readonly plugins?: readonly RegisteredPlugin[];
   readonly print: (line: string) => void;
-  /** The Marbles state root, where the machine's configuration is written. */
   readonly state: string;
   /** The workspace being run: its own configuration counts as configured. */
   readonly workspace?: Omit<ProviderWorkspace, "env">;
 }
 
-/**
- * First setup for an interactive run with no provider configuration: show
- * what each plugin detects, in preference order, and write it for the whole
- * machine only when the person confirms. An id a workspace already uses is
- * not offered. Nothing is written otherwise, and a file another process
- * wrote while the question was open is kept.
- */
 export async function setupProviders(
   options: ProviderSetupOptions
 ): Promise<void> {
@@ -36,16 +28,16 @@ export async function setupProviders(
     environment: { machine: environmentSnapshot(), workspace: {} },
     models: new ModelManager(),
     plugins,
-    state: options.state,
+    store: DatabaseProviderStore.forState(options.state),
     ...(options.workspace ? { workspace: options.workspace } : {}),
   });
+  await configuration.read();
   if (configuration.configured) {
     return;
   }
   const detected = configuration
     .propose()
     .filter((entry) => entry.scope === "machine");
-  const file = join(options.state, "providers.json");
   for (const entry of detected) {
     if (entry.taken !== undefined) {
       options.print(
@@ -57,8 +49,8 @@ export async function setupProviders(
   if (proposed.length === 0) {
     options.print(
       detected.length === 0
-        ? `No model providers were found on this machine. Install Claude Code, Codex, or Pi, or write ${file}.`
-        : `Nothing else to offer for the whole machine; write ${file} to configure it.`
+        ? "No model providers were found on this machine. Install Claude Code, Codex, or Pi, then run marbles again."
+        : "Nothing else to offer for the whole machine."
     );
     return;
   }
@@ -68,27 +60,26 @@ export async function setupProviders(
     options.print(`  ${index + 1}. ${entry.id}${label ? ` (${label})` : ""}`);
   }
   if (await options.confirm("Use these for every workspace? [Y/n] ")) {
-    options.print(await save(configuration, proposed, file));
+    options.print(await save(configuration, proposed));
     return;
   }
   options.print(
-    `Nothing saved. Agents need providers; write ${file} to set them.`
+    "Nothing saved. Agents need providers; run marbles again to set them up."
   );
 }
 
 /** Write the confirmed entries, unless the machine was configured or an id taken meanwhile. */
 async function save(
   configuration: ProviderConfiguration,
-  proposed: readonly Proposal[],
-  file: string
+  proposed: readonly Proposal[]
 ): Promise<string> {
   try {
     const saved = await configuration.initialize(
       proposed.map(({ scope: _, taken: __, ...entry }) => entry)
     );
     return saved
-      ? `Saved to ${file}.`
-      : `${file} was written meanwhile, so it was kept and nothing was saved.`;
+      ? "Saved for every workspace on this machine."
+      : "Providers were configured meanwhile, so those were kept and nothing was saved.";
   } catch (error) {
     // A workspace took one of these ids while the question was open.
     if (

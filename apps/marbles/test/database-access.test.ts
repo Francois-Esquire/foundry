@@ -70,7 +70,7 @@ function processWith(
   dir: string,
   file: string,
   id: string,
-  then: "exit" | "hold",
+  then: "exit" | "hold" | "open",
   migrations: string = MIGRATIONS
 ): Promise<ChildProcess> {
   const script = join(dir, `${then}-${id}.ts`);
@@ -86,6 +86,9 @@ if (${JSON.stringify(then)} === "hold") {
     process.stdout.write("ready\\n");
     await new Promise(() => undefined);
   });
+} else if (${JSON.stringify(then)} === "open") {
+  process.stdout.write("ready\\n");
+  await new Promise(() => undefined);
 } else {
   opened.close();
   // libSQL lets the native connection go, and with it the side files, only once it is collected.
@@ -113,7 +116,7 @@ if (${JSON.stringify(then)} === "hold") {
       }
     });
     child.once("exit", (code) => {
-      if (then === "hold" || code !== 0) {
+      if (then !== "exit" || code !== 0) {
         failed(new Error(`the writer exited ${String(code)}: ${stderr}`));
       }
     });
@@ -217,6 +220,22 @@ describe("reading the Marbles database", () => {
         message: expect.stringMatching(READONLY),
       }),
     });
+  });
+
+  it("leaves this process free to write the database another process holds open", async () => {
+    const dir = join(scratch(), "state");
+    const file = join(dir, "marbles.db");
+    await processWith(scratch(), file, "a", "open");
+    const write = (id: string) =>
+      writeDatabase(file, (database) =>
+        database.insert(marblesWorkspaces).values(row(id))
+      );
+    await readDatabase(file, async (database) => {
+      expect(await ids(database)).toEqual(["a"]);
+      await write("b");
+    });
+    await write("c");
+    expect(await readDatabase(file, ids)).toEqual(["a", "b", "c"]);
   });
 
   it("refuses a schema behind or ahead of this Marbles without touching the file", async () => {

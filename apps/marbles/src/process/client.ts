@@ -253,16 +253,12 @@ function startDetachedDaemon(options: ConnectOptions): void {
   const log = openSync(join(layout.state, LOG_FILE), "a");
   const child = spawn(
     runtime(),
-    [
-      ...RUNTIME_FLAGS,
-      options.cliEntry ?? cliEntry(),
-      "daemon",
-      "--state",
-      layout.state,
-      "--artifacts",
-      layout.artifacts,
-    ],
-    { detached: true, env: process.env, stdio: ["ignore", log, log] }
+    [...RUNTIME_FLAGS, options.cliEntry ?? cliEntry(), "daemon"],
+    {
+      detached: true,
+      env: { ...process.env, FOUNDRY_HOME: layout.home },
+      stdio: ["ignore", log, log],
+    }
   );
   child.unref();
   recordSpawned(child.pid, true);

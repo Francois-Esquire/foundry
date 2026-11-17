@@ -30,10 +30,6 @@ export class RecordsHeldError extends Error {
 
 const ATTACH_HINT = "`marbles attach` in its root hosts it";
 
-function machine(args: HostOptions) {
-  return layout({ artifacts: args.artifacts, state: args.state });
-}
-
 function withStoredTasks<T>(
   args: HostOptions,
   opened: OpenedWorkspace,
@@ -43,7 +39,7 @@ function withStoredTasks<T>(
     const tasks = new Tasks();
     return work((command) => runTaskCommand(tasks, command));
   }
-  const { state } = machine(args);
+  const { state } = args;
   const { id } = opened.workspace;
   return work((command) =>
     (command.kind === "change" ? changeTasks : readTasks)(state, id, (tasks) =>
@@ -52,11 +48,9 @@ function withStoredTasks<T>(
   );
 }
 
-export async function joinProcess(
-  args: HostOptions
-): Promise<MarblesClient | undefined> {
+export async function joinProcess(): Promise<MarblesClient | undefined> {
   try {
-    return await connect({ layout: machine(args), start: false });
+    return await connect({ layout: layout(), start: false });
   } catch (error) {
     if (error instanceof NoProcessError) {
       return undefined;
@@ -66,13 +60,12 @@ export async function joinProcess(
 }
 
 async function hostingWorker(
-  args: HostOptions,
   id: string
 ): Promise<
   | { readonly client: MarblesClient; readonly workspace: WorkspaceConnection }
   | undefined
 > {
-  const client = await joinProcess(args);
+  const client = await joinProcess();
   if (client === undefined) {
     return undefined;
   }
@@ -102,13 +95,13 @@ export async function withTasks<T>(
   work: (tasks: TaskRunner) => Promise<T>
 ): Promise<T> {
   const { dir, id } = opened.workspace;
-  const { state } = machine(args);
+  const { state } = args;
   if (!(args.dry || insideState(state, id))) {
     throw new Error(
       `the state of workspace ${id} at ${dir} is not a directory inside ${state}`
     );
   }
-  const hosted = args.dry ? undefined : await hostingWorker(args, id);
+  const hosted = args.dry ? undefined : await hostingWorker(id);
   if (hosted === undefined) {
     return withStoredTasks(args, opened, work);
   }
@@ -129,10 +122,10 @@ export async function withRunningWorkspace<T>(
       `--dry-run joins no Marbles process, so no worker is reached for workspace ${id}; without --dry-run, ${ATTACH_HINT}. A dry run of a workflow goes through \`marbles roll --dry-run\`.`
     );
   }
-  const client = await joinProcess(args);
+  const client = await joinProcess();
   if (client === undefined) {
     throw new NotHostedError(
-      `no Marbles process runs for ${machine(args).state}, so nothing hosts workspace ${id}; ${ATTACH_HINT}`
+      `no Marbles process runs for ${args.state}, so nothing hosts workspace ${id}; ${ATTACH_HINT}`
     );
   }
   try {
@@ -186,7 +179,7 @@ export async function attachToProcess(
   args: HostOptions,
   run: (hosted: Hosted) => Promise<void>
 ): Promise<void> {
-  const client = await connect({ layout: machine(args) });
+  const client = await connect({ layout: layout() });
   try {
     const summary = await client.attach(resolveSource(args.config), {
       root: process.cwd(),

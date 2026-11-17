@@ -4,10 +4,12 @@ import { MemoryTaskStore } from "@foundry/tasks/store/memory";
 import { TASKS } from "~/lib/events/source";
 
 export interface WorkspaceRecords {
+  claimDelivery(): Promise<string | undefined>;
   close(): Promise<void>;
   deliver(id: string, hash: string): Promise<void>;
   latest(): Promise<number>;
   pending(query: PendingQuery): Promise<readonly StreamItem[]>;
+  releaseDelivery(): Promise<void>;
   readonly taskStore: TaskStore;
   watch(listener: () => void): () => void;
 }
@@ -144,8 +146,16 @@ export class MemoryWorkspaceRecords implements WorkspaceRecords {
     };
   }
 
+  claimDelivery(): Promise<string | undefined> {
+    return this.#gate.run(() => Promise.resolve(undefined));
+  }
+
   close(): Promise<void> {
     return this.#gate.close();
+  }
+
+  releaseDelivery(): Promise<void> {
+    return this.#gate.run(() => Promise.resolve());
   }
 
   deliver(id: string, hash: string): Promise<void> {

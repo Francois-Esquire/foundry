@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts } from "@foundry/artifacts";
-import { ArtifactManager, ContentNotFoundError } from "@foundry/artifacts";
-import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
+import { ArtifactManager } from "@foundry/artifacts";
+import { blobFiles } from "@foundry/artifacts/node";
 import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { showArgv } from "@foundry/lib/argv";
 import type { Provider } from "@foundry/models";
@@ -16,14 +16,18 @@ import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/git";
 import { Catalog } from "~/authoring/catalog";
+import { DatabaseActivityStore } from "~/database/activities";
+import { DatabaseDeferredApprovalStore } from "~/database/approvals";
 import {
   DatabaseAutomationStore,
   readAutomations,
 } from "~/database/automations";
 import { DatabaseExecutionStore } from "~/database/executions";
+import { DatabaseGrantStorage } from "~/database/grants";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { defaultWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
+import { DatabaseProviderStore } from "~/database/providers";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import type { WorkspaceStores } from "~/database/stores";
@@ -43,6 +47,7 @@ import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
+import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { localCatalogue } from "~/lib/managers/workspaces";
@@ -149,47 +154,8 @@ export function readTriggers(
   return { automations, registry };
 }
 
-function artifactsAt(dir: string | undefined): Artifacts {
-  return dir === undefined
-    ? new ArtifactManager({ store: new InMemoryArtifactStore() })
-    : new ArtifactManager({
-        files: blobFiles(join(dir, "blobs")),
-        store: new JsonArtifactStore({ path: join(dir, "records.json") }),
-      });
-}
-
-type ArtifactReads = NonNullable<EngineOptions["artifactReads"]>;
-
-function savedArtifacts(
-  dir: string,
-  { stateRoot, workspaceId }: CreateEngineOptions
-): ArtifactReads {
-  const database = readArtifacts(stateRoot ?? layout().state, dir, workspaceId);
-  if (!existsSync(join(dir, "records.json"))) {
-    return database;
-  }
-  const sources: readonly ArtifactReads[] = [database, artifactsAt(dir)];
-  const first = async <T>(
-    read: (source: ArtifactReads) => Promise<T | null>
-  ): Promise<T | null> => {
-    for (const source of sources) {
-      const found = await read(source).catch((error: unknown) => {
-        if (error instanceof ContentNotFoundError) {
-          return null;
-        }
-        throw error;
-      });
-      if (found !== null) {
-        return found;
-      }
-    }
-    return null;
-  };
-  return {
-    get: (id) => first((source) => source.get(id)),
-    readFile: (contentId, path) =>
-      first((source) => source.readFile(contentId, path)),
-  };
+function artifactsInMemory(): Artifacts {
+  return new ArtifactManager({ store: new InMemoryArtifactStore() });
 }
 
 function artifactsFor(
@@ -199,14 +165,20 @@ function artifactsFor(
   const { artifacts: dir, dry, workspaceId } = options;
   if (dry) {
     return {
-      artifacts: artifactsAt(undefined),
+      artifacts: artifactsInMemory(),
       ...(dir === undefined
         ? {}
-        : { artifactReads: savedArtifacts(dir, options) }),
+        : {
+            artifactReads: readArtifacts(
+              options.stateRoot ?? layout().state,
+              dir,
+              workspaceId
+            ),
+          }),
     };
   }
   if (stores === undefined) {
-    return { artifacts: artifactsAt(dir) };
+    return { artifacts: artifactsInMemory() };
   }
   return {
     artifacts: new ArtifactManager({
@@ -245,7 +217,10 @@ function modelsFor(options: CreateEngineOptions): {
     models,
     ...(options.dry ? { readOnly: true } : {}),
     plugins: options.plugins ?? FIRST_PARTY_PLUGINS,
-    state: options.stateRoot ?? layout().state,
+    store:
+      options.database === undefined || options.dry
+        ? DatabaseProviderStore.forState(options.stateRoot ?? layout().state)
+        : new DatabaseProviderStore({ database: options.database }),
     ...(options.stateDir
       ? {
           workspace: {
@@ -256,7 +231,6 @@ function modelsFor(options: CreateEngineOptions): {
         }
       : {}),
   });
-  // Without configuration the set stays empty, and the first session asks for it.
   if (providers.configured) {
     providers.load();
   }
@@ -269,8 +243,11 @@ function recordsFor(
   { root, workspaceId }: CreateEngineOptions
 ): Pick<
   EngineOptions,
+  | "activityStore"
+  | "approvals"
   | "automationStore"
   | "executionStore"
+  | "grants"
   | "records"
   | "runs"
   | "sessions"
@@ -282,8 +259,11 @@ function recordsFor(
   if (database !== undefined) {
     const scope = workspaceId;
     return {
+      activityStore: new DatabaseActivityStore({ database, scope }),
+      approvals: new DatabaseDeferredApprovalStore({ database, scope }),
       automationStore: new DatabaseAutomationStore({ database, scope }),
       executionStore: new DatabaseExecutionStore({ database, scope }),
+      grants: new DatabaseGrantStorage({ database, scope }),
       records: new DatabaseWorkspaceRecords({ database, scope }),
       runs: new DatabaseRunStore({ database, scope }),
       sessions: new DatabaseSessionStore({ database, scope }),
@@ -296,8 +276,11 @@ function recordsFor(
   }
   const own = defaultWorkspaceDatabase(state, root, workspaceId);
   return {
+    activityStore: own.activityStore,
+    approvals: own.approvals,
     automationStore: own.automations,
     executionStore: own.executions,
+    grants: own.grants,
     own,
     records: own.records,
     runs: own.runs,
@@ -315,12 +298,12 @@ class OwnDatabaseEngine extends PublishedEngine {
     this.#database = database;
   }
 
-  override async dispose(): Promise<void> {
-    try {
-      await super.dispose();
-    } finally {
-      await this.#database.close();
-    }
+  override dispose(): Promise<void> {
+    return inTurn(
+      () => super.dispose(),
+      () => this.#database.close(),
+      "Failed to dispose the engine and close its database"
+    );
   }
 }
 
@@ -388,12 +371,6 @@ export function createEngine(options: CreateEngineOptions): Engine {
   return engine;
 }
 
-/**
- * The runtime a definition's instance uses in a script no host loaded: the
- * detected CLI harnesses, the current directory as the workspace, the
- * shared artifact store, and nothing else persisted. Not started; no run is
- * launched through it.
- */
 export function createDefaultEngine(): Engine {
   const machine = layout();
   const { id, root } = machine.workspace(process.cwd());

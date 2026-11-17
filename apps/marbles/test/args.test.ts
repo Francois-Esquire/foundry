@@ -35,8 +35,6 @@ describe("parseArgs", () => {
     const args = parseArgs([
       "roll",
       "--dry-run",
-      "--state",
-      "/s",
       "guides",
       "--config",
       "/c.ts",
@@ -46,7 +44,6 @@ describe("parseArgs", () => {
       name: "guides",
     });
     expect(args.dry).toBe(true);
-    expect(args.state).toBe("/s");
     expect(args.config).toBe("/c.ts");
   });
 
@@ -62,6 +59,15 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["roll", "ask", "--harness", "codex"])).toThrow(
       "--harness was removed"
     );
+  });
+
+  it("refuses the removed --state and --artifacts, naming FOUNDRY_HOME, and never reads their value as a positional", () => {
+    for (const flag of ["--state", "--artifacts"]) {
+      expect(() => parseArgs(["watch", "rn-test", flag, "/tmp/x"])).toThrow(
+        `${flag} was removed: Marbles keeps everything under the Foundry home; set FOUNDRY_HOME to move it`
+      );
+      expect(parseArgs([flag, "/tmp/x", "--help"]).command).toBe("help");
+    }
   });
 
   it("keeps the default when a flag has no value", () => {
@@ -107,9 +113,10 @@ it("refuses a command line that cannot run, before anything else happens", () =>
 });
 
 it("parses watch by run ID and refuses missing or extra arguments", () => {
-  expect(
-    parseArgs(["watch", "rn-test", "--state", "/tmp/state"])
-  ).toMatchObject({ command: "watch", runId: "rn-test", state: "/tmp/state" });
+  expect(parseArgs(["watch", "rn-test"])).toMatchObject({
+    command: "watch",
+    runId: "rn-test",
+  });
   expect(() => parseArgs(["watch"])).toThrow("watch takes one run ID");
   expect(() => parseArgs(["watch", "one", "two"])).toThrow(
     "watch takes one run ID"

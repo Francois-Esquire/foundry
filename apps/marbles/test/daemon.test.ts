@@ -553,7 +553,10 @@ export const hold = step("hold").do(async () => {
   it("refuses a client that names another artifact store", async () => {
     const { home, machine } = fixture();
     await daemonFor(machine);
-    const elsewhere = layout({ artifacts: join(home, "elsewhere"), home });
+    const elsewhere = {
+      ...layout({ home }),
+      artifacts: join(home, "elsewhere"),
+    };
     const refused = connect({ layout: elsewhere, start: false });
     await expect(refused).rejects.toThrow(ProcessMismatchError);
     await expect(refused).rejects.toThrow(

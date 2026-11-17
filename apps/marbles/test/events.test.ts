@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve as resolvePath } from "node:path";
+import { basename, join, resolve as resolvePath } from "node:path";
 import type { TaskEvent } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import { sql } from "drizzle-orm";
@@ -16,7 +16,7 @@ import {
 } from "vitest";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import type { Engine } from "~/lib/engine";
-import { DELIVERY_POLL_MS } from "~/lib/events/delivery";
+import { DELIVERY_POLL_MS, Delivery } from "~/lib/events/delivery";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords, PENDING_BATCH } from "~/lib/events/records";
 import type { Handler } from "~/lib/events/source";
@@ -833,9 +833,12 @@ describe("delivery across processes", () => {
     const script = join(state, "holder.ts");
     writeFileSync(
       script,
-      `import { acquireLock } from ${JSON.stringify(resolvePath("src/lib/state/locks.ts"))};
-const claim = acquireLock(${JSON.stringify(state)}, "tasks");
-if (!("release" in claim)) throw new Error("not claimed");
+      `import { openDatabase } from ${JSON.stringify(resolvePath("src/database/open.ts"))};
+import { DatabaseWorkspaceRecords } from ${JSON.stringify(resolvePath("src/database/tasks.ts"))};
+const opened = await openDatabase(${JSON.stringify(machine.database.file)});
+if (opened === undefined) throw new Error("no database");
+const records = new DatabaseWorkspaceRecords({ database: opened.database, scope: ${JSON.stringify(basename(state))} });
+if ((await records.claimDelivery()) !== undefined) throw new Error("not claimed");
 process.stdout.write("held\\n");
 setInterval(() => undefined, 1000);
 `
@@ -878,6 +881,7 @@ describe("the work of a pass", () => {
     const memory = new MemoryWorkspaceRecords();
     const reads: number[] = [];
     const records: WorkspaceRecords = {
+      claimDelivery: () => memory.claimDelivery(),
       close: () => memory.close(),
       deliver: (id, hash) => memory.deliver(id, hash),
       latest: () => memory.latest(),
@@ -885,6 +889,7 @@ describe("the work of a pass", () => {
         reads.push(query.after ?? 0);
         return memory.pending(query);
       },
+      releaseDelivery: () => memory.releaseDelivery(),
       taskStore: memory.taskStore,
       watch: (listener) => memory.watch(listener),
     };
@@ -918,7 +923,7 @@ describe("the delivery timer", () => {
       `import { Delivery } from ${JSON.stringify(resolvePath("src/lib/events/delivery.ts"))};
 import { MemoryWorkspaceRecords } from ${JSON.stringify(resolvePath("src/lib/events/records.ts"))};
 import { TASKS } from ${JSON.stringify(resolvePath("src/lib/events/source.ts"))};
-const delivery = new Delivery({ print: () => undefined, records: new MemoryWorkspaceRecords(), state: ${JSON.stringify(dir)} });
+const delivery = new Delivery({ print: () => undefined, records: new MemoryWorkspaceRecords() });
 delivery.observe(TASKS, () => undefined);
 await delivery.start();
 process.stdout.write("started\\n");
@@ -942,10 +947,15 @@ process.stdout.write("started\\n");
     expect(Date.now() - started).toBeLessThan(DELIVERY_POLL_MS * 10);
   });
 
-  it("reads nothing once delivery has stopped", async () => {
+  it("gives up a claim granted after it was stopped, and never starts delivering", async () => {
     const memory = new MemoryWorkspaceRecords();
+    const { promise: granted, resolve: grant } = Promise.withResolvers<
+      string | undefined
+    >();
+    let released = 0;
     let reads = 0;
     const records: WorkspaceRecords = {
+      claimDelivery: () => granted,
       close: () => memory.close(),
       deliver: (id, hash) => memory.deliver(id, hash),
       latest: () => {
@@ -953,6 +963,79 @@ process.stdout.write("started\\n");
         return memory.latest();
       },
       pending: (query) => memory.pending(query),
+      releaseDelivery: () => {
+        released += 1;
+        return Promise.resolve();
+      },
+      taskStore: memory.taskStore,
+      watch: (listener) => memory.watch(listener),
+    };
+    const delivery = new Delivery({ print: () => undefined, records });
+    delivery.observe(TASKS, () => undefined);
+    const starting = delivery.start();
+    await delivery.stop();
+    grant(undefined);
+    await starting;
+    expect(released).toBe(1);
+    await new Promise((settle) => setTimeout(settle, DELIVERY_POLL_MS * 2));
+    expect(reads).toBe(0);
+  });
+
+  it("never runs once stopped while its start was still reading, and gives the claim up", async () => {
+    const memory = new MemoryWorkspaceRecords();
+    const { promise: read, resolve: answer } = Promise.withResolvers<number>();
+    let reading: (() => void) | undefined;
+    const entered = new Promise<void>((resolve) => {
+      reading = resolve;
+    });
+    let released = 0;
+    let passes = 0;
+    const records: WorkspaceRecords = {
+      claimDelivery: () => memory.claimDelivery(),
+      close: () => memory.close(),
+      deliver: (id, hash) => memory.deliver(id, hash),
+      latest: () => {
+        reading?.();
+        return read;
+      },
+      pending: (query) => {
+        passes += 1;
+        return memory.pending(query);
+      },
+      releaseDelivery: () => {
+        released += 1;
+        return Promise.resolve();
+      },
+      taskStore: memory.taskStore,
+      watch: (listener) => memory.watch(listener),
+    };
+    const delivery = new Delivery({ print: () => undefined, records });
+    delivery.observe(TASKS, () => undefined);
+    const starting = delivery.start();
+    await entered;
+    await delivery.stop();
+    expect(released).toBe(1);
+    answer(1);
+    await starting;
+    delivery.wake();
+    await new Promise((settle) => setTimeout(settle, DELIVERY_POLL_MS * 2));
+    expect(passes).toBe(0);
+    expect(released).toBe(1);
+  });
+
+  it("reads nothing once delivery has stopped", async () => {
+    const memory = new MemoryWorkspaceRecords();
+    let reads = 0;
+    const records: WorkspaceRecords = {
+      claimDelivery: () => memory.claimDelivery(),
+      close: () => memory.close(),
+      deliver: (id, hash) => memory.deliver(id, hash),
+      latest: () => {
+        reads += 1;
+        return memory.latest();
+      },
+      pending: (query) => memory.pending(query),
+      releaseDelivery: () => memory.releaseDelivery(),
       taskStore: memory.taskStore,
       watch: (listener) => memory.watch(listener),
     };

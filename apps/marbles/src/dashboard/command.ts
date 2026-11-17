@@ -250,7 +250,7 @@ async function runRemote(
 ): Promise<void> {
   const configPath = resolveSource(args.config);
   const client = await connect({
-    layout: layout({ artifacts: args.artifacts, state: args.state }),
+    layout: layout(),
   });
   try {
     if (controller.signal.aborted) {

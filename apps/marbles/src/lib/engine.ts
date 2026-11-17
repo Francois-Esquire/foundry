@@ -8,6 +8,7 @@ import type { SessionStore } from "@foundry/agents/store";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import { Config } from "@foundry/lib/config";
+import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
 import type { ModelManager } from "@foundry/models";
 import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
@@ -70,8 +71,10 @@ import type { ReadonlyRunScopes, RecordedScope } from "~/lib/run-scope";
 import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
 import type { RunStore } from "~/lib/run-store";
 import { MemoryRunStore, TERMINAL_RUN_STATUSES } from "~/lib/run-store";
+import type { ActivityStore } from "~/lib/sandbox/activities";
 import { HarnessActivities } from "~/lib/sandbox/activities";
-import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
+import type { DeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
+import { StoredAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { removeRunOutput } from "~/lib/state/output";
 import type { TaskDefinition } from "~/lib/tasks";
@@ -91,6 +94,8 @@ import type { UsageStore } from "~/lib/usage-store";
 import { MemoryUsageStore } from "~/lib/usage-store";
 
 export interface EngineOptions {
+  readonly activityStore?: ActivityStore;
+  readonly approvals?: DeferredApprovalStore;
   /** Read by `artifacts.latest` when `artifacts` has nothing: the real store under `--dry-run`. */
   readonly artifactReads?: Pick<ArtifactSubstrate, "get" | "readFile">;
   readonly artifacts: ArtifactSubstrate;
@@ -120,6 +125,7 @@ export interface EngineOptions {
    * scanning it, and the root workspace stays unread until a step needs it.
    */
   readonly git?: GitOptions;
+  readonly grants?: GrantDocumentStorage;
   readonly home?: string;
   /**
    * Where definitions' own `log(...)` lines go, with where each came from:
@@ -384,11 +390,7 @@ export class Engine {
       },
     });
     this.#records = options.records ?? new MemoryWorkspaceRecords();
-    this.#delivery = new Delivery({
-      print,
-      records: this.#records,
-      ...(state === undefined ? {} : { state }),
-    });
+    this.#delivery = new Delivery({ print, records: this.#records });
     this.#unwatchRecords = this.#records.watch(() => this.#delivery.wake());
     this.taskStore = this.#records.taskStore;
     const catalogue = options.workspaces ?? localCatalogue(options.git ?? {});
@@ -400,7 +402,10 @@ export class Engine {
       root,
     });
     this.feed = feedReader(options.artifacts);
-    this.activities = new HarnessActivities({ feed: this.#publisher, state });
+    this.activities = new HarnessActivities({
+      feed: this.#publisher,
+      ...(options.activityStore ? { store: options.activityStore } : {}),
+    });
     this.automations = new AutomationService({
       allowHttp: configuredMonitorUrl(this.#registry),
       registry: this.#registry,
@@ -409,15 +414,13 @@ export class Engine {
     this.interactions = new HarnessInteractions({
       askable,
       feed: this.#publisher,
-      policy: state
+      policy: options.grants
         ? createAgentAuthorizer({
-            grants: new JsonAgentGrantRepository(
-              join(state, "agent-grants.json")
-            ),
+            grants: new StoredAgentGrantRepository(options.grants),
           })
         : createInMemoryAgentAuthorizer().authorizer,
       sessions,
-      ...(state ? { pendingPath: join(state, "agent-approvals.json") } : {}),
+      ...(options.approvals ? { approvals: options.approvals } : {}),
     });
     const sandboxes = new SandboxesManager({
       containers:
@@ -684,6 +687,7 @@ export class Engine {
     let orchestrator: Orchestrator | undefined;
     let adopted: ReadonlyMap<string, RecordedScope> = new Map();
     try {
+      await this.activities.load();
       await this.#executions.load();
       const store = new ExecutionCoordinator({
         store: await this.#runs.open(
@@ -1142,7 +1146,7 @@ export class Engine {
 
   async #listModels(): Promise<void> {
     try {
-      if (!this.providers?.configured) {
+      if (this.providers === undefined) {
         return;
       }
       for (const problem of await this.providers.refresh()) {

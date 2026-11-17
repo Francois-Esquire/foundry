@@ -149,6 +149,32 @@ export class Sessions {
     });
   }
 
+  appendMessageIf(
+    input: CreateMessageInput,
+    admits: (history: readonly SessionMessage[]) => boolean
+  ): Promise<SessionMessage | undefined> {
+    let message: SessionMessage;
+    try {
+      message = keptMessage(newSessionMessage(input));
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#mutation(async (store) => {
+      const session = await store.getSession(message.sessionId);
+      if (!session) {
+        throw new Error(`[sessions] unknown session: ${message.sessionId}`);
+      }
+      if (!admits(await store.listMessages(message.sessionId))) {
+        return;
+      }
+      await store.commit({
+        putMessages: [message],
+        putSessions: [touched(session, message)],
+      });
+      return message;
+    });
+  }
+
   updateMessage(
     id: string,
     patch: UpdateMessageInput
