@@ -130,7 +130,14 @@ export function recordChild(
   const { pid } = child;
   if (recovery !== undefined && pid !== undefined && started !== undefined) {
     child.once("exit", () => {
-      forgetRecord(recordPath(recovery, pid), { pid, started });
+      const path = recordPath(recovery, pid);
+      try {
+        forgetRecord(path, { pid, started });
+      } catch (error) {
+        reportLine(
+          `could not remove the recovery record ${path} of process ${String(pid)}, which has exited; it is kept for a later recovery: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
     });
   }
 }
