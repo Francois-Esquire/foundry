@@ -7,6 +7,7 @@ import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { fileIdentity, queuedFiles } from "~/database/client";
 import { openWorkspaceRecords } from "~/database/managed";
+import { DatabaseProviderStore } from "~/database/providers";
 import { Engine } from "~/entries/engine";
 import { Engine as LibEntryEngine } from "~/entries/lib";
 import { stateDatabase } from "~/layout";
@@ -94,6 +95,19 @@ describe("the published Engine", () => {
       });
     };
     expect((await across(make)).read).toBe("Kept");
+  });
+
+  it("publishes the provider store of a state root on the lib entry as a class, not a loose function", async () => {
+    const lib: Record<string, unknown> = await import("~/entries/lib");
+    expect(Object.keys(lib)).not.toContain("stateProviders");
+    expect(lib.DatabaseProviderStore).toBe(DatabaseProviderStore);
+    const state = join(scratch(), "provider-state");
+    await DatabaseProviderStore.forState(state).update(undefined, () => ({
+      machine: { providers: [], version: 1 },
+    }));
+    expect(
+      (await DatabaseProviderStore.forState(state).read()).machine
+    ).toEqual({ providers: [], version: 1 });
   });
 
   it("closes the database it opened when it is disposed", async () => {

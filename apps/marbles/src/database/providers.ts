@@ -35,6 +35,34 @@ export class DatabaseProviderStore implements ProviderStore {
     this.#database = options.database;
   }
 
+  static forState(state: string): ProviderStore {
+    const file = stateDatabase(state);
+    const reading = async <T>(
+      work: (store: DatabaseProviderStore) => Promise<T>,
+      none: T
+    ): Promise<T> =>
+      (await readDatabase(file, (database) =>
+        work(new DatabaseProviderStore({ database }))
+      )) ?? none;
+    const writing = <T>(
+      work: (store: DatabaseProviderStore) => Promise<T>
+    ): Promise<T> =>
+      writeAsHost(state, (database) =>
+        work(new DatabaseProviderStore({ database }))
+      );
+    return {
+      identityKey: (make) =>
+        make
+          ? writing((store) => store.identityKey(true))
+          : reading((store) => store.identityKey(false), undefined),
+      read: () =>
+        reading((store) => store.read(), keptConfigurations(new Map(), 0)),
+      revision: () => reading((store) => store.revision(), 0),
+      update: (workspace, edit) =>
+        writing((store) => store.update(workspace, edit)),
+    };
+  }
+
   identityKey(make: boolean): Promise<Buffer | undefined> {
     return guarded(async () => {
       if (make) {
@@ -85,34 +113,6 @@ export class DatabaseProviderStore implements ProviderStore {
       })
     );
   }
-}
-
-export function stateProviders(state: string): ProviderStore {
-  const file = stateDatabase(state);
-  const reading = async <T>(
-    work: (store: DatabaseProviderStore) => Promise<T>,
-    none: T
-  ): Promise<T> =>
-    (await readDatabase(file, (database) =>
-      work(new DatabaseProviderStore({ database }))
-    )) ?? none;
-  const writing = <T>(
-    work: (store: DatabaseProviderStore) => Promise<T>
-  ): Promise<T> =>
-    writeAsHost(state, (database) =>
-      work(new DatabaseProviderStore({ database }))
-    );
-  return {
-    identityKey: (make) =>
-      make
-        ? writing((store) => store.identityKey(true))
-        : reading((store) => store.identityKey(false), undefined),
-    read: () =>
-      reading((store) => store.read(), keptConfigurations(new Map(), 0)),
-    revision: () => reading((store) => store.revision(), 0),
-    update: (workspace, edit) =>
-      writing((store) => store.update(workspace, edit)),
-  };
 }
 
 async function readAll(

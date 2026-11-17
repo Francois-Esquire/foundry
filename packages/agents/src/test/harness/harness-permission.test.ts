@@ -204,6 +204,120 @@ describe("native harness permission", () => {
     ).toEqual({ kind: "requires-approval" });
   });
 
+  it("grants on a retry of the same answer when the grant failed after the answer was stored, and still refuses another answer", async () => {
+    const { authority, settings, store } = await setup();
+    await createHarnessPermission(settings)(request());
+    const part = (await store.listMessages("session-1"))[0]?.parts[0];
+    if (part?.type !== "tool_approval_request") {
+      throw new Error("No approval");
+    }
+    const { resolveApproval } = authority.authorizer;
+    let failures = 1;
+    let resolved = 0;
+    settings.policy = {
+      ...authority.authorizer,
+      resolveApproval: (auth, resolution) => {
+        resolved += 1;
+        if (failures > 0) {
+          failures -= 1;
+          return Promise.reject(new Error("grant store unavailable"));
+        }
+        return resolveApproval(auth, resolution);
+      },
+    };
+    const answer = { approved: true, lifetime: "persistent" } as const;
+    await expect(
+      resolveHarnessApproval(settings, "session-1", part.approvalId, answer)
+    ).rejects.toThrow("grant store unavailable");
+    const later = {
+      capability: part.capability,
+      invocationId: "later",
+      subject: agentSubject("coder", 2),
+    };
+    expect(await authority.authorizer.decide(later)).toEqual({
+      kind: "requires-approval",
+    });
+
+    await resolveHarnessApproval(
+      settings,
+      "session-1",
+      part.approvalId,
+      answer
+    );
+
+    expect(await authority.authorizer.decide(later)).toMatchObject({
+      kind: "allow",
+    });
+    await resolveHarnessApproval(
+      settings,
+      "session-1",
+      part.approvalId,
+      answer
+    );
+    expect(resolved).toBe(2);
+    await expect(
+      resolveHarnessApproval(settings, "session-1", part.approvalId, {
+        approved: false,
+        lifetime: "persistent",
+      })
+    ).rejects.toThrow("already has a response");
+    await expect(
+      resolveHarnessApproval(settings, "session-1", part.approvalId, {
+        approved: true,
+        lifetime: "session",
+      })
+    ).rejects.toThrow("already has a response");
+    const responses = (await store.listMessages("session-1"))
+      .flatMap((message) => message.parts)
+      .filter((value) => value.type === "tool_approval_response");
+    expect(responses).toMatchObject([{ approved: true, scope: "always" }]);
+  });
+
+  it("does not grant again on a retry of an answer whose grant was issued and later revoked", async () => {
+    const { authority, settings, store } = await setup();
+    await createHarnessPermission(settings)(request());
+    const part = (await store.listMessages("session-1"))[0]?.parts[0];
+    if (part?.type !== "tool_approval_request") {
+      throw new Error("No approval");
+    }
+    const resolveApproval = vi.spyOn(authority.authorizer, "resolveApproval");
+    const answer = { approved: true, lifetime: "persistent" } as const;
+    await resolveHarnessApproval(
+      settings,
+      "session-1",
+      part.approvalId,
+      answer
+    );
+    const subject = agentSubject("coder", 2);
+    const later = {
+      capability: part.capability,
+      invocationId: "later",
+      subject,
+    };
+    expect(await authority.authorizer.decide(later)).toMatchObject({
+      kind: "allow",
+    });
+
+    await authority.revoke(subject, part.capability);
+    await resolveHarnessApproval(
+      settings,
+      "session-1",
+      part.approvalId,
+      answer
+    );
+
+    expect(await authority.authorizer.decide(later)).toEqual({
+      kind: "requires-approval",
+    });
+    expect(resolveApproval).toHaveBeenCalledTimes(1);
+    const responses = (await store.listMessages("session-1"))
+      .flatMap((message) => message.parts)
+      .filter((value) => value.type === "tool_approval_response");
+    expect(responses).toMatchObject([
+      { approved: true, granted: true, scope: "always" },
+    ]);
+  });
+
   it("refuses a deferred once approval and an approval for another generation", async () => {
     const { settings, store } = await setup();
     await createHarnessPermission(settings)(request());
