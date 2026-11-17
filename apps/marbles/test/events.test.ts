@@ -21,6 +21,7 @@ import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords, PENDING_BATCH } from "~/lib/events/records";
 import type { Handler } from "~/lib/events/source";
 import { TASKS } from "~/lib/events/source";
+import { recordSpawned } from "~/process/spawned";
 import { testEngine } from "./helpers/engine";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
@@ -840,6 +841,7 @@ setInterval(() => undefined, 1000);
 `
     );
     const holder = spawn("bun", [script], { cwd: resolvePath(".") });
+    recordSpawned(holder.pid, false);
     await new Promise<void>((ready, failed) => {
       holder.stdout?.on("data", (chunk: Buffer) => {
         if (chunk.toString().includes("held")) {
@@ -924,6 +926,7 @@ process.stdout.write("started\\n");
     );
     const started = Date.now();
     const child = spawn("bun", [script], { cwd: resolvePath(".") });
+    recordSpawned(child.pid, false);
     let output = "";
     child.stdout?.on("data", (chunk: Buffer) => {
       output += chunk.toString();

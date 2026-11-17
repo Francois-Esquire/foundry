@@ -9,14 +9,18 @@ import { hostWorkspace, newRoot, seed } from "../testing/records";
 import { describeWorkspaceStore } from "../testing/store";
 import { WorkspaceSystem } from "../workspace-system";
 
-describeWorkspaceStore("memory", () => {
-  const scopes = new Map<string, MemoryWorkspaceStore>();
-  return (scope) => {
-    const store = scopes.get(scope) ?? new MemoryWorkspaceStore();
-    scopes.set(scope, store);
-    return store;
-  };
-});
+describeWorkspaceStore(
+  "memory",
+  () => {
+    const scopes = new Map<string, MemoryWorkspaceStore>();
+    return (scope) => {
+      const store = scopes.get(scope) ?? new MemoryWorkspaceStore();
+      scopes.set(scope, store);
+      return store;
+    };
+  },
+  { hooked: false }
+);
 
 describe("MemoryWorkspaceStore transactions", () => {
   it("refuses a commit through a view after its transaction ends", async () => {

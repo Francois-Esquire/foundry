@@ -8,6 +8,7 @@ import type { StateCollection } from "~/lib/state/store";
 import { JsonStateStore } from "~/lib/state/store";
 import type { RecordedUsageFact, RecordOutcome } from "~/lib/usage";
 import { UsageLedger } from "~/lib/usage";
+import { recordSpawned } from "~/process/spawned";
 
 /*
  * Engines in separate processes may share one state dir and continue one
@@ -77,6 +78,7 @@ it("a writer that records while another merges the same direct document keeps bo
 
 it("a fact whose document another process has locked, or whose lock cannot be taken, is saved whole beside it", async () => {
   const holder = spawn("sleep", ["30"], { stdio: "ignore" });
+  recordSpawned(holder.pid, false);
   try {
     await mkdir(join(state, "locks"), { recursive: true });
     await writeFile(
@@ -136,6 +138,7 @@ function writer(id: number, barrier: string) {
   const child = spawn("bun", ["-e", script], {
     stdio: ["ignore", "pipe", "inherit"],
   });
+  recordSpawned(child.pid, false);
   let out = "";
   child.stdout.on("data", (chunk: Buffer) => {
     out += chunk.toString();

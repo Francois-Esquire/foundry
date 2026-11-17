@@ -12,7 +12,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { tasks as taskRows } from "@foundry/tasks/store/tables";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -24,6 +23,8 @@ import {
 import { stateDatabase } from "~/layout";
 import { cliArgs } from "./helpers/cli";
 import { stopDaemon } from "./helpers/daemon";
+import { testHome } from "./helpers/home";
+import { RecordedStdioTransport } from "./helpers/mcp-stdio";
 
 const change = z.object({
   delivered: z.number(),
@@ -89,10 +90,9 @@ function text(value: unknown): string {
 }
 
 it("serves the workspace's tasks: a CLI change kept for later observers, tags, delivery, reads that change nothing, and kept after exit", async () => {
-  // Short on purpose: the state root holds the Marbles process's Unix
-  // socket, whose path is limited to about a hundred bytes.
   const root = await mkdtemp(join(tmpdir(), "mt-"));
-  const state = join(root, "s");
+  const home = testHome({ providers: false });
+  const { state } = home.layout;
   const source = join(root, "marbles.ts");
   const seen = join(root, "seen.jsonl");
   await writeFile(
@@ -108,18 +108,11 @@ observe(tasks, () => {
 });
 step("titles").do(async () => (await tasks.list()).items.map((task) => task.title));`
   );
-  const transport = new StdioClientTransport({
-    args: [
-      "--no-env-file",
-      resolve("src/cli.ts"),
-      "mcp",
-      "--source",
-      source,
-      "--state",
-      state,
-    ],
+  const transport = new RecordedStdioTransport({
+    args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],
     command: "bun",
     cwd: root,
+    env: home.env,
     stderr: "pipe",
   });
   let diagnostics = "";
@@ -128,11 +121,12 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
   });
   const client = new Client({ name: "tasks-stdio", version: "1.0.0" });
   const cli = (...argv: readonly string[]) =>
-    spawnSync(
-      "bun",
-      cliArgs("tasks", ...argv, "--source", source, "--state", state),
-      { cwd: root, encoding: "utf8", timeout: 15_000 }
-    );
+    spawnSync("bun", cliArgs("tasks", ...argv, "--source", source), {
+      cwd: root,
+      encoding: "utf8",
+      env: home.env,
+      timeout: 15_000,
+    });
   // A CLI change, made where no source runs and nothing observes, is kept
   // undelivered for the observers a later host declares. No Marbles process
   // runs yet, so the CLI opens the tasks itself and starts none.
@@ -157,11 +151,12 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     }),
   ]);
   try {
-    const attached = spawnSync(
-      "bun",
-      cliArgs("attach", "--source", source, "--state", state),
-      { cwd: root, encoding: "utf8", timeout: 60_000 }
-    );
+    const attached = spawnSync("bun", cliArgs("attach", "--source", source), {
+      cwd: root,
+      encoding: "utf8",
+      env: home.env,
+      timeout: 60_000,
+    });
     expect(attached.status, attached.stderr).toBe(0);
     await client.connect(transport);
     const created = await client.callTool({
@@ -263,7 +258,7 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
   }
   try {
     // The Marbles process keeps hosting the workspace after the server
-    await stopDaemon(state);
+    await stopDaemon(home);
     const after = cli("list", "--tag", "review", "--json");
     expect(after.status, after.stderr).toBe(0);
     expect(JSON.parse(after.stdout)).toMatchObject({
@@ -285,11 +280,6 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     }
     expect(await files(state)).toEqual(settled);
   } finally {
-    try {
-      // Stopped above unless an assertion failed first; stopping twice is harmless.
-      await stopDaemon(state);
-    } finally {
-      await rm(root, { force: true, recursive: true });
-    }
+    await rm(root, { force: true, recursive: true });
   }
 }, 120_000);

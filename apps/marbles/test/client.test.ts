@@ -1,10 +1,8 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Layout, layout } from "~/layout";
 import { Channel, socketTransport } from "~/process/channel";
 import {
@@ -15,6 +13,8 @@ import {
   stopProcess,
 } from "~/process/client";
 import { type HelloResult, PROTOCOL } from "~/process/protocol";
+import { recordSpawned, SPAWN_RECORD_ENV } from "~/process/spawned";
+import { testHome } from "./helpers/home";
 
 /**
  * The client against daemons that misbehave: one that never answers, one
@@ -28,14 +28,15 @@ afterEach(async () => {
   for (const step of cleanup.splice(0).reverse()) {
     await step();
   }
+  vi.unstubAllEnvs();
 });
 
 function machine(): Layout {
-  const home = mkdtempSync(join(tmpdir(), "mb-cl-"));
-  cleanup.push(() => rmSync(home, { force: true, recursive: true }));
-  const machineLayout = layout({ home });
-  mkdirSync(machineLayout.state, { recursive: true });
-  return machineLayout;
+  const home = testHome({ providers: false });
+  vi.stubEnv("FOUNDRY_HOME", home.path);
+  vi.stubEnv(SPAWN_RECORD_ENV, home.env[SPAWN_RECORD_ENV]);
+  mkdirSync(home.layout.state, { recursive: true });
+  return home.layout;
 }
 
 async function fakeDaemon(
@@ -196,6 +197,7 @@ describe("connecting to the Marbles process", () => {
     const at = machine();
     // A daemon on its way out: it holds the claim, and its socket is gone.
     const leaving: ChildProcess = spawn("sleep", ["1.5"], { stdio: "ignore" });
+    recordSpawned(leaving.pid, false);
     const pid = leaving.pid ?? 0;
     mkdirSync(join(at.state, "locks"), { recursive: true });
     writeFileSync(join(at.state, "locks", "process"), String(pid));

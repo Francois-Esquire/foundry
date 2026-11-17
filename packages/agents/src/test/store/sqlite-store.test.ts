@@ -1013,7 +1013,12 @@ describe("SqliteSessionStore onCommit", () => {
     });
 
     expect(seen).toHaveLength(2);
-    expect(seen[0]?.write).toEqual({ putSessions: [created] });
+    expect(seen[0]?.write).toEqual({
+      events: [
+        expect.objectContaining({ sessionId: "a", type: "session.created" }),
+      ],
+      putSessions: [created],
+    });
     expect(seen[1]?.rows).toBe(1);
     expect(seen[1]?.write.putMessages).toEqual([appended]);
     expect(await database.select().from(changes)).toEqual([

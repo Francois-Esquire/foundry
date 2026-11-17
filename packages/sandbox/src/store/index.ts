@@ -1,9 +1,10 @@
-import type { ContainerRow } from "../schema";
+import type { ContainerRow, SandboxEvent } from "../schema";
 
-export type { ContainerRow, ContainerRowStatus } from "../schema";
+export type { ContainerRow, ContainerRowStatus, SandboxEvent } from "../schema";
 
 export interface ContainerStoreWrite {
   readonly deleteContainers?: readonly string[];
+  readonly events?: readonly SandboxEvent[];
   readonly putContainers?: readonly ContainerRow[];
 }
 
