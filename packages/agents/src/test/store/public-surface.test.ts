@@ -9,15 +9,12 @@ const PACKAGE_ROOT = resolve(
 );
 const SOURCE = join(PACKAGE_ROOT, "src");
 
-/** The only entries that may load Drizzle. */
 const SQLITE_ENTRIES = ["./store/sqlite", "./store/tables"];
 
-/** Specifiers that would load the SQLite stack, and each half of it. */
 const SQLITE_STACK = /^(drizzle-orm|@libsql\/)/;
 const DRIZZLE = /^drizzle-orm/;
 const LIBSQL = /^@libsql\//;
 
-/** A static or dynamic import or re-export, and whether it loads at runtime. */
 const STATIC_IMPORT =
   /^\s*(?:import|export)\s+(type\s+)?(?:[^;]*?\s+from\s+)?["']([^"']+)["']/gm;
 const DYNAMIC_IMPORT = /\bimport\(\s*["']([^"']+)["']\s*\)/g;
@@ -34,7 +31,6 @@ const manifest = JSON.parse(
   readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8")
 ) as Manifest;
 
-/** Each import in `file`: its specifier, and whether it is only a type. */
 function importsOf(file: string) {
   const text = readFileSync(file, "utf8");
   return [
@@ -49,7 +45,6 @@ function importsOf(file: string) {
   ];
 }
 
-/** The file a relative specifier names, from `file`. */
 function resolved(file: string, specifier: string): string {
   const base = resolve(dirname(file), specifier);
   for (const candidate of [base, `${base}.ts`, join(base, "index.ts")]) {
@@ -62,7 +57,6 @@ function resolved(file: string, specifier: string): string {
   );
 }
 
-/** The files an export path maps to; a `*` path maps to every file it matches. */
 function entryFiles(target: string): string[] {
   const path = join(PACKAGE_ROOT, target);
   if (!path.includes("*")) {
@@ -74,7 +68,6 @@ function entryFiles(target: string): string[] {
     .map((name) => join(directory, name));
 }
 
-/** Every file `entries` load at runtime, following relative imports. */
 function runtimeGraph(entries: readonly string[]): string[] {
   const seen = new Set<string>();
   const pending = [...entries];
@@ -93,7 +86,6 @@ function runtimeGraph(entries: readonly string[]): string[] {
   return [...seen];
 }
 
-/** Every non-test source file. */
 function sourceFiles(): string[] {
   return readdirSync(SOURCE, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
@@ -144,15 +136,12 @@ describe("@foundry/agents public paths", () => {
       "agentMessages",
       "agentSessions",
     ]);
-    // The rule every SessionStore takes a write's events by.
     expect(Object.keys(await import("../../store/index"))).toEqual([
       "ownedEvents",
     ]);
     expect(Object.keys(await import("../../store/memory"))).toEqual([
       "InMemorySessionStore",
     ]);
-    // Loading the store modules, Drizzle among them, takes about half a
-    // second alone and more beside the rest of the suite.
   }, 30_000);
 });
 

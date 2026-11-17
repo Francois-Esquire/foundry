@@ -19,7 +19,6 @@ import {
 } from "../schema";
 import { moduleFixture, VALID_MANIFEST } from "./helpers/module-fixture";
 
-/** A record schema that also refuses any field it does not declare. */
 function exactly<Shape extends z.ZodRawShape>(
   schema: z.ZodReadonly<z.ZodObject<Shape>>
 ) {

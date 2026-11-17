@@ -42,12 +42,6 @@ const databases = {
   memory: libsqlDatabases("memory"),
 };
 
-/**
- * A SQLite store on a new database, usable at once: each call waits for the
- * tables. It refuses re-entry as the memory store does, so the whole suite
- * runs over a store that would catch the registry calling it from inside
- * its own transaction.
- */
 function sqliteStore(location: keyof typeof databases): ContainerStore {
   const ready = databases[location]
     .open()
@@ -66,14 +60,12 @@ function sqliteStore(location: keyof typeof databases): ContainerStore {
   };
 }
 
-/** Every store the registry is tested over. */
 const STORES: [string, () => ContainerStore][] = [
   ["the memory store", createMemoryContainerStore],
   ["the SQLite store in memory", () => sqliteStore("memory")],
   ["the SQLite store on a file", () => sqliteStore("file")],
 ];
 
-/** The store under test, set by each run of the suite. */
 let newStore: () => ContainerStore = createMemoryContainerStore;
 
 function fixture(instanceLabel = "instance-a") {
@@ -83,12 +75,6 @@ function fixture(instanceLabel = "instance-a") {
   return { containers, runtime, store };
 }
 
-/**
- * A memory store that answers asynchronously and can hold a matching commit
- * until the test lets it through, so one write can be caught mid-flight.
- * With `transactional`, it offers the memory store's transaction and holds
- * commits made through a transaction's view.
- */
 function gatedStore({ transactional = false } = {}) {
   const inner = newStore();
   const writes: ContainerStoreWrite[] = [];
@@ -122,7 +108,6 @@ function gatedStore({ transactional = false } = {}) {
       }
     : gated(inner);
   return {
-    /** Holds the next commit `matches` accepts; resolves once one is held. */
     hold(matches: (write: ContainerStoreWrite) => boolean) {
       let release = (): void => undefined;
       const open = new Promise<void>((resolve) => {
@@ -560,7 +545,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     const reopening = containers.open(c.id);
     await gate.caught;
     const restarting = containers.restart(c.id, alpine);
-    // Let the restart reach the store before the reopen's commit lands.
     await new Promise((resolve) => setTimeout(resolve, 0));
     gate.release();
     await restarting;
@@ -588,7 +572,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     const reopening = first.open(c.id);
     await gate.caught;
     const restarting = second.restart(c.id, alpine);
-    // Let the other registry reach the store before the reopen's commit lands.
     await new Promise((resolve) => setTimeout(resolve, 0));
     gate.release();
     await restarting;
@@ -609,8 +592,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     const c = await first.start(SPEC);
     await c.close();
 
-    // Each names its VM from the row as stored, so no name is used twice.
-    // The row records one of them: one row is live in one registry at a time.
     const handles = await Promise.all([first.open(c.id), second.open(c.id)]);
     expect(runtime.instances.map((instance) => instance.id)).toEqual([
       `${c.id}-1`,
@@ -809,7 +790,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
   });
 });
 
-/** Each event the writes carried, as `[type, containerId]`, in order. */
 function events(writes: readonly ContainerStoreWrite[]): [string, string][] {
   return writes.flatMap((write) =>
     (write.events ?? []).map((event): [string, string] => [
@@ -842,7 +822,6 @@ describe.each(STORES)("containers registry events over %s", (_name, open) => {
     expect(events(writes)).toEqual([
       ["sandbox.created", c.id],
       ["sandbox.started", c.id],
-      // The restart passes through `restarting` and a new native name.
       ["sandbox.started", c.id],
       ["sandbox.stopped", c.id],
       ["sandbox.started", c.id],
@@ -850,7 +829,6 @@ describe.each(STORES)("containers registry events over %s", (_name, open) => {
       ["sandbox.started", c.id],
       ["sandbox.stopped", c.id],
     ]);
-    // Each event rides in the write that puts the status it names.
     const statuses: Record<string, string> = {
       "sandbox.created": "starting",
       "sandbox.started": "running",
@@ -955,7 +933,6 @@ describe.each(STORES)("containers registry events over %s", (_name, open) => {
     await c.close();
     const removal = writes.length;
 
-    // Both read the row before either deletes it; only one deletes it.
     await Promise.all([first.remove(c.id), second.remove(c.id)]);
 
     expect(events(writes.slice(removal))).toEqual([

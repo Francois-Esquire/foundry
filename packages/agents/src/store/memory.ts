@@ -4,29 +4,15 @@ import type { SessionMessage, SessionRecord } from "../schema";
 import { ownedEvents } from "./events";
 import type { SessionStore, SessionStoreWrite } from "./index";
 
-/** Why a call from inside the store's own transaction is refused. */
 const REENTRY =
   "InMemorySessionStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
-/**
- * The default store: sessions and their messages in plain maps in this
- * process. Every call takes a turn, so a commit made while a transaction
- * runs lands after it, and a call made from inside a transaction's work is
- * refused.
- */
 export class InMemorySessionStore implements SessionStore {
   readonly #sessions = new Map<string, SessionRecord>();
-  /** Each session's messages, in the order they were filed. */
   readonly #messages = new Map<string, readonly SessionMessage[]>();
-  /** Message id → the session it is filed under. */
   readonly #owners = new Map<string, string>();
   readonly #turns = new Turns(REENTRY);
 
-  /**
-   * Copies `write` when called, before waiting for its turn, so a caller
-   * changing it afterwards changes nothing it keeps; a value that cannot be
-   * copied refuses the whole write.
-   */
   commit(write: SessionStoreWrite): Promise<void> {
     let copied: Copied;
     try {
@@ -40,10 +26,6 @@ export class InMemorySessionStore implements SessionStore {
     });
   }
 
-  /**
-   * Runs `work` over a draft of the store and keeps the draft only if `work`
-   * succeeds, so a throw after a commit through `view` leaves nothing.
-   */
   transaction<T>(work: (view: SessionStore) => Promise<T>): Promise<T> {
     return this.#turns.run(async () => {
       const draft = this.#draft();
@@ -78,7 +60,6 @@ export class InMemorySessionStore implements SessionStore {
     });
   }
 
-  /** A store holding what this one holds; records and lists are never changed in place. */
   #draft(): InMemorySessionStore {
     const draft = new InMemorySessionStore();
     draft.#adopt(this);
@@ -123,15 +104,12 @@ export class InMemorySessionStore implements SessionStore {
   }
 }
 
-/** A write's records, copied so they share nothing with the caller's. */
 interface Copied {
   readonly messages: readonly SessionMessage[];
   readonly sessions: readonly SessionRecord[];
 }
 
 function copyOf(write: SessionStoreWrite): Copied {
-  // The store keeps no event, but takes them by the rule every store does,
-  // so a write whose events break it is refused whole.
   ownedEvents(write.events);
   return {
     messages: (write.putMessages ?? []).map((m) => structuredClone(m)),
@@ -139,7 +117,6 @@ function copyOf(write: SessionStoreWrite): Copied {
   };
 }
 
-/** Makes `target` hold `source`'s entries, in `source`'s order. */
 function replaceEntries<K, V>(target: Map<K, V>, source: ReadonlyMap<K, V>) {
   const entries = [...source];
   target.clear();

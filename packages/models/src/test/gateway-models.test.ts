@@ -3,7 +3,6 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { gatewayModels } from "../gateway";
 
-/** What the stub answers on `GET /models`. */
 let answer: { body: string; status: number } = { body: "{}", status: 200 };
 const seen: { authorization?: string; url?: string }[] = [];
 let server: Server;
@@ -20,7 +19,6 @@ beforeAll(async () => {
     response.writeHead(answer.status, { "content-type": "application/json" });
     response.end(answer.body);
   });
-  // Port 0: the system picks a free port. A bind error fails the hook at once.
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);

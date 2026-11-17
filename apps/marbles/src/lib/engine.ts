@@ -87,34 +87,6 @@ import { UsageLedger, withRecovered } from "~/lib/usage";
 import type { ReconciledRun, SessionListing } from "~/lib/usage-evidence";
 import { listsSessions, UsageEvidence } from "~/lib/usage-evidence";
 
-/**
- * The engine: the one place the packages meet. It is handed the instances
- * the packages give a host (models, a session store, a workspace system,
- * containers, an artifact system), each already configured for the machine
- * it runs on, and builds everything that connects them: the managers a step
- * body sees, the feed, agent approvals and activity, the triggers agents
- * create, and a real Orchestrator over an in-memory store.
- *
- * What can run is told to it with `define`, `schedule`, `monitor` and
- * `task`. Every launch is an Execution Run (`executions`), which the
- * launcher (`lib/launcher.ts`) records when it is queued, lets in by its
- * named queue, and records as it starts, reports and settles. A workflow is
- * then dispatched here as a Run through the Orchestrator under the same id,
- * so Runs, Jobs and frames all exist and can be inspected, and followed as
- * a held run (`lib/held-runs.ts`); a task runs its body in the launcher.
- * Given a state dir, the store hydrates from `runs/*.json` at start and each
- * Run is written back when it parks and once it settles; without one,
- * nothing survives the process. A Run parked on a question is adopted by
- * the next process that can answer it: the Orchestrator re-parks it, its
- * scope gets the ledger it recorded, and its question stays open on the
- * feed.
- *
- * The workspace's tasks are reached here too, with the changes they
- * record, through the `records` the host hands in, or in memory; `observe`
- * says who receives those changes, and delivery runs from a successful
- * `start` until `stop`.
- */
-
 export interface EngineOptions {
   /** Read by `artifacts.latest` when `artifacts` has nothing: the real store under `--dry-run`. */
   readonly artifactReads?: ArtifactSubstrate;
@@ -144,7 +116,6 @@ export interface EngineOptions {
    * scanning it, and the root workspace stays unread until a step needs it.
    */
   readonly git?: GitOptions;
-  /** The user's home, whose skill folders `skills.load()` reads; the OS home by default. */
   readonly home?: string;
   /**
    * Where definitions' own `log(...)` lines go, with where each came from:
@@ -165,13 +136,6 @@ export interface EngineOptions {
    * is given here. Change them live with `executions.configure`.
    */
   readonly queues?: Readonly<Record<string, QueueSettings>>;
-  /**
-   * This workspace's tasks and the changes they record, which delivery
-   * hands to observers. When omitted, the `Engine` the package publishes
-   * (`@foundry.sh/marbles/engine` and `/lib`) keeps them in a Marbles
-   * database when `state` is set, and in memory otherwise;
-   * `MemoryWorkspaceRecords` keeps them in memory on purpose.
-   */
   readonly records?: WorkspaceRecords;
   /**
    * Whether queued runs a process that has exited left behind are let in
@@ -188,11 +152,6 @@ export interface EngineOptions {
   readonly root: string;
   /** Where agent transcripts live. */
   readonly sessions: SessionStore;
-  /**
-   * Workspace state dir: run records, trigger state, and, with the
-   * published `Engine`, the tasks. Omit for in-memory: nothing survives
-   * the process.
-   */
   readonly state?: string;
   /**
    * Where triggers keep their history, monitors what they saw, and agents
@@ -215,16 +174,6 @@ export interface EngineOptions {
   readonly worktrees?: string;
 }
 
-/**
- * How usage recovery finds sessions in `sessions`: through its listing when
- * it has one (`ListedSessionStore`). A store that cannot list them is read
- * only where a record names a session; that misses a session
- * whose only record was a `lost` marker held in memory by an earlier
- * process. That needs both the ledger and the sessions to outlive the
- * process, so a store kept in memory, or a ledger kept in memory, is not
- * flagged: neither outlives the markers. A store this cannot place is
- * assumed to outlive it.
- */
 function sessionListing(
   sessions: SessionStore,
   store: StateStore
@@ -286,11 +235,6 @@ export class Engine {
   readonly store: StateStore;
   /** What each run's agent turns consumed, one fact per turn, in `store`. */
   readonly usage: UsageLedger;
-  /**
-   * This workspace's tasks, for a `Tasks` to be built over. Each commit
-   * records the change it makes in the same write. Refused once the engine
-   * is disposed.
-   */
   readonly taskStore: TaskStore;
   readonly workspaceId: string;
   readonly workspaces: WorkspacesManager;
@@ -326,7 +270,6 @@ export class Engine {
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
   readonly #unwatchRecords: () => void;
-  /** The models.dev load the usage ledger prices from: held while running and online. */
   #prices: ModelsDevHold | undefined;
 
   /**
@@ -345,8 +288,6 @@ export class Engine {
     const askable = options.askable ?? false;
     const { containers } = options;
     this.models = models;
-    // Started now, so list prices are there by the first turn; nothing
-    // waits for it. Airplane Mode gives it up, and leaving it holds it again.
     this.#prices = holdModelsDev();
     const airplane = airplaneMode(models);
     this.airplane = {
@@ -361,7 +302,6 @@ export class Engine {
           this.#releasePrices();
         } else if (!this.#disposing) {
           this.#prices ??= holdModelsDev();
-          // Back online, the servers are asked for their models again.
           this.#listModels();
         }
       },
@@ -710,7 +650,6 @@ export class Engine {
     const askable = this.#askable;
     const feed = this.#publisher;
     const print = this.#print;
-    // Before anything runs, so a listed model can be named from the first turn.
     await this.#listModels();
     const config = new Config();
     contributeQueueConfig(config, {
@@ -737,8 +676,6 @@ export class Engine {
       for (const [runId, extras] of loaded?.recovered ?? []) {
         this.#scopes.recover(runId, extras);
       }
-      // Run files are the durable record; the store holds them for this
-      // process, and `held` writes them back from its snapshots.
       const store = new MemoryWorkflowStore();
       const executions = new ExecutionCoordinator({ store });
       if (loaded !== undefined) {
@@ -1194,13 +1131,8 @@ export class Engine {
     return this.#running?.held.workflow(runId)?.root.subscribe(signal);
   }
 
-  /**
-   * Ask the providers that list their models for them, and reload. Never
-   * rejects: a problem is printed, and the set loaded before is kept.
-   */
   async #listModels(): Promise<void> {
     try {
-      // `configured` reads the files too, so it is inside the guard.
       if (!this.providers?.configured) {
         return;
       }
@@ -1214,7 +1146,6 @@ export class Engine {
     }
   }
 
-  /** Give up the models.dev load; one still fetching is aborted when no other engine holds it. */
   #releasePrices(): void {
     this.#prices?.release();
     this.#prices = undefined;

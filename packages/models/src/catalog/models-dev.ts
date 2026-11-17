@@ -1,22 +1,3 @@
-/**
- * models.dev — a community-maintained database of model facts, used to fill in
- * what a routing provider doesn't tell us.
- *
- * The problem it solves: every source we route through reports a different
- * subset. The gateway snapshot has prices but no cache rates and no modalities;
- * a CLI harness reports bare slugs and nothing else. Hand-writing the remainder
- * is what rots. models.dev keys facts by model id, independent of who serves it,
- * which is exactly the missing axis.
- *
- * **It never overrides.** A field the provider stated wins, always — this only
- * fills absences. Its prices are published vendor list prices, not your bill,
- * and it is community data: treat it as a good default, never as authority over
- * a rate the provider itself reported.
- *
- * Pure leaf, like its sibling adapters: it imports only `../types`, and takes
- * the catalog as an argument. `./models-dev-source` loads it at run time.
- */
-
 import type {
   ModelCapabilities,
   ModelCosts,
@@ -25,8 +6,6 @@ import type {
   ProviderModelDefinition,
 } from "../types";
 
-/** Rates in USD per 1M tokens — already per-million upstream, unlike the wire
- *  format `fromVercelRest` reads, which is per-token. */
 interface ModelsDevCost {
   cache_read?: number;
   cache_write?: number;
@@ -56,12 +35,6 @@ export type ModelsDevCatalog = Record<string, ModelsDevModel>;
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-/**
- * The vendor's own list price, or nothing. Most models.dev providers are
- * aggregators re-listing a model at their own markup, so the price comes from
- * the provider whose id is the model's author. Open-weights models are
- * skipped: many hosts serve them at different prices.
- */
 function firstPartyCost(
   key: string,
   model: Record<string, unknown>,
@@ -74,7 +47,6 @@ function firstPartyCost(
   if (slash === -1) {
     return;
   }
-  // Provider maps are keyed by the bare model name, not the path-style id.
   const provider = providers[key.slice(0, slash)];
   const models = isObject(provider) ? provider.models : undefined;
   const entry = isObject(models) ? models[key.slice(slash + 1)] : undefined;
@@ -87,11 +59,6 @@ const isRate = (value: unknown): value is number =>
 const optionalRate = (value: unknown): boolean =>
   value === undefined || isRate(value);
 
-/**
- * A price whose every field has the right type, rebuilt from those fields,
- * or `undefined`. One bad field drops the whole price rather than part of
- * it: a turn with no price keeps its tokens, a half price misstates them.
- */
 function validCost(value: unknown): ModelsDevCost | undefined {
   if (
     !(
@@ -147,7 +114,6 @@ function validCost(value: unknown): ModelsDevCost | undefined {
   };
 }
 
-/** The fields a catalog row can use, each kept only when it has the right type. */
 function pruned(
   key: string,
   model: Record<string, unknown>,
@@ -179,10 +145,6 @@ function pruned(
   };
 }
 
-/**
- * The catalog in a `https://models.dev/catalog.json` payload, or `undefined`
- * when the payload has no `models` map.
- */
 export function modelsDevCatalog(
   payload: unknown
 ): ModelsDevCatalog | undefined {
@@ -426,7 +388,6 @@ function mergeCapabilities(
   model: ModelsDevModel
 ): ModelCapabilities | undefined {
   // Per key, and only where the provider said nothing. An explicit `false`
-  // survives, so a community flag can never contradict a provider that spoke.
   const merged: ModelCapabilities = {
     ...existing,
     ...(existing?.functionCalling === undefined && model.tool_call === true

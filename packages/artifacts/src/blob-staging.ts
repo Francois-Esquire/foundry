@@ -7,7 +7,6 @@ import { FileTooLargeError, InvalidArtifactInputError } from "./errors";
 import type { BlobId } from "./ref";
 import type { EntryInput, EntryInputs, FileInput } from "./substrate";
 
-/** File inputs that name an existing object instead of supplying bytes. */
 export type ReferenceInput =
   | Extract<FileInput, { readonly blobId: unknown }>
   | Extract<FileInput, { readonly digest: string }>;
@@ -17,32 +16,22 @@ export function isReferenceInput(input: FileInput): input is ReferenceInput {
   return "blobId" in input || "digest" in input;
 }
 
-/** At most `CHUNK_BYTES` of a file's bytes, and where they wait to be stored. */
 export type StagedChunk = {
   readonly byteLength: number;
   readonly digest: string;
 } & (
   | { readonly bytes: Uint8Array }
-  /** Waiting in the staging area under this name. */
   | { readonly staged: string }
-  /** Already published, inside the change, to this path. */
   | { readonly published: string }
 );
 
-/**
- * Who holds the object a file entry names before a change replaces it: the
- * entry alone (`exclusive`), so the change may rewrite it in place, or more
- * than one reference.
- */
 export interface Ownership {
   readonly blobId: BlobId;
   readonly exclusive: boolean;
 }
 
-/** A file's bytes, taken in, hashed and held for the change that stores them. */
 export interface StagedBytes {
   readonly byteLength: number;
-  /** One or more, in order; one chunk is stored as the file's own object. */
   readonly chunks: readonly StagedChunk[];
   readonly digest: string;
 }
@@ -50,17 +39,11 @@ export interface StagedBytes {
 interface StagingLimits {
   readonly files?: BlobFiles;
   readonly maxFileBytes: number;
-  /** Absent: the tree limit is checked only inside the change. */
   readonly maxTreeBytes?: number;
 }
 
-/** How many streams one manager takes in ahead of its changes at once. */
 export const MAX_STAGING_STREAMS = 8;
 
-/**
- * Turns for streams staged ahead, shared by one manager's changes, so a
- * burst of slow sources holds at most `MAX_STAGING_STREAMS` of them open.
- */
 export class StagingTurns {
   #free = MAX_STAGING_STREAMS;
   readonly #waiting: (() => void)[] = [];
@@ -86,19 +69,6 @@ export class StagingTurns {
   }
 }
 
-/**
- * The bytes one change stores. Ahead of the change, `stageAll` takes in every
- * byte input, a stream included, before the change enters the manager's
- * queue or the store's exclusion; `take` hands each to the change. An input
- * the change meets without staged bytes (a call inside `transaction`) is
- * staged as the change reaches it.
- *
- * With `blobFiles`, staged bytes wait as files in its staging area until the
- * change promotes them; `discard` removes whatever the change did not.
- * Without files they wait in memory. A `BlobFiles` without a staging area
- * cannot take a stream in ahead: the change publishes its chunks as the
- * stream yields them.
- */
 export class BlobStaging {
   readonly #files: BlobFiles | undefined;
   readonly #area: BlobStagingArea | undefined;
@@ -109,12 +79,9 @@ export class BlobStaging {
     string,
     { readonly input: ByteInput; readonly bytes: StagedBytes }
   >();
-  /** Staged files not yet promoted or discarded. */
   readonly #waiting = new Set<string>();
-  /** Per Artifact and path, the ownership seen before the bytes were staged. */
   readonly #ownership = new Map<string, Ownership | null>();
 
-  /** `turns` bound the streams staged at once; one manager shares them. */
   constructor(limits: StagingLimits, turns: StagingTurns = new StagingTurns()) {
     this.#files = limits.files;
     this.#maxTreeBytes = limits.maxTreeBytes;
@@ -123,19 +90,10 @@ export class BlobStaging {
     this.#maxFileBytes = limits.maxFileBytes;
   }
 
-  /**
-   * Records the ownership an entry showed when its change was checked,
-   * before its bytes were staged. `key` names the Artifact and path.
-   */
   recordOwnership(key: string, seen: Ownership | null): void {
     this.#ownership.set(key, seen);
   }
 
-  /**
-   * Whether the ownership an entry shows now is the one recorded for it, if
-   * any was; the record is spent, so a later write to the same entry in the
-   * same change is not held to it.
-   */
   confirmOwnership(key: string, now: Ownership | null): boolean {
     if (!this.#ownership.has(key)) {
       return true;
@@ -147,20 +105,12 @@ export class BlobStaging {
     );
   }
 
-  /** Whether `entries` hold a stream this staging takes in ahead of the change. */
   streamsAhead(entries: EntryInputs | undefined): boolean {
     return byteInputs(entries).some(
       ([, input]) => "source" in input && this.#canStageAhead(input)
     );
   }
 
-  /** Takes in every byte input of `entries` that can wait outside the change. */
-  /**
-   * Takes in every byte input of `entries` that can wait outside the change.
-   * Their sizes add up as they arrive: once the total alone exceeds the tree
-   * limit, the change could only fail, so staging stops there. Each stream
-   * takes one of the manager's staging turns while it is read.
-   */
   async stageAll(entries: EntryInputs | undefined): Promise<void> {
     const tree = { bytes: 0 };
     const count = (bytes: number) => {
@@ -180,7 +130,6 @@ export class BlobStaging {
     }
   }
 
-  /** The bytes staged ahead for `input` at `path`, handed over once. */
   take(path: string, input: ByteInput): StagedBytes | undefined {
     const ahead = this.#ahead.get(path);
     if (ahead?.input !== input) {
@@ -190,10 +139,6 @@ export class BlobStaging {
     return ahead.bytes;
   }
 
-  /**
-   * Takes `input` in inside the change. A stream into a `BlobFiles` is
-   * published chunk by chunk through `publish`, so it never waits in memory.
-   */
   stage(
     path: string,
     input: ByteInput,
@@ -202,7 +147,6 @@ export class BlobStaging {
     return this.#stage(path, input, { ahead: false, publish });
   }
 
-  /** Moves a staged chunk to its published path; the chunk is spent. */
   async promote(staged: string): Promise<string> {
     const area = this.#requireArea();
     this.#waiting.delete(staged);
@@ -214,11 +158,6 @@ export class BlobStaging {
     }
   }
 
-  /**
-   * Removes every staged file the change did not promote. A failure to
-   * remove one is reported, not thrown: the change's own outcome stands, and
-   * the file is abandoned once this process is gone.
-   */
   async discard(): Promise<void> {
     this.#ahead.clear();
     const area = this.#area;
@@ -323,7 +262,6 @@ export class BlobStaging {
     return { ...described(piece), staged };
   }
 
-  /** Removes the staged files of chunks a failed staging held. */
   async #forget(chunks: readonly StagedChunk[]): Promise<void> {
     const area = this.#area;
     for (const chunk of chunks) {
@@ -344,7 +282,6 @@ export class BlobStaging {
   }
 }
 
-/** Removes staging that crashed processes left in `files`, if it stages. */
 export async function abandonStaging(
   files: BlobFiles | undefined
 ): Promise<void> {

@@ -69,7 +69,6 @@ it("exposes the config directory and dry-run git through the engine's workspaces
     expect(lines.some((line) => line.includes("git worktree remove"))).toBe(
       true
     );
-    // The git is echoed, but the directory cut for the worktree was real.
     expect(existsSync(seen)).toBe(false);
   } finally {
     await scope.settle();
@@ -373,7 +372,6 @@ it("answers every dry-run command and model turn with the same fixed reply", asy
   });
   try {
     await engine.start();
-    // A command prints and succeeds with no output, on the host or in a sandbox.
     await expect(engine.run("on-host", {})).resolves.toEqual({
       exitCode: 0,
       stderr: "",
@@ -386,7 +384,6 @@ it("answers every dry-run command and model turn with the same fixed reply", asy
     });
     expect(lines).toContainEqual(expect.stringMatching(ECHOED_EXEC));
     expect(lines).toContain("[sandbox] make test");
-    // A turn echoes its prompt, and structured output is the schema's first choice.
     const session = await engine.agents.session({
       id: "reviewer",
       kind: "agent",

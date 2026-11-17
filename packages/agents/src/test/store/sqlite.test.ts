@@ -10,12 +10,6 @@ import type { RecordingSessionStorage } from "../../testing/store";
 import { describeSessionStore } from "../../testing/store";
 import { libsqlDatabases } from "../helpers/sqlite";
 
-/**
- * One store per scope over one database, as a host keeps it: each store's
- * turns cover only itself, and two over one database would not wait for
- * each other (the README's host requirement). Asking for a scope again
- * returns that same store, as the memory store's storage does.
- */
 function scopedStores(
   database: SessionDatabase,
   wrap: (store: SessionStore) => SessionStore = (store) => store
@@ -29,7 +23,6 @@ function scopedStores(
   };
 }
 
-/** A host's record of the events its stores' commits carry. */
 const recordedEvents = sqliteTable("recorded_events", {
   payload: text("payload", { mode: "json" })
     .$type<SessionChangeEvent>()
@@ -37,10 +30,6 @@ const recordedEvents = sqliteTable("recorded_events", {
   seq: integer("seq").primaryKey({ autoIncrement: true }),
 });
 
-/**
- * Stores over `database` whose `onCommit` writes each event of the write,
- * in order, in the commit's own transaction, as a host's outbox would.
- */
 async function recordingStores(
   database: SessionDatabase
 ): Promise<RecordingSessionStorage> {
@@ -92,8 +81,6 @@ for (const location of ["memory", "file"] as const) {
       recording: async () => recordingStores(await databases.open()),
     }
   );
-  // A window forwards the store it wraps, refusals from inside a
-  // transaction included.
   describeSessionStore(
     `SessionWindow over SqliteSessionStore on libSQL (${location})`,
     async () =>

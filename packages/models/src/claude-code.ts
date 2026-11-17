@@ -102,12 +102,6 @@ export function claudeCodeProvider(
   };
 }
 
-/**
- * Whether a call with these settings resumes nothing it was told to: no
- * `resume`, `continue` or `sessionId`, in the settings or their
- * `sdkOptions` overlay, and no `extraArgs`, which could pass the CLI a
- * resume flag of their own. Settings it cannot read prove nothing.
- */
 function resumesNothing(settings: ClaudeCodeSettings | undefined): boolean {
   if (!settings) {
     return false;
@@ -137,13 +131,6 @@ function marked(
   };
 }
 
-/**
- * Mark the call that resumed no session (see `CLAUDE_CODE_FRESH`). The
- * settings are the instance's own, default settings merged in. Only the
- * first call on an instance can be fresh: once a call has started, the
- * instance resumes the session the CLI opened for it. Every other call is
- * passed through unmarked.
- */
 function markFreshCalls(model: LanguageModelV4): LanguageModelV4 {
   let started = false;
   const fresh = () => {

@@ -13,8 +13,6 @@ afterAll(() => {
   }
 });
 
-// A scope is its own directory; each store asked for is a new instance over
-// it, as two processes sharing one directory would be.
 describeSessionStore(
   "JsonSessionStore",
   () => {

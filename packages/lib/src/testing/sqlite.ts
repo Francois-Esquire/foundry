@@ -3,20 +3,12 @@ import { sql } from "drizzle-orm";
 import type { BaseSQLiteDatabase, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { getTableConfig, SQLiteColumn } from "drizzle-orm/sqlite-core";
 
-/**
- * Real tables from Drizzle definitions, for tests of a store over SQLite. A
- * host's migrations own the real schema; packages ship none, so their tests
- * stand the tables up from the definitions they ship instead.
- */
-
-/** An async Drizzle SQLite database, with or without a relational schema. */
 export type TestDatabase = BaseSQLiteDatabase<
   "async",
   unknown,
   Record<string, unknown>
 >;
 
-/** Creates each table, then its indexes, in order. */
 export async function createTables(
   database: TestDatabase,
   tables: readonly SQLiteTable[]
@@ -26,12 +18,6 @@ export async function createTables(
   }
 }
 
-/**
- * `CREATE TABLE` and `CREATE INDEX` for one definition. It expresses column
- * types, `NOT NULL`, the primary key, and indexes on plain columns, and
- * throws on anything else the definition holds, so a test never runs on a
- * table that differs from its definition.
- */
 export function tableStatements(table: SQLiteTable): SQL[] {
   const config = getTableConfig(table);
   const refused = [

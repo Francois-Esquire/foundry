@@ -20,40 +20,6 @@ import { Turns } from "@foundry/lib/turns";
 import { z } from "zod";
 import { isRecord } from "~/lib/state/json";
 
-/**
- * Durable sessions as one JSON file each: `<dir>/<sessionId>.json` holding
- * the record and every message.
- *
- * The files are the truth, not this object: every read and every commit
- * reads the files again, so a session another process (the dashboard or
- * `roll`) wrote is seen, and a commit here does not overwrite what it
- * appended: a write is merged by id into each file as read.
- *
- * Every call takes the directory's turn within this process, across store
- * instances, so a call from inside a transaction's work to any store over
- * the directory is refused rather than left waiting for itself. Every
- * commit and transaction also holds `<dir>/.lock` across processes, which
- * holds the writer's pid. The store attempts to replace
- * a stale lock. A transaction stages its commits in memory and writes
- * nothing until `work` returns, so a `work` that throws leaves the files as
- * they were.
- *
- * What a commit or transaction changed is then published file by file, each
- * through a temp-and-rename. A change to one session file is atomic. A
- * change to several is atomic against every reader that takes the
- * directory's turn. A write that fails part way puts back the files already
- * written, but a crash part way through publishing can leave some files
- * written and others not. There is no journal: this store is temporary, and
- * the limit ends when sessions move to the Marbles database.
- *
- * Finding the file that holds a message id (a new message has none) reads
- * again only the files whose stamp changed since this store last read them.
- *
- * A file that exists but does not read as a session is never overwritten:
- * reads skip it (and say so through `warn`), and commits throw until someone
- * repairs or removes it.
- */
-
 interface SessionFile {
   readonly messages: SessionMessage[];
   readonly session: SessionRecord;
@@ -99,18 +65,11 @@ const SUFFIX = ".json";
 /** A separator or NUL: an id holding one would not be a single file name. */
 const NOT_A_FILE_NAME = /[/\\\0]/;
 const LOCK_WAIT_MS = 10_000;
-/** The directory's lock; not a session file, since it lacks the suffix. */
 const LOCK = ".lock";
 
-/** Why a call from inside a transaction over the directory is refused. */
 const REENTRY =
   "JsonSessionStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
-/**
- * Each directory's turns. Process-wide on purpose: two stores over one
- * directory must still take turns, and the file lock they also take is not
- * reentrant, so it cannot order writers within one process.
- */
 const turnsByDirectory = new Map<string, Turns>();
 
 function turnsFor(dir: string): Turns {
@@ -133,7 +92,6 @@ export class JsonSessionStore implements SessionStore {
   readonly #turns: Turns;
   /** Message id → its session, as last seen here. A hint: always checked against the file. */
   readonly #owners = new Map<string, string>();
-  /** Each file's message ids as last read here, under the stamp the file had then. */
   readonly #indexed = new Map<
     string,
     { readonly ids: ReadonlySet<string>; readonly stamp: string }
@@ -188,11 +146,6 @@ export class JsonSessionStore implements SessionStore {
     });
   }
 
-  /**
-   * Merges `write` into the files it changes, holding the directory's turn.
-   * The write is copied when called, before waiting for the turn (see
-   * {@link ownedWrite}).
-   */
   commit(write: SessionStoreWrite): Promise<void> {
     let owned: SessionStoreWrite;
     try {
@@ -207,11 +160,6 @@ export class JsonSessionStore implements SessionStore {
     });
   }
 
-  /**
-   * Runs `work` holding the directory's turn, taken before `work` starts.
-   * Its commits are staged in memory, read back through `view`, and
-   * published only once `work` returns; a throw leaves the files as they were.
-   */
   transaction<T>(work: (view: SessionStore) => Promise<T>): Promise<T> {
     return this.#exclusive(async () => {
       const draft = new Draft(this.#file);
@@ -244,7 +192,6 @@ export class JsonSessionStore implements SessionStore {
     ]);
   }
 
-  /** The session whose file holds message `id`: the last one seen first, then every file. */
   async #ownerOf(id: string): Promise<string | undefined> {
     const hint = this.#owners.get(id);
     const candidates = [
@@ -259,13 +206,6 @@ export class JsonSessionStore implements SessionStore {
     return undefined;
   }
 
-  /**
-   * Whether session `sessionId`'s file holds message `id`. A file whose stamp
-   * is the one it had when last read here is answered from what that read
-   * found. The stamp is taken before the read, so a write landing between
-   * the two leaves a stamp that no longer matches, and the next call reads
-   * the file again.
-   */
   async #holds(sessionId: string, id: string): Promise<boolean> {
     let stamp: string;
     try {
@@ -323,11 +263,6 @@ export class JsonSessionStore implements SessionStore {
     return read.kind === "session" ? read.file : undefined;
   }
 
-  /**
-   * The session's file as it reads now. A file that cannot be read at all
-   * (no permission, a directory in its place) throws, naming the file: a
-   * file that may hold any message is never passed over.
-   */
   async #read(id: string): Promise<Read> {
     const path = this.#path(id);
     let contents: string;
@@ -368,7 +303,6 @@ export class JsonSessionStore implements SessionStore {
     return { file: parsed.data, kind: "session" };
   }
 
-  /** A session's file as it is on disk now, for a draft over this store. */
   readonly #file: FileSource = {
     find: (id) => this.#ownerOf(id),
     path: (id) => this.#path(id),
@@ -381,12 +315,6 @@ export class JsonSessionStore implements SessionStore {
     },
   };
 
-  /**
-   * Writes every file `draft` changed, one after another, each atomically.
-   * When a write fails, the files already written get back what they held
-   * (or are removed, if they were new), so the change lands whole or not at
-   * all; the failure is rethrown.
-   */
   async #publish(draft: Draft): Promise<void> {
     const written: { readonly id: string; readonly prior?: string }[] = [];
     try {
@@ -406,7 +334,6 @@ export class JsonSessionStore implements SessionStore {
     }
   }
 
-  /** A session file's text as it is on disk, `undefined` when there is none. */
   async #text(id: string): Promise<string | undefined> {
     try {
       return await readFile(this.#path(id), "utf8");
@@ -418,7 +345,6 @@ export class JsonSessionStore implements SessionStore {
     }
   }
 
-  /** Puts back what `written` replaced, newest first, after `cause` stopped a publish. */
   async #restore(
     written: readonly { readonly id: string; readonly prior?: string }[],
     cause: unknown
@@ -441,7 +367,6 @@ export class JsonSessionStore implements SessionStore {
     }
   }
 
-  /** Runs `operation` holding the directory's turn and lock (see the module comment). */
   async #exclusive<T>(operation: () => Promise<T>): Promise<T> {
     const lock = join(this.#dir, LOCK);
     try {
@@ -465,26 +390,16 @@ export class JsonSessionStore implements SessionStore {
   }
 }
 
-/** How a draft reads a store's files. */
 interface FileSource {
-  /** The session whose file on disk holds message `id`. */
   readonly find: (id: string) => Promise<string | undefined>;
   readonly path: (id: string) => string;
   readonly read: (id: string) => Promise<Read>;
 }
 
-/** A staged file: its record and messages, and the text it will be written as. */
 interface StagedFile extends SessionFile {
   readonly text: string;
 }
 
-/**
- * The files as one commit or transaction leaves them, staged in memory over
- * what is on disk. Reads see the staged files first. A commit stages every
- * file it changes or none. Its calls take turns, so overlapping commits
- * through one view build on each other, and one refused leaves the next
- * free to run.
- */
 class Draft implements SessionStore {
   readonly #files: FileSource;
   readonly #staged = new Map<string, StagedFile>();
@@ -531,7 +446,6 @@ class Draft implements SessionStore {
         }
         next.set(message.sessionId, withMessage(file, message));
       }
-      // Encoding every file first refuses a value that cannot be written before anything is staged.
       const staged = [...next].flatMap(([id, file]): [string, StagedFile][] =>
         file ? [[id, encoded(file)]] : []
       );
@@ -562,16 +476,10 @@ class Draft implements SessionStore {
     ]);
   }
 
-  /** The staged files, in the order they were first changed. */
   changed(): ReadonlyMap<string, StagedFile> {
     return this.#staged;
   }
 
-  /**
-   * The session whose file holds message `id`, as this draft sees it:
-   * `next` (a commit in progress) first, then the staged files, then the
-   * files on disk that neither holds.
-   */
   async #ownerOf(
     id: string,
     next: ReadonlyMap<string, SessionFile | undefined>
@@ -594,7 +502,6 @@ class Draft implements SessionStore {
       : onDisk;
   }
 
-  /** A session as this draft holds it: staged, else on disk; unreadable reads as absent. */
   async #readable(id: string): Promise<SessionFile | undefined> {
     const staged = this.#staged.get(id);
     if (staged) {
@@ -607,7 +514,6 @@ class Draft implements SessionStore {
     return read.kind === "session" ? read.file : undefined;
   }
 
-  /** What a commit builds on: the staged file, else the one on disk. */
   async #base(id: string): Promise<SessionFile | undefined> {
     const staged = this.#staged.get(id);
     if (staged) {
@@ -624,7 +530,6 @@ class Draft implements SessionStore {
   }
 }
 
-/** `file` holding `message`: a known id keeps its place, a new one goes last. */
 function withMessage(file: SessionFile, message: SessionMessage): SessionFile {
   const index = file.messages.findIndex((known) => known.id === message.id);
   return {
@@ -636,7 +541,6 @@ function withMessage(file: SessionFile, message: SessionMessage): SessionFile {
   };
 }
 
-/** `file` without message `id`. */
 function withoutMessage(file: SessionFile, id: string): SessionFile {
   return {
     messages: file.messages.filter((message) => message.id !== id),
@@ -644,14 +548,6 @@ function withoutMessage(file: SessionFile, id: string): SessionFile {
   };
 }
 
-/** `file` as staged: detached, with the text it will be written as. */
-/**
- * `write` in the JSON form the store writes, copied now so a caller changing
- * `write` afterwards changes nothing the store keeps. A value with no JSON
- * form refuses the whole write here, before anything is staged. The store
- * keeps no event, but takes them by the rule every session store does
- * (`ownedEvents`), so a write whose events break it is refused too.
- */
 function ownedWrite(write: SessionStoreWrite): SessionStoreWrite {
   ownedEvents(write.events);
   return JSON.parse(JSON.stringify(write)) as SessionStoreWrite;

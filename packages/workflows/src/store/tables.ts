@@ -24,34 +24,6 @@ import {
   SUSPENSION_STATUSES,
 } from "../schema";
 
-/**
- * The tables `SqliteWorkflowStore` reads and writes, for a host to compose
- * into its own schema and migrations. Each holds the matching record from
- * `@foundry/workflows/schema` with one column per top-level field, as the
- * record holds it: text stays text, epoch milliseconds and counters are
- * integers, and a field holding an object, an array or any JSON value is
- * JSON text, read back whole. No read filters or orders on anything inside
- * a JSON column. Every table also has two columns its record has not:
- *
- * - `scope`, an opaque partition key the host chooses, first in every key.
- * - `position`, the order a row was first put in its scope. List reads
- *   return rows by it, as the memory store lists its records, and a row
- *   put again keeps its position. Positions come from `workflow_positions`
- *   and are never reused in a scope.
- *
- * A NULL in a nullable column is `null` where the record takes `null`
- * (`last_error`, `error`, `resolution`, and a JSON value that is `null`),
- * and the field left out where the record may leave it out (a Run's
- * `definition` and `links`). No field may be both.
- */
-
-/**
- * One row per scope: `next`, the position the scope's next new row of any
- * table takes. Positions only ever grow, so a cursor a page returned stays
- * valid however many rows are deleted before or after it, and a deleted
- * row's position is never handed out again, across connections and
- * reopening. It is the only table no record defines.
- */
 export const workflowPositions = sqliteTable(
   "workflow_positions",
   {
@@ -61,7 +33,6 @@ export const workflowPositions = sqliteTable(
   (table) => [primaryKey({ columns: [table.scope] })]
 );
 
-/** One row per `QueueRecord`. Queues are few; they are read whole. */
 export const workflowQueues = sqliteTable(
   "workflow_queues",
   {
@@ -82,7 +53,6 @@ export const workflowQueues = sqliteTable(
   ]
 );
 
-/** One row per `JobRecord`. */
 export const workflowJobs = sqliteTable(
   "workflow_jobs",
   {
@@ -105,12 +75,6 @@ export const workflowJobs = sqliteTable(
   ]
 );
 
-/**
- * One row per `RunRecord`. A Run keeps fields its schema does not declare
- * (`RunRecordSchema` admits a Run unchanged): `undeclared` holds them as
- * one JSON object, NULL when there are none. `queue_id` and `status` are
- * plain columns that list reads filter on.
- */
 export const workflowRuns = sqliteTable(
   "workflow_runs",
   {
@@ -152,10 +116,6 @@ export const workflowRuns = sqliteTable(
   ]
 );
 
-/**
- * One row per `SuspensionRecord`. `workflow_suspensions_scope_run_position`
- * serves the read of one Run's Suspensions in order.
- */
 export const workflowSuspensions = sqliteTable(
   "workflow_suspensions",
   {
@@ -192,11 +152,6 @@ export const workflowSuspensions = sqliteTable(
   ]
 );
 
-/**
- * One row per `RunFrame`, keyed by its Run and cursor.
- * `workflow_run_frames_scope_run_position` serves the read of one Run's
- * journal in order, and the delete of a Run's frames.
- */
 export const workflowRunFrames = sqliteTable(
   "workflow_run_frames",
   {

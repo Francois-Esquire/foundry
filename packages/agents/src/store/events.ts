@@ -1,15 +1,3 @@
-/**
- * The one rule every store here takes a write's events by: each event is
- * read once, now, into an owned copy as plain JSON, since it reaches a host
- * as JSON. The rule and its refusals are the ones the workflows and
- * artifacts stores take events by.
- */
-
-/**
- * `events` as the store's own copy, or `undefined` when the write carries
- * none. Refuses, with a `TypeError` naming the first part, anything that is
- * not an array of plain JSON (see {@link plainJson}).
- */
 export function ownedEvents<E>(events: unknown): readonly E[] | undefined {
   if (events === undefined) {
     return;
@@ -20,16 +8,6 @@ export function ownedEvents<E>(events: unknown): readonly E[] | undefined {
   return plainJson("events", events, new Set()) as E[];
 }
 
-/**
- * An owned copy of `value` as plain JSON, each property read once, or a
- * `TypeError` naming the first part that has no JSON form that reads back
- * the same: anything but a plain object (made by `{}` or
- * `Object.create(null)`, every own property enumerable, no symbols), a
- * plain array without holes (made by `[]`, no own property but its items
- * and `length`), text, a finite number other than -0, a boolean or
- * `null`. So a Date, a class instance, `NaN`, a bigint, `undefined`, a
- * function, or a property a copy would not see refuses the write.
- */
 function plainJson(
   at: string,
   value: unknown,
@@ -77,7 +55,6 @@ function plainJson(
     }
     const copy: Record<string, unknown> = {};
     for (const key of Object.keys(value)) {
-      // Defined, not assigned, so a `__proto__` key stays an own property.
       Object.defineProperty(copy, key, {
         configurable: true,
         enumerable: true,
@@ -91,11 +68,6 @@ function plainJson(
   }
 }
 
-/**
- * Whether `value` is an array made by `[]`: `Array.prototype` its prototype,
- * and no own property but its indices and `length`, so no symbol key and
- * nothing a copy of its items would leave behind.
- */
 function isPlainArray(value: readonly unknown[]): boolean {
   return (
     Object.getPrototypeOf(value) === Array.prototype &&
@@ -106,7 +78,6 @@ function isPlainArray(value: readonly unknown[]): boolean {
   );
 }
 
-/** Whether `key` names an index below `length`, spelled as an index is. */
 function isIndex(key: string, length: number): boolean {
   const index = Number(key);
   return (

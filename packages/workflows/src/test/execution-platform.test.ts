@@ -319,7 +319,6 @@ describe.each(coordinatorStores())(
       } finally {
         await orchestrator.stop({ graceMs: 25 });
       }
-      // The Queue swallows persistence errors; the store refused nothing.
       expect(failures).toEqual([]);
     });
 

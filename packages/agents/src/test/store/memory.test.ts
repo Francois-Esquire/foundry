@@ -5,8 +5,6 @@ import type { SessionStore } from "../../store";
 import { InMemorySessionStore } from "../../store/memory";
 import { describeSessionStore } from "../../testing/store";
 
-// Memory has no shared medium, so each scope is its own store, and asking
-// for a scope again returns that same store.
 describeSessionStore(
   "InMemorySessionStore",
   () => {
@@ -20,8 +18,6 @@ describeSessionStore(
   { hooked: false }
 );
 
-// A window forwards the store it wraps, refusals from inside a transaction
-// included.
 describeSessionStore(
   "SessionWindow over InMemorySessionStore",
   () => {

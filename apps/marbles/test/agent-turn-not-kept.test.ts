@@ -18,7 +18,6 @@ const usage = {
   outputTokens: { reasoning: 0, text: 0, total: 0 },
 };
 
-/** A model that answers every turn with `hi`. */
 function model() {
   return new MockLanguageModelV4({
     doStream: () =>
@@ -39,7 +38,6 @@ function model() {
   });
 }
 
-/** A memory store that refuses every assistant message. */
 function refusingStore(): SessionStore {
   const inner = new InMemorySessionStore();
   const refusing = (store: SessionStore): SessionStore => ({

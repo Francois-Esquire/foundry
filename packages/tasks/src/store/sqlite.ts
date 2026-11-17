@@ -16,18 +16,12 @@ import type {
 import type { TaskStore } from "./index";
 import { taskDependencies, tasks } from "./tables";
 
-/**
- * An async Drizzle SQLite database, with or without a relational schema, or a
- * transaction on one. A `drizzle-orm/libsql` database and its transactions
- * both satisfy it, so a host can hand the store either.
- */
 export type TaskDatabase = BaseSQLiteDatabase<
   "async",
   unknown,
   Record<string, unknown>
 >;
 
-/** The transaction one `commit` runs in, as `onCommit` receives it. */
 export type TaskTransaction = SQLiteTransaction<
   "async",
   unknown,
@@ -36,59 +30,32 @@ export type TaskTransaction = SQLiteTransaction<
 >;
 
 export interface SqliteTaskStoreOptions {
-  /** Opened, migrated, and owned by the host; the store never closes it. */
   readonly database: TaskDatabase;
-  /**
-   * Runs inside the commit's transaction after the store's own statements,
-   * so the host can record the change (`write.event`) atomically with it. A
-   * throw rolls the whole commit back. It receives the store's own copy of
-   * the write, the one its rows were made from, not the caller's object.
-   */
   readonly onCommit?: (
     transaction: TaskTransaction,
     write: TaskStoreWrite
   ) => Promise<void>;
-  /** The partition this store reads and writes; any nonempty string. */
   readonly scope: string;
 }
 
-/** Every column of a task row but `scope` and `position`: exactly a `Task`. */
 const {
   position: _position,
   scope: _scope,
   ...taskColumns
 } = getTableColumns(tasks);
 
-/** The columns of an edge row that make a `TaskDependency`. */
 const dependencyColumns = {
   dependsOnId: taskDependencies.dependsOnId,
   taskId: taskDependencies.taskId,
 };
 
-/**
- * On a conflicting put, every task column takes the incoming value except
- * `position`, so a task put again keeps its place.
- */
 const replaceTask = Object.fromEntries(
   Object.entries(taskColumns).map(([key, column]) => [key, excluded(column)])
 );
 
-/** Why a call from inside the store's own transaction or hook is refused. */
 const REENTRY =
   "SqliteTaskStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead";
 
-/**
- * A `TaskStore` over the host's SQLite database, in the tables from
- * `@foundry/tasks/store/tables`. It behaves as `MemoryTaskStore` does, within
- * its scope. It does not keep `write.event`; `onCommit` receives it.
- *
- * Its calls take turns, as the memory store's do: a call made while a
- * transaction or commit runs waits for it. That keeps two `Tasks` over one
- * store apart in this process, and keeps a `:memory:` database, which has a
- * single connection, from refusing a call while a transaction holds it.
- * Across connections and processes, `transaction` takes the database's
- * write lock (see there).
- */
 export class SqliteTaskStore implements TaskStore {
   readonly #database: TaskDatabase;
   readonly #scope: string;
@@ -106,18 +73,6 @@ export class SqliteTaskStore implements TaskStore {
     this.#onCommit = options.onCommit;
   }
 
-  /**
-   * Takes the write as it stands when `commit` is called: one
-   * `structuredClone` of the whole write, as the memory store takes it, made
-   * before the commit waits its turn. That copy alone is checked, made into
-   * every row, and handed to `onCommit`, so a caller changing its write
-   * later changes nothing. A write the clone refuses rejects with the
-   * clone's error, as in the memory store.
-   *
-   * Rejects, before writing anything, a write that puts text SQLite would
-   * not return intact; see {@link storable}. A delete of such a key does
-   * nothing, as no stored row can hold it.
-   */
   commit(write: TaskStoreWrite): Promise<void> {
     let owned: TaskStoreWrite;
     try {
@@ -152,7 +107,6 @@ export class SqliteTaskStore implements TaskStore {
     );
   }
 
-  /** `null` for an id no row can hold (see {@link storable}). */
   get(id: TaskId): Promise<Task | null> {
     return this.#turns.run(async () => {
       if (!storable(id)) {
@@ -166,12 +120,6 @@ export class SqliteTaskStore implements TaskStore {
     });
   }
 
-  /**
-   * Both tables as of one moment: the two reads share one database
-   * transaction, so no commit lands between them. On libSQL that
-   * transaction begins `BEGIN IMMEDIATE`, as every Drizzle transaction there
-   * does, so a snapshot holds the write lock while it reads.
-   */
   snapshot(): Promise<TaskSnapshot> {
     return this.#turns.run(() =>
       this.#database.transaction(async (transaction) => {
@@ -190,16 +138,6 @@ export class SqliteTaskStore implements TaskStore {
     );
   }
 
-  /**
-   * Runs `work` inside one database transaction, over a view whose reads
-   * and commits use it; a throw from `work` rolls everything back. In this
-   * process, the store's other calls wait for it. Across connections, the
-   * transaction holds SQLite's write lock from its first statement: Drizzle's
-   * libSQL driver opens every transaction with libSQL's default mode,
-   * `BEGIN IMMEDIATE`. Another connection's write then waits for it, for as
-   * long as that connection's busy timeout allows, or fails with
-   * `SQLITE_BUSY`; it never lands between `work`'s reads and its commit.
-   */
   transaction<T>(work: (view: TaskStore) => Promise<T>): Promise<T> {
     return this.#turns.run(() =>
       this.#database.transaction((transaction) =>
@@ -231,7 +169,6 @@ export class SqliteTaskStore implements TaskStore {
     transaction: TaskTransaction,
     edges: readonly TaskDependency[]
   ): Promise<void> {
-    // Each edge is one more `OR`, and each `OR` one more level of depth.
     await inOrder(batches(edges, MAX_EXPRESSION_DEPTH / 2), (batch) =>
       transaction
         .delete(taskDependencies)
@@ -251,7 +188,6 @@ export class SqliteTaskStore implements TaskStore {
     );
   }
 
-  /** A new task takes the next position; one put again keeps its own. */
   async #putTasks(
     transaction: TaskTransaction,
     records: readonly Task[]
@@ -290,14 +226,6 @@ export class SqliteTaskStore implements TaskStore {
     );
   }
 
-  /**
-   * One past the last position in this scope. A row that turns out to exist
-   * keeps its own and leaves a gap; only the order of positions matters.
-   * The position of a last row deleted is given to the next row put: no
-   * record, change, or reader outside this store sees a position, and the
-   * order stays the order rows were first put (the conformance suite pins
-   * it).
-   */
   async #nextPosition(
     transaction: TaskTransaction,
     table: typeof tasks | typeof taskDependencies
@@ -310,7 +238,6 @@ export class SqliteTaskStore implements TaskStore {
   }
 }
 
-/** The record fields each table keeps as plain text; JSON text is escaped. */
 const taskTextFields = textFields(taskColumns);
 const dependencyTextFields = textFields(dependencyColumns);
 
@@ -320,22 +247,10 @@ function textFields(columns: Record<string, SQLiteColumn>): string[] {
     .map(([field]) => field);
 }
 
-/**
- * Whether SQLite gives `text` back as it was bound. It does not when the text
- * holds U+0000 (libSQL reads it back cut at the NUL) or is not well-formed
- * UTF-16: a lone surrogate is bound as U+FFFD on Node and as nothing on Bun,
- * so it reads back changed, and a key holding one would match another key's
- * row. JSON columns are exempt: JSON escapes both.
- */
 function storable(text: string): boolean {
   return text.isWellFormed() && !text.includes("\u0000");
 }
 
-/**
- * The first plain-text field a write would put that is not
- * {@link storable}, as a path such as `putTasks[2].title`. A storage limit
- * of this store, not a rule of the domain.
- */
 function unstorableField(write: TaskStoreWrite): string | undefined {
   const puts = [
     ["putTasks", write.putTasks ?? [], taskTextFields],
@@ -355,13 +270,10 @@ function unstorableField(write: TaskStoreWrite): string | undefined {
   }
 }
 
-/** SQLite's default limit on the parameters one statement binds. */
 const MAX_PARAMETERS = 32_766;
 
-/** SQLite's default limit on the depth of one expression. */
 const MAX_EXPRESSION_DEPTH = 1000;
 
-/** `items` in order, at most `size` at a time; none when `items` is empty. */
 function batches<T>(items: readonly T[], size: number): T[][] {
   const length = Math.max(1, Math.floor(size));
   const result: T[][] = [];
@@ -371,18 +283,15 @@ function batches<T>(items: readonly T[], size: number): T[][] {
   return result;
 }
 
-/** Runs one statement per batch, each after the one before. */
 async function inOrder<T>(
   items: readonly T[],
   run: (item: T) => PromiseLike<unknown>
 ): Promise<void> {
   for (const item of items) {
-    // In sequence: deletes precede puts, and later batches follow earlier ones.
     await run(item);
   }
 }
 
-/** The value an `INSERT` proposed for `column`, inside its `ON CONFLICT`. */
 function excluded(column: SQLiteColumn): SQL {
   return sql.raw(`excluded."${column.name}"`);
 }

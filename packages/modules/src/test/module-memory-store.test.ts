@@ -28,11 +28,6 @@ function installation(id: InstallationId, owner: Module): StoredInstallation {
   };
 }
 
-/**
- * Fails the store's own filing of the Installation keyed `POISON`, after the
- * write's Module has been filed: a failure part-way through applying a write
- * that passed every check, which nothing a caller hands in can cause.
- */
 function failFilingPoison() {
   const { set } = Map.prototype;
   vi.spyOn(Map.prototype, "set").mockImplementation(function (

@@ -1,10 +1,3 @@
-/**
- * What a person sees when the Marbles database refuses a task command: one
- * line from the CLI, an MCP tool error carrying the message, and never a
- * stack trace, whether the command reached stored state or the worker that
- * hosts the workspace.
- */
-
 import type { ChildProcess } from "node:child_process";
 import { spawn, spawnSync } from "node:child_process";
 import {
@@ -54,14 +47,12 @@ afterEach(async () => {
   }
 });
 
-/** A short home: the Marbles process's socket lives under its state root. */
 function home(): string {
   const dir = mkdtempSync(join(tmpdir(), "mte-"));
   homes.push(dir);
   return dir;
 }
 
-/** A batch creating one task titled `title`, as `tasks change --input` takes it. */
 function creating(title: string) {
   return {
     operations: [{ input: { title }, key: "t", kind: "task.create" }],
@@ -76,7 +67,6 @@ function marbles(cwd: string, state: string, ...argv: readonly string[]) {
   });
 }
 
-/** A database migrated by a Marbles one migration ahead of this one. */
 async function newerDatabase(state: string): Promise<void> {
   const folder = join(state, "..", "migrations-next");
   cpSync(MIGRATIONS, folder, { recursive: true });
@@ -99,10 +89,6 @@ async function newerDatabase(state: string): Promise<void> {
   ).close();
 }
 
-/**
- * Another process holding the database's write lock, longer than the busy
- * timeout; resolves once it has it.
- */
 async function holdWriteLock(state: string): Promise<void> {
   (await initializeDatabase(stateDatabase(state))).close();
   const script = join(state, "..", "hold.ts");
@@ -130,7 +116,6 @@ await held.rollback();
   });
 }
 
-/** The text of a tool result that must be an error, checked to be one plain line. */
 function toolError(value: unknown): string {
   const result = CallToolResultSchema.parse(value);
   expect(result.isError).toBe(true);
@@ -142,7 +127,6 @@ function toolError(value: unknown): string {
   return block.text;
 }
 
-/** An MCP server over `state`, for the workspace at `cwd`. */
 async function mcp(cwd: string, state: string): Promise<Client> {
   const transport = new StdioClientTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--state", state],
@@ -191,7 +175,6 @@ describe("a task command the database refuses", { timeout: 60_000 }, () => {
     const state = join(root, "s");
     const source = join(root, "marbles.ts");
     writeFileSync(source, 'import "@foundry.sh/marbles";\n');
-    // The CLI starts the Marbles process, which hosts the workspace.
     cleanups.push(() => stopDaemon(state));
     const attached = marbles(root, state, "attach", "--source", source);
     expect(attached.status, attached.stderr).toBe(0);

@@ -16,18 +16,9 @@ import type {
 } from "./types";
 
 export interface CreateSessionInput {
-  /**
-   * Adopt a specific id (e.g. to resume a known session). Generated if absent.
-   * When a session with this id already exists, `createSession` returns it
-   * unchanged, history included, and ignores the other fields: two callers
-   * that both saw it missing must not reset each other.
-   */
   id?: string;
-  /** The invoking parent message id. */
   parentMessageId?: string;
-  /** Parent session id — writes the sub-agent linkage. */
   parentSessionId?: string;
-  /** Frozen recursion depth for this session (parent depth + 1). */
   recursionDepth?: number;
   title?: string;
 }
@@ -54,7 +45,6 @@ export interface UpdateMessageInput {
 }
 
 export interface SummarizeInput {
-  /** Marker; messages before this one are folded (exclusive). */
   messageId: string;
   sessionId: string;
   summary: {
@@ -70,24 +60,9 @@ export interface SummarizeResult {
 }
 
 export interface SessionsOptions {
-  /** Persistence. Defaults to an in-memory store. */
   readonly store?: SessionStore;
 }
 
-/**
- * Sessions and their messages: the one place that writes a session store.
- *
- * Holds every rule — a message needs its session, a session is filed once,
- * appending or folding a message touches its session, a summary folds the
- * history before it — and builds each change as one
- * {@link SessionStore.commit}, carrying the change events that say what it
- * changed (see {@link SessionChangeEvent}). A message updated in place, and
- * a session update that changes neither title nor status, carry none. Every record it writes is in its kept form
- * (see {@link keptMessage}), so every store is handed the same values. Reads project the store. Mutations serialize
- * per instance; when the store offers a `transaction`, each runs in one, so
- * no write from another `Sessions` over the store lands between its reads
- * and its commit.
- */
 export class Sessions {
   readonly #store: SessionStore;
   #tail: Promise<unknown> = Promise.resolve();
@@ -100,17 +75,14 @@ export class Sessions {
     return this.#store.getSession(id);
   }
 
-  /** Messages for a session, in insertion order. */
   listMessages(sessionId: string): Promise<SessionMessage[]> {
     return this.#store.listMessages(sessionId);
   }
 
-  /** The latest summary (if any) prepended to the non-summarized, non-summary messages. */
   async activeMessages(sessionId: string): Promise<SessionMessage[]> {
     return activeView(await this.#store.listMessages(sessionId));
   }
 
-  /** Creates a session; one already filed under `input.id` is returned unchanged, history kept. */
   createSession(input: CreateSessionInput = {}): Promise<SessionRecord> {
     const record = keptSession(newSessionRecord(input));
     const created = changeEvent("session.created", record.id, record.createdAt);
@@ -128,7 +100,6 @@ export class Sessions {
     id: string,
     patch: UpdateSessionInput
   ): Promise<SessionRecord | null> {
-    // Read now: a caller changing `patch` afterwards changes nothing.
     const taken: UpdateSessionInput = {
       ...(patch.status === undefined ? {} : { status: patch.status }),
       ...(patch.title === undefined ? {} : { title: patch.title }),
@@ -156,12 +127,6 @@ export class Sessions {
     });
   }
 
-  /**
-   * Appends a message to its session and stamps the session's `updatedAt`
-   * with the message's `createdAt`, unless it is already later; rejects
-   * when the session is unknown. The message is built in its kept form when
-   * this is called, so a caller changing `input` afterwards changes nothing.
-   */
   appendMessage(input: CreateMessageInput): Promise<SessionMessage> {
     let message: SessionMessage;
     try {
@@ -184,7 +149,6 @@ export class Sessions {
     });
   }
 
-  /** `patch` is put in its kept form when this is called, so a caller changing it afterwards changes nothing. */
   updateMessage(
     id: string,
     patch: UpdateMessageInput
@@ -209,15 +173,6 @@ export class Sessions {
     });
   }
 
-  /**
-   * Fold the messages before `messageId` under a new summary, in one write:
-   * the summary and every `summarized` flip it stands for land together or
-   * not at all. A summary only means "these messages are folded" if every
-   * message it covers is flipped; a partial write would read back as a
-   * corrupt history — duplicated or dropped context on the next compaction.
-   * The summary is appended like any message, built in its kept form when
-   * this is called. `null` when nothing new precedes the marker.
-   */
   summarize(input: SummarizeInput): Promise<SummarizeResult | null> {
     const { messageId, sessionId } = input;
     let summary: SessionMessage;
@@ -279,11 +234,6 @@ export class Sessions {
   }
 }
 
-/**
- * A change event of `type` on `sessionId`, at the epoch milliseconds the
- * record it changed was stamped with. Built once per call, before the
- * mutation runs, so work run again keeps its id.
- */
 function changeEvent(
   type: "session.created" | "session.updated",
   sessionId: string,
@@ -293,7 +243,6 @@ function changeEvent(
   return { at: new Date(at).toISOString(), id, sessionId, type };
 }
 
-/** The event saying `message` was filed in its session. */
 function messagesAppended(message: SessionMessage): SessionChangeEvent {
   return {
     at: new Date(message.createdAt).toISOString(),
@@ -304,7 +253,6 @@ function messagesAppended(message: SessionMessage): SessionChangeEvent {
   };
 }
 
-/** `session` as of `message` landing in it; a clock that stepped back never moves it backwards. */
 function touched(
   session: SessionRecord,
   message: SessionMessage
@@ -315,25 +263,10 @@ function touched(
   });
 }
 
-/**
- * A session record as every store keeps it: a field holding `undefined` is
- * left out, as JSON leaves it out.
- */
 function keptSession(record: SessionRecord): SessionRecord {
   return withoutUndefined(record);
 }
 
-/**
- * A message as every store keeps it, so each store is handed, and gives
- * back, the same values: a field holding `undefined` is left out, and
- * `parts` and `metadata` are put in their JSON form (see {@link keptValue}).
- * Rejects, naming the path, a message with a value that has no JSON form
- * (a `bigint`, a cycle). It also rejects `parts` or `metadata` the caller
- * supplied whose JSON form is no message (a part that became `null`, a
- * token count that became `null` from NaN); `supplied` says which. What a
- * store already holds is not checked again, so a message filed before the
- * check, or by another writer, can still be folded or have its status set.
- */
 function keptMessage(
   message: SessionMessage,
   supplied: { readonly metadata: boolean; readonly parts: boolean } = {
@@ -367,10 +300,6 @@ function keptMessage(
   return kept as unknown as SessionMessage;
 }
 
-/**
- * An update's fields, read once: its parts and metadata in their JSON form,
- * so the update holds nothing of the caller's.
- */
 function keptPatch(id: string, patch: UpdateMessageInput): UpdateMessageInput {
   let kept: UpdateMessageInput;
   try {
@@ -394,9 +323,6 @@ function keptPatch(id: string, patch: UpdateMessageInput): UpdateMessageInput {
       { cause }
     );
   }
-  // Parts whose JSON form is no list of parts (a `toJSON` that returns
-  // `undefined`, say) are refused, as `appendMessage` refuses them, rather
-  // than read as parts left out.
   const fault = patch.parts === undefined ? undefined : partsFault(kept.parts);
   if (fault !== undefined) {
     throw new TypeError(
@@ -406,14 +332,12 @@ function keptPatch(id: string, patch: UpdateMessageInput): UpdateMessageInput {
   return kept;
 }
 
-/** `record` without the properties that hold `undefined`. */
 function withoutUndefined<T extends object>(record: T): T {
   return Object.fromEntries(
     Object.entries(record).filter(([, value]) => value !== undefined)
   ) as T;
 }
 
-/** Real messages before `messageId` (exclusive): non-summarized, non-summary. */
 export function messagesToSummarize(
   messages: SessionMessage[],
   messageId: string
@@ -445,12 +369,6 @@ function activeView(messages: SessionMessage[]): SessionMessage[] {
   return summary ? [summary, ...rest] : rest;
 }
 
-/**
- * The slice one compaction folds: the latest active summary (if any) followed by
- * the real, not-yet-summarized messages before `messageId`. Folding the prior
- * summary back in makes each new summary subsume the last, so a repeat compaction
- * never drops earlier context. Empty when no new real message precedes the marker.
- */
 export function foldSet(
   messages: SessionMessage[],
   messageId: string
@@ -463,11 +381,6 @@ export function foldSet(
   return prior ? [prior, ...pending] : pending;
 }
 
-/**
- * The record `createSession` files for `input`. Absent optionals are left out
- * rather than set to `undefined`, so a store that serializes the record reads
- * back exactly what it wrote.
- */
 export function newSessionRecord(
   input: CreateSessionInput = {},
   now: number = Date.now()
@@ -486,7 +399,6 @@ export function newSessionRecord(
   };
 }
 
-/** `current` with the fields `patch` sets, stamped `now` unless already later. */
 export function patchSessionRecord(
   current: SessionRecord,
   patch: UpdateSessionInput,
@@ -500,7 +412,6 @@ export function patchSessionRecord(
   };
 }
 
-/** The message `appendMessage` files for `input`, with a fresh id; absent optionals left out. */
 export function newSessionMessage(
   input: CreateMessageInput,
   now: number = Date.now()
@@ -518,7 +429,6 @@ export function newSessionMessage(
   };
 }
 
-/** `current` with the fields `patch` sets, stamped `now` unless already later. */
 export function patchSessionMessage(
   current: SessionMessage,
   patch: UpdateMessageInput,

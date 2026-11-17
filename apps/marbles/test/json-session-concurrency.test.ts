@@ -7,10 +7,8 @@ import { JsonSessionStore } from "~/lib/sessions/json-store";
 
 const writes = vi.hoisted(() => ({
   fail: false,
-  /** The count of started writes at which one fails. */
   failAt: undefined as number | undefined,
   pause: undefined as Promise<void> | undefined,
-  /** Every path read, in order. */
   reads: [] as string[],
   started: 0,
 }));
@@ -131,7 +129,6 @@ describe("session disk write ordering", () => {
       sessionId: "a",
     });
 
-    // The move writes a's file, then b's; the second write fails.
     writes.failAt = writes.started + 2;
     await expect(
       store.commit({ putMessages: [{ ...message, sessionId: "b" }] })
@@ -180,7 +177,6 @@ describe("session disk write ordering", () => {
     directories.push(directory);
     const sessions = new Sessions({ store: new JsonSessionStore(directory) });
     await sessions.createSession({ id: "a" });
-    // A directory where a session file belongs reads as EISDIR, which names no path.
     await mkdir(join(directory, "b.json"));
 
     await expect(

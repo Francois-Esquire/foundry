@@ -6,16 +6,8 @@ import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 import type { BlobFiles } from "../blob";
 import { stagingArea } from "./staging";
 
-/**
- * A published blob, or a temporary left beside one: `<id>.<uuid>.tmp` from
- * `writeFileAtomic`, or `<id>.tmp` from earlier releases.
- */
 const BLOB_FILENAME = /^[a-f0-9-]+(?:\.(?:[a-f0-9-]+\.)?tmp)?$/;
 
-/**
- * Published blobs as files directly under `root`, and staged bytes under
- * `root/.staging`, which listing, reading and removing never reach.
- */
 export function blobFiles(root: string): BlobFiles {
   const directory = resolve(root);
   async function ready(): Promise<string> {

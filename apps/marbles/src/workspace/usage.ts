@@ -66,7 +66,6 @@ export function totalOf(
       cost.kind === "estimated" ||
       (cost.kind === "reported" && cost.estimate)
     ) {
-      // A provider's own estimate shows as an estimate.
       addMoney(estimated, cost);
     } else if (cost.kind === "reported") {
       addMoney(reported, cost);

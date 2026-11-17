@@ -38,7 +38,6 @@ let fallback: Promise<InstanceRuntime> | undefined;
 let createFallback: () => Promise<InstanceRuntime> = async () => {
   const { createDefaultEngine } = await import("~/create");
   const engine = createDefaultEngine();
-  // It is never started, so a provider that lists its models is asked here.
   if (engine.providers?.configured) {
     const problems = await engine.providers
       .refresh()

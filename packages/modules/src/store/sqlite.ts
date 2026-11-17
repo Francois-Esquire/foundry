@@ -37,18 +37,12 @@ import {
   modules,
 } from "./tables";
 
-/**
- * An async Drizzle SQLite database, with or without a relational schema, or a
- * transaction on one. A `drizzle-orm/libsql` database and its transactions
- * both satisfy it, so a host can hand the store either.
- */
 export type ModuleDatabase = BaseSQLiteDatabase<
   "async",
   unknown,
   Record<string, unknown>
 >;
 
-/** The transaction one `commit` runs in, as `onCommit` receives it. */
 export type ModuleTransaction = SQLiteTransaction<
   "async",
   unknown,
@@ -57,41 +51,18 @@ export type ModuleTransaction = SQLiteTransaction<
 >;
 
 export interface SqliteModuleStoreOptions {
-  /** Opened, migrated, and owned by the host; the store never closes it. */
   readonly database: ModuleDatabase;
-  /**
-   * When a commit that resolved is there for good (see
-   * `ModuleStoreDurability`). A Drizzle transaction handed in as `database`
-   * is one the host owns and may roll back, so the store is `"host"` over
-   * it whatever this says, and refuses `"commit"`. Over a plain database the
-   * default is `"commit"`; pass `"host"` when the host has begun a
-   * transaction of its own on the connection (a raw `BEGIN`), which the
-   * store cannot see.
-   */
   readonly durability?: ModuleStoreDurability;
-  /**
-   * Runs inside the commit's transaction after the store's own statements,
-   * so the host can record the change atomically with it. A throw rolls the
-   * whole commit back. It receives the store's own copy of the write, taken
-   * when `commit` was called: exactly what the store wrote, every record
-   * put, whole, in the write's order, and every key a delete named. It does
-   * not say which put filed a record and which replaced one, or what a
-   * replaced or deleted record held; the store has already written when
-   * the hook runs, so that is gone.
-   */
   readonly onCommit?: (
     transaction: ModuleTransaction,
     write: ModuleStoreWrite
   ) => Promise<void>;
-  /** The partition this store reads and writes; any nonempty string. */
   readonly scope: string;
 }
 
-/** Why a call from inside the store's own transaction or hook is refused. */
 const REENTRY =
   "SqliteModuleStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead";
 
-/** Every column of a row but `scope` and `position`. */
 function recordColumns<T extends Record<string, SQLiteColumn>>(
   columns: T
 ): Omit<T, "position" | "scope"> {
@@ -111,18 +82,6 @@ type StoreTable =
   | typeof moduleManifests
   | typeof modules;
 
-/**
- * A `ModuleStore` over the host's SQLite database, in the tables from
- * `@foundry/modules/store/tables`. It behaves as `MemoryModuleStore` does,
- * within its scope.
- *
- * Its calls take turns, as the memory store's do: a call made while a
- * transaction or commit runs waits for it. That keeps two registries over
- * one store apart in this process, and keeps a `:memory:` database, which
- * has a single connection, from refusing a call while a transaction holds
- * it. Across connections and processes, `transaction` takes the database's
- * write lock (see there).
- */
 export class SqliteModuleStore implements ModuleStore {
   readonly durability: ModuleStoreDurability;
   readonly #database: ModuleDatabase;
@@ -148,18 +107,6 @@ export class SqliteModuleStore implements ModuleStore {
     this.#onCommit = options.onCommit;
   }
 
-  /**
-   * Takes the write as it stands when `commit` is called: a capture of each
-   * property it names (`./captured`), copied with `structuredClone`, as the
-   * memory store takes it, made before the commit waits its turn. That copy
-   * alone is checked, made into every row, and handed to `onCommit`, so a
-   * caller changing its write later changes nothing. A write the capture or
-   * the copy refuses rejects as it does in the memory store.
-   *
-   * Rejects, before writing anything, a write that puts a value SQLite
-   * would not give back as it was (see {@link unstorable}), naming the
-   * field. A delete of a key no row can hold does nothing.
-   */
   commit(write: ModuleStoreWrite): Promise<void> {
     let owned: ModuleStoreWrite;
     let rows: Rows;
@@ -171,8 +118,6 @@ export class SqliteModuleStore implements ModuleStore {
     }
     return this.#turns.run(() =>
       this.#database.transaction(async (transaction) => {
-        // Before the deletes: a scope's first counter starts past every
-        // position it holds now, rows about to go included.
         const positions = await this.#positions(transaction, owned);
         await this.#delete(
           transaction,
@@ -219,16 +164,6 @@ export class SqliteModuleStore implements ModuleStore {
     );
   }
 
-  /**
-   * Runs `work` inside one database transaction, over a view whose reads
-   * and commits use it; a throw from `work` rolls everything back. In this
-   * process, the store's other calls wait for it. Across connections, the
-   * transaction holds SQLite's write lock from its first statement: Drizzle's
-   * libSQL driver opens every transaction with libSQL's default mode,
-   * `BEGIN IMMEDIATE`. Another connection's write then waits for it, for as
-   * long as that connection's busy timeout allows, or fails with
-   * `SQLITE_BUSY`; it never lands between `work`'s reads and its commit.
-   */
   transaction<T>(work: (view: ModuleStore) => Promise<T>): Promise<T> {
     return this.#turns.run(() =>
       this.#database.transaction((transaction) =>
@@ -245,7 +180,6 @@ export class SqliteModuleStore implements ModuleStore {
     );
   }
 
-  /** `null` for an id no row can hold (see {@link storable}). */
   getModule(id: ModuleId): Promise<Module | null> {
     return this.#turns.run(async () => {
       if (!storable(id)) {
@@ -259,7 +193,6 @@ export class SqliteModuleStore implements ModuleStore {
     });
   }
 
-  /** `null` for a Content id no row can hold. */
   getManifest(contentId: ContentId): Promise<StoredManifest | null> {
     return this.#turns.run(async () => {
       if (!storable(contentId)) {
@@ -278,7 +211,6 @@ export class SqliteModuleStore implements ModuleStore {
     });
   }
 
-  /** `null` for an id no row can hold. */
   getInstallation(id: InstallationId): Promise<StoredInstallation | null> {
     return this.#turns.run(async () => {
       if (!storable(id)) {
@@ -376,11 +308,6 @@ export class SqliteModuleStore implements ModuleStore {
     });
   }
 
-  /**
-   * One page of a list read: the rows in this scope that `plan`'s filter
-   * matches, after the cursor, in position order. `plan` returns `null`
-   * for a filter no row can match.
-   */
   #page<Q extends ModuleListQuery | InstallationListQuery, T>(
     query: Q,
     plan: (owned: Q) => {
@@ -438,11 +365,6 @@ export class SqliteModuleStore implements ModuleStore {
     );
   }
 
-  /**
-   * Files each row. A new row takes the scope's next position; a row put
-   * again keeps its own, and the position it was offered is not handed out
-   * again, so positions only ever grow.
-   */
   async #put(
     transaction: ModuleTransaction,
     table: StoreTable,
@@ -467,7 +389,6 @@ export class SqliteModuleStore implements ModuleStore {
       (batch) =>
         transaction
           .insert(table)
-          // Each row is the table's own: `rowsOf` made it field by field.
           .values(batch as never[])
           .onConflictDoUpdate({
             set: replace,
@@ -476,13 +397,6 @@ export class SqliteModuleStore implements ModuleStore {
     );
   }
 
-  /**
-   * The scope's next position, from `module_positions`, read once for a
-   * write that puts or deletes anything, before its deletes. A scope with no
-   * counter row yet starts past every position any of its tables holds at
-   * that moment, and the commit records the counter, so a delete-only
-   * commit keeps the high-water mark of the rows it removes.
-   */
   async #positions(
     transaction: ModuleTransaction,
     write: ModuleStoreWrite
@@ -512,11 +426,9 @@ export class SqliteModuleStore implements ModuleStore {
         .where(eq(table.scope, this.#scope));
       highest = Math.max(highest, Number(last?.position ?? 0));
     }
-    // No counter row yet: `start` matches no `next`, so the commit saves one.
     return { next: highest + 1, start: Number.NaN };
   }
 
-  /** Records the scope's counter when it is new or the write moved it. */
   async #savePositions(
     transaction: ModuleTransaction,
     positions: Positions
@@ -534,13 +446,11 @@ export class SqliteModuleStore implements ModuleStore {
   }
 }
 
-/** The scope's counter within one commit: where it stood, and where it is now. */
 interface Positions {
   next: number;
   readonly start: number;
 }
 
-/** A write's rows, without `scope` and `position`. */
 interface Rows {
   readonly installations: readonly Omit<
     InstallationRow,
@@ -550,11 +460,6 @@ interface Rows {
   readonly modules: readonly Omit<ModuleRow, "position" | "scope">[];
 }
 
-/**
- * The rows a write puts, made from the store's own copy, field by field.
- * Throws a `RangeError` naming the first field SQLite would not give back
- * as it was, before anything is written.
- */
 function rowsOf(write: ModuleStoreWrite): Rows {
   return {
     installations: (write.putInstallations ?? []).map((stored, index) =>
@@ -615,7 +520,6 @@ function installationRow(
   };
 }
 
-/** A row read back as the record it holds. */
 function installationOf(
   row: Omit<typeof moduleInstallations.$inferSelect, "position" | "scope">
 ): StoredInstallation {
@@ -644,16 +548,7 @@ function unstorable(field: string, reason: string): RangeError {
   return new RangeError(`SqliteModuleStore cannot store ${field}: ${reason}`);
 }
 
-/**
- * Whether SQLite gives `text` back as it was bound. It does not when the text
- * holds U+0000 (libSQL reads it back cut at the NUL) or is not well-formed
- * UTF-16: a lone surrogate is bound as U+FFFD on Node and as nothing on Bun,
- * so it reads back changed, and a key holding one would match another key's
- * row. JSON columns are exempt: JSON escapes both.
- */
 function storable(value: string): boolean {
-  // A key that is not text (a read the types allow no other way) matches
-  // no row, as in the memory store.
   return (
     typeof value === "string" &&
     value.isWellFormed() &&
@@ -661,7 +556,6 @@ function storable(value: string): boolean {
   );
 }
 
-/** A plain-text column value; see {@link storable}. */
 function text<T extends string>(value: T, field: string): T {
   if (typeof value !== "string") {
     throw unstorable(field, `${describe(value)} is not text`);
@@ -675,7 +569,6 @@ function text<T extends string>(value: T, field: string): T {
   return value;
 }
 
-/** Text inside a JSON column: JSON escapes every code unit, so any string. */
 function jsonText(value: string, field: string): string {
   if (typeof value !== "string") {
     throw unstorable(field, `${describe(value)} is not text`);
@@ -683,11 +576,6 @@ function jsonText(value: string, field: string): string {
   return value;
 }
 
-/**
- * A `Date` as ISO 8601 text, which `new Date` reads back to the same
- * millisecond across the whole range a `Date` holds, extended years
- * included. An invalid `Date` has no such text.
- */
 function instant(value: Date, field: string): string {
   if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
     throw unstorable(field, `${describe(value)} is not a valid Date`);
@@ -695,12 +583,6 @@ function instant(value: Date, field: string): string {
   return value.toISOString();
 }
 
-/**
- * An integer column. SQLite does not give back NaN or an infinity (libSQL
- * refuses to bind them), `-0` (it reads back as `0`), or an integer beyond
- * `Number.MAX_SAFE_INTEGER` either way. Every other number, whole or
- * fractional, reads back exactly.
- */
 function integer(value: number, field: string): number {
   if (
     typeof value !== "number" ||
@@ -715,7 +597,6 @@ function integer(value: number, field: string): number {
   return value;
 }
 
-/** A number inside a JSON column: JSON writes NaN and infinities as `null`, `-0` as `0`. */
 function jsonNumber(value: number, field: string): number {
   if (
     typeof value !== "number" ||
@@ -730,20 +611,11 @@ function jsonNumber(value: number, field: string): number {
   return value;
 }
 
-/**
- * `value` itself, once it is known to be JSON that reads back as it is, or
- * a refusal naming the first part that would not: NaN, an infinity or
- * `-0`, `undefined`, a hole in an array, a `bigint` or a function, a value
- * that contains itself, anything but a plain object or an array (a `Date`
- * becomes a string), and a property holding `undefined` (JSON leaves it
- * out). Strings need no check: JSON escapes U+0000 and lone surrogates.
- */
 function json<T>(value: T, field: string): T {
   checkJson(value, field, new Set());
   return value;
 }
 
-/** A plain key reads after a dot in a path; any other is bracketed. */
 const PLAIN_KEY = /^[A-Za-z_$][\w$]*$/;
 
 function checkJson(value: unknown, at: string, ancestors: Set<object>): void {
@@ -826,10 +698,8 @@ function describe(value: unknown): string {
   return value === undefined ? "undefined" : `a ${typeof value}`;
 }
 
-/** SQLite's default limit on the parameters one statement binds. */
 const MAX_PARAMETERS = 32_766;
 
-/** `items` in order, at most `size` at a time; none when `items` is empty. */
 function batches<T>(items: readonly T[], size: number): T[][] {
   const length = Math.max(1, Math.floor(size));
   const result: T[][] = [];
@@ -839,18 +709,15 @@ function batches<T>(items: readonly T[], size: number): T[][] {
   return result;
 }
 
-/** Runs one statement per batch, each after the one before. */
 async function inOrder<T>(
   items: readonly T[],
   run: (item: T) => PromiseLike<unknown>
 ): Promise<void> {
   for (const item of items) {
-    // In sequence: deletes precede puts, and later batches follow earlier ones.
     await run(item);
   }
 }
 
-/** The value an `INSERT` proposed for `column`, inside its `ON CONFLICT`. */
 function excluded(column: SQLiteColumn): SQL {
   return sql.raw(`excluded."${column.name}"`);
 }
