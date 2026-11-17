@@ -58,6 +58,7 @@ export class HostedWorkspaces {
   readonly #database: MarblesDatabase | undefined;
   readonly #hosts = new Map<string, WorkspaceHost>();
   readonly #pending = new Map<string, Promise<WorkspaceHost>>();
+  readonly #unregistering = new Map<string, Promise<boolean>>();
   readonly #options: HostedWorkspacesOptions;
   readonly #inFlight = new Set<Promise<unknown>>();
   #phase: "open" | "closed" = "open";
@@ -114,9 +115,11 @@ export class HostedWorkspaces {
     if (pending !== undefined) {
       return pending;
     }
-    const registering = this.#host(registration, found, args).finally(() => {
-      this.#pending.delete(id);
-    });
+    const registering = this.#afterUnregister(id)
+      .then(() => this.#host(registration, found, args))
+      .finally(() => {
+        this.#pending.delete(id);
+      });
     this.#pending.set(id, registering);
     return registering;
   }
@@ -212,7 +215,19 @@ export class HostedWorkspaces {
     if (this.#phase === "closed") {
       return Promise.reject(new Error("these hosted workspaces are closed"));
     }
-    return this.#track(this.#unregister(id));
+    const unregistering = this.#track(this.#unregister(id));
+    this.#unregistering.set(id, unregistering);
+    const forget = () => {
+      if (this.#unregistering.get(id) === unregistering) {
+        this.#unregistering.delete(id);
+      }
+    };
+    unregistering.then(forget, forget);
+    return unregistering;
+  }
+
+  async #afterUnregister(id: string): Promise<void> {
+    await this.#unregistering.get(id)?.catch(() => undefined);
   }
 
   async #unregister(id: string): Promise<boolean> {
