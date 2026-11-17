@@ -49,14 +49,6 @@ export interface CreateEngineOptions {
   readonly artifacts?: string;
   readonly askable?: boolean;
   readonly catalog: Catalog;
-  /**
-   * The Marbles database the host keeps open, which holds this workspace's
-   * tasks, their recorded changes, and its agent sessions; the host closes
-   * it once the engine is disposed. Without it, an engine given a state dir
-   * opens a handle of its own at its first task or session call and closes
-   * it when disposed. Under `dry` the engine gets neither and keeps them in
-   * memory.
-   */
   readonly database?: StoreDatabase;
   readonly dry: boolean;
   /** The machine environment and the workspace's Varlock values; the process's own when omitted. */
@@ -199,12 +191,6 @@ function modelsFor(options: CreateEngineOptions): {
   return { models, providers };
 }
 
-/**
- * Where the engine keeps the workspace's tasks and agent sessions: in the
- * host's database, scoped by the workspace id; without one but with a
- * state dir, in a handle on the database the engine opens itself (`own`),
- * which it closes once disposed; with neither, in memory.
- */
 function recordsFor(
   state: string | undefined,
   database: StoreDatabase | undefined,
@@ -226,11 +212,6 @@ function recordsFor(
   return { own, records: own.records, sessions: own.sessions };
 }
 
-/**
- * The published `Engine` over a database handle it opened itself, which it
- * closes after everything else it holds: its agents and interactions may
- * still write a session once its records are closed.
- */
 class OwnDatabaseEngine extends PublishedEngine {
   readonly #database: WorkspaceDatabase;
 
@@ -285,7 +266,6 @@ export function createEngine(options: CreateEngineOptions): Engine {
     dry ? undefined : options.database,
     options
   );
-  // The class the package publishes, so a host's engine is that `Engine`.
   const engineOptions: EngineOptions = {
     artifacts: artifactsAt(dry ? undefined : options.artifacts),
     // A dry run writes to memory but reads what real runs left, if any.

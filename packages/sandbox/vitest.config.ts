@@ -15,8 +15,6 @@ export default defineConfig({
           include: ["src/test/**/*.test.ts"],
           maxWorkers: process.env.CI ? 2 : undefined,
           name: "unit",
-          // Bun drops zod's `z` export when Vitest imports it as an external
-          // module, so the suite inlines it to pass on Bun as well as Node.
           server: { deps: { inline: ["zod"] } },
         },
       },

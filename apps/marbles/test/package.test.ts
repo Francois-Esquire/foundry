@@ -160,7 +160,6 @@ test("the tarball installs and shares the library registry with the CLI", async 
     );
     expect(readFileSync(join(installed, "LICENSE"), "utf8")).toContain("MIT");
     expect(readdirSync(installed)).not.toContain("src");
-    // Opening the database applies the migrations the package ships.
     expect(
       readdirSync(join(installed, "dist", "migrations", "meta"))
     ).toContain("_journal.json");
@@ -232,7 +231,6 @@ if (readProcess(stateDir) !== undefined) throw new Error("Release must clear the
 console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing", listed);
 `
     );
-    // A prompt is written with the package's own tags: nothing else is installed.
     writeFileSync(
       join(consumer, "prompt.ts"),
       `
@@ -420,10 +418,8 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       const status = run(cli, ["status", "--state", state], consumer);
       expect(status).toContain("marbles process: pid");
       expect(status).toContain("(worker)");
-      // The daemon recorded the workspace in the database it opened.
       expect(readdirSync(state)).toContain("marbles.db");
       expect(status).toContain(consumer);
-      // A task made through the worker that hosts the workspace.
       expect(
         run(
           cli,
@@ -436,7 +432,6 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
         "stopped Marbles process"
       );
     }
-    // With no process holding it, the database still reads, read-only.
     expect(run(cli, ["status", "--state", state], consumer)).toContain(
       consumer
     );
@@ -446,8 +441,6 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
           .items as { title: string }[]
       ).map((task) => task.title);
     expect(listedTasks(["--state", state])).toEqual(["Through the worker"]);
-    // With no Marbles process and no database yet, a task change makes and
-    // migrates it from the installed migrations; a listing reads it back.
     const taskState = mkdtempSync(join(tmpdir(), "mt-"));
     try {
       expect(
@@ -458,8 +451,6 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
     } finally {
       rmSync(taskState, { force: true, recursive: true });
     }
-    // The installed bin serves MCP over STDIO, stdout carries only frames,
-    // and serving starts no Marbles process.
     const mcpState = mkdtempSync(join(tmpdir(), "mp-"));
     try {
       const session = await rawMcpSession(

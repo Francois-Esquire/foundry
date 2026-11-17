@@ -14,23 +14,6 @@ export function stringifyValue(value: unknown): string {
   }
 }
 
-/**
- * `value` in the form a session keeps it: its JSON form, which every durable
- * store writes and a model is sent. So a kept message never holds what a
- * store cannot copy, and every store keeps the same thing. JSON changes:
- *
- * - `-0` to `0`, and NaN and the infinities to `null`;
- * - a property holding `undefined`, a function or a symbol: left out; in an
- *   array, or a hole in one: `null`;
- * - a value with a `toJSON` (a `Date`, a `URL`): what it returns;
- * - any other object (a `Map`, a class instance): its own enumerable
- *   string-keyed properties, as a plain object.
- *
- * Strings, lone surrogates and U+0000 included, are kept as they are.
- * Throws a `TypeError` naming the first path below `at` with no JSON form:
- * a `bigint`, or a value that contains itself. A getter or `toJSON` that
- * throws is reported at its path the same way.
- */
 export function keptValue(value: unknown, at = "value"): unknown {
   let text: string | undefined;
   try {
@@ -44,18 +27,12 @@ export function keptValue(value: unknown, at = "value"): unknown {
   return text === undefined ? undefined : JSON.parse(text);
 }
 
-/** A key that reads plainly after a dot in a path. */
 const PLAIN_KEY = /^[A-Za-z_$][\w$]*$/;
 
 function propertyPath(at: string, key: string): string {
   return PLAIN_KEY.test(key) ? `${at}.${key}` : `${at}[${JSON.stringify(key)}]`;
 }
 
-/**
- * Where `JSON.stringify(value)` fails, walked as it walks: through
- * `toJSON`, then each array element and each own enumerable property.
- * `undefined` when the walk finds no fault, so the caller names `at`.
- */
 function unkeptPath(
   value: unknown,
   at: string,
@@ -81,7 +58,6 @@ function unkeptPath(
   }
   ancestors.push(current);
   try {
-    // Indices from the length alone: reading an element is the guarded read below.
     const keys = Array.isArray(current)
       ? Array.from({ length: current.length }, (_, index) => index)
       : Object.keys(current);

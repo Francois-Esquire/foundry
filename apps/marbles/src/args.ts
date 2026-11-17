@@ -259,7 +259,6 @@ class TaskLine {
   }
 }
 
-/** `text` parsed as JSON; `flag` names it in the error. */
 function parsedJson(flag: string, text: string): unknown {
   try {
     return JSON.parse(text);
@@ -271,10 +270,6 @@ function parsedJson(flag: string, text: string): unknown {
   }
 }
 
-/**
- * `--metadata <json>` as the object create stores, or update sets over the
- * stored keys; the batch schema checks it.
- */
 function metadataOf(line: TaskLine): JsonObject | undefined {
   const text = line.value("--metadata");
   return text === undefined

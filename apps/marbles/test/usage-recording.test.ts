@@ -893,7 +893,6 @@ it("a direct session none of whose usage was saved is found through the database
       records.facts.find((fact) => fact.sessionId === orphan.ref.id)
     ).toMatchObject({ agentId: UNATTRIBUTED, lost: RECOVERED });
     expect(records.unreadableAt.unowned).toBe(0);
-    // Another workspace's sessions in the same database are never read.
     catalog.reset();
     const other = await startEngine({
       print: () => undefined,

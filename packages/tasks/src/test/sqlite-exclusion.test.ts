@@ -8,7 +8,6 @@ import { type ChildScript, startScript } from "./helpers/child-script";
 import { libsqlDatabases } from "./helpers/sqlite";
 import { execInAnotherProcess } from "./helpers/sqlite-process";
 
-/** What SQLite says when a lock it needs is held. */
 const LOCKED = /locked|busy/i;
 const clock = () => new Date("2026-11-01T00:00:00.000Z");
 const memory = libsqlDatabases("memory");
@@ -66,7 +65,6 @@ describe.each([
         }),
       ]);
 
-      // The second waits its turn, sees the first's edge, and is refused.
       expect(
         results.map((result) =>
           result.status === "fulfilled"
@@ -85,8 +83,6 @@ describe("a snapshot against another connection to its file", () => {
     let attempted: string | undefined;
     const reader = files.connect(database, {
       onQuery: (query) => {
-        // Just before the second read, another process adds a task and an
-        // edge on it in one commit.
         if (
           attempted === undefined &&
           query.includes('from "task_dependencies"')
@@ -143,9 +139,6 @@ describe("a transaction against another connection to its file", () => {
   });
 
   test("another process's write is held off, then lands after it commits", async () => {
-    // A busy timeout, as a host sets one: the other process holds a shared
-    // lock now and then while it waits for the write lock, and a commit
-    // without one would fail with SQLITE_BUSY in that moment.
     const database = files.connect(await files.open(), { busyTimeout: 5000 });
     const store = new SqliteTaskStore({ database, scope: "s" });
     const a = task("a");
@@ -154,8 +147,6 @@ describe("a transaction against another connection to its file", () => {
 
     try {
       const outcome = await store.transaction(async (view) => {
-        // Started only now, while this transaction holds the write lock:
-        // the other process tries it, with no busy timeout, and is refused.
         writer = await startScript(WRITER, [
           pathToFileURL(
             createRequire(import.meta.url).resolve("@libsql/client")
@@ -171,7 +162,6 @@ describe("a transaction against another connection to its file", () => {
 
       expect(outcome.probe).toMatch(LOCKED);
       expect(outcome.after).toEqual(a);
-      // Its retry, with a busy timeout, lands after this commit.
       expect(await outcome.writer.line()).toBe("written");
       await outcome.writer.exited();
       expect(await store.get(a.id)).toEqual(task("a", "outside"));
@@ -181,11 +171,6 @@ describe("a transaction against another connection to its file", () => {
   });
 });
 
-/**
- * Another process's writer on a task file: it tries the write lock once
- * with no busy timeout and prints `free` or the error, then takes it with
- * a busy timeout, renames task `a`, and prints `written`.
- */
 const WRITER = `const [client, url, title] = process.argv.slice(2);
 const { createClient } = await import(client);
 const probe = createClient({ url });

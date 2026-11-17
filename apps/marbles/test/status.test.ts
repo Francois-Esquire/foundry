@@ -48,7 +48,6 @@ async function layout() {
   } finally {
     database.close();
   }
-  // A session file an earlier Marbles left is not one of them.
   writeJson(join(dir, "sessions", "s3.json"), {});
   return { dir, state };
 }

@@ -13,7 +13,6 @@ import {
 import type { EntryInputs } from "../../substrate";
 import { openStore, type StoreKind } from "./stores";
 
-/** An Artifact bound to a directory, over a fresh store of `kind`. */
 export async function fixture(
   entries: EntryInputs = {},
   files = false,
@@ -55,7 +54,6 @@ export async function fixture(
   };
 }
 
-/** The published blob files under a fixture's root, staging aside. */
 export async function publishedFiles(root: string): Promise<string[]> {
   return (await readdir(join(root, ".blobs"))).filter(
     (name) => name !== ".staging"

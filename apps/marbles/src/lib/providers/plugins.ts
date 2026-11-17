@@ -85,14 +85,6 @@ export interface ProviderPlugin<S = unknown> {
   }): S | null;
   readonly id: string;
   readonly label: string;
-  /**
-   * The models the instance's own server reports, in place of `catalog`.
-   * The configuration calls it before it builds the instance, never while
-   * Airplane Mode is on. It stops waiting at the timeout, at disposal, or
-   * when Airplane Mode turns on, aborts `signal`, and ignores a later
-   * answer. A rejection leaves the entry with no models and the reason as
-   * its problem.
-   */
   list?(context: {
     readonly env: Readonly<Record<string, string>>;
     readonly settings: S;
@@ -290,14 +282,11 @@ export const vercelPlugin: ProviderPlugin<z.infer<typeof VERCEL>> = {
   settings: VERCEL,
 };
 
-/** Strict: a key it does not know is an error, never dropped. */
 const GATEWAY = z.strictObject({
-  /** The environment variable holding the gateway's key. */
   apiKey: z.string().optional(),
   baseURL: z.string(),
 });
 
-/** The gateway's own config: its base URL, and its key when the named variable is set. */
 function gatewayConfig(
   settings: z.infer<typeof GATEWAY>,
   env: Readonly<Record<string, string>>
@@ -311,7 +300,6 @@ function gatewayConfig(
 }
 
 export const gatewayPlugin: ProviderPlugin<z.infer<typeof GATEWAY>> = {
-  // Nothing is supplied: the models are what the server lists.
   catalog: () => [],
   create: ({ defaults, env, id, models, settings }) => ({
     provider: gatewayProvider({

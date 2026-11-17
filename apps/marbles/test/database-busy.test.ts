@@ -1,10 +1,3 @@
-/**
- * A handle another process kept waiting past the busy timeout. With
- * `@libsql/client` 0.18 the connection that met `SQLITE_BUSY` keeps the
- * failed statement open, and its next transaction fails at `COMMIT`; the
- * handle must go on working with a fresh connection, its settings applied.
- */
-
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -39,7 +32,6 @@ function scratch(): string {
   return root;
 }
 
-/** Whether `error`, or anything in its causes, has a message matching `pattern`. */
 function causedBy(pattern: RegExp): (error: unknown) => boolean {
   return (error) => {
     for (let cause = error; cause instanceof Error; cause = cause.cause) {
@@ -52,15 +44,9 @@ function causedBy(pattern: RegExp): (error: unknown) => boolean {
 }
 
 interface Holder {
-  /** Let go of the lock and wait for the process to exit. */
   release(): Promise<void>;
 }
 
-/**
- * Another process holding a lock on `file` until released: the write lock
- * (`write`), or a read transaction (`read`), which in a rollback journal
- * keeps a writer from committing.
- */
 async function holdLock(file: string, kind: "read" | "write"): Promise<Holder> {
   const release = `${file}.release-${kind}`;
   const script = `import { createClient } from ${JSON.stringify(CLIENT)};
@@ -140,8 +126,6 @@ describe("a handle SQLite answered SQLITE_BUSY", () => {
   });
 
   it("writes again once the lock is free when COMMIT was refused, and still enforces foreign keys", async () => {
-    // A rollback journal, where a reader in another process keeps a writer
-    // from committing: COMMIT itself meets the busy timeout.
     const file = join(scratch(), "rollback.db");
     const url = pathToFileURL(file).href;
     const setup = createClient({ url });
@@ -160,7 +144,6 @@ describe("a handle SQLite answered SQLITE_BUSY", () => {
       const refused = await host.transaction("write");
       await refused.execute("INSERT INTO parent VALUES (1)");
       await expect(refused.commit()).rejects.toSatisfy(causedBy(BUSY));
-      // As Drizzle does after a failed COMMIT; the turn is already given back.
       await refused.rollback();
       await holder.release();
 
@@ -196,7 +179,6 @@ describe("a handle SQLite answered SQLITE_BUSY", () => {
     const writing = await client.transaction("write");
     try {
       await writing.execute("INSERT INTO parent VALUES (7)");
-      // Opened and closed outside the queue, as the replaced client is.
       const other = createClient({ url: pathToFileURL(file).href });
       await other.execute("SELECT count(*) FROM parent");
       other.close();

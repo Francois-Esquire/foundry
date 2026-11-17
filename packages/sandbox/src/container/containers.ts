@@ -42,7 +42,6 @@ export interface CreateContainersOptions {
   /** Guest directory every mount target must equal or fall under. */
   readonly mountTargetRoot?: string;
   readonly runtime: ContainerRuntime;
-  /** Persistence. Defaults to an in-memory store. */
   readonly store?: ContainerStore;
 }
 
@@ -50,39 +49,18 @@ export interface Containers {
   list(): Promise<readonly ContainerRow[]>;
   /** Join a row: another handle if its VM runs here, else a restart under the same row. */
   open(id: string, signal?: AbortSignal): Promise<Container>;
-  /**
-   * Delete a row whose VM is not live here, removing whatever the runtime
-   * still holds under its native name. Refuses while a handle is open; an
-   * `open` or `restart` that begins before the delete commits is refused.
-   */
   remove(id: string): Promise<void>;
-  /**
-   * The one change mechanism. Replaces the VM under the same row, with a new
-   * spec when given. Open handles stay valid and see the new sandbox.
-   * Restarts of one container take turns; one whose last handle closes before
-   * it finishes stops and rejects, and the close removes whatever it booted.
-   */
   restart(
     id: string,
     spec?: ContainerSandboxConstraints,
     signal?: AbortSignal
   ): Promise<void>;
-  /**
-   * Close every handle and stop every VM; rows go to `stopped`. Then retry
-   * every VM this registry could not remove, and reject while any remains;
-   * calling it again retries them.
-   */
   shutdown(): Promise<void>;
   /** New row, new VM, one handle. */
   start(
     spec: ContainerSandboxConstraints,
     signal?: AbortSignal
   ): Promise<Container>;
-  /**
-   * Stop and remove every VM carrying this instance's labels but no row, and
-   * every VM this registry booted or set out to remove but could not remove.
-   * Returns the native names swept.
-   */
   sweep(signal?: AbortSignal): Promise<readonly string[]>;
 }
 
@@ -99,17 +77,14 @@ export interface Container extends ContainerFacets {
   readonly row: ContainerRow;
 }
 
-/** The fields a registry write may change. Identity and creation time are fixed. */
 type RowPatch = Partial<Pick<ContainerRow, "nativeId" | "spec" | "status">>;
 
 interface Live {
   facets: ContainerFacets;
   handles: number;
-  /** The native name `sandbox` was booted under. */
   nativeId: string;
   row: ContainerRow;
   sandbox: ContainerSandbox;
-  /** The restart in progress, settled; a release waits for it. */
   turn: Promise<void>;
 }
 
@@ -125,7 +100,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
   const live = new Map<string, Live>();
   const pending = new Map<string, Promise<Live>>();
   const releasing = new Map<string, Promise<void>>();
-  /** Ids reserved by a `remove` from its checks until its delete commits. */
   const removing = new Set<string>();
   let stopped = false;
   let tail: Promise<unknown> = Promise.resolve();
@@ -135,15 +109,8 @@ export function createContainers(options: CreateContainersOptions): Containers {
     [CONTAINER_INSTANCE_LABEL]: options.instanceLabel,
   });
 
-  /**
-   * Native names of VMs no live row holds that this registry booted or set
-   * out to remove, and could not remove. They stay this registry's to
-   * remove: `sweep` and `shutdown` retry them. A native name is never booted
-   * twice, so a name here never becomes live again.
-   */
   const abandoned = new Set<string>();
 
-  /** Remove a VM no live row holds; one that will not go is kept to retry. */
   const discard = async (
     name: string,
     sandbox: ContainerSandbox
@@ -155,12 +122,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
     }
   };
 
-  /**
-   * Remove an old VM by its native name. A stop or remove that fails may mean
-   * the VM is gone (the expected case) or that it is stuck, and the runtime
-   * cannot say which, so the name is kept for `sweep` and `shutdown`: their
-   * inventory drops it if it is gone and retries it if it is not.
-   */
   const removeNative = async (name: string): Promise<void> => {
     try {
       await runtime.stopResource(name);
@@ -170,13 +131,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
     }
   };
 
-  /**
-   * Read the runtime's inventory, then retry the VMs that were abandoned
-   * before it was read: remove those it lists, forget those it does not. A
-   * name abandoned while the inventory was being read is left for the next
-   * call, as the inventory may predate its VM. Returns the inventory and the
-   * names removed; rejects, keeping the rest, if any would not go.
-   */
   const reclaim = async (
     signal: AbortSignal | undefined
   ): Promise<{
@@ -229,13 +183,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
     return row;
   };
 
-  /**
-   * Runs one read-modify-write of the store: serialized in this registry, and
-   * inside the store's transaction when it offers one, so no other write from
-   * any registry over the store lands between its reads and its commit.
-   * `work` reads and commits through `view` only. Runtime calls stay outside,
-   * so a slow VM holds up no other row.
-   */
   const serialized = <T>(
     work: (view: ContainerStore) => Promise<T>
   ): Promise<T> => {
@@ -249,11 +196,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
     return run;
   };
 
-  /**
-   * Changes fields of a row that must still exist, over the row as stored,
-   * and keeps the result on the entry. Identity and creation time are fixed.
-   * A patch that depends on the row is worked out from the row as stored.
-   */
   const update = async (
     entry: { row: ContainerRow },
     patch: RowPatch | ((current: ContainerRow) => RowPatch)
@@ -270,7 +212,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
     });
   };
 
-  /** A new row in `starting` under its first native name, refused if the id is taken. */
   const insert = (constraints: ContainerSandboxConstraints) =>
     serialized(async (view): Promise<ContainerRow> => {
       const id = globalThis.crypto.randomUUID();
@@ -293,11 +234,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
       return row;
     });
 
-  /**
-   * Boot a VM under the native name the row already records, then record
-   * whether it came up. The name is written first so that a VM this process
-   * never got to remove can still be found and removed by the next boot.
-   */
   const boot = async (
     entry: { row: ContainerRow },
     constraints: ContainerSandboxConstraints,
@@ -335,19 +271,15 @@ export function createContainers(options: CreateContainersOptions): Containers {
       );
       sandbox = await startContainerSandbox(
         await provisionContainerSandbox(config, { runtime }, mounts),
-        // The VM exists and would not go: keep it for `sweep` and `shutdown`.
         { onLeftBehind: () => abandoned.add(nativeId) }
       );
     } catch (error: unknown) {
-      // The boot's own error is the one to report; the row is best effort.
       await update(entry, { status: "failed" }).catch(() => undefined);
       throw error;
     }
     try {
       await update(entry, { status: "running" });
     } catch (error: unknown) {
-      // The VM is up but its row could not say so, and no live row will
-      // hold it: remove it now, or keep it for `sweep` and `shutdown`.
       await discard(nativeId, sandbox);
       await update(entry, { status: "failed" }).catch(() => undefined);
       throw error;
@@ -363,7 +295,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
     };
   };
 
-  /** Boot a row whose native name is already recorded, and make it live. */
   const bringUp = async (
     entry: { row: ContainerRow },
     constraints: ContainerSandboxConstraints,
@@ -383,12 +314,10 @@ export function createContainers(options: CreateContainersOptions): Containers {
   const release = (entry: Live): Promise<void> => {
     live.delete(entry.row.id);
     const done = (async () => {
-      // A restart under way finishes first, so the VM removed is its VM.
       await entry.turn;
       try {
         await entry.sandbox.remove();
       } catch (error: unknown) {
-        // No live row holds it any more: keep it for `sweep` and `shutdown`.
         abandoned.add(entry.nativeId);
         throw error;
       }
@@ -504,8 +433,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
         );
       }
       assertNotRemoving(id);
-      // Reserved before the first await and held until the delete commits,
-      // so no `open` can begin on the row while it is being removed.
       removing.add(id);
       try {
         await released(id);
@@ -532,7 +459,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
         return;
       }
       const given = spec === undefined ? undefined : parseSpec(spec);
-      /** Refuses to go on once the last handle has closed. */
       const assertStillLive = (): void => {
         if (live.get(id) !== entry) {
           throw new SandboxError(
@@ -543,8 +469,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
       };
       const run = async (): Promise<void> => {
         assertStillLive();
-        // Read at its turn, so a restart queued behind one with a new spec
-        // boots that spec rather than the one stored when it was called.
         const constraints = given ?? parseSpec(JSON.parse(entry.row.spec));
         await update(entry, {
           status: "restarting",
@@ -561,7 +485,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
           entry.sandbox = booted.sandbox;
           entry.facets = booted.facets;
           entry.nativeId = booted.nativeId;
-          // A close during the boot is waiting to remove the VM just booted.
           assertStillLive();
         } catch (error: unknown) {
           if (live.get(id) === entry) {
@@ -570,7 +493,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
           throw error;
         }
       };
-      // Restarts of one container take turns; a release waits for the last.
       const turn = entry.turn.then(run, run);
       entry.turn = turn.catch(() => undefined);
       await turn;

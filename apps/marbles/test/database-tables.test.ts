@@ -16,14 +16,6 @@ import { initializeDatabase } from "~/database/open";
 import { pendingChanges } from "~/database/tasks";
 import { testMachine } from "./helpers/records";
 
-/**
- * A package's tests stand its tables up from the Drizzle definitions
- * (`@foundry/lib/testing/sqlite`); the real database gets them from the
- * migrations Marbles commits. The two must be the same tables, or the
- * package's tests prove nothing about the database Marbles runs on.
- */
-
-/** The package tables Marbles' migrations create. */
 const PACKAGE_TABLES: readonly SQLiteTable[] = [
   agentMessages,
   agentSessions,
@@ -31,7 +23,6 @@ const PACKAGE_TABLES: readonly SQLiteTable[] = [
   taskDependencies,
 ];
 
-/** Every column, index and indexed column of `table`, as SQLite reports them. */
 async function shape(database: StoreDatabase, table: string) {
   const columns = await database.all(
     sql.raw(`PRAGMA table_xinfo(${JSON.stringify(table)})`)
@@ -84,7 +75,6 @@ describe("the read of what is left to deliver", () => {
         "ws",
         { after: 10, handlers: ["a", "b"], limit: 100 }
       ).toSQL();
-      // Bound as the query binds them, on the handle's own connection.
       const { $client: client } = machine.database.database as unknown as {
         readonly $client: Client;
       };
@@ -138,7 +128,6 @@ describe("the read of what is left to deliver", () => {
       expect(after.map((item) => item.position)).toEqual([
         241, 242, 243, 244, 245, 246, 247, 248, 249, 250,
       ]);
-      // A handler declared later is handed every change from the first.
       const late = await records.pending({
         handlers: ["done", "late"],
         limit: 100,

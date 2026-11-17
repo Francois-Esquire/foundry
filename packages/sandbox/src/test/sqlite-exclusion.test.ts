@@ -8,7 +8,6 @@ import { createSqliteContainerStore } from "../store/sqlite";
 import { type ChildScript, startScript } from "./helpers/child-script";
 import { libsqlDatabases } from "./helpers/sqlite";
 
-/** What SQLite says when a lock it needs is held. */
 const LOCKED = /locked|busy/i;
 const files = libsqlDatabases("file");
 
@@ -55,9 +54,6 @@ describe("a transaction against another connection to its file", () => {
 
   it("another process's write is held off, then lands after it commits", async () => {
     const opened = await files.open();
-    // A busy timeout, as a host sets one: the other process holds a shared
-    // lock now and then while it waits for the write lock, and a commit
-    // without one would fail with SQLITE_BUSY in that moment.
     const database = files.connect(opened, { busyTimeout: 5000 });
     const store = createSqliteContainerStore({ database, scope: "s" });
     await store.commit({ putContainers: [row("a")] });
@@ -65,8 +61,6 @@ describe("a transaction against another connection to its file", () => {
 
     try {
       const outcome = await store.transaction?.(async (view) => {
-        // Started only now, while this transaction holds the write lock:
-        // the other process tries it, with no busy timeout, and is refused.
         writer = await startScript(WRITER, [
           pathToFileURL(
             createRequire(import.meta.url).resolve("@libsql/client")
@@ -82,7 +76,6 @@ describe("a transaction against another connection to its file", () => {
 
       expect(outcome?.probe).toMatch(LOCKED);
       expect(outcome?.after).toStrictEqual(row("a"));
-      // Its retry, with a busy timeout, lands after this commit.
       expect(await outcome?.writer.line()).toBe("written");
       await outcome?.writer.exited();
       expect(await store.get("a")).toStrictEqual(row("a", "failed"));
@@ -92,11 +85,6 @@ describe("a transaction against another connection to its file", () => {
   });
 });
 
-/**
- * Another process's writer on a sandbox file: it tries the write lock once
- * with no busy timeout and prints `free` or the error, then takes it with
- * a busy timeout, sets row `a`'s status, and prints `written`.
- */
 const WRITER = `const [client, url, status] = process.argv.slice(2);
 const { createClient } = await import(client);
 const probe = createClient({ url });

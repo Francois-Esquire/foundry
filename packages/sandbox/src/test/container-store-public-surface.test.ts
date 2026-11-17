@@ -7,19 +7,15 @@ import { createMemoryContainerStore } from "../store/memory";
 import type { ParsedImport } from "./helpers/boundary-scan";
 import { importSites, REPO_ROOT, sourceFiles } from "./helpers/boundary-scan";
 
-/** The store interface and the stores, which load without a provider. */
 const CONTRACTS_ROOT = join(REPO_ROOT, "packages/sandbox/src/store");
 
-/** The record definitions the contract may name, as types only. */
 const RECORDS_SCHEMA = join(REPO_ROOT, "packages/sandbox/src/schema.ts");
 
-/** Plain constants, the row statuses among them, that the tables name. */
 const RECORD_CONSTANTS = join(
   REPO_ROOT,
   "packages/sandbox/src/container/constants.ts"
 );
 
-/** The only store files that may load Drizzle. */
 const DRIZZLE_FILES = ["sqlite.ts", "tables.ts"].map((file) =>
   join(CONTRACTS_ROOT, file)
 );
