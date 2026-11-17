@@ -41,7 +41,6 @@ function cases(artifact: string): Readonly<Record<string, Case>> {
     init: { args: ["init", "developer"] },
     list: { args: ["list"] },
     mcp: { args: ["mcp"] },
-    modules: { args: ["modules", "--all"], exits: 0 },
     relink: { args: ["relink", "--all"] },
     roll: { args: ["roll", "hello"] },
     run: { args: ["run"], stopAfterMs: 10_000 },

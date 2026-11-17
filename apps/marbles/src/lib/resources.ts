@@ -3,7 +3,6 @@ export const RESOURCE_KINDS = [
   "session",
   "artifact",
   "sandbox",
-  "module",
 ] as const;
 
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
@@ -12,7 +11,6 @@ const SHAREABLE: ReadonlySet<ResourceKind> = new Set([
   "run",
   "session",
   "artifact",
-  "module",
 ]);
 
 export function isResourceKind(value: string): value is ResourceKind {

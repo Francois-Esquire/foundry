@@ -54,7 +54,6 @@ interface Positionals {
   readonly init: { readonly starter: StarterId };
   readonly list: NoPositionals;
   readonly mcp: NoPositionals;
-  readonly modules: Listing;
   readonly relink: Listing;
   readonly roll: { readonly name: string };
   readonly run: NoPositionals;
@@ -143,7 +142,6 @@ const GRAMMAR: {
   },
   list: none("list"),
   mcp: none("mcp"),
-  modules: listing("modules"),
   relink: listing("relink"),
   roll: ([name, ...rest]) => {
     if (name === undefined || rest.length > 0) {

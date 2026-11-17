@@ -38,7 +38,6 @@ describe("parseArgs", () => {
       "sessions",
       "artifacts",
       "sandboxes",
-      "modules",
       "relink",
     ]) {
       expect(parseArgs([command])).toMatchObject({ all: false, command });
