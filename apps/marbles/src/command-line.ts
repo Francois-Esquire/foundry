@@ -75,7 +75,6 @@ const USAGE = `marbles — programmable workspace automation
   sessions [--all]           agent sessions: id, messages, updated, summary
   artifacts [--all]          artifacts: id, name, type, status, updated
   sandboxes [--all]          sandbox containers: id, status, created
-  modules [--all]            modules: id and the artifact behind it
   share <kind> <id> <dir>    show one of this workspace's resources in the workspace at <dir> too
   unshare <kind> <id> <dir>  stop showing it there; the resource itself stays
   relink [--all]             rebuild .marbles/ links to this workspace's artifact files from the database
@@ -98,7 +97,7 @@ roll start it when none runs. Everything lives under the Foundry home
 sessions, runs, providers and the rest in marbles/marbles.db; each workspace
 (the project above .foundry/marbles) gets marbles/<id>/ for its run output and
 worktrees; artifact files are under artifacts/. Each resource (run, session, artifact,
-sandbox, module) belongs to the workspace it was made in and can be shared with others;
+sandbox) belongs to the workspace it was made in and can be shared with others;
 the listings show this workspace's own and shared resources, or with --all every
 workspace's. .marbles/ in a workspace holds links to its artifact files, rebuilt by
 relink from the database. --dry-run
@@ -189,9 +188,9 @@ function resourceContext(
   };
 }
 
-function listing<
-  C extends "artifacts" | "modules" | "runs" | "sandboxes" | "sessions",
->(kind: ResourceKind): Handler<ArgsOf<C>> {
+function listing<C extends "artifacts" | "runs" | "sandboxes" | "sessions">(
+  kind: ResourceKind
+): Handler<ArgsOf<C>> {
   return {
     dry: "reads only",
     needs: "workspace",
@@ -493,7 +492,6 @@ export const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   },
   list: { dry: "dry mode", needs: "triggers", run: listTriggers },
   mcp: { dry: "dry mode", needs: "nothing", run: serveMcp },
-  modules: listing("module"),
   relink: {
     dry: { refused: "relink rebuilds links from the Marbles database" },
     needs: "workspace",

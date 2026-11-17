@@ -23,12 +23,6 @@ const LINES: {
         `${shown.ref.id}  ${shown.value.name}  ${shown.value.type}  [${shown.value.status}]  ${shown.value.updatedAt.toISOString()}${belonging(shown, here)}`
     );
   },
-  async module(view, here) {
-    return (await view.modules()).map(
-      (shown) =>
-        `${shown.ref.id}  artifact ${shown.value.artifactId}${belonging(shown, here)}`
-    );
-  },
   async run(view, here) {
     return (await view.runs()).flatMap((shown) => {
       const { record } = shown.value;

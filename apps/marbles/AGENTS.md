@@ -224,8 +224,7 @@ Five buckets, each importing only what sits below it:
   identity key; `DatabaseProviderStore.forState` is the same for a
   process that keeps no handle open. Its settings may hold secrets: `initializeDatabase` keeps
   the database file and its side files mode 0600, and nothing the provider
-  store throws quotes a setting. The modules
-  tables are composed and migrated; only the resource view reads them yet.
+  store throws quotes a setting.
   `associations.ts` keeps which workspaces other than its owner each
   resource is shared with (`marbles_resource_workspaces`), under the rules
   `ResourceAssociations` in `lib/resources.ts` states; `resources.ts`

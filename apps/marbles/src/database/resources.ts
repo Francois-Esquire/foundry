@@ -4,9 +4,6 @@ import type { Artifact, ArtifactId } from "@foundry/artifacts";
 import type { ArtifactCursor } from "@foundry/artifacts/listing";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
-import type { ModuleId } from "@foundry/modules/domain";
-import type { Module } from "@foundry/modules/schema";
-import { SqliteModuleStore } from "@foundry/modules/store/sqlite";
 import type { ContainerRow } from "@foundry/sandbox/schema";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import type { RunRecord } from "@foundry/workflows/schema";
@@ -166,10 +163,6 @@ export class ResourceView {
     return shown.sort((a, b) => b.value.createdAt - a.value.createdAt);
   }
 
-  modules(): Promise<readonly Shown<Module>[]> {
-    return this.#show("module", this.#modules());
-  }
-
   async find(kind: ResourceKind, id: string): Promise<readonly ResourceRef[]> {
     const shown = await this.#show(kind, this.#reader(kind));
     return shown.map(({ ref }) => ref).filter((ref) => ref.id === id);
@@ -241,8 +234,6 @@ export class ResourceView {
     switch (kind) {
       case "artifact":
         return this.#artifacts() as KindReader<unknown>;
-      case "module":
-        return this.#modules() as KindReader<unknown>;
       case "run":
         return this.#runs() as KindReader<unknown>;
       case "sandbox":
@@ -385,40 +376,6 @@ export class ResourceView {
         }),
       id: (row) => row.id,
       list: (owner) => asBusy(() => store(owner).list()),
-    };
-  }
-
-  #modules(): KindReader<Module> {
-    const store = (owner: string) =>
-      new SqliteModuleStore({ database: this.#database, scope: owner });
-    return {
-      get: (owner, ids) =>
-        asBusy(async () => {
-          const modules = store(owner);
-          const found: Module[] = [];
-          for (const id of ids) {
-            const module = await modules.getModule(id as ModuleId);
-            if (module !== null) {
-              found.push(module);
-            }
-          }
-          return found;
-        }),
-      id: (module) => module.id,
-      list: (owner) =>
-        asBusy(async () => {
-          const modules: Module[] = [];
-          let after: number | undefined;
-          do {
-            const page = await store(owner).listModules({
-              limit: PAGE,
-              ...(after === undefined ? {} : { after }),
-            });
-            modules.push(...page.items);
-            after = page.next;
-          } while (after !== undefined);
-          return modules;
-        }),
     };
   }
 }
