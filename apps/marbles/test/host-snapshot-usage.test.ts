@@ -30,8 +30,9 @@ async function inHost(
   const script = join(root, `host-${String(Date.now())}.ts`);
   await writeFile(
     script,
-    `import { rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+    `import { join } from "node:path";
+import { sql } from "drizzle-orm";
+import { writeDatabase } from ${JSON.stringify(join(SRC, "database/open.ts"))};
 import { hostWorkspace } from ${JSON.stringify(join(SRC, "workspace/host.ts"))};
 const report = {};
 const state = ${JSON.stringify(join(root, "state"))};
@@ -94,7 +95,7 @@ step("plain").do(() => 1);
       `const launched = await host.engine.launch("plain", {});
 await launched.result;
 // A saved turn for the run, as the agents manager records one.
-host.engine.usage.record({
+await host.engine.usage.record({
   agentId: "reviewer",
   completedAt: Date.now(),
   cost: { amount: 0.5, currency: "USD", kind: "reported", reference: "provider" },
@@ -118,10 +119,10 @@ await host.snapshot();
 globalThis.usageDown = true;
 report.downAgain = shown(await host.snapshot());
 globalThis.usageDown = false;
-// The usage collection's directory replaced by a file: listing it fails.
-const usage = join(state, host.id, "usage");
-rmSync(usage, { force: true, recursive: true });
-writeFileSync(usage, "not a directory");
+// The usage facts' table gone from the database: reading them fails.
+await writeDatabase(join(state, "marbles.db"), (database) =>
+  database.run(sql\`drop table marbles_usage_facts\`)
+);
 report.listingDown = shown(await host.snapshot());`
     );
 

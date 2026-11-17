@@ -4,7 +4,7 @@
  * status, a safe error code and only the usage a provider reported.
  */
 
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -35,6 +35,7 @@ import {
 } from "~/lib/observations";
 import { observedSession } from "~/lib/sandbox/wrapped-session";
 import { testEngine } from "../helpers/engine";
+import { storedExecution } from "../helpers/executions";
 
 let root: string;
 const engines: Engine[] = [];
@@ -242,12 +243,11 @@ it("records a workflow step's agent turns on its run", async () => {
       }),
     }),
   ]);
-  const file = await readFile(
-    join(root, "state", "executions", `${launched.id}.json`),
-    "utf8"
+  const stored = JSON.stringify(
+    await storedExecution(join(root, "state"), launched.id)
   );
-  expect(file).toContain("model-turn");
-  expect(file).not.toContain("private");
+  expect(stored).toContain("model-turn");
+  expect(stored).not.toContain("private");
 });
 
 it("records an agent definition's one-turn call on its workflow run", async () => {

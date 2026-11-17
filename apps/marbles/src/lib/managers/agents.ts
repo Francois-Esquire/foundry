@@ -194,7 +194,7 @@ interface SessionSite extends Omit<SessionTurnSite, "consumed"> {
     usage: SessionUsage | undefined,
     route: SessionRef,
     reported?: ReportedCost
-  ) => void;
+  ) => Promise<void>;
   /** The working directory when neither the call nor a worktree names one: the run's root, or the workspace root. */
   readonly cwd: string;
   /** The run's own session; a fresh session is filed under it. */
@@ -242,7 +242,7 @@ function consumer(
     return;
   }
   const price = catalogPrices(deps.models);
-  return (message, counted, route, reported) => {
+  return async (message, counted, route, reported) => {
     let fact: RecordedUsageFact;
     try {
       fact = usageFact(
@@ -268,7 +268,7 @@ function consumer(
         error instanceof Error ? error.message : String(error)
       );
     }
-    const outcome = usage.ledger.record(fact);
+    const outcome = await usage.ledger.record(fact);
     if (outcome.saved === "marker") {
       deps.warn(
         `usage for turn ${message.id} was not saved (${outcome.error}); a marker records the missing turn`

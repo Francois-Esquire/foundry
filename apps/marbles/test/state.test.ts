@@ -14,8 +14,6 @@ import { readStoredRuns } from "~/database/runs";
 import type { ScheduledEngine } from "~/lib/schedule";
 import { runSchedules, tick } from "~/lib/schedule";
 import { acquireLock } from "~/lib/state/locks";
-import type { StateStore } from "~/lib/state/store";
-import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 import { workspaceState } from "~/lib/state/workspace";
 import type { TriggerStore } from "~/lib/trigger-store";
 import { MemoryTriggerStore } from "~/lib/trigger-store";
@@ -25,7 +23,6 @@ import { temporaryDirectory } from "./helpers/temporary";
 
 const SHORT_HEX_ID_PATTERN = /^[0-9a-f]{12}$/;
 const BOOM_PATTERN = /boom/;
-const PLAIN_NAME = /must be a plain name/;
 
 class Shout extends Step<string, string> {
   readonly definitionKey = "test.shout";
@@ -62,14 +59,6 @@ function engineIn(state: string, print: (line: string) => void) {
   engine.register("quiet", new Quiet().factory());
   engine.register("explode", new Explode().factory());
   return engine.start();
-}
-
-function readJson(path: string): Record<string, unknown> {
-  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (typeof parsed !== "object" || parsed === null) {
-    throw new Error(path);
-  }
-  return { ...parsed };
 }
 
 describe("stored runs", () => {
@@ -271,7 +260,7 @@ describe("schedule state", () => {
         launches += 1;
         return Promise.resolve({ id: "run", result: Promise.resolve("ok") });
       },
-      schedules: () => [schedule],
+      schedules: () => Promise.resolve([schedule]),
       triggers,
     } as ScheduledEngine;
 
@@ -307,7 +296,7 @@ describe("schedule state", () => {
         controller.abort();
         return Promise.resolve({ id: "run", result: Promise.resolve() });
       },
-      schedules: () => [schedule],
+      schedules: () => Promise.resolve([schedule]),
       triggers,
     } as ScheduledEngine;
 
@@ -326,112 +315,5 @@ describe("schedule state", () => {
       lastFinish: new Date(105).toISOString(),
       nextDue: new Date(115).toISOString(),
     });
-  });
-});
-
-describe.each([
-  [
-    "JsonStateStore",
-    () => new JsonStateStore(temporaryDirectory("marbles-store-")),
-    `pid ${String(process.pid)}`,
-  ],
-  ["InMemoryStateStore", () => new InMemoryStateStore(), "this process"],
-] as const)("%s", (_name, open: () => StateStore, holder: string) => {
-  it("reads, lists and removes documents by collection and key", () => {
-    const store = open();
-    expect(store.read("automations", "m")).toBeUndefined();
-    expect(store.list("automations")).toEqual([]);
-    store.write("automations", "m", { seen: [1] });
-    store.write("automations", "a", { seen: [] });
-    store.write("usage", "m", { other: true });
-    expect(store.read("automations", "m")).toEqual({ seen: [1] });
-    expect(
-      store.list("automations").map(({ key, value }) => [key, value])
-    ).toEqual([
-      ["a", { seen: [] }],
-      ["m", { seen: [1] }],
-    ]);
-    expect(store.list("automations")[0]?.modified).toBeGreaterThan(0);
-    store.remove("automations", "m");
-    store.remove("automations", "never");
-    expect(store.read("automations", "m")).toBeUndefined();
-    expect(store.read("usage", "m")).toEqual({ other: true });
-  });
-
-  it("hands out copies, never its own documents", () => {
-    const store = open();
-    const written = { files: { "a.md": "1" } };
-    store.write("automations", "m", written);
-    written.files["a.md"] = "2";
-    const read = store.read("automations", "m") as typeof written;
-    read.files["a.md"] = "3";
-    expect(store.read("automations", "m")).toEqual({ files: { "a.md": "1" } });
-  });
-
-  it("moves a collection's revision on every write and removal, and only then", () => {
-    const store = open();
-    const empty = store.revision("automations");
-    expect(store.revision("automations")).toBe(empty);
-    store.write("automations", "x", { n: 1 });
-    const one = store.revision("automations");
-    expect(one).not.toBe(empty);
-    store.write("usage", "x", { n: 1 });
-    expect(store.revision("automations")).toBe(one);
-    store.write("automations", "x", { n: 1 });
-    const rewritten = store.revision("automations");
-    expect(rewritten).not.toBe(one);
-    store.remove("automations", "x");
-    expect(store.revision("automations")).not.toBe(rewritten);
-  });
-
-  it("holds a lock for one holder until it is released, and says who holds it", () => {
-    const store = open();
-    const lock = store.lock("s");
-    if ("holder" in lock) {
-      throw new Error("expected the lock");
-    }
-    expect(store.lock("s")).toEqual({ holder });
-    const other = store.lock("t");
-    expect(other).toHaveProperty("release");
-    lock.release();
-    const again = store.lock("s");
-    expect(again).toHaveProperty("release");
-    for (const held of [again, other]) {
-      if ("release" in held) {
-        held.release();
-      }
-    }
-  });
-
-  it("refuses a key or lock name that is not one plain name", () => {
-    const store = open();
-    for (const name of ["", ".", "..", "a/b", "../escape", "a\\b", "nul\0"]) {
-      expect(() => store.write("automations", name, {})).toThrow(PLAIN_NAME);
-      expect(() => store.read("automations", name)).toThrow(PLAIN_NAME);
-      expect(() => store.remove("automations", name)).toThrow(PLAIN_NAME);
-      expect(() => store.lock(name)).toThrow(PLAIN_NAME);
-    }
-    expect(store.list("automations")).toEqual([]);
-    store.write("automations", "automation-1.v2", {});
-    expect(store.read("automations", "automation-1.v2")).toEqual({});
-  });
-});
-
-describe("JsonStateStore", () => {
-  it("keeps the layout status reads, and lists an unreadable document with its error", () => {
-    const state = temporaryDirectory("marbles-store-");
-    const store = new JsonStateStore(state);
-    store.write("usage", "s", { lastFinish: "x", version: 1 });
-    expect(readJson(join(state, "usage", "s.json"))).toEqual({
-      lastFinish: "x",
-      version: 1,
-    });
-    writeFileSync(join(state, "usage", "broken.json"), "{ nope");
-    writeFileSync(join(state, "usage", "notes.txt"), "ignored");
-    const [broken, kept] = store.list("usage");
-    expect(broken?.key).toBe("broken");
-    expect(broken?.error).toContain("SyntaxError");
-    expect(store.read("usage", "broken")).toBeUndefined();
-    expect(kept).toMatchObject({ key: "s", value: { lastFinish: "x" } });
   });
 });

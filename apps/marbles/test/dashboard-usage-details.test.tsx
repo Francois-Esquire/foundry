@@ -1,4 +1,11 @@
-import { chmodSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { act } from "react";
@@ -7,13 +14,18 @@ import { step } from "../src/authoring/builder";
 import { catalog } from "../src/authoring/catalog";
 import { agent } from "../src/authoring/resources";
 import { JsonSessionStore } from "../src/lib/sessions/json-store";
-import { JsonStateStore } from "../src/lib/state/store";
 import type { SessionRef } from "../src/lib/types";
+import { MemoryUsageStore } from "../src/lib/usage-store";
 import { DashboardView } from "../src/views/dashboard";
 import type { DashboardSnapshot } from "../src/views/dashboard-model";
 import { dashboardSnapshot } from "../src/workspace/snapshot";
 import { startEngine } from "./helpers/engine";
 import { flush, mount, press, unmount } from "./helpers/render";
+import {
+  FailingUsageStore,
+  putStoredFact,
+  storedUsage,
+} from "./helpers/usage-store";
 
 const WARNING = "may be incomplete: 1 unreadable usage record";
 const PANEL_TEXT = /[│█▀▄\s]+/g;
@@ -60,27 +72,24 @@ async function damagedSnapshot(): Promise<DashboardSnapshot> {
   const launched = await first.launch("priced", {});
   await launched.result;
   await first.dispose();
-  const disk = new JsonStateStore(state);
-  const key = `run.${encodeURIComponent(launched.id)}`;
-  const document = disk.read("usage", key) as {
-    facts: Record<string, Record<string, unknown>>;
-  };
-  const [saved] = Object.values(document.facts);
+  const [saved] = (await storedUsage(state))?.facts ?? [];
   if (!saved) {
     throw new Error("expected a saved fact");
   }
-  saved.cost = {
-    amount: 2,
-    currency: "USD",
-    kind: "reported",
-    reference: "probe",
-  };
-  document.facts.broken = {
+  const reported = {
     ...saved,
-    cost: { amount: "bad" },
-    turnId: "broken",
+    cost: { amount: 2, currency: "USD", kind: "reported", reference: "probe" },
   };
-  disk.write("usage", key, document);
+  await putStoredFact(state, {
+    runId: launched.id,
+    turnId: saved.turnId,
+    value: reported,
+  });
+  await putStoredFact(state, {
+    runId: launched.id,
+    turnId: "broken",
+    value: { ...reported, cost: { amount: "bad" }, turnId: "broken" },
+  });
   const second = await startEngine(durable());
   const snapshot = dashboardSnapshot(await second.runs(), {
     definitions: second.definitions(),
@@ -154,8 +163,8 @@ test("a workflow with no valid facts shows unowned unreadable usage in its Catal
   const launched = await first.launch("healthy", {});
   await launched.result;
   await first.dispose();
-  // A usage document whose name says nothing about its owner, and cannot be read.
-  new JsonStateStore(dir).write("usage", "mystery", { facts: "broken" });
+  mkdirSync(join(dir, "sessions"), { recursive: true });
+  writeFileSync(join(dir, "sessions", "mystery.json"), "{broken");
   const second = await startEngine(durable());
   const snapshot = dashboardSnapshot(await second.runs(), {
     definitions: second.definitions(),
@@ -219,10 +228,12 @@ test("a known workflow whose running run the reader cannot load shows an unattri
   const direct = await host.agents.session(helper);
   await direct.generate("saved direct turn");
   ({ ref } = direct);
-  const usageDir = join(dir, "usage");
   const transcript = join(dir, "sessions", `${direct.ref.id}.json`);
   const { mode } = statSync(transcript);
-  const writer = await startEngine(durable());
+  const writer = await startEngine({
+    ...durable(),
+    usageStore: new FailingUsageStore(new MemoryUsageStore(), () => true),
+  });
   // A fresh reader: the consumer's run is still running in another engine.
   const catalogDetails = async (): Promise<string> => {
     catalog.reset();
@@ -253,7 +264,6 @@ test("a known workflow whose running run the reader cannot load shows an unattri
     return frame;
   };
   try {
-    chmodSync(usageDir, 0o500);
     const running = await writer.launch("consumer", {});
     await ready;
     const frame = await catalogDetails();
@@ -271,12 +281,10 @@ test("a known workflow whose running run the reader cannot load shows an unattri
       "Cost : unknown · 1 unreadable usage record may belong here"
     );
     expect(blind).not.toContain("no usage recorded");
-    chmodSync(usageDir, 0o700);
     release();
     await running.result;
   } finally {
     chmodSync(transcript, mode);
-    chmodSync(usageDir, 0o700);
     release();
     await writer.dispose();
     await host.dispose();

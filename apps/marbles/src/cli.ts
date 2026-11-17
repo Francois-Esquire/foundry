@@ -131,7 +131,11 @@ type Handler<A extends Flags> =
     }
   | {
       readonly needs: "triggers";
-      run(args: A, opened: OpenedWorkspace, triggers: Triggers): void;
+      run(
+        args: A,
+        opened: OpenedWorkspace,
+        triggers: Triggers
+      ): Promise<void> | void;
     }
   | {
       /**
@@ -183,14 +187,14 @@ async function listSessions(
   }
 }
 
-function listTriggers(
+async function listTriggers(
   _args: Args,
   _opened: OpenedWorkspace,
   triggers: Triggers
-): void {
+): Promise<void> {
   const { automations, registry } = triggers;
   const created = new Map(
-    automations.list().map((record) => [record.id, record.source])
+    (await automations.list()).map((record) => [record.id, record.source])
   );
   /** What a monitor schedule watches: declared in the config, or by an agent. */
   const watched = (key: string): MonitorSpec | undefined =>
@@ -198,7 +202,7 @@ function listTriggers(
   for (const entry of registry.entries()) {
     print(`[${entry.kind}] ${entry.name}`);
   }
-  for (const schedule of automations.schedules()) {
+  for (const schedule of await automations.schedules()) {
     const source =
       schedule.kind === "monitor" ? watched(schedule.key) : undefined;
     if (source) {
@@ -483,8 +487,10 @@ async function printNewRuns(engine: Engine, restored: ReadonlySet<string>) {
   }
 }
 
-function printErrors(automations: Triggers["automations"]): void {
-  for (const [id, error] of Object.entries(automations.errors())) {
+async function printErrors(
+  automations: Triggers["automations"]
+): Promise<void> {
+  for (const [id, error] of Object.entries(await automations.errors())) {
     print(`[automation] ${id}: ${error}`);
   }
 }
@@ -528,8 +534,8 @@ async function dispatch<C extends Command>(
     case "triggers": {
       const opened = await openWorkspace(args, { env: envMode(args), print });
       const triggers = hostTriggers(args, opened);
-      printErrors(triggers.automations);
-      handler.run(args, opened, triggers);
+      await printErrors(triggers.automations);
+      await handler.run(args, opened, triggers);
       return;
     }
     case "connection":

@@ -80,7 +80,11 @@ class LaunchInputError extends Error {
 }
 
 /** A rejected launch input in one line: what the definition takes, and where to get it. */
-function inputHint(engine: Engine, name: string, error: SchemaError): string {
+async function inputHint(
+  engine: Engine,
+  name: string,
+  error: SchemaError
+): Promise<string> {
   const fields =
     engine.definitions().find((entry) => entry.name === name)?.input.fields ??
     [];
@@ -95,8 +99,7 @@ function inputHint(engine: Engine, name: string, error: SchemaError): string {
       fields.filter((field) => field.required).map((field) => [field.name, "…"])
     )
   );
-  const keys = engine
-    .schedules()
+  const keys = (await engine.schedules())
     .filter((record) => record.workflow === name && record.input !== undefined)
     .map((record) => record.key);
   const carried =
@@ -211,7 +214,7 @@ async function readUsage(
   }
   try {
     // The saved facts alone, without what the transcripts would recover.
-    const saved = engine.usage.read();
+    const saved = await engine.usage.read();
     return {
       ...saved,
       unreadable: saved.unreadable + 1,
@@ -236,7 +239,7 @@ async function lastFinishes(
   engine: Engine
 ): Promise<ReadonlyMap<string, number>> {
   const finished = new Map<string, number>();
-  for (const schedule of engine.schedules()) {
+  for (const schedule of await engine.schedules()) {
     const finish = finishedAt(
       await engine.triggers.lastTick(schedule.key).catch(() => undefined)
     );
@@ -296,10 +299,7 @@ function hosted(
     },
     runs: {
       cancel: (runId) => engine.cancel(runId),
-      deleteTrigger(id) {
-        automations.delete(id);
-        return Promise.resolve();
-      },
+      deleteTrigger: (id) => automations.delete(id),
       pause(runId, stepId) {
         if (!engine.pause(runId, stepId)) {
           throw new Error("This step is not running in this process.");
@@ -307,9 +307,8 @@ function hosted(
         return Promise.resolve();
       },
       resume: (runId, stepId, prompt) => engine.resume(runId, stepId, prompt),
-      setTriggerEnabled(id, enabled) {
-        automations.setEnabled(id, enabled);
-        return Promise.resolve();
+      async setTriggerEnabled(id, enabled) {
+        await automations.setEnabled(id, enabled);
       },
       steer(runId, stepId, prompt) {
         engine.steer(runId, stepId, prompt);
@@ -375,7 +374,9 @@ function hosted(
     getRun: (runId): Promise<RunInfo> => dispatches.get(runId),
     id: workspace.id,
     async roll(name, input): Promise<RollResult> {
-      const schedule = engine.schedules().find((record) => record.key === name);
+      const schedule = (await engine.schedules()).find(
+        (record) => record.key === name
+      );
       const launchInput = input === undefined ? schedule?.input : input;
       if (schedule) {
         const { lines, value } = await capture(() =>
@@ -387,9 +388,9 @@ function hosted(
         throw new Error(`no workflow or schedule named "${name}"`);
       }
       const { lines, value } = await capture(() =>
-        engine.run<unknown>(name, launchInput).catch((error: unknown) => {
+        engine.run<unknown>(name, launchInput).catch(async (error: unknown) => {
           throw error instanceof SchemaError
-            ? new LaunchInputError(inputHint(engine, name, error))
+            ? new LaunchInputError(await inputHint(engine, name, error))
             : error;
         })
       );
@@ -403,8 +404,8 @@ function hosted(
       const usage = await readUsage(engine, usageRead);
       return dashboardSnapshot(await engine.runs(), {
         activities: activities.list(),
-        automationErrors: automations.errors(),
-        automations: automations.list(),
+        automationErrors: await automations.errors(),
+        automations: await automations.list(),
         definitions: dispatches.definitions(),
         diagnostics: diagnostics.entries,
         feed: await engine.feed(),
@@ -412,7 +413,7 @@ function hosted(
         monitors: engine.monitors(),
         queued: engine.executions.list(),
         root: workspace.root,
-        schedules: engine.schedules(),
+        schedules: await engine.schedules(),
         setupLogs: diagnostics.setupEntries,
         startedAt,
         status: status(),

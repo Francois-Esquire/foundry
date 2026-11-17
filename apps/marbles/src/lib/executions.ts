@@ -1,10 +1,8 @@
-import { processAlive } from "@foundry/lib/file-lock";
-import {
-  type ExecutionRun,
-  type ExecutionRuns,
-  now,
-  type QueueSettings,
-  type QueueState,
+import type {
+  ExecutionRun,
+  ExecutionRuns,
+  QueueSettings,
+  QueueState,
 } from "./execution-record";
 import {
   ExecutionRecords,
@@ -63,6 +61,7 @@ function validConcurrency(queue: string, concurrency: number): number {
 export class Executions extends ExecutionRecords implements ExecutionRuns {
   readonly #lanes = new Map<string, Lane>();
   readonly #idle = new Set<() => void>();
+  readonly #withdrawing = new Set<string>();
   constructor(
     options: ExecutionRecordsOptions & {
       readonly queues?: Readonly<Record<string, QueueSettings>>;
@@ -120,42 +119,43 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     }
   }
 
-  /** Parked on a question or a pause: its slot goes to the next run. */
   suspend(id: string): void {
-    this.changeRecord(id, { status: "suspended" });
+    this.moveRecord(id, "suspended");
     this.release(id);
   }
 
   /** Back from a park: it takes its slot again without waiting. */
   resume(id: string): void {
-    const run = this.changeRecord(id, { status: "running" });
-    if (run) {
-      this.#lane(run.queue).active.add(id);
+    const run = this.get(id);
+    if (!run || SETTLED_EXECUTION_STATUSES.has(run.status)) {
+      return;
     }
+    this.moveRecord(id, "running");
+    this.#lane(run.queue).active.add(id);
   }
 
-  /**
-   * Take a queued run off its queue and record it cancelled; `false` when it
-   * is not waiting here or in a process that has exited. A run this process
-   * recorded queued but has not yet handed to its queue, which a subscriber
-   * told of it can cancel from that very update, is withdrawn too: nothing
-   * of it has run.
-   */
-  withdraw(id: string): boolean {
+  async withdraw(id: string): Promise<boolean> {
     const run = this.get(id);
     if (run?.status !== "queued") {
       return false;
     }
-    const lane = this.#lanes.get(run.queue);
-    const index = lane?.waiting.findIndex((item) => item.id === id) ?? -1;
-    if (lane && index >= 0) {
-      lane.waiting.splice(index, 1);
-    } else if (run.owner.pid !== process.pid && processAlive(run.owner.pid)) {
-      // Queued in another live process: that process cancels it.
-      return false;
+    this.#withdrawing.add(id);
+    let cancelled = false;
+    try {
+      cancelled = await this.cancelQueued(id);
+    } finally {
+      this.#withdrawing.delete(id);
+      const lane = this.#lane(run.queue);
+      if (cancelled) {
+        const index = lane.waiting.findIndex((item) => item.id === id);
+        if (index >= 0) {
+          lane.waiting.splice(index, 1);
+        }
+      }
+      this.#pump(lane);
+      this.#checkIdle();
     }
-    this.settle(id, "cancelled");
-    return true;
+    return cancelled;
   }
 
   /** Runs waiting in this process's queues, in admission order. */
@@ -186,13 +186,13 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     return lane;
   }
 
-  /** Let in waiting runs, first come first served, while the queue has room. */
   #pump(lane: Lane): void {
     while (lane.active.size < lane.concurrency) {
-      const next = lane.waiting.shift();
-      if (!next) {
+      const [next] = lane.waiting;
+      if (!next || this.#withdrawing.has(next.id)) {
         return;
       }
+      lane.waiting.shift();
       lane.active.add(next.id);
       next.started = this.#start(next);
       // Whoever awaits it sees the failure; `start` and `fail` handle it otherwise.
@@ -201,19 +201,14 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
   }
 
   async #start({ fail, id, start }: Waiting): Promise<void> {
-    const run = this.requireRecord(id);
-    const at = now();
-    const { input, ...rest } = run;
+    const { input } = this.requireRecord(id);
     // Running is on disk before the first effect, or the run does not start.
     try {
-      this.writeRecord({
-        ...rest,
-        revision: run.revision + 1,
-        status: "running",
-        timestamps: { ...run.timestamps, startedAt: at, updatedAt: at },
-      });
+      await this.startRecord(id);
     } catch (error) {
-      this.settle(id, "failed", { code: "not_recorded" });
+      await this.settle(id, "failed", { code: "not_recorded" }).catch(
+        () => undefined
+      );
       fail(error);
       throw error;
     }
@@ -244,17 +239,17 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     id: string,
     status: "complete" | "failed" | "cancelled" | "interrupted",
     error?: { readonly code: string; readonly message?: string }
-  ): void {
+  ): Promise<ExecutionRun | undefined> {
     const run = this.get(id);
-    if (!run || SETTLED_EXECUTION_STATUSES.has(run.status)) {
-      return;
+    if (!run) {
+      return Promise.resolve(undefined);
     }
-    super.settle(id, status, error);
+    const written = super.settle(id, status, error);
     const lane = this.#lanes.get(run.queue);
-    if (lane) {
-      lane.active.delete(id);
+    if (lane?.active.delete(id)) {
       this.#pump(lane);
     }
     this.#checkIdle();
+    return written;
   }
 }

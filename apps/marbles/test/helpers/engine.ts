@@ -12,13 +12,11 @@ import { directory } from "@foundry/workspaces/node";
 import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { catalog } from "~/authoring/catalog";
 import { declareCatalog, echoGit } from "~/create";
-import {
-  defaultWorkspaceRuns,
-  defaultWorkspaceTriggers,
-} from "~/database/managed";
+import { withWorkspaceDatabase } from "~/database/managed";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
+import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { MockOptions, Reply } from "~/lib/models/echo";
 import { mockModels } from "~/lib/models/echo";
@@ -91,19 +89,23 @@ export function testEngine(options: TestEngineOptions = {}): Engine {
   } = options;
   const root = given.root ?? process.cwd();
   const workspaceId = given.workspaceId ?? "test";
-  const engine = new Engine({
+  const engineOptions: EngineOptions = {
     home: NO_HOME,
     root,
     workspaceId,
-    ...(given.state === undefined
-      ? {}
-      : {
-          runs: defaultWorkspaceRuns(given.state, root, workspaceId),
-          triggers: defaultWorkspaceTriggers(given.state, root, workspaceId),
-        }),
     ...given,
     ...testInstances(options),
-  });
+  };
+  const { state } = engineOptions;
+  const engine = new Engine(
+    state === undefined
+      ? engineOptions
+      : withWorkspaceDatabase({
+          records: new MemoryWorkspaceRecords(),
+          ...engineOptions,
+          state,
+        })
+  );
   declareCatalog(engine, catalog);
   return engine;
 }

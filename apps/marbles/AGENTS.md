@@ -43,23 +43,28 @@ Five buckets, each importing only what sits below it:
   authoring words, no views, no CLI. The `Engine` constructor takes the
   packages' own instances (models, session store, containers, artifact
   system, all required; a workspace system, which it builds from its `git`
-  option when omitted; a `StateStore`, a `JsonStateStore` over `state`
-  or in memory without one, for automations, Execution Runs and usage; a
-  `RunStore` and a `TriggerStore`, in memory without one) and builds the managers and everything that
+  option when omitted; and a store for each thing it keeps, each in
+  memory without one: `RunStore`, `ExecutionStore`, `TriggerStore`,
+  `AutomationStore` and `UsageStore`) and builds the managers and everything that
   connects them itself. It owns its run scopes and its trigger state; no
   module global holds either. The workspace's tasks reach it through
   `records` (`lib/events/records.ts`): the host hands in the database's
   (`database/tasks.ts`), and without one the `lib/` class keeps them in
   memory, whatever `state` is. The class the package publishes is
-  `entries/engine.ts`, a tier above `lib/` and `database/`: given `state`
-  and no `records` or no `runs`, it opens the database's
-  (`database/managed.ts`). Each manager has the plain operation as a
+  `entries/engine.ts`, a tier above `lib/` and `database/`: given `state`,
+  it keeps every store it is not handed in the database, over one handle
+  (`withWorkspaceDatabase` in `database/managed.ts`). Each manager has the plain operation as a
   method, usable on the engine directly, and `scoped(frame)` for the view a
   step body gets, which adds replay, cancellation, and cleanup on top; new
   manager behavior goes in the plain method. The engine owns its registry
   and is told what can run through `define`, `schedule`, `monitor`, and `task`. Every launch goes through
   `lib/launcher.ts`, which owns queue admission, host tasks, and live runs.
-  `lib/executions.ts` owns durable execution records and retention.
+  `lib/executions.ts` owns durable execution records and retention; they
+  are kept in an `ExecutionStore` (`lib/execution-store.ts`), each change
+  written in the order it was made, and a step that reads and decides
+  across processes in one store transaction. Agent-created triggers are
+  kept in an `AutomationStore` (`lib/automation/store.ts`) and usage facts
+  in a `UsageStore` (`lib/usage-store.ts`).
   `lib/held-runs.ts` follows held workflow runs to their end;
   `lib/run-store.ts` is where their Runs are kept (`RunStore`, in memory
   by default), and `lib/run-recovery.ts` is the one rule for which parked
@@ -126,7 +131,19 @@ Five buckets, each importing only what sits below it:
   a log file on disk, `<state>/<id>/output/<run>.jsonl`. `triggers.ts`
   is a workspace's trigger state: each schedule's and monitor's last tick
   and each monitor's state by the trigger's key, and the claim that keeps
-  two ticks of one trigger apart, a transaction on the tick's row. Every writer handle goes through `guard.ts`, which
+  two ticks of one trigger apart, a transaction on the tick's row.
+  `executions.ts` is a workspace's Execution Runs: each record a row of
+  `marbles_executions`, its lifecycle changed only from a status the
+  change allows and by the owner it names, and its progress patched only
+  while it is unsettled (`ExecutionStore`); each
+  observation a row of `marbles_execution_observations`, so recording one
+  costs the same however many its run has; and what pruning removed,
+  `marbles_execution_gaps`. The run store's `onCommit` hook writes a
+  workflow's Execution Run there too when its Run parks or resumes, so the
+  two land together. `automations.ts` is the triggers agents created, one
+  row of `marbles_automations` each, an edit a transaction that reads
+  first; `usage.ts` is each agent turn's usage fact, a row of
+  `marbles_usage_facts` by turn. Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no worker opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
@@ -145,10 +162,12 @@ Five buckets, each importing only what sits below it:
   is the one place the Marbles defaults and `--dry-run` are decided; it
   builds the instances, constructs the engine, and copies the catalog in.
   Given the host's `database`, it keeps the tasks, sessions, workflow
-  runs, artifacts, sandbox containers and workspace catalogue there;
+  runs, Execution Runs, trigger state, automations, usage, artifacts,
+  sandbox containers and workspace catalogue there;
   given only a state dir, the engine opens one handle of its own for its
-  tasks, sessions and runs (`openWorkspaceDatabase` in `database/managed.ts`),
-  keeps the rest as it would with no database, and closes it after
+  tasks, sessions, runs, Execution Runs, trigger state, automations and
+  usage (`openWorkspaceDatabase` in `database/managed.ts`), keeps the rest
+  as it would with no database, and closes it after
   everything else it holds, since its agents may write a session after its
   records close.
 - `src/workspace/` hosts one workspace in the process it runs in: source

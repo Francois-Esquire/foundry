@@ -2,15 +2,21 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionStore } from "@foundry/agents/store";
 import { Workflow } from "@foundry/workflows/workflow";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
+import { DatabaseExecutionStore } from "~/database/executions";
+import { initializeDatabase, readDatabase } from "~/database/open";
 import { readStoredRuns } from "~/database/runs";
+import { marblesExecutions } from "~/database/tables";
+import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
+import { parseStored } from "~/lib/execution-record";
+import type { ExecutionStore } from "~/lib/execution-store";
+import { MemoryExecutionStore } from "~/lib/execution-store";
 import { type ExecutionRun, Executions } from "~/lib/executions";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
-import type { StateStore } from "~/lib/state/store";
-import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 import type { TaskContext } from "~/lib/tasks";
+import type { Context } from "~/lib/types";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import {
   blockingTask,
@@ -18,7 +24,10 @@ import {
   exitedPid,
   gate,
   orphan,
+  seedExecution,
+  storedExecution,
   until,
+  withExecutions,
 } from "../helpers/executions";
 
 const fixture = executionFixture();
@@ -32,7 +41,6 @@ const DATE_INPUT = /input\.at is not JSON: it is a Date/;
 it("writes a run when it is queued, before it starts, and when it settles", async () => {
   const state = join(fixture.root, "state");
   const engine = engineWith({ state });
-  const store = new JsonStateStore(state);
   const started: string[] = [];
   const gates = new Map<string, () => void>();
   blockingTask(engine, "build", started, gates);
@@ -48,8 +56,14 @@ it("writes a run when it is queued, before it starts, and when it settles", asyn
   const second = await engine.launch("build", { label: "two" });
   await until(() => started.length === 1);
 
-  const stored = (id: string) => store.read("executions", id) as ExecutionRun;
-  expect(stored(first.id)).toMatchObject({
+  const stored = async (id: string) => {
+    const run = await storedExecution(state, id);
+    if (!run) {
+      throw new Error(`${id} is not stored`);
+    }
+    return run;
+  };
+  expect(await stored(first.id)).toMatchObject({
     correlation: { moduleId: "notes" },
     kind: "task",
     name: "build",
@@ -57,29 +71,29 @@ it("writes a run when it is queued, before it starts, and when it settles", asyn
     queue: "marbles",
     status: "running",
   });
-  expect(stored(first.id).input).toBeUndefined();
-  expect(stored(first.id).timestamps.startedAt).toBeDefined();
-  expect(stored(second.id)).toMatchObject({
+  expect((await stored(first.id)).input).toBeUndefined();
+  expect((await stored(first.id)).timestamps.startedAt).toBeDefined();
+  expect(await stored(second.id)).toMatchObject({
     input: { label: "two" },
     status: "queued",
   });
 
   gates.get("one")?.();
   await first.result;
-  expect(stored(first.id)).toMatchObject({ status: "complete" });
-  expect(stored(first.id).timestamps.settledAt).toBeDefined();
+  expect(await stored(first.id)).toMatchObject({ status: "complete" });
+  expect((await stored(first.id)).timestamps.settledAt).toBeDefined();
   await until(() => started.length === 2);
   gates.get("two")?.();
   await second.result;
-  expect(stored(second.id).status).toBe("complete");
+  expect((await stored(second.id)).status).toBe("complete");
 });
 
 it("never changes a settled run: late progress, parks, resumes and observations are dropped", async () => {
   const executions = new Executions({
-    store: new JsonStateStore(join(fixture.root, "state")),
+    store: new MemoryExecutionStore(),
     warn: () => undefined,
   });
-  const { run } = executions.enqueue({
+  const { run } = await executions.enqueue({
     correlation: {},
     kind: "task",
     name: "save",
@@ -90,13 +104,13 @@ it("never changes a settled run: late progress, parks, resumes and observations 
     () => Promise.resolve(),
     () => undefined
   );
-  executions.settle(run.id, "complete");
+  await executions.settle(run.id, "complete");
   const settled = executions.get(run.id);
 
   executions.progress(run.id, { late: true });
   executions.suspend(run.id);
   executions.resume(run.id);
-  const observed = executions.observe(run.id, {
+  const observed = await executions.observe(run.id, {
     id: "late",
     kind: "effect",
     startedAt: new Date().toISOString(),
@@ -167,60 +181,117 @@ it("keeps a failure's message off the record when its launch says so, and hands 
   );
 });
 
-it("logs a running run's observations one at a time, folds them into its settled record, and keeps them across a crash", async () => {
+it("records a running run's observations one at a time, beside its record, and keeps them across a crash", async () => {
   const state = join(fixture.root, "state");
-  const store = new JsonStateStore(state);
-  const log = (id: string) => join(state, "observations", `${id}.jsonl`);
   const engine = engineWith({ state });
   const hold = gate();
   engine.task({
     name: "program",
     run: async (_input, { observe }: TaskContext) => {
       for (const id of ["call-0", "call-1", "call-2"]) {
-        observe({ id, kind: "effect", status: "running", type: "gateway" });
+        await observe({
+          id,
+          kind: "effect",
+          status: "running",
+          type: "gateway",
+        });
       }
-      observe({ id: "call-1", kind: "effect", type: "gateway" });
+      await observe({ id: "call-1", kind: "effect", type: "gateway" });
       await hold.opened;
     },
   });
   await engine.start();
   const launched = await engine.launch("program", {});
-  await until(() => store.log("observations", launched.id).length === 4);
-
-  // Observing never rewrote the record: it was last written when it started.
-  const record = store.read("executions", launched.id) as ExecutionRun;
-  expect(record).toMatchObject({ revision: 2, status: "running" });
-  expect(record).not.toHaveProperty("observations");
-  const entries = store.log("observations", launched.id);
-  const live = engine.executions.get(launched.id);
+  const live = await vi.waitFor(() => {
+    const run = engine.executions.get(launched.id);
+    expect(run?.observations.at(-1)).toMatchObject({
+      id: "call-1",
+      status: "complete",
+    });
+    return run;
+  });
   expect(live?.observations.map(({ id, status }) => `${id}:${status}`)).toEqual(
     ["call-0:running", "call-2:running", "call-1:complete"]
   );
+  const running = await vi.waitFor(async () => {
+    const run = await storedExecution(state, launched.id);
+    expect(run?.revision).toBe(live?.revision);
+    return run;
+  });
+  expect(running).toMatchObject({
+    revision: live?.revision,
+    status: "running",
+  });
+  expect(running?.observations).toEqual(live?.observations);
 
   hold.open();
   await launched.result;
-  const settled = store.read("executions", launched.id) as ExecutionRun;
-  expect(settled.status).toBe("complete");
-  expect(settled.observations).toEqual(
+  const settled = await storedExecution(state, launched.id);
+  expect(settled?.status).toBe("complete");
+  expect(settled?.observations).toEqual(
     engine.executions.get(launched.id)?.observations
   );
-  expect(existsSync(log(launched.id))).toBe(false);
   await engine.dispose();
 
-  // As a crash while it ran leaves it: the record as it started, and its log.
   const dead = exitedPid();
-  store.remove("executions", launched.id);
-  store.write("executions", launched.id, { ...record, owner: { pid: dead } });
-  for (const entry of entries) {
-    store.append("observations", launched.id, entry as Record<string, unknown>);
-  }
+  await withExecutions(state, async (store) => {
+    const stored = await store.get(launched.id);
+    const record = stored?.value as ExecutionRun;
+    await seedExecution(store, {
+      ...record,
+      observations: [],
+      owner: { pid: dead },
+      status: "running",
+    });
+    for (const observation of live?.observations ?? []) {
+      await store.observe(
+        launched.id,
+        observation,
+        record.timestamps.updatedAt
+      );
+    }
+  });
   const next = engineWith({ state });
   await next.start();
   const recovered = next.executions.get(launched.id);
   expect(recovered).toMatchObject({ status: "interrupted" });
   expect(recovered?.observations).toEqual(live?.observations);
   expect(recovered?.revision).toBeGreaterThan(live?.revision ?? 0);
-  expect(existsSync(log(launched.id))).toBe(false);
+});
+
+it("records an observation at the same cost however many its run has", async () => {
+  const store = new MemoryExecutionStore();
+  const executions = new Executions({ store, warn: () => undefined });
+  const { run } = await executions.enqueue({
+    kind: "task",
+    name: "long",
+    queue: "q",
+  });
+  const observed: ExecutionStore["observe"] = store.observe.bind(store);
+  const written: unknown[] = [];
+  store.observe = (id, observation, at) => {
+    written.push(observation);
+    return observed(id, observation, at);
+  };
+  const transition = store.transition.bind(store);
+  let puts = 0;
+  store.transition = (id, change) => {
+    puts += 1;
+    return transition(id, change);
+  };
+  for (let index = 0; index < 50; index += 1) {
+    await executions.observe(run.id, {
+      id: `o-${String(index)}`,
+      kind: "effect",
+      startedAt: new Date().toISOString(),
+      status: "complete",
+      type: "write",
+    });
+  }
+  expect(written).toHaveLength(50);
+  expect(written.every((item) => !Array.isArray(item))).toBe(true);
+  expect(puts).toBe(0);
+  expect((await store.get(run.id))?.observations).toHaveLength(50);
 });
 
 it("prunes only settled runs, records the gap first, and drops a workflow's Run and output", async () => {
@@ -256,7 +327,7 @@ it("prunes only settled runs, records the gap first, and drops a workflow's Run 
   expect(removed.map((run) => run.id)).toEqual([flow.id]);
   expect(engine.executions.get(flow.id)).toBeUndefined();
   expect(engine.executions.get(held.id)?.status).toBe("running");
-  expect(existsSync(join(state, "executions", `${flow.id}.json`))).toBe(false);
+  expect(await storedExecution(state, flow.id)).toBeUndefined();
   expect(await storedIds()).not.toContain(flow.id);
   expect(existsSync(join(state, "output", `${flow.id}.jsonl`))).toBe(false);
   const [gap] = engine.executions.gaps();
@@ -289,7 +360,7 @@ it("subscribes with a snapshot and every change after, reconcilable by revision"
 
   const seen = new Map<string, ExecutionRun>();
   const updates: ExecutionRun[] = [];
-  const { snapshot, unsubscribe } = engine.executions.subscribe((run) => {
+  const { snapshot, unsubscribe } = await engine.executions.subscribe((run) => {
     updates.push(run);
   });
   for (const run of snapshot) {
@@ -339,15 +410,17 @@ it("keeps JsonSessionStore usable through the Agents SessionStore seam", () => {
   expect(typeof store.commit).toBe("function");
 });
 
-it("skips observations that are not ones, in a record and in its log, without failing the start", async () => {
+it("skips observations that are not ones, without failing the start", async () => {
   const state = join(fixture.root, "state");
-  const store = new JsonStateStore(state);
-  orphan(store, {
-    id: "rn-bad",
-    kind: "task",
-    name: "save",
-    observations: [
-      null,
+  await withExecutions(state, async (store) => {
+    await orphan(store, {
+      id: "rn-bad",
+      kind: "task",
+      name: "save",
+      status: "running",
+    });
+    const at = "x";
+    for (const observation of [
       { id: "half" },
       {
         id: "good",
@@ -356,23 +429,14 @@ it("skips observations that are not ones, in a record and in its log, without fa
         status: "complete",
         type: "write",
       },
-    ] as unknown as ExecutionRun["observations"],
-    status: "running",
-  });
-  store.append("observations", "rn-bad", {
-    observation: null,
-    revision: 9,
-    updatedAt: "x",
-  });
-  store.append("observations", "rn-bad", {
-    observation: {
-      id: "tool",
-      kind: "tool-call",
-      startedAt: "s",
-      status: "nope",
-    },
-    revision: 10,
-    updatedAt: "x",
+      { id: "tool", kind: "tool-call", startedAt: "s", status: "nope" },
+    ]) {
+      await store.observe(
+        "rn-bad",
+        observation as unknown as ExecutionRun["observations"][number],
+        at
+      );
+    }
   });
   const lines: string[] = [];
   const engine = engineWith({ print: (line) => lines.push(line), state });
@@ -384,55 +448,6 @@ it("skips observations that are not ones, in a record and in its log, without fa
     status: "interrupted",
   });
   expect(lines.join("\n")).toMatch(UNREADABLE_OBSERVATION);
-});
-
-it("keeps observations durable on a store that has no logs", async () => {
-  const backing = new InMemoryStateStore();
-  const {
-    append: _append,
-    log: _log,
-    ...rest
-  } = Object.fromEntries(
-    (
-      [
-        "append",
-        "list",
-        "lock",
-        "log",
-        "read",
-        "remove",
-        "revision",
-        "write",
-      ] as const
-    ).map((method) => [method, backing[method].bind(backing)])
-  ) as Required<StateStore>;
-  const store: StateStore = rest;
-  const engine = engineWith({ store });
-  const { promise: observed, resolve: seen } = Promise.withResolvers<void>();
-  const { promise: done, resolve: finish } = Promise.withResolvers<void>();
-  engine.task({
-    name: "save",
-    run: async (_input: unknown, { observe }: TaskContext) => {
-      observe({ id: "w", kind: "effect", status: "running", type: "write" });
-      seen();
-      await done;
-    },
-  });
-  await engine.start();
-  const launched = await engine.launch("save", {});
-  await observed;
-
-  // On the record itself, before the run settles.
-  expect(backing.read("executions", launched.id)).toMatchObject({
-    observations: [{ id: "w", status: "running" }],
-    status: "running",
-  });
-  finish();
-  await launched.result;
-  expect(backing.read("executions", launched.id)).toMatchObject({
-    observations: [{ id: "w" }],
-    status: "complete",
-  });
 });
 
 it("keeps an observation's start when a task completes it without one", async () => {
@@ -459,7 +474,7 @@ it("keeps an observation's start when a task completes it without one", async ()
   });
   await engine.start();
   let first: string | undefined;
-  const subscription = engine.executions.subscribe((run) => {
+  const subscription = await engine.executions.subscribe((run) => {
     first ??= run.observations.find((item) => item.id === "w")?.startedAt;
   });
   const launched = await engine.launch("save", {});
@@ -511,32 +526,35 @@ it("records an input as JSON once: a later change to it changes nothing, and wha
 });
 
 it("takes in another engine's runs and prunes when a host subscribes again", async () => {
-  const store = new InMemoryStateStore();
-  const first = engineWith({ store });
+  const state = join(fixture.root, "state");
+  const first = engineWith({ state });
   first.task({ name: "save", run: () => undefined });
   await first.start();
-  const second = engineWith({ store });
+  const second = engineWith({ state });
   second.task({ name: "save", run: () => undefined });
   await second.start();
 
   const elsewhere = await second.launch("save", {});
   await elsewhere.result;
-  const fresh = first.executions.subscribe(() => undefined);
+  const fresh = await first.executions.subscribe(() => undefined);
   fresh.unsubscribe();
   expect(fresh.snapshot.find((run) => run.id === elsewhere.id)?.status).toBe(
     "complete"
   );
 
   await second.executions.prune([elsewhere.id], () => "host");
-  const after = first.executions.subscribe(() => undefined);
+  const after = await first.executions.subscribe(() => undefined);
   after.unsubscribe();
   expect(after.snapshot.map((run) => run.id)).not.toContain(elsewhere.id);
+  expect(first.executions.gaps()).toMatchObject([
+    { removed: 1, scope: "host" },
+  ]);
 });
 
 it("returns the run another engine sharing the store started for the same source", async () => {
-  const store = new InMemoryStateStore();
+  const state = join(fixture.root, "state");
   let runs = 0;
-  const sharing = [engineWith({ store }), engineWith({ store })];
+  const sharing = [engineWith({ state }), engineWith({ state })];
   for (const engine of sharing) {
     engine.task({
       name: "save",
@@ -548,11 +566,14 @@ it("returns the run another engine sharing the store started for the same source
   }
   const [first, second] = sharing as [Engine, Engine];
 
-  const original = await first.launch("save", {}, { source: "request-1" });
-  const again = await second.launch("save", {}, { source: "request-1" });
+  const [original, again] = await Promise.all([
+    first.launch("save", {}, { source: "request-1" }),
+    second.launch("save", {}, { source: "request-1" }),
+  ]);
 
   expect(again.id).toBe(original.id);
-  await original.result;
+  await Promise.allSettled([original.result, again.result]);
+  await until(() => runs === 1);
   expect(runs).toBe(1);
 });
 
@@ -570,7 +591,9 @@ it("keeps a run's record when its cleanup fails, so pruning it again retries", a
   expect(await engine.executions.prune([flow.id], () => "host")).toEqual([]);
   expect(engine.executions.gaps()).toEqual([]);
   expect(engine.executions.get(flow.id)?.status).toBe("complete");
-  expect(existsSync(join(state, "executions", `${flow.id}.json`))).toBe(true);
+  expect(await storedExecution(state, flow.id)).toMatchObject({
+    status: "complete",
+  });
   expect((await engine.runs()).map((run) => run.id)).toContain(flow.id);
 
   rmSync(file, { recursive: true });
@@ -630,71 +653,168 @@ it("shows a workflow run still being set up on the dashboard, once", async () =>
 
 it("accumulates retention across stale engines without counting the same removal twice", async () => {
   const state = join(fixture.root, "shared-prune");
-  const store = new JsonStateStore(state);
-  const first = new Executions({ store, warn: () => undefined });
-  const second = new Executions({
-    store: new JsonStateStore(state),
-    warn: () => undefined,
-  });
-  const make = (name: string) =>
-    first.enqueue({ kind: "task", name, queue: "default" }).run;
-  const older = make("older");
-  const newer = make("newer");
-  first.settle(older.id, "complete");
-  first.settle(newer.id, "complete");
-  // Distinct settlements make a backwards through-watermark observable.
-  for (const [run, settledAt] of [
-    [older, "2026-01-01T00:00:00.000Z"],
-    [newer, "2026-01-02T00:00:00.000Z"],
-  ] as const) {
-    const stored = first.get(run.id);
-    if (!stored) {
-      throw new Error("settled run missing");
+  await withExecutions(state, async (store) => {
+    const first = new Executions({ store, warn: () => undefined });
+    const make = async (name: string) =>
+      (await first.enqueue({ kind: "task", name, queue: "default" })).run;
+    const older = await make("older");
+    const newer = await make("newer");
+    // Distinct settlements make a backwards through-watermark observable.
+    for (const [run, settledAt] of [
+      [older, "2026-01-01T00:00:00.000Z"],
+      [newer, "2026-01-02T00:00:00.000Z"],
+    ] as const) {
+      await first.settle(run.id, "complete");
+      const settled = first.get(run.id);
+      if (!settled) {
+        throw new Error("settled run missing");
+      }
+      await seedExecution(store, {
+        ...settled,
+        revision: settled.revision + 1,
+        timestamps: { ...settled.timestamps, settledAt },
+      });
     }
-    store.write("executions", run.id, {
-      ...stored,
-      timestamps: { ...stored.timestamps, settledAt },
-    });
-  }
-  // Both readers predate either prune. The second must merge durable gaps.
-  first.load();
-  second.load();
-  const through = [
-    first.get(older.id)?.timestamps.settledAt,
-    first.get(newer.id)?.timestamps.settledAt,
-  ]
-    .sort()
-    .at(-1);
-  expect(await first.prune([newer.id], () => "host")).toHaveLength(1);
-  expect(await second.prune([newer.id, older.id], () => "host")).toHaveLength(
-    1
-  );
-  expect(second.gaps()).toMatchObject([{ removed: 2, scope: "host", through }]);
-  first.load();
-  expect(first.gaps()).toEqual(second.gaps());
+    // Both readers predate either prune. The second must merge durable gaps.
+    const reader = () => new Executions({ store, warn: () => undefined });
+    const one = reader();
+    const two = reader();
+    await one.load();
+    await two.load();
+    expect(await one.prune([newer.id], () => "host")).toHaveLength(1);
+    expect(await two.prune([newer.id, older.id], () => "host")).toHaveLength(1);
+    expect(two.gaps()).toMatchObject([
+      { removed: 2, scope: "host", through: "2026-01-02T00:00:00.000Z" },
+    ]);
+    const later = reader();
+    await later.load();
+    expect(later.gaps()).toEqual(two.gaps());
+  });
 });
 
-it("leaves retention and records unchanged when another process is pruning", async () => {
-  const store = new InMemoryStateStore();
-  const runs = new Executions({ store, warn: () => undefined });
-  const { run } = runs.enqueue({
-    kind: "task",
-    name: "finished",
-    queue: "default",
-  });
-  runs.settle(run.id, "complete");
-  const lock = store.lock("retention-gaps");
-  expect(lock).toBeDefined();
-  try {
-    await expect(runs.prune([run.id], () => "host")).rejects.toThrow(
-      "retention"
-    );
-    expect(runs.get(run.id)?.status).toBe("complete");
-    expect(runs.gaps()).toEqual([]);
-  } finally {
-    if (lock && "release" in lock) {
-      lock.release();
+it("counts each removal once when two engines prune the same runs at once", async () => {
+  const state = join(fixture.root, "racing-prune");
+  await withExecutions(state, async (store) => {
+    const writer = new Executions({ store, warn: () => undefined });
+    const ids: string[] = [];
+    for (const name of ["a", "b", "c"]) {
+      const { run } = await writer.enqueue({ kind: "task", name, queue: "q" });
+      await writer.settle(run.id, "complete");
+      ids.push(run.id);
     }
-  }
-  expect(await runs.prune([run.id], () => "host")).toHaveLength(1);
+    const pruners = [0, 1].map(
+      () => new Executions({ store, warn: () => undefined })
+    );
+    for (const pruner of pruners) {
+      await pruner.load();
+    }
+    const removed = await Promise.all(
+      pruners.map((pruner) => pruner.prune(ids, () => "host"))
+    );
+    expect(
+      removed
+        .flat()
+        .map((run) => run.id)
+        .sort()
+    ).toEqual([...ids].sort());
+    expect(await store.gaps()).toMatchObject([{ removed: 3, scope: "host" }]);
+    expect(await store.list()).toEqual([]);
+  });
+});
+
+it("parks a workflow's Execution Run with its Run, in one write, and warns of nothing", async () => {
+  const state = join(fixture.root, "state");
+  const lines: string[] = [];
+  const opened = await initializeDatabase(stateDatabase(state));
+  const store = new DatabaseExecutionStore({
+    database: opened.database,
+    scope: "test",
+  });
+  const parks: boolean[] = [];
+  const transition = store.transition.bind(store);
+  store.transition = async (runId, change) => {
+    const written = await transition(runId, change);
+    if (change.status === "suspended") {
+      parks.push(written.applied);
+    }
+    return written;
+  };
+  const engine = engineWith({
+    askable: true,
+    executionStore: store,
+    print: (line) => lines.push(line),
+    state,
+  });
+  engine.define({
+    fn: ({ ask }: Context) => ask.question({ title: "continue?" }),
+    kind: "step",
+    name: "probe",
+  });
+  await engine.start();
+  const { id } = await engine.launch("probe", {});
+  await vi.waitFor(() =>
+    expect(engine.executions.get(id)?.status).toBe("suspended")
+  );
+  const parked = engine.executions.get(id);
+  await vi.waitFor(async () =>
+    expect(await storedExecution(state, id)).toMatchObject({
+      revision: parked?.revision,
+      status: "suspended",
+    })
+  );
+  expect(parks).toEqual([false]);
+  expect(lines.filter((line) => line.startsWith("[state]"))).toEqual([]);
+  await engine.dispose();
+  opened.close();
+});
+
+async function storedOf(
+  store: ExecutionStore,
+  id: string
+): Promise<ExecutionRun | undefined> {
+  const stored = await store.get(id);
+  return stored && parseStored(stored);
+}
+
+it("parks into the store the engine was handed, and writes no Execution Run to a database it keeps none in", async () => {
+  const state = join(fixture.root, "state");
+  const store = new MemoryExecutionStore();
+  const engine = engineWith({ askable: true, executionStore: store, state });
+  engine.define({
+    fn: ({ ask }: Context) => ask.question({ title: "continue?" }),
+    kind: "step",
+    name: "probe",
+  });
+  await engine.start();
+  const { id } = await engine.launch("probe", {});
+  await vi.waitFor(async () =>
+    expect(await storedOf(store, id)).toMatchObject({ status: "suspended" })
+  );
+  const rows = await readDatabase(stateDatabase(state), (database) =>
+    database.select().from(marblesExecutions)
+  );
+  expect(rows).toEqual([]);
+});
+
+it("has every change on disk once it is disposed, those it never waited for included", async () => {
+  const state = join(fixture.root, "state");
+  const engine = engineWith({ state });
+  const started: string[] = [];
+  const gates = new Map<string, () => void>();
+  blockingTask(engine, "build", started, gates);
+  await engine.start();
+  const running = await engine.launch("build", { label: "one" });
+  running.result.catch(() => undefined);
+  const queued = await engine.launch("build", { label: "two" });
+  queued.result.catch(() => undefined);
+  await until(() => started.length === 1);
+  const cancelling = engine.cancel(queued.id);
+  await engine.dispose();
+  await cancelling;
+  expect(await storedExecution(state, queued.id)).toMatchObject({
+    status: "cancelled",
+  });
+  expect(await storedExecution(state, running.id)).toMatchObject({
+    status: "cancelled",
+  });
 });

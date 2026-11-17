@@ -123,7 +123,7 @@ it.each(["queued", "running"] as const)(
     });
     await engine.start();
     let cancelled: Promise<void> | undefined;
-    const subscription = engine.executions.subscribe((run) => {
+    const subscription = await engine.executions.subscribe((run) => {
       if (run.name === "t" && run.status === status && !cancelled) {
         cancelled = engine.cancel(run.id);
       }
@@ -148,7 +148,7 @@ it("never dispatches a workflow a subscriber cancels on its running update", asy
   const engine = engineWith();
   await engine.start();
   let cancelled: Promise<void> | undefined;
-  const subscription = engine.executions.subscribe((run) => {
+  const subscription = await engine.executions.subscribe((run) => {
     if (run.name === "flow" && run.status === "running" && !cancelled) {
       cancelled = engine.cancel(run.id);
     }
@@ -178,11 +178,13 @@ it("closes the scope a factory built when its dispatch is withdrawn", async () =
     .do(({ input }) => input);
   engine = engineWith();
   await engine.start();
-  const subscription = engine.executions.subscribe((run: ExecutionRun) => {
-    if (run.name === "leak" && run.status === "running") {
-      ({ id } = run);
+  const subscription = await engine.executions.subscribe(
+    (run: ExecutionRun) => {
+      if (run.name === "leak" && run.status === "running") {
+        ({ id } = run);
+      }
     }
-  });
+  );
 
   const launched = await engine.launch("leak", "x");
   await expect(launched.result).rejects.toThrow(CANCELLED);

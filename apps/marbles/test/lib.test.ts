@@ -39,7 +39,7 @@ function loopEngine(
       started();
       return Promise.resolve({ id: "run", result: Promise.resolve() });
     },
-    schedules: () => schedules,
+    schedules: () => Promise.resolve(schedules),
     triggers: new MemoryTriggerStore(),
   } as ScheduledEngine;
 }
@@ -249,6 +249,47 @@ describe("cadence", () => {
     });
     // Each run takes 25 > cadence 10; the next fires 10 after completion.
     expect(dispatched).toEqual([10, 45, 80]);
+  });
+
+  it("reports a failed read of the schedules and reads again after the polling delay", async () => {
+    let clock = 0;
+    const controller = new AbortController();
+    const every: Schedule = {
+      input: null,
+      key: "read",
+      kind: "schedule",
+      label: "read",
+      trigger: { kind: "interval", ms: 10 },
+      workflow: "w",
+    };
+    const dispatched: number[] = [];
+    const engine = loopEngine([every], () => {
+      dispatched.push(clock);
+      controller.abort();
+    });
+    const reads = engine.schedules;
+    let failures = 1;
+    engine.schedules = () => {
+      if (failures > 0) {
+        failures -= 1;
+        return Promise.reject(new Error("database busy"));
+      }
+      return reads();
+    };
+    const lines: string[] = [];
+    await runSchedules(engine, {
+      now: () => clock,
+      print: (line) => lines.push(line),
+      signal: controller.signal,
+      sleep: (ms) => {
+        clock += ms;
+        return Promise.resolve();
+      },
+    });
+    expect(lines).toContain(
+      "[schedule] reading schedules failed: Error: database busy"
+    );
+    expect(dispatched).toEqual([1010]);
   });
 
   it("waits a cadence after a tick another holder skipped, rather than spinning", async () => {

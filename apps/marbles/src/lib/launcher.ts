@@ -130,6 +130,17 @@ type Live =
 
 type Ending = "cancelled" | "failed" | undefined;
 
+export class RunNotRecordedError extends Error {
+  override readonly name = "RunNotRecordedError";
+
+  constructor(id: string, cause: unknown) {
+    super(
+      `run ${id} ended, but how it ended could not be recorded: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause }
+    );
+  }
+}
+
 /**
  * A run its queue has let in or is about to, until it settles: its abort
  * controller exists before any lifecycle update is published, so a cancel
@@ -151,6 +162,7 @@ export class Launcher {
   readonly #owed = new Map<string, Owed>();
   readonly #live = new Map<string, Live>();
   readonly #admitted = new Map<string, Admission>();
+  readonly #withdrawing: Promise<void>[] = [];
   /**
    * Set when a stop begins and kept: the engine never starts again. A task
    * that gives up its slot from then on is stopped at once, and one that
@@ -201,7 +213,7 @@ export class Launcher {
       throw new Error(`Definition is not registered: ${name}`);
     }
     const task = this.#tasks.get(name);
-    const { existing, run } = this.executions.enqueue({
+    const { existing, run } = await this.executions.enqueue({
       correlation: {
         ...options.correlation,
         ...(options.triggerId === undefined
@@ -243,12 +255,11 @@ export class Launcher {
    * that and what is registered under their name is the kind they were
    * launched as.
    */
-  recover(options: {
+  async recover(options: {
     readonly adopted: ReadonlySet<string>;
-    /** What a workflow run's own file says its status is; `undefined` without one. */
     readonly fileStatus: (run: ExecutionRun) => string | undefined;
-  }): void {
-    const readmitted = this.executions.recover({
+  }): Promise<void> {
+    const readmitted = await this.executions.recover({
       adopted: options.adopted,
       fileStatus: options.fileStatus,
       readmit: (run) => this.#options.recoverQueued && this.#runnableAs(run),
@@ -270,7 +281,7 @@ export class Launcher {
    * already settled is left as it is.
    */
   async cancel(id: string): Promise<void> {
-    if (this.executions.withdraw(id)) {
+    if (await this.executions.withdraw(id)) {
       this.#pay(id, new Error(`run ${id} was cancelled before it started`));
       return;
     }
@@ -308,16 +319,22 @@ export class Launcher {
     await this.#options.workflows.cancel(id);
   }
 
-  /**
-   * Withdraw queued work and abort live dispatches and tasks before
-   * shutdown awaits anything; from now on, a task that starts here is
-   * aborted before its body runs.
-   */
   cancelPending(): void {
     this.#halting = "cancel";
     for (const id of this.executions.waiting()) {
-      this.executions.withdraw(id);
-      this.#pay(id, new Error(`run ${id} was cancelled before it started`));
+      this.#withdrawing.push(
+        this.executions.withdraw(id).then(
+          (cancelled) => {
+            if (cancelled) {
+              this.#pay(
+                id,
+                new Error(`run ${id} was cancelled before it started`)
+              );
+            }
+          },
+          (error: unknown) => this.#pay(id, error)
+        )
+      );
     }
     for (const [id, live] of this.#live) {
       live.controller?.abort(new Error(`run ${id} stopped with the engine`));
@@ -341,6 +358,7 @@ export class Launcher {
       this.#halting ??= "stop";
     }
     this.#abortHalted();
+    await Promise.all(this.#withdrawing.splice(0));
     await Promise.all(
       [...this.#live.values()].map((live) =>
         live.kind === "workflow" ? live.dispatched : undefined
@@ -457,9 +475,9 @@ export class Launcher {
       const error = new Error(
         `run ${id}: no task is registered as ${run.name}`
       );
-      this.executions.settle(id, "failed", this.#failure(id, error));
-      this.#pay(id, error);
-      return Promise.reject(error);
+      return this.#end(id, "failed", { error }).then(() => {
+        throw error;
+      });
     }
     this.#run(task, run, input, controller);
     return Promise.resolve();
@@ -493,12 +511,12 @@ export class Launcher {
     } catch (error) {
       this.#live.delete(run.id);
       if (controller.signal.aborted) {
-        this.executions.settle(run.id, "cancelled");
-        this.#pay(run.id, new Error(`run ${run.id} was cancelled`));
+        await this.#end(run.id, "cancelled", {
+          error: new Error(`run ${run.id} was cancelled`),
+        });
         return;
       }
-      this.executions.settle(run.id, "failed", this.#failure(run.id, error));
-      this.#pay(run.id, error);
+      await this.#end(run.id, "failed", { error });
       throw error;
     } finally {
       outcome.resolve(dispatched);
@@ -600,22 +618,46 @@ export class Launcher {
     endedAs: (error: unknown) => Ending
   ): Promise<void> {
     return result.then(
-      (value) => {
+      async (value) => {
         this.#live.delete(id);
-        this.executions.settle(id, "complete");
-        this.#pay(id, undefined, value);
+        await this.#end(id, "complete", { value });
       },
-      (error: unknown) => {
+      async (error: unknown) => {
         this.#live.delete(id);
-        const ending = endedAs(error);
-        if (ending === "cancelled") {
-          this.executions.settle(id, "cancelled");
-        } else if (ending === "failed") {
-          this.executions.settle(id, "failed", this.#failure(id, error));
-        }
-        this.#pay(id, error);
+        await this.#end(id, endedAs(error), { error });
       }
     );
+  }
+
+  async #end(
+    id: string,
+    ending: "complete" | Ending,
+    outcome: { readonly error?: unknown; readonly value?: unknown }
+  ): Promise<void> {
+    if (ending !== undefined) {
+      let stored: ExecutionRun | undefined;
+      try {
+        stored = await this.executions.settle(
+          id,
+          ending,
+          ending === "failed" ? this.#failure(id, outcome.error) : undefined
+        );
+      } catch (failure) {
+        this.#pay(id, new RunNotRecordedError(id, failure));
+        return;
+      }
+      if (stored && stored.status !== ending) {
+        this.#pay(
+          id,
+          stored.status === "complete"
+            ? undefined
+            : new Error(`run ${id} was ${stored.status} already`),
+          undefined
+        );
+        return;
+      }
+    }
+    this.#pay(id, outcome.error, outcome.value);
   }
 
   /** What a failed run records: its safe code, and its message unless its launch said not to. */

@@ -1,16 +1,9 @@
 import type { JsonValue } from "@foundry/lib/json";
+import { z } from "zod";
 import { EXECUTION_STATUSES, type ExecutionStatus } from "./execution-statuses";
-import { isRecord } from "./state/json";
+import type { StoredExecution } from "./execution-store";
 /** The default queue for a launch that names none. */
 export const DEFAULT_QUEUE = "marbles";
-const STATUSES: ReadonlySet<string> = new Set(EXECUTION_STATUSES);
-const OBSERVATION_STATUSES: ReadonlySet<string> = new Set<ObservationStatus>([
-  "running",
-  "complete",
-  "failed",
-  "denied",
-  "cancelled",
-]);
 
 /**
  * Token counts a provider reported for a model turn. A count is present only
@@ -143,13 +136,6 @@ export interface ExecutionSubscription {
   unsubscribe(): void;
 }
 
-/**
- * What a host reads and steers: the retained runs, their lifecycle as it
- * happens, and the queues. Changes made by another process sharing the store
- * are not announced as they happen; subscribing reads the store again, so a
- * fresh subscription's snapshot carries what other processes wrote or
- * pruned since.
- */
 export interface ExecutionRuns {
   /** Set a queue's concurrency, now; it is created if it does not exist. */
   configure(queue: string, settings: QueueSettings): void;
@@ -163,14 +149,9 @@ export interface ExecutionRuns {
     scopeOf: (run: ExecutionRun) => string
   ): Promise<readonly ExecutionRun[]>;
   queues(): readonly QueueState[];
-  /**
-   * Every change from now on, each as the whole new record. The snapshot is
-   * taken in the same tick, so snapshot and updates together miss nothing;
-   * reconcile by `id`, keeping the highest `revision`. The snapshot is read
-   * from the store, so after a disconnect, or to see what another process
-   * sharing the store did, subscribe again.
-   */
-  subscribe(listener: (run: ExecutionRun) => void): ExecutionSubscription;
+  subscribe(
+    listener: (run: ExecutionRun) => void
+  ): Promise<ExecutionSubscription>;
 }
 
 export interface EnqueueInput {
@@ -182,103 +163,81 @@ export interface EnqueueInput {
   readonly source?: string;
 }
 
-/** What one observation appends to its run's log. */
-export interface LoggedObservation {
-  readonly observation: ExecutionObservation;
-  readonly revision: number;
-  readonly updatedAt: string;
-}
-
 export function now(): string {
   return new Date().toISOString();
 }
 
-function optionalString(value: unknown): boolean {
-  return value === undefined || typeof value === "string";
-}
+const observationBase = {
+  endedAt: z.string().optional(),
+  errorCode: z.string().optional(),
+  id: z.string(),
+  startedAt: z.string(),
+  status: z.enum(["running", "complete", "failed", "denied", "cancelled"]),
+};
 
-/** A stored observation with every field its kind needs. */
-function isObservation(value: unknown): value is ExecutionObservation {
-  if (
-    !(
-      isRecord(value) &&
-      typeof value.id === "string" &&
-      typeof value.startedAt === "string" &&
-      typeof value.status === "string" &&
-      OBSERVATION_STATUSES.has(value.status) &&
-      optionalString(value.endedAt) &&
-      optionalString(value.errorCode)
-    )
-  ) {
-    return false;
-  }
-  switch (value.kind) {
-    case "model-turn":
-      return (
-        typeof value.model === "string" &&
-        typeof value.sessionId === "string" &&
-        optionalString(value.provider) &&
-        (value.usage === undefined || isRecord(value.usage))
-      );
-    case "tool-call":
-      return (
-        typeof value.name === "string" && typeof value.sessionId === "string"
-      );
-    case "effect":
-    case "result":
-      return typeof value.type === "string";
-    default:
-      return false;
-  }
-}
+const observationSchema = z.union([
+  z.looseObject({
+    ...observationBase,
+    kind: z.literal("model-turn"),
+    model: z.string(),
+    provider: z.string().optional(),
+    sessionId: z.string(),
+    usage: z.record(z.string(), z.unknown()).optional(),
+  }),
+  z.looseObject({
+    ...observationBase,
+    kind: z.literal("tool-call"),
+    name: z.string(),
+    sessionId: z.string(),
+  }),
+  z.looseObject({
+    ...observationBase,
+    data: z.unknown().optional(),
+    kind: z.enum(["effect", "result"]),
+    type: z.string(),
+  }),
+]);
 
-/**
- * A stored record, when it has every field a run needs. An unsettled run's
- * record leaves its observations to its log, unless its store keeps none.
- * An observation that is not one is left out, and counted in `dropped`.
- */
-export function parseRun(
-  value: unknown,
+const recordSchema = z.looseObject({
+  correlation: z.record(z.string(), z.string()),
+  error: z
+    .object({ code: z.string(), message: z.string().optional() })
+    .optional(),
+  id: z.string(),
+  input: z.unknown().optional(),
+  kind: z.enum(["workflow", "task"]),
+  name: z.string(),
+  owner: z.object({ pid: z.number() }),
+  progress: z.unknown().optional(),
+  queue: z.string(),
+  revision: z.number(),
+  sequence: z.number(),
+  source: z.string().optional(),
+  status: z.enum(EXECUTION_STATUSES),
+  timestamps: z.object({
+    queuedAt: z.string(),
+    settledAt: z.string().optional(),
+    startedAt: z.string().optional(),
+    updatedAt: z.string(),
+  }),
+});
+
+export function parseStored(
+  stored: StoredExecution,
   dropped?: (count: number) => void
 ): ExecutionRun | undefined {
-  if (
-    !(isRecord(value) && isRecord(value.owner) && isRecord(value.timestamps))
-  ) {
+  const record = recordSchema.safeParse(stored.value);
+  if (!record.success || record.data.id !== stored.id) {
     return undefined;
   }
-  const valid =
-    typeof value.id === "string" &&
-    typeof value.name === "string" &&
-    typeof value.queue === "string" &&
-    typeof value.status === "string" &&
-    STATUSES.has(value.status) &&
-    (value.kind === "workflow" || value.kind === "task") &&
-    typeof value.revision === "number" &&
-    typeof value.sequence === "number" &&
-    typeof value.owner.pid === "number" &&
-    typeof value.timestamps.queuedAt === "string" &&
-    isRecord(value.correlation) &&
-    (value.observations === undefined || Array.isArray(value.observations));
-  if (!valid) {
-    return undefined;
+  const observations = stored.observations.flatMap((value) => {
+    const parsed = observationSchema.safeParse(value);
+    return parsed.success ? [parsed.data as ExecutionObservation] : [];
+  });
+  if (observations.length < stored.observations.length) {
+    dropped?.(stored.observations.length - observations.length);
   }
-  const stored: readonly unknown[] = Array.isArray(value.observations)
-    ? value.observations
-    : [];
-  const observations = stored.filter(isObservation);
-  if (observations.length < stored.length) {
-    dropped?.(stored.length - observations.length);
-  }
-  return { ...value, observations } as unknown as ExecutionRun;
-}
-
-export function isLogged(value: unknown): value is LoggedObservation {
-  return (
-    isRecord(value) &&
-    isObservation(value.observation) &&
-    typeof value.revision === "number" &&
-    typeof value.updatedAt === "string"
-  );
+  return { ...record.data, observations } as unknown as ExecutionRun;
 }
 
 /**
@@ -393,40 +352,6 @@ function checkJsonObject(item: object, at: string, seen: Set<object>): void {
   }
 }
 
-export function parseGaps(value: unknown): Map<string, RetentionGap> {
-  const gaps = new Map<string, RetentionGap>();
-  const stored = isRecord(value) && isRecord(value.gaps) ? value.gaps : {};
-  for (const [scope, gap] of Object.entries(stored)) {
-    if (
-      isRecord(gap) &&
-      typeof gap.removed === "number" &&
-      typeof gap.through === "string" &&
-      typeof gap.updatedAt === "string"
-    ) {
-      gaps.set(scope, {
-        removed: gap.removed,
-        scope,
-        through: gap.through,
-        updatedAt: gap.updatedAt,
-      });
-    }
-  }
-  return gaps;
-}
-
 export function bySequence(a: ExecutionRun, b: ExecutionRun): number {
   return a.sequence - b.sequence || a.id.localeCompare(b.id);
-}
-
-/** The next revision of a run with `patch` applied. */
-export function nextRevision(
-  run: ExecutionRun,
-  patch: Partial<Omit<ExecutionRun, "id" | "revision">>
-): ExecutionRun {
-  return {
-    ...run,
-    ...patch,
-    revision: run.revision + 1,
-    timestamps: { ...run.timestamps, ...patch.timestamps, updatedAt: now() },
-  };
 }

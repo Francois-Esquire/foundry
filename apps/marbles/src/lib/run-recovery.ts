@@ -11,7 +11,7 @@ export interface ParkedRunsOptions {
   readonly print: (line: string) => void;
   readonly registered: (name: string) => boolean;
   readonly runs: RunStore;
-  readonly settled: (runId: string) => boolean;
+  readonly settled: (runId: string) => Promise<boolean>;
   readonly store: Pick<OrchestratorStore, "listRuns">;
 }
 
@@ -42,12 +42,14 @@ async function adopt(
     return passed("nothing here can resume it");
   }
   let refused: string | undefined;
-  const claimed = await runs.claim(run.id, (stored) => {
+  let sawExecution = false;
+  const claimed = await runs.claim(run.id, (stored, execution) => {
     if (stored?.status !== "suspended") {
       refused = `it is ${stored === null ? "gone" : stored.status} now, not parked`;
       return false;
     }
-    if (settled(run.id)) {
+    sawExecution = execution !== undefined && execution !== null;
+    if (execution && SETTLED_EXECUTION_STATUSES.has(execution.status)) {
       refused = "its execution run has settled";
       return false;
     }
@@ -56,7 +58,7 @@ async function adopt(
   if (!claimed) {
     return passed(refused ?? "another live engine owns it");
   }
-  if (settled(run.id)) {
+  if (!sawExecution && (await settled(run.id))) {
     await runs.release(run.id);
     return passed("its execution run has settled");
   }

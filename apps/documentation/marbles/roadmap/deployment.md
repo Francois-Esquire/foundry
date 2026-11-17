@@ -52,10 +52,12 @@ What already supports these targets:
   restart.
 - The scheduler is externally drivable. `tick()` takes an injected clock,
   signal, and scheduled flag; the loop takes an injected sleep. Monitors
-  record what they last saw in the state store, so a poll in another
+  record what they last saw in the trigger store, so a poll in another
   process works.
-- Storage is partly an interface. `StateStore` (schedules, monitors,
-  automations) has JSON and in-memory implementations. `@foundry/workflows`
+- Storage is an interface per thing the engine keeps: `RunStore`,
+  `ExecutionStore`, `TriggerStore`, `AutomationStore` and `UsageStore`, each
+  with an in-memory implementation and one in the Marbles database (SQLite).
+  `@foundry/workflows`
   ships `ExecutionCoordinator` over `ExecutionRepository` and `RunJournal`
   contracts for runs, suspensions, queues, and frames.
 - Sandboxes are injected. The engine takes `containers` as a value or a
@@ -133,7 +135,7 @@ client call. Keep the `hosted` record as the restart path.
 Accept an `OrchestratorStore` on the engine options and give the run
 extras a home in it, defaulting to the in-memory store hydrated from run
 files. A durable implementation then supplies `ExecutionRepository` and
-`RunJournal`. Implement `StateStore` for the same backend. Convex tables are
+`RunJournal`. Implement Marbles' own stores for the same backend. Convex tables are
 the first proof; a SQL backend is the second.
 
 Rebuild run ownership from the store on start, so an engine constructed

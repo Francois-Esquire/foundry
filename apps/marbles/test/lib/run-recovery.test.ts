@@ -1,15 +1,18 @@
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { ExecutionCoordinator } from "@foundry/workflows";
 import { and, eq } from "drizzle-orm";
 import { afterEach, expect, it } from "vitest";
+import { DatabaseExecutionStore } from "~/database/executions";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseRunStore } from "~/database/runs";
 import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
+import type { ExecutionRun } from "~/lib/execution-record";
+import { parseStored } from "~/lib/execution-record";
 import { adoptParkedRuns } from "~/lib/run-recovery";
 import type { ClaimCondition, RunStore } from "~/lib/run-store";
 import { ANY_STORED_RUN } from "~/lib/run-store";
@@ -58,12 +61,44 @@ async function parkedByAnOwner() {
       );
   };
   await ownerDies();
+  const executions = new DatabaseExecutionStore({ database, scope: "ws" });
+  const at = new Date().toISOString();
+  const execution: ExecutionRun = {
+    correlation: {},
+    id: "rn-1",
+    kind: "workflow",
+    name: "flow",
+    observations: [],
+    owner: { pid: spawnSync("true").pid ?? 0 },
+    queue: "marbles",
+    revision: 3,
+    sequence: 1,
+    status: "suspended",
+    timestamps: { queuedAt: at, startedAt: at, updatedAt: at },
+  };
+  await executions.create(execution);
+  const storedExecution = async () => {
+    const stored = await executions.get("rn-1");
+    return stored && parseStored(stored);
+  };
   const next = new DatabaseRunStore({ database, scope: "ws" });
   const store = new ExecutionCoordinator({
     store: await next.open(() => undefined),
   });
-  return { next, owner, ownerDies, store };
+  return {
+    execution,
+    executions,
+    next,
+    owner,
+    ownerDies,
+    root,
+    store,
+    storedExecution,
+  };
 }
+
+const unasked = (): Promise<boolean> =>
+  Promise.reject(new Error("the claim should have read the Execution Run"));
 
 function interleaved(runs: RunStore, between: () => Promise<void>): RunStore {
   return {
@@ -73,7 +108,7 @@ function interleaved(runs: RunStore, between: () => Promise<void>): RunStore {
     },
     close: () => runs.close(),
     durable: runs.durable,
-    open: (recorded) => runs.open(recorded),
+    open: (recorded, follows) => runs.open(recorded, follows),
     recorded: (runId) => runs.recorded(runId),
     release: (runId) => runs.release(runId),
     remove: (runId) => runs.remove(runId),
@@ -91,7 +126,7 @@ it("does not adopt a parked Run its owner resumed, and died running, after the s
       await owner.updateRun("rn-1", { status: "running" });
       await ownerDies();
     }),
-    settled: () => false,
+    settled: unasked,
     store,
   });
 
@@ -105,18 +140,23 @@ it("does not adopt a parked Run its owner resumed, and died running, after the s
 });
 
 it("does not adopt a parked Run whose Execution Run settled after the scan", async () => {
-  const { next, store } = await parkedByAnOwner();
-  let settled = false;
+  const { execution, executions, next, store } = await parkedByAnOwner();
   const lines: string[] = [];
   const adopted = await adoptParkedRuns({
     askable: true,
     print: (line) => lines.push(line),
     registered: () => true,
-    runs: interleaved(next, () => {
-      settled = true;
-      return Promise.resolve();
+    runs: interleaved(next, async () => {
+      await executions.transition("rn-1", {
+        from: ["suspended"],
+        newOwner: process.pid,
+        owner: execution.owner.pid,
+        settledAt: execution.timestamps.updatedAt,
+        status: "cancelled",
+        updatedAt: execution.timestamps.updatedAt,
+      });
     }),
-    settled: () => settled,
+    settled: unasked,
     store,
   });
 
@@ -126,24 +166,28 @@ it("does not adopt a parked Run whose Execution Run settled after the scan", asy
   ]);
 });
 
-it("does not adopt a Run whose Execution Run a dying canceller settled while this engine claimed it", async () => {
+it("reads a settled Execution Run once the claim is held, from a run store that keeps none beside its Runs", async () => {
   const { next, store } = await parkedByAnOwner();
+  const blind: RunStore = {
+    ...interleaved(next, () => Promise.resolve()),
+    claim: (runId, when) => next.claim(runId, (stored) => when(stored)),
+  };
   let reads = 0;
   const lines: string[] = [];
   const adopted = await adoptParkedRuns({
     askable: true,
     print: (line) => lines.push(line),
     registered: () => true,
-    runs: next,
+    runs: blind,
     settled: () => {
       reads += 1;
-      return reads > 1;
+      return Promise.resolve(true);
     },
     store,
   });
 
   expect(adopted.size).toBe(0);
-  expect(reads).toBe(2);
+  expect(reads).toBe(1);
   expect(lines).toEqual([
     "[run] flow rn-1 not adopted: its execution run has settled",
   ]);
@@ -154,6 +198,136 @@ it("does not adopt a Run whose Execution Run a dying canceller settled while thi
   expect(await other.claim("rn-1", ANY_STORED_RUN)).toBe(true);
 });
 
+it("reads a settled Execution Run once the claim is held, when the run store's database holds none for the Run", async () => {
+  const { executions, next, store } = await parkedByAnOwner();
+  await executions.remove("rn-1");
+  let reads = 0;
+  const lines: string[] = [];
+  const adopted = await adoptParkedRuns({
+    askable: true,
+    print: (line) => lines.push(line),
+    registered: () => true,
+    runs: next,
+    settled: () => {
+      reads += 1;
+      return Promise.resolve(true);
+    },
+    store,
+  });
+
+  expect(adopted.size).toBe(0);
+  expect(reads).toBe(1);
+  expect(lines).toEqual([
+    "[run] flow rn-1 not adopted: its execution run has settled",
+  ]);
+});
+
+const SOURCE = resolve(import.meta.dirname, "../../src");
+
+function canceller(root: string) {
+  const script = `
+    const { existsSync, writeFileSync } = await import("node:fs");
+    const { openDatabase } = await import(${JSON.stringify(join(SOURCE, "database/open.ts"))});
+    const { DatabaseRunStore } = await import(${JSON.stringify(join(SOURCE, "database/runs.ts"))});
+    const { DatabaseExecutionStore } = await import(${JSON.stringify(join(SOURCE, "database/executions.ts"))});
+    const { ExecutionRecords } = await import(${JSON.stringify(join(SOURCE, "lib/execution-records.ts"))});
+    const root = ${JSON.stringify(root)};
+    const opened = await openDatabase(${JSON.stringify(stateDatabase(root))});
+    const runs = new DatabaseRunStore({ database: opened.database, scope: "ws" });
+    const records = new ExecutionRecords({
+      runs: {
+        claim: async (id, when) => {
+          const claimed = await runs.claim(id, when);
+          writeFileSync(root + "/claimed", String(claimed));
+          while (!existsSync(root + "/settle")) await Bun.sleep(2);
+          return claimed;
+        },
+        release: async () => {
+          writeFileSync(root + "/released", "");
+          process.kill(process.pid, "SIGKILL");
+        },
+      },
+      store: new DatabaseExecutionStore({ database: opened.database, scope: "ws" }),
+      warn: (line) => console.error(line),
+    });
+    await records.load();
+    await records.cancelOrphan("rn-1");
+  `;
+  const child = spawn("bun", ["-e", script], {
+    cwd: resolve(import.meta.dirname, "../.."),
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  const exited = new Promise<void>((done) => child.on("exit", () => done()));
+  return { exited };
+}
+
+async function appears(path: string): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  while (!existsSync(path)) {
+    if (Date.now() > deadline) {
+      throw new Error(`${path} never appeared`);
+    }
+    await new Promise((wake) => setTimeout(wake, 5));
+  }
+}
+
+it("does not adopt a Run whose Execution Run a canceller settled before dying with its claim", {
+  timeout: 30_000,
+}, async () => {
+  const { next, root, store, storedExecution } = await parkedByAnOwner();
+  const { exited } = canceller(root);
+  await appears(join(root, "claimed"));
+  writeFileSync(join(root, "settle"), "");
+  await exited;
+  expect(await storedExecution()).toMatchObject({ status: "cancelled" });
+
+  const lines: string[] = [];
+  const adopted = await adoptParkedRuns({
+    askable: true,
+    print: (line) => lines.push(line),
+    registered: () => true,
+    runs: next,
+    settled: unasked,
+    store,
+  });
+  expect(adopted.size).toBe(0);
+  expect(lines).toEqual([
+    "[run] flow rn-1 not adopted: its execution run has settled",
+  ]);
+});
+
+it("lands no canceller's settle while this engine decides its claim", {
+  timeout: 30_000,
+}, async () => {
+  const { next, root, store, storedExecution } = await parkedByAnOwner();
+  const { exited } = canceller(root);
+  await appears(join(root, "claimed"));
+  const released = join(root, "released");
+  const deciding: RunStore = {
+    ...interleaved(next, () => Promise.resolve()),
+    claim: (runId, when) =>
+      next.claim(runId, (stored, execution) => {
+        writeFileSync(join(root, "settle"), "");
+        const wait = new Int32Array(new SharedArrayBuffer(4));
+        while (!existsSync(released)) {
+          Atomics.wait(wait, 0, 0, 10);
+        }
+        return when(stored, execution);
+      }),
+  };
+  const adopted = await adoptParkedRuns({
+    askable: true,
+    print: () => undefined,
+    registered: () => true,
+    runs: deciding,
+    settled: unasked,
+    store,
+  });
+  await exited;
+  expect(await storedExecution()).toMatchObject({ status: "suspended" });
+  expect(adopted.size).toBeLessThanOrEqual(1);
+});
+
 it("adopts a Run still parked when it is claimed", async () => {
   const { next, store } = await parkedByAnOwner();
   const adopted = await adoptParkedRuns({
@@ -161,7 +335,7 @@ it("adopts a Run still parked when it is claimed", async () => {
     print: () => undefined,
     registered: () => true,
     runs: next,
-    settled: () => false,
+    settled: unasked,
     store,
   });
   expect([...adopted.keys()]).toEqual(["rn-1"]);

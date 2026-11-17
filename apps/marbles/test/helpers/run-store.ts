@@ -18,7 +18,7 @@ const SCOPE: RecordedScope = {
   session: { id: "run-session" },
 };
 
-async function putRun(
+export async function putRun(
   workflows: WorkflowStore,
   id: string,
   status?: "complete" | "running" | "suspended"

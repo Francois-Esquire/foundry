@@ -29,8 +29,8 @@ persists state by default, while `--dry-run` keeps its state in memory.
 | Artifact | A declared output has stable identity and content versions, independent of a temporary checkout. |
 | Failed attempt | The runtime applies the step's retry policy, if configured. An exhausted policy leaves a failed run. |
 
-Run snapshots are saved at suspension, resumption, and settlement. A saved
-snapshot contains the finished results available at that point; Marbles
+A run's state is committed to the Marbles database as it changes: when it
+starts, parks, resumes and settles. A committed state contains the finished results available at that point; Marbles
 does not checkpoint every instruction or every completed child to disk.
 
 ## Agent execution belongs to a step
@@ -110,14 +110,14 @@ errors warrant another attempt. See the [builder options](/marbles/reference/api
 
 The worker hosting a workspace adopts a saved parked run when its
 definition is still registered, its previous owner is gone, and its
-ownership lock is available. Keep the workspace path and state stores
+claim on it is free. Keep the workspace path and state stores
 stable. The worker rebuilds the workflow tree, restores its recorded inputs,
 and waits for the answer or resume action, which a dashboard gives. Workflow
 setup must therefore stay free of work that should only happen once.
 
-A run interrupted mid-body is not automatically resumed. If a run file
-records it as running or queued, Marbles leaves it orphaned rather than
-adopting it. Launching the automation again creates a new run, which can
+A run interrupted mid-body is not automatically resumed. If the Marbles
+database records its Run as running or queued, Marbles leaves it orphaned
+rather than adopting it. Launching the automation again creates a new run, which can
 repeat earlier effects. See [state and adoption rules](/marbles/reference/state#what-survives-a-restart).
 
 ## Design work that can repeat safely

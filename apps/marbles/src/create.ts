@@ -16,6 +16,11 @@ import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/git";
 import { Catalog } from "~/authoring/catalog";
+import {
+  DatabaseAutomationStore,
+  readAutomations,
+} from "~/database/automations";
+import { DatabaseExecutionStore } from "~/database/executions";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { defaultWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
@@ -29,10 +34,12 @@ import {
 } from "~/database/stores";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { DatabaseTriggerStore } from "~/database/triggers";
+import { DatabaseUsageStore } from "~/database/usage";
 import { Engine as PublishedEngine } from "~/entries/engine";
 import { layout } from "~/layout";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
+import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
@@ -44,7 +51,6 @@ import { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { RegisteredPlugin } from "~/lib/providers/plugins";
 import { FIRST_PARTY_PLUGINS } from "~/lib/providers/plugins";
 import { Registry } from "~/lib/registry";
-import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 
 /**
  * The engine as Marbles runs it. The machine is inspected and the flags are
@@ -118,30 +124,27 @@ export function declareCatalog(target: Declarable, catalog: Catalog): void {
 
 /** What an engine would trigger: the config's declarations and what agents created. */
 export interface Triggers {
-  /** The triggers agents created, read from the state dir. */
   readonly automations: AutomationService;
   /** What the config declared, and the step agent-created monitors share. */
   readonly registry: Registry;
 }
 
-/**
- * The triggers an engine created with these options would have, read
- * without building one. For commands that only list.
- */
 export function readTriggers(
   catalog: Catalog,
-  { dry, stateDir }: Pick<CreateEngineOptions, "dry" | "stateDir">
+  {
+    dry,
+    stateRoot,
+    workspaceId,
+  }: Pick<CreateEngineOptions, "dry" | "stateRoot" | "workspaceId">
 ): Triggers {
   const registry = new Registry();
   declareCatalog(registry, catalog);
-  const state = persisted(dry, stateDir);
   const automations = new AutomationService({
     allowHttp: configuredMonitorUrl(registry),
     registry,
-    store:
-      state === undefined
-        ? new InMemoryStateStore()
-        : new JsonStateStore(state),
+    store: dry
+      ? new MemoryAutomationStore()
+      : readAutomations(stateRoot ?? layout().state, workspaceId),
   });
   return { automations, registry };
 }
@@ -264,16 +267,28 @@ function recordsFor(
   state: string | undefined,
   database: StoreDatabase | undefined,
   { root, workspaceId }: CreateEngineOptions
-): Pick<EngineOptions, "records" | "runs" | "sessions" | "triggers"> & {
+): Pick<
+  EngineOptions,
+  | "automationStore"
+  | "executionStore"
+  | "records"
+  | "runs"
+  | "sessions"
+  | "triggers"
+  | "usageStore"
+> & {
   readonly own?: WorkspaceDatabase;
 } {
   if (database !== undefined) {
     const scope = workspaceId;
     return {
+      automationStore: new DatabaseAutomationStore({ database, scope }),
+      executionStore: new DatabaseExecutionStore({ database, scope }),
       records: new DatabaseWorkspaceRecords({ database, scope }),
       runs: new DatabaseRunStore({ database, scope }),
       sessions: new DatabaseSessionStore({ database, scope }),
       triggers: new DatabaseTriggerStore({ database, scope }),
+      usageStore: new DatabaseUsageStore({ database, scope }),
     };
   }
   if (state === undefined) {
@@ -281,11 +296,14 @@ function recordsFor(
   }
   const own = defaultWorkspaceDatabase(state, root, workspaceId);
   return {
+    automationStore: own.automations,
+    executionStore: own.executions,
     own,
     records: own.records,
     runs: own.runs,
     sessions: own.sessions,
     triggers: own.triggers,
+    usageStore: own.usage,
   };
 }
 

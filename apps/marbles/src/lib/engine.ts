@@ -24,6 +24,8 @@ import { Orchestrator } from "@foundry/workflows/orchestrator";
 import type { RunRecord } from "@foundry/workflows/schema";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
+import type { AutomationStore } from "~/lib/automation/store";
+import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { Bindings } from "~/lib/bindings";
 import { harnessOf } from "~/lib/cli-harnesses";
 import { commandRunner } from "~/lib/command";
@@ -32,6 +34,8 @@ import { Delivery } from "~/lib/events/delivery";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Handler, Source } from "~/lib/events/source";
+import type { ExecutionStore } from "~/lib/execution-store";
+import { MemoryExecutionStore } from "~/lib/execution-store";
 import type {
   ExecutionRun,
   ExecutionRuns,
@@ -70,8 +74,6 @@ import { HarnessActivities } from "~/lib/sandbox/activities";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { removeRunOutput } from "~/lib/state/output";
-import type { StateStore } from "~/lib/state/store";
-import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 import type { TaskDefinition } from "~/lib/tasks";
 import { factoryFor } from "~/lib/tree";
 import type { TriggerStore } from "~/lib/trigger-store";
@@ -85,6 +87,8 @@ import type {
   SessionListing,
 } from "~/lib/usage-evidence";
 import { listsSessions, UsageEvidence } from "~/lib/usage-evidence";
+import type { UsageStore } from "~/lib/usage-store";
+import { MemoryUsageStore } from "~/lib/usage-store";
 
 export interface EngineOptions {
   /** Read by `artifacts.latest` when `artifacts` has nothing: the real store under `--dry-run`. */
@@ -96,6 +100,7 @@ export interface EngineOptions {
    * parked runs from earlier processes are left for a process that can.
    */
   readonly askable?: boolean;
+  readonly automationStore?: AutomationStore;
   /**
    * Where sandboxes run. A function is called at the first sandbox and its
    * result kept, for a runtime that is optional or slow to start.
@@ -106,6 +111,7 @@ export interface EngineOptions {
    * `models` instead, so no guest is prepared and no credential is read.
    */
   readonly dry?: boolean;
+  readonly executionStore?: ExecutionStore;
   /**
    * How git runs: on the root workspace, and in the `git()` layer of the
    * workspace system the engine builds when `workspaces` is omitted. A host
@@ -152,8 +158,9 @@ export interface EngineOptions {
   /** Where agent transcripts live. */
   readonly sessions: SessionStore;
   readonly state?: string;
-  readonly store?: StateStore;
+
   readonly triggers?: TriggerStore;
+  readonly usageStore?: UsageStore;
   /** Identity of this workspace: part of a declared artifact's id and of every feed entry. */
   readonly workspaceId: string;
   /**
@@ -171,32 +178,31 @@ export interface EngineOptions {
 
 function sessionListing(
   sessions: SessionStore,
-  store: StateStore
+  usage: UsageStore
 ): { readonly stamps?: SessionListing } {
   if (listsSessions(sessions)) {
     return { stamps: () => sessions.stamps() };
   }
   const outlives = !(
     sessions instanceof InMemorySessionStore ||
-    store instanceof InMemoryStateStore
+    usage instanceof MemoryUsageStore
   );
   return outlives ? { stamps: "unavailable" } : {};
 }
 
 function storesOf(options: EngineOptions): {
+  readonly automations: AutomationStore;
+  readonly executions: ExecutionStore;
   readonly runs: RunStore;
-  readonly store: StateStore;
   readonly triggers: TriggerStore;
+  readonly usage: UsageStore;
 } {
-  const { state } = options;
   return {
+    automations: options.automationStore ?? new MemoryAutomationStore(),
+    executions: options.executionStore ?? new MemoryExecutionStore(),
     runs: options.runs ?? new MemoryRunStore(),
-    store:
-      options.store ??
-      (state === undefined
-        ? new InMemoryStateStore()
-        : new JsonStateStore(state)),
     triggers: options.triggers ?? new MemoryTriggerStore(),
+    usage: options.usageStore ?? new MemoryUsageStore(),
   };
 }
 
@@ -260,9 +266,7 @@ export class Engine {
   readonly scopes: ReadonlyRunScopes;
   readonly sessions: SessionStore;
   readonly state: string | undefined;
-  readonly store: StateStore;
   readonly triggers: TriggerStore;
-  /** What each run's agent turns consumed, one fact per turn, in `store`. */
   readonly usage: UsageLedger;
   readonly taskStore: TaskStore;
   readonly workspaceId: string;
@@ -286,6 +290,9 @@ export class Engine {
   readonly #launcher: Launcher;
   readonly #records: WorkspaceRecords;
   readonly #runs: RunStore;
+  readonly #usageStore: UsageStore;
+  readonly #automationStore: AutomationStore;
+  readonly #executionStore: ExecutionStore;
   readonly #delivery: Delivery;
   readonly #directNames = new WeakMap<AnyDefinition, string>();
   #running: Running | undefined;
@@ -339,15 +346,18 @@ export class Engine {
     this.scopes = this.#scopes;
     this.sessions = sessions;
     this.state = state;
-    const { runs, store, triggers } = storesOf(options);
-    this.store = store;
+    const { automations, executions, runs, triggers, usage } =
+      storesOf(options);
+    this.#automationStore = automations;
+    this.#executionStore = executions;
     this.triggers = triggers;
-    this.usage = new UsageLedger(this.store);
+    this.#usageStore = usage;
+    this.usage = new UsageLedger(usage);
     this.#runs = runs;
     this.#evidence = new UsageEvidence({
       recordedOf: recordedIn(this.#scopes, runs),
       sessions,
-      ...sessionListing(sessions, this.store),
+      ...sessionListing(sessions, usage),
     });
     this.workspaceId = workspaceId;
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
@@ -355,7 +365,7 @@ export class Engine {
       ...(options.queues === undefined ? {} : { queues: options.queues }),
       removed: (run) => this.#removeRun(run),
       runs,
-      store: this.store,
+      store: executions,
       warn: print,
     });
     this.executions = this.#executions;
@@ -394,7 +404,7 @@ export class Engine {
     this.automations = new AutomationService({
       allowHttp: configuredMonitorUrl(this.#registry),
       registry: this.#registry,
-      store: this.store,
+      store: automations,
     });
     this.interactions = new HarnessInteractions({
       askable,
@@ -674,10 +684,11 @@ export class Engine {
     let orchestrator: Orchestrator | undefined;
     let adopted: ReadonlyMap<string, RecordedScope> = new Map();
     try {
-      this.#executions.load();
+      await this.#executions.load();
       const store = new ExecutionCoordinator({
-        store: await this.#runs.open((runId) =>
-          this.#scopes.get(runId)?.recorded()
+        store: await this.#runs.open(
+          (runId) => this.#scopes.get(runId)?.recorded(),
+          (runId, status) => this.#executions.follows(runId, status)
         ),
       });
       adopted = await adoptParkedRuns({
@@ -749,7 +760,13 @@ export class Engine {
       for (const { createdAt, name, dispatched } of recovered) {
         // A run parked before Execution Runs existed gets one now, before
         // anything it does is recorded on it.
-        this.#executions.adoptParked({ createdAt, id: dispatched.id, name });
+        await this.#executions
+          .adoptParked({ createdAt, id: dispatched.id, name })
+          .catch((error: unknown) =>
+            print(
+              `[state] run ${dispatched.id} has no record: ${String(error)}`
+            )
+          );
         this.#launcher.follow(dispatched.id, held.follow(name, dispatched));
       }
       // Before anything is let in, so a handler never runs on an engine
@@ -759,7 +776,7 @@ export class Engine {
       this.#phase = "started";
       // Last, so a start that fails leaves an exited process's queued runs
       // queued and never starts their bodies.
-      this.#recover(
+      await this.#recover(
         new Set(recovered.map(({ dispatched }) => dispatched.id)),
         statuses
       );
@@ -795,8 +812,8 @@ export class Engine {
   #recover(
     adopted: ReadonlySet<string>,
     statuses: ReadonlyMap<string, string>
-  ): void {
-    this.#launcher.recover({
+  ): Promise<void> {
+    return this.#launcher.recover({
       adopted,
       fileStatus: (run) =>
         run.kind === "workflow" ? statuses.get(run.id) : undefined,
@@ -1025,12 +1042,12 @@ export class Engine {
       };
     });
     const found = await this.#evidence.unrecorded(
-      this.usage.read(),
+      await this.usage.read(),
       runs,
       this.workspaceId
     );
     // Read again: a fact saved while the transcripts were read outranks its recovered leaf.
-    return withRecovered(this.usage.read(), found);
+    return withRecovered(await this.usage.read(), found);
   }
 
   async runs(): Promise<readonly RunRecord[]> {
@@ -1047,8 +1064,7 @@ export class Engine {
     });
   }
 
-  /** The live triggers: what the host scheduled, plus what agents created. */
-  schedules(): readonly Schedule[] {
+  schedules(): Promise<readonly Schedule[]> {
     return this.automations.schedules();
   }
 
@@ -1105,6 +1121,8 @@ export class Engine {
     } finally {
       try {
         await orchestrator.stop();
+        await this.#executions.flush();
+        await this.#executions.retrySettlements();
       } finally {
         await this.#runs.release();
       }
@@ -1178,6 +1196,11 @@ export class Engine {
     await close(() => this.#records.close());
     await close(() => this.#runs.close());
     await close(() => this.triggers.close());
+    await close(() => this.#automationStore.close());
+    await close(() => this.#executions.flush());
+    await close(() => this.#executions.retrySettlements());
+    this.#executions.stopRetrying();
+    await close(() => this.#executionStore.close());
     await close(() => this.interactions.close());
     await close(() => this.workspaces.close());
     await close(() => this.sandboxes.close());
@@ -1188,6 +1211,7 @@ export class Engine {
       await this.providers?.dispose();
     });
     await close(() => this.agents.close());
+    await close(() => this.#usageStore.close());
     if (errors.length > 0) {
       throw new AggregateError(errors, "Failed to dispose the engine");
     }

@@ -7,6 +7,8 @@ import type {
 import { MemoryWorkflowStore } from "@foundry/workflows/store/memory";
 
 import { RecordsGate } from "~/lib/events/records";
+import type { ExecutionRun } from "~/lib/execution-record";
+import type { LifecycleChange } from "~/lib/execution-store";
 import type { RecordedScope } from "~/lib/run-scope";
 import { storableJson } from "~/lib/state/json";
 
@@ -15,14 +17,23 @@ export interface RunStore {
   close(): Promise<void>;
   readonly durable: boolean;
   open(
-    recorded: (runId: string) => RecordedScope | undefined
+    recorded: (runId: string) => RecordedScope | undefined,
+    follows?: RunFollower
   ): Promise<WorkflowStore>;
   recorded(runId: string): Promise<StoredScope>;
   release(runId?: string): Promise<void>;
   remove(runId: string): Promise<void>;
 }
 
-export type ClaimCondition = (stored: RunRecord | null) => boolean;
+export type RunFollower = (
+  runId: string,
+  status: string
+) => LifecycleChange | undefined;
+
+export type ClaimCondition = (
+  stored: RunRecord | null,
+  execution?: ExecutionRun | null
+) => boolean;
 
 export const ANY_STORED_RUN: ClaimCondition = () => true;
 

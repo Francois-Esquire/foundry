@@ -3,7 +3,6 @@ import { lstatSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 
 export interface Workspace {
-  /** `<state>/<id>`: runs, schedules, locks and sessions all live under it. */
   readonly dir: string;
   readonly id: string;
   readonly root: string;

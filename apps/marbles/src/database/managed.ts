@@ -2,23 +2,59 @@ import { dirname, resolve } from "node:path";
 import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
+import type { JsonValue } from "@foundry/lib/json";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import type { WorkflowStore } from "@foundry/workflows/store";
+import { DatabaseAutomationStore } from "~/database/automations";
+import { DatabaseExecutionStore } from "~/database/executions";
 import type { MarblesDatabase } from "~/database/open";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { DatabaseTriggerStore } from "~/database/triggers";
+import { DatabaseUsageStore } from "~/database/usage";
 import type { HostDatabaseOptions } from "~/database/workspaces";
 import { openHostDatabase } from "~/database/workspaces";
+import type { AutomationRecord } from "~/lib/automation/service";
+import type {
+  AutomationStore,
+  AutomationView,
+  StoredAutomation,
+} from "~/lib/automation/store";
+import { storedAutomation } from "~/lib/automation/store";
+import type { EngineOptions } from "~/lib/engine";
 import type {
   PendingQuery,
   StreamItem,
   WorkspaceRecords,
 } from "~/lib/events/records";
 import { EmitListeners, RecordsGate } from "~/lib/events/records";
+import type {
+  ExecutionObservation,
+  ExecutionRun,
+  RetentionGap,
+} from "~/lib/execution-record";
+import type {
+  ExecutionStore,
+  ExecutionView,
+  LifecycleChange,
+  StoredExecution,
+  Written,
+} from "~/lib/execution-store";
+import {
+  storedChange,
+  storedExecutionRun,
+  storedObservation,
+  storedProgress,
+  storedRetentionGap,
+} from "~/lib/execution-store";
 import type { RecordedScope } from "~/lib/run-scope";
-import type { ClaimCondition, RunStore, StoredScope } from "~/lib/run-store";
+import type {
+  ClaimCondition,
+  RunFollower,
+  RunStore,
+  StoredScope,
+} from "~/lib/run-store";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 import type {
@@ -27,7 +63,10 @@ import type {
   TickClaim,
   TriggerStore,
 } from "~/lib/trigger-store";
+import type { RecordedUsageFact } from "~/lib/usage";
 import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
+import type { StoredUsage, UsageStore } from "~/lib/usage-store";
+import { storedUsageFact } from "~/lib/usage-store";
 
 export interface OpenWorkspaceRecordsOptions extends HostDatabaseOptions {
   readonly state: string;
@@ -44,11 +83,14 @@ export function openWorkspaceRecords(
 }
 
 export interface WorkspaceDatabase {
+  readonly automations: AutomationStore;
   close(): Promise<void>;
+  readonly executions: ExecutionStore;
   readonly records: WorkspaceRecords;
   readonly runs: RunStore;
   readonly sessions: ListedSessionStore;
   readonly triggers: TriggerStore;
+  readonly usage: UsageStore;
 }
 
 export function openWorkspaceDatabase(
@@ -67,33 +109,41 @@ export function openWorkspaceDatabase(
   const triggers = new ManagedTriggerStore(database, options.workspaceId, () =>
     Promise.resolve()
   );
+  const usage = new ManagedUsageStore(database, options.workspaceId, () =>
+    Promise.resolve()
+  );
+  const automations = new ManagedAutomationStore(
+    database,
+    options.workspaceId,
+    () => Promise.resolve()
+  );
+  const executions = new ManagedExecutionStore(
+    database,
+    options.workspaceId,
+    () => Promise.resolve()
+  );
   return {
+    automations,
     async close() {
       try {
         await records.close();
         await runs.close();
         await triggers.close();
+        await usage.close();
+        await automations.close();
+        await executions.close();
         await sessions.close();
       } finally {
         await database.close();
       }
     },
+    executions,
     records,
     runs,
     sessions,
     triggers,
+    usage,
   };
-}
-
-export function defaultWorkspaceRecords(
-  state: string,
-  root: string,
-  workspaceId: string
-): WorkspaceRecords {
-  return openWorkspaceRecords({
-    state: defaultStateRoot(state, root, workspaceId),
-    workspaceId,
-  });
 }
 
 export function defaultWorkspaceDatabase(
@@ -129,6 +179,54 @@ export function defaultWorkspaceTriggers(
     workspaceId,
   });
   return new ManagedTriggerStore(database, workspaceId, () => database.close());
+}
+
+type DatabaseKept = Pick<
+  EngineOptions,
+  | "automationStore"
+  | "executionStore"
+  | "records"
+  | "runs"
+  | "triggers"
+  | "usageStore"
+>;
+
+export function withWorkspaceDatabase(
+  options: EngineOptions & { readonly state: string }
+): EngineOptions {
+  const { root, state, workspaceId } = options;
+  const database = new LazyDatabase({
+    state: defaultStateRoot(state, root, workspaceId),
+    workspaceId,
+  });
+  const make: {
+    readonly [K in keyof DatabaseKept]-?: (
+      done: () => Promise<void>
+    ) => NonNullable<DatabaseKept[K]>;
+  } = {
+    automationStore: (done) =>
+      new ManagedAutomationStore(database, workspaceId, done),
+    executionStore: (done) =>
+      new ManagedExecutionStore(database, workspaceId, done),
+    records: (done) => new ManagedWorkspaceRecords(database, workspaceId, done),
+    runs: (done) => new ManagedRunStore(database, workspaceId, done),
+    triggers: (done) => new ManagedTriggerStore(database, workspaceId, done),
+    usageStore: (done) => new ManagedUsageStore(database, workspaceId, done),
+  };
+  const missing = (Object.keys(make) as (keyof DatabaseKept)[]).filter(
+    (key) => options[key] === undefined
+  );
+  let open = missing.length;
+  const release = async () => {
+    open -= 1;
+    if (open === 0) {
+      await database.close();
+    }
+  };
+  return {
+    ...options,
+    ...Object.fromEntries(missing.map((key) => [key, make[key](release)])),
+  };
 }
 
 function defaultStateRoot(
@@ -372,9 +470,10 @@ class ManagedRunStore implements RunStore {
   }
 
   open(
-    recorded: (runId: string) => RecordedScope | undefined
+    recorded: (runId: string) => RecordedScope | undefined,
+    follows?: RunFollower
   ): Promise<WorkflowStore> {
-    return this.#run((store) => store.open(recorded));
+    return this.#run((store) => store.open(recorded, follows));
   }
 
   recorded(runId: string): Promise<StoredScope> {
@@ -449,6 +548,252 @@ class ManagedTriggerStore implements TriggerStore {
   }
 
   #run<T>(call: (store: DatabaseTriggerStore) => Promise<T>): Promise<T> {
+    return this.#gate.run(async () => call(await this.#store.get()));
+  }
+}
+
+class ManagedUsageStore implements UsageStore {
+  readonly #gate = new RecordsGate("the usage store is closed");
+  readonly #release: () => Promise<void>;
+  readonly #store: OverDatabase<DatabaseUsageStore>;
+
+  constructor(
+    database: LazyDatabase,
+    workspaceId: string,
+    release: () => Promise<void>
+  ) {
+    this.#release = release;
+    this.#store = new OverDatabase(
+      database,
+      (opened) =>
+        new DatabaseUsageStore({
+          database: opened.database,
+          scope: workspaceId,
+        })
+    );
+  }
+
+  async close(): Promise<void> {
+    await this.#gate.close();
+    try {
+      await (await this.#store.built())?.close();
+    } finally {
+      await this.#release();
+    }
+  }
+
+  facts(): Promise<{
+    readonly facts: readonly StoredUsage[];
+    readonly revision: number;
+  }> {
+    return this.#run((store) => store.facts());
+  }
+
+  mark(marker: RecordedUsageFact): Promise<void> {
+    return this.#owning(marker, (store, owned) => store.mark(owned));
+  }
+
+  revision(): Promise<number> {
+    return this.#run((store) => store.revision());
+  }
+
+  save(fact: RecordedUsageFact): Promise<void> {
+    return this.#owning(fact, (store, owned) => store.save(owned));
+  }
+
+  #owning(
+    fact: RecordedUsageFact,
+    call: (store: DatabaseUsageStore, owned: RecordedUsageFact) => Promise<void>
+  ): Promise<void> {
+    let owned: RecordedUsageFact;
+    try {
+      owned = storedUsageFact(fact);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#run((store) => call(store, owned));
+  }
+
+  #run<T>(call: (store: DatabaseUsageStore) => Promise<T>): Promise<T> {
+    return this.#gate.run(async () => call(await this.#store.get()));
+  }
+}
+
+class ManagedAutomationStore implements AutomationStore {
+  readonly #gate = new RecordsGate("the automation store is closed");
+  readonly #release: () => Promise<void>;
+  readonly #store: OverDatabase<DatabaseAutomationStore>;
+
+  constructor(
+    database: LazyDatabase,
+    workspaceId: string,
+    release: () => Promise<void>
+  ) {
+    this.#release = release;
+    this.#store = new OverDatabase(
+      database,
+      (opened) =>
+        new DatabaseAutomationStore({
+          database: opened.database,
+          scope: workspaceId,
+        })
+    );
+  }
+
+  async close(): Promise<void> {
+    await this.#gate.close();
+    try {
+      await (await this.#store.built())?.close();
+    } finally {
+      await this.#release();
+    }
+  }
+
+  edit<T>(work: (view: AutomationView) => Promise<T>): Promise<T> {
+    return this.#run((store) => store.edit(work));
+  }
+
+  list(): Promise<readonly StoredAutomation[]> {
+    return this.#run((store) => store.list());
+  }
+
+  put(record: AutomationRecord): Promise<void> {
+    let owned: AutomationRecord;
+    try {
+      owned = storedAutomation(record);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#run((store) => store.put(owned));
+  }
+
+  remove(id: string): Promise<void> {
+    return this.#run((store) => store.remove(id));
+  }
+
+  #run<T>(call: (store: DatabaseAutomationStore) => Promise<T>): Promise<T> {
+    return this.#gate.run(async () => call(await this.#store.get()));
+  }
+}
+
+class ManagedExecutionStore implements ExecutionStore {
+  readonly #gate = new RecordsGate("the execution store is closed");
+  readonly #release: () => Promise<void>;
+  readonly #store: OverDatabase<DatabaseExecutionStore>;
+
+  constructor(
+    database: LazyDatabase,
+    workspaceId: string,
+    release: () => Promise<void>
+  ) {
+    this.#release = release;
+    this.#store = new OverDatabase(
+      database,
+      (opened) =>
+        new DatabaseExecutionStore({
+          database: opened.database,
+          scope: workspaceId,
+        })
+    );
+  }
+
+  async close(): Promise<void> {
+    await this.#gate.close();
+    try {
+      await (await this.#store.built())?.close();
+    } finally {
+      await this.#release();
+    }
+  }
+
+  get(id: string): Promise<StoredExecution | undefined> {
+    return this.#run((store) => store.get(id));
+  }
+
+  gaps(): Promise<readonly RetentionGap[]> {
+    return this.#run((store) => store.gaps());
+  }
+
+  list(): Promise<readonly StoredExecution[]> {
+    return this.#run((store) => store.list());
+  }
+
+  advise(
+    id: string,
+    change: { readonly progress: JsonValue; readonly updatedAt: string }
+  ): Promise<Written> {
+    return this.#owning(
+      change,
+      (value) => ({
+        progress: storedProgress(id, value.progress),
+        updatedAt: value.updatedAt,
+      }),
+      (store, owned) => store.advise(id, owned)
+    );
+  }
+
+  create(run: ExecutionRun): Promise<boolean> {
+    return this.#owning(run, storedExecutionRun, (store, owned) =>
+      store.create(owned)
+    );
+  }
+
+  observe(
+    id: string,
+    observation: ExecutionObservation,
+    updatedAt: string
+  ): Promise<Written> {
+    return this.#owning(
+      observation,
+      (value) => storedObservation(id, value),
+      (store, owned) => store.observe(id, owned, updatedAt)
+    );
+  }
+
+  transition(id: string, change: LifecycleChange): Promise<Written> {
+    return this.#owning(
+      change,
+      (value) => storedChange(id, value),
+      (store, owned) => store.transition(id, owned)
+    );
+  }
+
+  putGap(gap: RetentionGap): Promise<void> {
+    return this.#owning(gap, storedRetentionGap, (store, owned) =>
+      store.putGap(owned)
+    );
+  }
+
+  remove(id: string): Promise<void> {
+    return this.#run((store) => store.remove(id));
+  }
+
+  transaction<T>(work: (view: ExecutionView) => Promise<T>): Promise<T> {
+    return this.#run((store) => store.transaction(work));
+  }
+
+  withSource(
+    name: string,
+    source: string
+  ): Promise<StoredExecution | undefined> {
+    return this.#run((store) => store.withSource(name, source));
+  }
+
+  #owning<V, T>(
+    value: V,
+    stored: (value: V) => V,
+    call: (store: DatabaseExecutionStore, owned: V) => Promise<T>
+  ): Promise<T> {
+    let owned: V;
+    try {
+      owned = stored(value);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#run((store) => call(store, owned));
+  }
+
+  #run<T>(call: (store: DatabaseExecutionStore) => Promise<T>): Promise<T> {
     return this.#gate.run(async () => call(await this.#store.get()));
   }
 }

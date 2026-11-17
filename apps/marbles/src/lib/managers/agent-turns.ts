@@ -23,7 +23,10 @@ import type {
 
 export interface SessionTurnSite {
   /** Each committed turn, steered ones included, with the usage its stream reported. */
-  consumed?(message: SessionMessage, usage?: SessionUsage): void;
+  consumed?(
+    message: SessionMessage,
+    usage?: SessionUsage
+  ): Promise<void> | void;
   /** Where the run that owns the session records its tool calls. */
   readonly observe?: RecordObservation;
   readonly recorded?: SessionRef;
@@ -211,7 +214,7 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
           const message = await current.message;
           // A steered or cancelled turn still consumed what it committed.
           if (live.steer !== undefined || site.signal().aborted) {
-            site.consumed?.(message);
+            await site.consumed?.(message);
           }
           check();
           if (live.steer !== undefined) {
@@ -222,7 +225,7 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
           }
           const outcome = await current.outcome;
           const usage = await current.usage;
-          site.consumed?.(message, usage);
+          await site.consumed?.(message, usage);
           if (message.status === "complete") {
             controller.enqueue({ message, type: "finish", usage });
           }
