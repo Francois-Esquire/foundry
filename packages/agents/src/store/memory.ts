@@ -1,6 +1,7 @@
 import { Turns } from "@foundry/lib/turns";
 
 import type { SessionMessage, SessionRecord } from "../schema";
+import { ownedEvents } from "./events";
 import type { SessionStore, SessionStoreWrite } from "./index";
 
 const REENTRY =
@@ -109,6 +110,7 @@ interface Copied {
 }
 
 function copyOf(write: SessionStoreWrite): Copied {
+  ownedEvents(write.events);
   return {
     messages: (write.putMessages ?? []).map((m) => structuredClone(m)),
     sessions: (write.putSessions ?? []).map((s) => structuredClone(s)),

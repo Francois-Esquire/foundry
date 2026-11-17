@@ -127,7 +127,7 @@ describe("@foundry/agents public paths", () => {
     });
   });
 
-  it("exports the SQLite store, its write capture and its tables, and nothing else, from their paths", async () => {
+  it("exports the SQLite store, its write capture, its tables and the event rule, and nothing else, from their paths", async () => {
     expect(Object.keys(await import("../../store/sqlite")).sort()).toEqual([
       "SqliteSessionStore",
       "capturedSessionWrite",
@@ -136,7 +136,9 @@ describe("@foundry/agents public paths", () => {
       "agentMessages",
       "agentSessions",
     ]);
-    expect(Object.keys(await import("../../store/index"))).toEqual([]);
+    expect(Object.keys(await import("../../store/index"))).toEqual([
+      "ownedEvents",
+    ]);
     expect(Object.keys(await import("../../store/memory"))).toEqual([
       "InMemorySessionStore",
     ]);

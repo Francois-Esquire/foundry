@@ -13,6 +13,7 @@ import {
   SESSION_STATUSES,
 } from "@foundry/agents/session";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
+import { ownedEvents } from "@foundry/agents/store";
 import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 import { FileLockTimeoutError, withFileLock } from "@foundry/lib/file-lock";
 import { Turns } from "@foundry/lib/turns";
@@ -547,8 +548,15 @@ function withoutMessage(file: SessionFile, id: string): SessionFile {
   };
 }
 
-function ownedWrite(write: SessionStoreWrite): SessionStoreWrite {
-  return JSON.parse(JSON.stringify(write)) as SessionStoreWrite;
+function ownedWrite({
+  events,
+  putMessages,
+  putSessions,
+}: SessionStoreWrite): SessionStoreWrite {
+  ownedEvents(events);
+  return JSON.parse(
+    JSON.stringify({ putMessages, putSessions })
+  ) as SessionStoreWrite;
 }
 
 function encoded(file: SessionFile): StagedFile {

@@ -1,6 +1,7 @@
 import { Turns } from "@foundry/lib/turns";
 
 import type { ContainerRow } from "../schema";
+import { ownedWrite } from "./events";
 import type { ContainerStore, ContainerStoreWrite } from "./index";
 
 type Rows = Map<string, ContainerRow>;
@@ -56,7 +57,7 @@ function withOwnCopy(
 ): Promise<void> {
   let copy: ContainerStoreWrite;
   try {
-    copy = structuredClone(write);
+    copy = ownedWrite(write);
   } catch (error: unknown) {
     return Promise.reject(error);
   }

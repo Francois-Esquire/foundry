@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { sessionChangeEventSchema } from "../../schema";
 import type {
   CreateMessageInput,
   SummarizeInput,
@@ -20,6 +21,7 @@ import { recordingStore } from "../helpers/recording-store";
 import { sessionStoreKinds } from "../helpers/session-stores";
 
 const UNKNOWN_SESSION_PATTERN = /unknown session/;
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 const text = (t: string): SessionPart[] => [{ text: t, type: "text" }];
 
@@ -962,5 +964,149 @@ describe("Sessions over a store holding a message it would not write now", () =>
     ).rejects.toThrow(
       'parts[0].type holds "legacy_note", which is no part type'
     );
+  });
+});
+
+describe("Sessions change events", () => {
+  async function recorded() {
+    const { store, writes } = recordingStore(new InMemorySessionStore());
+    return { sessions: new Sessions({ store }), writes };
+  }
+
+  it("carries one event in each write that changes what a reader sees, built from the records it puts", async () => {
+    const { sessions, writes } = await recorded();
+    const session = await sessions.createSession({ id: "s" });
+    const first = await sessions.appendMessage({
+      parts: text("hi"),
+      role: "user",
+      sessionId: "s",
+    });
+    const renamed = await sessions.updateSession("s", { title: "named" });
+    const folded = await sessions.summarize({
+      messageId: (
+        await sessions.appendMessage({
+          parts: text("next"),
+          role: "user",
+          sessionId: "s",
+        })
+      ).id,
+      sessionId: "s",
+      summary: { parts: text("summary") },
+    });
+
+    const events = writes.map((write) => write.events);
+    expect(events).toEqual([
+      [
+        {
+          at: new Date(session.createdAt).toISOString(),
+          id: expect.any(String),
+          sessionId: "s",
+          type: "session.created",
+        },
+      ],
+      [
+        {
+          at: new Date(first.createdAt).toISOString(),
+          id: expect.any(String),
+          messageIds: [first.id],
+          sessionId: "s",
+          type: "session.messages.appended",
+        },
+      ],
+      [
+        {
+          at: new Date(req(renamed ?? undefined).updatedAt).toISOString(),
+          id: expect.any(String),
+          sessionId: "s",
+          type: "session.updated",
+        },
+      ],
+      [expect.objectContaining({ type: "session.messages.appended" })],
+      [
+        expect.objectContaining({
+          messageIds: [req(folded ?? undefined).summary.id],
+          type: "session.messages.appended",
+        }),
+      ],
+    ]);
+    const ids = writes.flatMap((write) => write.events ?? []).map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const event of writes.flatMap((write) => write.events ?? [])) {
+      expect(event.at).toMatch(ISO);
+      expect(sessionChangeEventSchema.parse(event)).toStrictEqual(event);
+    }
+  });
+
+  it("carries none for a message update, an update that changes neither title nor status, or a session already filed", async () => {
+    const { sessions, writes } = await recorded();
+    await sessions.createSession({ id: "s", title: "kept" });
+    const message = await sessions.appendMessage({
+      parts: text("hi"),
+      role: "assistant",
+      sessionId: "s",
+      status: "streaming",
+    });
+    const before = writes.length;
+
+    await sessions.updateMessage(message.id, { status: "complete" });
+    await sessions.updateSession("s", { title: "kept" });
+    await sessions.updateSession("s", {});
+    await sessions.createSession({ id: "s" });
+
+    const later = writes.slice(before);
+    expect(later).toHaveLength(3);
+    expect(later.map((write) => write.events)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("carries a session.updated for a status change alone", async () => {
+    const { sessions, writes } = await recorded();
+    await sessions.createSession({ id: "s" });
+    await sessions.updateSession("s", { status: "archived" });
+
+    expect(writes.at(-1)?.events).toEqual([
+      expect.objectContaining({ sessionId: "s", type: "session.updated" }),
+    ]);
+  });
+
+  it("keeps an event's id when the store runs the same work again", async () => {
+    const inner = new InMemorySessionStore();
+    const seen: string[] = [];
+    const retrying: SessionStore = {
+      commit: (write) => {
+        seen.push(...(write.events ?? []).map((event) => event.id));
+        return inner.commit(write);
+      },
+      getMessage: (id) => inner.getMessage(id),
+      getSession: (id) => inner.getSession(id),
+      listMessages: (sessionId) => inner.listMessages(sessionId),
+      transaction: async (work) => {
+        const discarded: SessionStore = {
+          commit: (write) => {
+            seen.push(...(write.events ?? []).map((event) => event.id));
+            return Promise.resolve();
+          },
+          getMessage: (id) => inner.getMessage(id),
+          getSession: (id) => inner.getSession(id),
+          listMessages: (sessionId) => inner.listMessages(sessionId),
+        };
+        await work(discarded);
+        return work(retrying);
+      },
+    };
+    const sessions = new Sessions({ store: retrying });
+    await sessions.createSession({ id: "s" });
+    await sessions.appendMessage({
+      parts: text("hi"),
+      role: "user",
+      sessionId: "s",
+    });
+    await sessions.updateSession("s", { title: "t" });
+
+    expect(seen).toHaveLength(6);
+    expect(new Set(seen).size).toBe(3);
   });
 });

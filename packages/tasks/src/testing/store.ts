@@ -84,6 +84,29 @@ export function describeTaskStore(
       });
     });
 
+    test("a record put after the last one was deleted lists after every survivor", async () => {
+      const target = await store();
+      const [a, b, c, d] = [task("a"), task("b"), task("c"), task("d")];
+      await target.commit({
+        putDependencies: [dependency(a, b), dependency(b, c)],
+        putTasks: [a, b, c],
+      });
+      await target.commit({
+        deleteDependencies: [dependency(b, c)],
+        deleteTasks: [c.id],
+      });
+      await target.commit({
+        putDependencies: [dependency(d, a), dependency(b, c)],
+        putTasks: [d, c],
+      });
+      await target.commit({ putTasks: [{ ...a, title: "a again" }] });
+
+      expect(await target.snapshot()).toEqual({
+        dependencies: [dependency(a, b), dependency(d, a), dependency(b, c)],
+        tasks: [{ ...a, title: "a again" }, b, d, c],
+      });
+    });
+
     test("deletes remove only what they name, and missing records are no-ops", async () => {
       const target = await store();
       const [a, b] = [task("a"), task("b")];

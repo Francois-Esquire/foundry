@@ -118,12 +118,58 @@ the registration and every entry filed under it, in one commit, and a store
 ignores any entry ids a caller hands it.
 
 A store reads a write once, when `commit` is called. Both stores here take
-one `structuredClone` of the whole write then, before the commit waits its
+its events by the event rule (see Change events) and the rest by one
+`structuredClone` then, before the commit waits its
 turn, and check, store and hand on (to `onCommit`) only that copy, through
 a transaction's view as well; `listWorkspaces` reads its cursor and limit
 when called too. A caller that changes its write or its input after the
 call changes nothing, even while the call is still queued. A write the
 clone refuses, such as one holding a function, rejects and writes nothing.
+
+### Change events
+
+Each write the catalog makes that changes a Workspace carries the events that
+say so, in `events` on the write, so a host can record them in the same
+transaction as the change (`SqliteWorkspaceStore`'s `onCommit`). The catalog
+builds them from what the store holds against what the change leaves. A
+store keeps none, and one with a host hook hands them to it unchanged and in
+order. Every store takes the events when `commit` is
+called, by one rule: each is copied as plain JSON, and a write holding one
+that is not (anything but plain objects whose own properties are all
+enumerable, arrays without holes, text, finite numbers other than `-0`,
+booleans and `null`) is refused whole with a `TypeError` naming it, through
+a transaction's view too. It is the rule the workflows and artifacts stores
+take their events by. The schema is
+`workspaceEventSchema` on `@foundry/workspaces/schema`; the type,
+`WorkspaceEvent`, is exported from the package root too. Every event has
+`type`, `id` (unique to it, made once per catalog call, before its transaction),
+`at` (an ISO time) and `workspaceId`:
+
+| `type`                      | Emitted by                                                     | Also carries                  |
+| --------------------------- | -------------------------------------------------------------- | ----------------------------- |
+| `workspace.created`         | `create`, when it registers the Workspace; `at` its `createdAt` |                               |
+| `workspace.updated`         | `rename`, when the name changes; `at` the new `updatedAt`      |                               |
+| `workspace.entries.changed` | `applyChange`, when it adds, changes or removes any entry       | `added`, `changed`, `removed` |
+| `workspace.removed`         | `remove`, when the Workspace was there; `at` the time it ran   |                               |
+
+`workspace.entries.changed` carries entry ids only, never the records, and is
+`at` the change's `updatedAt` (the time it ran, when the caller gave none).
+`applyChange` works out what a change does to the entries stored before it
+writes, publishes or emits: an entry put as it is stored, or removed and put
+back as it was, is no change and is left out of all three; one removed and
+put back different is a change. A change that leaves every entry as it was
+writes no `updatedAt` and emits nothing. A Workspace's first entries come
+with `workspace.created`, not as a separate entries event, and a removal
+names no entries. A `create` over an id already registered answers
+`workspace-exists` with that id and writes nothing. A reconciliation that
+finds nothing new, a rename to the same name, and a refused change carry no
+event.
+
+`at` is the stamp of the record a change wrote, or the time the event was
+built where the change stamps none; it is not the commit time, and two
+writers' events can commit in the other order from their `at`. It cannot
+establish commit order: a host that needs one orders events by its own
+sequence, assigned in `onCommit`.
 
 ### SQLite
 
@@ -174,9 +220,9 @@ the registration. A removal runs two statements, one deleting every entry row
 of the Workspace and one deleting its registration, each through a primary
 key. A save's entries are batched under SQLite's bound-parameter limit inside
 the one transaction, so a save of thousands of entries lands whole.
-`onCommit` receives the write as committed. A removal carries only the
-Workspace id, so a hook that wants to record which entries a removal dropped
-does not get their ids from the store.
+`onCommit` receives the write as committed, its `events` included. A removal
+carries only the Workspace id, so a hook that wants to record which entries
+a removal dropped does not get their ids from the store.
 `onCommit` uses the `transaction` it is given; a call to the store itself
 from the hook is refused (see below). `listWorkspaces` reads its count and
 its page in one database transaction, so it is one state. On libSQL that
@@ -316,10 +362,17 @@ Git is opt-in on `@foundry/workspaces/git`: the `git()` layer, plus
 the resulting `Git`.
 
 A new `WorkspaceStore` proves itself against the conformance suite on
-`@foundry/workspaces/testing/store`: `describeWorkspaceStore(name, open)`
+`@foundry/workspaces/testing/store`: `describeWorkspaceStore(name, open, mode)`
 registers Vitest tests. `open()` returns fresh, empty storage, or a promise
 of it, as a function `(scope: string) => WorkspaceStore`. Two scopes over one
-storage must never see each other's records. The package runs it against
+storage must never see each other's records. The third argument,
+`mode` (`WorkspaceStoreMode`), says whether the storage has a host hook:
+`{ hooked: false }`, or `{ hooked: true, recording }`, where `recording`
+opens storage whose hook records each write's events in the commit's own
+transaction (`RecordingWorkspaceStores`). Every store is held to the event
+rule; a hooked one is also proven to hand its hook every kept commit's
+events once, in order, as they were when `commit` was called, and none for
+a commit that fails. The package runs it against
 the memory store and against the SQLite store on libSQL, in memory and on a
 file, with tables created from `./store/tables` by `createTables` from
 `@foundry/lib/testing/sqlite`.

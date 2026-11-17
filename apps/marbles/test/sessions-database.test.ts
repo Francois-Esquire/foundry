@@ -89,7 +89,9 @@ const KINDS: readonly {
 ];
 
 for (const kind of KINDS) {
-  describeSessionStore(kind.name, async () => (await kind.storage()).stores);
+  describeSessionStore(kind.name, async () => (await kind.storage()).stores, {
+    hooked: false,
+  });
 }
 
 function session(id: string, title: string | null = null): SessionRecord {

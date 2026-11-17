@@ -43,6 +43,7 @@ export { createSummaryStore, summarizeSession } from "./summary";
 export type {
   MessageMetadata,
   MessageStatus,
+  SessionChangeEvent,
   SessionMessage,
   SessionPart,
   SessionRecord,
