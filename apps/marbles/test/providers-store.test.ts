@@ -97,23 +97,24 @@ function describeProviderStore(
       expect(idsOf((await store.read()).machine)).toEqual(["a"]);
     });
 
-    it("re-reads before each edit, so overlapping edits keep each other's", async () => {
-      const store = await open();
-      await Promise.all(
-        ["a", "b", "c"].map((id) =>
-          store.update(undefined, (current) => ({
-            machine: {
-              providers: [...(current.machine?.providers ?? []), entry(id)],
-              version: 1,
-            },
-          }))
-        )
-      );
-      expect(idsOf((await store.read()).machine)?.toSorted()).toEqual([
-        "a",
-        "b",
-        "c",
-      ]);
+    it("re-reads before each edit, so overlapping edits keep each other's, also through the read-only view a dry run edits", async () => {
+      for (const store of [await open(), readOnlyProviders(await open())]) {
+        await Promise.all(
+          ["a", "b", "c"].map((id) =>
+            store.update(undefined, (current) => ({
+              machine: {
+                providers: [...(current.machine?.providers ?? []), entry(id)],
+                version: 1,
+              },
+            }))
+          )
+        );
+        expect(idsOf((await store.read()).machine)?.toSorted()).toEqual([
+          "a",
+          "b",
+          "c",
+        ]);
+      }
     });
 
     it("refuses a workspace scope to an edit for no workspace", async () => {
