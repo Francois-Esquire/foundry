@@ -1082,16 +1082,15 @@ export class Queue {
             this.#emit({ kind: "cancelled", runId: run.id });
             return "cancelled-before-start" as const;
           }
+          await Effect.runPromise(
+            workflow.markStarted(new Date().toISOString())
+          );
           const startSnap = await Effect.runPromise(workflow.state);
           await Effect.runPromise(
             this.#persistSnapshot(
               run.id,
               run.step,
-              {
-                ...startSnap,
-                startedAt: startSnap.startedAt ?? new Date().toISOString(),
-                status: "running",
-              },
+              { ...startSnap, status: "running" },
               run.workflow.persistence
             )
           );

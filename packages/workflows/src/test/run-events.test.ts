@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { RunEvent, RunEventType } from "../index";
 import { ExecutionCoordinator } from "../index";
 import { Orchestrator } from "../orchestrator";
@@ -19,6 +19,15 @@ function eventsSince(store: FaultyWorkflowStore, from = 0): RunEvent[] {
 
 function types(events: readonly RunEvent[]): RunEventType[] {
   return events.map((event) => event.type);
+}
+
+function stepStatus(metadata: unknown, key: string): unknown {
+  const { workflow } = metadata as {
+    readonly workflow?: {
+      readonly steps?: Readonly<Record<string, { readonly status?: unknown }>>;
+    };
+  };
+  return workflow?.steps?.[key]?.status;
 }
 
 const RUN = { input: null, queueId: "q", step: "s" } as const;
@@ -439,6 +448,70 @@ describe("Run events of a Run the Orchestrator drives", () => {
       "run.completed",
       ["output"],
     ]);
+  });
+
+  test("a Run started keeps one start time, though the clock moves while its start is written", async () => {
+    vi.useFakeTimers({
+      now: Date.parse("2026-01-01T00:00:00.000Z"),
+      toFake: ["Date"],
+    });
+    try {
+      const { coordinator, orchestrator, store } = await driven();
+      let release: () => void = () => undefined;
+      const leafWritten = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      orchestrator.register("held", (input: null) =>
+        Workflow.create({
+          children: [
+            { execute: async () => "leaf", input: undefined, name: "leaf" },
+          ],
+          execute: async (_value, context) => {
+            await context.children[0]?.run();
+            await leafWritten;
+            return "ok";
+          },
+          input,
+          name: "held",
+        })
+      );
+      const started: number[] = [];
+      store.before = (write) => {
+        const running = write.putRuns?.find(
+          (record) => record.status === "running"
+        );
+        if (running === undefined) {
+          return;
+        }
+        if (started.length === 0) {
+          started.push(running.timestamps.startedAt ?? Number.NaN);
+          vi.setSystemTime(Date.now() + 1000);
+        }
+        if (stepStatus(running.metadata, "held.leaf") === "complete") {
+          release();
+        }
+      };
+      await orchestrator.start();
+      const job = await orchestrator.createJob("held", null);
+      const run = await orchestrator.execute(job.id);
+      await run.result();
+      await orchestrator.stop({ graceMs: 1 });
+
+      expect(
+        writesOf(store, run.id).flatMap((write) => write.events)
+      ).toStrictEqual([
+        "run.queued",
+        "run.started",
+        "run.completed",
+        ["output"],
+      ]);
+      expect(started).toStrictEqual([Date.parse("2026-01-01T00:00:00.000Z")]);
+      expect((await coordinator.getRun(run.id))?.timestamps.startedAt).toBe(
+        started[0]
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("a Run parked and resumed says so, keeps the time it first started, and ends", async () => {
