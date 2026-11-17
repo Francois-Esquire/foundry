@@ -33,6 +33,7 @@ import {
   workspaceSummarySchema,
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
+import { recordSpawned } from "~/process/spawned";
 import { version } from "../../package.json";
 
 /**
@@ -264,6 +265,7 @@ function startDetachedDaemon(options: ConnectOptions): void {
     { detached: true, env: process.env, stdio: ["ignore", log, log] }
   );
   child.unref();
+  recordSpawned(child.pid, true);
 }
 
 interface Opened {

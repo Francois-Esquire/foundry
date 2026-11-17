@@ -15,6 +15,7 @@ import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { workspaceState } from "~/lib/state/workspace";
 import { cliArgs } from "./helpers/cli";
+import { type TestHome, testHome } from "./helpers/home";
 
 // The host loads sources through a Bun plugin; vitest runs under Node, and
 // these tests load none.
@@ -27,9 +28,13 @@ const TASK_LINE = /^tk-[0-9a-f]{8} {2}open {2}Write docs {2}\(task\)\n$/;
 // spawnSync still bounds every child independently. Other suites keep their defaults.
 describe("tasks CLI", { timeout: 30_000 }, () => {
   let root: string;
+  let home: TestHome;
+  let state: string;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "marbles-tasks-"));
+    home = testHome({ providers: false });
+    ({ state } = home.layout);
   });
 
   afterEach(async () => {
@@ -37,11 +42,12 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
   });
 
   function marbles(...argv: readonly string[]) {
-    const result = spawnSync(
-      "bun",
-      cliArgs(...argv, "--state", join(root, "state")),
-      { cwd: root, encoding: "utf8", timeout: 15_000 }
-    );
+    const result = spawnSync("bun", cliArgs(...argv), {
+      cwd: root,
+      encoding: "utf8",
+      env: home.env,
+      timeout: 15_000,
+    });
     return {
       status: result.status,
       stderr: result.stderr,
@@ -102,17 +108,17 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     const listed = marbles("tasks", "list", "--json");
     expect(listed.status, listed.stderr).toBe(0);
     expect(JSON.parse(listed.stdout)).toEqual({ items: tasks, total: 1 });
-    const stored = await files(join(root, "state"));
+    const stored = await files(state);
     expect(stored).toContain("marbles.db");
     expect(stored.filter((file) => file.includes("tasks"))).toEqual([]);
   });
 
   it("--dry-run keeps tasks in memory and leaves the workspace's untouched", async () => {
     expect(marbles("tasks", "create", "Dry first", "--dry-run").status).toBe(0);
-    expect(await files(join(root, "state"))).toEqual([]);
+    expect(await files(state)).toEqual([]);
     expect(marbles("tasks", "create", "Real").status).toBe(0);
-    const [path] = await files(join(root, "state"));
-    const before = await readFile(join(root, "state", path ?? ""), "utf8");
+    const [path] = await files(state);
+    const before = await readFile(join(state, path ?? ""), "utf8");
 
     const dry = marbles("tasks", "create", "Dry", "--dry-run");
     expect(dry.status, dry.stderr).toBe(0);
@@ -120,9 +126,7 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     expect(marbles("tasks", "list", "--dry-run").stdout).toBe(
       "no tasks (0 matching)\n"
     );
-    expect(await readFile(join(root, "state", path ?? ""), "utf8")).toBe(
-      before
-    );
+    expect(await readFile(join(state, path ?? ""), "utf8")).toBe(before);
     const real = JSON.parse(marbles("tasks", "list", "--json").stdout);
     expect(real.items.map((task: { title: string }) => task.title)).toEqual([
       "Real",
@@ -145,6 +149,7 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     const ready = marbles("tasks", "ready", "--json");
     expect(JSON.parse(ready.stdout)).toEqual({ items: [], total: 0 });
     expect(await readdir(root)).toEqual([".foundry"]);
+    expect(existsSync(state)).toBe(false);
   });
 
   it("reads a database with tasks in it and creates or changes nothing", async () => {
@@ -153,7 +158,6 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     ).tasks;
     const child = marbles("tasks", "create", "Child", "--parent", parent.id);
     expect(child.status, child.stderr).toBe(0);
-    const state = join(root, "state");
     const look = async () =>
       await Promise.all(
         (await files(state)).map(async (file) => {
@@ -256,9 +260,8 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
   });
 
   it("refuses the tasks when the workspace's state links out of the state root", async () => {
-    const state = join(root, "state");
     const outside = join(root, "outside");
-    await mkdir(state);
+    await mkdir(state, { recursive: true });
     await mkdir(outside);
     await symlink(outside, workspaceState(state, root).dir);
     const refused = marbles("tasks", "create", "Outside");
@@ -268,11 +271,11 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
   });
 
   it("keeps two workspaces' tasks apart under one state root", async () => {
-    const state = join(root, "state");
     const inProject = (project: string, ...argv: readonly string[]) =>
-      spawnSync("bun", cliArgs(...argv, "--state", state), {
+      spawnSync("bun", cliArgs(...argv), {
         cwd: project,
         encoding: "utf8",
+        env: home.env,
         timeout: 15_000,
       });
     const [a, b] = [join(root, "a"), join(root, "b")];
@@ -289,17 +292,16 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
   });
 
   it("lets several commands change the tasks at once with no Marbles process running", async () => {
-    const state = join(root, "state");
     const titles = ["One", "Two", "Three", "Four"];
     const results = await Promise.all(
       titles.map(
         (title) =>
           new Promise<{ code: number | null; stderr: string }>((done) => {
-            const child = spawn(
-              "bun",
-              cliArgs("tasks", "create", title, "--state", state),
-              { cwd: root }
-            );
+            const child = spawn("bun", cliArgs("tasks", "create", title), {
+              cwd: root,
+              env: home.env,
+            });
+            home.track(child.pid, false);
             let stderr = "";
             child.stderr?.on("data", (chunk: Buffer) => {
               stderr += chunk.toString();
@@ -320,7 +322,6 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
   it("makes the database with no Marbles process running, and leaves the state root free", () => {
     const created = marbles("tasks", "create", "First");
     expect(created.status, created.stderr).toBe(0);
-    const state = join(root, "state");
     expect(existsSync(join(state, "marbles.db"))).toBe(true);
     expect(existsSync(join(state, "locks", "process"))).toBe(false);
   });
@@ -336,7 +337,6 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
       join(source, "index.ts"),
       'throw new Error("source must not run");\n'
     );
-    const state = join(root, "state");
     const { id } = workspaceState(state, root);
     const database = await openHostDatabase(state);
     const records = new DatabaseWorkspaceRecords({

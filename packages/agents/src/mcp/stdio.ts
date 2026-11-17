@@ -2,9 +2,12 @@ import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import type { JSONRPCMessage, MCPTransport } from "@ai-sdk/mcp";
-
 import { validateJSONRPCMessage } from "@ai-sdk/mcp";
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
+import {
+  recordSpawned,
+  spawnRecordEnvironment,
+} from "@foundry/lib/spawn-record";
 
 import type { McpStdioTransportConfig } from "./types";
 
@@ -45,7 +48,10 @@ const INHERITED_ENV =
 const CLOSE_GRACE_MS = 2000;
 
 function childEnv(custom: Record<string, string> = {}): Record<string, string> {
-  const env: Record<string, string> = { ...custom };
+  const env: Record<string, string> = {
+    ...spawnRecordEnvironment(),
+    ...custom,
+  };
   for (const key of INHERITED_ENV) {
     const value = process.env[key];
     if (value !== undefined && !value.startsWith("()")) {
@@ -152,6 +158,7 @@ export const spawnStdioTransport: SpawnStdio = (config, hooks) => {
             transport.onerror?.(error);
           });
         }
+        recordSpawned(proc.pid, false);
       });
     },
   };

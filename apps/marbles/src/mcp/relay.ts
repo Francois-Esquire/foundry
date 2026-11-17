@@ -4,6 +4,7 @@ import { constants } from "node:os";
 import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
+import { recordSpawned } from "~/process/spawned";
 
 const SERVER = "MARBLES_MCP_SERVER";
 const PROTOCOL_FD = 3;
@@ -93,6 +94,7 @@ export async function relay(
       resolve(code ?? 128 + (signal === null ? 0 : constants.signals[signal]));
     });
   });
+  recordSpawned(child.pid, false);
   const copied = pipeline(protocol, createWriteStream("", { fd: 1 })).catch(
     (error: unknown) => {
       process.stderr.write(

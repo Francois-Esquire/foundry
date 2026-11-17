@@ -1,9 +1,8 @@
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
+import { execFileRecorded } from "@foundry/lib/spawn-record";
 import type { Container } from "@foundry/sandbox/container/containers";
 import { z } from "zod";
 import {
@@ -14,7 +13,7 @@ import {
   isGuestArchitecture,
 } from "~/lib/cli-harnesses";
 
-const execute = promisify(execFile);
+const execute = execFileRecorded;
 const manifestSchema = z.object({
   dist: z.object({
     integrity: z.string().startsWith("sha512-"),

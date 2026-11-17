@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import type { Context } from "~/lib/types";
 import { testEngine, testInstances } from "./helpers/engine";
-import { storedRun } from "./helpers/runs";
+import { storedRun } from "./helpers/stored-runs";
 
 function deferred() {
   let resolve!: () => void;
