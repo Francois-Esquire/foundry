@@ -1082,16 +1082,15 @@ export class Queue {
             this.#emit({ kind: "cancelled", runId: run.id });
             return "cancelled-before-start" as const;
           }
+          await Effect.runPromise(
+            workflow.markStarted(new Date().toISOString())
+          );
           const startSnap = await Effect.runPromise(workflow.state);
           await Effect.runPromise(
             this.#persistSnapshot(
               run.id,
               run.step,
-              {
-                ...startSnap,
-                startedAt: new Date().toISOString(),
-                status: "running",
-              },
+              { ...startSnap, status: "running" },
               run.workflow.persistence
             )
           );
@@ -1438,6 +1437,7 @@ export class Queue {
    * Writes are not throttled.
    */
   #persistenceLoop(run: DispatchedWorkflow): Effect.Effect<void> {
+    let last: WorkflowState["status"] = "running";
     return workflowEffectAccess(run.workflow).stateChanges.pipe(
       // SubscriptionRef.changes replays the current value as the first
       // emit. That value is the pre-run state already covered by the
@@ -1445,6 +1445,14 @@ export class Queue {
       // through here would race the boundary write through the mutex
       // and could clobber it back to a pre-run status. Drop it.
       Stream.drop(1),
+      Stream.map((snap) => {
+        const status =
+          snap.status === "queued" && last === "running"
+            ? ("running" as const)
+            : snap.status;
+        last = status;
+        return status === snap.status ? snap : { ...snap, status };
+      }),
       Stream.filter(
         (snap) =>
           !(

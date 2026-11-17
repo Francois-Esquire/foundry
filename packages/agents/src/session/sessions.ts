@@ -1,5 +1,6 @@
 import { generateId } from "ai";
 
+import type { SessionChangeEvent } from "../schema";
 import type { SessionStore } from "../store";
 import { InMemorySessionStore } from "../store/memory";
 import { metadataFault, partsFault } from "../store/message-shape";
@@ -84,12 +85,13 @@ export class Sessions {
 
   createSession(input: CreateSessionInput = {}): Promise<SessionRecord> {
     const record = keptSession(newSessionRecord(input));
+    const created = changeEvent("session.created", record.id, record.createdAt);
     return this.#mutation(async (store) => {
       const existing = await store.getSession(record.id);
       if (existing) {
         return existing;
       }
-      await store.commit({ putSessions: [record] });
+      await store.commit({ events: [created], putSessions: [record] });
       return record;
     });
   }
@@ -102,13 +104,25 @@ export class Sessions {
       ...(patch.status === undefined ? {} : { status: patch.status }),
       ...(patch.title === undefined ? {} : { title: patch.title }),
     };
+    const eventId = generateId();
     return this.#mutation(async (store) => {
       const current = await store.getSession(id);
       if (!current) {
         return null;
       }
       const next = keptSession(patchSessionRecord(current, taken));
-      await store.commit({ putSessions: [next] });
+      const changed =
+        next.title !== current.title || next.status !== current.status;
+      await store.commit({
+        ...(changed
+          ? {
+              events: [
+                changeEvent("session.updated", id, next.updatedAt, eventId),
+              ],
+            }
+          : {}),
+        putSessions: [next],
+      });
       return next;
     });
   }
@@ -120,12 +134,14 @@ export class Sessions {
     } catch (error) {
       return Promise.reject(error);
     }
+    const appended = messagesAppended(message);
     return this.#mutation(async (store) => {
       const session = await store.getSession(message.sessionId);
       if (!session) {
         throw new Error(`[sessions] unknown session: ${message.sessionId}`);
       }
       await store.commit({
+        events: [appended],
         putMessages: [message],
         putSessions: [touched(session, message)],
       });
@@ -200,6 +216,7 @@ export class Sessions {
     } catch (error) {
       return Promise.reject(error);
     }
+    const appended = messagesAppended(summary);
     return this.#mutation(async (store) => {
       const session = await store.getSession(sessionId);
       const messages = await store.listMessages(sessionId);
@@ -214,6 +231,7 @@ export class Sessions {
         })
       );
       await store.commit({
+        events: [appended],
         putMessages: [...folded, summary],
         putSessions: [touched(session, summary)],
       });
@@ -240,6 +258,25 @@ export class Sessions {
     );
     return run;
   }
+}
+
+function changeEvent(
+  type: "session.created" | "session.updated",
+  sessionId: string,
+  at: number,
+  id: string = generateId()
+): SessionChangeEvent {
+  return { at: new Date(at).toISOString(), id, sessionId, type };
+}
+
+function messagesAppended(message: SessionMessage): SessionChangeEvent {
+  return {
+    at: new Date(message.createdAt).toISOString(),
+    id: generateId(),
+    messageIds: [message.id],
+    sessionId: message.sessionId,
+    type: "session.messages.appended",
+  };
 }
 
 function touched(

@@ -225,3 +225,20 @@ export const summarySchema = z.object({
   subjectSessionId: recordId,
 });
 export type Summary = z.infer<typeof summarySchema>;
+
+const changeEventFields = {
+  at: z.iso.datetime(),
+  id: recordId,
+  sessionId: recordId,
+};
+
+export const sessionChangeEventSchema = z.discriminatedUnion("type", [
+  z.object({ ...changeEventFields, type: z.literal("session.created") }),
+  z.object({ ...changeEventFields, type: z.literal("session.updated") }),
+  z.object({
+    ...changeEventFields,
+    messageIds: z.array(recordId).min(1),
+    type: z.literal("session.messages.appended"),
+  }),
+]);
+export type SessionChangeEvent = z.infer<typeof sessionChangeEventSchema>;
