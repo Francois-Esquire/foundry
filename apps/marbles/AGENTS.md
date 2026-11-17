@@ -204,8 +204,8 @@ Five buckets, each importing only what sits below it:
   `marbles_delivery_claims`, a claim a transaction on that row, as tick
   claims are. `providers.ts` is the machine's provider configuration, a row
   per scope with a revision the configuration's watcher polls, and the
-  identity key; `stateProviders` is the same for a process that keeps no
-  handle open. Its settings may hold secrets: `initializeDatabase` keeps
+  identity key; `DatabaseProviderStore.forState` is the same for a
+  process that keeps no handle open. Its settings may hold secrets: `initializeDatabase` keeps
   the database file and its side files mode 0600, and nothing the provider
   store throws quotes a setting. The modules
   tables are composed and migrated, but nothing in Marbles uses them yet. Every writer handle goes through `guard.ts`, which
@@ -234,8 +234,8 @@ Five buckets, each importing only what sits below it:
   tasks, sessions, runs, Execution Runs, trigger state, automations,
   usage, grants, deferred approvals and activities
   (`openWorkspaceDatabase` in `database/managed.ts`), reads and writes its
-  provider configuration per call (`stateProviders`), keeps its artifacts,
-  containers and catalogue in memory, and closes the handle after
+  provider configuration per call (`DatabaseProviderStore.forState`),
+  keeps its artifacts, containers and catalogue in memory, and closes the handle after
   everything else it holds, since its agents may write a session after its
   records close.
 - `src/workspace/` hosts one workspace in the process it runs in: source

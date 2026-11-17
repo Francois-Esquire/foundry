@@ -18,7 +18,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
-import { stateProviders } from "~/database/providers";
+import { DatabaseProviderStore } from "~/database/providers";
 import { stateDatabase } from "~/layout";
 import { Engine } from "~/lib/engine";
 import { RunScope } from "~/lib/run-scope";
@@ -253,7 +253,7 @@ it("runs model-free work without provider configuration, and refuses a session w
 
 it("echoes the configured providers under dry, lets a programmatic set supersede them, and gives each engine its own Airplane", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "create-configured-"));
-  await stateProviders(stateRoot).update(undefined, () => ({
+  await DatabaseProviderStore.forState(stateRoot).update(undefined, () => ({
     machine: {
       providers: [{ enabled: true, id: "codex", plugin: "codex" }],
       version: 1,
@@ -296,7 +296,9 @@ it("echoes the configured providers under dry, lets a programmatic set supersede
     });
     await session.generate("Look.");
     expect(session.ref.instance).toEqual(expect.any(String));
-    expect(await stateProviders(stateRoot).identityKey(false)).toBeUndefined();
+    expect(
+      await DatabaseProviderStore.forState(stateRoot).identityKey(false)
+    ).toBeUndefined();
     expect((await readFile(stateDatabase(stateRoot))).equals(before)).toBe(
       true
     );

@@ -265,17 +265,26 @@ export function readOnlyProviders(store: ProviderStore): ProviderStore {
     }
     return keptConfigurations(texts, revision);
   };
+  let edits: Promise<unknown> = Promise.resolve();
+  const editNow = async (
+    workspace: string | undefined,
+    edit: (current: ProviderConfigurations) => ProviderWrites
+  ): Promise<ProviderConfigurations> => {
+    const written = writtenTexts(workspace, edit(await read()));
+    for (const [scope, text] of written) {
+      own.set(scope, text);
+    }
+    writes += written.size > 0 ? 1 : 0;
+    return read();
+  };
   return {
     identityKey: () => store.identityKey(false),
     read,
     revision: async () => (await store.revision()) + writes,
-    async update(workspace, edit) {
-      const written = writtenTexts(workspace, edit(await read()));
-      for (const [scope, text] of written) {
-        own.set(scope, text);
-      }
-      writes += written.size > 0 ? 1 : 0;
-      return read();
+    update(workspace, edit) {
+      const landing = edits.then(() => editNow(workspace, edit));
+      edits = landing.catch(() => undefined);
+      return landing;
     },
   };
 }
