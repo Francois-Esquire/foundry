@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import type { ToolCallObservation } from "~/lib/execution-record";
 import { ExecutionRecords } from "~/lib/execution-records";
 import { MemoryExecutionStore } from "~/lib/execution-store";
@@ -46,6 +46,56 @@ it("keeps another engine's observations when its own progress write reveals them
     "ob-1",
   ]);
   expect(second.get(run.id)?.progress).toEqual({ step: 1 });
+});
+
+async function unreadAfterProgress() {
+  const {
+    records: [first, second],
+    store,
+    warnings,
+  } = engines(2);
+  if (!(first && second)) {
+    throw new Error("two engines expected");
+  }
+  const { run } = await first.enqueue({
+    kind: "task",
+    name: "watched",
+    queue: "default",
+  });
+  await second.load();
+  expect(await first.observe(run.id, toolCall("ob-1"))).toBe(true);
+  vi.spyOn(store, "get").mockRejectedValueOnce(new Error("store busy"));
+
+  second.progress(run.id, { step: 1 });
+  await second.flush();
+
+  expect(warnings).toEqual([
+    expect.stringContaining(`execution ${run.id} not read back after a write`),
+  ]);
+  return { id: run.id, second };
+}
+
+const observed = (run: { readonly observations: readonly { id: string }[] }) =>
+  run.observations.map(({ id }) => id);
+
+it("takes the stored run on a later refresh when its read back after a write failed", async () => {
+  const { id, second } = await unreadAfterProgress();
+
+  await second.subscribe(() => undefined);
+
+  const run = second.get(id);
+  expect(run && observed(run)).toEqual(["ob-1"]);
+  expect(run?.progress).toEqual({ step: 1 });
+});
+
+it("still takes the stored run on a refresh after its own writes follow a failed read back", async () => {
+  const { id, second } = await unreadAfterProgress();
+  expect(await second.observe(id, toolCall("ob-2"))).toBe(true);
+
+  await second.subscribe(() => undefined);
+
+  const run = second.get(id);
+  expect(run && observed(run)).toEqual(["ob-1", "ob-2"]);
 });
 
 it("stores the progress as it was when given, whatever the caller changes after", async () => {
