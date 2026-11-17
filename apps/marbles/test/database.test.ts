@@ -508,7 +508,7 @@ opened.close();
     }
   }, 60_000);
 
-  it("has a committed migration for everything in the schema", async () => {
+  it("has a generated migration for everything in the schema", async () => {
     const out = join(scratch(), "migrations");
     cpSync(MIGRATIONS, out, { recursive: true });
     const before = readdirSync(out).sort();
