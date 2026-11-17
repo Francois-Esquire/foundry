@@ -195,6 +195,18 @@ export interface EngineOptions {
   readonly worktrees?: string;
 }
 
+function contextOf(
+  options: EngineOptions,
+  spawned: string | undefined
+): ExecutionContext {
+  return {
+    cwd: options.cwd ?? options.root,
+    environment: options.environment ?? environmentSnapshot(),
+    ...(spawned === undefined ? {} : { spawned }),
+    workspaceId: options.workspaceId,
+  };
+}
+
 function sessionListing(
   sessions: SessionStore,
   usage: UsageStore
@@ -337,7 +349,7 @@ export class Engine {
   }
 
   constructor(options: EngineOptions) {
-    const { models, root, sessions, state, workspaceId } = options;
+    const { models, root, sessions, spawned, state, workspaceId } = options;
     const print = options.print ?? (() => undefined);
     const home = options.home ?? homedir();
     const askable = options.askable ?? false;
@@ -383,11 +395,7 @@ export class Engine {
       ...sessionListing(sessions, usage),
     });
     this.workspaceId = workspaceId;
-    this.context = {
-      cwd: options.cwd ?? root,
-      environment: options.environment ?? environmentSnapshot(),
-      workspaceId,
-    };
+    this.context = contextOf(options, spawned);
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
     this.#executions = new Executions({
       ...(options.queues === undefined ? {} : { queues: options.queues }),
@@ -512,6 +520,9 @@ export class Engine {
           dry: options.dry ?? false,
           environment: this.context.environment,
           print,
+          ...(this.context.spawned === undefined
+            ? {}
+            : { spawned: this.context.spawned }),
           signal: () => frame.signal,
           write,
         }),

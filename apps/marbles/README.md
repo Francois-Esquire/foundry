@@ -304,6 +304,16 @@ model-turn, tool-call and host observations. Task sessions and borrowed sandbox
 handles stop with the task; closing a borrowed handle leaves its container with
 its owner.
 
+The `spawned` option (`Engine`, `hostWorkspace`, `HostedWorkspaces.open`)
+names the directory of the crash recovery records. The engine reads them from
+there when it starts, and records there each command a step runs on the
+host (`exec`). Processes the bundled models, agents and usage packages
+start (the Claude Code and Codex CLIs, MCP servers over stdio, usage
+probes) are recorded only
+where `MARBLES_SPAWN_RECOVERY` in the process environment says. A host
+that passes `spawned` should set that variable to the same directory too,
+or those processes are not stopped after a crash.
+
 ## Loading workspace source
 
 Marbles loads a workspace's source with `oxc-parser`, which finds the
