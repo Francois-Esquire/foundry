@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase, readDatabase } from "~/database/open";
-import { DatabaseProviderStore, stateProviders } from "~/database/providers";
+import { DatabaseProviderStore } from "~/database/providers";
 import { marblesProviderConfigurations } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { ProviderStore, ProvidersFile } from "~/lib/providers/store";
@@ -135,7 +135,7 @@ describeProviderStore("the database provider store", async () => {
 });
 describeProviderStore(
   "the provider store a process without a handle uses",
-  () => Promise.resolve(stateProviders(scratch()))
+  () => Promise.resolve(DatabaseProviderStore.forState(scratch()))
 );
 
 describe("provider configuration in the Marbles database", () => {

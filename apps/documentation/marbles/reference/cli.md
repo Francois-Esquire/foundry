@@ -336,7 +336,7 @@ Pi is configured like any other provider: setup offers it when its CLI is
 installed. Provider configuration lives in the Marbles database; there is
 no file to edit and no command for it yet, so an entry setup does not offer
 is added through the library, `ProviderConfiguration.add` over
-`stateProviders` (`@foundry.sh/marbles/lib`), for example
+`DatabaseProviderStore.forState` (`@foundry.sh/marbles/lib`), for example
 `{ "id": "pi", "plugin": "pi", "enabled": true }`. Pi reads the process environment itself, so it does not
 serve a workspace whose `.env.schema` adds variables until it is configured
 for that workspace. Host model

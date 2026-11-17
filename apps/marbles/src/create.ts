@@ -27,7 +27,7 @@ import { DatabaseGrantStorage } from "~/database/grants";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { defaultWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
-import { DatabaseProviderStore, stateProviders } from "~/database/providers";
+import { DatabaseProviderStore } from "~/database/providers";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import type { WorkspaceStores } from "~/database/stores";
@@ -219,7 +219,7 @@ function modelsFor(options: CreateEngineOptions): {
     plugins: options.plugins ?? FIRST_PARTY_PLUGINS,
     store:
       options.database === undefined || options.dry
-        ? stateProviders(options.stateRoot ?? layout().state)
+        ? DatabaseProviderStore.forState(options.stateRoot ?? layout().state)
         : new DatabaseProviderStore({ database: options.database }),
     ...(options.stateDir
       ? {
