@@ -52,7 +52,9 @@ await run.result();
 
 Registered by **name**, not by reference. That indirection is what makes
 recovery possible: after a restart, `orchestrator.recover()` finds runs that
-were mid-flight and rebuilds them from the registry.
+were mid-flight and rebuilds them from the registry. A host whose store
+others share says which of those runs this Orchestrator takes on with the
+`recovers` option; a run it refuses stays in the store as it is.
 
 ### A reusable definition
 

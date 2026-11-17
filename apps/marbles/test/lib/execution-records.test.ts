@@ -4,6 +4,7 @@ import type { SessionStore } from "@foundry/agents/store";
 import { Workflow } from "@foundry/workflows/workflow";
 import { expect, it } from "vitest";
 import { step } from "~/authoring/builder";
+import { readStoredRuns } from "~/database/runs";
 import type { Engine } from "~/lib/engine";
 import { type ExecutionRun, Executions } from "~/lib/executions";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
@@ -222,7 +223,7 @@ it("logs a running run's observations one at a time, folds them into its settled
   expect(existsSync(log(launched.id))).toBe(false);
 });
 
-it("prunes only settled runs, records the gap first, and drops a workflow's run file", async () => {
+it("prunes only settled runs, records the gap first, and drops a workflow's Run and output", async () => {
   const state = join(fixture.root, "state");
   step("flow").do(() => "ran");
   const engine = engineWith({ state });
@@ -242,10 +243,12 @@ it("prunes only settled runs, records the gap first, and drops a workflow's run 
     { correlation: { moduleId: "a" } }
   );
   await until(() => started.includes("held"));
-  expect(existsSync(join(state, "runs", `${flow.id}.json`))).toBe(true);
+  const storedIds = async () =>
+    (await readStoredRuns(state, "test")).map((run) => run.id);
+  expect(await storedIds()).toContain(flow.id);
   expect(existsSync(join(state, "output", `${flow.id}.jsonl`))).toBe(true);
 
-  const removed = engine.executions.prune(
+  const removed = await engine.executions.prune(
     [flow.id, held.id, "rn-unknown"],
     (run) => run.correlation.moduleId ?? "host"
   );
@@ -254,7 +257,7 @@ it("prunes only settled runs, records the gap first, and drops a workflow's run 
   expect(engine.executions.get(flow.id)).toBeUndefined();
   expect(engine.executions.get(held.id)?.status).toBe("running");
   expect(existsSync(join(state, "executions", `${flow.id}.json`))).toBe(false);
-  expect(existsSync(join(state, "runs", `${flow.id}.json`))).toBe(false);
+  expect(await storedIds()).not.toContain(flow.id);
   expect(existsSync(join(state, "output", `${flow.id}.jsonl`))).toBe(false);
   const [gap] = engine.executions.gaps();
   expect(gap).toMatchObject({ removed: 1, scope: "a" });
@@ -524,7 +527,7 @@ it("takes in another engine's runs and prunes when a host subscribes again", asy
     "complete"
   );
 
-  second.executions.prune([elsewhere.id], () => "host");
+  await second.executions.prune([elsewhere.id], () => "host");
   const after = first.executions.subscribe(() => undefined);
   after.unsubscribe();
   expect(after.snapshot.map((run) => run.id)).not.toContain(elsewhere.id);
@@ -560,19 +563,20 @@ it("keeps a run's record when its cleanup fails, so pruning it again retries", a
   await engine.start();
   const flow = await engine.launch<string>("flow", {});
   await flow.result;
-  const file = join(state, "runs", `${flow.id}.json`);
+  const file = join(state, "output", `${flow.id}.jsonl`);
   rmSync(file);
-  // A directory where the file was: removing it fails.
   mkdirSync(join(file, "blocked"), { recursive: true });
 
-  expect(engine.executions.prune([flow.id], () => "host")).toEqual([]);
+  expect(await engine.executions.prune([flow.id], () => "host")).toEqual([]);
   expect(engine.executions.gaps()).toEqual([]);
   expect(engine.executions.get(flow.id)?.status).toBe("complete");
   expect(existsSync(join(state, "executions", `${flow.id}.json`))).toBe(true);
   expect((await engine.runs()).map((run) => run.id)).toContain(flow.id);
 
   rmSync(file, { recursive: true });
-  expect(engine.executions.prune([flow.id], () => "host")).toHaveLength(1);
+  expect(await engine.executions.prune([flow.id], () => "host")).toHaveLength(
+    1
+  );
   expect(engine.executions.gaps()).toMatchObject([
     { removed: 1, scope: "host" },
   ]);
@@ -624,7 +628,7 @@ it("shows a workflow run still being set up on the dashboard, once", async () =>
   await launched.result;
 });
 
-it("accumulates retention across stale engines without counting the same removal twice", () => {
+it("accumulates retention across stale engines without counting the same removal twice", async () => {
   const state = join(fixture.root, "shared-prune");
   const store = new JsonStateStore(state);
   const first = new Executions({ store, warn: () => undefined });
@@ -661,14 +665,16 @@ it("accumulates retention across stale engines without counting the same removal
   ]
     .sort()
     .at(-1);
-  expect(first.prune([newer.id], () => "host")).toHaveLength(1);
-  expect(second.prune([newer.id, older.id], () => "host")).toHaveLength(1);
+  expect(await first.prune([newer.id], () => "host")).toHaveLength(1);
+  expect(await second.prune([newer.id, older.id], () => "host")).toHaveLength(
+    1
+  );
   expect(second.gaps()).toMatchObject([{ removed: 2, scope: "host", through }]);
   first.load();
   expect(first.gaps()).toEqual(second.gaps());
 });
 
-it("leaves retention and records unchanged when another process is pruning", () => {
+it("leaves retention and records unchanged when another process is pruning", async () => {
   const store = new InMemoryStateStore();
   const runs = new Executions({ store, warn: () => undefined });
   const { run } = runs.enqueue({
@@ -680,7 +686,9 @@ it("leaves retention and records unchanged when another process is pruning", () 
   const lock = store.lock("retention-gaps");
   expect(lock).toBeDefined();
   try {
-    expect(() => runs.prune([run.id], () => "host")).toThrow("retention");
+    await expect(runs.prune([run.id], () => "host")).rejects.toThrow(
+      "retention"
+    );
     expect(runs.get(run.id)?.status).toBe("complete");
     expect(runs.gaps()).toEqual([]);
   } finally {
@@ -688,5 +696,5 @@ it("leaves retention and records unchanged when another process is pruning", () 
       lock.release();
     }
   }
-  expect(runs.prune([run.id], () => "host")).toHaveLength(1);
+  expect(await runs.prune([run.id], () => "host")).toHaveLength(1);
 });

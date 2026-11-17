@@ -183,6 +183,7 @@ function wrap(container: Container, site: HandleSite): SandboxHandle {
 export class SandboxesManager implements Sandboxes {
   readonly #deps: SandboxesDeps;
   readonly #handles = new WeakMap<SandboxHandle, Container>();
+  readonly #started = new Set<string>();
   #opened: Promise<Containers> | undefined;
 
   constructor(deps: SandboxesDeps) {
@@ -236,6 +237,7 @@ export class SandboxesManager implements Sandboxes {
       await container.close();
       throw error;
     }
+    this.#started.add(container.id);
     return container;
   }
 
@@ -282,9 +284,7 @@ export class SandboxesManager implements Sandboxes {
         // A runtime that cannot start is an error, not a missing record.
         await this.containers();
         const recorded = scope.ledger.get<string>(key);
-        if (recorded !== undefined) {
-          // A container never outlives the process that started it: a run
-          // adopted after a restart starts a fresh one under the same key.
+        if (recorded !== undefined && this.#started.has(recorded)) {
           try {
             return attach(await this.#open(recorded, frame.signal));
           } catch {

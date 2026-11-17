@@ -1,0 +1,61 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, it } from "vitest";
+import { initializeDatabase } from "~/database/open";
+import { marblesScheduleTicks } from "~/database/tables";
+import { DatabaseTriggerStore } from "~/database/triggers";
+import { stateDatabase } from "~/layout";
+import { MemoryTriggerStore } from "~/lib/trigger-store";
+import { describeTriggerStore } from "./helpers/trigger-store";
+
+describeTriggerStore(
+  "MemoryTriggerStore",
+  () =>
+    Promise.resolve({
+      close: () => Promise.resolve(),
+      store: () => new MemoryTriggerStore(),
+    }),
+  { shared: false }
+);
+
+async function database() {
+  const root = mkdtempSync(join(tmpdir(), "marbles-trigger-store-"));
+  const opened = await initializeDatabase(stateDatabase(root));
+  return {
+    close() {
+      opened.close();
+      rmSync(root, { force: true, recursive: true });
+      return Promise.resolve();
+    },
+    opened,
+    store: () =>
+      new DatabaseTriggerStore({ database: opened.database, scope: "ws" }),
+  };
+}
+
+describeTriggerStore("DatabaseTriggerStore", database, { shared: true });
+
+it("lets a tick an exited process held be claimed, and says which live process holds one", async () => {
+  const fixture = await database();
+  try {
+    const dead = spawnSync("true").pid;
+    await fixture.opened.database.insert(marblesScheduleTicks).values([
+      { key: "left", ownerId: "gone", ownerPid: dead, scope: "ws" },
+      { key: "held", ownerId: "parent", ownerPid: process.ppid, scope: "ws" },
+    ]);
+    const triggers = fixture.store();
+    expect(await triggers.claimTick("left")).toEqual({ claimed: true });
+    expect(await triggers.claimTick("held")).toEqual({
+      claimed: false,
+      holder: `pid ${String(process.ppid)}`,
+    });
+    await triggers.finishTick("held");
+    expect(await fixture.store().claimTick("held")).toMatchObject({
+      claimed: false,
+    });
+  } finally {
+    await fixture.close();
+  }
+});

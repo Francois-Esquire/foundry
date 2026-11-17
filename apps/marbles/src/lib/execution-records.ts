@@ -20,8 +20,9 @@ import {
   withObservation,
 } from "./execution-record";
 import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
+import type { RunStore } from "./run-store";
+import { ANY_STORED_RUN } from "./run-store";
 import { isRecord } from "./state/json";
-import type { Lock } from "./state/locks";
 import type { StateStore } from "./state/store";
 
 const GAPS_KEY = "gaps";
@@ -47,12 +48,8 @@ function exited(pid: number): boolean {
 }
 /** Storage and cleanup owned by the durable execution authority. */
 export interface ExecutionRecordsOptions {
-  /**
-   * Told of each settled run being pruned, before its record goes, to
-   * drop what else it kept. One that throws keeps the record, so pruning
-   * it again retries.
-   */
-  readonly removed?: (run: ExecutionRun) => void;
+  readonly removed?: (run: ExecutionRun) => Promise<void> | void;
+  readonly runs?: Pick<RunStore, "claim" | "release">;
   readonly store: StateStore;
   readonly warn: (line: string) => void;
 }
@@ -63,7 +60,8 @@ export class ExecutionRecords {
   readonly #warn: (line: string) => void;
   readonly #records = new Map<string, ExecutionRun>();
   readonly #listeners = new Set<(run: ExecutionRun) => void>();
-  readonly #removed: (run: ExecutionRun) => void;
+  readonly #removed: (run: ExecutionRun) => Promise<void> | void;
+  readonly #runs: Pick<RunStore, "claim" | "release"> | undefined;
   /** Each record's observation positions by id, for the array it was built for. */
   readonly #indexes = new WeakMap<
     readonly ExecutionObservation[],
@@ -86,6 +84,7 @@ export class ExecutionRecords {
       typeof options.store.log === "function";
     this.#warn = options.warn;
     this.#removed = options.removed ?? (() => undefined);
+    this.#runs = options.runs;
   }
 
   gaps(): readonly RetentionGap[] {
@@ -96,26 +95,26 @@ export class ExecutionRecords {
     return this.#records.get(id);
   }
 
-  prune(
+  async prune(
     ids: Iterable<string>,
     scopeOf: (run: ExecutionRun) => string
-  ): readonly ExecutionRun[] {
+  ): Promise<readonly ExecutionRun[]> {
     const lock = this.#store.lock("retention-gaps");
     if ("holder" in lock) {
       throw new Error(`retention is being updated by ${lock.holder}`);
     }
     try {
-      return this.#prune(ids, scopeOf);
+      return await this.#prune(ids, scopeOf);
     } finally {
       lock.release();
     }
   }
 
   /** Cleanup and gap accounting are one shared-store critical section. */
-  #prune(
+  async #prune(
     ids: Iterable<string>,
     scopeOf: (run: ExecutionRun) => string
-  ): readonly ExecutionRun[] {
+  ): Promise<readonly ExecutionRun[]> {
     const candidates = [...new Set(ids)].flatMap((id) => {
       const run = this.#records.get(id);
       const retained = this.#store.read("executions", id) !== undefined;
@@ -124,15 +123,15 @@ export class ExecutionRecords {
         : [];
     });
     // Failed cleanup leaves its record for a retry and is not a removal.
-    const runs = candidates.filter((run) => {
+    const runs: ExecutionRun[] = [];
+    for (const run of candidates) {
       try {
-        this.#removed(run);
-        return true;
+        await this.#removed(run);
+        runs.push(run);
       } catch (error) {
         this.#warn(`[state] run ${run.id} not removed: ${String(error)}`);
-        return false;
       }
-    });
+    }
     if (runs.length === 0) {
       return [];
     }
@@ -444,17 +443,7 @@ export class ExecutionRecords {
     return run !== undefined && SETTLED_EXECUTION_STATUSES.has(run.status);
   }
 
-  /**
-   * Record cancelled an unsettled run whose owner has exited and that no
-   * process has adopted; `false`, changing nothing, otherwise. It holds the
-   * run's `execution-<id>` lock and, for a workflow, the `run-<id>` lock an
-   * adopter takes before it reads the record and keeps for as long as it
-   * owns the run, and reads the record and its owner again under them. A
-   * run file left parked stays on disk until the run is pruned; a process
-   * that would adopt it finds the record settled under that lock and
-   * leaves it (see {@link storedSettled}).
-   */
-  cancelOrphan(id: string): boolean {
+  async cancelOrphan(id: string): Promise<boolean> {
     const known = this.#records.get(id);
     if (
       !known ||
@@ -463,17 +452,23 @@ export class ExecutionRecords {
     ) {
       return false;
     }
-    const held: Lock[] = [];
+    const runs = known.kind === "workflow" ? this.#runs : undefined;
+    if (runs && !(await runs.claim(id, ANY_STORED_RUN))) {
+      return false;
+    }
     try {
-      for (const name of known.kind === "workflow"
-        ? [`run-${id}`, `execution-${id}`]
-        : [`execution-${id}`]) {
-        const lock = this.#store.lock(name);
-        if ("holder" in lock) {
-          return false;
-        }
-        held.push(lock);
-      }
+      return this.#cancelOrphan(id);
+    } finally {
+      await runs?.release(id);
+    }
+  }
+
+  #cancelOrphan(id: string): boolean {
+    const lock = this.#store.lock(`execution-${id}`);
+    if ("holder" in lock) {
+      return false;
+    }
+    try {
       const run = this.#folded(
         this.#parse(this.#store.read("executions", id), id)
       );
@@ -493,9 +488,7 @@ export class ExecutionRecords {
       this.settle(id, "cancelled");
       return true;
     } finally {
-      for (const lock of held.reverse()) {
-        lock.release();
-      }
+      lock.release();
     }
   }
 
