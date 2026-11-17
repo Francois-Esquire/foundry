@@ -258,7 +258,9 @@ Five buckets, each importing only what sits below it:
   callers, addresses what each declared by workspace id and local name
   (`run`, `roll`), and loads every registered (`hosted`) workspace again,
   reporting each that fails (`loadRegistered`; a registration whose source
-  is gone fails, one made without a source is its root alone), and drops
+  is gone fails; one made with no source path reads the default
+  `.foundry/marbles` under its root when that is there, and is its root
+  alone when it is not), and drops
   a registration (`unregister`). The Marbles process still
   runs one worker per workspace. It imports `lib/`,
   `authoring/`, `database/`, `layout.ts` and `model/`; never views, `args`, or
