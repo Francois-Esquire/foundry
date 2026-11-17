@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import type { ContainerRow } from "../schema";
-import { createSqliteContainerStore } from "../store/sqlite";
+import { SqliteContainerStore } from "../store/sqlite";
 import { type ChildScript, startScript } from "./helpers/child-script";
 import { libsqlDatabases } from "./helpers/sqlite";
 
@@ -28,14 +28,14 @@ function row(id: string, status: ContainerRow["status"] = "stopped") {
 describe("a transaction against another connection to its file", () => {
   it("a second client in this process is refused, and lands nothing", async () => {
     const database = await files.open();
-    const store = createSqliteContainerStore({ database, scope: "s" });
-    const elsewhere = createSqliteContainerStore({
+    const store = new SqliteContainerStore({ database, scope: "s" });
+    const elsewhere = new SqliteContainerStore({
       database: files.connect(database),
       scope: "s",
     });
     await store.commit({ putContainers: [row("a")] });
 
-    const outcome = await store.transaction?.(async (view) => {
+    const outcome = await store.transaction(async (view) => {
       const refused = await elsewhere
         .commit({ putContainers: [row("a", "failed")] })
         .then(
@@ -55,12 +55,12 @@ describe("a transaction against another connection to its file", () => {
   it("another process's write is held off, then lands after it commits", async () => {
     const opened = await files.open();
     const database = files.connect(opened, { busyTimeout: 5000 });
-    const store = createSqliteContainerStore({ database, scope: "s" });
+    const store = new SqliteContainerStore({ database, scope: "s" });
     await store.commit({ putContainers: [row("a")] });
     let writer: ChildScript | undefined;
 
     try {
-      const outcome = await store.transaction?.(async (view) => {
+      const outcome = await store.transaction(async (view) => {
         writer = await startScript(WRITER, [
           pathToFileURL(
             createRequire(import.meta.url).resolve("@libsql/client")

@@ -6,7 +6,7 @@ import { ModelManager } from "@foundry/models";
 import { gatewayProvider } from "@foundry/models/gateway";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { expect, it } from "vitest";
 import { AgentsManager } from "~/lib/managers/agents";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
@@ -32,7 +32,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       allowedMountRoots: [root],
       instanceLabel: "marbles-harness-test",
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const store = new InMemorySessionStore();
     const provider = harness === "builtin" ? "gateway" : harness;

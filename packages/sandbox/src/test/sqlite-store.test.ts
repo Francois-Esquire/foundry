@@ -8,7 +8,7 @@ import { createContainers } from "../container/containers";
 import type { ContainerRow } from "../schema";
 import { containerRowSchema } from "../schema";
 import type { ContainerStoreWrite } from "../store/index";
-import { createSqliteContainerStore } from "../store/sqlite";
+import { SqliteContainerStore } from "../store/sqlite";
 import { sandboxContainers } from "../store/tables";
 import { createFakeContainerRuntime } from "../testing";
 import { libsqlDatabases } from "./helpers/sqlite";
@@ -56,7 +56,7 @@ async function withChanges() {
 
 async function counted() {
   let committed = 0;
-  const store = createSqliteContainerStore({
+  const store = new SqliteContainerStore({
     database: await memory.open(),
     onCommit: () => {
       committed += 1;
@@ -71,13 +71,13 @@ describe("the SQLite container store", () => {
   it("binds its identity to where it lives: a byte copy of its database, or the database moved, gets another", async () => {
     const original = await files.open();
     const at = files.path(original);
-    const first = await createSqliteContainerStore({
+    const first = await new SqliteContainerStore({
       database: original,
       location: at,
       scope: "w",
     }).identity();
     expect(
-      await createSqliteContainerStore({
+      await new SqliteContainerStore({
         database: files.connect(original),
         location: at,
         scope: "w",
@@ -88,7 +88,7 @@ describe("the SQLite container store", () => {
     const client = createClient({ url: `file:${copy}` });
     try {
       expect(
-        await createSqliteContainerStore({
+        await new SqliteContainerStore({
           database: drizzle(client),
           location: copy,
           scope: "w",
@@ -98,7 +98,7 @@ describe("the SQLite container store", () => {
       client.close();
     }
     expect(
-      await createSqliteContainerStore({
+      await new SqliteContainerStore({
         database: files.connect(original),
         location: `${at}.moved`,
         scope: "w",
@@ -109,7 +109,7 @@ describe("the SQLite container store", () => {
   it("never has a copy's or a moved home's sweep remove the original's live VM: it is passed over, and named", async () => {
     const original = await files.open();
     const at = files.path(original);
-    const a = createSqliteContainerStore({
+    const a = new SqliteContainerStore({
       database: original,
       location: at,
       scope: "w",
@@ -132,12 +132,12 @@ describe("the SQLite container store", () => {
       });
       const name = held.row.nativeId ?? "";
       for (const store of [
-        createSqliteContainerStore({
+        new SqliteContainerStore({
           database: drizzle(client),
           location: copy,
           scope: "w",
         }),
-        createSqliteContainerStore({
+        new SqliteContainerStore({
           database: files.connect(original),
           location: `${at}.moved`,
           scope: "w",
@@ -165,19 +165,19 @@ describe("the SQLite container store", () => {
 
   it("refuses a scope holding U+001F, which its identity's own scope uses", async () => {
     const database = await memory.open();
-    expect(() =>
-      createSqliteContainerStore({ database, scope: "w\u001fstore" })
+    expect(
+      () => new SqliteContainerStore({ database, scope: "w\u001fstore" })
     ).toThrow(RangeError);
   });
 
   it("keeps the identity it gave inside a transaction that rolled back", async () => {
-    const store = createSqliteContainerStore({
+    const store = new SqliteContainerStore({
       database: await files.open(),
       scope: "w",
     });
     let inside = "";
     await store
-      .transaction?.(async (view) => {
+      .transaction(async (view) => {
         inside = await view.identity();
         throw new Error("rolled back");
       })
@@ -188,35 +188,35 @@ describe("the SQLite container store", () => {
 
   it("keeps its identity in its database: every store over that database and scope gives the same, another database another", async () => {
     const database = await files.open();
-    const first = await createSqliteContainerStore({
+    const first = await new SqliteContainerStore({
       database,
       scope: "s",
     }).identity();
     expect(
-      await createSqliteContainerStore({ database, scope: "s" }).identity()
+      await new SqliteContainerStore({ database, scope: "s" }).identity()
     ).toBe(first);
     expect(
-      await createSqliteContainerStore({
+      await new SqliteContainerStore({
         database: await files.open(),
         scope: "s",
       }).identity()
     ).not.toBe(first);
     expect(
-      await createSqliteContainerStore({ database, scope: "s" }).list()
+      await new SqliteContainerStore({ database, scope: "s" }).list()
     ).toEqual([]);
   });
 
   it("refuses an empty scope", async () => {
     const database = await memory.open();
-    expect(() => createSqliteContainerStore({ database, scope: "" })).toThrow(
+    expect(() => new SqliteContainerStore({ database, scope: "" })).toThrow(
       RangeError
     );
   });
 
   it.each(UNSTORABLE_TEXT)("refuses a scope holding %s", async (_kind, bad) => {
     const database = await memory.open();
-    expect(() =>
-      createSqliteContainerStore({ database, scope: bad("scope") })
+    expect(
+      () => new SqliteContainerStore({ database, scope: bad("scope") })
     ).toThrow(RangeError);
   });
 
@@ -256,7 +256,7 @@ describe("the SQLite container store", () => {
           `cannot store ${field}: text holding U+0000 or a lone surrogate`
         );
         await expect(
-          store.transaction?.((view) => view.commit(write))
+          store.transaction((view) => view.commit(write))
         ).rejects.toThrow(`cannot store ${field}`);
       }
 
@@ -279,7 +279,7 @@ describe("the SQLite container store", () => {
         const message = `cannot store putContainers[1].${field}: ${kind} does not read back intact`;
         await expect(store.commit(write)).rejects.toThrow(message);
         await expect(
-          store.transaction?.((view) => view.commit(write))
+          store.transaction((view) => view.commit(write))
         ).rejects.toThrow(message);
       }
 
@@ -289,7 +289,7 @@ describe("the SQLite container store", () => {
   );
 
   it("keeps every timestamp it accepts, whole or fractional, exactly", async () => {
-    const store = createSqliteContainerStore({
+    const store = new SqliteContainerStore({
       database: await memory.open(),
       scope: "s",
     });
@@ -320,7 +320,7 @@ describe("the SQLite container store", () => {
   it.each(UNSTORABLE_TEXT)(
     "a read or delete by an id holding %s touches no other row",
     async (_kind, bad) => {
-      const store = createSqliteContainerStore({
+      const store = new SqliteContainerStore({
         database: await memory.open(),
         scope: "s",
       });
@@ -341,7 +341,7 @@ describe("the SQLite container store", () => {
       readonly rows: number;
       readonly write: ContainerStoreWrite;
     }[] = [];
-    const store = createSqliteContainerStore({
+    const store = new SqliteContainerStore({
       database,
       onCommit: async (transaction, write) => {
         const rows = await transaction
@@ -368,7 +368,7 @@ describe("the SQLite container store", () => {
     "onCommit receives the write as it stood when commit was called, not the caller's object (%s)",
     async (_location, databases) => {
       const received: ContainerStoreWrite[] = [];
-      const store = createSqliteContainerStore({
+      const store = new SqliteContainerStore({
         database: await databases.open(),
         onCommit: (_transaction, write) => {
           received.push(write);
@@ -384,7 +384,7 @@ describe("the SQLite container store", () => {
         write.putContainers.push(row("late"));
       };
 
-      const transaction = store.transaction?.bind(store);
+      const transaction = store.transaction.bind(store);
       if (transaction === undefined) {
         throw new Error("the SQLite store has a transaction");
       }
@@ -420,7 +420,7 @@ describe("the SQLite container store", () => {
 
   it("a throwing onCommit rolls back the store's statements and its own", async () => {
     const database = await withChanges();
-    const store = createSqliteContainerStore({
+    const store = new SqliteContainerStore({
       database,
       onCommit: async (transaction, write) => {
         await transaction.insert(changes).values({ write });
@@ -433,7 +433,7 @@ describe("the SQLite container store", () => {
       "host refused"
     );
     await expect(
-      store.transaction?.(async (view) => {
+      store.transaction(async (view) => {
         await view.commit({ putContainers: [row("b")] });
       })
     ).rejects.toThrow("host refused");
@@ -443,7 +443,7 @@ describe("the SQLite container store", () => {
 
   it("onCommit calling the store it belongs to is refused at once", async () => {
     const outcomes: string[] = [];
-    let store: ReturnType<typeof createSqliteContainerStore> | undefined;
+    let store: SqliteContainerStore | undefined;
     const attempt = async (call: () => Promise<unknown> | undefined) => {
       const result = await Promise.race([
         Promise.resolve(call()).then(
@@ -456,14 +456,14 @@ describe("the SQLite container store", () => {
       ]);
       outcomes.push(result);
     };
-    store = createSqliteContainerStore({
+    store = new SqliteContainerStore({
       database: await memory.open(),
       onCommit: async (transaction) => {
-        const outer = store as ReturnType<typeof createSqliteContainerStore>;
+        const outer = store as SqliteContainerStore;
         await attempt(() => outer.get("a"));
         await attempt(() => outer.list());
         await attempt(() => outer.commit({}));
-        await attempt(() => outer.transaction?.(() => Promise.resolve()));
+        await attempt(() => outer.transaction(() => Promise.resolve()));
         await transaction.select().from(sandboxContainers);
       },
       scope: "s",
@@ -484,7 +484,7 @@ describe("the SQLite container store", () => {
 
     await expect(
       database.transaction(async (transaction) => {
-        const joined = createSqliteContainerStore({
+        const joined = new SqliteContainerStore({
           database: transaction,
           scope: "s",
         });
@@ -494,12 +494,12 @@ describe("the SQLite container store", () => {
       })
     ).rejects.toThrow("host rolled back");
     expect(
-      await createSqliteContainerStore({ database, scope: "s" }).list()
+      await new SqliteContainerStore({ database, scope: "s" }).list()
     ).toEqual([]);
   });
 
   it("one write can carry thousands of rows", async () => {
-    const store = createSqliteContainerStore({
+    const store = new SqliteContainerStore({
       database: await memory.open(),
       scope: "s",
     });
@@ -518,12 +518,12 @@ describe("the SQLite container store", () => {
   it("a file database keeps its rows for the next connection", async () => {
     const first = await files.open();
     const rows = [row("b", { nativeId: "b-1" }), row("a")];
-    await createSqliteContainerStore({ database: first, scope: "s" }).commit({
+    await new SqliteContainerStore({ database: first, scope: "s" }).commit({
       putContainers: rows,
     });
     const reopened = await files.reopen(first);
     expect(
-      await createSqliteContainerStore({
+      await new SqliteContainerStore({
         database: reopened,
         scope: "s",
       }).list()
@@ -595,7 +595,7 @@ describe.each([
         armed = true;
       },
       ran,
-      store: createSqliteContainerStore({ database, scope: "s" }),
+      store: new SqliteContainerStore({ database, scope: "s" }),
     };
   }
 
@@ -616,7 +616,7 @@ describe.each([
     const { arm, ran, store } = await failingInsert();
     await store.commit({ putContainers: [row("a"), row("b")] });
 
-    await store.transaction?.(async (view) => {
+    await store.transaction(async (view) => {
       await view.commit({ putContainers: [row("c1")] });
       arm();
       await expect(

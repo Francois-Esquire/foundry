@@ -2,9 +2,9 @@ import { asc, sql } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { SandboxEvent } from "../schema";
 import type { ContainerStore } from "../store/index";
-import { createMemoryContainerStore } from "../store/memory";
+import { MemoryContainerStore } from "../store/memory";
 import type { ContainerDatabase } from "../store/sqlite";
-import { createSqliteContainerStore } from "../store/sqlite";
+import { SqliteContainerStore } from "../store/sqlite";
 import type { RecordingContainerStores } from "../testing/store";
 import { describeContainerStore } from "../testing/store";
 import { libsqlDatabases } from "./helpers/sqlite";
@@ -14,7 +14,7 @@ describeContainerStore(
   () => {
     const stores = new Map<string, ContainerStore>();
     return (scope) => {
-      const store = stores.get(scope) ?? createMemoryContainerStore();
+      const store = stores.get(scope) ?? new MemoryContainerStore();
       stores.set(scope, store);
       return store;
     };
@@ -49,7 +49,7 @@ async function recordingStores(
     stores: (scope) => {
       const store =
         stores.get(scope) ??
-        createSqliteContainerStore({
+        new SqliteContainerStore({
           database,
           onCommit: async (transaction, write) => {
             for (const payload of write.events ?? []) {
@@ -74,7 +74,7 @@ for (const location of ["memory", "file"] as const) {
     `SQLite on libSQL (${location})`,
     async () => {
       const database = await databases.open();
-      return (scope) => createSqliteContainerStore({ database, scope });
+      return (scope) => new SqliteContainerStore({ database, scope });
     },
     {
       hooked: true,

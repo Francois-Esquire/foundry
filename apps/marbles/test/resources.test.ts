@@ -4,7 +4,7 @@ import { Sessions } from "@foundry/agents/session";
 import { SqliteSessionStore } from "@foundry/agents/store/sqlite";
 import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
-import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
+import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import { ExecutionCoordinator } from "@foundry/workflows";
 import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { inArray } from "drizzle-orm";
@@ -69,7 +69,7 @@ async function machine() {
   await new Sessions({
     store: new DatabaseSessionStore({ database, scope: "ws1" }),
   }).createSession({ id: "s1" });
-  await createSqliteContainerStore({ database, scope: "ws1" }).commit({
+  await new SqliteContainerStore({ database, scope: "ws1" }).commit({
     putContainers: [
       {
         createdAt: 1,

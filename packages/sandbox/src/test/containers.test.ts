@@ -17,8 +17,8 @@ import { createContainers } from "../container/containers";
 import type { ContainerRow } from "../schema";
 import { sandboxEventSchema } from "../schema";
 import type { ContainerStore, ContainerStoreWrite } from "../store/index";
-import { createMemoryContainerStore } from "../store/memory";
-import { createSqliteContainerStore } from "../store/sqlite";
+import { MemoryContainerStore } from "../store/memory";
+import { SqliteContainerStore } from "../store/sqlite";
 import { createFakeContainerRuntime } from "../testing";
 import { libsqlDatabases } from "./helpers/sqlite";
 
@@ -46,7 +46,7 @@ const databases = {
 function sqliteStore(location: keyof typeof databases): ContainerStore {
   const ready = databases[location]
     .open()
-    .then((database) => createSqliteContainerStore({ database, scope: "s" }));
+    .then((database) => new SqliteContainerStore({ database, scope: "s" }));
   return {
     commit: async (write) => await (await ready).commit(write),
     get: async (id) => await (await ready).get(id),
@@ -63,12 +63,12 @@ function sqliteStore(location: keyof typeof databases): ContainerStore {
 }
 
 const STORES: [string, () => ContainerStore][] = [
-  ["the memory store", createMemoryContainerStore],
+  ["the memory store", () => new MemoryContainerStore()],
   ["the SQLite store in memory", () => sqliteStore("memory")],
   ["the SQLite store on a file", () => sqliteStore("file")],
 ];
 
-let newStore: () => ContainerStore = createMemoryContainerStore;
+let newStore: () => ContainerStore = () => new MemoryContainerStore();
 
 function fixture(instanceLabel = "instance-a") {
   const runtime = createFakeContainerRuntime();
@@ -890,7 +890,7 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
     const theirs = createContainers({
       instanceLabel: "instance-a",
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const held = await theirs.start(SPEC);
     const name = held.row.nativeId ?? "";

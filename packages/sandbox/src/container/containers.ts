@@ -2,7 +2,7 @@ import { SandboxError } from "../errors";
 import { assertNotAborted } from "../sandbox";
 import type { ContainerRow, SandboxEvent } from "../schema";
 import type { ContainerStore, ContainerStoreWrite } from "../store/index";
-import { createMemoryContainerStore } from "../store/memory";
+import { MemoryContainerStore } from "../store/memory";
 import {
   ACTIVE_CONTAINER_RESOURCE_STATUSES,
   CONTAINER_ID_LABEL,
@@ -117,7 +117,7 @@ interface Live {
  */
 export function createContainers(options: CreateContainersOptions): Containers {
   const { runtime } = options;
-  const store = ownNamesOnly(options.store ?? createMemoryContainerStore());
+  const store = ownNamesOnly(options.store ?? new MemoryContainerStore());
   const holder = options.holder ?? globalThis.crypto.randomUUID();
   const live = new Map<string, Live>();
   const pending = new Map<string, Promise<Live>>();

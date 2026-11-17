@@ -8,7 +8,7 @@ import type { ModuleId } from "@foundry/modules/domain";
 import type { Module } from "@foundry/modules/schema";
 import { SqliteModuleStore } from "@foundry/modules/store/sqlite";
 import type { ContainerRow } from "@foundry/sandbox/schema";
-import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
+import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import type { RunRecord } from "@foundry/workflows/schema";
 import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { and, eq } from "drizzle-orm";
@@ -369,7 +369,7 @@ export class ResourceView {
 
   #sandboxes(): KindReader<ContainerRow> {
     const store = (owner: string) =>
-      createSqliteContainerStore({ database: this.#database, scope: owner });
+      new SqliteContainerStore({ database: this.#database, scope: owner });
     return {
       get: (owner, ids) =>
         asBusy(async () => {

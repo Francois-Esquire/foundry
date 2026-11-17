@@ -7,7 +7,7 @@ import type { ArtifactStore } from "@foundry/artifacts/store";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import type { ContainerStore } from "@foundry/sandbox/store";
-import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
+import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { TaskStore } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
@@ -328,7 +328,7 @@ describe("a write the recorder hands a store", () => {
       {
         field: "deleteContainers",
         name: "sandboxes",
-        plain: (scope) => createSqliteContainerStore({ database, scope }),
+        plain: (scope) => new SqliteContainerStore({ database, scope }),
         present: async (store: ContainerStore, id) =>
           (await store.get(id)) !== undefined,
         recorded: (scope) =>

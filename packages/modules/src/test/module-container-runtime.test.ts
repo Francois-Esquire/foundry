@@ -8,7 +8,7 @@ import type {
 } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { SandboxError } from "@foundry/sandbox/errors";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { SandboxService } from "@foundry/sandbox/types";
 import { describe, expect, it, vi } from "vitest";
@@ -67,7 +67,7 @@ async function fixture(manifest: object = VALID_MANIFEST) {
     instanceLabel: "module-runtime-test",
     mountTargetRoot: "/foundry",
     runtime: native,
-    store: createMemoryContainerStore(),
+    store: new MemoryContainerStore(),
   });
   const service: SandboxService = {
     id: "module-program",

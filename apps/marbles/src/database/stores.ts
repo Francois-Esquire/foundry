@@ -4,7 +4,7 @@ import { ArtifactManager } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import type { ContainerStore } from "@foundry/sandbox/store";
-import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
+import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
 import { SqliteWorkspaceStore } from "@foundry/workspaces/store/sqlite";
 import { removeShares } from "~/database/associations";
@@ -64,7 +64,7 @@ export function workspaceStores(
     ),
     containers: surfacingBusy(
       changes.causing(
-        createSqliteContainerStore({
+        new SqliteContainerStore({
           database,
           onCommit: recorded(SANDBOXES_KEY),
           scope,

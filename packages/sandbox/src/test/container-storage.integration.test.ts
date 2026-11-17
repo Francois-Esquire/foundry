@@ -14,7 +14,7 @@ import { expect, it } from "vitest";
 
 import { createContainers } from "../container/containers";
 import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
-import { createMemoryContainerStore } from "../store/memory";
+import { MemoryContainerStore } from "../store/memory";
 
 it("uses guest storage over a mounted slice and enforces a read-only mount", async () => {
   const runtime = createMicrosandboxRuntime();
@@ -35,7 +35,7 @@ it("uses guest storage over a mounted slice and enforces a read-only mount", asy
     instanceLabel: `storage-test-${crypto.randomUUID()}`,
     mountTargetRoot: "/mounts",
     runtime,
-    store: createMemoryContainerStore(),
+    store: new MemoryContainerStore(),
   });
   try {
     const container = await containers.start({

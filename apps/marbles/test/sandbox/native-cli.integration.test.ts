@@ -6,7 +6,7 @@ import type {
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
 import { prepareSandboxProcess } from "@foundry/sandbox/process";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { beforeAll, describe, expect, it } from "vitest";
 import { prepareGuest } from "~/lib/sandbox/prepare";
 
@@ -25,7 +25,7 @@ describe("pinned native CLI control protocols in MicroSandbox", () => {
       allowedMountRoots: [],
       instanceLabel: `native-cli-${crypto.randomUUID()}`,
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     container = await containers.start({
       format: "foundry.sandbox.container/1",

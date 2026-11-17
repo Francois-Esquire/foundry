@@ -3,7 +3,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { CONTAINER_ROW_STATUSES } from "../container/constants";
-import { createMemoryContainerStore } from "../store/memory";
+import { MemoryContainerStore } from "../store/memory";
 import type { ParsedImport } from "./helpers/boundary-scan";
 import { importSites, REPO_ROOT, sourceFiles } from "./helpers/boundary-scan";
 
@@ -48,7 +48,7 @@ function isRuntimeImport(
 
 describe("container store contract", () => {
   it("loads the store contract and the memory store", () => {
-    expect(createMemoryContainerStore).toBeTypeOf("function");
+    expect(MemoryContainerStore).toBeTypeOf("function");
     expect(CONTAINER_ROW_STATUSES).toEqual([
       "starting",
       "running",
@@ -92,9 +92,9 @@ describe("container store contract", () => {
     const contracts = await import("../store/index");
     expect(Object.keys(contracts)).toEqual([]);
     const memory = await import("../store/memory");
-    expect(Object.keys(memory)).toEqual(["createMemoryContainerStore"]);
+    expect(Object.keys(memory)).toEqual(["MemoryContainerStore"]);
     const sqlite = await import("../store/sqlite");
-    expect(Object.keys(sqlite)).toEqual(["createSqliteContainerStore"]);
+    expect(Object.keys(sqlite)).toEqual(["SqliteContainerStore"]);
     const tables = await import("../store/tables");
     expect(Object.keys(tables)).toEqual(["sandboxContainers"]);
   });
