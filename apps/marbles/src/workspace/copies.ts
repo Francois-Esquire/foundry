@@ -234,6 +234,36 @@ function importSyntax(walker: typeof Visitor, program: Program): ImportSyntax {
   return { types, withOptions };
 }
 
+function commonJsUse(
+  walker: typeof Visitor,
+  program: Program
+): string | undefined {
+  let use: string | undefined;
+  new walker({
+    CallExpression: (node) => {
+      if (node.callee.type === "Identifier" && node.callee.name === "require") {
+        use ??= "require()";
+      }
+    },
+    MemberExpression: (node) => {
+      if (node.object.type !== "Identifier") {
+        return;
+      }
+      if (node.object.name === "exports") {
+        use ??= "exports";
+      }
+      if (
+        node.object.name === "module" &&
+        node.property.type === "Identifier" &&
+        node.property.name === "exports"
+      ) {
+        use ??= "module.exports";
+      }
+    },
+  }).visit(program);
+  return use;
+}
+
 function importEdits(file: string, text: string, load: number): Edit[] {
   if (parse === undefined || visitor === undefined) {
     throw new Error(`${file} is a copy of a load that has not started`);
@@ -242,6 +272,14 @@ function importEdits(file: string, text: string, load: number): Edit[] {
   const [error] = errors;
   if (error !== undefined) {
     throw new SyntaxError(`${file} does not parse: ${error.message}`);
+  }
+  const commonJs = module.hasModuleSyntax
+    ? undefined
+    : commonJsUse(visitor, program);
+  if (commonJs !== undefined) {
+    throw new SyntaxError(
+      `${file} is CommonJS (it uses ${commonJs}); Marbles source and every file it imports by path must be an ES module`
+    );
   }
   const syntax = importSyntax(visitor, program);
   const requests = [

@@ -193,6 +193,38 @@ it("fails the load of a file it cannot parse, naming the file, rather than load 
   expect(report.error).toContain(`${broken} does not parse`);
 });
 
+it("fails the load of a CommonJS file, an entry or one imported by path, naming the file and what it uses", async () => {
+  const root = await scratch();
+  const entry = join(root, "entry.cjs");
+  await writeFile(entry, 'const os = require("node:os");\nos.platform();\n');
+  const importer = join(root, "importer.ts");
+  const helper = join(root, "helper.js");
+  await writeFile(importer, 'import "./helper.js";\n');
+  await writeFile(helper, "module.exports = { value: 1 };\n");
+  const modern = join(root, "modern.cts");
+  await writeFile(
+    modern,
+    'import { platform } from "node:os";\nglobalThis.ran = platform().length > 0;\n'
+  );
+  const report = await withLoader(
+    root,
+    `const failure = (file) => importLoad(${JSON.stringify(root)}, [file]).then(
+  () => "loaded",
+  (error) => error.message
+);
+report.entry = await failure(${JSON.stringify(entry)});
+report.imported = await failure(${JSON.stringify(importer)});
+report.modern = await failure(${JSON.stringify(modern)});
+report.ran = globalThis.ran;`
+  );
+  expect(report.entry).toContain(`${entry} is CommonJS (it uses require())`);
+  expect(report.imported).toContain(
+    `${helper} is CommonJS (it uses module.exports)`
+  );
+  expect(report.modern).toBe("loaded");
+  expect(report.ran).toBe(true);
+});
+
 it("reads an import's `type` from its syntax, past any comment before its options", async () => {
   const root = await scratch();
   const write = async (n: number) => {
