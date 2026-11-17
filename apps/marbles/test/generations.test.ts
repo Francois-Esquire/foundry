@@ -1629,6 +1629,68 @@ describe("engine generations", () => {
     client.close();
   }, 150_000);
 
+  it("starts a generation whose record as current failed, and writes it again with its hosts", async () => {
+    const lines: string[] = [];
+    const original = GenerationRecords.prototype.mark;
+    let failures = 0;
+    GenerationRecords.prototype.mark = function (number, state, error) {
+      if (state === "current") {
+        GenerationRecords.prototype.mark = original;
+        failures += 1;
+        return Promise.reject(new Error("injected current write failure"));
+      }
+      return original.call(this, number, state, error);
+    };
+    let fixture: Awaited<ReturnType<typeof setUp>>;
+    try {
+      fixture = await setUp({
+        daemon: { print: (line) => lines.push(line) },
+      });
+    } finally {
+      GenerationRecords.prototype.mark = original;
+    }
+    expect(failures).toBe(1);
+    expect(lines.join("\n")).toContain("injected current write failure");
+    expect(await fixture.daemon.idle()).toEqual({
+      reasons: [],
+      scheduled: false,
+    });
+    expect(
+      (await readStatus(fixture.machine.state)).workspaces.find(
+        (each) => each.id === fixture.summary.id
+      )
+    ).toMatchObject({
+      alive: true,
+      host: "generation",
+      pid: fixture.summary.pid,
+    });
+    fixture.client.close();
+  }, 150_000);
+
+  it("switches to the next generation when recording the previous one as retiring failed", async () => {
+    const lines: string[] = [];
+    const fixture = await setUp({
+      daemon: { print: (line) => lines.push(line) },
+    });
+    const original = GenerationRecords.prototype.mark;
+    GenerationRecords.prototype.mark = function (number, state, error) {
+      if (state === "retiring") {
+        GenerationRecords.prototype.mark = original;
+        return Promise.reject(new Error("injected retiring write failure"));
+      }
+      return original.call(this, number, state, error);
+    };
+    try {
+      const first = fixture.summary.pid ?? 0;
+      const second = await switchFrom(fixture, first, 1);
+      expect(second).not.toBe(first);
+    } finally {
+      GenerationRecords.prototype.mark = original;
+    }
+    expect(lines.join("\n")).toContain("injected retiring write failure");
+    fixture.client.close();
+  }, 150_000);
+
   it("writes which workspaces a generation hosts again, after the backoff, when the write failed", async () => {
     const clock = handClock();
     const lines: string[] = [];
