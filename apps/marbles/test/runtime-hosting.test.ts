@@ -119,6 +119,34 @@ it("keeps an old engine's runs and loads on that engine after another is bound, 
   });
 });
 
+it("keeps a call a workspace's load bound on that workspace inside another workspace's run, and refuses it once that workspace closed", async () => {
+  const ownCatalog = new Catalog();
+  const own = await load("listener-owner", ownCatalog);
+  const owner = engine("listener-owner");
+  setHost(owner, ownCatalog);
+  const otherCatalog = new Catalog();
+  await load("listener-host", otherCatalog);
+  const other = engine("listener-host");
+  setHost(other, otherCatalog);
+  const listener = (call: () => unknown) => () => inLoad(own, call);
+
+  expect(await reached((call) => inRunOf(other, listener(call)))).toEqual({
+    catalog: ownCatalog,
+    runtime: owner,
+  });
+
+  owner.disposed = true;
+  expect(await reached((call) => inRunOf(other, listener(call)))).toEqual({
+    catalog: "WorkspaceReleasedError",
+    runtime: "WorkspaceReleasedError",
+  });
+  setHost(engine("listener-elsewhere"), new Catalog());
+  expect(await reached((call) => inRunOf(other, listener(call)))).toEqual({
+    catalog: "WorkspaceReleasedError",
+    runtime: "WorkspaceReleasedError",
+  });
+});
+
 it("refuses a continuation of an old run that resumes once its engine is disposed and replaced", async () => {
   const w = await replaced("continuation");
   const { promise: gate, resolve: open } = Promise.withResolvers<undefined>();
