@@ -2,6 +2,7 @@ import type { Page, PageInput } from "@foundry/core/pagination";
 import type {
   WorkspaceEntry,
   WorkspaceEntryId,
+  WorkspaceEvent,
   WorkspaceId,
   WorkspaceRegistration,
 } from "../types";
@@ -30,6 +31,7 @@ export type WorkspaceStoreWrite = WorkspaceRemoval | WorkspaceSave;
 
 export interface WorkspaceSave {
   readonly deleteEntries?: readonly WorkspaceEntryId[];
+  readonly events?: readonly WorkspaceEvent[];
   readonly putEntries?: readonly WorkspaceEntry[];
   readonly removeWorkspace?: never;
   readonly workspace: WorkspaceRegistration;
@@ -37,6 +39,7 @@ export interface WorkspaceSave {
 
 export interface WorkspaceRemoval {
   readonly deleteEntries?: never;
+  readonly events?: readonly WorkspaceEvent[];
   readonly putEntries?: never;
   readonly removeWorkspace: WorkspaceId;
   readonly workspace?: never;

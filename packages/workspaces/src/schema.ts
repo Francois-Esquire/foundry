@@ -108,3 +108,40 @@ export const workspaceEntrySchema = z
   .refine(isStorageEntry, "Expected a valid storage entry")
   .readonly();
 export type WorkspaceEntry = z.infer<typeof workspaceEntrySchema>;
+
+const changeEventFields = {
+  at: z.iso.datetime(),
+  id: z.string().min(1),
+  workspaceId: workspaceIdSchema,
+};
+
+const entryIds = z.array(workspaceEntryIdSchema).readonly();
+
+export const workspaceEventSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    ...changeEventFields,
+    type: z.literal("workspace.created"),
+  }),
+  z.strictObject({
+    ...changeEventFields,
+    type: z.literal("workspace.updated"),
+  }),
+  z
+    .strictObject({
+      ...changeEventFields,
+      added: entryIds,
+      changed: entryIds,
+      removed: entryIds,
+      type: z.literal("workspace.entries.changed"),
+    })
+    .refine(
+      ({ added, changed, removed }) =>
+        added.length + changed.length + removed.length > 0,
+      "An entries change names at least one added, changed or removed entry"
+    ),
+  z.strictObject({
+    ...changeEventFields,
+    type: z.literal("workspace.removed"),
+  }),
+]);
+export type WorkspaceEvent = z.infer<typeof workspaceEventSchema>;

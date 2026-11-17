@@ -1,6 +1,6 @@
 import { SandboxError } from "../errors";
 import { assertNotAborted } from "../sandbox";
-import type { ContainerRow } from "../schema";
+import type { ContainerRow, SandboxEvent } from "../schema";
 import type { ContainerStore, ContainerStoreWrite } from "../store/index";
 import { createMemoryContainerStore } from "../store/memory";
 import {
@@ -288,6 +288,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
     entry: { row: ContainerRow },
     patch: RowPatch | ((current: ContainerRow) => RowPatch)
   ): Promise<void> => {
+    const eventId = globalThis.crypto.randomUUID();
     entry.row = await serialized(async (view) => {
       const current = await rowOrThrow(entry.row.id, view);
       const next: ContainerRow = Object.freeze({
@@ -296,13 +297,22 @@ export function createContainers(options: CreateContainersOptions): Containers {
         holder,
         updatedAt: Date.now(),
       });
-      await view.commit({ putContainers: [next] });
+      const entered = enteredEvent(current, next);
+      await view.commit({
+        ...(entered === undefined
+          ? {}
+          : {
+              events: [sandboxEvent(entered, eventId, next.id, next.updatedAt)],
+            }),
+        putContainers: [next],
+      });
       return next;
     });
   };
 
-  const insert = (constraints: ContainerSandboxConstraints) =>
-    serialized(async (view): Promise<ContainerRow> => {
+  const insert = (constraints: ContainerSandboxConstraints) => {
+    const eventId = globalThis.crypto.randomUUID();
+    return serialized(async (view): Promise<ContainerRow> => {
       const id = globalThis.crypto.randomUUID();
       if ((await view.get(id)) !== undefined) {
         throw new SandboxError(
@@ -320,9 +330,13 @@ export function createContainers(options: CreateContainersOptions): Containers {
         status: "starting",
         updatedAt: now,
       });
-      await view.commit({ putContainers: [row] });
+      await view.commit({
+        events: [sandboxEvent("sandbox.created", eventId, id, now)],
+        putContainers: [row],
+      });
       return row;
     });
+  };
 
   const boot = async (
     entry: { row: ContainerRow },
@@ -537,12 +551,17 @@ export function createContainers(options: CreateContainersOptions): Containers {
       return claimed;
     });
 
-  const deleteHeld = (id: string): Promise<void> =>
-    serialized(async (view) => {
+  const deleteHeld = (id: string): Promise<void> => {
+    const eventId = globalThis.crypto.randomUUID();
+    return serialized(async (view) => {
       if ((await view.get(id))?.holder === holder) {
-        await view.commit({ deleteContainers: [id] });
+        await view.commit({
+          deleteContainers: [id],
+          events: [sandboxEvent("sandbox.destroyed", eventId, id, Date.now())],
+        });
       }
     });
+  };
 
   const removeClaimed = async (
     row: ContainerRow
@@ -866,6 +885,31 @@ export function createContainers(options: CreateContainersOptions): Containers {
     },
   };
   return Object.freeze(containers);
+}
+
+function enteredEvent(
+  current: ContainerRow,
+  next: ContainerRow
+): SandboxEvent["type"] | undefined {
+  if (next.status === current.status) {
+    return;
+  }
+  return ENTERED[next.status];
+}
+
+const ENTERED: Partial<Record<ContainerRow["status"], SandboxEvent["type"]>> = {
+  failed: "sandbox.failed",
+  running: "sandbox.started",
+  stopped: "sandbox.stopped",
+};
+
+function sandboxEvent(
+  type: SandboxEvent["type"],
+  id: string,
+  containerId: string,
+  at: number
+): SandboxEvent {
+  return { at: new Date(at).toISOString(), containerId, id, type };
 }
 
 function parseSpec(input: unknown): ContainerSandboxConstraints {

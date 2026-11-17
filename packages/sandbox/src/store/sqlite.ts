@@ -8,6 +8,7 @@ import type {
 } from "drizzle-orm/sqlite-core";
 
 import type { ContainerRow } from "../schema";
+import { ownedWrite } from "./events";
 import type { ContainerStore, ContainerStoreWrite } from "./index";
 import { sandboxContainers } from "./tables";
 
@@ -153,7 +154,7 @@ function storeOver(
     commit: (write) => {
       let owned: ContainerStoreWrite;
       try {
-        owned = structuredClone(write);
+        owned = ownedWrite(write);
       } catch (error: unknown) {
         return Promise.reject(error);
       }

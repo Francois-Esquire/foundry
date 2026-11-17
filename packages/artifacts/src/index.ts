@@ -49,7 +49,11 @@ export { artifactCursor, normalizeArtifactQuery } from "./listing";
 export { ArtifactManager, type ArtifactManagerOptions } from "./manager";
 export type { ArtifactId, BlobId, ContentId } from "./ref";
 export { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ref";
-export type { ArtifactRecords } from "./schema";
+export type {
+  ArtifactEvent,
+  ArtifactEventType,
+  ArtifactRecords,
+} from "./schema";
 export type {
   Artifact,
   ArtifactChangeCause,

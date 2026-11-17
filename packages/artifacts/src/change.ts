@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Page } from "@foundry/core/pagination";
 import { pageFromRows, pageLimit } from "@foundry/lib/pagination";
 
@@ -12,6 +13,7 @@ import {
   normalizeArtifactQuery,
 } from "./listing";
 import type { ArtifactId, BlobId, ContentId } from "./ref";
+import type { ArtifactEvent } from "./schema";
 import type { ArtifactStore, ArtifactStoreWrite, BlobListing } from "./store";
 import type {
   Artifact,
@@ -19,6 +21,19 @@ import type {
   ListArtifactsInput,
   ListContentsInput,
 } from "./substrate";
+
+interface RunningOperation {
+  readonly change: ArtifactChange;
+  writes: number;
+}
+
+const runningOperations = new AsyncLocalStorage<readonly RunningOperation[]>();
+
+export type EventInput = ArtifactEvent extends infer Event
+  ? Event extends ArtifactEvent
+    ? Omit<Event, "at" | "id">
+    : never
+  : never;
 
 type Pending<Id, Row> = Map<Id, Row | null>;
 
@@ -28,12 +43,56 @@ export class ArtifactChange {
   readonly #artifacts: Pending<ArtifactId, Artifact> = new Map();
   readonly #blobs: Pending<BlobId, Blob> = new Map();
   readonly #contents: Pending<ContentId, Content> = new Map();
+  readonly #events: ArtifactEvent[] = [];
+  #failure: { readonly error: unknown } | undefined;
   #active: boolean;
 
   constructor(store: ArtifactStore, options: { readonly readOnly?: boolean }) {
     this.#store = store;
     this.readOnly = options.readOnly ?? false;
     this.#active = true;
+  }
+
+  async operation<T>(work: () => Promise<T>): Promise<T> {
+    const mine: RunningOperation = { change: this, writes: 0 };
+    try {
+      return await runningOperations.run(
+        [...(runningOperations.getStore() ?? []), mine],
+        work
+      );
+    } catch (error) {
+      if (mine.writes > 0) {
+        this.fail(error);
+      }
+      throw error;
+    }
+  }
+
+  operationWrites(): number {
+    const running = runningOperations.getStore() ?? [];
+    for (let index = running.length - 1; index >= 0; index -= 1) {
+      const operation = running[index];
+      if (operation?.change === this) {
+        return operation.writes;
+      }
+    }
+    return 0;
+  }
+
+  get failure(): { readonly error: unknown } | undefined {
+    return this.#failure;
+  }
+
+  fail(error: unknown): void {
+    this.#failure ??= { error };
+  }
+
+  #wrote(): void {
+    for (const running of runningOperations.getStore() ?? []) {
+      if (running.change === this) {
+        running.writes += 1;
+      }
+    }
   }
 
   settle(): void {
@@ -51,7 +110,8 @@ export class ArtifactChange {
     if (
       this.#artifacts.size === 0 &&
       this.#blobs.size === 0 &&
-      this.#contents.size === 0
+      this.#contents.size === 0 &&
+      this.#events.length === 0
     ) {
       return;
     }
@@ -59,10 +119,21 @@ export class ArtifactChange {
       deleteArtifacts: deleted(this.#artifacts),
       deleteBlobs: deleted(this.#blobs),
       deleteContents: deleted(this.#contents),
+      ...(this.#events.length === 0 ? {} : { events: [...this.#events] }),
       putArtifacts: kept(this.#artifacts),
       putBlobs: kept(this.#blobs),
       putContents: kept(this.#contents),
     };
+  }
+
+  record(event: EventInput): void {
+    this.assertWritable();
+    this.#events.push({
+      ...event,
+      at: new Date().toISOString(),
+      id: crypto.randomUUID(),
+    } as ArtifactEvent);
+    this.#wrote();
   }
 
   getArtifact(id: ArtifactId): Promise<Artifact | null> {
@@ -128,6 +199,7 @@ export class ArtifactChange {
       throw new Error("Artifact pointer must name its own Content");
     }
     this.#artifacts.set(artifact.id, structuredClone(artifact));
+    this.#wrote();
   }
 
   async deleteArtifact(id: ArtifactId): Promise<void> {
@@ -136,6 +208,7 @@ export class ArtifactChange {
       this.#contents.set(content.id, null);
     }
     this.#artifacts.set(id, null);
+    this.#wrote();
   }
 
   getContent(id: ContentId): Promise<Content | null> {
@@ -165,6 +238,7 @@ export class ArtifactChange {
       throw new Error("Content requires an Artifact");
     }
     this.#contents.set(content.id, structuredClone(content));
+    this.#wrote();
   }
 
   async deleteContent(id: ContentId): Promise<void> {
@@ -177,6 +251,7 @@ export class ArtifactChange {
       throw new Error("Cannot delete active Content");
     }
     this.#contents.set(id, null);
+    this.#wrote();
   }
 
   getBlob(id: BlobId): Promise<Blob | null> {
@@ -256,11 +331,13 @@ export class ArtifactChange {
       throw new Error("Blob backing path already belongs to another blob");
     }
     this.#blobs.set(blob.id, structuredClone(blob));
+    this.#wrote();
   }
 
   deleteBlob(id: BlobId): Promise<void> {
     this.assertWritable();
     this.#blobs.set(id, null);
+    this.#wrote();
     return Promise.resolve();
   }
 
