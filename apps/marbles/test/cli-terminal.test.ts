@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { sleep, spawn, spawnSync, stripANSI } from "bun";
 import { expect, test } from "vitest";
-import { stateProviders } from "../src/database/providers";
+import { DatabaseProviderStore } from "../src/database/providers";
 import { marblesProviderConfigurations } from "../src/database/tables";
 import { writeAsHost } from "../src/database/workspaces";
 import { stateDatabase } from "../src/layout";
@@ -235,7 +235,8 @@ test("first-run provider setup is offered to a run, never to a dry run, and decl
   const home = testHome({ providers: false });
   const config = join(dir, ".foundry", "marbles");
   const { state } = home.layout;
-  const machine = async () => (await stateProviders(state).read()).machine;
+  const machine = async () =>
+    (await DatabaseProviderStore.forState(state).read()).machine;
   const dry = await openTestCli(home, config, ["--dry-run"]);
   try {
     await dry.see("Press Enter to enter");
