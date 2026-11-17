@@ -5,6 +5,7 @@ export default defineConfig({
   ...base,
   test: {
     fileParallelism: false,
+    globalSetup: ["test/helpers/migrations.ts"],
     hookTimeout: 240_000,
     include: ["test/**/*.integration.test.ts"],
     testTimeout: 240_000,
