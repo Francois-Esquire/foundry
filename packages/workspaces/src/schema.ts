@@ -126,13 +126,19 @@ export const workspaceEventSchema = z.discriminatedUnion("type", [
     ...changeEventFields,
     type: z.literal("workspace.updated"),
   }),
-  z.strictObject({
-    ...changeEventFields,
-    added: entryIds,
-    changed: entryIds,
-    removed: entryIds,
-    type: z.literal("workspace.entries.changed"),
-  }),
+  z
+    .strictObject({
+      ...changeEventFields,
+      added: entryIds,
+      changed: entryIds,
+      removed: entryIds,
+      type: z.literal("workspace.entries.changed"),
+    })
+    .refine(
+      ({ added, changed, removed }) =>
+        added.length + changed.length + removed.length > 0,
+      "An entries change names at least one added, changed or removed entry"
+    ),
   z.strictObject({
     ...changeEventFields,
     type: z.literal("workspace.removed"),
