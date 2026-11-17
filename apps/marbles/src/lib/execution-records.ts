@@ -32,6 +32,7 @@ import type {
   StoredExecution,
   Written,
 } from "./execution-store";
+import { storedProgress } from "./execution-store";
 import type { RunStore } from "./run-store";
 import { ANY_STORED_RUN } from "./run-store";
 
@@ -303,18 +304,23 @@ export class ExecutionRecords {
   }
 
   progress(id: string, value: JsonValue): void {
-    this.#persist(async () => {
+    this.#saveProgress(id, value).catch((error: unknown) => {
+      this.#warn(
+        `[state] execution ${id} progress not saved: ${String(error)}`
+      );
+    });
+  }
+
+  async #saveProgress(id: string, value: JsonValue): Promise<void> {
+    const progress = storedProgress(id, value);
+    await this.#persist(async () => {
       const run = this.#records.get(id);
       if (!run || SETTLED_EXECUTION_STATUSES.has(run.status)) {
         return;
       }
-      this.#took(
+      await this.#took(
         id,
-        await this.#store.advise(id, { progress: value, updatedAt: now() })
-      );
-    }).catch((error: unknown) => {
-      this.#warn(
-        `[state] execution ${id} progress not saved: ${String(error)}`
+        await this.#store.advise(id, { progress, updatedAt: now() })
       );
     });
   }
@@ -342,7 +348,7 @@ export class ExecutionRecords {
       if (written.applied) {
         this.#indexes.set(observations, index);
       }
-      this.#took(id, written, written.applied ? observations : undefined);
+      await this.#took(id, written, written.applied ? observations : undefined);
       return written.applied;
     }).catch((error: unknown) => {
       this.#warn(
@@ -399,7 +405,7 @@ export class ExecutionRecords {
         updatedAt: at,
       })
     );
-    const stored = this.#took(id, written);
+    const stored = await this.#took(id, written);
     if (!written.applied) {
       throw new Error(
         `execution run ${id} is ${stored?.status ?? "gone"} now; it does not start`
@@ -409,16 +415,17 @@ export class ExecutionRecords {
 
   protected moveRecord(id: string, status: "running" | "suspended"): void {
     const at = now();
-    this.#persist(async () =>
-      this.#took(
-        id,
-        await this.#store.transition(id, {
-          from: [status === "running" ? "suspended" : "running"],
-          owner: thisProcess(),
-          status,
-          updatedAt: at,
-        })
-      )
+    this.#persist(
+      async () =>
+        await this.#took(
+          id,
+          await this.#store.transition(id, {
+            from: [status === "running" ? "suspended" : "running"],
+            owner: thisProcess(),
+            status,
+            updatedAt: at,
+          })
+        )
     ).catch((error: unknown) => {
       this.#warn(`[state] execution ${id} not saved: ${String(error)}`);
     });
@@ -440,7 +447,7 @@ export class ExecutionRecords {
         });
       })
     );
-    this.#took(id, written);
+    await this.#took(id, written);
     return written.applied;
   }
 
@@ -482,7 +489,7 @@ export class ExecutionRecords {
         });
       })
     );
-    this.#took(id, written);
+    await this.#took(id, written);
     return written.applied;
   }
 
@@ -524,7 +531,7 @@ export class ExecutionRecords {
         });
       })
     );
-    const taken = this.#took(id, written);
+    const taken = await this.#took(id, written);
     return written.applied ? taken : undefined;
   }
 
@@ -549,7 +556,7 @@ export class ExecutionRecords {
         });
       })
     );
-    this.#took(id, written);
+    await this.#took(id, written);
     return written.applied;
   }
 
@@ -607,7 +614,7 @@ export class ExecutionRecords {
           );
         })
       );
-      this.#took(id, written);
+      await this.#took(id, written);
       return written.applied;
     } finally {
       await runs?.release(id);
@@ -652,7 +659,7 @@ export class ExecutionRecords {
         );
         continue;
       }
-      const stored = this.#took(orphan.id, taken.written);
+      const stored = await this.#took(orphan.id, taken.written);
       if (taken.readmit && stored) {
         readmitted.push(stored);
       }
@@ -693,7 +700,7 @@ export class ExecutionRecords {
       }
       throw failure;
     }
-    const stored = this.#took(id, written);
+    const stored = await this.#took(id, written);
     if (
       written.applied ||
       (stored && SETTLED_EXECUTION_STATUSES.has(stored.status))
@@ -753,21 +760,37 @@ export class ExecutionRecords {
     this.#retry.timer = timer;
   }
 
-  #took(
+  async #took(
     id: string,
     written: Written,
     observations?: readonly ExecutionObservation[]
-  ): ExecutionRun | undefined {
+  ): Promise<ExecutionRun | undefined> {
     if (written.record === undefined) {
       return;
     }
+    const local = this.#records.get(id);
     const run = parseStored({
       id,
-      observations: observations ?? this.#records.get(id)?.observations ?? [],
+      observations: observations ?? local?.observations ?? [],
       value: written.record,
     });
-    this.#learn(run);
-    return run;
+    const current =
+      observations === undefined && run && revealsUnread(written, run, local)
+        ? await this.#reread(run)
+        : run;
+    this.#learn(current);
+    return current;
+  }
+
+  async #reread(run: ExecutionRun): Promise<ExecutionRun> {
+    try {
+      return this.#parse(await this.#store.get(run.id)) ?? run;
+    } catch (error) {
+      this.#warn(
+        `[state] execution ${run.id} not read back after a write: ${String(error)}`
+      );
+      return run;
+    }
   }
 
   #persist<T>(write: () => Promise<T>): Promise<T> {
@@ -796,6 +819,18 @@ export class ExecutionRecords {
       }
     }
   }
+}
+
+function revealsUnread(
+  written: Written,
+  run: ExecutionRun,
+  local: ExecutionRun | undefined
+): boolean {
+  if (local === undefined) {
+    return true;
+  }
+  const own = written.applied ? 1 : 0;
+  return run.revision > local.revision + own;
 }
 
 function gapsOf(gaps: readonly RetentionGap[]): Map<string, RetentionGap> {
