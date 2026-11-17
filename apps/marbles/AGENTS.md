@@ -126,8 +126,7 @@ Five buckets, each importing only what sits below it:
   a log file on disk, `<state>/<id>/output/<run>.jsonl`. `triggers.ts`
   is a workspace's trigger state: each schedule's and monitor's last tick
   and each monitor's state by the trigger's key, and the claim that keeps
-  two ticks of one trigger apart, a transaction on the tick's row. The modules
-  tables are composed and migrated, but nothing in Marbles uses them yet. Every writer handle goes through `guard.ts`, which
+  two ticks of one trigger apart, a transaction on the tick's row. Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no worker opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
