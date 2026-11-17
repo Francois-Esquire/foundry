@@ -67,7 +67,7 @@ interface Load {
 }
 
 const loads = new Map<number, Load>();
-const retired = new Set<number>();
+const retired = new Map<number, string>();
 
 function sweep(): void {
   for (const binding of [...bound]) {
@@ -76,7 +76,7 @@ function sweep(): void {
   for (const [number, load] of loads) {
     if (load.abandoned || load.binding?.released === true) {
       loads.delete(number);
-      retired.add(number);
+      retired.set(number, load.workspaceId);
     }
   }
   for (const id of [...hostings.keys()]) {
@@ -236,15 +236,27 @@ type Owner =
   | { readonly load: Load }
   | { readonly workspaceId: string };
 
+function loadOfAnother(
+  route: Route | undefined,
+  context: ExecutionContext
+): boolean {
+  if (route === undefined || !("load" in route)) {
+    return false;
+  }
+  const workspaceId =
+    loads.get(route.load)?.workspaceId ?? retired.get(route.load);
+  return workspaceId !== undefined && workspaceId !== context.workspaceId;
+}
+
 function owner(): Owner | undefined {
   const context = activeContext();
-  if (context !== undefined) {
+  const route = routeScope.getStore();
+  if (context !== undefined && !loadOfAnother(route, context)) {
     const binding = contextBindings.get(context);
     return binding === undefined
       ? { workspaceId: context.workspaceId }
       : { binding };
   }
-  const route = routeScope.getStore();
   if (route === undefined || !("load" in route)) {
     return route;
   }
