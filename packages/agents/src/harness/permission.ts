@@ -260,9 +260,7 @@ export async function resolveHarnessApproval(
     );
   }
   if (part.approvalMode === "deferred") {
-    if (hasResponse(history, approvalId)) {
-      throw new Error(`Approval "${approvalId}" already has a response`);
-    }
+    refuseOtherAnswer(history, approvalId, resolution);
   } else {
     validateApprovalResponse(history, {
       approvalId,
@@ -306,17 +304,51 @@ export async function resolveHarnessApproval(
   );
 }
 
-function hasResponse(
+type ApprovalResponse = Extract<
+  SessionPart,
+  { type: "tool_approval_response" }
+>;
+
+function storedResponse(
   history: readonly SessionMessage[],
   approvalId: string
-): boolean {
-  return history.some((message) =>
-    message.parts.some(
-      (value) =>
+): ApprovalResponse | undefined {
+  return history
+    .flatMap((message) => message.parts)
+    .find(
+      (value): value is ApprovalResponse =>
         value.type === "tool_approval_response" &&
         value.approvalId === approvalId
-    )
+    );
+}
+
+function responseScope(resolution: ApprovalResolution): "always" | "once" {
+  return resolution.lifetime === "persistent" ? "always" : "once";
+}
+
+function sameAnswer(
+  stored: ApprovalResponse,
+  resolution: ApprovalResolution
+): boolean {
+  return (
+    stored.approved === resolution.approved &&
+    stored.scope === responseScope(resolution)
   );
+}
+
+function alreadyAnswered(approvalId: string): Error {
+  return new Error(`Approval "${approvalId}" already has a response`);
+}
+
+function refuseOtherAnswer(
+  history: readonly SessionMessage[],
+  approvalId: string,
+  resolution: ApprovalResolution
+): void {
+  const stored = storedResponse(history, approvalId);
+  if (stored && !sameAnswer(stored, resolution)) {
+    throw alreadyAnswered(approvalId);
+  }
 }
 
 async function answerDeferredApproval(
@@ -335,17 +367,29 @@ async function answerDeferredApproval(
           approvalId,
           approved: resolution.approved,
           reason: resolution.approved ? undefined : resolution.reason,
-          scope: resolution.lifetime === "persistent" ? "always" : "once",
+          scope: responseScope(resolution),
           type: "tool_approval_response",
         },
       ],
       role: "system",
       sessionId,
     },
-    (history) => !hasResponse(history, approvalId)
+    (history) => storedResponse(history, approvalId) === undefined
   );
   if (recorded === undefined) {
-    throw new Error(`Approval "${approvalId}" already has a response`);
+    const stored = storedResponse(
+      await settings.store.listMessages(sessionId),
+      approvalId
+    );
+    if (!(stored && sameAnswer(stored, resolution))) {
+      throw alreadyAnswered(approvalId);
+    }
+    if (
+      resolution.approved &&
+      (await settings.policy.decide(auth)).kind === "allow"
+    ) {
+      return;
+    }
   }
   await settings.policy.resolveApproval(auth, resolution);
 }
