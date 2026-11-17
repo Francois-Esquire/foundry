@@ -11,6 +11,7 @@ const WRITE_PROPERTIES = {
   deleteRunFrames: true,
   deleteRuns: true,
   deleteSuspensions: true,
+  events: true,
   putFrames: true,
   putJobs: true,
   putQueues: true,
@@ -47,6 +48,10 @@ export function capturedWrite(write: WorkflowStoreWrite): WorkflowStoreWrite {
     }
     if (!Array.isArray(value)) {
       throw new TypeError(`${property} must be an array`);
+    }
+    if (property === "events") {
+      captured[property] = plainJson("events", value, new Set());
+      continue;
     }
     const items: unknown[] = [];
     for (let index = 0; index < value.length; index += 1) {
@@ -96,6 +101,56 @@ export function capturedQuery<Q extends object>(query: Q): Q {
   return captured as Q;
 }
 
+function plainJson(
+  at: string,
+  value: unknown,
+  ancestors: Set<object>
+): unknown {
+  switch (typeof value) {
+    case "boolean":
+    case "string":
+      return value;
+    case "number":
+      if (!Number.isFinite(value) || Object.is(value, -0)) {
+        throw new TypeError(`${at} must be a finite number other than -0`);
+      }
+      return value;
+    case "object":
+      break;
+    default:
+      throw new TypeError(`${at} has no JSON form (${typeof value})`);
+  }
+  if (value === null) {
+    return null;
+  }
+  if (ancestors.has(value)) {
+    throw new TypeError(`${at} contains itself`);
+  }
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return plainArray(at, value, ancestors);
+    }
+    if (!isPlainData(value)) {
+      throw new TypeError(
+        `${at} must be a plain object whose own properties are all enumerable`
+      );
+    }
+    const copy: Record<string, unknown> = {};
+    for (const key of Object.keys(value)) {
+      Object.defineProperty(copy, key, {
+        configurable: true,
+        enumerable: true,
+        value: plainJson(`${at}.${key}`, Reflect.get(value, key), ancestors),
+        writable: true,
+      });
+    }
+    return copy;
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
 function isPlainData(value: unknown): boolean {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
@@ -106,4 +161,27 @@ function isPlainData(value: unknown): boolean {
     Object.getOwnPropertyNames(value).length === Object.keys(value).length &&
     Object.getOwnPropertySymbols(value).length === 0
   );
+}
+
+function plainArray(
+  at: string,
+  value: readonly unknown[],
+  ancestors: Set<object>
+): unknown[] {
+  if (
+    Object.getPrototypeOf(value) !== Array.prototype ||
+    Object.getOwnPropertySymbols(value).length > 0
+  ) {
+    throw new TypeError(`${at} must be a plain array holding only its entries`);
+  }
+  const copy = Array.from({ length: value.length }, (_, index) => {
+    if (!Object.hasOwn(value, index)) {
+      throw new TypeError(`${at}[${index}] is a hole in an array`);
+    }
+    return plainJson(`${at}[${index}]`, value[index], ancestors);
+  });
+  if (Object.getOwnPropertyNames(value).length !== copy.length + 1) {
+    throw new TypeError(`${at} must be a plain array holding only its entries`);
+  }
+  return copy;
 }
