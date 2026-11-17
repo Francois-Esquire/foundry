@@ -179,8 +179,7 @@ Five buckets, each importing only what sits below it:
   identity key; `DatabaseProviderStore.forState` is the same for a
   process that keeps no handle open. Its settings may hold secrets: `initializeDatabase` keeps
   the database file and its side files mode 0600, and nothing the provider
-  store throws quotes a setting. The modules
-  tables are composed and migrated, but nothing in Marbles uses them yet. Every writer handle goes through `guard.ts`, which
+  store throws quotes a setting. Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no worker opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
