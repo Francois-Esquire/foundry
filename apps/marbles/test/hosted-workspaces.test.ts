@@ -808,6 +808,44 @@ it("keeps a workspace registered again after a second unregister, while the firs
   });
 }, 120_000);
 
+it("unregisters a workspace registered again while an unregister closes its host, when it is unregistered after that register", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const report = await inProcess(
+    root,
+    `const registration = { config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} };
+  const alpha = await hosted.register(registration);
+  ${heldClose("alpha")}
+  const first = hosted.unregister(alpha.id);
+  await new Promise((settle) => setTimeout(settle, 50));
+  const registering = hosted.register(registration);
+  await new Promise((settle) => setTimeout(settle, 50));
+  const second = hosted.unregister(alpha.id);
+  await new Promise((settle) => setTimeout(settle, 100));
+  releasealpha();
+  report.unregistered = [await first, await second];
+  const again = await registering;
+  report.hostedAfter = hosted.list().map((host) => host.id);
+  report.againDisposed = again.engine.disposed;
+  await hosted.close();
+  const next = await HostedWorkspaces.open({
+    artifacts: ${JSON.stringify(join(root, "artifacts"))},
+    state: ${JSON.stringify(join(root, "state"))},
+  });
+  try {
+    report.registered = (await next.loadRegistered()).map((load) => load.root);
+  } finally {
+    await next.close();
+  }`
+  );
+  expect(report).toMatchObject({
+    againDisposed: true,
+    hostedAfter: [],
+    registered: [],
+    unregistered: [true, true],
+  });
+}, 120_000);
+
 it("reports every host's failure and the database's own when both fail to close", async () => {
   const root = await scratch();
   const a = await workspace(root, "alpha");
