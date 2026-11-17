@@ -1,5 +1,8 @@
 import { SandboxError } from "../errors";
 import { assertNotAborted } from "../sandbox";
+import type { ContainerRow } from "../schema";
+import type { ContainerStore } from "../store/index";
+import { createMemoryContainerStore } from "../store/memory";
 import {
   ACTIVE_CONTAINER_RESOURCE_STATUSES,
   CONTAINER_ID_LABEL,
@@ -17,7 +20,6 @@ import {
 import type { ContainerFacets } from "./facets";
 import { containerFacets, resolveContainerMountSpecs } from "./facets";
 import { provisionContainerSandbox, startContainerSandbox } from "./sandbox";
-import type { ContainerRow, ContainerStore } from "./store";
 import type {
   ContainerConfig,
   ContainerMountSpec,
@@ -40,35 +42,25 @@ export interface CreateContainersOptions {
   /** Guest directory every mount target must equal or fall under. */
   readonly mountTargetRoot?: string;
   readonly runtime: ContainerRuntime;
-  readonly store: ContainerStore;
+  readonly store?: ContainerStore;
 }
 
 export interface Containers {
   list(): Promise<readonly ContainerRow[]>;
   /** Join a row: another handle if its VM runs here, else a restart under the same row. */
   open(id: string, signal?: AbortSignal): Promise<Container>;
-  /**
-   * Delete a row whose VM is not live here, removing whatever the runtime
-   * still holds under its native name. Refuses while a handle is open.
-   */
   remove(id: string): Promise<void>;
-  /**
-   * The one change mechanism. Replaces the VM under the same row, with a new
-   * spec when given. Open handles stay valid and see the new sandbox.
-   */
   restart(
     id: string,
     spec?: ContainerSandboxConstraints,
     signal?: AbortSignal
   ): Promise<void>;
-  /** Close every handle and stop every VM; rows go to `stopped`. */
   shutdown(): Promise<void>;
   /** New row, new VM, one handle. */
   start(
     spec: ContainerSandboxConstraints,
     signal?: AbortSignal
   ): Promise<Container>;
-  /** Stop and remove every VM carrying this instance's labels but no row. Returns the native names swept. */
   sweep(signal?: AbortSignal): Promise<readonly string[]>;
 }
 
@@ -85,11 +77,15 @@ export interface Container extends ContainerFacets {
   readonly row: ContainerRow;
 }
 
+type RowPatch = Partial<Pick<ContainerRow, "nativeId" | "spec" | "status">>;
+
 interface Live {
   facets: ContainerFacets;
   handles: number;
+  nativeId: string;
   row: ContainerRow;
   sandbox: ContainerSandbox;
+  turn: Promise<void>;
 }
 
 /**
@@ -99,35 +95,159 @@ interface Live {
  * old one.
  */
 export function createContainers(options: CreateContainersOptions): Containers {
-  const { runtime, store } = options;
+  const { runtime } = options;
+  const store = options.store ?? createMemoryContainerStore();
   const live = new Map<string, Live>();
   const pending = new Map<string, Promise<Live>>();
   const releasing = new Map<string, Promise<void>>();
+  const removing = new Set<string>();
   let stopped = false;
+  let tail: Promise<unknown> = Promise.resolve();
 
   const selection = Object.freeze({
     [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
     [CONTAINER_INSTANCE_LABEL]: options.instanceLabel,
   });
 
-  const update = async (
-    entry: { row: ContainerRow },
-    patch: Partial<Pick<ContainerRow, "nativeId" | "spec" | "status">>
+  const abandoned = new Set<string>();
+
+  const discard = async (
+    name: string,
+    sandbox: ContainerSandbox
   ): Promise<void> => {
-    const next = { ...patch, updatedAt: Date.now() };
-    await store.update(entry.row.id, next);
-    entry.row = Object.freeze({ ...entry.row, ...next });
+    try {
+      await sandbox.remove();
+    } catch {
+      abandoned.add(name);
+    }
   };
 
-  /** Boot a VM for the row and update its status. */
+  const removeNative = async (name: string): Promise<void> => {
+    try {
+      await runtime.stopResource(name);
+      await runtime.removeResource(name);
+    } catch {
+      abandoned.add(name);
+    }
+  };
+
+  const reclaim = async (
+    signal: AbortSignal | undefined
+  ): Promise<{
+    readonly removed: string[];
+    readonly resources: readonly ContainerResourceSummary[];
+  }> => {
+    const candidates = [...abandoned];
+    const resources = await enumerate(runtime, selection, signal);
+    const listed = new Map(
+      resources.map((resource) => [resource.name, resource])
+    );
+    const removed: string[] = [];
+    let failure: { readonly error: unknown } | undefined;
+    for (const name of candidates) {
+      if (!abandoned.has(name)) {
+        continue;
+      }
+      const resource = listed.get(name);
+      try {
+        if (resource !== undefined) {
+          await dispose(runtime, resource);
+          removed.push(name);
+        }
+        abandoned.delete(name);
+      } catch (error: unknown) {
+        failure ??= { error };
+      }
+    }
+    if (failure !== undefined) {
+      throw new SandboxError(
+        "provider-failed",
+        `could not remove ${candidates.filter((name) => abandoned.has(name)).join(", ")}`,
+        { cause: failure.error }
+      );
+    }
+    return { removed, resources };
+  };
+
+  const rowOrThrow = async (
+    id: string,
+    view: ContainerStore = store
+  ): Promise<ContainerRow> => {
+    const row = await view.get(id);
+    if (row === undefined) {
+      throw new SandboxError(
+        "invalid-contract",
+        `container ${id} does not exist`
+      );
+    }
+    return row;
+  };
+
+  const serialized = <T>(
+    work: (view: ContainerStore) => Promise<T>
+  ): Promise<T> => {
+    const exclusive = (): Promise<T> =>
+      store.transaction === undefined ? work(store) : store.transaction(work);
+    const run = tail.then(exclusive, exclusive);
+    tail = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  };
+
+  const update = async (
+    entry: { row: ContainerRow },
+    patch: RowPatch | ((current: ContainerRow) => RowPatch)
+  ): Promise<void> => {
+    entry.row = await serialized(async (view) => {
+      const current = await rowOrThrow(entry.row.id, view);
+      const next: ContainerRow = Object.freeze({
+        ...current,
+        ...(typeof patch === "function" ? patch(current) : patch),
+        updatedAt: Date.now(),
+      });
+      await view.commit({ putContainers: [next] });
+      return next;
+    });
+  };
+
+  const insert = (constraints: ContainerSandboxConstraints) =>
+    serialized(async (view): Promise<ContainerRow> => {
+      const id = globalThis.crypto.randomUUID();
+      if ((await view.get(id)) !== undefined) {
+        throw new SandboxError(
+          "invalid-contract",
+          `container ${id} already exists`
+        );
+      }
+      const now = Date.now();
+      const row: ContainerRow = Object.freeze({
+        createdAt: now,
+        id,
+        nativeId: nextNativeId({ id, nativeId: undefined }),
+        spec: JSON.stringify(constraints),
+        status: "starting",
+        updatedAt: now,
+      });
+      await view.commit({ putContainers: [row] });
+      return row;
+    });
+
   const boot = async (
     entry: { row: ContainerRow },
     constraints: ContainerSandboxConstraints,
     signal: AbortSignal | undefined
-  ): Promise<Pick<Live, "sandbox" | "facets">> => {
+  ): Promise<Pick<Live, "facets" | "nativeId" | "sandbox">> => {
     assertNotAborted(signal, "container start was cancelled");
     const { row } = entry;
-    const nativeId = nextNativeId(row);
+    const { nativeId } = row;
+    if (nativeId === undefined) {
+      throw new SandboxError(
+        "invalid-transition",
+        `container ${row.id} has no native name recorded to boot under`
+      );
+    }
     const resolved = containerSandboxConfigFromConstraints(
       constraints,
       options.config
@@ -141,7 +261,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
       },
       name: nativeId,
     };
-    await update(entry, { nativeId });
     let sandbox: ContainerSandbox;
     let mounts: readonly ContainerMountSpec[];
     try {
@@ -151,40 +270,57 @@ export function createContainers(options: CreateContainersOptions): Containers {
         options.mountTargetRoot
       );
       sandbox = await startContainerSandbox(
-        await provisionContainerSandbox(config, { runtime }, mounts)
+        await provisionContainerSandbox(config, { runtime }, mounts),
+        { onLeftBehind: () => abandoned.add(nativeId) }
       );
     } catch (error: unknown) {
-      await update(entry, { status: "failed" });
+      await update(entry, { status: "failed" }).catch(() => undefined);
       throw error;
     }
-    await update(entry, { status: "running" });
+    try {
+      await update(entry, { status: "running" });
+    } catch (error: unknown) {
+      await discard(nativeId, sandbox);
+      await update(entry, { status: "failed" }).catch(() => undefined);
+      throw error;
+    }
     return {
       facets: containerFacets(
         sandbox,
         mounts,
         (options.allowedMountRoots?.length ?? 0) > 0
       ),
+      nativeId,
       sandbox,
     };
   };
 
   const bringUp = async (
-    row: ContainerRow,
+    entry: { row: ContainerRow },
     constraints: ContainerSandboxConstraints,
     signal: AbortSignal | undefined
   ): Promise<Live> => {
-    const entry = { row };
-    await update(entry, { status: "starting" });
     const booted = await boot(entry, constraints, signal);
-    const created: Live = { ...booted, handles: 0, row: entry.row };
-    live.set(row.id, created);
+    const created: Live = {
+      ...booted,
+      handles: 0,
+      row: entry.row,
+      turn: Promise.resolve(),
+    };
+    live.set(entry.row.id, created);
     return created;
   };
 
   const release = (entry: Live): Promise<void> => {
     live.delete(entry.row.id);
     const done = (async () => {
-      await entry.sandbox.remove();
+      await entry.turn;
+      try {
+        await entry.sandbox.remove();
+      } catch (error: unknown) {
+        abandoned.add(entry.nativeId);
+        throw error;
+      }
       await update(entry, { status: "stopped" });
     })().finally(() => releasing.delete(entry.row.id));
     releasing.set(entry.row.id, done);
@@ -240,6 +376,15 @@ export function createContainers(options: CreateContainersOptions): Containers {
     });
   };
 
+  const assertNotRemoving = (id: string): void => {
+    if (removing.has(id)) {
+      throw new SandboxError(
+        "invalid-transition",
+        `container ${id} is being removed`
+      );
+    }
+  };
+
   const assertOpen = (): void => {
     if (stopped) {
       throw new SandboxError(
@@ -247,17 +392,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
         "containers registry has shut down"
       );
     }
-  };
-
-  const rowOrThrow = async (id: string): Promise<ContainerRow> => {
-    const row = await store.get(id);
-    if (row === undefined) {
-      throw new SandboxError(
-        "invalid-contract",
-        `container ${id} does not exist`
-      );
-    }
-    return row;
   };
 
   const containers: Containers = {
@@ -271,13 +405,19 @@ export function createContainers(options: CreateContainersOptions): Containers {
       }
       let inflight = pending.get(id);
       if (inflight === undefined) {
+        assertNotRemoving(id);
         inflight = (async () => {
           await released(id);
           const row = await rowOrThrow(id);
           if (row.nativeId !== undefined) {
-            await removeNative(runtime, row.nativeId);
+            await removeNative(row.nativeId);
           }
-          return bringUp(row, parseSpec(JSON.parse(row.spec)), signal);
+          const entry = { row };
+          await update(entry, (current) => ({
+            nativeId: nextNativeId(current),
+            status: "starting",
+          }));
+          return bringUp(entry, parseSpec(JSON.parse(row.spec)), signal);
         })().finally(() => pending.delete(id));
         pending.set(id, inflight);
       }
@@ -286,18 +426,24 @@ export function createContainers(options: CreateContainersOptions): Containers {
 
     async remove(id) {
       assertOpen();
-      await released(id);
       if (live.has(id) || pending.has(id)) {
         throw new SandboxError(
           "invalid-transition",
           `container ${id} is live; close every handle before removing it`
         );
       }
-      const row = await rowOrThrow(id);
-      if (row.nativeId !== undefined) {
-        await removeNative(runtime, row.nativeId);
+      assertNotRemoving(id);
+      removing.add(id);
+      try {
+        await released(id);
+        const row = await rowOrThrow(id);
+        if (row.nativeId !== undefined) {
+          await removeNative(row.nativeId);
+        }
+        await serialized((view) => view.commit({ deleteContainers: [id] }));
+      } finally {
+        removing.delete(id);
       }
-      await store.remove(id);
     },
 
     async restart(id, spec, signal) {
@@ -305,64 +451,83 @@ export function createContainers(options: CreateContainersOptions): Containers {
       const entry = live.get(id);
       if (entry === undefined) {
         // Not live here: the next `open` boots it with the new spec.
+        assertNotRemoving(id);
         const row = await rowOrThrow(id);
         if (spec !== undefined) {
-          await update(
-            { row },
-            { spec: JSON.stringify(parseSpec(spec)), status: row.status }
-          );
+          await update({ row }, { spec: JSON.stringify(parseSpec(spec)) });
         }
         return;
       }
-      const constraints =
-        spec === undefined
-          ? parseSpec(JSON.parse(entry.row.spec))
-          : parseSpec(spec);
-      await update(entry, {
-        status: "restarting",
-        ...(spec === undefined ? {} : { spec: JSON.stringify(constraints) }),
-      });
-      await entry.sandbox.remove();
-      try {
-        const booted = await boot(entry, constraints, signal);
-        entry.sandbox = booted.sandbox;
-        entry.facets = booted.facets;
-      } catch (error: unknown) {
-        live.delete(id);
-        throw error;
-      }
+      const given = spec === undefined ? undefined : parseSpec(spec);
+      const assertStillLive = (): void => {
+        if (live.get(id) !== entry) {
+          throw new SandboxError(
+            "invalid-transition",
+            `container ${id} was closed before its restart finished`
+          );
+        }
+      };
+      const run = async (): Promise<void> => {
+        assertStillLive();
+        const constraints = given ?? parseSpec(JSON.parse(entry.row.spec));
+        await update(entry, {
+          status: "restarting",
+          ...(given === undefined ? {} : { spec: JSON.stringify(given) }),
+        });
+        await entry.sandbox.remove();
+        assertStillLive();
+        try {
+          await update(entry, (current) => ({
+            nativeId: nextNativeId(current),
+          }));
+          assertStillLive();
+          const booted = await boot(entry, constraints, signal);
+          entry.sandbox = booted.sandbox;
+          entry.facets = booted.facets;
+          entry.nativeId = booted.nativeId;
+          assertStillLive();
+        } catch (error: unknown) {
+          if (live.get(id) === entry) {
+            live.delete(id);
+          }
+          throw error;
+        }
+      };
+      const turn = entry.turn.then(run, run);
+      entry.turn = turn.catch(() => undefined);
+      await turn;
     },
 
     async shutdown() {
-      if (stopped) {
-        return;
+      let releases: PromiseSettledResult<void>[] = [];
+      if (!stopped) {
+        stopped = true;
+        await Promise.allSettled([...pending.values(), ...releasing.values()]);
+        releases = await Promise.allSettled([...live.values()].map(release));
       }
-      stopped = true;
-      await Promise.allSettled([...pending.values(), ...releasing.values()]);
-      await Promise.all([...live.values()].map(release));
+      if (abandoned.size > 0) {
+        await reclaim(undefined);
+      }
+      const failed = releases.find((result) => result.status === "rejected");
+      if (failed !== undefined) {
+        throw failed.reason;
+      }
     },
 
     async start(spec, signal) {
       assertOpen();
       const constraints = parseSpec(spec);
-      const now = Date.now();
-      const row: ContainerRow = Object.freeze({
-        createdAt: now,
-        id: globalThis.crypto.randomUUID(),
-        nativeId: undefined,
-        spec: JSON.stringify(constraints),
-        status: "starting",
-        updatedAt: now,
-      });
-      await store.insert(row);
-      return handleFor(await bringUp(row, constraints, signal));
+      const row = await insert(constraints);
+      return handleFor(await bringUp({ row }, constraints, signal));
     },
     async sweep(signal) {
       assertOpen();
-      const resources = await enumerate(runtime, selection, signal);
-      const swept: string[] = [];
+      const { removed: swept, resources } = await reclaim(signal);
       for (const resource of resources) {
         assertNotAborted(signal, "container sweep was cancelled");
+        if (swept.includes(resource.name)) {
+          continue;
+        }
         const id = resource.labels[CONTAINER_ID_LABEL];
         if (id !== undefined && (await store.get(id)) !== undefined) {
           continue;
@@ -390,30 +555,13 @@ function parseSpec(input: unknown): ContainerSandboxConstraints {
 }
 
 /** `<rowId>-<generation>`, the generation read back off the previous native id. */
-function nextNativeId(row: ContainerRow): string {
+function nextNativeId(row: Pick<ContainerRow, "id" | "nativeId">): string {
   const previous = Number.parseInt(
     row.nativeId?.slice(row.id.length + 1) ?? "0",
     10
   );
   const generation = (Number.isNaN(previous) ? 0 : previous) + 1;
   return `${row.id}-${String(generation)}`;
-}
-
-async function removeNative(
-  runtime: ContainerRuntime,
-  name: string
-): Promise<void> {
-  // Best effort: a VM that was already gone is the expected case.
-  try {
-    await runtime.stopResource(name);
-  } catch {
-    return;
-  }
-  try {
-    await runtime.removeResource(name);
-  } catch {
-    // Left for sweep on the next boot.
-  }
 }
 
 async function dispose(

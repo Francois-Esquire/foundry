@@ -1,11 +1,10 @@
 import type { Schedule, Scope } from "effect";
 
-import { Effect, HashMap, Option, Ref, Schema } from "effect";
+import { Effect, HashMap, Option, Ref } from "effect";
 
 import type { Channels, SuspensionRequest, SuspensionState } from "./channels";
 import type { Composer, ParallelEntry } from "./composer";
 import { resolveStepExecution } from "./config";
-import { JsonValueSchema } from "./execution-records";
 import {
   errorToShape,
   parseDuration,
@@ -13,6 +12,7 @@ import {
   runEffectPromise,
   toSchedule,
 } from "./helpers";
+import { isJsonValue } from "./json-value";
 import type { Step, StepContext } from "./step";
 import type { Bail, Duration, RetryPolicy, Unsubscribe } from "./types";
 import { isBail, StepBailError } from "./types";
@@ -333,7 +333,7 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     const originPath = [...this.path];
     const key = suspensionOccurrenceKey(originPath, args.name, occurrence);
     const request = args.request ?? args.meta ?? null;
-    if (!Schema.is(JsonValueSchema)(request)) {
+    if (!isJsonValue(request)) {
       return Effect.fail(
         new Error("Suspension request must be a finite, acyclic JSON value")
       );

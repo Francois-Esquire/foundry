@@ -1,44 +1,56 @@
-import { RunNotFoundError } from "./errors";
+import { JobAlreadySettledError, RunNotFoundError } from "./errors";
+import type { OrchestratorStore } from "./execution-coordinator";
+import { claimJobAttempt } from "./execution-coordinator";
 import type { OrchestratorOptions } from "./orchestrator";
-import type { ExecutionPersistence } from "./persistence";
-import { orchestratorStoreFromPersistence } from "./persistence-compatibility";
-import type { OrchestratorStore, RunRecord } from "./store";
+import type { RunRecord } from "./schema";
 
 export class ExecutionParticipants {
-  private readonly persistence: ExecutionPersistence | undefined;
   private readonly store: OrchestratorStore;
   private readonly admission: OrchestratorOptions["admissionParticipant"];
   private readonly cancellation: OrchestratorOptions["cancellationParticipant"];
 
   constructor(
-    persistence: ExecutionPersistence | undefined,
     store: OrchestratorStore,
     admission: OrchestratorOptions["admissionParticipant"],
     cancellation: OrchestratorOptions["cancellationParticipant"]
   ) {
-    this.persistence = persistence;
     this.store = store;
     this.admission = admission;
     this.cancellation = cancellation;
-    if ((admission || cancellation) && !persistence?.transaction) {
-      throw new Error("Runtime participants require transactional persistence");
+    if ((admission || cancellation) && !store.transaction) {
+      throw new Error(
+        "Runtime participants require a store that offers transactions"
+      );
     }
   }
 
   claim(jobId: string, input: Parameters<OrchestratorStore["claimJobRun"]>[1]) {
     // biome-ignore lint/style/useDestructuring: Destructuring from `this` does not register this private field as used with noUnusedPrivateClassMembers.
     const admission = this.admission;
-    const transaction = this.persistence?.transaction;
+    const { transaction } = this.store;
     if (!(admission && transaction)) {
       return this.store.claimJobRun(jobId, input);
     }
-    return transaction(async (persistence) => {
-      const claimed = await orchestratorStoreFromPersistence(
-        persistence
-      ).claimJobRun(jobId, input);
-      await admission({ ...claimed, persistence });
-      return claimed;
+    return this.#admit(transaction, admission, jobId, input);
+  }
+
+  async #admit(
+    transaction: NonNullable<OrchestratorStore["transaction"]>,
+    admission: NonNullable<OrchestratorOptions["admissionParticipant"]>,
+    jobId: string,
+    input: Parameters<OrchestratorStore["claimJobRun"]>[1]
+  ) {
+    const outcome = await transaction(async (store) => {
+      const attempt = await claimJobAttempt(store, jobId, input);
+      if (attempt.status === "claimed") {
+        await admission({ ...attempt.claim, store });
+      }
+      return attempt;
     });
+    if (outcome.status === "settled") {
+      throw new JobAlreadySettledError(jobId);
+    }
+    return outcome.claim;
   }
 
   async recover(runId: string, jobId: string | undefined): Promise<void> {
@@ -47,12 +59,12 @@ export class ExecutionParticipants {
     if (!(admission && jobId)) {
       return;
     }
-    await this.settle(runId, async (run, persistence) => {
-      const job = await persistence.repository.getJob(jobId);
+    await this.settle(runId, async (run, store) => {
+      const job = await store.getJob(jobId);
       if (!job) {
         throw new Error(`Run ${runId} has no Job`);
       }
-      await admission({ job, persistence, run });
+      await admission({ job, run, store });
     });
   }
 
@@ -60,26 +72,24 @@ export class ExecutionParticipants {
     // biome-ignore lint/style/useDestructuring: Destructuring from `this` does not register this private field as used with noUnusedPrivateClassMembers.
     const cancellation = this.cancellation;
     return cancellation
-      ? this.settle(runId, (run, persistence) =>
-          cancellation({ persistence, run })
-        )
+      ? this.settle(runId, (run, store) => cancellation({ run, store }))
       : Promise.resolve(null);
   }
 
   settle<T>(
     runId: string,
-    operation: (run: RunRecord, persistence: ExecutionPersistence) => Promise<T>
+    operation: (run: RunRecord, store: OrchestratorStore) => Promise<T>
   ): Promise<T> {
-    const transaction = this.persistence?.transaction;
+    const { transaction } = this.store;
     if (!transaction) {
-      throw new Error("Settlement requires transactional persistence");
+      throw new Error("Settlement requires a store that offers transactions");
     }
-    return transaction(async (persistence) => {
-      const run = await persistence.repository.getRun(runId);
+    return transaction(async (store) => {
+      const run = await store.getRun(runId);
       if (!run) {
         throw new RunNotFoundError(runId);
       }
-      return operation(run, persistence);
+      return operation(run, store);
     });
   }
 }

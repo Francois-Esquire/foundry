@@ -4,7 +4,6 @@ import {
   OpenAICompatibleImageModel,
 } from "@ai-sdk/openai-compatible";
 import { withoutTrailingSlash } from "@ai-sdk/provider-utils";
-import { GATEWAY_DEFAULT_MODELS } from "./catalog/defaults";
 import type { Provider } from "./provider";
 import type { ModelKind, ProviderModelDefinition } from "./types";
 
@@ -19,32 +18,59 @@ export interface GatewayProviderOptions {
   config: GatewayProviderConfig;
   defaults?: Partial<Record<ModelKind, string>>;
   id?: string;
-  models?: ProviderModelDefinition[];
+  models: ProviderModelDefinition[];
 }
 
-const GATEWAY_DEFAULTS: Partial<Record<ModelKind, string>> = {
-  embedding: "openai/text-embedding-3-small",
-  text: "openai/gpt-5-mini",
-};
+function urlFor(config: GatewayProviderConfig, path: string): string {
+  const base = withoutTrailingSlash(config.baseURL) ?? config.baseURL;
+  const target = new URL(`${base}${path}`);
+  for (const [key, value] of Object.entries(config.queryParams ?? {})) {
+    target.searchParams.set(key, value);
+  }
+  return target.toString();
+}
+
+function headersFor(config: GatewayProviderConfig): Record<string, string> {
+  return {
+    ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+    ...config.headers,
+  };
+}
+
+export async function gatewayModels(
+  config: GatewayProviderConfig,
+  options: { readonly signal?: AbortSignal } = {}
+): Promise<ProviderModelDefinition[]> {
+  const response = await fetch(urlFor(config, "/models"), {
+    headers: headersFor(config),
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
+  if (!response.ok) {
+    throw new Error(`GET /models answered ${response.status}`);
+  }
+  const body: unknown = await response.json().catch(() => undefined);
+  const data = (body as { data?: unknown } | undefined)?.data;
+  if (!Array.isArray(data)) {
+    throw new Error("GET /models answered without a model list");
+  }
+  const ids = data.map((model: unknown) => {
+    const id = (model as { id?: unknown } | null)?.id;
+    if (typeof id !== "string" || id === "") {
+      throw new Error("GET /models answered a model without an id");
+    }
+    return id;
+  });
+  return [...new Set(ids)].map((id) => ({ id, kind: "text", modelId: id }));
+}
 
 /** An OpenAI-compatible gateway (LiteLLM and friends). */
 export function gatewayProvider(options: GatewayProviderOptions): Provider {
   const id = options.id ?? "gateway";
   const { config } = options;
 
-  const url = ({ path }: { path: string }) => {
-    const base = withoutTrailingSlash(config.baseURL) ?? config.baseURL;
-    const target = new URL(`${base}${path}`);
-    for (const [key, value] of Object.entries(config.queryParams ?? {})) {
-      target.searchParams.set(key, value);
-    }
-    return target.toString();
-  };
-  const headers = () => ({
-    ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
-    ...config.headers,
-  });
-  const settings = () => ({ headers, provider: id, url });
+  const url = ({ path }: { path: string }) => urlFor(config, path);
+  const headers = () => headersFor(config);
+  const settings = () => ({ headers, includeUsage: true, provider: id, url });
 
   return {
     // A base URL alone is not usable: hosts resolve a localhost default even
@@ -52,8 +78,7 @@ export function gatewayProvider(options: GatewayProviderOptions): Provider {
     get available() {
       return Boolean(config.baseURL) && Boolean(config.apiKey);
     },
-    defaults:
-      options.defaults ?? (options.models ? undefined : GATEWAY_DEFAULTS),
+    ...(options.defaults ? { defaults: options.defaults } : {}),
     embeddingModel: (modelId) =>
       new OpenAICompatibleEmbeddingModel(modelId, settings()),
     id,
@@ -61,7 +86,7 @@ export function gatewayProvider(options: GatewayProviderOptions): Provider {
       new OpenAICompatibleImageModel(modelId, settings()),
     languageModel: (modelId) =>
       new OpenAICompatibleChatLanguageModel(modelId, settings()),
-    models: options.models ?? GATEWAY_DEFAULT_MODELS,
+    models: options.models,
     offline: false,
   };
 }

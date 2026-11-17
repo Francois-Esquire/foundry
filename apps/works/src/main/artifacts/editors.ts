@@ -1,5 +1,5 @@
 import { isStrictModuleManifest } from "@foundry/modules/manifest";
-import type { ModuleStore } from "@foundry/modules/store/contract";
+import type { ModuleCommands } from "@foundry/modules/registry";
 import type { ModuleLibrary } from "../modules/library";
 import { moduleInstallationId } from "../modules/runtime/installation";
 import type { EditorRegistration } from "./resolver";
@@ -14,7 +14,7 @@ import type { EditorRegistration } from "./resolver";
  */
 export function installedEditors(options: {
   readonly library: Pick<ModuleLibrary, "details" | "list" | "release">;
-  readonly store: Pick<ModuleStore, "loadGatewayContext">;
+  readonly store: Pick<ModuleCommands, "loadGatewayContext">;
 }): () => Promise<EditorRegistration[]> {
   const { library, store } = options;
   async function selected(moduleId: string) {

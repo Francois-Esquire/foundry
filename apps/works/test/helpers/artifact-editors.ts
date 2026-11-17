@@ -1,5 +1,5 @@
 import type { ModuleEditorDeclaration } from "@foundry/modules/manifest";
-import type { ModuleStore } from "@foundry/modules/store/contract";
+import type { ModuleCommands } from "@foundry/modules/registry";
 import type { ModuleLibrary } from "~/main/modules/library";
 import { ensureModuleInstallation } from "~/main/modules/runtime/installation";
 import { publishStrict } from "./module-build";
@@ -9,7 +9,7 @@ import { publishStrict } from "./module-build";
  * titled after the View name.
  */
 export async function installEditorModule(
-  storage: { modules: ModuleLibrary; moduleStore: ModuleStore },
+  storage: { modules: ModuleLibrary; moduleStore: ModuleCommands },
   name: string,
   editors: ModuleEditorDeclaration[],
   options: { installed?: boolean } = {}

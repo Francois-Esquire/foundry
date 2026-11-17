@@ -1,11 +1,12 @@
-const BLOB_FILENAME = /^[a-f0-9-]+(?:\.tmp)?$/;
-
 import { constants } from "node:fs";
 import { mkdir, open, readdir, realpath, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 
 import type { BlobFiles } from "../blob";
-import { hasErrorCode, writeAtomically } from "./fs";
+import { stagingArea } from "./staging";
+
+const BLOB_FILENAME = /^[a-f0-9-]+(?:\.(?:[a-f0-9-]+\.)?tmp)?$/;
 
 export function blobFiles(root: string): BlobFiles {
   const directory = resolve(root);
@@ -32,20 +33,10 @@ export function blobFiles(root: string): BlobFiles {
     async publish(bytes) {
       const base = await ready();
       const path = crypto.randomUUID();
-      await writeAtomically(
-        join(base, path),
-        join(base, `${path}.tmp`),
-        bytes,
-        {
-          readOnly: true,
-        }
-      );
-      const folder = await open(base, "r");
-      try {
-        await folder.sync();
-      } finally {
-        await folder.close();
-      }
+      await writeFileAtomic(join(base, path), bytes, {
+        fsync: true,
+        mode: 0o400,
+      });
       return path;
     },
     async *read(path, { start, end }) {
@@ -87,5 +78,6 @@ export function blobFiles(root: string): BlobFiles {
         }
       }
     },
+    staging: stagingArea(ready),
   };
 }

@@ -5,8 +5,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { lockHolder } from "@foundry/lib/file-lock";
+import type { MarblesDatabase } from "~/database/open";
+import { initializeDatabase } from "~/database/open";
+import { WorkspaceRegistry } from "~/database/workspaces";
 import type { Layout } from "~/layout";
-import { listWorkspaces } from "~/lib/state/workspace";
+import { insideState } from "~/lib/state/workspace";
 import type { WorkspaceSummary } from "~/model/connection";
 import { Channel, socketTransport } from "~/process/channel";
 import type { ProcessInstance } from "~/process/instance";
@@ -162,6 +165,23 @@ function lines(onLine: (line: string) => void): (chunk: Buffer) => void {
   };
 }
 
+async function everyOf<T>(
+  items: readonly T[],
+  step: (item: T) => unknown
+): Promise<void> {
+  const settled = await Promise.allSettled(
+    items.map(async (item) => {
+      await step(item);
+    })
+  );
+  const failed = settled.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected"
+  );
+  if (failed !== undefined) {
+    throw failed.reason;
+  }
+}
+
 export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const { layout } = options;
   const print = options.print ?? (() => undefined);
@@ -172,6 +192,21 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     host: "daemon",
     socket: layout.socket,
     version,
+  });
+  let database: MarblesDatabase;
+  try {
+    database = await initializeDatabase(layout.database);
+  } catch (error) {
+    try {
+      claim.release();
+    } catch {
+      // Reported through the error that is thrown instead.
+    }
+    throw error;
+  }
+  const registry = new WorkspaceRegistry({
+    database: database.database,
+    state: layout.state,
   });
   const workers = new Map<string, Worker>();
   const clients = new Set<Client>();
@@ -456,12 +491,14 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
       await timeout(exited, STOP_TIMEOUT_MS, "the worker's exit");
     } catch (error) {
-      print(
-        `[${worker.summary.id}] ${error instanceof Error ? error.message : String(error)}; killing it`
-      );
-      // SIGTERM would only ask it to drain again.
-      child.kill("SIGKILL");
-      await exited;
+      try {
+        print(
+          `[${worker.summary.id}] ${error instanceof Error ? error.message : String(error)}; killing it`
+        );
+      } finally {
+        child.kill("SIGKILL");
+        await exited;
+      }
     }
   }
 
@@ -494,52 +531,83 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     return existing;
   }
 
-  function workerFor(
+  const turns = new Map<string, Promise<void>>();
+
+  function inTurn<T>(id: string, work: () => Promise<T>): Promise<T> {
+    const next = (turns.get(id) ?? Promise.resolve()).then(work);
+    const done = next.then(
+      () => undefined,
+      () => undefined
+    );
+    turns.set(id, done);
+    done.then(() => {
+      if (turns.get(id) === done) {
+        turns.delete(id);
+      }
+    });
+    return next;
+  }
+
+  function refuseWhileStopping(): void {
+    if (stopping) {
+      throw new Error(
+        "the Marbles process is stopping; retry once it has exited"
+      );
+    }
+  }
+
+  function attach(
     source: string,
     setup?: SetupDraftParams,
     root?: string
-  ): Worker {
+  ): Promise<Worker> {
     const configPath = resolveSource(source);
     const found = sourceFiles(configPath) !== undefined;
     const workspace = layout.workspace(
       found ? sourceRoot(configPath) : (root ?? process.cwd())
     );
-    const existing = workers.get(workspace.id);
-    if (existing && existing.wanted === "running") {
-      return reuse(existing, configPath, setup);
-    }
-    workspace.touch(found ? configPath : null, { hosted: true });
-    const worker: Worker = {
-      exited: Promise.resolve(),
-      ready: pendingReady(),
-      ...(setup === undefined ? {} : { setup }),
-      source: configPath,
-      summary: {
-        config: found ? configPath : null,
-        id: workspace.id,
-        root: workspace.root,
-        state: "starting",
-      },
-      tail: [],
-      wanted: "running",
-    };
-    workers.set(workspace.id, worker);
-    if (existing) {
+    const config = found ? configPath : null;
+    return inTurn(workspace.id, async () => {
+      refuseWhileStopping();
+      if (!insideState(layout.state, workspace.id)) {
+        throw new Error(
+          `the state of workspace ${workspace.id} at ${workspace.dir} links out of the state root; it is not hosted`
+        );
+      }
+      const running = workers.get(workspace.id);
+      if (running && running.wanted === "running") {
+        return reuse(running, configPath, setup);
+      }
+      await registry.touch(workspace, config, { hosted: true });
+      refuseWhileStopping();
+      const existing = workers.get(workspace.id);
+      if (existing && existing.wanted === "running") {
+        return reuse(existing, configPath, setup);
+      }
+      const worker: Worker = {
+        exited: Promise.resolve(),
+        ready: pendingReady(),
+        ...(setup === undefined ? {} : { setup }),
+        source: configPath,
+        summary: {
+          config,
+          id: workspace.id,
+          root: workspace.root,
+          state: "starting",
+        },
+        tail: [],
+        wanted: "running",
+      };
+      workers.set(workspace.id, worker);
       // A worker being detached holds the workspace's claim until it exits,
       // and would refuse its replacement: that one starts once it has.
-      (existing.stopping ?? existing.exited)
+      (existing?.stopping ?? existing?.exited ?? Promise.resolve())
         .then(() => startWaited(worker))
         .catch(() => undefined);
-    } else {
-      start(worker).catch(() => undefined);
-    }
-    return worker;
+      return worker;
+    });
   }
 
-  /**
-   * Start a worker that waited for its predecessor to exit, unless meanwhile
-   * it was stopped, replaced, or spawned by a reload.
-   */
   function startWaited(worker: Worker): Promise<unknown> {
     const current = workers.get(worker.summary.id) === worker;
     if (!current || worker.wanted !== "running" || worker.child) {
@@ -559,19 +627,28 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   async function detach(worker: Worker): Promise<void> {
     const { id } = worker.summary;
     await stopWorker(worker);
-    // An attach that landed while this worker drained hosts the workspace
-    // again under the same id; that one is not ours to drop.
-    if (workers.get(id) !== worker) {
-      throw new Error(
-        `workspace ${id} was attached again while it was being detached; it stays hosted`
+    await inTurn(id, async () => {
+      const detached = () => {
+        const listed = workers.get(id);
+        if (listed !== undefined && listed !== worker) {
+          throw new Error(
+            `workspace ${id} was attached again while it was being detached; it stays hosted`
+          );
+        }
+        return listed === undefined;
+      };
+      if (detached()) {
+        return;
+      }
+      await registry.touch(
+        layout.workspace(worker.summary.root),
+        worker.summary.config,
+        { hosted: false }
       );
-    }
-    // The record first: a write that fails leaves the worker listed, so the
-    // detach can be retried, rather than hosted again at the next boot.
-    layout.workspace(worker.summary.root).touch(worker.summary.config, {
-      hosted: false,
+      if (!detached()) {
+        workers.delete(id);
+      }
     });
-    workers.delete(id);
   }
 
   /** Workspace methods that begin work; the rest read, steer, or end it. */
@@ -623,7 +700,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         return [...workers.values()].map((worker) => worker.summary);
       case DAEMON_METHODS.attach: {
         const { root, setup, source } = attachParamsSchema.parse(params);
-        const worker = workerFor(source, setup, root);
+        const worker = await attach(source, setup, root);
         return timeout(
           worker.ready.promise,
           READY_TIMEOUT_MS,
@@ -728,36 +805,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       .catch(() => undefined);
   }
 
-  if (existsSync(layout.socket)) {
-    // We hold the lock, so whoever listened here is gone.
-    rmSync(layout.socket, { force: true });
-  }
-  const server: Server = createServer(onConnection);
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(layout.socket, () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
-  // Whoever can connect can run workflows and agents as this user.
-  chmodSync(layout.socket, 0o600);
-  print(`[daemon] pid ${String(process.pid)} · ${layout.socket}`);
-
-  for (const record of listWorkspaces(layout.state)) {
-    if (
-      record.hosted &&
-      record.config !== null &&
-      sourceFiles(record.config) !== undefined
-    ) {
-      workerFor(record.config);
-    }
-  }
-
   let resolveClosed: () => void = () => undefined;
   const closed = new Promise<void>((resolve) => {
     resolveClosed = resolve;
   });
+  const server: Server = createServer(onConnection);
 
   // The claim is the daemon's reason to run: a state root that was removed,
   // or a lock someone else now holds, means this process answers for nothing.
@@ -769,35 +821,76 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   }, CLAIM_CHECK_MS);
   claimCheck.unref();
 
+  try {
+    if (existsSync(layout.socket)) {
+      // We hold the lock, so whoever listened here is gone.
+      rmSync(layout.socket, { force: true });
+    }
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(layout.socket, () => {
+        server.off("error", reject);
+        resolve();
+      });
+    });
+    // Whoever can connect can run workflows and agents as this user.
+    chmodSync(layout.socket, 0o600);
+    print(`[daemon] pid ${String(process.pid)} · ${layout.socket}`);
+
+    for (const record of await registry.list()) {
+      if (
+        record.hosted &&
+        record.config !== null &&
+        sourceFiles(record.config) !== undefined
+      ) {
+        attach(record.config).catch((error: unknown) => {
+          print(
+            `[${record.id}] not hosted again: ${error instanceof Error ? error.message : String(error)}`
+          );
+        });
+      }
+    }
+  } catch (error) {
+    await close().catch(() => undefined);
+    throw error;
+  }
+
   function close({ claimLost = false } = {}): Promise<void> {
     closing ??= (async () => {
       stopping = true;
       clearInterval(claimCheck);
-      print("[daemon] stopping");
-      try {
-        await Promise.all(
-          [...workers.values()].map((worker) => stopWorker(worker))
+      let failure: { readonly error: unknown } | undefined;
+      const attempt = async (step: () => unknown): Promise<void> => {
+        try {
+          await step();
+        } catch (error) {
+          failure ??= { error };
+        }
+      };
+      await attempt(() => print("[daemon] stopping"));
+      await attempt(() =>
+        everyOf([...workers.values()], (worker) => stopWorker(worker))
+      );
+      await attempt(() =>
+        everyOf([...clients], (client) => client.channel.close())
+      );
+      // `server.close` waits for every connection; a worker that would not
+      // stop, or a client that never hung up, must not hold the exit.
+      await attempt(() => everyOf([...sockets], (socket) => socket.destroy()));
+      if (claimLost) {
+        // Whoever holds the claim now may listen at this path, and closing
+        await attempt(() => server.unref());
+      } else {
+        await attempt(
+          () => new Promise<void>((resolve) => server.close(() => resolve()))
         );
-      } finally {
-        for (const client of clients) {
-          client.channel.close();
-        }
-        // `server.close` waits for every connection; a worker that would not
-        // stop, or a client that never hung up, must not hold the exit.
-        for (const socket of sockets) {
-          socket.destroy();
-        }
-        if (claimLost) {
-          // Whoever holds the claim now may listen at this path, and closing
-          // the server unlinks the socket by name (Bun, and libuv under
-          // Node). Leave both alone; the process exits around the listener.
-          server.unref();
-        } else {
-          await new Promise<void>((resolve) => server.close(() => resolve()));
-          rmSync(layout.socket, { force: true });
-        }
-        claim.release();
-        resolveClosed();
+        await attempt(() => rmSync(layout.socket, { force: true }));
+      }
+      await attempt(() => database.close());
+      await attempt(() => claim.release());
+      resolveClosed();
+      if (failure !== undefined) {
+        throw failure.error;
       }
     })();
     return closing;

@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import {
   mkdir,
@@ -6,11 +6,14 @@ import {
   readdir,
   readFile,
   rm,
+  stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { workspaceState } from "~/lib/state/workspace";
 import { cliArgs } from "./helpers/cli";
 
 // The host loads sources through a Bun plugin; vitest runs under Node, and
@@ -18,10 +21,7 @@ import { cliArgs } from "./helpers/cli";
 vi.mock("bun", () => ({ plugin: vi.fn() }));
 
 const USAGE_REFUSAL = /^tasks list: unknown option --tags\n\nmarbles/;
-const TASKS_FILE = /^[0-9a-f]+\/tasks\.json$/;
 const TASK_LINE = /^tk-[0-9a-f]{8} {2}open {2}Write docs {2}\(task\)\n$/;
-const HELD =
-  /^marbles: the tasks of this workspace .* are in use by pid \d+\n$/;
 
 // Each command boots a fresh CLI. Budget cumulative startup under CI load;
 // spawnSync still bounds every child independently. Other suites keep their defaults.
@@ -103,8 +103,8 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     expect(listed.status, listed.stderr).toBe(0);
     expect(JSON.parse(listed.stdout)).toEqual({ items: tasks, total: 1 });
     const stored = await files(join(root, "state"));
-    expect(stored).toHaveLength(1);
-    expect(stored[0]).toMatch(TASKS_FILE);
+    expect(stored).toContain("marbles.db");
+    expect(stored.filter((file) => file.includes("tasks"))).toEqual([]);
   });
 
   it("--dry-run keeps tasks in memory and leaves the workspace's untouched", async () => {
@@ -144,11 +144,47 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     });
     const ready = marbles("tasks", "ready", "--json");
     expect(JSON.parse(ready.stdout)).toEqual({ items: [], total: 0 });
-    expect(await files(join(root, "state"))).toEqual([]);
-    // Bun lists a directory in its on-disk order, which Linux does not sort.
-    expect(new Set(await readdir(root))).toEqual(
-      new Set([".foundry", "state"])
-    );
+    expect(await readdir(root)).toEqual([".foundry"]);
+  });
+
+  it("reads a database with tasks in it and creates or changes nothing", async () => {
+    const [parent] = JSON.parse(
+      marbles("tasks", "create", "Parent", "--json").stdout
+    ).tasks;
+    const child = marbles("tasks", "create", "Child", "--parent", parent.id);
+    expect(child.status, child.stderr).toBe(0);
+    const state = join(root, "state");
+    const look = async () =>
+      await Promise.all(
+        (await files(state)).map(async (file) => {
+          const path = join(state, file);
+          const { ino, mtimeMs, size } = await stat(path);
+          const bytes = await readFile(path, "base64");
+          return { bytes, file, ino, mtimeMs, size };
+        })
+      );
+    const before = await look();
+    const entries = async () =>
+      (await readdir(state, { recursive: true })).sort();
+    const directories = await entries();
+
+    for (const argv of [
+      ["tasks", "list", "--json"],
+      ["tasks", "ready", "--json"],
+      ["tasks", "get", parent.id, "--json"],
+      ["tasks", "deps", parent.id, "--json"],
+    ]) {
+      const read = marbles(...argv);
+      expect(read.status, `${argv.join(" ")}: ${read.stderr}`).toBe(0);
+    }
+    expect(
+      JSON.parse(marbles("tasks", "list", "--json").stdout).items.map(
+        (task: { title: string }) => task.title
+      )
+    ).toEqual(["Parent", "Child"]);
+
+    expect(await look()).toEqual(before);
+    expect(await entries()).toEqual(directories);
   });
 
   it("sets, filters, replaces, and clears tags", () => {
@@ -219,34 +255,80 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     expect(usage.stderr).toContain("tasks change --input");
   });
 
-  it("gives up the workspace's tasks when the engine is disposed", async () => {
-    const { findWorkspace, hostTasks, workspaceEngine } = await import(
-      "~/workspace/open"
-    );
-    const flags = {
-      artifacts: join(root, "artifacts"),
-      config: join(root, "missing.ts"),
-      dry: false,
-      state: join(root, "state"),
-    };
-    const opened = findWorkspace(flags);
-    const engine = workspaceEngine(flags, opened, { print: () => undefined });
-    const tasks = hostTasks(engine);
-    await tasks.create({ tags: ["kept"], title: "Owned" });
-    const other = workspaceEngine(flags, opened, { print: () => undefined });
-    await expect(hostTasks(other).list()).rejects.toThrow("in use by");
-    await engine.dispose();
-    await expect(tasks.list()).rejects.toThrow("workspace records are closed");
-    const page = await hostTasks(other).list();
-    expect(page.items.map((task) => task.tags)).toEqual([["kept"]]);
-    await other.dispose();
-    expect(await files(join(root, "state"))).toHaveLength(1);
+  it("refuses the tasks when the workspace's state links out of the state root", async () => {
+    const state = join(root, "state");
+    const outside = join(root, "outside");
+    await mkdir(state);
+    await mkdir(outside);
+    await symlink(outside, workspaceState(state, root).dir);
+    const refused = marbles("tasks", "create", "Outside");
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain("is not a directory inside");
+    expect(await readdir(outside)).toEqual([]);
   });
 
-  it("refuses a separate process the tasks another process owns, and lets go when it does", async () => {
-    const { findWorkspace, hostTasks, workspaceEngine } = await import(
-      "~/workspace/open"
+  it("keeps two workspaces' tasks apart under one state root", async () => {
+    const state = join(root, "state");
+    const inProject = (project: string, ...argv: readonly string[]) =>
+      spawnSync("bun", cliArgs(...argv, "--state", state), {
+        cwd: project,
+        encoding: "utf8",
+        timeout: 15_000,
+      });
+    const [a, b] = [join(root, "a"), join(root, "b")];
+    await mkdir(a);
+    await mkdir(b);
+    expect(inProject(a, "tasks", "create", "Only in A").status).toBe(0);
+    expect(inProject(b, "tasks", "create", "Only in B").status).toBe(0);
+    const titles = (project: string) =>
+      JSON.parse(
+        inProject(project, "tasks", "list", "--json").stdout
+      ).items.map((task: { title: string }) => task.title);
+    expect(titles(a)).toEqual(["Only in A"]);
+    expect(titles(b)).toEqual(["Only in B"]);
+  });
+
+  it("lets several commands change the tasks at once with no Marbles process running", async () => {
+    const state = join(root, "state");
+    const titles = ["One", "Two", "Three", "Four"];
+    const results = await Promise.all(
+      titles.map(
+        (title) =>
+          new Promise<{ code: number | null; stderr: string }>((done) => {
+            const child = spawn(
+              "bun",
+              cliArgs("tasks", "create", title, "--state", state),
+              { cwd: root }
+            );
+            let stderr = "";
+            child.stderr?.on("data", (chunk: Buffer) => {
+              stderr += chunk.toString();
+            });
+            child.once("exit", (code) => done({ code, stderr }));
+          })
+      )
     );
+    for (const result of results) {
+      expect(result.code, result.stderr).toBe(0);
+    }
+    const listed = JSON.parse(marbles("tasks", "list", "--json").stdout);
+    expect(
+      listed.items.map((task: { title: string }) => task.title).sort()
+    ).toEqual([...titles].sort());
+  });
+
+  it("makes the database with no Marbles process running, and leaves the state root free", () => {
+    const created = marbles("tasks", "create", "First");
+    expect(created.status, created.stderr).toBe(0);
+    const state = join(root, "state");
+    expect(existsSync(join(state, "marbles.db"))).toBe(true);
+    expect(existsSync(join(state, "locks", "process"))).toBe(false);
+  });
+
+  it("lets a separate process read and change the tasks while another has them open", async () => {
+    const { openHostDatabase } = await import("~/database/workspaces");
+    const { DatabaseWorkspaceRecords } = await import("~/database/tasks");
+    const { Tasks } = await import("@foundry/tasks");
     // Never imported here or by the CLI: only its place names the workspace.
     const source = join(root, ".foundry", "marbles");
     await mkdir(source, { recursive: true });
@@ -254,29 +336,38 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
       join(source, "index.ts"),
       'throw new Error("source must not run");\n'
     );
-    const flags = {
-      artifacts: join(root, "artifacts"),
-      config: source,
-      dry: false,
-      state: join(root, "state"),
-    };
-    const engine = workspaceEngine(flags, findWorkspace(flags), {
-      print: () => undefined,
+    const state = join(root, "state");
+    const { id } = workspaceState(state, root);
+    const database = await openHostDatabase(state);
+    const records = new DatabaseWorkspaceRecords({
+      database: database.database,
+      scope: id,
     });
     try {
-      await hostTasks(engine).create({ title: "Owned here" });
-      const held = marbles("tasks", "list", "--json", "--source", source);
-      expect(held.status, held.stderr).toBe(1);
-      expect(held.stdout).toBe("");
-      expect(held.stderr).toMatch(HELD);
+      const tasks = new Tasks({ store: records.taskStore });
+      await tasks.create({ title: "Open here" });
+      const added = marbles(
+        "tasks",
+        "create",
+        "From the CLI",
+        "--source",
+        source
+      );
+      expect(added.status, added.stderr).toBe(0);
+      const listed = marbles("tasks", "list", "--json", "--source", source);
+      expect(listed.status, listed.stderr).toBe(0);
+      const titles = ["Open here", "From the CLI"];
+      expect(
+        JSON.parse(listed.stdout).items.map(
+          (task: { title: string }) => task.title
+        )
+      ).toEqual(titles);
+      expect((await tasks.list()).items.map((task) => task.title)).toEqual(
+        titles
+      );
     } finally {
-      await engine.dispose();
+      await records.close();
+      database.close();
     }
-    const freed = marbles("tasks", "list", "--json", "--source", source);
-    expect(freed.status, freed.stderr).toBe(0);
-    expect(JSON.parse(freed.stdout)).toMatchObject({
-      items: [{ title: "Owned here" }],
-      total: 1,
-    });
   });
 });

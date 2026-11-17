@@ -1,4 +1,4 @@
-import type { ModuleStore } from "@foundry/modules/store/contract";
+import type { ModuleCommands } from "@foundry/modules/registry";
 import { EXECUTION_STATUSES } from "@foundry.sh/marbles/statuses";
 import { z } from "zod";
 import { authorizeRuntime } from "~/main/gateway/authority";
@@ -32,7 +32,7 @@ export const EXECUTION_CAPABILITIES = {
 
 /** What the providers act on. */
 export interface ExecutionHost {
-  readonly modules: Pick<ModuleStore, "loadGatewayContext">;
+  readonly modules: Pick<ModuleCommands, "loadGatewayContext">;
   readonly workflows: Pick<
     ModuleWorkflows,
     "cancel" | "cancelInstallation" | "start" | "watch"

@@ -14,6 +14,8 @@ import { processAlive, tryFileLock } from "@foundry/lib/file-lock";
  * `<name>.break`. A file that is neither a pid nor empty is never broken.
  */
 
+export const PROCESS_LOCK = "process";
+
 export interface Lock {
   /** Give the lock up, once; a lock someone else has taken since is left alone. */
   release(): void;

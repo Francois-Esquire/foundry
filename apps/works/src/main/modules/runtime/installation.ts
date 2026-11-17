@@ -5,7 +5,7 @@ import {
   type ModuleVersion,
 } from "@foundry/modules/domain";
 import { ensureInstallation } from "@foundry/modules/management";
-import type { ModuleStore } from "@foundry/modules/store/contract";
+import type { ModuleCommands } from "@foundry/modules/registry";
 
 /**
  * A Module's one durable Installation is named after the Module, so its
@@ -17,7 +17,7 @@ export function moduleInstallationId(moduleId: string): InstallationId {
 
 /** The Module's Installation, created disabled at `version` when it has none. */
 export function ensureModuleInstallation(
-  store: ModuleStore,
+  store: ModuleCommands,
   version: ModuleVersion,
   now: Date
 ): Promise<Installation> {

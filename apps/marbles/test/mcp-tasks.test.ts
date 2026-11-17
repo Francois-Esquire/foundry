@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ReentrantCallError } from "@foundry/lib/turns";
 import { Tasks } from "@foundry/tasks";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -8,6 +9,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { DatabaseBusyError } from "~/database/client";
+import { TaskStorageError } from "~/database/tasks";
 import { registerTaskTools } from "~/mcp/tasks";
 import { hostTasks } from "~/workspace/open";
 import { runTaskCommand } from "~/workspace/tasks";
@@ -192,6 +195,29 @@ it("commits, returns, and filters tags over a workspace's own records", async ()
   expect((await tasks.list()).total).toBe(2);
   const other = new Tasks({ store: engine.taskStore });
   expect((await other.get(tagged?.id ?? ""))?.tags).toEqual([]);
+});
+
+it("publishes metadata as a JSON object and refuses a __proto__ key in it", async () => {
+  const { client, tasks } = await connect();
+  const { tools } = await client.listTools();
+  const change = tools.find(({ name }) => name === "change_tasks");
+  const published = JSON.stringify(change?.inputSchema);
+  const typed =
+    '"metadata":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{"$ref":';
+  expect(published.split(typed)).toHaveLength(3);
+
+  const task = await tasks.create({ metadata: { keep: 1 }, title: "proto" });
+  const metadata = JSON.parse('{"x":{"__proto__":1}}');
+  const result = await call(client, "change_tasks", {
+    operations: [
+      { kind: "task.update", patch: { metadata }, task: { id: task.id } },
+    ],
+  });
+  expect(result.isError).toBe(true);
+  expect(textOf(result)).toContain(
+    '"__proto__" is not allowed as a metadata key'
+  );
+  expect((await tasks.get(task.id))?.metadata).toEqual({ keep: 1 });
 });
 
 it("creates, reads, and changes tasks through the shared command language", async () => {
@@ -432,4 +458,46 @@ it("pages through the backlog with a bounded limit", async () => {
   );
   expect(small.items.map(({ title }) => title)).toEqual(["Task 3", "Task 4"]);
   expect(small.nextCursor).toBe(5);
+});
+
+it("answers a storage refusal or a re-entrant call with a tool error carrying its message alone", async () => {
+  const refusals = [
+    new ReentrantCallError(
+      "SqliteTaskStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead"
+    ),
+    new TaskStorageError(
+      "this change cannot be stored in the Marbles database: SqliteTaskStore cannot store putTasks[0].title"
+    ),
+    new DatabaseBusyError("the Marbles database is busy"),
+  ];
+  for (const thrown of refusals) {
+    const server = new McpServer({ name: "tasks-test", version: "1.0.0" });
+    registerTaskTools(
+      server,
+      () => Promise.reject(thrown),
+      z.string().min(1).optional()
+    );
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "tasks-client", version: "1.0.0" });
+    await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+    open.push(async () => {
+      await client.close();
+      await server.close();
+    });
+    for (const [name, args] of [
+      ["list_tasks", {}],
+      [
+        "change_tasks",
+        {
+          operations: [
+            { input: { title: "x" }, key: "x", kind: "task.create" },
+          ],
+        },
+      ],
+    ] as const) {
+      const result = await call(client, name, args);
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toBe(thrown.message);
+    }
+  }
 });

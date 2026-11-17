@@ -7,7 +7,7 @@ import { z } from "zod";
 
 import { createContainers } from "../container/containers";
 import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
-import { createMemoryContainerStore } from "../container/store";
+import { createMemoryContainerStore } from "../store/memory";
 import { MODULE_GATEWAY_SERVER } from "./helpers/module-gateway-server";
 
 const APPLICATION_CLOSE_TIMEOUT_MS = 1000;

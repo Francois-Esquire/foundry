@@ -22,9 +22,9 @@ export { codexProvider } from "@foundry/models/codex";
 export { piProvider } from "@foundry/models/pi";
 // `containers`: where sandboxes run.
 export { createContainers } from "@foundry/sandbox/container/containers";
-export { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+export { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 export type { ChannelMessage } from "@foundry/workflows/channels";
-export type { RunRecord } from "@foundry/workflows/store";
+export type { RunRecord } from "@foundry/workflows/schema";
 export { WorkspaceSystem } from "@foundry/workspaces";
 export { git } from "@foundry/workspaces/git";
 export { directory } from "@foundry/workspaces/node";

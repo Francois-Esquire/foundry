@@ -22,6 +22,7 @@ import {
 import { canonicalizeJson } from "@foundry/lib/json";
 import { z } from "zod";
 import { MODULE_MIME } from "./constants";
+import { assertOwnsArtifactCommit } from "./cross-store";
 import type { Module, ModuleId, ModuleVersion } from "./domain";
 import {
   defineModule,
@@ -29,9 +30,10 @@ import {
   moduleIdSchema,
   parseModuleVersionContent,
 } from "./domain";
+import { ModuleStoreConflictError } from "./errors";
 import type { ModuleManifest } from "./manifest";
 import { parseModuleManifestSourceText } from "./manifest";
-import type { ModuleStore } from "./store/contract";
+import type { ModuleRegistryUnit } from "./registry";
 import { MODULE_CONTENT_MANIFEST_PATH } from "./version";
 
 const MAX_PACKAGE_BYTES = 32 * 1024 * 1024;
@@ -189,41 +191,51 @@ type ModulePackageOperations = Pick<
  */
 export async function importModulePackage(input: {
   readonly artifacts: ModulePackageArtifacts;
-  readonly modules: Pick<
-    ModuleStore,
-    "transaction" | "registerModule" | "retainManifest"
+  readonly modules: ModuleRegistryUnit<
+    "loadModule" | "registerModule" | "retainManifest"
   >;
   readonly encoded: string;
 }): Promise<ModuleVersion> {
   const validated = await validateModulePackageEnvelope(input.encoded);
-  return input.artifacts.transaction(async (artifacts) =>
-    input.modules.transaction(async () => {
+  const artifact = { id: validated.artifact.id, type: MODULE_MIME };
+  const module = defineModule({ artifact, id: validated.module.id });
+  await assertOwnsArtifactCommit(input.artifacts, "Module Package import");
+  return await input.modules.transaction(async (modules) => {
+    const version = await input.artifacts.transaction(async (artifacts) => {
+      if ((await artifacts.get(artifact.id)) === null) {
+        const registered = await modules.loadModule(module.id);
+        if (registered !== null) {
+          throw new ModuleStoreConflictError(
+            `Module ${module.id} already belongs to another Artifact`
+          );
+        }
+      } else {
+        await modules.registerModule({ module });
+      }
       const content = await landContent(artifacts, validated);
       if (content.digest !== validated.content.digest) {
         throw new ModulePackageError(
           "Module Package Content digest mismatch after import"
         );
       }
-      const artifact = { id: validated.artifact.id, type: MODULE_MIME };
-      const module = defineModule({ artifact, id: validated.module.id });
-      const version = defineModuleVersion({
+      return defineModuleVersion({
         artifact,
         content,
         manifest: validated.content.manifest,
         module,
       });
-      if (validated.content.embedsManifest) {
-        await input.modules.registerModule({ module });
-      } else {
-        await input.modules.retainManifest({
-          contentId: version.contentId,
-          manifest: version.manifest,
-          module,
-        });
-      }
-      return version;
-    })
-  );
+    });
+    if (validated.content.embedsManifest) {
+      await modules.registerModule({ module });
+    } else {
+      await modules.retainManifest({
+        contentId: version.contentId,
+        manifest: version.manifest,
+        module,
+      });
+    }
+    return version;
+  });
 }
 
 async function landContent(

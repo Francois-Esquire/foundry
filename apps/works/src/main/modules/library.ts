@@ -1,10 +1,7 @@
 import { join } from "node:path";
-import {
-  type ArtifactStore,
-  artifactIdSchema,
-  contentIdSchema,
-} from "@foundry/artifacts";
+import { artifactIdSchema, contentIdSchema } from "@foundry/artifacts";
 import { JsonArtifactStore } from "@foundry/artifacts/node";
+import type { ArtifactStore } from "@foundry/artifacts/store";
 import { type ModuleVersion, moduleIdSchema } from "@foundry/modules/domain";
 import type { ModuleCapabilityCatalog } from "@foundry/modules/gateway/types";
 import {

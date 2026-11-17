@@ -12,10 +12,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ArtifactManager } from "../manager";
-import { InMemoryArtifactStore } from "../memory";
 import { blobFiles } from "../node/blobs";
 import { projectionMatches, stageProjection } from "../node/projection";
 import { required } from "./helpers/required";
+import { openStore, STORE_KINDS, type StoreKind } from "./helpers/stores";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -24,12 +24,12 @@ afterEach(async () => {
   }
 });
 
-async function setup() {
+async function setup(kind: StoreKind) {
   const root = await mkdtemp(join(tmpdir(), "artifact-projection-"));
   roots.push(root);
   const artifacts = new ArtifactManager({
     files: blobFiles(join(root, "blobs")),
-    store: new InMemoryArtifactStore(),
+    store: await openStore(kind),
   });
   const created = await artifacts.create({
     entries: {
@@ -50,9 +50,9 @@ async function setup() {
   return { artifacts, projection, root };
 }
 
-describe("Content projection", () => {
+describe.each(STORE_KINDS)("%s store: Content projection", (kind) => {
   it("stages exactly the projected entries of a frozen Content, read-only", async () => {
-    const { projection, root } = await setup();
+    const { projection, root } = await setup(kind);
     const target = join(root, "projected");
     await stageProjection(projection, target);
     expect(await readdir(target)).toEqual(["outputs"]);
@@ -68,7 +68,7 @@ describe("Content projection", () => {
   });
 
   it("notices a changed, added or missing file", async () => {
-    const { projection, root } = await setup();
+    const { projection, root } = await setup(kind);
     const target = join(root, "projected");
     await stageProjection(projection, target);
     const html = join(target, "outputs", "index.html");
@@ -83,7 +83,7 @@ describe("Content projection", () => {
   });
 
   it("refuses Content that is not frozen and a directory that already exists", async () => {
-    const { artifacts, projection, root } = await setup();
+    const { artifacts, projection, root } = await setup(kind);
     const working = await artifacts.create({
       entries: { "outputs/index.html": { bytes: "still editable" } },
       name: "Working",

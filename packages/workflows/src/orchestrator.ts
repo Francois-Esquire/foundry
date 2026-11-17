@@ -1,6 +1,6 @@
 import type { Page } from "@foundry/core/pagination";
 import type { Config } from "@foundry/lib/config";
-import { Effect, Exit, Option, Schema, Scope } from "effect";
+import { Effect, Exit, Scope } from "effect";
 import { contributeQueueConfig } from "./config";
 import type { DispatchedWorkflow } from "./dispatched-workflow";
 import {
@@ -11,47 +11,49 @@ import {
   RunNotFoundError,
 } from "./errors";
 import type { BaseContext } from "./executable";
+import type {
+  DirectRunLinks,
+  JobQuery,
+  RunQuery,
+  SuspensionQuery,
+} from "./execution-commands";
+import type { OrchestratorStore } from "./execution-coordinator";
+import {
+  ExecutionCoordinator,
+  requireDurableStore,
+} from "./execution-coordinator";
 import { ExecutionParticipants } from "./execution-participants";
+import type { Extensions } from "./extensions";
+import { createExtensions } from "./extensions";
 import { runEffectPromise } from "./helpers";
 import type { CreateJobOptions } from "./job-lifecycle";
 import { JobLifecycle } from "./job-lifecycle";
+import type { JsonValue } from "./json-value";
+import { isJsonValue } from "./json-value";
 import type { OrchestratorLogger } from "./logger";
 import { BaseOrchestratorLogger } from "./logger";
-import type { ExecutionPersistence } from "./persistence";
-import { orchestratorStoreFromPersistence } from "./persistence-compatibility";
 import { Queue } from "./queue";
 import type {
   DispatchOptions,
   QueueEvent,
   QueueEventPayload,
 } from "./queue-types";
+import { recordOf } from "./record-fields";
 import type { ObserveRunOptions, RunObservation } from "./run-observation";
 import { RunObservationJournal } from "./run-observation";
-import type { StepSnapshot } from "./snapshot";
-import { StepSnapshotSchema } from "./snapshot";
-import type { Step } from "./step";
 import type {
   DefinitionReference,
-  DirectRunLinks,
-  Extensions,
   JobLinks,
-  JobQuery,
   JobRecord,
-  JsonValue,
-  OrchestratorStore,
   QueueRecord,
   RunFramePayload,
   RunLinks,
-  RunQuery,
   RunRecord,
-  SuspensionQuery,
   SuspensionRecord,
-} from "./store";
-import {
-  createExtensions,
-  InMemoryOrchestratorStore,
-  JsonValueSchema,
-} from "./store";
+} from "./schema";
+import { StepSnapshotSchema } from "./schema";
+import type { StepSnapshot } from "./snapshot";
+import type { Step } from "./step";
 import type { ResolveSuspensionOptions } from "./suspension-lifecycle";
 import { SuspensionLifecycle } from "./suspension-lifecycle";
 import type { TelemetryLogEntry } from "./telemetry";
@@ -87,7 +89,7 @@ export type Runnable<
   X extends BaseContext = BaseContext,
 > = Step<I, O, X> | Workflow<I, O, X>;
 
-export type { DirectRunLinks } from "./store";
+export type { DirectRunLinks } from "./execution-commands";
 
 /** Stable identity and correlation supplied before registered work is built. */
 export interface RunExecutionContext {
@@ -150,9 +152,7 @@ function factoryToEffect<I, O, X extends BaseContext = BaseContext>(
  * any structural mismatch (or absent blob) so the caller falls back to
  * running the workflow from the top.
  */
-const decodeSeedSteps = Schema.decodeUnknownOption(
-  Schema.Record({ key: Schema.String, value: StepSnapshotSchema })
-);
+const SeedStepsSchema = recordOf(StepSnapshotSchema);
 
 // ── Registry: name → factory ──
 // Name is the persistence anchor. `runs.step` stores it; cold restart
@@ -199,11 +199,11 @@ export interface OrchestratorOptions {
   readonly admissionParticipant?: (input: {
     readonly job: JobRecord;
     readonly run: RunRecord;
-    readonly persistence: ExecutionPersistence;
+    readonly store: OrchestratorStore;
   }) => Promise<JsonValue>;
   readonly cancellationParticipant?: (input: {
     readonly run: RunRecord;
-    readonly persistence: ExecutionPersistence;
+    readonly store: OrchestratorStore;
   }) => Promise<RunRecord | null>;
   /**
    * Shared config registry. The orchestrator self-contributes its
@@ -215,13 +215,10 @@ export interface OrchestratorOptions {
   readonly config: Config;
   /** Optional lifecycle logger. */
   readonly logger?: OrchestratorLogger;
-  /** Preferred composed persistence capability. */
-  readonly persistence?: ExecutionPersistence;
   /** Host-owned JSON-safe annotations persisted with the default queue. */
   readonly queueExtensions?: Extensions;
   /** Pre-populated registry, or omit to start empty. */
   readonly registry?: Registry;
-  /** Persistence boundary. Defaults to the in-memory reference store. */
   readonly store?: OrchestratorStore;
 }
 
@@ -271,7 +268,6 @@ export class Orchestrator {
   readonly #journal: RunObservationJournal;
   readonly #jobs: JobLifecycle;
   readonly #suspensions: SuspensionLifecycle;
-  readonly #persistence: ExecutionPersistence | undefined;
   readonly #participants: ExecutionParticipants;
 
   // Initialized by setup(); accessed via #requireQueue.
@@ -292,15 +288,9 @@ export class Orchestrator {
     contributeQueueConfig(opts.config);
     this.registry = opts.registry ?? new Registry();
     this.config = opts.config;
-    this.#persistence = opts.persistence;
-    if (opts.persistence && opts.store) {
-      throw new Error("Provide either persistence or store, not both");
-    }
-    this.store = opts.persistence
-      ? orchestratorStoreFromPersistence(opts.persistence)
-      : (opts.store ?? new InMemoryOrchestratorStore());
+    this.store = opts.store ?? new ExecutionCoordinator();
+    requireDurableStore(this.store, "Orchestrator");
     this.#participants = new ExecutionParticipants(
-      opts.persistence,
       this.store,
       opts.admissionParticipant,
       opts.cancellationParticipant
@@ -582,18 +572,7 @@ export class Orchestrator {
     const settled = await this.#participants.cancel(runId);
     if (settled) {
       if (settled.status === "cancelled") {
-        const afterCommit = this.#persistence?.afterCommit;
-        if (afterCommit) {
-          await afterCommit(() =>
-            queue
-              .applyAuthoritativeCancellation(runId)
-              .catch((error: unknown) => {
-                console.error("Run cancellation projection failed:", error);
-              })
-          );
-        } else {
-          await queue.applyAuthoritativeCancellation(runId);
-        }
+        await queue.applyAuthoritativeCancellation(runId);
       }
       return settled;
     }
@@ -604,7 +583,7 @@ export class Orchestrator {
 
   coordinateSettlement<T>(
     runId: string,
-    operation: (run: RunRecord, persistence: ExecutionPersistence) => Promise<T>
+    operation: (run: RunRecord, store: OrchestratorStore) => Promise<T>
   ): Promise<T> {
     return this.#participants.settle(runId, operation);
   }
@@ -666,20 +645,16 @@ export class Orchestrator {
     const claim = await this.#participants.claim(job.id, claimInput);
     // Admission was preflighted before the atomic claim. If a shutdown race
     // still rejects here, retain the queued row for normal cold recovery.
-    return queue.dispatchPersisted(
-      prepared.workflow,
-      {
-        definition: claim.run.definition,
-        extensions: claim.run.extensions,
-        id: claim.run.id,
-        input: claim.run.input,
-        lastStatus: claim.run.status,
-        links: claim.run.links,
-        metadata: claim.run.metadata,
-        step: claim.run.step,
-      },
-      this.#persistence?.afterCommit
-    );
+    return queue.dispatchPersisted(prepared.workflow, {
+      definition: claim.run.definition,
+      extensions: claim.run.extensions,
+      id: claim.run.id,
+      input: claim.run.input,
+      lastStatus: claim.run.status,
+      links: claim.run.links,
+      metadata: claim.run.metadata,
+      step: claim.run.step,
+    });
   }
 
   /**
@@ -897,14 +872,7 @@ export class Orchestrator {
     }
     this.#throwIfStopped();
     return prepared.map(({ row, workflow }) => {
-      const adopt = () => {
-        queue.adopt(workflow, row);
-      };
-      if (this.#persistence?.afterCommit) {
-        this.#persistence.afterCommit(adopt);
-      } else {
-        adopt();
-      }
+      queue.adopt(workflow, row);
       return row.id;
     });
   }
@@ -1188,7 +1156,8 @@ export class Orchestrator {
       return null;
     }
     const { steps } = wf as { steps?: unknown };
-    return Option.getOrNull(decodeSeedSteps(steps));
+    const decoded = SeedStepsSchema.safeParse(steps);
+    return decoded.success ? decoded.data : null;
   }
 }
 
@@ -1198,7 +1167,7 @@ export type { ObserveRunOptions, RunObservation } from "./run-observation";
 export type { ResolveSuspensionOptions } from "./suspension-lifecycle";
 
 function logEntryToJsonValue(entry: TelemetryLogEntry): JsonValue {
-  if (Schema.is(JsonValueSchema)(entry)) {
+  if (isJsonValue(entry)) {
     return entry;
   }
   return {

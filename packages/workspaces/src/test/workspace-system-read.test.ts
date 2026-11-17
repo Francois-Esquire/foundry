@@ -2,13 +2,12 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { MemoryWorkspaceStore } from "../memory-store";
 import { nodeFileSystem } from "../node";
+import { MemoryWorkspaceStore } from "../store/memory";
+import { fileRecord, hostWorkspace, seed } from "../testing/records";
 import type { WorkspaceFileSystem } from "../types";
 import { sha256Hex } from "./helpers/digest";
-
 import { directorySystem } from "./helpers/directory-system";
-import { fileRecord, hostWorkspace, seed } from "./helpers/fixtures";
 import { makeRoot, roots } from "./helpers/temp-roots";
 
 function missing(): Error {

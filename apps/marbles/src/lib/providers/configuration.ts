@@ -1,7 +1,12 @@
 import { createHmac } from "node:crypto";
 import { existsSync, readdirSync, unwatchFile, watchFile } from "node:fs";
 import { join } from "node:path";
-import type { ModelKind, ModelManager, Provider } from "@foundry/models";
+import type {
+  ModelKind,
+  ModelManager,
+  Provider,
+  ProviderModelDefinition,
+} from "@foundry/models";
 import {
   accountPatterns,
   ambientProblem,
@@ -73,6 +78,14 @@ const ID = /^[a-z0-9][a-z0-9-]*$/;
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
 const FILE = "providers.json";
 const POLL_MS = 500;
+const LIST_TIMEOUT_MS = 5000;
+
+type Listing =
+  | {
+      readonly models: readonly ProviderModelDefinition[];
+      readonly problem?: undefined;
+    }
+  | { readonly models?: undefined; readonly problem: string };
 
 type Built =
   | { readonly entry: ProviderEntry; readonly instance?: undefined }
@@ -101,6 +114,10 @@ export class ProviderConfiguration {
   #identities = new Map<string, { digest?: string; material: unknown }>();
   #key: Buffer | undefined;
   readonly #owned = new ProviderInstances();
+  readonly #listings = new Map<string, Listing>();
+  readonly #listed = new Map<string, number>();
+  readonly #lists = new AbortController();
+  #online = new AbortController();
 
   constructor(options: ProviderConfigurationOptions) {
     this.#options = options;
@@ -204,8 +221,25 @@ export class ProviderConfiguration {
     this.#identities = identities;
   }
 
+  async refresh(): Promise<readonly string[]> {
+    const problems = await this.#listAll();
+    if (!this.#lists.signal.aborted) {
+      this.load();
+    }
+    return problems;
+  }
+
+  setOffline(offline: boolean): void {
+    if (offline) {
+      this.#online.abort();
+    } else if (this.#online.signal.aborted) {
+      this.#online = new AbortController();
+    }
+  }
+
   /** Dispose the instances this configuration built that the manager never took. */
   dispose(): Promise<void> {
+    this.#lists.abort();
     return this.#owned.dispose();
   }
 
@@ -218,7 +252,10 @@ export class ProviderConfiguration {
     const drafts: Drafts = new Map();
     try {
       if (await write(drafts)) {
-        this.#load(drafts);
+        await this.#listAll();
+        if (!this.#lists.signal.aborted) {
+          this.#load(drafts);
+        }
       }
     } finally {
       this.#owned.discard(drafts.values());
@@ -494,11 +531,14 @@ export class ProviderConfiguration {
       (path): path is string => path !== undefined
     );
     const reload = () => {
-      try {
-        this.load();
-      } catch (error) {
-        report(error instanceof Error ? error.message : String(error));
-      }
+      this.refresh().then(
+        (problems) => {
+          for (const problem of problems) {
+            report(problem);
+          }
+        },
+        (error: unknown) => report(messageOf(error))
+      );
     };
     // Polled, not evented: platform file events miss or coalesce changes,
     // and a poll also sees a file replaced by rename.
@@ -688,7 +728,11 @@ export class ProviderConfiguration {
     }
     let catalog: ReturnType<RegisteredPlugin["catalog"]>;
     try {
-      catalog = plugin.catalog(parsed.data);
+      const listed = this.#listingOf(plugin, parsed.data, scope);
+      if (plugin.list && !listed?.models) {
+        return undefined;
+      }
+      catalog = listed?.models ?? plugin.catalog(parsed.data);
     } catch (error) {
       return `"${entry.plugin}" could not list its catalog: ${messageOf(error)}`;
     }
@@ -727,9 +771,7 @@ export class ProviderConfiguration {
         count.set(entry.id, (count.get(entry.id) ?? 0) + 1);
       }
     }
-    const ids = scoped.map(({ entry }) => entry.id);
-    // Once each: a disabled entry repeats its id, and a later copy would move it.
-    const order = [...new Set(workspace?.order ?? ids)];
+    const order = effectiveOrder(machine, workspace);
     const keep = new Map<Built, Built>();
     const cache = new Map<string, ProviderInstance>();
     const results = scoped.map(({ entry, scope }): Built => {
@@ -800,11 +842,25 @@ export class ProviderConfiguration {
     if (ambient) {
       return report("unavailable", ambient);
     }
-    const key = JSON.stringify([scope, entry, env]);
+    const listed = this.#listingOf(plugin, settings, scope);
+    if (plugin.list && !listed?.models) {
+      return report(
+        "unavailable",
+        listed?.problem ?? "its models have not been listed yet"
+      );
+    }
+    const models = listed?.models ?? plugin.catalog(settings);
+    const key = JSON.stringify([scope, entry, env, listed?.models ?? null]);
     const instance =
       this.#owned.get(key) ??
       take(drafts, key) ??
-      this.#instantiate(plugin, entry, scope, settings, env, patterns);
+      this.#instantiate(plugin, entry, {
+        env,
+        models,
+        patterns,
+        scope,
+        settings,
+      });
     if (typeof instance === "string") {
       return report("unloadable", instance);
     }
@@ -835,14 +891,18 @@ export class ProviderConfiguration {
   #instantiate(
     plugin: RegisteredPlugin,
     entry: ProviderEntryRecord,
-    scope: ProviderScope,
-    settings: unknown,
-    env: Readonly<Record<string, string>>,
-    patterns: readonly string[]
+    built: {
+      readonly env: Readonly<Record<string, string>>;
+      readonly models: readonly ProviderModelDefinition[];
+      readonly patterns: readonly string[];
+      readonly scope: ProviderScope;
+      readonly settings: unknown;
+    }
   ): ProviderInstance | string {
+    const { env, patterns } = built;
     let created: ProviderInstance;
     try {
-      created = this.#create(plugin, entry, scope, settings, env);
+      created = this.#create(plugin, entry, built);
     } catch (error) {
       return `"${entry.plugin}" could not build it: ${messageOf(error)}`;
     }
@@ -862,11 +922,18 @@ export class ProviderConfiguration {
   #create(
     plugin: RegisteredPlugin,
     entry: ProviderEntryRecord,
-    scope: ProviderScope,
-    settings: unknown,
-    env: Readonly<Record<string, string>>
+    {
+      env,
+      models,
+      scope,
+      settings,
+    }: {
+      readonly env: Readonly<Record<string, string>>;
+      readonly models: readonly ProviderModelDefinition[];
+      readonly scope: ProviderScope;
+      readonly settings: unknown;
+    }
   ): ProviderInstance {
-    const models = plugin.catalog(settings);
     return plugin.create({
       ...(entry.defaults
         ? { defaults: entry.defaults as Partial<Record<ModelKind, string>> }
@@ -900,6 +967,100 @@ export class ProviderConfiguration {
       .update(JSON.stringify(material))
       .digest("hex")
       .slice(0, 32);
+  }
+
+  #listingOf(
+    plugin: RegisteredPlugin,
+    settings: unknown,
+    scope: ProviderScope
+  ): Listing | undefined {
+    return plugin.list
+      ? this.#listings.get(listingKey(plugin, settings, this.#envFor(scope)))
+      : undefined;
+  }
+
+  async #listAll(): Promise<readonly string[]> {
+    if (
+      this.#lists.signal.aborted ||
+      this.#online.signal.aborted ||
+      this.#options.fixed !== undefined
+    ) {
+      return [];
+    }
+    let files: (ProvidersFile | undefined)[];
+    try {
+      files = [this.#workspace?.read(), this.#machine.read()];
+    } catch {
+      return [];
+    }
+    const [workspace, machine] = files;
+    const enabled = [
+      ...(workspace?.providers ?? []),
+      ...(machine?.providers ?? []),
+    ].filter((entry) => entry.enabled);
+    const order = effectiveOrder(machine, workspace);
+    const eligible = (id: string) =>
+      order.includes(id) &&
+      enabled.filter((entry) => entry.id === id).length === 1;
+    const scopes: ProviderScope[] = ["workspace", "machine"];
+    const asked = files.flatMap((file, index) =>
+      (file?.providers ?? []).flatMap((entry) => {
+        const plugin = this.#plugins.get(entry.plugin);
+        const parsed = plugin?.settings.safeParse(entry.settings ?? {});
+        if (
+          !(
+            entry.enabled &&
+            plugin?.list &&
+            parsed?.success &&
+            eligible(entry.id)
+          )
+        ) {
+          return [];
+        }
+        const scope = scopes[index] as ProviderScope;
+        return [this.#list(entry.id, plugin, parsed.data, this.#envFor(scope))];
+      })
+    );
+    const problems = await Promise.all(asked);
+    return problems.filter((problem) => problem !== undefined);
+  }
+
+  async #list(
+    id: string,
+    plugin: RegisteredPlugin,
+    settings: unknown,
+    env: Readonly<Record<string, string>>
+  ): Promise<string | undefined> {
+    const key = listingKey(plugin, settings, env);
+    const started = (this.#listed.get(key) ?? 0) + 1;
+    this.#listed.set(key, started);
+    const ended = AbortSignal.any([this.#lists.signal, this.#online.signal]);
+    const signal = AbortSignal.any([
+      ended,
+      AbortSignal.timeout(LIST_TIMEOUT_MS),
+    ]);
+    let listing: Listing;
+    try {
+      const models = await untilAborted(
+        Promise.resolve(plugin.list?.({ env, settings, signal })),
+        signal
+      );
+      listing = { models: models ?? [] };
+    } catch (error) {
+      listing = { problem: `its models could not be listed: ${reason(error)}` };
+    }
+    if (ended.aborted || this.#listed.get(key) !== started) {
+      return undefined;
+    }
+    if (listing.problem === undefined) {
+      this.#listings.set(key, listing);
+      return undefined;
+    }
+    if (this.#listings.get(key)?.models) {
+      return `"${id}" kept its last model list; ${listing.problem}`;
+    }
+    this.#listings.set(key, listing);
+    return `"${id}" has no models; ${listing.problem}`;
   }
 
   /** Machine scope sees the machine environment; workspace scope, it overlaid by the workspace's values. */
@@ -945,6 +1106,47 @@ function invalid(message: string): ConfigurationError {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function reason(error: unknown): string {
+  if (error instanceof Error && error.name === "TimeoutError") {
+    return `no answer within ${LIST_TIMEOUT_MS / 1000} s`;
+  }
+  return messageOf(error);
+}
+
+function effectiveOrder(
+  machine: ProvidersFile | undefined,
+  workspace: ProvidersFile | undefined
+): readonly string[] {
+  const ids = [
+    ...(workspace?.providers ?? []),
+    ...(machine?.providers ?? []),
+  ].map((entry) => entry.id);
+  // Once each: a disabled entry repeats its id, and a later copy would move it.
+  return [...new Set(workspace?.order ?? ids)];
+}
+
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    promise.then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", abort);
+    });
+    if (signal.aborted) {
+      abort();
+    } else {
+      signal.addEventListener("abort", abort, { once: true });
+    }
+  });
+}
+
+function listingKey(
+  plugin: RegisteredPlugin,
+  settings: unknown,
+  env: Readonly<Record<string, string>>
+): string {
+  return JSON.stringify([plugin.id, settings, env]);
 }
 
 /** The draft for `key`, taken out of `drafts` so only one owner keeps it. */

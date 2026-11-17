@@ -4,7 +4,8 @@ The backlog. A Task says what there is to do, `ready()` says what is next,
 and a settled status says what is done. Execution lives in
 [workflows](../workflows/README.md); a Job correlates to a task by id only.
 
-Database-free, plain TypeScript. Dependencies and a parent reference shape
+Plain TypeScript, in memory by default, with a SQLite store for hosts that
+keep their own database. Dependencies and a parent reference shape
 the graph, availability is derived from it, and every mutation is one atomic
 batch in a command language that code, a CLI, and agent tools all share.
 
@@ -57,6 +58,14 @@ the empty string is a tag. `create` stores each once, in the order first
 given, and none when `tags` is omitted; `update` replaces them all with the
 array given, `[]` clears them, and omitting `tags` keeps them. A record
 stored before tasks had tags reads as having none.
+
+Metadata is JSON the host owns, stored as a copy. A `__proto__` key at any
+depth, a getter, or a value JSON cannot hold is refused with
+`invalid_operation`; `taskChangeSchema` refuses the same. `update` merges
+top-level keys: each key in the patch is set over the stored metadata, a key
+whose value is `null` is removed, and a key left out is kept. A nested object
+replaces the stored value for its key whole, and `metadata: {}` leaves the
+metadata as it is.
 
 ## Reads
 
@@ -157,9 +166,104 @@ not a refusal, and throws a plain `RangeError`.
 
 `TaskStore` on `@foundry/tasks/store` is the seam: `snapshot()`, `get(id)`,
 and `commit(write)` where a write puts and deletes tasks and edges all or
-nothing. The store enforces nothing; every rule is checked before a write
-reaches it, and values crossing the seam are detached. `MemoryTaskStore` is
-the default.
+nothing, deletes first. The store enforces nothing; every rule is checked
+before a write reaches it, and values crossing the seam are detached. Reads
+list records in the order first put.
+
+A store reads a write once, when `commit` is called. Both stores here take
+one `structuredClone` of the whole write then, before the commit waits its
+turn, and check, store and hand on (to `onCommit`) only that copy, through
+a transaction's view as well. A caller that changes its write after the
+call changes nothing, even while the commit is still queued. A write the
+clone refuses, such as one holding a function, rejects and writes nothing.
+
+| Path                           | Holds                                                     |
+| ------------------------------ | --------------------------------------------------------- |
+| `@foundry/tasks/store`         | `TaskStore` and the write and snapshot types.             |
+| `@foundry/tasks/store/memory`  | `MemoryTaskStore`, the default `Tasks` uses.              |
+| `@foundry/tasks/store/sqlite`  | `SqliteTaskStore`, over a host's Drizzle database.        |
+| `@foundry/tasks/store/tables`  | The Drizzle tables it uses: `tasks`, `task_dependencies`. |
+| `@foundry/tasks/testing/store` | `describeTaskStore`, the suite every store passes.        |
+
+`SqliteTaskStore` takes the host's database and never opens one. The host
+composes the tables from `./store/tables` into its own schema and owns the
+migrations; `drizzle-orm` is an optional peer dependency, needed only on the
+two SQLite paths. Every row carries a `scope`, an opaque partition the host
+chooses (a workspace id, say), and a store reads and writes only its own.
+Each table also has a `position` column: the store assigns it when a row is
+first put, keeps it when the row is put again, and lists rows by it.
+
+```ts
+import { Tasks } from "@foundry/tasks";
+import { SqliteTaskStore } from "@foundry/tasks/store/sqlite";
+
+const store = new SqliteTaskStore({
+  database, // a drizzle-orm/libsql database, or a transaction on one
+  scope: workspaceId,
+  // Optional: runs in the commit's transaction, after the store's statements.
+  // It runs for every commit; a write that changed nothing has no event.
+  onCommit: async (transaction, write) => {
+    if (write.event !== undefined) {
+      await transaction.insert(changes).values({ event: write.event });
+    }
+  },
+});
+const tasks = new Tasks({ store });
+```
+
+Each `commit` is one transaction, and a throwing `onCommit` rolls it back.
+`onCommit` uses the `transaction` it is given; a call to the store itself
+from the hook is refused (see below). `snapshot()` reads both tables in one
+database transaction, so it is one state. On libSQL that transaction holds
+the write lock while it reads: Drizzle's libSQL driver begins every
+transaction with `BEGIN IMMEDIATE` and offers no deferred (read-only)
+transaction through the database type the store accepts.
+
+Two `Tasks` over one `SqliteTaskStore` are kept apart (see `transaction`
+below). In this process the store's calls take turns, so one made while a
+transaction runs waits for it. Across connections, each transaction takes
+SQLite's write lock at its first statement: Drizzle's libSQL driver begins
+every transaction with `BEGIN IMMEDIATE`. A write from another process then
+waits for as long as its connection's busy timeout allows, or fails with
+`SQLITE_BUSY`. Either way it never lands between a transaction's reads and
+its commit.
+
+Host requirement: the store's queue covers only its own instance. Within
+one process, the host must serialize writes per database file across every
+client and store on it (Marbles does). A second libSQL client in the same
+process does not wait usefully: libSQL waits out its busy timeout
+synchronously, holding up the thread the first client needs to commit, so
+it blocks for the whole timeout and then fails with `SQLITE_BUSY`. Do not
+open the same file with a second SQLite library in the process either
+(`bun:sqlite` or `node:sqlite` beside libSQL): SQLite's file locks are per
+process, so the two libraries do not see each other's locks at all.
+Connection settings such as WAL and the busy timeout are the host's.
+
+A defect of `@libsql/client` 0.18.0, which the store cannot work around: a
+client whose `BEGIN` fails with `SQLITE_BUSY` keeps the failed statement
+open, and its next transaction fails at `COMMIT` with "SQL statements in
+progress". In rollback-journal mode the file can stay blocked even for a
+fresh client; in WAL mode a fresh client works. The store cannot reset a
+client it was handed. So a host should put the database in WAL mode, and
+replace its client after a `SQLITE_BUSY`.
+
+A storage limit of the SQLite store, not a rule of the package: SQLite does
+not give back every JavaScript string as it was bound. libSQL reads text
+back cut at its first NUL character (U+0000). Text that is not well-formed
+UTF-16 (a lone surrogate, `"\uD800"`) is bound as U+FFFD on Node and as
+nothing on Bun, so it reads back changed and could match another row's
+key. So `commit` refuses, before writing anything, a write that puts either
+in a plain text field (an id, a parent id, a title, a description, a
+timestamp, a dependency's ids), through a transaction's view as well. It
+rejects with a `RangeError` naming the field, such as `putTasks[0].title`.
+A `get` or delete by such a key finds nothing, as no row can hold one, and
+the constructor refuses such a `scope`. Metadata and tags are JSON, which
+escapes both, so they keep them.
+
+`@foundry/tasks/schema` defines every record that crosses the seam as a Zod
+schema: the task, the dependency edge, the snapshot, the write, and the
+event. Each record type is inferred from its schema. Nothing parses them on
+the way into or out of a store.
 
 Every write that changes something carries `event`, a `TaskEvent`, so a
 store that records changes keeps it in the same atomic write:
@@ -179,13 +283,41 @@ that now exists and did not, or the reverse. A task an operation only named,
 such as a parent or a dependency target, is not in it; an edge added and
 removed in one batch is in neither list; a batch that changes nothing has no
 event. `remove` carries the removed record and every edge it dropped.
-`MemoryTaskStore` ignores events.
+`MemoryTaskStore` ignores events; `SqliteTaskStore` hands each write,
+event included, to `onCommit`.
 
-A store may also offer `transaction(work)`: `Tasks` then runs each
-read-modify-write as `work(view)`, reading and committing through `view`,
-and the store lets no other write land in between, from any `Tasks` over
-it. Without it, two `Tasks` instances over one store can still interleave;
-serialization is per instance.
+A store may also offer `transaction(work)`, and both stores here do: `Tasks`
+then runs each read-modify-write as `work(view)`, reading and committing
+through `view`, and the store lets no other write land in between, from any
+`Tasks` over it. A throw from `work` leaves nothing it committed through
+`view`. Without it, two `Tasks` instances over one store can still
+interleave; serialization is per instance.
+
+Each store takes one call at a time, so a call to the store itself from
+inside its own transaction's `work` (or from `onCommit`) could only wait for
+itself. It is refused at once with a `ReentrantCallError` from
+`@foundry/lib/turns` that says to use the view, or the transaction, instead.
+A caller that is merely concurrent with a transaction still waits its turn.
+The stores tell the two apart by asynchronous context, with
+`AsyncLocalStorage` from `node:async_hooks`. The package therefore needs a
+runtime that provides it: Node, Bun, Deno, or a worker runtime with Node
+compatibility, not a plain browser.
+
+`Turns` detects re-entry by asynchronous ancestry: a call refused is one
+made from work that descends from the running turn. It does not detect wait
+cycles, so two cases still deadlock:
+
+- A transaction that awaits a continuation registered outside it (a promise
+  chain set up before the transaction began) while that continuation calls
+  the outer store. The call descends from the outside caller, not from the
+  turn, so it queues behind the transaction that is waiting for it.
+- Two independent stores each taken inside the other's work in opposite
+  order: store A's transaction calls store B while store B's transaction
+  calls store A. Each call is independent of the other store's turn, so
+  both queue and neither turn ends.
+
+Use the view inside `work`, and do not hold one store's transaction while
+waiting on another's.
 
 ## Correlation with workflows
 

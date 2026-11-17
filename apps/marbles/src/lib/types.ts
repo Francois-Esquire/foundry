@@ -167,12 +167,14 @@ export interface SessionRef {
   readonly id: string;
   /** The plugin that built the provider when the session was filed; absent on older refs. */
   readonly implementation?: string;
+  readonly input?: unknown;
   /**
    * The configured instance the session ran on: its scope, settings, and
    * account environment, digested. A session resumes only on that instance.
    */
   readonly instance?: string;
   readonly model?: string;
+  readonly noInput?: true;
   readonly provider?: string;
 }
 
@@ -294,22 +296,16 @@ export interface Agent<DEFAULT extends Output.Output = never>
 /** Carries a deferred agent's output type; never present at runtime. */
 declare const DEFERRED_OUTPUT: unique symbol;
 
-/**
- * An agent declared with a function: used like any agent, but not yet a
- * definition. It has its id and the route `extend` set; the function
- * returns the rest each time a session opens, so `prompt` is absent.
- */
-export interface DeferredAgent<DEFAULT extends Output.Output = never>
-  extends AgentRoute,
+export interface DeferredAgent<
+  DEFAULT extends Output.Output = never,
+  INPUT = undefined,
+> extends AgentRoute,
     AgentCalls<DEFAULT> {
-  /**
-   * The same agent, its function given this route, and these settings
-   * merged over what it returns, as `Agent.extend` merges them.
-   */
   extend<OUTPUT extends Output.Output = DEFAULT>(
-    changes: AgentChanges<OUTPUT>
-  ): DeferredAgent<OUTPUT>;
+    changes: AgentChanges<OUTPUT> & { readonly input?: INPUT }
+  ): DeferredAgent<OUTPUT, INPUT>;
   readonly id: string;
+  readonly input?: INPUT;
   readonly kind: "agent";
   /** Known only once a session opens. */
   readonly prompt?: never;
@@ -319,7 +315,7 @@ export interface DeferredAgent<DEFAULT extends Output.Output = never>
 /** What a session can be opened for: a definition, or an agent declared with a function. */
 export type AgentLike<OUTPUT extends Output.Output = never> =
   | AgentDefinition<OUTPUT>
-  | DeferredAgent<OUTPUT>;
+  | DeferredAgent<OUTPUT, unknown>;
 
 /** A declared workspace you can use: its handle, loaded on first use. */
 export type WorkspaceInstance = WorkspaceDefinition & WorkspaceHandle;

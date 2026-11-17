@@ -1,6 +1,6 @@
+import { ModuleStoreConflictError } from "@foundry/modules/errors";
 import { ModulePackageError } from "@foundry/modules/package";
 import { moduleSourceAdmissionProblem } from "@foundry/modules/source";
-import { ModuleStoreConflictError } from "@foundry/modules/store/contract";
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 import { base, requires } from "../context";

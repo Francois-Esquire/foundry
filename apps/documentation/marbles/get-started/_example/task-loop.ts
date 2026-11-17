@@ -20,7 +20,7 @@ observe(tasks, async (event) => {
 
     await tasks.update(
       current.id,
-      { metadata: { ...current.metadata, intakeRecorded: true } },
+      { metadata: { intakeRecorded: true } },
       { expectedUpdatedAt: current.updatedAt }
     );
   }

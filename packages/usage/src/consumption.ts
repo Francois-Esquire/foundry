@@ -1,4 +1,5 @@
-import { enrichFromSnapshot } from "@foundry/models/catalog/models-dev-snapshot";
+import { enrichFromModelsDev } from "@foundry/models/catalog/models-dev";
+import { loadedModelsDev } from "@foundry/models/catalog/models-dev-source";
 import { costFromUsage } from "@foundry/models/cost";
 
 import type { Credits, Money } from "./limit";
@@ -46,7 +47,6 @@ export interface Work {
   readonly model: string;
   readonly quantities: Quantities;
   readonly session: string;
-  /** False at a speed tier, such as fast, that no bundled list price covers. */
   readonly standardSpeed: boolean;
 }
 
@@ -57,18 +57,18 @@ export type Price = (
 
 type Rates = Parameters<typeof costFromUsage>[0];
 
-/**
- * List prices for one vendor's models from the models.dev snapshot bundled
- * in `@foundry/models`, matched exactly, so a model it does not list is
- * unpriced. Rates are looked up once per model per returned function.
- */
 export const listPrices = (vendor: string): Price => {
   const rates = new Map<string, Rates | undefined>();
   const ratesOf = (model: string): Rates | undefined => {
+    const catalog = loadedModelsDev();
+    if (!catalog) {
+      return;
+    }
     if (!rates.has(model)) {
-      const [row] = enrichFromSnapshot([
-        { id: model, kind: "text", modelId: model, vendor },
-      ]);
+      const [row] = enrichFromModelsDev(
+        [{ id: model, kind: "text", modelId: model, vendor }],
+        catalog
+      );
       rates.set(model, row?.costs);
     }
     return rates.get(model);

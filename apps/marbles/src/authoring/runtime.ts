@@ -37,7 +37,16 @@ let taskAccess: "unhosted" | "loading" | "hosted" | "disposed" = "unhosted";
 let fallback: Promise<InstanceRuntime> | undefined;
 let createFallback: () => Promise<InstanceRuntime> = async () => {
   const { createDefaultEngine } = await import("~/create");
-  return createDefaultEngine();
+  const engine = createDefaultEngine();
+  if (engine.providers?.configured) {
+    const problems = await engine.providers
+      .refresh()
+      .catch((error: unknown) => [String(error)]);
+    for (const problem of problems) {
+      process.stderr.write(`[providers] ${problem}\n`);
+    }
+  }
+  return engine;
 };
 
 /** The host's engine answers instance calls made outside a run. */

@@ -6,8 +6,8 @@ import {
   type Containers,
   createContainers,
 } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import type { ContainerRuntime } from "@foundry/sandbox/container/types";
+import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import type { SandboxResources } from "../settings";
 import type { SandboxCapacity, SandboxReservation } from "./capacity";
 

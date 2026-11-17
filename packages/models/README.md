@@ -88,7 +88,9 @@ configures: `vercelProvider` (`@foundry/models/vercel`), `gatewayProvider`
 `claudeCodeProvider` (`/claude-code`), `codexProvider` (`/codex`), and
 `piProvider` (`/pi`). Each takes `id` and `models`, so one factory can build
 several instances; all but FAL and Replicate also take `defaults`. The root
-entry exports no provider.
+entry exports no provider. `gatewayProvider` has no models of its own and
+requires `models`. `gatewayModels(config)` reads them from the server's
+`GET <baseURL>/models`, each id as a text model with nothing else known.
 
 | Subpath | What it holds |
 | --- | --- |
@@ -97,9 +99,23 @@ entry exports no provider.
 | `/local/remote` | `forkLocalWorker`: the worker process and its IPC transport |
 | `/local/remote/provider` | `RemoteLocalProvider`: the local surface over that transport |
 | `/live`, `/live/node` | Live interactions, browser and Node |
-| `/catalog/*` | Catalog adapters and the bundled models.dev snapshot |
+| `/catalog/*` | Catalog adapters, and models.dev read at run time |
 | `/embeddings/*` | Chunking, embedding, and ranking |
 | `/model-option`, `/cost` | Pure leaves; see below |
+
+**models.dev at run time.** `holdModelsDev()` (`/catalog/models-dev-source`)
+starts fetching `https://models.dev/catalog.json`, or joins the fetch already
+running, and returns a hold whose `loaded` settles with that fetch and
+never rejects. Once loaded, the catalog is kept for the life of the process.
+A fetch that fails is tried again while any hold remains: after 30 s, then
+twice as long each time, up to 10 minutes. A new hold tries at once. Release
+the hold when the host stops. When the last hold is released, a running
+fetch is aborted and a waiting retry is cancelled, so neither keeps a
+finished process open. An aborted fetch keeps nothing. Nothing waits for
+models.dev: until it has loaded, and when it fails, a price that needs it is
+absent. `loadedModelsDev()` returns what has loaded, without fetching.
+`FOUNDRY_MODELS_DEV_URL` names another source; an empty value loads nothing. `enrichFromModelsDev(rows, catalog)` (`/catalog/models-dev`)
+fills a row's absent facts from it and never overrides what the row states.
 
 **Two ids per row, on purpose.** `id` is how callers and the picker name a
 model; `modelId` is what goes on the wire. They coincide for cloud rows and
@@ -134,6 +150,16 @@ Pure leaves a renderer can import without the Node-only runtime:
 `toModelOption(row)` flattens a catalog row for a picker; `costFromUsage(costs,
 usage)` prices a turn with cache and tiered rates. Use these subpaths for browser
 code; the root entry also imports registry and observability code.
+
+`claudeCodeCallCost(providerMetadata)` returns what Claude Code reported a
+call cost (its `total_cost_usd`), only for a call that resumed no session.
+That figure is a running total for the CLI session, so only such a call has
+a figure of its own. The Claude Code provider marks that call in
+`providerMetadata.foundry.claudeCodeFresh`. It marks a call only when the
+model's settings, default settings included, name no `resume`, `continue`,
+`sessionId` or `extraArgs`, and no earlier call ran on the same model instance, since
+the instance resumes the session its first call opened. The CLI computes
+the figure from its own price table on any login, so it is an estimate.
 
 ## Observability · errors
 

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { cpSync, readFileSync } from "node:fs";
 import { defineConfig } from "tsup";
 
 const INTERNAL = [
@@ -7,6 +7,7 @@ const INTERNAL = [
   "core",
   "lib",
   "models",
+  "prompts",
   "sandbox",
   "tasks",
   "usage",
@@ -68,9 +69,9 @@ export default defineConfig({
   },
   entry: {
     cli: "src/cli.ts",
-    engine: "src/lib/embedded.ts",
+    engine: "src/entries/engine.ts",
     index: "src/authoring/index.ts",
-    lib: "src/lib/index.ts",
+    lib: "src/entries/lib.ts",
     prebuilt: "src/authoring/prebuilt.ts",
     process: "src/process/index.ts",
     statuses: "src/lib/execution-statuses.ts",
@@ -83,6 +84,9 @@ export default defineConfig({
   external: [/^(?!@foundry(?:\.sh)?\/)[^./~]/],
   format: ["esm"],
   noExternal: [/^@foundry(?:\.sh)?\//],
+  onSuccess: async () => {
+    cpSync("src/database/migrations", "dist/migrations", { recursive: true });
+  },
   platform: "node",
   sourcemap: true,
   splitting: true,

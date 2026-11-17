@@ -10,8 +10,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { InMemoryArtifactStore } from "@foundry/artifacts";
 import { JsonArtifactStore } from "@foundry/artifacts/node";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import type { ModuleVersion } from "@foundry/modules/domain";
 import type { ExecutionRun, TaskContext } from "@foundry.sh/marbles/engine";
 import { afterEach, describe, expect, it, vi } from "vitest";

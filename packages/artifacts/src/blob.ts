@@ -1,47 +1,16 @@
-const BLOB_DIGEST = /^[a-f0-9]{64}$/;
+import type { z } from "zod";
 
-import type { FileNode, StorageNode } from "@foundry/core/storage";
+import { blobIdSchema } from "./ref";
+import type { Blob } from "./schema";
+import {
+  blobChunksSchema,
+  blobPathSchema,
+  byteCountSchema,
+  sha256DigestSchema,
+} from "./schema";
 
-import type { BlobId } from "./ref";
+export type { Blob, BlobSource, ContentTree, StoredFile } from "./schema";
 
-export type BlobSource =
-  | {
-      readonly bytes: Uint8Array;
-      readonly path?: never;
-      readonly chunks?: never;
-    }
-  | { readonly path: string; readonly bytes?: never; readonly chunks?: never }
-  | {
-      readonly chunks: readonly BlobId[];
-      readonly bytes?: never;
-      readonly path?: never;
-    };
-
-/**
- * A stored object. File entries reference it by `id`; `digest` and
- * `byteLength` describe the bytes it holds now. An object referenced by one
- * file entry alone is rewritten in place when that entry's bytes change, so
- * its id stays stable. A shared object is never rewritten: the editing entry
- * gets a new object, which keeps frozen Content immutable.
- *
- * Large objects hold `chunks`: immutable leaf blobs of at most `CHUNK_BYTES` each.
- */
-export type Blob = BlobSource & {
-  readonly id: BlobId;
-  readonly digest: string;
-  readonly byteLength: number;
-  readonly createdAt: Date;
-};
-
-export interface StoredFile extends FileNode {
-  readonly blobId: BlobId;
-}
-
-export type ContentTree = Readonly<
-  Record<string, StoredFile | Exclude<StorageNode, FileNode>>
->;
-
-/** Paths are store-owned, immutable backing files, never editable working files. */
 export interface BlobFiles {
   list(): AsyncIterable<string>;
   publish(bytes: Uint8Array): Promise<string>;
@@ -50,6 +19,14 @@ export interface BlobFiles {
     range: { readonly start: number; readonly end: number }
   ): AsyncIterable<Uint8Array>;
   remove(path: string): Promise<void>;
+  readonly staging?: BlobStagingArea;
+}
+
+export interface BlobStagingArea {
+  abandon(): Promise<void>;
+  discard(staged: string): Promise<void>;
+  promote(staged: string): Promise<string>;
+  stage(bytes: Uint8Array): Promise<string>;
 }
 
 export function validateBlob(blob: Blob): void {
@@ -57,24 +34,27 @@ export function validateBlob(blob: Blob): void {
     (value) => value !== undefined
   );
   if (
-    !blob.id ||
+    !matches(blobIdSchema, blob.id) ||
     sources.length !== 1 ||
-    !BLOB_DIGEST.test(blob.digest) ||
-    !Number.isSafeInteger(blob.byteLength) ||
-    blob.byteLength < 0
+    !matches(sha256DigestSchema, blob.digest) ||
+    !matches(byteCountSchema, blob.byteLength)
   ) {
     throw new Error(`Invalid blob: ${blob.id}`);
   }
   if (blob.bytes !== undefined && blob.bytes.byteLength !== blob.byteLength) {
     throw new Error(`Blob size mismatch: ${blob.id}`);
   }
-  if (blob.path !== undefined && (!blob.path || blob.path.includes("\0"))) {
+  if (blob.path !== undefined && !matches(blobPathSchema, blob.path)) {
     throw new Error(`Invalid blob path: ${blob.id}`);
   }
   if (
     blob.chunks !== undefined &&
-    (blob.chunks.length === 0 || blob.chunks.includes(blob.id))
+    (!matches(blobChunksSchema, blob.chunks) || blob.chunks.includes(blob.id))
   ) {
     throw new Error(`Invalid blob chunks: ${blob.id}`);
   }
+}
+
+function matches(schema: z.ZodType, value: unknown): boolean {
+  return schema.safeParse(value).success;
 }

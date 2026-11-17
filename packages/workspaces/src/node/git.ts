@@ -77,6 +77,8 @@ export interface WorktreeOptions {
 
 const runWithSimpleGit: GitRun = (cwd, args) => simpleGit(cwd).raw([...args]);
 
+const cut = new WeakSet<Worktree>();
+
 export class Git {
   readonly root: string;
   protected readonly run: GitRun;
@@ -216,9 +218,11 @@ export class Git {
       await rm(root, { force: true, recursive: true }).catch(() => undefined);
       throw error;
     }
-    return new Worktree(root, this.root, options.branch ?? null, {
+    const worktree = new Worktree(root, this.root, options.branch ?? null, {
       run: this.run,
     });
+    cut.add(worktree);
+    return worktree;
   }
 
   /** Run `body` in a worktree and remove it afterwards, however `body` ends. */
@@ -259,6 +263,9 @@ export class Worktree extends Git {
       "--force",
       this.root,
     ]);
+    if (cut.has(this)) {
+      await rm(this.root, { force: true, recursive: true });
+    }
   }
 }
 

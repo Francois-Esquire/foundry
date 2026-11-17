@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { fileResponse } from "../delivery";
 import { ArtifactManager } from "../manager";
-import { InMemoryArtifactStore } from "../memory";
 import { required } from "./helpers/required";
+import { openStore, STORE_KINDS, type StoreKind } from "./helpers/stores";
 
-async function fixture() {
-  const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
+async function fixture(kind: StoreKind) {
+  const artifacts = new ArtifactManager({ store: await openStore(kind) });
   const artifact = await artifacts.create({
     entries: {
       "assets/clip.mp4": { bytes: "0123456789", mime: "video/mp4" },
@@ -19,9 +19,9 @@ async function fixture() {
   return { artifacts, content: required(artifact.content) };
 }
 
-describe("file responses", () => {
+describe.each(STORE_KINDS)("%s store: file responses", (kind) => {
   it("serves tree paths with entry MIME and caller-owned policy headers", async () => {
-    const { artifacts, content } = await fixture();
+    const { artifacts, content } = await fixture(kind);
     const response = await fileResponse(artifacts, content, "index.html", {
       headers: { "Content-Security-Policy": "default-src 'self'" },
     });
@@ -44,7 +44,7 @@ describe("file responses", () => {
     ["bytes=7-", "789", "bytes 7-9/10"],
     ["bytes=7-99", "789", "bytes 7-9/10"],
   ])("streams a seek using %s", async (range, expected, contentRange) => {
-    const { artifacts, content } = await fixture();
+    const { artifacts, content } = await fixture(kind);
     const response = await fileResponse(artifacts, content, "assets/clip.mp4", {
       range,
     });
@@ -63,7 +63,7 @@ describe("file responses", () => {
     "invalid",
     "bytes=9007199254740992-",
   ])("ignores unsupported or malformed ranges %s", async (range) => {
-    const { artifacts, content } = await fixture();
+    const { artifacts, content } = await fixture(kind);
     const response = await fileResponse(artifacts, content, "assets/clip.mp4", {
       range,
     });
@@ -73,7 +73,7 @@ describe("file responses", () => {
   });
 
   it("rejects unsatisfiable ranges before reading bytes", async () => {
-    const { artifacts, content } = await fixture();
+    const { artifacts, content } = await fixture(kind);
     const read = vi.spyOn(artifacts, "readFileRange");
     const response = await fileResponse(artifacts, content, "assets/clip.mp4", {
       range: "bytes=10-",
@@ -86,7 +86,7 @@ describe("file responses", () => {
   it.each(["../index.html", "/index.html", "missing", "empty"])(
     "does not read invalid, missing, or structural entries %s",
     async (path) => {
-      const { artifacts, content } = await fixture();
+      const { artifacts, content } = await fixture(kind);
       const read = vi.spyOn(artifacts, "readFileRange");
       expect((await fileResponse(artifacts, content, path)).status).toBe(404);
       expect(read).not.toHaveBeenCalled();
@@ -94,7 +94,7 @@ describe("file responses", () => {
   );
 
   it("closes the source iterator when a media seek is cancelled without prefetching", async () => {
-    const { content } = await fixture();
+    const { content } = await fixture(kind);
     const next = vi
       .fn()
       .mockResolvedValue({ done: false, value: new Uint8Array([1]) });

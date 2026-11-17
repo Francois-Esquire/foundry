@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createModuleAccess } from "../access";
 import { installationIdSchema, MAX_START_ATTEMPTS } from "../domain";
+import { ModuleStoreConflictError } from "../errors";
 import { ensureInstallation } from "../management";
 import { validateModuleActivation } from "../platform/activation";
 import {
@@ -10,7 +11,6 @@ import {
 import { createModuleRuntimeRecovery } from "../platform/runtime-recovery";
 import { KeyedTurns } from "../platform/turns";
 import { MODULE_SETTING_HOST_POLICY } from "../settings";
-import { ModuleStoreConflictError } from "../store/contract";
 import {
   publishedModule,
   WEATHER,

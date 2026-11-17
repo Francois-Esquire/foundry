@@ -1,10 +1,19 @@
 import type {
+  LanguageModelV4Middleware,
+  LanguageModelV4StreamPart,
+} from "@ai-sdk/provider";
+import type { AgentModel } from "@foundry/agents/harness";
+import type {
   MessageMetadata,
   SessionMessage,
   SessionUsage,
 } from "@foundry/agents/session";
 import type { ModelCosts, ModelManager } from "@foundry/models";
 import { costFromUsage } from "@foundry/models";
+import { enrichFromModelsDev } from "@foundry/models/catalog/models-dev";
+import { loadedModelsDev } from "@foundry/models/catalog/models-dev-source";
+import { claudeCodeCallCost } from "@foundry/models/cost";
+import { wrapLanguageModel } from "ai";
 
 import { isRecord } from "~/lib/state/json";
 import type { HeldLock, Lock } from "~/lib/state/locks";
@@ -46,22 +55,17 @@ export interface UsageTokens {
 
 /** The list price a turn was estimated at, kept with the fact so later price changes do not rewrite it. */
 export interface PriceBasis {
-  /** USD per million tokens, copied from the catalog when the turn finished. */
   readonly rates: ModelCosts;
-  /** Which catalog row: `@foundry/models <provider>/<model>`. */
   readonly reference: string;
 }
 
-/**
- * What a turn cost. `reported` is a provider's own figure; `estimated` is
- * tokens at a list price; `unknown` is neither, and is never read as zero.
- */
 export type UsageCost =
   | { readonly kind: "unknown"; readonly reason: string }
   | {
       readonly kind: "reported";
       readonly amount: number;
       readonly currency: string;
+      readonly estimate?: true;
       readonly reference: string;
     }
   | {
@@ -131,16 +135,26 @@ export type PriceLookup = (
   model: string
 ) => PriceBasis | undefined;
 
-/** List prices from the routes the engine's models registered; pricing stays in `@foundry/models`. */
 export function catalogPrices(models: ModelManager): PriceLookup {
   return (provider, model) => {
     const row = models.providers
       .find((entry) => entry.id === provider)
       ?.models.find((entry) => entry.id === model || entry.modelId === model);
-    return row?.costs
+    if (row?.costs) {
+      return {
+        rates: structuredClone(row.costs),
+        reference: `@foundry/models ${provider}/${model}`,
+      };
+    }
+    const catalog = loadedModelsDev();
+    if (!(row && catalog)) {
+      return;
+    }
+    const [listed] = enrichFromModelsDev([row], catalog);
+    return listed?.costs
       ? {
-          rates: structuredClone(row.costs),
-          reference: `@foundry/models ${provider}/${model}`,
+          rates: structuredClone(listed.costs),
+          reference: `models.dev ${provider}/${model}`,
         }
       : undefined;
   };
@@ -164,11 +178,87 @@ function tokensOf(usage: SessionUsage): UsageTokens | undefined {
   };
 }
 
+export interface ReportedCost {
+  readonly amount: number;
+  readonly estimate?: true;
+  readonly reference: string;
+}
+
+export interface CostMeter {
+  take(): ReportedCost | undefined;
+  wrap(model: AgentModel): AgentModel;
+}
+
+export function costMeter(): CostMeter {
+  let calls = 0;
+  let taken = 0;
+  let last: number | undefined;
+  const call = () => {
+    calls += 1;
+    last = undefined;
+  };
+  const middleware: LanguageModelV4Middleware = {
+    specificationVersion: "v4",
+    async wrapGenerate({ doGenerate }) {
+      call();
+      const result = await doGenerate();
+      last = claudeCodeCallCost(result.providerMetadata);
+      return result;
+    },
+    async wrapStream({ doStream }) {
+      call();
+      const result = await doStream();
+      return {
+        ...result,
+        stream: result.stream.pipeThrough(
+          new TransformStream<
+            LanguageModelV4StreamPart,
+            LanguageModelV4StreamPart
+          >({
+            transform(part, controller) {
+              if (part.type === "finish") {
+                last = claudeCodeCallCost(part.providerMetadata);
+              }
+              controller.enqueue(part);
+            },
+          })
+        ),
+      };
+    },
+  };
+  return {
+    take: () => {
+      const own = calls - taken === 1 ? last : undefined;
+      taken = calls;
+      return own === undefined
+        ? undefined
+        : { amount: own, estimate: true, reference: CLAUDE_CODE_REPORTED };
+    },
+    wrap: (model) =>
+      Object.assign(wrapLanguageModel({ middleware, model }), {
+        ...(model.limits ? { limits: model.limits } : {}),
+        ...(model.route ? { route: model.route } : {}),
+      }),
+  };
+}
+
+const CLAUDE_CODE_REPORTED = "claude-code total_cost_usd";
+
 function costOf(
   tokens: UsageTokens | undefined,
   route: { readonly model?: string; readonly provider?: string },
-  price: PriceLookup
+  price: PriceLookup,
+  reported: ReportedCost | undefined
 ): UsageCost {
+  if (reported) {
+    return {
+      amount: reported.amount,
+      currency: "USD",
+      kind: "reported",
+      ...(reported.estimate ? { estimate: true } : {}),
+      reference: reported.reference,
+    };
+  }
   if (!tokens) {
     return { kind: "unknown", reason: "the harness reported no token usage" };
   }
@@ -219,10 +309,10 @@ function scopeOf(
     : { scope: "direct" };
 }
 
-/** One committed turn as a fact, priced from the catalog when it lists the model. */
 export function usageFact(
   turn: {
     readonly message: SessionMessage;
+    readonly reported?: ReportedCost;
     readonly route: {
       readonly implementation?: string;
       readonly model?: string;
@@ -247,7 +337,7 @@ export function usageFact(
   return {
     agentId: source.agentId,
     completedAt: timing?.completedAt ?? message.updatedAt,
-    cost: costOf(tokens, route, price),
+    cost: costOf(tokens, route, price, turn.reported),
     ...(timing ? { durationMs: timing.durationMs } : {}),
     ...(turn.route.implementation === undefined
       ? {}
@@ -449,6 +539,7 @@ function decodeCost(value: unknown): UsageCost | undefined {
       ? {
           amount: value.amount,
           currency: value.currency,
+          ...(value.estimate === true ? { estimate: true } : {}),
           kind: "reported",
           reference: value.reference,
         }

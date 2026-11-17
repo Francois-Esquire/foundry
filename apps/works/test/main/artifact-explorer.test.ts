@@ -1,4 +1,4 @@
-import { InMemoryArtifactStore } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { MODULE_MIME } from "@foundry/modules/constants";
 import { afterEach, expect, it, vi } from "vitest";
 import { fakeClient, fakeStorage, openFakeVault } from "../helpers/fake-api";

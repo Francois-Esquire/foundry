@@ -25,6 +25,7 @@ import {
   MODULE_NODE_ALLOWED_PACKAGE_IMPORTS,
   MODULE_NOUNS,
   MODULE_PLATFORM_ALLOWED_PACKAGE_IMPORTS,
+  MODULE_SQLITE_ALLOWED_PACKAGE_IMPORTS,
 } from "../boundary";
 
 const MODULES_SRC = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -225,6 +226,7 @@ describe("Modules boundary", () => {
       "@foundry/lib/network",
       "@foundry/lib/ordering",
       "@foundry/lib/pagination",
+      "@foundry/lib/turns",
       "node:async_hooks",
       "typescript",
       "zod",
@@ -270,12 +272,39 @@ describe("Modules boundary", () => {
       "@foundry/sandbox",
       "@foundry/sandbox/container",
       "@foundry/sandbox/container/microsandbox-runtime",
-      "@foundry/sandbox/container/store",
+      "@foundry/sandbox/store/memory",
       "@foundry/sandbox/testing",
       "@foundry/sandbox/types",
     ]) {
       expect(isModuleAllowedImport(specifier, platformFile)).toBe(false);
     }
+  });
+
+  it("admits Drizzle only in the SQLite store and its tables", () => {
+    expect(MODULE_SQLITE_ALLOWED_PACKAGE_IMPORTS).toEqual([
+      "drizzle-orm",
+      "drizzle-orm/sqlite-core",
+    ]);
+    for (const specifier of MODULE_SQLITE_ALLOWED_PACKAGE_IMPORTS) {
+      expect(isModuleAllowedImport(specifier)).toBe(false);
+      expect(
+        isModuleAllowedImport(specifier, join(MODULES_SRC, "registry.ts"))
+      ).toBe(false);
+      expect(
+        isModuleAllowedImport(specifier, join(MODULES_SRC, "store/memory.ts"))
+      ).toBe(false);
+      for (const source of ["store/sqlite.ts", "store/tables.ts"]) {
+        expect(
+          isModuleAllowedImport(specifier, join(MODULES_SRC, source))
+        ).toBe(true);
+      }
+    }
+    expect(
+      isModuleAllowedImport(
+        "@libsql/client",
+        join(MODULES_SRC, "store/sqlite.ts")
+      )
+    ).toBe(false);
   });
 
   it("admits every production import through the boundary allowlist", () => {

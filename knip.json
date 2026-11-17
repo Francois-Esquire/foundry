@@ -34,6 +34,7 @@
         "ai-sdk-provider-codex-cli",
         "ai-sdk-provider-claude-code",
         "ai-sdk-provider-pi",
+        "effect",
         "evlog",
         "ignore",
         "simple-git"
@@ -41,6 +42,7 @@
       "entry": [
         "examples/**/*.ts",
         "templates/**/*.ts",
+        "test/helpers/dry-mcp-host.ts",
         "vitest.package.config.ts"
       ]
     },

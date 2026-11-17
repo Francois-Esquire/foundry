@@ -1,8 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { InMemoryArtifactStore } from "@foundry/artifacts";
 import { JsonArtifactStore } from "@foundry/artifacts/node";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createModuleLibrary } from "~/main/modules/library";
 import { ModuleSessions } from "~/main/modules/runtime/controller";

@@ -1,6 +1,6 @@
 import { ModuleAccessError } from "@foundry/modules/access";
+import { ModuleStoreConflictError } from "@foundry/modules/errors";
 import { ModuleSettingsError } from "@foundry/modules/settings";
-import { ModuleStoreConflictError } from "@foundry/modules/store/contract";
 import { ORPCError, os } from "@orpc/server";
 import {
   type ArtifactExplorer,

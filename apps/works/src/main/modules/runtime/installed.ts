@@ -11,7 +11,7 @@ import {
 } from "@foundry/modules/platform/installations";
 import { ModuleProgramSupervisorError } from "@foundry/modules/platform/program-supervisor";
 import type { ModuleSystem } from "@foundry/modules/platform/system";
-import type { ModuleStore } from "@foundry/modules/store/contract";
+import type { ModuleCommands } from "@foundry/modules/registry";
 import type { WorksExecution } from "~/main/execution/contract";
 import { WORKS_TASKS } from "~/shared/execution";
 import { OBSERVATION } from "~/shared/observations";
@@ -48,7 +48,7 @@ export interface InstalledProgramsOptions {
    * has finished; it doubles up to {@link MAX_STOP_RETRY_MS}. Tests shorten it.
    */
   readonly stopRetryMs?: number;
-  readonly store: ModuleStore;
+  readonly store: ModuleCommands;
   readonly system: Pick<ModuleSystem, "invocations" | "programs" | "recovery">;
 }
 

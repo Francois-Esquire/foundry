@@ -7,14 +7,23 @@ import { expectHost, setHost } from "~/authoring/runtime";
 import { initializeUsage } from "~/authoring/usage";
 import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
+import type { MarblesDatabase } from "~/database/open";
+import { readDatabase } from "~/database/open";
+import { WorkspaceRegistry } from "~/database/workspaces";
+import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
-import { workspaceState } from "~/lib/state/workspace";
+import { workspaceAt, workspaceState } from "~/lib/state/workspace";
 import type { WorkspaceEnvironment } from "~/workspace/env";
 import { loadEnvironment } from "~/workspace/env";
-import { resolveSource, sourceFiles, sourceRoot } from "~/workspace/source";
+import {
+  DEFAULT_SOURCE,
+  resolveSource,
+  sourceFiles,
+  sourceRoot,
+} from "~/workspace/source";
 
 /**
  * Marbles as a host of the engine: find the authoring source, load it, place
@@ -125,6 +134,26 @@ export function findWorkspace(args: HostOptions): OpenedWorkspace {
   });
 }
 
+export async function recordedWorkspace(
+  args: HostOptions,
+  id: string
+): Promise<OpenedWorkspace | undefined> {
+  const state = resolve(args.state);
+  const record = await readDatabase(stateDatabase(state), (database) =>
+    new WorkspaceRegistry({ database, state }).read(id)
+  );
+  if (record === undefined) {
+    return;
+  }
+  const workspace = workspaceAt(state, id, record.root);
+  return {
+    config: record.config,
+    configPath: record.config ?? resolve(workspace.root, DEFAULT_SOURCE),
+    environment: { machine: environmentSnapshot(), workspace: {} },
+    workspace,
+  };
+}
+
 export interface OpenWorkspaceOptions {
   /**
    * What a workspace `.env.schema` that does not resolve does: fail, for
@@ -164,6 +193,7 @@ export async function openWorkspace(
 
 interface WorkspaceEngineOptions {
   readonly askable?: boolean;
+  readonly database?: MarblesDatabase;
   /** Definitions' own `log(...)` lines; to `print` when omitted. */
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
   readonly print: (line: string) => void;
@@ -187,17 +217,12 @@ export async function hostEngine(
   return engine;
 }
 
-/**
- * The engine over a workspace, as the flags ask for it, and nothing more:
- * no usage accounts and no host for definitions called outside a run. It
- * keeps the workspace's state, its tasks among it, under `--dry-run` in
- * memory only.
- */
-export function workspaceEngine(
+function workspaceEngine(
   args: HostOptions,
   { environment, workspace }: OpenedWorkspace,
   options: WorkspaceEngineOptions
 ): Engine {
+  const { database } = options;
   return createEngine({
     artifacts: resolve(args.artifacts),
     askable: options.askable,
@@ -206,6 +231,7 @@ export function workspaceEngine(
     environment,
     ...(options.log ? { log: options.log } : {}),
     print: options.print,
+    ...(database === undefined ? {} : { database: database.database }),
     root: workspace.root,
     stateDir: workspace.dir,
     stateRoot: resolve(args.state),
@@ -221,27 +247,19 @@ export function hostTriggers(
   return readTriggers(catalog, { dry: args.dry, stateDir: workspace.dir });
 }
 
-/**
- * Record that this workspace ran, for `status`. Only an engine that persists
- * writes it: a listing, and anything under `--dry-run`, leaves the state root
- * as it found it.
- */
-export function touchWorkspace(
-  engine: Engine,
+export async function touchWorkspace(
+  database: MarblesDatabase | undefined,
+  args: Pick<HostOptions, "state">,
   { config, workspace }: OpenedWorkspace
-): void {
-  if (engine.state !== undefined) {
-    workspace.touch(config);
+): Promise<void> {
+  if (database !== undefined) {
+    await new WorkspaceRegistry({
+      database: database.database,
+      state: args.state,
+    }).touch(workspace, config);
   }
 }
 
-/**
- * The tasks of the engine's workspace, for the CLI and the MCP tools: its
- * own store, which the builtin `tasks` also reaches while the engine is the
- * host. Each commit stores its change in the same write. The engine owns
- * the store until `dispose`; after that, reads and writes are refused,
- * never answered from somewhere else.
- */
 export function hostTasks(engine: Engine): Tasks {
   return new Tasks({ store: engine.taskStore });
 }
