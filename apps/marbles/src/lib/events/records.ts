@@ -32,11 +32,16 @@ const CLOSED = "workspace records are closed";
 
 export class RecordsGate {
   readonly #running = new Set<Promise<unknown>>();
+  readonly #refusal: string;
   #phase: "open" | "closed" = "open";
+
+  constructor(refusal = CLOSED) {
+    this.#refusal = refusal;
+  }
 
   run<T>(call: () => Promise<T>): Promise<T> {
     if (this.#phase === "closed") {
-      return Promise.reject(new Error(CLOSED));
+      return Promise.reject(new Error(this.#refusal));
     }
     const running = call();
     const settled = running.then(

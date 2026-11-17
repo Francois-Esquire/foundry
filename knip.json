@@ -43,6 +43,7 @@
         "examples/**/*.ts",
         "templates/**/*.ts",
         "test/helpers/dry-mcp-host.ts",
+        "test/helpers/store-writer.ts",
         "vitest.package.config.ts"
       ]
     },

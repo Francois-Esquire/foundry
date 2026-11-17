@@ -6,8 +6,8 @@ import { openHostDatabase } from "~/database/workspaces";
 import type { Engine } from "~/lib/engine";
 import { tick } from "~/lib/schedule";
 import { inputFromFields, SchemaError } from "~/lib/schema";
-import { lastFinish as recordedFinish } from "~/lib/state/schedules";
 import type { Workspace } from "~/lib/state/workspace";
+import { finishedAt } from "~/lib/trigger-store";
 import type { UsageRecords } from "~/lib/usage";
 import type {
   DispatchInfo,
@@ -161,6 +161,7 @@ export async function hostWorkspace(
           report(line);
           diagnostics.add(line, "error");
         },
+        lastFinish: await lastFinishes(engine),
         print,
         setStatus: (line) => {
           status = line;
@@ -183,6 +184,7 @@ interface Status {
   readonly diagnostics: Diagnostics;
   /** An error line: the status, and an error in the Logs tab. */
   readonly fail: (line: string) => void;
+  readonly lastFinish: ReadonlyMap<string, number>;
   readonly print: (line: string) => void;
   readonly setStatus: (line: string) => void;
   readonly status: () => string;
@@ -230,14 +232,38 @@ async function readUsage(
   }
 }
 
+async function lastFinishes(
+  engine: Engine
+): Promise<ReadonlyMap<string, number>> {
+  const finished = new Map<string, number>();
+  for (const schedule of engine.schedules()) {
+    const finish = finishedAt(
+      await engine.triggers.lastTick(schedule.key).catch(() => undefined)
+    );
+    if (finish !== undefined) {
+      finished.set(schedule.key, finish);
+    }
+  }
+  return finished;
+}
+
 function hosted(
   engine: Engine,
   opened: OpenedWorkspace,
   dispatches: BackgroundRuns,
-  { captured, database, diagnostics, fail, print, setStatus, status }: Status
+  {
+    captured,
+    database,
+    diagnostics,
+    fail,
+    lastFinish,
+    print,
+    setStatus,
+    status,
+  }: Status
 ): WorkspaceHost {
   const { config, configPath, workspace } = opened;
-  const { activities, automations, store } = engine;
+  const { activities, automations } = engine;
   const tasks = hostTasks(engine);
   const startedAt = Date.now();
   // Each poll would repeat it: a usage read failure is logged when it
@@ -254,12 +280,6 @@ function hosted(
       diagnostics.add(line, "error");
     }
   };
-  const lastFinish = new Map(
-    engine.schedules().flatMap((schedule) => {
-      const finish = recordedFinish(store, schedule.key);
-      return finish === undefined ? [] : [[schedule.key, finish] as const];
-    })
-  );
   const actions: WorkspaceActions = {
     async answer(entryId, answer) {
       await engine.answer(entryId, answer);

@@ -16,6 +16,7 @@ import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { skills } from "~/authoring/resources";
 import { echoGit } from "~/create";
+import { workspaceStores } from "~/database/stores";
 import type { Bindings, ManagerArgs } from "~/lib/bindings";
 import { ArtifactsManager, artifactIdFor } from "~/lib/managers/artifacts";
 import {
@@ -27,6 +28,7 @@ import {
 import { skillResolver } from "~/lib/managers/skills";
 import { repositoryRoot, WorkspacesManager } from "~/lib/managers/workspaces";
 import { current, RunScope } from "~/lib/run-scope";
+import { testMachine } from "./../helpers/records";
 import { seedRepository } from "./../helpers/repository";
 
 const NOT_A_REPOSITORY = /not a git repository/;
@@ -729,5 +731,62 @@ describe("sandboxes", () => {
     expect(fresh.id).not.toBe(env.id);
     await a.scope.settle();
     await containers.shutdown();
+  });
+
+  it("a step replayed in a later process starts its own container, files and all, though the row it recorded is kept", async () => {
+    const root = join(tmp, "project");
+    await mkdir(root, { recursive: true });
+    const machine = await testMachine();
+    try {
+      const registry = () => {
+        const runtime = createFakeContainerRuntime();
+        return {
+          containers: createContainers({
+            allowedMountRoots: allowedMountRoots([root]),
+            instanceLabel: "test",
+            runtime,
+            store: workspaceStores(machine.database.database, "ws").containers,
+          }),
+          runtime,
+        };
+      };
+      const sandbox = {
+        files: { "a.txt": "alpha" },
+        id: "sandbox#1",
+        image: "img:2",
+        kind: "sandbox",
+      } as const;
+      const a = args(root);
+      const first = registry();
+      const env = await new SandboxesManager({
+        containers: () => Promise.resolve(first.containers),
+        root,
+      })
+        .scoped(a)
+        .start(sandbox);
+      await env.close();
+      await first.containers.shutdown();
+
+      const later = registry();
+      expect((await later.containers.list()).map((row) => row.id)).toEqual([
+        env.id,
+      ]);
+      await a.scope.enter(a.frame);
+      const replayed = await new SandboxesManager({
+        containers: () => Promise.resolve(later.containers),
+        root,
+      })
+        .scoped(a)
+        .start(sandbox);
+      expect(replayed.id).not.toBe(env.id);
+      const [instance] = later.runtime.instances;
+      expect(
+        new TextDecoder().decode(instance?.files.get("/workspace/a.txt"))
+      ).toBe("alpha");
+      await a.scope.settle();
+      await later.containers.shutdown();
+    } finally {
+      machine.close();
+    }
   });
 });

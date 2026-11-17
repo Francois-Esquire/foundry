@@ -97,8 +97,7 @@ export function workingDirectory(fallback: string): string {
 
 type Literal = Readonly<Record<string, unknown>>;
 
-/** What a parked run recorded before this process; consumed when its scope is rebuilt. */
-export interface RestoredScope {
+export interface RecordedScope {
   readonly ledger: Readonly<Record<string, unknown>>;
   /** Each node's literal input by step path, as locked when the run started. */
   readonly literals?: Readonly<Record<string, Literal>>;
@@ -124,7 +123,7 @@ export class RunScope {
     id: string,
     cwd: string,
     host: HostBindings = {},
-    previous?: RestoredScope
+    previous?: RecordedScope
   ) {
     this.id = id;
     this.cwd = cwd;
@@ -134,6 +133,14 @@ export class RunScope {
     for (const [key, literal] of Object.entries(previous?.literals ?? {})) {
       this.literals.set(key, literal);
     }
+  }
+
+  recorded(): RecordedScope {
+    return {
+      ledger: this.ledger.toJSON(),
+      literals: Object.fromEntries(this.literals),
+      session: this.session,
+    };
   }
 
   /**
@@ -363,10 +370,10 @@ export interface ReadonlyRunScopes extends Iterable<RunScope> {
  */
 export class RunScopes implements ReadonlyRunScopes {
   readonly #live = new Map<string, RunScope>();
-  readonly #recovered = new Map<string, RestoredScope>();
+  readonly #recovered = new Map<string, RecordedScope>();
 
   /** What a parked run recorded, for its scope when the run is rebuilt. */
-  recover(runId: string, state: RestoredScope): void {
+  recover(runId: string, state: RecordedScope): void {
     this.#recovered.set(runId, state);
   }
 

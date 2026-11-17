@@ -299,7 +299,7 @@ export class Launcher {
       return;
     }
     // Its owner exited and nothing adopted it: nothing will settle it but this.
-    if (this.executions.cancelOrphan(id)) {
+    if (await this.executions.cancelOrphan(id)) {
       return;
     }
     if (run?.kind === "task") {
