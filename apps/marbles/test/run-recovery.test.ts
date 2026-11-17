@@ -3,7 +3,10 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import type { RunRecord } from "@foundry/workflows/schema";
 import { afterEach, expect, it } from "vitest";
+import { adoptParkedRun } from "~/lib/run-recovery";
+import type { RunStore } from "~/lib/run-store";
 import { readStoredRuns } from "./helpers/stored-runs";
 
 const SRC = resolve("src");
@@ -279,3 +282,35 @@ report.questions = (await engine.feed()).filter((entry) => entry.input?.status =
   },
   TEST_TIMEOUT
 );
+
+it("gives up its claim on a parked run when a read after the claim fails", async () => {
+  for (const failing of ["settled", "recorded"] as const) {
+    const released: (string | undefined)[] = [];
+    const runs = {
+      claim: () => Promise.resolve(true),
+      durable: true,
+      recorded: () =>
+        failing === "recorded"
+          ? Promise.reject(new Error("database busy"))
+          : Promise.resolve({ ledger: {} }),
+      release: (runId?: string) => {
+        released.push(runId);
+        return Promise.resolve();
+      },
+    } as unknown as RunStore;
+    await expect(
+      adoptParkedRun({ id: "parked", step: "hold" } as RunRecord, {
+        askable: true,
+        print: () => undefined,
+        registered: () => true,
+        runs,
+        settled: () =>
+          failing === "settled"
+            ? Promise.reject(new Error("database busy"))
+            : Promise.resolve(false),
+        store: { listRuns: () => Promise.reject(new Error("unused")) },
+      })
+    ).rejects.toThrow("database busy");
+    expect(released).toEqual(["parked"]);
+  }
+});

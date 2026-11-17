@@ -234,6 +234,30 @@ describe("an engine that has begun to retire", () => {
       lines.filter((line) => line.includes("injected handover write failure"))
     ).toHaveLength(1);
   }, 60_000);
+
+  it("keeps handing over a run it could not hand over while the engine stops, so the stop drains", async () => {
+    const queued = await queuedBehindOne();
+    queued.store.holding = true;
+    const handing = queued.launcher.handOver(queued.successor);
+    await queued.store.entered.promise;
+    queued.store.counting = true;
+    queued.store.failing = (index) => index > 0;
+    queued.executions.release(queued.first.id);
+    queued.store.gate.resolve();
+    expect(await handing).toEqual([queued.second.id]);
+    expect(queued.executions.waiting()).toEqual([queued.third.id]);
+    await queued.launcher.halt(false);
+    queued.store.counting = false;
+    await vi.waitFor(() => expect(queued.executions.waiting()).toEqual([]), {
+      timeout: 5000,
+    });
+    await expect(queued.third.result).rejects.toThrow(
+      "was handed to the next engine generation"
+    );
+    await queued.end();
+    await queued.executions.drained();
+    expect(queued.started).toEqual(["first"]);
+  }, 60_000);
 });
 
 class CurrentStore extends GatedStore {
