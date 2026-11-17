@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase, readDatabase } from "~/database/open";
-import { DatabaseProviderStore, stateProviders } from "~/database/providers";
+import { DatabaseProviderStore } from "~/database/providers";
 import { marblesProviderConfigurations } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { ProviderStore, ProvidersFile } from "~/lib/providers/store";
@@ -97,23 +97,24 @@ function describeProviderStore(
       expect(idsOf((await store.read()).machine)).toEqual(["a"]);
     });
 
-    it("re-reads before each edit, so overlapping edits keep each other's", async () => {
-      const store = await open();
-      await Promise.all(
-        ["a", "b", "c"].map((id) =>
-          store.update(undefined, (current) => ({
-            machine: {
-              providers: [...(current.machine?.providers ?? []), entry(id)],
-              version: 1,
-            },
-          }))
-        )
-      );
-      expect(idsOf((await store.read()).machine)?.toSorted()).toEqual([
-        "a",
-        "b",
-        "c",
-      ]);
+    it("re-reads before each edit, so overlapping edits keep each other's, also through the read-only view a dry run edits", async () => {
+      for (const store of [await open(), readOnlyProviders(await open())]) {
+        await Promise.all(
+          ["a", "b", "c"].map((id) =>
+            store.update(undefined, (current) => ({
+              machine: {
+                providers: [...(current.machine?.providers ?? []), entry(id)],
+                version: 1,
+              },
+            }))
+          )
+        );
+        expect(idsOf((await store.read()).machine)?.toSorted()).toEqual([
+          "a",
+          "b",
+          "c",
+        ]);
+      }
     });
 
     it("refuses a workspace scope to an edit for no workspace", async () => {
@@ -134,7 +135,7 @@ describeProviderStore("the database provider store", async () => {
 });
 describeProviderStore(
   "the provider store a process without a handle uses",
-  () => Promise.resolve(stateProviders(scratch()))
+  () => Promise.resolve(DatabaseProviderStore.forState(scratch()))
 );
 
 describe("provider configuration in the Marbles database", () => {

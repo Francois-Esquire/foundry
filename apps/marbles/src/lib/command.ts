@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { showArgv } from "@foundry/lib/argv";
-import { recordChild } from "@foundry/lib/spawn-record";
+import { recordChild, SPAWN_RECOVERY_ENV } from "@foundry/lib/spawn-record";
 
 import type { SandboxHandle, SandboxInstance } from "./types";
 
@@ -42,6 +42,7 @@ export interface CommandSite {
   readonly environment?: Readonly<Record<string, string>>;
   readonly print: (line: string) => void;
   readonly signal: () => AbortSignal | undefined;
+  readonly spawned?: string;
   readonly write?: (value: unknown) => void;
 }
 
@@ -99,7 +100,13 @@ function onHost(
     );
     child.stdout?.on("data", (chunk: string) => site.write?.(chunk));
     child.stderr?.on("data", (chunk: string) => site.write?.(chunk));
-    recordChild(child);
+    recordChild(
+      child,
+      false,
+      site.spawned === undefined
+        ? process.env
+        : { ...process.env, [SPAWN_RECOVERY_ENV]: site.spawned }
+    );
   });
 }
 
