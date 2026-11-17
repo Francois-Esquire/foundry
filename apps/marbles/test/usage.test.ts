@@ -73,12 +73,15 @@ async function marbles() {
       {
         artifacts: join(root, "artifacts"),
         config: root,
+        directory: root,
         dry: true,
         state: join(root, "state"),
       },
       {
+        catalog,
         config: null,
         configPath: root,
+        cwd: workspace.root,
         environment: { machine: {}, workspace: {} },
         workspace,
       },
@@ -125,6 +128,7 @@ it("keeps a host running when the accounts cannot be added", async () => {
   );
   await engine.start();
   await expect(check.run()).rejects.toThrow(UNKNOWN_ACCOUNT);
+  await engine.dispose();
   await openHost(() => undefined);
   expect(fake.usage.initialize).toHaveBeenCalledTimes(2);
   await expect(check.run()).resolves.toMatchObject({ name: "anthropic" });

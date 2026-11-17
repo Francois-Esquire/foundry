@@ -78,6 +78,20 @@ Five buckets, each importing only what sits below it:
   `lib/run-store.ts` is where their Runs are kept (`RunStore`, in memory
   by default), and `lib/run-recovery.ts` is the one rule for which parked
   Runs a starting engine adopts.
+  Each engine has an execution context (`lib/execution-context.ts`): its
+  workspace id, where its work starts (`cwd`, the root by default) and the
+  environment its commands inherit. Every place the engine calls code an
+  author wrote runs it as that context (`withinContext`, which leaves a
+  run scope inherited from another engine's run): a step's whole
+  execution, schemas and body (`tree.ts`, `materialize`), its retry
+  decision, a launch's input schema and a workflow's setup (`factoryFor`),
+  a host task's body (`launcher.ts`), each observer (`Delivery`), every
+  session the agents manager opens, whichever entry opens it
+  (`openSession`: an agent's own function, and each turn's output
+  schema, stop conditions and harness authority, approval and question
+  callbacks), and a worktree callback outside a run
+  (`managers/workspaces.ts`); whatever that code starts inherits it. Nothing in `lib/` reads
+  `process.cwd()` or `process.env` for it.
   `lib/cli-harnesses.ts` describes each CLI harness once (ids in
   preference order, executor, guest artifact and environment). Provider
   plugins (`lib/providers/plugins.ts`) build instances from configuration
@@ -205,11 +219,52 @@ Five buckets, each importing only what sits below it:
   `hostWorkspace()` in `host.ts`, which ties them into the
   `WorkspaceConnection` every host is written against. A host opens one
   writer handle on the database (`openHostDatabase`) before it builds the
-  engine, keeps it until the engine is disposed, and records the workspace
-  through it once the engine has started; under `--dry-run` it opens none. It imports `lib/`,
+  engine, or is handed one, keeps it until the engine is disposed, and
+  records the workspace's registration (root, source, where its work
+  starts) through it once the engine has started; under `--dry-run` it
+  opens none. Nothing under `workspace/` reads `process.cwd()`: the CLI
+  passes the directory it runs in (`directory`), and a workspace's
+  registration says where its work starts (`cwd`). Each workspace loads
+  into a `Catalog` of its own (`loadSource`, through `loadInto` in
+  `authoring/runtime.ts`; loads may overlap), and its Varlock values into
+  the engine's execution context, never `process.env`. Each load imports
+  copies of its own of every module and data file its source imports by
+  path (`copies.ts`: anything but packages and Marbles' own code; it
+  rewrites only import specifiers, found with `oxc-parser`, and a file
+  that does not parse, or is CommonJS, fails the load), and those
+  copies import a library bound to the load (`authoring/bound.ts`): every
+  word that declares or routes runs in the load's scope (`inLoad`), and
+  builders and instances keep whom they answer to (`captureScope`: the
+  load, or the binding of the engine whose run made them, never that run). Each engine bound to its workspace (`setHost`) is a
+  binding, keyed by the execution context its runs and observers run in
+  (`Engine.context`, `lib/execution-context.ts`); a load takes the
+  binding of the engine that takes its catalog. Work answers to its own
+  binding's engine and catalog until that engine is disposed, whatever
+  engine is bound to the workspace after it, and is refused
+  (`WorkspaceReleasedError`) once it is. A released binding keeps
+  neither engine nor catalog, and the loads it took are dropped, only
+  their numbers kept so late calls from them are refused; a host lets
+  its engine go as soon as it disposed it (`releaseEngine`), and any
+  other disposed engine is let go when the next engine is bound or load
+  begins. Work without a
+  binding reaches an engine only while one engine alone is alive for the
+  workspace: a load no engine has taken yet, or work naming nothing in a
+  process hosting one workspace; with two alive it is refused
+  (`AmbiguousWorkspaceError`), as is a run of an engine no host here
+  bound whose workspace another engine is bound to. Nothing reads the
+  stack for it. `hosted.ts` (`HostedWorkspaces`) hosts several
+  workspaces in one process over one database handle, refuses work that
+  names no workspace, shares one registration of a workspace between
+  callers, addresses what each declared by workspace id and local name
+  (`run`, `roll`), and loads every registered (`hosted`) workspace again,
+  reporting each that fails (`loadRegistered`; a registration whose source
+  is gone fails; one made with no source path reads the default
+  `.foundry/marbles` under its root when that is there, and is its root
+  alone when it is not), and drops
+  a registration (`unregister`). The Marbles process still
+  runs one worker per workspace. It imports `lib/`,
   `authoring/`, `database/`, `layout.ts` and `model/`; never views, `args`, or
-  `process/`. The catalog, the authoring host slot, `process.env` and the
-  module cache are per-process, so one process hosts one workspace.
+  `process/`.
 - `src/process/` is the Marbles process: one daemon per machine
   (`daemon.ts`) that claims `locks/process` at the state root, listens on
   the layout's Unix socket, and hosts each attached workspace in a worker

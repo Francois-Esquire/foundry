@@ -31,10 +31,12 @@ import type { Bindings } from "~/lib/bindings";
 import { harnessOf } from "~/lib/cli-harnesses";
 import { commandRunner } from "~/lib/command";
 import type { AnyDefinition } from "~/lib/definition";
+import { environmentSnapshot } from "~/lib/environment";
 import { Delivery } from "~/lib/events/delivery";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Handler, Source } from "~/lib/events/source";
+import type { ExecutionContext } from "~/lib/execution-context";
 import type { ExecutionStore } from "~/lib/execution-store";
 import { MemoryExecutionStore } from "~/lib/execution-store";
 import type {
@@ -111,11 +113,13 @@ export interface EngineOptions {
    * result kept, for a runtime that is optional or slow to start.
    */
   readonly containers: Containers | (() => Promise<Containers>);
+  readonly cwd?: string;
   /**
    * Simulation: an agent asked to run in a sandbox runs in this process on
    * `models` instead, so no guest is prepared and no credential is read.
    */
   readonly dry?: boolean;
+  readonly environment?: Readonly<Record<string, string>>;
   readonly executionStore?: ExecutionStore;
   /**
    * How git runs: on the root workspace, and in the `git()` layer of the
@@ -256,6 +260,7 @@ export class Engine {
   readonly automations: AutomationService;
   /** What step bodies are built from: the managers, scoped per frame. */
   readonly bindings: Bindings;
+  readonly context: ExecutionContext;
   /** Every run's lifecycle record, and the named queues they wait in. */
   readonly executions: ExecutionRuns;
   readonly feed: FeedReader;
@@ -366,6 +371,11 @@ export class Engine {
       ...sessionListing(sessions, usage),
     });
     this.workspaceId = workspaceId;
+    this.context = {
+      cwd: options.cwd ?? root,
+      environment: options.environment ?? environmentSnapshot(),
+      workspaceId,
+    };
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
     this.#executions = new Executions({
       ...(options.queues === undefined ? {} : { queues: options.queues }),
@@ -377,6 +387,7 @@ export class Engine {
     this.executions = this.#executions;
     this.#launcher = new Launcher({
       agents: (run) => this.agents.forRun(run),
+      context: this.context,
       executions: this.#executions,
       print,
       recoverQueued: options.recoverQueued ?? false,
@@ -390,7 +401,11 @@ export class Engine {
       },
     });
     this.#records = options.records ?? new MemoryWorkspaceRecords();
-    this.#delivery = new Delivery({ print, records: this.#records });
+    this.#delivery = new Delivery({
+      context: this.context,
+      print,
+      records: this.#records,
+    });
     this.#unwatchRecords = this.#records.watch(() => this.#delivery.wake());
     this.taskStore = this.#records.taskStore;
     const catalogue = options.workspaces ?? localCatalogue(options.git ?? {});
@@ -434,6 +449,7 @@ export class Engine {
       activities: this.activities,
       automations: this.automations,
       containerOf: (sandbox) => sandboxes.containerOf(sandbox),
+      context: this.context,
       defaultExecutor: () => selectExecutor(models),
       dry: options.dry ?? false,
       executionOf: (provider) => options.providers?.executionOf(provider),
@@ -443,6 +459,7 @@ export class Engine {
               options.providers?.identityOf(provider),
           }
         : {}),
+      cwd: this.context.cwd,
       implementationOf: (provider) =>
         options.providers
           ?.list()
@@ -454,7 +471,6 @@ export class Engine {
       observe: (runId, observation) =>
         this.#executions.observe(runId, observation),
       requireProviders: () => options.providers?.require(),
-      root,
       sessions,
       skills: skillResolver({ home, workspace: root }),
       usage: { ledger: this.usage, workspaceId },
@@ -467,6 +483,7 @@ export class Engine {
     });
     this.workspaces = new WorkspacesManager({
       catalogue,
+      context: this.context,
       gitOptions: options.git ?? {},
       root,
       worktreeHome: this.worktrees,
@@ -474,10 +491,12 @@ export class Engine {
     this.bindings = {
       agents: (args) => this.agents.scoped(args),
       artifacts: (args) => this.artifacts.scoped(args),
+      context: this.context,
       exec: ({ frame, scope, write }) =>
         commandRunner({
           cwd: () => workingDirectory(scope.cwd),
           dry: options.dry ?? false,
+          environment: this.context.environment,
           print,
           signal: () => frame.signal,
           write,
@@ -1164,12 +1183,6 @@ export class Engine {
     this.#prices = undefined;
   }
 
-  /**
-   * Stop execution and close what this engine was handed: the workspace system,
-   * the containers if a sandbox ever opened them, and the models. The models
-   * go last and always: a provider may hold a child process. Its cancelling
-   * stop waits for a workflow's `setup` in flight, as `stop` does.
-   */
   dispose(): Promise<void> {
     this.#disposing ??= this.#dispose();
     return this.#disposing;

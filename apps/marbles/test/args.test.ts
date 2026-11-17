@@ -25,6 +25,7 @@ describe("parseArgs", () => {
       artifacts: join(foundryHome(), "artifacts"),
       command: "run",
       config: "./.foundry/marbles",
+      directory: process.cwd(),
       dry: false,
       inputJson: undefined,
       state: join(foundryHome(), "marbles"),

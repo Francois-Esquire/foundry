@@ -41,6 +41,7 @@
       ],
       "entry": [
         "examples/**/*.ts",
+        "src/workspace/hosted.ts",
         "templates/**/*.ts",
         "test/helpers/dry-mcp-host.ts",
         "test/helpers/store-writer.ts",

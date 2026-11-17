@@ -169,6 +169,7 @@ export function hostHere(
   return hostWorkspace({
     ...options,
     artifacts: args.artifacts,
+    directory: args.directory,
     dry: args.dry,
     source: args.config,
     state: args.state,
@@ -176,14 +177,15 @@ export function hostHere(
 }
 
 export async function attachToProcess(
-  args: HostOptions,
+  args: HostOptions & { readonly directory: string },
   run: (hosted: Hosted) => Promise<void>
 ): Promise<void> {
   const client = await connect({ layout: layout() });
   try {
-    const summary = await client.attach(resolveSource(args.config), {
-      root: process.cwd(),
-    });
+    const summary = await client.attach(
+      resolveSource(args.config, args.directory),
+      { root: args.directory }
+    );
     await run({
       client,
       id: summary.id,

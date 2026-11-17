@@ -46,7 +46,7 @@ import { AutomationService } from "~/lib/automation/service";
 import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
-import { environmentSnapshot } from "~/lib/environment";
+import { environmentSnapshot, executionEnvironment } from "~/lib/environment";
 import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
@@ -70,6 +70,7 @@ export interface CreateEngineOptions {
   readonly artifacts?: string;
   readonly askable?: boolean;
   readonly catalog: Catalog;
+  readonly cwd?: string;
   readonly database?: StoreDatabase;
   readonly dry: boolean;
   /** The machine environment and the workspace's Varlock values; the process's own when omitted. */
@@ -355,6 +356,10 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...modelsFor(options),
     print,
     ...kept,
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.environment === undefined
+      ? {}
+      : { environment: executionEnvironment(options.environment) }),
     root,
     state,
     workspaceId,

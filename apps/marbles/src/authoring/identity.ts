@@ -29,7 +29,11 @@ export function originOf(site: CallSite): string {
 const LIB_DIR = dirname(fileURLToPath(import.meta.url));
 
 function pathOf(fileName: string): string {
-  return fileName.startsWith("file://") ? fileURLToPath(fileName) : fileName;
+  const path = fileName.startsWith("file://")
+    ? fileURLToPath(fileName)
+    : fileName;
+  const query = path.indexOf("?");
+  return query === -1 ? path : path.slice(0, query);
 }
 
 /**

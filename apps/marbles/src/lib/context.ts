@@ -240,6 +240,9 @@ export function buildContext<I>({
       commandRunner({
         cwd: () => workingDirectory(scope.cwd),
         dry: false,
+        ...(bindings.context === undefined
+          ? {}
+          : { environment: bindings.context.environment }),
         print: (line) => bindings.log.info(line),
         signal: () => frame.signal,
         write,

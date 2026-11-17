@@ -4,18 +4,6 @@ import { delimiter, join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { environmentSnapshot } from "~/lib/environment";
 
-/**
- * A workspace's environment, loaded through Varlock before any module is
- * imported, so `roll`, `list`, and the dashboard see the same values.
- * A `.env.schema` at the workspace root opts in; without one
- * nothing changes. Values already in the environment win, and nothing is
- * written anywhere: a secret is resolved each time a process starts.
- */
-
-/**
- * The environment this process had before the workspace's values merged, and
- * the values the workspace's schema resolved.
- */
 export interface WorkspaceEnvironment {
   readonly machine: Readonly<Record<string, string>>;
   readonly workspace: Readonly<Record<string, string>>;
@@ -96,9 +84,6 @@ export function loadEnvironment(
     }
     print(`[env] ${loaded.problem}`);
     return { machine, workspace: {} };
-  }
-  for (const [name, value] of Object.entries(loaded.values)) {
-    process.env[name] ??= value;
   }
   return { machine, workspace: loaded.values };
 }

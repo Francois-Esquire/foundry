@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import type { StreamItem, WorkspaceRecords } from "~/lib/events/records";
 import { PENDING_BATCH } from "~/lib/events/records";
 import type { Handler, Source } from "~/lib/events/source";
+import type { ExecutionContext } from "~/lib/execution-context";
+import { inContext } from "~/lib/execution-context";
 import { current } from "~/lib/run-scope";
 
 interface Observer {
@@ -16,12 +18,14 @@ const HASH_LENGTH = 32;
 export const DELIVERY_POLL_MS = 1000;
 
 export interface DeliveryOptions {
+  readonly context?: ExecutionContext;
   readonly print: (line: string) => void;
   readonly records: WorkspaceRecords;
 }
 
 export class Delivery {
   readonly #observers: Observer[] = [];
+  readonly #context: ExecutionContext | undefined;
   readonly #records: WorkspaceRecords;
   readonly #print: (line: string) => void;
   #claimed = false;
@@ -39,6 +43,7 @@ export class Delivery {
   constructor(options: DeliveryOptions) {
     this.#records = options.records;
     this.#print = options.print;
+    this.#context = options.context;
   }
 
   /** Follow `source` with `handler`, from the next start or the next pass. */
@@ -100,7 +105,14 @@ export class Delivery {
       return;
     }
     this.#again = false;
-    this.#pass = this.#built(() => current.exit(() => this.#run()));
+    this.#pass = this.#built(() =>
+      current.exit(() => {
+        const context = this.#context;
+        return context === undefined
+          ? this.#run()
+          : inContext(context, () => this.#run());
+      })
+    );
   }
 
   async stop(): Promise<void> {

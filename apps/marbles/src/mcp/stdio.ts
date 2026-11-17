@@ -143,7 +143,7 @@ function serveWorkspace(flags: Flags): Served {
 
 async function serve(flags: Flags): Promise<void> {
   const output = protocolOutput();
-  const configPath = resolveSource(flags.config);
+  const configPath = resolveSource(flags.config, flags.directory);
   let served: Served;
   try {
     served = serveWorkspace(flags);

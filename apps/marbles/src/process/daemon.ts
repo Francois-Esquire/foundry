@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { lockHolder } from "@foundry/lib/file-lock";
@@ -382,6 +382,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         entry,
         "--source",
         worker.source,
+        "--root",
+        worker.summary.root,
         "--socket",
         layout.socket,
         "--token",
@@ -559,11 +561,22 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     setup?: SetupDraftParams,
     root?: string
   ): Promise<Worker> {
-    const configPath = resolveSource(source);
+    if (!isAbsolute(source)) {
+      return Promise.reject(
+        new Error(`the source to attach must be absolute, not "${source}"`)
+      );
+    }
+    const configPath = resolveSource(source, root ?? dirname(source));
     const found = sourceFiles(configPath) !== undefined;
-    const workspace = layout.workspace(
-      found ? sourceRoot(configPath) : (root ?? process.cwd())
-    );
+    const placed = found ? sourceRoot(configPath) : root;
+    if (placed === undefined) {
+      return Promise.reject(
+        new Error(
+          `nothing is at ${configPath}, and no workspace root was given to register instead`
+        )
+      );
+    }
+    const workspace = layout.workspace(placed);
     const config = found ? configPath : null;
     return inTurn(workspace.id, async () => {
       refuseWhileStopping();

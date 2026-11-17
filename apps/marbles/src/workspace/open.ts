@@ -1,9 +1,10 @@
-import { resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Tasks } from "@foundry/tasks";
 import { plugin } from "bun";
-import { catalog } from "~/authoring/catalog";
-import { expectHost, setHost } from "~/authoring/runtime";
+import { libraryOfLoad, prebuiltOfLoad } from "~/authoring/bound";
+import { Catalog } from "~/authoring/catalog";
+import { expectHost, loadInto, setHost } from "~/authoring/runtime";
 import { initializeUsage } from "~/authoring/usage";
 import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
@@ -16,6 +17,7 @@ import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceAt, workspaceState } from "~/lib/state/workspace";
+import { copyModules, importLoad, linkLibrary } from "~/workspace/copies";
 import type { WorkspaceEnvironment } from "~/workspace/env";
 import { loadEnvironment } from "~/workspace/env";
 import {
@@ -35,28 +37,63 @@ import {
 export interface HostOptions {
   readonly artifacts: string;
   readonly config: string;
+  readonly directory?: string;
   readonly dry: boolean;
   readonly state: string;
 }
 
 export interface OpenedWorkspace {
-  /**
-   * The source that defines this workspace, or null without one; the
-   * workspace is then the cwd.
-   */
+  readonly catalog: Catalog;
   readonly config: string | null;
   /** Where the authoring source is, or would be created. */
   readonly configPath: string;
+  readonly cwd: string;
   readonly environment: WorkspaceEnvironment;
   readonly workspace: Workspace;
 }
 
-/**
- * Import every authoring module under `configPath`, so the catalog holds what
- * they declare. False when nothing is there.
- */
-export async function loadSource(
+const libraryUrl = (name: "index" | "prebuilt"): string =>
+  new URL(
+    import.meta.url.endsWith(".ts")
+      ? `../authoring/${name}.ts`
+      : `./${name}.js`,
+    import.meta.url
+  ).href;
+
+let sourceLibrary: Promise<void> | undefined;
+
+function linkSourceLibrary(): Promise<void> {
+  sourceLibrary ??= (async () => {
+    // The paths are relative to this file: `src/workspace/` in source, and
+    // `dist/` (this file's chunk sits beside the entries) once built.
+    const library = await import(fileURLToPath(libraryUrl("index")));
+    const prebuilt = await import(libraryUrl("prebuilt"));
+    plugin({
+      name: "marbles-source-library",
+      setup(builder) {
+        copyModules(builder);
+        builder.module("@foundry.sh/marbles/prebuilt", () => ({
+          exports: prebuilt,
+          loader: "object",
+        }));
+        builder.module("@foundry.sh/marbles", () => ({
+          exports: library,
+          loader: "object",
+        }));
+      },
+      target: "bun",
+    });
+    linkLibrary("@foundry.sh/marbles", (load) => libraryOfLoad(library, load));
+    linkLibrary("@foundry.sh/marbles/prebuilt", (load) =>
+      prebuiltOfLoad(prebuilt, load)
+    );
+  })();
+  return sourceLibrary;
+}
+
+async function loadSource(
   configPath: string,
+  { catalog, workspaceId }: { catalog: Catalog; workspaceId: string },
   print: (line: string) => void
 ): Promise<boolean> {
   // From here the builtin `tasks` wait for this workspace's engine, rather
@@ -66,76 +103,63 @@ export async function loadSource(
   if (files === undefined) {
     return false;
   }
-
-  // Authoring modules use this installation even outside a project with
-  // node_modules. Both entry points must share the same registry instance.
-  // The paths are relative to this file: `src/workspace/` in source, and
-  // `dist/` (this file's chunk sits beside the entries) once built.
-  const libraryPath = fileURLToPath(
-    new URL(
-      import.meta.url.endsWith(".ts") ? "../authoring/index.ts" : "./index.js",
-      import.meta.url
-    )
+  await linkSourceLibrary();
+  await loadInto(workspaceId, catalog, (load) =>
+    importLoad(sourceRoot(configPath), files, load)
   );
-  const library = await import(libraryPath);
-  const prebuilt = await import(
-    new URL(
-      import.meta.url.endsWith(".ts")
-        ? "../authoring/prebuilt.ts"
-        : "./prebuilt.js",
-      import.meta.url
-    ).href
-  );
-  plugin({
-    name: "marbles-source-library",
-    setup(builder) {
-      builder.module("@foundry.sh/marbles/prebuilt", () => ({
-        exports: prebuilt,
-        loader: "object",
-      }));
-      builder.module("@foundry.sh/marbles", () => ({
-        exports: library,
-        loader: "object",
-      }));
-    },
-    target: "bun",
-  });
-  for (const file of files) {
-    await import(pathToFileURL(file).href);
-  }
   print(`[source] ${configPath}`);
   return true;
 }
 
+function placed(args: HostOptions): {
+  readonly configPath: string;
+  readonly found: boolean;
+  readonly root: string;
+} {
+  const { config, directory } = args;
+  if (directory === undefined && !isAbsolute(config)) {
+    throw new Error(
+      `the source "${config}" is relative; give the directory it is relative to`
+    );
+  }
+  const configPath = resolveSource(config, directory ?? dirname(config));
+  const found = sourceFiles(configPath) !== undefined;
+  const root = found ? sourceRoot(configPath) : directory;
+  if (root === undefined) {
+    throw new Error(
+      `nothing is at ${configPath}; give the directory to register as the workspace's root instead`
+    );
+  }
+  return { configPath, found, root };
+}
+
 function opened(
   args: HostOptions,
-  configPath: string,
-  found: boolean,
-  environment: WorkspaceEnvironment
+  { configPath, found, root }: ReturnType<typeof placed>,
+  environment: WorkspaceEnvironment,
+  { catalog = new Catalog(), cwd }: { catalog?: Catalog; cwd?: string } = {}
 ): OpenedWorkspace {
-  const config = found ? configPath : null;
+  const workspace = workspaceState(resolve(args.state), root);
   return {
-    config,
+    catalog,
+    config: found ? configPath : null,
     configPath,
+    cwd: cwd ?? workspace.root,
     environment,
-    workspace: workspaceState(
-      resolve(args.state),
-      config === null ? process.cwd() : sourceRoot(config)
-    ),
+    workspace,
   };
 }
 
 /** The workspace the source names, found without executing anything. */
 export function findWorkspace(args: HostOptions): OpenedWorkspace {
-  const configPath = resolveSource(args.config);
-  return opened(args, configPath, sourceFiles(configPath) !== undefined, {
+  return opened(args, placed(args), {
     machine: environmentSnapshot(),
     workspace: {},
   });
 }
 
 export async function recordedWorkspace(
-  args: HostOptions,
+  args: Pick<HostOptions, "state">,
   id: string
 ): Promise<OpenedWorkspace | undefined> {
   const state = resolve(args.state);
@@ -147,48 +171,62 @@ export async function recordedWorkspace(
   }
   const workspace = workspaceAt(state, id, record.root);
   return {
+    catalog: new Catalog(),
     config: record.config,
     configPath: record.config ?? resolve(workspace.root, DEFAULT_SOURCE),
+    cwd: record.cwd,
     environment: { machine: environmentSnapshot(), workspace: {} },
     workspace,
   };
 }
 
 export interface OpenWorkspaceOptions {
+  readonly cwd?: string;
   /**
    * What a workspace `.env.schema` that does not resolve does: fail, for
    * work about to run, or print and go on. `warn` when omitted.
    */
   readonly env?: "require" | "warn";
-  /**
-   * Nothing is at the source: offer to create it. Resolves true once
-   * something was created and loaded there.
-   */
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   readonly print: (line: string) => void;
 }
 
-/**
- * Load the workspace's environment, then the source into the catalog, and
- * place the workspace it defines. The environment comes first so a module
- * reading `process.env` at load sees it.
- */
+class StarterLoadError extends Error {
+  override readonly name = "StarterLoadError";
+}
+
 export async function openWorkspace(
   args: HostOptions,
-  { env = "warn", onMissing, print }: OpenWorkspaceOptions
+  { cwd, env = "warn", onMissing, print }: OpenWorkspaceOptions
 ): Promise<OpenedWorkspace> {
-  const configPath = resolveSource(args.config);
-  const environment = loadEnvironment(
-    sourceFiles(configPath) === undefined
-      ? process.cwd()
-      : sourceRoot(configPath),
-    env,
-    print
-  );
-  const found =
-    (await loadSource(configPath, print)) ||
-    (onMissing !== undefined && (await onMissing(configPath)));
-  return opened(args, configPath, found, environment);
+  const before = placed(args);
+  const environment = loadEnvironment(before.root, env, print);
+  const catalog = new Catalog();
+  const load = (at: ReturnType<typeof placed>) =>
+    loadSource(
+      at.configPath,
+      {
+        catalog,
+        workspaceId: workspaceState(resolve(args.state), at.root).id,
+      },
+      print
+    );
+  if (await load(before)) {
+    return opened(args, before, environment, { catalog, cwd });
+  }
+  if (onMissing === undefined || !(await onMissing(before.configPath))) {
+    return opened(args, before, environment, { catalog, cwd });
+  }
+  const created = placed(args);
+  try {
+    await load(created);
+  } catch (error) {
+    throw new StarterLoadError(
+      `Starter was created but could not load: ${String(error)}. Fix it and restart Marbles.`,
+      { cause: error }
+    );
+  }
+  return opened(args, created, environment, { catalog, cwd });
 }
 
 interface WorkspaceEngineOptions {
@@ -213,13 +251,13 @@ export async function hostEngine(
   const engine = workspaceEngine(args, workspace, options);
   // Definitions called outside a run use the host's models, stores, and
   // dry-run echo; disposing the engine clears it.
-  setHost(engine);
+  setHost(engine, workspace.catalog);
   return engine;
 }
 
 function workspaceEngine(
   args: HostOptions,
-  { environment, workspace }: OpenedWorkspace,
+  { catalog, cwd, environment, workspace }: OpenedWorkspace,
   options: WorkspaceEngineOptions
 ): Engine {
   const { database } = options;
@@ -227,6 +265,7 @@ function workspaceEngine(
     artifacts: resolve(args.artifacts),
     askable: options.askable,
     catalog,
+    cwd,
     dry: args.dry,
     environment,
     ...(options.log ? { log: options.log } : {}),
@@ -242,7 +281,7 @@ function workspaceEngine(
 /** What an engine over this workspace would trigger, read without building one. */
 export function hostTriggers(
   args: HostOptions,
-  { workspace }: OpenedWorkspace
+  { catalog, workspace }: OpenedWorkspace
 ): Triggers {
   return readTriggers(catalog, {
     dry: args.dry,
@@ -254,14 +293,31 @@ export function hostTriggers(
 export async function touchWorkspace(
   database: MarblesDatabase | undefined,
   args: Pick<HostOptions, "state">,
-  { config, workspace }: OpenedWorkspace
+  { config, workspace }: OpenedWorkspace,
+  registers: { readonly cwd?: string } = {}
 ): Promise<void> {
   if (database !== undefined) {
     await new WorkspaceRegistry({
       database: database.database,
       state: args.state,
-    }).touch(workspace, config);
+    }).touch(workspace, config, registers);
   }
+}
+
+export async function asRegistered(
+  database: MarblesDatabase | undefined,
+  args: Pick<HostOptions, "state">,
+  workspace: OpenedWorkspace,
+  cwd: string | undefined
+): Promise<OpenedWorkspace> {
+  if (cwd !== undefined || database === undefined) {
+    return workspace;
+  }
+  const record = await new WorkspaceRegistry({
+    database: database.database,
+    state: args.state,
+  }).read(workspace.workspace.id);
+  return record === undefined ? workspace : { ...workspace, cwd: record.cwd };
 }
 
 export function hostTasks(engine: Engine): Tasks {

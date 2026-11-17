@@ -137,6 +137,7 @@ async function session(
     agentId: "coder",
     container: binding.container,
     harness: "builtin",
+    hostCwd: process.cwd(),
     instructions: "Make one change and run tests.",
     model: network,
     modelId: "gateway-model",
@@ -214,6 +215,7 @@ describe("built-in sandbox session factory", () => {
           agentId: "coder",
           container: binding.container,
           harness: "claude-code",
+          hostCwd: process.cwd(),
           instructions: "inspect",
           modelId: "sonnet",
           options: {

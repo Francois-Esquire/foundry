@@ -56,6 +56,12 @@ function snapshot(dir: string): Record<string, string> {
   );
 }
 
+function dataFiles(dir: string): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(snapshot(dir)).filter(([name]) => !name.endsWith("-shm"))
+  );
+}
+
 function row(id: string) {
   return { firstSeen: "x", id, lastSeen: "x", root: `/r/${id}` };
 }
@@ -243,20 +249,20 @@ describe("reading the Marbles database", () => {
     const next = withProbeMigration(work);
     const older = join(scratch(), "marbles.db");
     await exited(await processWith(work, older, "a", "exit"));
-    const olderBefore = snapshot(join(older, ".."));
+    const olderBefore = dataFiles(join(older, ".."));
     await expect(
       readDatabase(older, ids, { migrations: next })
     ).rejects.toThrow(OLDER);
     await expect(
       readDatabase(older, ids, { migrations: next })
     ).rejects.toBeInstanceOf(IncompatibleDatabaseError);
-    expect(snapshot(join(older, ".."))).toEqual(olderBefore);
+    expect(dataFiles(join(older, ".."))).toEqual(olderBefore);
 
     const newer = join(scratch(), "marbles.db");
     await exited(await processWith(work, newer, "a", "exit", next));
-    const newerBefore = snapshot(join(newer, ".."));
+    const newerBefore = dataFiles(join(newer, ".."));
     await expect(readDatabase(newer, ids)).rejects.toThrow(NEWER);
-    expect(snapshot(join(newer, ".."))).toEqual(newerBefore);
+    expect(dataFiles(join(newer, ".."))).toEqual(newerBefore);
   });
 
   it("refuses a WAL file it would have to recover, creating nothing", async () => {

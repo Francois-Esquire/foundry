@@ -2,6 +2,7 @@ import { isSuspendSignal } from "@foundry/workflows/executable";
 import type { RunExecutionContext } from "@foundry/workflows/orchestrator";
 import type { StepContext, StepSpec } from "@foundry/workflows/step";
 import { Step } from "@foundry/workflows/step";
+import type { RetryPolicy } from "@foundry/workflows/types";
 import { isBail } from "@foundry/workflows/types";
 
 import type { Bindings } from "./bindings";
@@ -13,6 +14,7 @@ import type {
   WorkflowRecord,
 } from "./definition";
 import { isLockedNode, rootLock } from "./definition";
+import { withinContext } from "./execution-context";
 import type { Frame, RunScope, RunScopes } from "./run-scope";
 import { current, PAUSE_KIND, raceAbort, workingDirectory } from "./run-scope";
 import { parseEvery } from "./schedule";
@@ -307,13 +309,15 @@ function materialize(
   const children = node.children.map(([childKey, child]) =>
     materialize(child, childKey, scope, bindings, path)
   );
-  const retry = node.definition.config?.retry;
+  const retry = asEngineWork(node.definition.config?.retry, bindings);
   return {
     children,
     // Retry only: the timeout is Marbles', since it must abort the body.
     ...(retry === undefined ? {} : { config: { retry } }),
     execute: (_input, ctx) =>
-      runBody(node, key, ctx as StepContext, scope, bindings),
+      withinContext(bindings.context, () =>
+        runBody(node, key, ctx as StepContext, scope, bindings)
+      ),
     // Explicit: an undefined input inherits the launcher's.
     input: node.literal,
     name: key,
@@ -338,30 +342,55 @@ export function factoryFor(
   scopes: RunScopes,
   name: string = nameOf(definition)
 ): DefinitionFactory {
-  return async (rawInput, execution) => {
+  return (rawInput, execution) => {
     const bound = bindings();
-    const input = (
-      definition.input
-        ? await validate(definition.input, rawInput ?? {}, `"${name}" input`)
-        : (rawInput ?? {})
-    ) as Input;
-    return await scopes.open(
-      execution?.runId ?? crypto.randomUUID(),
-      bound.root,
-      bound.host,
-      async (scope) =>
-        Step.create(
-          materialize(
-            stepTree(
-              await rootNode(definition, name, input, scope, bound),
-              name
-            ),
-            name,
-            scope,
-            bound
-          )
-        )
+    return withinContext(bound.context, () =>
+      openRun(definition, name, scopes, bound, rawInput, execution)
     );
+  };
+}
+
+async function openRun(
+  definition: AnyDefinition,
+  name: string,
+  scopes: RunScopes,
+  bound: Bindings,
+  rawInput: unknown,
+  execution: RunExecutionContext | undefined
+): Promise<Step<unknown, unknown>> {
+  const input = (
+    definition.input
+      ? await validate(definition.input, rawInput ?? {}, `"${name}" input`)
+      : (rawInput ?? {})
+  ) as Input;
+  return await scopes.open(
+    execution?.runId ?? crypto.randomUUID(),
+    bound.context?.cwd ?? bound.root,
+    bound.host,
+    async (scope) =>
+      Step.create(
+        materialize(
+          stepTree(await rootNode(definition, name, input, scope, bound), name),
+          name,
+          scope,
+          bound
+        )
+      )
+  );
+}
+
+function asEngineWork(
+  retry: RetryPolicy | undefined,
+  bindings: Bindings
+): RetryPolicy | undefined {
+  const decide = retry?.shouldRetry;
+  if (retry === undefined || decide === undefined) {
+    return retry;
+  }
+  return {
+    ...retry,
+    shouldRetry: (error, attempt) =>
+      withinContext(bindings.context, () => decide(error, attempt)),
   };
 }
 

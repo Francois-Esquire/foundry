@@ -2,6 +2,7 @@ import type { Log } from "~/lib/log";
 import type { TriggerStore } from "~/lib/trigger-store";
 
 import type { Exec } from "./command";
+import type { ExecutionContext } from "./execution-context";
 import type { AgentTurns } from "./managers/agents";
 import type { Catalogue } from "./managers/workspaces";
 import type { Frame, RunScope } from "./run-scope";
@@ -31,6 +32,7 @@ export interface HostBindings {
 export interface Bindings {
   readonly agents: (args: ManagerArgs) => Agents;
   readonly artifacts: (args: ManagerArgs) => Artifacts;
+  readonly context?: ExecutionContext;
   /** Commands a step body runs; real ones on the host when omitted. */
   readonly exec?: (args: ManagerArgs) => Exec;
   readonly host?: HostBindings;

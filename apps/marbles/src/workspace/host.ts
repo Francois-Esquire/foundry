@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { catalog } from "~/authoring/catalog";
+import { abandonHost, releaseEngine } from "~/authoring/runtime";
 import type { MarblesDatabase } from "~/database/open";
 import { openHostDatabase } from "~/database/workspaces";
 import type { Engine } from "~/lib/engine";
@@ -24,6 +24,7 @@ import { Diagnostics, hostOutput } from "~/workspace/diagnostics";
 import { runSchedulesUntilStopped } from "~/workspace/loop";
 import type { OpenedWorkspace } from "~/workspace/open";
 import {
+  asRegistered,
   hostEngine,
   hostTasks,
   openWorkspace,
@@ -45,10 +46,14 @@ export interface HostWorkspaceOptions {
   readonly artifacts: string;
   /** Whether something here can answer `ask`; the dashboard can. */
   readonly askable?: boolean;
+  readonly cwd?: string;
+  readonly database?: MarblesDatabase;
+  readonly directory?: string;
   /** Echo every model turn and git mutation, and persist nothing. */
   readonly dry?: boolean;
   /** What a `.env.schema` that does not resolve does; `warn` when omitted. */
   readonly env?: "require" | "warn";
+  readonly onClose?: (closing: Promise<void>) => void;
   /** Nothing is at the source: offer to create it. Resolves true once something loads there. */
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   /** Runs on the built engine before it starts: host steps registered beside the source. */
@@ -62,7 +67,6 @@ export interface HostWorkspaceOptions {
 }
 
 export interface WorkspaceHost extends WorkspaceConnection {
-  /** Stop the engine, cancelling live runs, and close what it opened. */
   close(): Promise<void>;
   /** Where the source is, or would be created. */
   readonly configPath: string;
@@ -132,18 +136,32 @@ export async function hostWorkspace(
   const hostOptions = {
     artifacts: options.artifacts,
     config: options.source,
+    ...(options.directory === undefined
+      ? {}
+      : { directory: options.directory }),
     dry: options.dry ?? false,
     state: options.state,
   };
-  const opened = await openWorkspace(hostOptions, {
+  const loaded = await openWorkspace(hostOptions, {
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     env: options.env,
     onMissing: options.onMissing,
     print,
   });
-  const database = hostOptions.dry
-    ? undefined
-    : await openHostDatabase(hostOptions.state);
+  const shared = hostOptions.dry ? undefined : options.database;
+  let own: MarblesDatabase | undefined;
   try {
+    own =
+      hostOptions.dry || shared !== undefined
+        ? undefined
+        : await openHostDatabase(hostOptions.state);
+    const database = shared ?? own;
+    const opened = await asRegistered(
+      database,
+      hostOptions,
+      loaded,
+      options.cwd
+    );
     const engine = await hostEngine(hostOptions, opened, {
       askable: options.askable,
       ...(database === undefined ? {} : { database }),
@@ -153,18 +171,24 @@ export async function hostWorkspace(
     try {
       options.prepare?.(engine);
       // Defined before the engine starts: background agent dispatch is a step.
-      const dispatches = new BackgroundRuns(engine, catalog);
+      const dispatches = new BackgroundRuns(engine, opened.catalog);
       await engine.start();
-      await touchWorkspace(database, hostOptions, opened);
+      await touchWorkspace(
+        database,
+        hostOptions,
+        opened,
+        options.cwd === undefined ? {} : { cwd: options.cwd }
+      );
       return hosted(engine, opened, dispatches, {
         captured,
-        database,
+        database: own,
         diagnostics,
         fail: (line) => {
           report(line);
           diagnostics.add(line, "error");
         },
         lastFinish: await lastFinishes(engine),
+        ...(options.onClose === undefined ? {} : { onClose: options.onClose }),
         print,
         setStatus: (line) => {
           status = line;
@@ -172,11 +196,16 @@ export async function hostWorkspace(
         status: () => status,
       });
     } catch (error) {
-      await engine.dispose();
+      try {
+        await engine.dispose();
+      } finally {
+        releaseEngine(engine);
+      }
       throw error;
     }
   } catch (error) {
-    database?.close();
+    abandonHost(loaded.workspace.id, loaded.catalog);
+    own?.close();
     throw error;
   }
 }
@@ -188,6 +217,7 @@ interface Status {
   /** An error line: the status, and an error in the Logs tab. */
   readonly fail: (line: string) => void;
   readonly lastFinish: ReadonlyMap<string, number>;
+  readonly onClose?: (closing: Promise<void>) => void;
   readonly print: (line: string) => void;
   readonly setStatus: (line: string) => void;
   readonly status: () => string;
@@ -260,12 +290,13 @@ function hosted(
     diagnostics,
     fail,
     lastFinish,
+    onClose,
     print,
     setStatus,
     status,
   }: Status
 ): WorkspaceHost {
-  const { config, configPath, workspace } = opened;
+  const { catalog, config, configPath, workspace } = opened;
   const { activities, automations } = engine;
   const tasks = hostTasks(engine);
   const startedAt = Date.now();
@@ -329,19 +360,28 @@ function hosted(
     return { lines, value };
   }
 
+  let closing: Promise<void> | undefined;
+  const shutDown = async () => {
+    try {
+      await dispatches.close();
+    } finally {
+      try {
+        await engine.dispose();
+      } finally {
+        releaseEngine(engine);
+        database?.close();
+      }
+    }
+  };
   return {
     actions,
     cancelRun: (runId) => dispatches.cancel(runId),
-    async close() {
-      try {
-        await dispatches.close();
-      } finally {
-        try {
-          await engine.dispose();
-        } finally {
-          database?.close();
-        }
+    close() {
+      if (closing === undefined) {
+        closing = shutDown();
+        onClose?.(closing);
       }
+      return closing;
     },
     config,
     configPath,

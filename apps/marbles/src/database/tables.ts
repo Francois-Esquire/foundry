@@ -9,6 +9,7 @@ import {
 
 export const marblesWorkspaces = sqliteTable("marbles_workspaces", {
   config: text(),
+  cwd: text(),
   firstSeen: text("first_seen").notNull(),
   hosted: integer({ mode: "boolean" }).notNull().default(false),
   id: text().primaryKey(),

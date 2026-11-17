@@ -22,10 +22,11 @@ import { observeAgentTurn } from "@foundry/models";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import type { Container } from "@foundry/sandbox/container/containers";
 import type { Output } from "ai";
-
 import type { AutomationService } from "~/lib/automation/service";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import { DIRECT_HARNESS, harnessOf, isCliHarness } from "~/lib/cli-harnesses";
+import type { ExecutionContext } from "~/lib/execution-context";
+import { withinContext } from "~/lib/execution-context";
 import type { ExecutionObservation } from "~/lib/executions";
 import type { RecordObservation } from "~/lib/observations";
 import { composeObservers, runTurnObserver } from "~/lib/observations";
@@ -97,6 +98,8 @@ export interface AgentsDeps {
   readonly automations: AutomationService;
   /** The container behind a sandbox handle; a sandbox session's harness runs in it. */
   readonly containerOf: (sandbox: SandboxHandle) => Container;
+  readonly context?: ExecutionContext;
+  readonly cwd: string;
   /** The route when an agent names neither model nor provider. */
   readonly defaultExecutor: () => TurnExecutorRef;
   /** Simulation uses echo models and never prepares a guest or reads credentials. */
@@ -125,8 +128,6 @@ export interface AgentsDeps {
   readonly observe?: (runId: string, observation: ExecutionObservation) => void;
   /** Throws when no provider is configured at all, with how to configure one. */
   readonly requireProviders?: () => void;
-  /** The workspace root: where a session opened outside a step works. */
-  readonly root: string;
   readonly sessions: SessionStore;
   readonly skills: (set?: SkillSet) => Promise<Skill[]>;
   /** Where each turn inside a run records what it consumed; nothing is recorded without it. */
@@ -847,6 +848,28 @@ async function openSession<OUTPUT extends Output.Output>(
   agent: AgentLike<OUTPUT>,
   options: SessionOptions
 ): Promise<Session<OUTPUT>> {
+  const { context } = deps;
+  const session = await withinContext(context, () =>
+    openUnentered(deps, site, agent, options)
+  );
+  if (context === undefined) {
+    return session;
+  }
+  return {
+    ...session,
+    generate: (input, turn) =>
+      withinContext(context, () => session.generate(input, turn)),
+    stream: (input, turn) =>
+      withinContext(context, () => session.stream(input, turn)),
+  };
+}
+
+async function openUnentered<OUTPUT extends Output.Output>(
+  deps: AgentsDeps,
+  site: SessionSite,
+  agent: AgentLike<OUTPUT>,
+  options: SessionOptions
+): Promise<Session<OUTPUT>> {
   const recordedOn = site.recorded?.provider;
   const input = sessionInput(
     agent,
@@ -1209,7 +1232,7 @@ export class AgentsManager implements Agents {
             definition.id
           )
         ),
-        cwd: this.#deps.root,
+        cwd: this.#deps.cwd,
         ...this.#observing(run.id),
         retain: (closable) => run.retain(closable),
         signal: run.signal,
@@ -1328,7 +1351,7 @@ export class AgentsManager implements Agents {
   ): SessionSite {
     return {
       consume: consumer(this.#deps, { agentId: definition.id }),
-      cwd: this.#deps.root,
+      cwd: this.#deps.cwd,
       record: () => undefined,
       retain,
       signal: () => this.#closing.signal,

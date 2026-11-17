@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { canonicalizeJson } from "@foundry/lib/json";
 import type { Output } from "ai";
-import { catalog } from "~/authoring/catalog";
 import type { AgentDeclaration, DefineAgent } from "~/authoring/instances";
 import {
   agentInstance,
@@ -10,6 +9,7 @@ import {
   sandboxInstance,
   workspaceInstance,
 } from "~/authoring/instances";
+import { declaringCatalog } from "~/authoring/runtime";
 import type {
   Agent,
   ArtifactInstance,
@@ -53,7 +53,7 @@ function claimAgentId(
     name ??
     (site === undefined ? undefined : bindingAt(site)) ??
     `agent-${digest.slice(0, 16)}`;
-  catalog.claimAgent(id, digest, site && originOf(site), define);
+  declaringCatalog().claimAgent(id, digest, site && originOf(site), define);
   return id;
 }
 
@@ -71,7 +71,7 @@ function agentFromFunction<OUTPUT extends Output.Output, INPUT>(
     route: {},
     settings: [],
   });
-  catalog.agents.set(
+  declaringCatalog().agents.set(
     id,
     definition as unknown as DeferredAgent<Output.Output, unknown>
   );
@@ -103,7 +103,7 @@ export function agent<OUTPUT extends Output.Output = never, INPUT = undefined>(
     .digest("hex");
   const id = claimAgentId(name, digest);
   const definition = agentInstance<OUTPUT>({ id, kind: "agent", ...rest });
-  catalog.agents.set(id, definition as Agent<Output.Output>);
+  declaringCatalog().agents.set(id, definition as Agent<Output.Output>);
   return definition;
 }
 
@@ -111,9 +111,10 @@ export function workspace(spec: { readonly path: string }): WorkspaceInstance {
   if (!spec.path.trim()) {
     throw new Error("workspace(): a path is required");
   }
-  catalog.workspaces.add(spec.path);
+  const into = declaringCatalog();
+  into.workspaces.add(spec.path);
   return workspaceInstance({
-    id: catalog.claimId("workspace"),
+    id: into.claimId("workspace"),
     kind: "workspace",
     path: spec.path,
   });
@@ -124,7 +125,7 @@ export function sandbox(spec: SandboxSpec): SandboxInstance {
     throw new Error("sandbox({ files }): give it at least one file");
   }
   return sandboxInstance({
-    id: catalog.claimId("sandbox"),
+    id: declaringCatalog().claimId("sandbox"),
     kind: "sandbox",
     ...spec,
   });
@@ -138,7 +139,7 @@ export function artifact(spec: {
     throw new Error("artifact(): a name and a type are required");
   }
   return artifactInstance({
-    id: catalog.claimId("artifact"),
+    id: declaringCatalog().claimId("artifact"),
     kind: "artifact",
     ...spec,
   });

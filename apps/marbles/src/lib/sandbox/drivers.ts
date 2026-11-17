@@ -25,7 +25,7 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
     );
     return createClaudeCodeDriver({
       agentId: settings.agentId,
-      cwd: settings.hostCwd ?? process.cwd(),
+      cwd: settings.hostCwd,
       modelId: settings.modelId,
       settings: {
         env: { ...guest.environment },

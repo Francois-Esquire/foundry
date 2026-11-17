@@ -40,6 +40,7 @@ import { watchSource } from "~/workspace/watch";
 interface WorkerArgs {
   readonly artifacts: string;
   readonly dry: boolean;
+  readonly root: string;
   /** A starter the client just wrote: post its milestone once the engine runs. */
   readonly setup?: SetupDraft;
   /** The daemon's socket, and what to say on it. */
@@ -75,6 +76,7 @@ function parseWorkerArgs(argv: readonly string[]): WorkerArgs {
   return {
     artifacts,
     dry,
+    root: required("root"),
     ...(setup === undefined ? {} : { setup: JSON.parse(setup) as SetupDraft }),
     socket: required("socket"),
     source: required("source"),
@@ -242,6 +244,7 @@ async function main(): Promise<void> {
   hosting = hostWorkspace({
     artifacts: args.artifacts,
     askable: true,
+    directory: args.root,
     dry: args.dry,
     prepare(engine: Engine) {
       registerSetupStep(engine);

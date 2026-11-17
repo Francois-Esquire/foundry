@@ -37,6 +37,7 @@ describe("WorkspaceRegistry", () => {
     await registry.touch(workspace, join(root, "marbles.config.ts"));
     expect(await registry.read(workspace.id)).toEqual({
       config: join(root, "marbles.config.ts"),
+      cwd: workspace.root,
       firstSeen: "2026-11-01T00:00:00.000Z",
       hosted: false,
       id: workspace.id,
@@ -51,6 +52,19 @@ describe("WorkspaceRegistry", () => {
       firstSeen: "2026-11-01T00:00:00.000Z",
       lastSeen: "2026-11-02T00:00:00.000Z",
     });
+  });
+
+  it("registers where a workspace's work starts, its root unless given", async () => {
+    const root = scratch("marbles-ws-");
+    const workspace = workspaceState(state, root);
+    const elsewhere = scratch("marbles-cwd-");
+    await registry.touch(workspace, null, { cwd: elsewhere });
+    expect((await registry.read(workspace.id))?.cwd).toBe(elsewhere);
+    await registry.touch(workspace, null, { cwd: workspace.root });
+    expect((await registry.read(workspace.id))?.cwd).toBe(workspace.root);
+    expect((await registry.list()).map((record) => record.cwd)).toEqual([
+      workspace.root,
+    ]);
   });
 
   it("keeps whether the process hosts a workspace unless told", async () => {

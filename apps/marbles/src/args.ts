@@ -478,6 +478,7 @@ function isCommand(name: string): name is Command {
 }
 
 export interface Flags extends HostOptions {
+  readonly directory: string;
   readonly inputJson: string | undefined;
 }
 
@@ -536,6 +537,7 @@ function parseFlags(argv: readonly string[]): {
   const flags = {
     artifacts,
     config: values.config ?? DEFAULT_SOURCE,
+    directory: process.cwd(),
     dry,
     inputJson: values.inputJson,
     state,

@@ -39,6 +39,7 @@ export interface CommandSite {
   readonly cwd: () => string;
   /** Print instead of run. */
   readonly dry: boolean;
+  readonly environment?: Readonly<Record<string, string>>;
   readonly print: (line: string) => void;
   readonly signal: () => AbortSignal | undefined;
   readonly write?: (value: unknown) => void;
@@ -79,7 +80,7 @@ function onHost(
       {
         cwd: options.cwd ?? site.cwd(),
         encoding: "utf8",
-        env: { ...process.env, ...options.environment },
+        env: { ...(site.environment ?? process.env), ...options.environment },
         maxBuffer: MAX_BUFFER,
         ...(signal ? { signal } : {}),
       },

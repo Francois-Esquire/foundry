@@ -10,3 +10,10 @@ export function environmentSnapshot(
   }
   return snapshot;
 }
+
+export function executionEnvironment(environment: {
+  readonly machine: Readonly<Record<string, string>>;
+  readonly workspace: Readonly<Record<string, string>>;
+}): Record<string, string> {
+  return { ...environment.workspace, ...environment.machine };
+}

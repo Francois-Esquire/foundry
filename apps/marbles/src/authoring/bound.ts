@@ -1,0 +1,62 @@
+import { step, workflow } from "~/authoring/builder";
+import { observe } from "~/authoring/observe";
+import { agent, artifact, sandbox, workspace } from "~/authoring/resources";
+import { inLoad } from "~/authoring/runtime";
+import { tasksOfLoad } from "~/authoring/tasks";
+import { monitor, schedule } from "~/authoring/triggers";
+
+function isClass(value: unknown): boolean {
+  return (
+    typeof value === "function" &&
+    Function.prototype.toString.call(value).startsWith("class")
+  );
+}
+
+export const WORDS: ReadonlySet<unknown> = new Set([
+  agent,
+  artifact,
+  monitor,
+  observe,
+  sandbox,
+  schedule,
+  step,
+  workflow,
+  workspace,
+]);
+
+function bind(word: (...args: never[]) => unknown, load: number): unknown {
+  return (...args: never[]) => inLoad(load, () => word(...args));
+}
+
+export function libraryOfLoad(
+  library: Readonly<Record<string, unknown>>,
+  load: number
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(library).map(([key, value]) => {
+      if (key === "tasks") {
+        return [key, tasksOfLoad(load)];
+      }
+      return [
+        key,
+        WORDS.has(value)
+          ? bind(value as (...args: never[]) => unknown, load)
+          : value,
+      ];
+    })
+  );
+}
+
+export function prebuiltOfLoad(
+  prebuilt: Readonly<Record<string, unknown>>,
+  load: number
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(prebuilt).map(([key, value]) => [
+      key,
+      typeof value === "function" && !isClass(value)
+        ? bind(value as (...args: never[]) => unknown, load)
+        : value,
+    ])
+  );
+}
