@@ -100,11 +100,11 @@ export type {
 } from "./monitor";
 export type { DefinitionEntry, MonitorRecord } from "./registry";
 export type { ReadonlyRunScopes, RunScope } from "./run-scope";
+export { TERMINAL_RUN_STATUSES } from "./run-store";
 export type { ActivityRecord, HarnessActivities } from "./sandbox/activities";
 export type { HarnessInteractions } from "./sandbox/interactions";
 export type { SandboxAuthority } from "./sandbox/session";
 export type { HeldLock, Lock } from "./state/locks";
-export { TERMINAL_RUN_STATUSES } from "./state/runs";
 export type { CalendarSlot, Schedule, Trigger, Weekday } from "./triggers";
 export type {
   AgentDefinition,

@@ -4,16 +4,6 @@ import { join } from "node:path";
 import type { FileLockHolder } from "@foundry/lib/file-lock";
 import { processAlive, tryFileLock } from "@foundry/lib/file-lock";
 
-/**
- * `<dir>/locks/<name>` holds the pid of the process that has it, so a
- * schedule tick that lands while the previous one is still going skips rather
- * than doubles up, and two processes never adopt one parked run. It is the
- * `@foundry/lib/file-lock` protocol taken without waiting: a lock whose
- * holder has exited, or that stayed empty for 30s (its creator died before
- * writing its pid), is broken and taken over, one breaker at a time through
- * `<name>.break`. A file that is neither a pid nor empty is never broken.
- */
-
 export const PROCESS_LOCK = "process";
 
 export interface Lock {
@@ -51,17 +41,4 @@ function describeHolder(
   // Only while another process has the turn to break it, or a crashed one
   // left that turn behind.
   return `pid ${String(holder)}, which has exited (if no process is taking the lock over, remove ${path}.break)`;
-}
-
-/** Schedule locks have their own namespace, separate from recovery and record edits. */
-const SCHEDULE_PREFIX = "schedule:";
-
-export function scheduleLockName(key: string): string {
-  return `${SCHEDULE_PREFIX}${key}`;
-}
-
-export function scheduleKeyOfLock(name: string): string | undefined {
-  return name.startsWith(SCHEDULE_PREFIX)
-    ? name.slice(SCHEDULE_PREFIX.length)
-    : undefined;
 }

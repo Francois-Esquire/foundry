@@ -89,8 +89,9 @@ const USAGE = `marbles — programmable workspace automation
 One Marbles process per machine hosts every attached workspace, each in a worker
 of its own, and keeps their triggers running after the dashboard closes; run and
 roll start it when none runs. Each workspace (the project above .foundry/marbles)
-gets <state>/<id>/ holding runs/, output/, schedules/ and locks/, and its record,
-tasks and agent sessions in <state>/marbles.db. Feed entries from every workspace share the artifact store. --dry-run
+gets <state>/<id>/ holding output/, executions/, automations/, usage/ and locks/,
+and its record, tasks, agent sessions, workflow runs and trigger state in
+<state>/marbles.db. Feed entries from every workspace share the artifact store. --dry-run
 hosts the workspace in this process instead, persists nothing, and echoes every
 model turn and git mutation; custom code still runs.
 

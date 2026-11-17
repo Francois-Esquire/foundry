@@ -6,6 +6,7 @@ import {
   openSync,
   readdirSync,
   readSync,
+  rmSync,
 } from "node:fs";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -34,6 +35,10 @@ const outputRecordSchema = z.discriminatedUnion("type", [
 ]);
 
 export type OutputRecord = z.infer<typeof outputRecordSchema>;
+
+export function removeRunOutput(state: string, runId: string): void {
+  rmSync(outputPath(state, runId), { force: true });
+}
 
 /** Append-only output for a read-only watcher in another process. */
 export class RunOutput {

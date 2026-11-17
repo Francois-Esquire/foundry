@@ -19,6 +19,7 @@ import { Catalog } from "~/authoring/catalog";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { defaultWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
+import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import type { WorkspaceStores } from "~/database/stores";
 import {
@@ -27,6 +28,7 @@ import {
   workspaceStores,
 } from "~/database/stores";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
+import { DatabaseTriggerStore } from "~/database/triggers";
 import { Engine as PublishedEngine } from "~/entries/engine";
 import { layout } from "~/layout";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
@@ -262,21 +264,29 @@ function recordsFor(
   state: string | undefined,
   database: StoreDatabase | undefined,
   { root, workspaceId }: CreateEngineOptions
-): Pick<EngineOptions, "records" | "sessions"> & {
+): Pick<EngineOptions, "records" | "runs" | "sessions" | "triggers"> & {
   readonly own?: WorkspaceDatabase;
 } {
   if (database !== undefined) {
     const scope = workspaceId;
     return {
       records: new DatabaseWorkspaceRecords({ database, scope }),
+      runs: new DatabaseRunStore({ database, scope }),
       sessions: new DatabaseSessionStore({ database, scope }),
+      triggers: new DatabaseTriggerStore({ database, scope }),
     };
   }
   if (state === undefined) {
     return { sessions: new InMemorySessionStore() };
   }
   const own = defaultWorkspaceDatabase(state, root, workspaceId);
-  return { own, records: own.records, sessions: own.sessions };
+  return {
+    own,
+    records: own.records,
+    runs: own.runs,
+    sessions: own.sessions,
+    triggers: own.triggers,
+  };
 }
 
 class OwnDatabaseEngine extends PublishedEngine {

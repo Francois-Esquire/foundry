@@ -1,13 +1,13 @@
-import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { lockHolder, processAlive } from "@foundry/lib/file-lock";
+import { processAlive } from "@foundry/lib/file-lock";
+import type { StoredRun } from "~/database/runs";
+import { readStoredRuns } from "~/database/runs";
 import { sessionCounts } from "~/database/sessions";
+import type { StoredTick } from "~/database/triggers";
+import { readStoredTicks } from "~/database/triggers";
 import { recordedWorkspaces } from "~/database/workspaces";
-
-import { isRecord, readJson } from "~/lib/state/json";
-import { scheduleKeyOfLock } from "~/lib/state/locks";
-import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
+import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import type { WorkspaceRecord } from "~/lib/state/workspace";
 import type { ProcessHost, ProcessStatus } from "~/process/instance";
 import { readProcess } from "~/process/instance";
@@ -70,11 +70,15 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
   return {
     process: readProcess(stateRoot) ?? null,
     root: stateRoot,
-    workspaces: records.map((record) =>
-      readWorkspaceStatus(
-        join(stateRoot, record.id),
-        record,
-        sessions.get(record.id) ?? 0
+    workspaces: await Promise.all(
+      records.map(async (record) =>
+        readWorkspaceStatus(
+          join(stateRoot, record.id),
+          record,
+          sessions.get(record.id) ?? 0,
+          await readStoredRuns(stateRoot, record.id),
+          await readStoredTicks(stateRoot, record.id)
+        )
       )
     ),
   };
@@ -83,7 +87,9 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
 function readWorkspaceStatus(
   dir: string,
   record: WorkspaceRecord,
-  sessions: number
+  sessions: number,
+  runs: readonly StoredRun[],
+  ticks: readonly StoredTick[]
 ): WorkspaceStatus {
   const owner = readProcess(dir);
   return {
@@ -95,93 +101,37 @@ function readWorkspaceStatus(
     lastSeen: record.lastSeen,
     pid: owner?.pid ?? null,
     root: record.root,
-    runs: readRuns(join(dir, "runs")),
-    schedules: readSchedules(dir),
+    runs: runsStatus(runs),
+    schedules: ticks.map(scheduleStatus),
     sessions,
   };
 }
 
-function readSchedules(dir: string): ScheduleStatus[] {
-  const locks = join(dir, "locks");
-  const running = new Map<string, number>();
-  for (const name of listFiles(locks)) {
-    const key = scheduleKeyOfLock(name);
-    if (key === undefined) {
-      continue;
-    }
-    const holder = lockHolder(join(locks, name));
-    if (holder !== undefined && processAlive(holder)) {
-      running.set(key, holder);
-    }
-  }
-  const names = new Set([
-    ...jsonFiles(join(dir, "schedules")).map((file) => file.slice(0, -5)),
-    ...running.keys(),
-  ]);
-  return [...names].sort().map((name) => {
-    const history = readJson(join(dir, "schedules", `${name}.json`));
-    const field = (key: string) =>
-      isRecord(history) && typeof history[key] === "string"
-        ? history[key]
-        : null;
-    return {
-      key: name,
-      kind: field("kind") === "monitor" ? "monitor" : null,
-      lastFinish: field("lastFinish"),
-      lastStatus: field("lastStatus"),
-      // Older history files carry no label; the key is the filename.
-      name: field("label") ?? name,
-      nextDue: field("nextDue"),
-      running: running.get(name) ?? null,
-    };
-  });
-}
-
-function readRuns(dir: string): RunsStatus {
-  const runs = jsonFiles(dir)
-    .map((file) => readRun(join(dir, file)))
-    .filter((run) => run !== undefined)
-    .sort((a, b) => b.createdAt - a.createdAt);
-  return { recent: runs.slice(0, RECENT), total: runs.length };
-}
-
-function readRun(path: string): RunSummary | undefined {
-  const file = readJson(path);
-  if (!(isRecord(file) && isRecord(file.run))) {
-    return undefined;
-  }
-  const { run } = file;
-  if (
-    typeof run.id !== "string" ||
-    typeof run.step !== "string" ||
-    typeof run.status !== "string" ||
-    !isRecord(run.timestamps) ||
-    typeof run.timestamps.createdAt !== "number"
-  ) {
-    return undefined;
-  }
-  const owner = typeof file.pid === "number" ? file.pid : undefined;
+function scheduleStatus({ key, last, running }: StoredTick): ScheduleStatus {
   return {
-    createdAt: run.timestamps.createdAt,
-    id: run.id,
-    orphaned:
-      !TERMINAL_RUN_STATUSES.has(run.status) &&
-      (owner === undefined || !processAlive(owner)),
-    status: run.status,
-    step: run.step,
+    key,
+    kind: last?.kind === "monitor" ? "monitor" : null,
+    lastFinish: last?.lastFinish ?? null,
+    lastStatus: last?.lastStatus ?? null,
+    name: last?.label ?? key,
+    nextDue: last?.nextDue ?? null,
+    running,
   };
 }
 
-function listFiles(dir: string): string[] {
-  if (!existsSync(dir)) {
-    return [];
-  }
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name)
-    .sort();
-}
-
-function jsonFiles(dir: string): string[] {
-  return listFiles(dir).filter((name) => name.endsWith(".json"));
+function runsStatus(stored: readonly StoredRun[]): RunsStatus {
+  const runs = stored
+    .map(
+      (run): RunSummary => ({
+        createdAt: run.createdAt,
+        id: run.id,
+        orphaned:
+          !TERMINAL_RUN_STATUSES.has(run.status) &&
+          (run.owner === null || !processAlive(run.owner)),
+        status: run.status,
+        step: run.step,
+      })
+    )
+    .sort((a, b) => b.createdAt - a.createdAt);
+  return { recent: runs.slice(0, RECENT), total: runs.length };
 }

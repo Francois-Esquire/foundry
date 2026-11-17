@@ -7,6 +7,7 @@ import type { ContainerStore } from "@foundry/sandbox/store";
 import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
 import { SqliteWorkspaceStore } from "@foundry/workspaces/store/sqlite";
+import { surfacingBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
@@ -22,9 +23,9 @@ export function workspaceStores(
   scope: string
 ): WorkspaceStores {
   return {
-    artifacts: new SqliteArtifactStore({ database, scope }),
-    containers: createSqliteContainerStore({ database, scope }),
-    workspaces: new SqliteWorkspaceStore({ database, scope }),
+    artifacts: surfacingBusy(new SqliteArtifactStore({ database, scope })),
+    containers: surfacingBusy(createSqliteContainerStore({ database, scope })),
+    workspaces: surfacingBusy(new SqliteWorkspaceStore({ database, scope })),
   };
 }
 

@@ -53,6 +53,9 @@ export type {
 } from "./executions";
 export { DEFAULT_QUEUE } from "./executions";
 export type { Launched, LaunchOptions } from "./launcher";
+export type { RecordedScope } from "./run-scope";
+export type { RunStore, StoredScope } from "./run-store";
+export { MemoryRunStore } from "./run-store";
 export type { JsonSessionStoreOptions } from "./sessions/json-store";
 export { JsonSessionStore } from "./sessions/json-store";
 export type {
@@ -62,6 +65,13 @@ export type {
 } from "./state/store";
 export { InMemoryStateStore, JsonStateStore } from "./state/store";
 export type { TaskContext, TaskDefinition, TaskObservation } from "./tasks";
+export type {
+  MonitorState,
+  ScheduleHistory,
+  TickClaim,
+  TriggerStore,
+} from "./trigger-store";
+export { MemoryTriggerStore } from "./trigger-store";
 export type {
   AgentDefinition,
   Agents,
