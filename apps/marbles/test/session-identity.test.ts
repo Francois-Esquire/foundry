@@ -9,7 +9,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
-import { stateProviders } from "~/database/providers";
+import { DatabaseProviderStore } from "~/database/providers";
 import { marblesIdentityKeys } from "~/database/tables";
 import { writeAsHost } from "~/database/workspaces";
 import { registered } from "~/lib/providers/plugins";
@@ -77,7 +77,7 @@ async function write(
   extra: object = {}
 ): Promise<void> {
   const configuration = { providers, version: 1, ...extra } as never;
-  await stateProviders(state).update("ws1", () =>
+  await DatabaseProviderStore.forState(state).update("ws1", () =>
     scope === "machine"
       ? { machine: configuration }
       : { workspace: configuration }

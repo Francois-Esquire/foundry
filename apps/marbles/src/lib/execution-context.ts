@@ -5,6 +5,7 @@ import { current } from "./run-scope";
 export interface ExecutionContext {
   readonly cwd: string;
   readonly environment: Readonly<Record<string, string>>;
+  readonly spawned?: string;
   readonly workspaceId: string;
 }
 
