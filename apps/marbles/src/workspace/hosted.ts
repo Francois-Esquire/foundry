@@ -346,6 +346,10 @@ export class HostedWorkspaces {
     if (this.#phase === "closed") {
       return Promise.reject(new Error("these hosted workspaces are closed"));
     }
+    const underway = this.#unregistering.get(id);
+    if (underway !== undefined) {
+      return underway;
+    }
     const unregistering = this.#track(this.#unregister(id));
     this.#unregistering.set(id, unregistering);
     const forget = () => {
