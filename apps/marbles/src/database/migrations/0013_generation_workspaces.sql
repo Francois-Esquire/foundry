@@ -1,1 +1,0 @@
-ALTER TABLE `marbles_generations` ADD `workspaces` text DEFAULT '[]' NOT NULL;
