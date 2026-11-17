@@ -358,15 +358,16 @@ async function answerDeferredApproval(
   approvalId: string,
   resolution: ApprovalResolution
 ): Promise<void> {
-  const recorded = await new Sessions({
-    store: settings.store,
-  }).appendMessageIf(
+  const sessions = new Sessions({ store: settings.store });
+  const recorded = await sessions.appendMessageIf(
     {
       parts: [
         {
           approvalId,
           approved: resolution.approved,
-          reason: resolution.approved ? undefined : resolution.reason,
+          ...(resolution.approved
+            ? { granted: false }
+            : { reason: resolution.reason }),
           scope: responseScope(resolution),
           type: "tool_approval_response",
         },
@@ -376,20 +377,61 @@ async function answerDeferredApproval(
     },
     (history) => storedResponse(history, approvalId) === undefined
   );
-  if (recorded === undefined) {
-    const stored = storedResponse(
-      await settings.store.listMessages(sessionId),
-      approvalId
-    );
-    if (!(stored && sameAnswer(stored, resolution))) {
-      throw alreadyAnswered(approvalId);
-    }
-    if (
-      resolution.approved &&
-      (await settings.policy.decide(auth)).kind === "allow"
-    ) {
-      return;
+  if (recorded !== undefined) {
+    await grantAnswer(settings, sessions, recorded, auth, resolution);
+    return;
+  }
+  const answer = storedAnswer(
+    await settings.store.listMessages(sessionId),
+    approvalId
+  );
+  if (!(answer && sameAnswer(answer.response, resolution))) {
+    throw alreadyAnswered(approvalId);
+  }
+  if (answer.response.granted !== false) {
+    return;
+  }
+  if ((await settings.policy.decide(auth)).kind === "allow") {
+    await markGranted(sessions, answer.message);
+    return;
+  }
+  await grantAnswer(settings, sessions, answer.message, auth, resolution);
+}
+
+async function grantAnswer(
+  settings: Pick<HarnessAuthoritySettings, "policy">,
+  sessions: Sessions,
+  message: SessionMessage,
+  auth: AgentAuthorizationRequest,
+  resolution: ApprovalResolution
+): Promise<void> {
+  const decision = await settings.policy.resolveApproval(auth, resolution);
+  if (resolution.approved && decision.kind === "allow") {
+    await markGranted(sessions, message);
+  }
+}
+
+async function markGranted(
+  sessions: Sessions,
+  message: SessionMessage
+): Promise<void> {
+  await sessions.updateMessage(message.id, {
+    parts: message.parts.map((part) =>
+      part.type === "tool_approval_response" ? { ...part, granted: true } : part
+    ),
+  });
+}
+
+function storedAnswer(
+  history: readonly SessionMessage[],
+  approvalId: string
+):
+  | { readonly message: SessionMessage; readonly response: ApprovalResponse }
+  | undefined {
+  for (const message of history) {
+    const response = storedResponse([message], approvalId);
+    if (response !== undefined) {
+      return { message, response };
     }
   }
-  await settings.policy.resolveApproval(auth, resolution);
 }
