@@ -245,6 +245,9 @@ export function buildContext<I>({
           : { environment: bindings.context.environment }),
         print: (line) => bindings.log.info(line),
         signal: () => frame.signal,
+        ...(bindings.context?.spawned === undefined
+          ? {}
+          : { spawned: bindings.context.spawned }),
         write,
       }),
     input,
