@@ -55,6 +55,11 @@ interface Failure {
   readonly message?: string;
 }
 
+interface Known {
+  readonly complete: boolean;
+  readonly run: ExecutionRun;
+}
+
 const UNSETTLED: readonly ExecutionStatus[] = EXECUTION_STATUSES.filter(
   (status) => !SETTLED_EXECUTION_STATUSES.has(status)
 );
@@ -98,6 +103,7 @@ export class ExecutionRecords {
   readonly #store: ExecutionStore;
   readonly #warn: (line: string) => void;
   readonly #records = new Map<string, ExecutionRun>();
+  readonly #unread = new Set<string>();
   readonly #listeners = new Set<(run: ExecutionRun) => void>();
   readonly #removed: (run: ExecutionRun) => Promise<void> | void;
   readonly #runs: Pick<RunStore, "claim" | "release"> | undefined;
@@ -154,7 +160,7 @@ export class ExecutionRecords {
     for (const candidate of candidates) {
       const run = this.#parse(await this.#store.get(candidate.id));
       if (run === undefined) {
-        this.#records.delete(candidate.id);
+        this.#forget(candidate.id);
         continue;
       }
       if (!SETTLED_EXECUTION_STATUSES.has(run.status)) {
@@ -178,7 +184,7 @@ export class ExecutionRecords {
     );
     this.#gaps = gaps;
     for (const run of removed) {
-      this.#records.delete(run.id);
+      this.#forget(run.id);
     }
     return removed;
   }
@@ -200,6 +206,7 @@ export class ExecutionRecords {
     this.#gaps = gapsOf(await this.#store.gaps());
     for (const run of await this.#stored()) {
       this.#records.set(run.id, run);
+      this.#unread.delete(run.id);
       this.#sequence = Math.max(this.#sequence, run.sequence);
     }
   }
@@ -249,7 +256,7 @@ export class ExecutionRecords {
     }
     for (const [id, local] of this.#records) {
       if (!(seen.has(id) || ownedHere(local))) {
-        this.#records.delete(id);
+        this.#forget(id);
       }
     }
   }
@@ -774,22 +781,28 @@ export class ExecutionRecords {
       observations: observations ?? local?.observations ?? [],
       value: written.record,
     });
-    const current =
-      observations === undefined && run && revealsUnread(written, run, local)
+    if (run === undefined) {
+      return;
+    }
+    const known =
+      observations === undefined && revealsUnread(written, run, local)
         ? await this.#reread(run)
-        : run;
-    this.#learn(current);
-    return current;
+        : { complete: !this.#unread.has(id), run };
+    this.#learn(known.run, known.complete);
+    return known.run;
   }
 
-  async #reread(run: ExecutionRun): Promise<ExecutionRun> {
+  async #reread(run: ExecutionRun): Promise<Known> {
     try {
-      return this.#parse(await this.#store.get(run.id)) ?? run;
+      return {
+        complete: true,
+        run: this.#parse(await this.#store.get(run.id)) ?? run,
+      };
     } catch (error) {
       this.#warn(
         `[state] execution ${run.id} not read back after a write: ${String(error)}`
       );
-      return run;
+      return { complete: false, run };
     }
   }
 
@@ -799,14 +812,29 @@ export class ExecutionRecords {
     return landing;
   }
 
-  #learn(stored: ExecutionRun | undefined): void {
+  #learn(stored: ExecutionRun | undefined, complete = true): void {
     if (stored === undefined) {
       return;
     }
     const local = this.#records.get(stored.id);
-    if (!local || stored.revision > local.revision) {
-      this.#publish(stored);
+    const replaces =
+      !local ||
+      stored.revision > local.revision ||
+      (stored.revision === local.revision && this.#unread.has(stored.id));
+    if (!replaces) {
+      return;
     }
+    if (complete) {
+      this.#unread.delete(stored.id);
+    } else {
+      this.#unread.add(stored.id);
+    }
+    this.#publish(stored);
+  }
+
+  #forget(id: string): void {
+    this.#records.delete(id);
+    this.#unread.delete(id);
   }
 
   #publish(run: ExecutionRun): void {
