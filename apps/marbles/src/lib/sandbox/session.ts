@@ -12,7 +12,7 @@ import {
   createHarnessPermission,
   createHarnessQuestionTool,
 } from "@foundry/agents/harness";
-import type { SessionStore } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
 import type { Container } from "@foundry/sandbox/container/containers";
 import type { Tool, ToolSet } from "ai";
 import { type CliHarness, isCliHarness } from "~/lib/cli-harnesses";

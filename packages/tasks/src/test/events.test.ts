@@ -1,24 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { TaskError } from "../errors";
-import type { TaskSnapshot, TaskStore, TaskStoreWrite } from "../store";
-import { MemoryTaskStore } from "../store";
+import type { TaskSnapshot, TaskStore, TaskStoreWrite } from "../store/index";
+import { MemoryTaskStore } from "../store/memory";
 import { Tasks } from "../tasks";
-import type { TaskEvent } from "../types";
+import { RecordingStore } from "./helpers/recording-store";
 
 const clock = () => new Date("2026-10-29T00:00:00.000Z");
-
-class RecordingStore extends MemoryTaskStore {
-  readonly writes: TaskStoreWrite[] = [];
-
-  override commit(write: TaskStoreWrite): Promise<void> {
-    this.writes.push(structuredClone(write));
-    return super.commit(write);
-  }
-
-  events(): TaskEvent[] {
-    return this.writes.flatMap((write) => (write.event ? [write.event] : []));
-  }
-}
 
 function recorded(): { store: RecordingStore; tasks: Tasks } {
   const store = new RecordingStore();

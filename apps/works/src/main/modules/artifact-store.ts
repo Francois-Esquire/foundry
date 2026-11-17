@@ -1,12 +1,9 @@
-import {
-  ArtifactManager,
-  type ArtifactStore,
-  type BlobFiles,
-} from "@foundry/artifacts";
+import { ArtifactManager, type BlobFiles } from "@foundry/artifacts";
+import type { ArtifactStore } from "@foundry/artifacts/store";
 import {
   type ArtifactModuleStore,
   createArtifactModuleStore,
-} from "@foundry/modules/store/artifact";
+} from "./store/artifact";
 
 export interface ModulePersistence {
   /** The one manager: library saves, releases, Installations and Grants share its transactions. */

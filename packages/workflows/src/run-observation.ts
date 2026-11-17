@@ -1,6 +1,7 @@
 import { RunNotFoundError, RunReplayGapError } from "./errors";
-import type { RunFrame, RunFramePayload } from "./execution-records";
-import type { JsonValue, OrchestratorStore } from "./store";
+import type { OrchestratorStore } from "./execution-coordinator";
+import type { JsonValue } from "./json-value";
+import type { RunFrame, RunFramePayload } from "./schema";
 
 /** Named temporary retention policy for the platform proof. */
 export const RUN_FRAME_RETENTION_POLICY = "retain-all-proof" as const;

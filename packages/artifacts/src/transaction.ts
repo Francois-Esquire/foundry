@@ -4,8 +4,11 @@ import type { StorageNode } from "@foundry/core/storage";
 import { isStoragePath, withParentDirectories } from "@foundry/core/storage";
 
 import type { Blob, BlobFiles, ContentTree, StoredFile } from "./blob";
-import type { BlobEffects, ByteInput } from "./blob-repository";
-import { BlobRepository, isReferenceInput } from "./blob-repository";
+import type { BlobEffects } from "./blob-repository";
+import { BlobRepository } from "./blob-repository";
+import type { ByteInput, Ownership } from "./blob-staging";
+import { BlobStaging, isReferenceInput } from "./blob-staging";
+import type { ArtifactChange } from "./change";
 import type { ContentMetadata } from "./content";
 import {
   assertJsonMetadata,
@@ -20,7 +23,6 @@ import {
 import {
   ArtifactExistsError,
   ArtifactNotFoundError,
-  ContentInUseError,
   ContentNotFoundError,
   ContentStateError,
   DuplicateTagError,
@@ -31,7 +33,6 @@ import {
 import type { ArtifactCursor } from "./listing";
 import type { ArtifactId, BlobId, ContentId } from "./ref";
 import { artifactIdSchema, contentIdSchema } from "./ref";
-import type { ArtifactStoreTransaction } from "./store";
 import type {
   Artifact,
   ArtifactOperations,
@@ -41,6 +42,7 @@ import type {
   ContentSummary,
   CreateArtifactInput,
   EntryInput,
+  EntryInputs,
   FileRangeResolved,
   FileResolved,
   FreezeOption,
@@ -55,13 +57,11 @@ import type {
 /** What one operation changed, settled by the manager after commit or rollback. */
 export interface OperationEffects extends BlobEffects {
   readonly changed: Set<ArtifactId>;
-  committed: boolean;
 }
 
 export function operationEffects(): OperationEffects {
   return {
     changed: new Set(),
-    committed: false,
     published: new Set(),
     released: new Set(),
     retired: new Set(),
@@ -81,33 +81,115 @@ export interface LocatedFile {
   readonly path: string;
 }
 
-/** The Artifact operations within one store transaction. */
 export class ArtifactTransaction implements ArtifactOperations {
-  readonly #store: ArtifactStoreTransaction;
+  readonly #change: ArtifactChange;
   readonly #effects: OperationEffects;
   readonly #blobs: BlobRepository;
   readonly #maxTreeBytes: number;
+  readonly #staging: BlobStaging;
 
   constructor(
-    store: ArtifactStoreTransaction,
+    change: ArtifactChange,
     effects: OperationEffects,
-    limits: TransactionLimits
+    limits: TransactionLimits,
+    staging: BlobStaging = new BlobStaging(limits)
   ) {
-    this.#store = store;
+    this.#change = change;
     this.#effects = effects;
-    this.#blobs = new BlobRepository(store, effects, limits);
+    this.#blobs = new BlobRepository(change, effects, { ...limits, staging });
     this.#maxTreeBytes = limits.maxTreeBytes;
+    this.#staging = staging;
+  }
+
+  async checkCreate(input: CreateArtifactInput): Promise<void> {
+    nonEmpty("name", input.name);
+    nonEmpty("type", input.type);
+    if (input.id !== undefined && (await this.#change.getArtifact(input.id))) {
+      throw new ArtifactExistsError(input.id);
+    }
+    assertStoragePaths({ put: input.entries ?? {} });
+    await this.#checkReferences(input.entries);
+  }
+
+  async checkWrite(input: WriteInput): Promise<ArtifactResolved> {
+    const artifact = await this.#requireArtifact(input.artifactId);
+    fence(artifact, input);
+    const active = artifact.content;
+    if (active && active.state !== "ready") {
+      throw new ContentStateError(active.id, active.state, "write");
+    }
+    assertStoragePaths(input.changes);
+    await this.#checkReferences(input.changes.put);
+    await this.#checkOwnership(artifact, input.changes.put);
+    return artifact;
+  }
+
+  async checkRevise(input: ReviseInput): Promise<{
+    readonly artifact: ArtifactResolved;
+    readonly source: Content;
+  }> {
+    const artifact = await this.#requireArtifact(input.artifactId);
+    const source = await this.#requireOwnContent(artifact, input.contentId);
+    fence(artifact, {
+      expectedContentId: input.contentId,
+      expectedUpdatedAt: input.expectedUpdatedAt,
+    });
+    if (!isUsableContent(source)) {
+      throw new ContentStateError(source.id, source.state, "revise");
+    }
+    assertStoragePaths(input.changes ?? {});
+    await this.#checkReferences(input.changes?.put);
+    return { artifact, source };
+  }
+
+  async #checkOwnership(
+    artifact: ArtifactResolved,
+    entries: EntryInputs | undefined
+  ): Promise<void> {
+    const active = artifact.content;
+    for (const [path, entry] of Object.entries(entries ?? {})) {
+      if (isStructural(entry) || isReferenceInput(entry)) {
+        continue;
+      }
+      const previous =
+        active && Object.hasOwn(active.tree, path)
+          ? active.tree[path]
+          : undefined;
+      const now: Ownership | null =
+        active && previous?.type === "file"
+          ? {
+              blobId: previous.blobId,
+              exclusive: !(await this.#change.isBlobReferenced(
+                previous.blobId,
+                { contentId: active.id, path }
+              )),
+            }
+          : null;
+      const key = `${artifact.id}\u0000${path}`;
+      if (this.#change.readOnly) {
+        this.#staging.recordOwnership(key, now);
+      } else if (!this.#staging.confirmOwnership(key, now)) {
+        throw new StaleContentError(artifact.id, {
+          contentId: artifact.contentId,
+          updatedAt: active?.updatedAt ?? null,
+        });
+      }
+    }
+  }
+
+  async #checkReferences(entries: EntryInputs | undefined): Promise<void> {
+    for (const [path, entry] of Object.entries(entries ?? {})) {
+      if (!isStructural(entry) && isReferenceInput(entry)) {
+        await this.#blobs.resolve(path, entry);
+      }
+    }
   }
 
   async create(input: CreateArtifactInput): Promise<ArtifactResolved> {
-    nonEmpty("name", input.name);
-    nonEmpty("type", input.type);
+    await this.checkCreate(input);
     const id = input.id ?? artifactIdSchema.parse(crypto.randomUUID());
-    if (await this.#store.getArtifact(id)) {
-      throw new ArtifactExistsError(id);
-    }
     const now = new Date();
-    await this.#store.putArtifact({
+    await this.#change.putArtifact({
       archivedAt: null,
       contentId: null,
       createdAt: now,
@@ -132,14 +214,14 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   async get(id: ArtifactId): Promise<ArtifactResolved | null> {
-    const artifact = await this.#store.getArtifact(id);
+    const artifact = await this.#change.getArtifact(id);
     return artifact && this.#resolveArtifact(artifact);
   }
 
   async list(
     input: ListArtifactsInput = {}
   ): Promise<Page<ArtifactResolved, ArtifactCursor>> {
-    const page = await this.#store.listArtifacts(input);
+    const page = await this.#change.listArtifacts(input);
     return {
       ...page,
       items: await Promise.all(
@@ -191,24 +273,20 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   async delete(id: ArtifactId): Promise<boolean> {
-    if (!(await this.#store.getArtifact(id))) {
+    if (!(await this.#change.getArtifact(id))) {
       return false;
     }
     await this.#point(id, null);
-    for (const content of await this.#store.listContents(id)) {
+    for (const content of await this.#change.listContents(id)) {
       this.#releaseTree(content.tree);
     }
-    await this.#store.deleteArtifact(id);
+    await this.#change.deleteArtifact(id);
     return true;
   }
 
   async write(input: WriteInput): Promise<ContentResolved> {
-    const artifact = await this.#requireArtifact(input.artifactId);
-    fence(artifact, input);
+    const artifact = await this.checkWrite(input);
     const active = artifact.content;
-    if (active && active.state !== "ready") {
-      throw new ContentStateError(active.id, active.state, "write");
-    }
     const tree = await this.#applyChanges(
       active?.tree ?? {},
       input.changes,
@@ -225,7 +303,7 @@ export class ArtifactTransaction implements ArtifactOperations {
         tree,
         updatedAt: nextTime(active),
       };
-      await this.#store.putContent(content);
+      await this.#change.putContent(content);
       this.#releaseTree(active.tree);
     } else {
       content = await this.#insert(artifact.id, tree, metadata);
@@ -238,15 +316,7 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   async revise(input: ReviseInput): Promise<ContentResolved> {
-    const artifact = await this.#requireArtifact(input.artifactId);
-    const source = await this.#requireOwnContent(artifact, input.contentId);
-    fence(artifact, {
-      expectedContentId: input.contentId,
-      expectedUpdatedAt: input.expectedUpdatedAt,
-    });
-    if (!isUsableContent(source)) {
-      throw new ContentStateError(source.id, source.state, "revise");
-    }
+    const { artifact, source } = await this.checkRevise(input);
     if (source.state === "ready") {
       await this.#markFrozen(source);
     }
@@ -347,7 +417,7 @@ export class ArtifactTransaction implements ArtifactOperations {
       await this.#assertTagFree(row, tag);
     }
     const content = { ...row, tag };
-    await this.#store.putContent(content);
+    await this.#change.putContent(content);
     this.#effects.changed.add(row.artifactId);
     return content;
   }
@@ -366,17 +436,17 @@ export class ArtifactTransaction implements ArtifactOperations {
     }
     validatePointers(metadata, row.tree);
     const content = { ...row, metadata, updatedAt: nextTime(row) };
-    await this.#store.putContent(content);
+    await this.#change.putContent(content);
     this.#effects.changed.add(row.artifactId);
     return content;
   }
 
   async getContent(id: ContentId): Promise<ContentResolved | null> {
-    const content = await this.#store.getContent(id);
+    const content = await this.#change.getContent(id);
     if (!content) {
       return null;
     }
-    const artifact = await this.#store.getArtifact(content.artifactId);
+    const artifact = await this.#change.getArtifact(content.artifactId);
     if (!artifact) {
       throw new ArtifactNotFoundError(content.artifactId);
     }
@@ -387,7 +457,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     id: ArtifactId,
     input: ListContentsInput = {}
   ): Promise<readonly ContentSummary[]> {
-    return (await this.#store.listContents(id, input)).map(
+    return (await this.#change.listContents(id, input)).map(
       ({ tree: _tree, ...content }) => content
     );
   }
@@ -397,7 +467,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     by: { readonly sessionId: string; readonly messageId: string }
   ): Promise<Content | null> {
     return (
-      [...(await this.#store.listContents(id))]
+      [...(await this.#change.listContents(id))]
         .reverse()
         .find(
           (row) =>
@@ -435,7 +505,7 @@ export class ArtifactTransaction implements ArtifactOperations {
       }
       await this.select({ artifactId: artifact.id, contentId: replacement.id });
     }
-    await this.#store.deleteContent(row.id);
+    await this.#change.deleteContent(row.id);
     this.#releaseTree(row.tree);
     this.#effects.changed.add(row.artifactId);
   }
@@ -480,25 +550,18 @@ export class ArtifactTransaction implements ArtifactOperations {
     readonly olderThan: Date;
   }): Promise<{ readonly contents: number; readonly blobs: number }> {
     let contents = 0;
-    for (const content of await this.#store.listContents()) {
+    for (const content of await this.#change.listContents()) {
       if (
         (content.state !== "ready" && content.state !== "failed") ||
         content.updatedAt >= input.olderThan
       ) {
         continue;
       }
-      const artifact = await this.#store.getArtifact(content.artifactId);
+      const artifact = await this.#change.getArtifact(content.artifactId);
       if (artifact?.contentId === content.id) {
         continue;
       }
-      try {
-        await this.#store.deleteContent(content.id);
-      } catch (error) {
-        if (error instanceof ContentInUseError) {
-          continue;
-        }
-        throw error;
-      }
+      await this.#change.deleteContent(content.id);
       contents += 1;
       this.#effects.changed.add(content.artifactId);
     }
@@ -561,16 +624,9 @@ export class ArtifactTransaction implements ArtifactOperations {
     changes: TreeChanges,
     owner?: ContentId
   ): Promise<ContentTree> {
+    assertStoragePaths(changes);
     const removed = changes.remove ?? [];
     const puts = Object.entries(changes.put ?? {});
-    for (const path of [...removed, ...Object.keys(changes.put ?? {})]) {
-      if (!isStoragePath(path)) {
-        throw new InvalidArtifactInputError(
-          "path",
-          `Invalid storage path: ${path}`
-        );
-      }
-    }
     const tree: Record<string, ContentTree[string]> = Object.create(null);
     if (!changes.replace) {
       for (const [path, node] of Object.entries(base)) {
@@ -625,7 +681,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     ) {
       return;
     }
-    const shared = await this.#store.isBlobReferenced(previous.blobId, {
+    const shared = await this.#change.isBlobReferenced(previous.blobId, {
       contentId: owner,
       path,
     });
@@ -651,7 +707,7 @@ export class ArtifactTransaction implements ArtifactOperations {
       tree,
       updatedAt: now,
     };
-    await this.#store.putContent(content);
+    await this.#change.putContent(content);
     return content;
   }
 
@@ -664,7 +720,7 @@ export class ArtifactTransaction implements ArtifactOperations {
       state: "frozen",
       updatedAt: now,
     };
-    await this.#store.putContent(content);
+    await this.#change.putContent(content);
     this.#effects.changed.add(row.artifactId);
     return content;
   }
@@ -673,7 +729,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     id: ArtifactId,
     update: (artifact: Artifact) => Partial<Artifact>
   ): Promise<Artifact> {
-    const previous = await this.#store.getArtifact(id);
+    const previous = await this.#change.getArtifact(id);
     if (!previous) {
       throw new ArtifactNotFoundError(id);
     }
@@ -683,7 +739,7 @@ export class ArtifactTransaction implements ArtifactOperations {
       updatedAt: new Date(),
     };
     assertJsonMetadata(artifact.metadata);
-    await this.#store.putArtifact(artifact);
+    await this.#change.putArtifact(artifact);
     this.#effects.changed.add(id);
     return artifact;
   }
@@ -695,7 +751,7 @@ export class ArtifactTransaction implements ArtifactOperations {
   async #assertTagFree(row: Content, tag: string): Promise<void> {
     nonEmpty("tag", tag);
     if (
-      (await this.#store.listContents(row.artifactId)).some(
+      (await this.#change.listContents(row.artifactId)).some(
         (other) => other.id !== row.id && other.tag === tag
       )
     ) {
@@ -730,7 +786,7 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   async #requireContent(id: ContentId): Promise<Content> {
-    const content = await this.#store.getContent(id);
+    const content = await this.#change.getContent(id);
     if (!content) {
       throw new ContentNotFoundError(id);
     }
@@ -792,6 +848,20 @@ async function collect(
     throw new Error(`Truncated file: ${path}`);
   }
   return bytes;
+}
+
+function assertStoragePaths(changes: TreeChanges): void {
+  for (const path of [
+    ...(changes.remove ?? []),
+    ...Object.keys(changes.put ?? {}),
+  ]) {
+    if (!isStoragePath(path)) {
+      throw new InvalidArtifactInputError(
+        "path",
+        `Invalid storage path: ${path}`
+      );
+    }
+  }
 }
 
 function fence(artifact: ArtifactResolved, expected: WriteFence): void {

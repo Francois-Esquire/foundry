@@ -182,11 +182,12 @@ describe("Codex reads through a credential", () => {
     expect(child.killed).toBe(true);
   });
 
-  it("fails a signed-out login, a refused request, and a server that never answers, killing it each time", async () => {
+  it("reads no limits for a signed-out login, fails a refused request and a server that never answers, and kills it each time", async () => {
     const signedOut = await setup({ "account/read": { account: null } });
-    await expect(signedOut.provider().limits()).rejects.toThrow(
-      "not signed in"
-    );
+    await expect(signedOut.provider().limits()).resolves.toEqual({
+      limits: [],
+    });
+    expect(signedOut.child.methods).not.toContain("account/rateLimits/read");
     expect(signedOut.child.killed).toBe(true);
 
     const refused = await setup({
@@ -242,6 +243,15 @@ describe("Codex reads through a credential", () => {
     await touch(join(home, "alt", "auth.json"));
     expect((await custom.defaultAccount())?.credential).toEqual({
       home: join(home, "alt"),
+      kind: "login",
+    });
+  });
+
+  it("finds the default account by its history alone, with no login", async () => {
+    const { home, provider } = await setup({});
+    await touch(join(home, ".codex", "sessions", "2026", "rollout-a.jsonl"));
+    expect((await provider.defaultAccount())?.credential).toEqual({
+      home: join(home, ".codex"),
       kind: "login",
     });
   });

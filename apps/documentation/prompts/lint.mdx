@@ -5,7 +5,7 @@ description: ESLint, Oxlint, and Biome rules that check what a prompt references
 
 `@foundry/linting` checks prompts without running the code. The linter
 parses the file and walks it; the rules pick out the prompts, hand their
-text to `@foundry/prompts`, and report each finding where it was written.
+text to the prompts parser, and report each finding where it was written.
 One plugin loads in ESLint and in Oxlint, and a generated GritQL file does
 the name-free half of the work in Biome. The editor extension for any of
 them shows the findings inline.
@@ -63,7 +63,7 @@ with no configuration at all.
 
 ## Setup
 
-The package is internal to Foundry for now, like `@foundry/prompts`. Point
+The package is internal to Foundry for now. Point
 it at your skills and agents; the settings under `settings.foundry.prompts`
 are shared by every prompts rule.
 
@@ -123,7 +123,7 @@ the plugin's tests run `oxlint` over the sample files to prove it loads.
 
 ## Biome
 
-Biome's plugins are GritQL patterns, which cannot call `@foundry/prompts`.
+Biome's plugins are GritQL patterns, which cannot call the prompts parser.
 So the package generates `biome/prompts-*.grit` from a regex mirror of the
 notations, the way the editor grammar mirrors them, and tests that Biome
 reports where ESLint reports.

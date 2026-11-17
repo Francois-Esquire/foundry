@@ -5,7 +5,7 @@ import { createInMemoryAgentAuthorizer } from "../../authorization/authorization
 import { SessionHarness } from "../../harness/session-harness";
 import { tagTool } from "../../harness/types";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../session/store";
+import { InMemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   toolCallStreamResult,

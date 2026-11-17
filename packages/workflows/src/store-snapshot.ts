@@ -1,57 +1,25 @@
-import { Schema } from "effect";
-import { ErrorShapeSchema } from "./channels";
 import {
   InconsistentStoreSnapshotError,
   InvalidStoreSnapshotError,
   UnsupportedStoreSnapshotVersionError,
 } from "./errors";
+import { createExtensions } from "./extensions";
+import { isJsonValue } from "./json-value";
+import { decodeRunFrameSequence } from "./run-journal";
 import type {
   JobRecord,
+  OrchestratorStoreSnapshot,
+  QueueRecord,
   RunFrame,
   RunRecord,
   SuspensionRecord,
-} from "./execution-records";
+} from "./schema";
 import {
-  JobRecordSchema,
-  JsonValueSchema,
-  RunFrameSchema,
-  RunRecordSchema,
-  SuspensionRecordSchema,
-} from "./execution-records";
-import { createExtensions } from "./extensions";
-import { decodeRunFrameSequence } from "./run-journal";
-import type { QueueRecord } from "./store";
+  ORCHESTRATOR_STORE_SNAPSHOT_VERSION,
+  OrchestratorStoreSnapshotSchema,
+} from "./schema";
 
-export const ORCHESTRATOR_STORE_SNAPSHOT_VERSION = 1 as const;
-
-const QueueRecordSchema = Schema.Struct({
-  createdAt: Schema.Number.pipe(Schema.finite()),
-  extensions: Schema.Record({ key: Schema.String, value: JsonValueSchema }),
-  id: Schema.String,
-  lastError: Schema.NullOr(ErrorShapeSchema),
-  name: Schema.String,
-  status: Schema.Literal("active", "paused", "draining", "stopped"),
-});
-
-const SnapshotShapeSchema = Schema.Struct({
-  frames: Schema.Array(RunFrameSchema),
-  jobs: Schema.Array(JobRecordSchema),
-  queues: Schema.Array(QueueRecordSchema),
-  runs: Schema.Array(RunRecordSchema),
-  suspensions: Schema.Array(SuspensionRecordSchema),
-  version: Schema.Literal(ORCHESTRATOR_STORE_SNAPSHOT_VERSION),
-});
-
-export interface OrchestratorStoreSnapshot {
-  readonly frames: readonly RunFrame[];
-  readonly jobs: readonly JobRecord[];
-  readonly queues: readonly QueueRecord[];
-  readonly runs: readonly RunRecord[];
-  readonly suspensions: readonly SuspensionRecord[];
-  readonly version: typeof ORCHESTRATOR_STORE_SNAPSHOT_VERSION;
-}
-
-export const OrchestratorStoreSnapshotSchema = SnapshotShapeSchema;
+export type { OrchestratorStoreSnapshot } from "./schema";
 
 /** Decode, clone, and cross-check a complete in-memory store image. */
 export function validateOrchestratorStoreSnapshot(
@@ -73,7 +41,7 @@ export function validateOrchestratorStoreSnapshot(
   if (input.version !== ORCHESTRATOR_STORE_SNAPSHOT_VERSION) {
     throw new UnsupportedStoreSnapshotVersionError(input.version);
   }
-  if (!Schema.is(JsonValueSchema)(input)) {
+  if (!isJsonValue(input)) {
     throw new InvalidStoreSnapshotError(
       "Orchestrator store snapshot must be JSON-safe"
     );
@@ -81,7 +49,7 @@ export function validateOrchestratorStoreSnapshot(
 
   let decoded: OrchestratorStoreSnapshot;
   try {
-    decoded = Schema.decodeUnknownSync(OrchestratorStoreSnapshotSchema)(input);
+    decoded = OrchestratorStoreSnapshotSchema.parse(input);
     for (const queue of decoded.queues) {
       createExtensions(queue.extensions);
     }

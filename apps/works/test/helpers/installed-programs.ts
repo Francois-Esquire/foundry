@@ -1,4 +1,4 @@
-import type { ArtifactStore } from "@foundry/artifacts";
+import type { ArtifactStore } from "@foundry/artifacts/store";
 import { runtimeInstanceIdSchema } from "@foundry/modules/domain";
 import { createModuleGatewayRuntimeDispatcher } from "@foundry/modules/gateway/runtime-dispatcher";
 import type {

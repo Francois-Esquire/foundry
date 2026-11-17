@@ -9,7 +9,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
@@ -791,6 +791,29 @@ describe("lib2 through the engine", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     await engine.cancel(launched.id);
     await expect(launched.result).rejects.toThrow(CANCELLED_PATTERN);
+    await engine.stop();
+  });
+
+  it("records a cancelled run as cancelled when its body rejects with its own error", async () => {
+    step("wait").do(
+      ({ signal }) =>
+        new Promise((_, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new Error("aborted inside")),
+            { once: true }
+          );
+        })
+    );
+    const engine = await startEngine({ print: () => undefined, root });
+    const launched = await engine.launch("wait", {});
+    const failure = launched.result.catch((error: unknown) => error);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await engine.cancel(launched.id);
+    const reason = String(await failure);
+    expect(reason).toMatch(CANCELLED_PATTERN);
+    expect(reason).not.toContain("aborted inside");
+    expect(engine.executions.get(launched.id)?.status).toBe("cancelled");
     await engine.stop();
   });
 

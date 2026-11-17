@@ -25,9 +25,14 @@ export const dispatchSchema = z.object({
     .object({
       id: z.string().min(1),
       implementation: z.string().optional(),
+      input: z.unknown().optional(),
       instance: z.string().optional(),
       model: z.string().optional(),
+      noInput: z.literal(true).optional(),
       provider: z.string().optional(),
+    })
+    .refine((ref) => ref.input === undefined || ref.noInput !== true, {
+      message: "a session keeps either an input or noInput, not both",
     })
     .optional()
     .describe(

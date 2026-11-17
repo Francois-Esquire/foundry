@@ -4,22 +4,25 @@ import {
   createAgentAuthorizer,
   createInMemoryAgentAuthorizer,
 } from "@foundry/agents/authorization";
-import type { SessionStore } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import { Config } from "@foundry/lib/config";
 import type { ModelManager } from "@foundry/models";
 import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
+import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
+import { holdModelsDev } from "@foundry/models/catalog/models-dev-source";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import type { TaskStore } from "@foundry/tasks";
+import { ExecutionCoordinator } from "@foundry/workflows";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { contributeQueueConfig } from "@foundry/workflows/config";
 import type { BaseContext } from "@foundry/workflows/executable";
 import type { Factory } from "@foundry/workflows/orchestrator";
 import { Orchestrator } from "@foundry/workflows/orchestrator";
-import type { RunRecord } from "@foundry/workflows/store";
-import { InMemoryOrchestratorStore } from "@foundry/workflows/store";
+import type { RunRecord } from "@foundry/workflows/schema";
+import { MemoryWorkflowStore } from "@foundry/workflows/store/memory";
 import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
@@ -31,7 +34,8 @@ import { harnessOf } from "~/lib/cli-harnesses";
 import { commandRunner } from "~/lib/command";
 import type { AnyDefinition } from "~/lib/definition";
 import { Delivery } from "~/lib/events/delivery";
-import { WorkspaceRecords } from "~/lib/events/records";
+import type { WorkspaceRecords } from "~/lib/events/records";
+import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Handler, Source } from "~/lib/events/source";
 import type {
   ExecutionRun,
@@ -55,7 +59,7 @@ import { createLog, type LogLevel, type LogOrigin } from "~/lib/log";
 import { AgentsManager } from "~/lib/managers/agents";
 import { ArtifactsManager } from "~/lib/managers/artifacts";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
-import { globalSkillsDir, skillResolver } from "~/lib/managers/skills";
+import { skillResolver } from "~/lib/managers/skills";
 import type { Catalogue, GitOptions } from "~/lib/managers/workspaces";
 import { WorkspacesManager } from "~/lib/managers/workspaces";
 import type { ProviderConfiguration } from "~/lib/providers/configuration";
@@ -66,7 +70,6 @@ import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
-import { JsonSessionStore } from "~/lib/sessions/json-store";
 import type { Lock } from "~/lib/state/locks";
 import {
   loadRuns,
@@ -82,34 +85,7 @@ import type { Schedule } from "~/lib/triggers";
 import type { UsageRecords } from "~/lib/usage";
 import { UsageLedger, withRecovered } from "~/lib/usage";
 import type { ReconciledRun, SessionListing } from "~/lib/usage-evidence";
-import { UsageEvidence } from "~/lib/usage-evidence";
-
-/**
- * The engine: the one place the packages meet. It is handed the instances
- * the packages give a host (models, a session store, a workspace system,
- * containers, an artifact system), each already configured for the machine
- * it runs on, and builds everything that connects them: the managers a step
- * body sees, the feed, agent approvals and activity, the triggers agents
- * create, and a real Orchestrator over an in-memory store.
- *
- * What can run is told to it with `define`, `schedule`, `monitor` and
- * `task`. Every launch is an Execution Run (`executions`), which the
- * launcher (`lib/launcher.ts`) records when it is queued, lets in by its
- * named queue, and records as it starts, reports and settles. A workflow is
- * then dispatched here as a Run through the Orchestrator under the same id,
- * so Runs, Jobs and frames all exist and can be inspected, and followed as
- * a held run (`lib/held-runs.ts`); a task runs its body in the launcher.
- * Given a state dir, the store hydrates from `runs/*.json` at start and each
- * Run is written back when it parks and once it settles; without one,
- * nothing survives the process. A Run parked on a question is adopted by
- * the next process that can answer it: the Orchestrator re-parks it, its
- * scope gets the ledger it recorded, and its question stays open on the
- * feed.
- *
- * The workspace's tasks are kept here too, with the items their changes
- * emit, in `<state>/tasks.json` or in memory; `observe` says who receives
- * those items, and delivery runs from a successful `start` until `stop`.
- */
+import { listsSessions, UsageEvidence } from "~/lib/usage-evidence";
 
 export interface EngineOptions {
   /** Read by `artifacts.latest` when `artifacts` has nothing: the real store under `--dry-run`. */
@@ -140,7 +116,6 @@ export interface EngineOptions {
    * scanning it, and the root workspace stays unread until a step needs it.
    */
   readonly git?: GitOptions;
-  /** The user's home, for skills shared across workspaces; the OS home by default. */
   readonly home?: string;
   /**
    * Where definitions' own `log(...)` lines go, with where each came from:
@@ -161,6 +136,7 @@ export interface EngineOptions {
    * is given here. Change them live with `executions.configure`.
    */
   readonly queues?: Readonly<Record<string, QueueSettings>>;
+  readonly records?: WorkspaceRecords;
   /**
    * Whether queued runs a process that has exited left behind are let in
    * again at start, in their original order, when their definition or task
@@ -176,7 +152,6 @@ export interface EngineOptions {
   readonly root: string;
   /** Where agent transcripts live. */
   readonly sessions: SessionStore;
-  /** Workspace state dir. Omit for in-memory: nothing survives the process. */
   readonly state?: string;
   /**
    * Where triggers keep their history, monitors what they saw, and agents
@@ -199,20 +174,11 @@ export interface EngineOptions {
   readonly worktrees?: string;
 }
 
-/**
- * How usage recovery finds sessions in `sessions`. A store that cannot list
- * them is read only where a record names a session; that misses a session
- * whose only record was a `lost` marker held in memory by an earlier
- * process. That needs both the ledger and the sessions to outlive the
- * process, so a store kept in memory, or a ledger kept in memory, is not
- * flagged: neither outlives the markers. A store this cannot place is
- * assumed to outlive it.
- */
 function sessionListing(
   sessions: SessionStore,
   store: StateStore
 ): { readonly stamps?: SessionListing } {
-  if (sessions instanceof JsonSessionStore) {
+  if (listsSessions(sessions)) {
     return { stamps: () => sessions.stamps() };
   }
   const outlives = !(
@@ -227,7 +193,7 @@ interface Running {
   readonly held: HeldRuns;
   readonly orchestrator: Orchestrator;
   readonly router: FeedRouter;
-  readonly store: InMemoryOrchestratorStore;
+  readonly store: MemoryWorkflowStore;
 }
 
 /**
@@ -269,12 +235,6 @@ export class Engine {
   readonly store: StateStore;
   /** What each run's agent turns consumed, one fact per turn, in `store`. */
   readonly usage: UsageLedger;
-  /**
-   * This workspace's tasks, for a `Tasks` to be built over. Each commit
-   * stores the change it emits in the same write. Read or written, it is
-   * owned by this process until `dispose`; another engine over the same
-   * state dir is refused it meanwhile.
-   */
   readonly taskStore: TaskStore;
   readonly workspaceId: string;
   readonly workspaces: WorkspacesManager;
@@ -309,6 +269,8 @@ export class Engine {
   #stopping: Promise<void> | undefined;
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
+  readonly #unwatchRecords: () => void;
+  #prices: ModelsDevHold | undefined;
 
   /**
    * Where an engine over `state` cuts worktrees by default: inside the state
@@ -326,7 +288,24 @@ export class Engine {
     const askable = options.askable ?? false;
     const { containers } = options;
     this.models = models;
-    this.airplane = airplaneMode(models);
+    this.#prices = holdModelsDev();
+    const airplane = airplaneMode(models);
+    this.airplane = {
+      dispose: () => airplane.dispose(),
+      get enabled() {
+        return airplane.enabled;
+      },
+      set: (enabled) => {
+        airplane.set(enabled);
+        this.providers?.setOffline(enabled);
+        if (enabled) {
+          this.#releasePrices();
+        } else if (!this.#disposing) {
+          this.#prices ??= holdModelsDev();
+          this.#listModels();
+        }
+      },
+    };
     this.providers = options.providers;
     this.#unwatch =
       options.providers?.watch((problem) => print(`[providers] ${problem}`)) ??
@@ -385,11 +364,13 @@ export class Engine {
         has: (name) => this.#registered(name),
       },
     });
-    this.#records = new WorkspaceRecords({
-      ...(state === undefined ? {} : { dir: state }),
-      emitted: () => this.#delivery.wake(),
+    this.#records = options.records ?? new MemoryWorkspaceRecords();
+    this.#delivery = new Delivery({
+      print,
+      records: this.#records,
+      ...(state === undefined ? {} : { state }),
     });
-    this.#delivery = new Delivery(this.#records, print);
+    this.#unwatchRecords = this.#records.watch(() => this.#delivery.wake());
     this.taskStore = this.#records.taskStore;
     const catalogue =
       options.workspaces ??
@@ -458,7 +439,7 @@ export class Engine {
       requireProviders: () => options.providers?.require(),
       root,
       sessions,
-      skills: skillResolver({ global: globalSkillsDir(home), workspace: root }),
+      skills: skillResolver({ home, workspace: root }),
       usage: { ledger: this.usage, workspaceId },
       warn: (message) => print(`[agents] ${message}`),
     });
@@ -669,6 +650,7 @@ export class Engine {
     const askable = this.#askable;
     const feed = this.#publisher;
     const print = this.#print;
+    await this.#listModels();
     const config = new Config();
     contributeQueueConfig(config, {
       concurrency: ORCHESTRATOR_CONCURRENCY,
@@ -694,11 +676,13 @@ export class Engine {
       for (const [runId, extras] of loaded?.recovered ?? []) {
         this.#scopes.recover(runId, extras);
       }
-      const store = new InMemoryOrchestratorStore(
-        loaded === undefined ? {} : { snapshot: loaded.snapshot }
-      );
+      const store = new MemoryWorkflowStore();
+      const executions = new ExecutionCoordinator({ store });
+      if (loaded !== undefined) {
+        await executions.restore(loaded.snapshot);
+      }
 
-      orchestrator = new Orchestrator({ config, store });
+      orchestrator = new Orchestrator({ config, store: executions });
       await orchestrator.setup();
       this.#registerAll(orchestrator);
       await orchestrator.start();
@@ -1147,6 +1131,26 @@ export class Engine {
     return this.#running?.held.workflow(runId)?.root.subscribe(signal);
   }
 
+  async #listModels(): Promise<void> {
+    try {
+      if (!this.providers?.configured) {
+        return;
+      }
+      for (const problem of await this.providers.refresh()) {
+        this.#print(`[providers] ${problem}`);
+      }
+    } catch (error) {
+      this.#print(
+        `[providers] ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  #releasePrices(): void {
+    this.#prices?.release();
+    this.#prices = undefined;
+  }
+
   /**
    * Stop execution and close what this engine was handed: the workspace system,
    * the containers if a sandbox ever opened them, and the models. The models
@@ -1179,12 +1183,14 @@ export class Engine {
       await close(() => this.#scopes.settle(scope.id));
     }
     // No handler or step is left to write a task: give up the records.
+    this.#unwatchRecords();
     await close(() => this.#records.close());
     await close(() => this.interactions.close());
     await close(() => this.workspaces.close());
     await close(() => this.sandboxes.close());
     this.#unwatch();
     this.airplane.dispose();
+    this.#releasePrices();
     await close(async () => {
       await this.providers?.dispose();
     });

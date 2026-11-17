@@ -5,9 +5,9 @@ import {
 } from "@foundry/modules/gateway/types";
 import { isGranted } from "@foundry/modules/grants";
 import type {
+  ModuleCommands,
   ModuleGatewayContext,
-  ModuleStore,
-} from "@foundry/modules/store/contract";
+} from "@foundry/modules/registry";
 import { denied } from "./provider-kit";
 
 /** A Grant an effect needs: the capability and its resolved digest. */
@@ -23,7 +23,7 @@ export interface RequiredGrant {
  * that committed first refuses the effect.
  */
 export async function authorizeRuntime(
-  store: Pick<ModuleStore, "loadGatewayContext">,
+  store: Pick<ModuleCommands, "loadGatewayContext">,
   principal: ModulePrincipal,
   grants: readonly RequiredGrant[]
 ): Promise<ModuleGatewayContext> {

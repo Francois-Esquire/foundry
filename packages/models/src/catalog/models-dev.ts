@@ -1,23 +1,3 @@
-/**
- * models.dev — a community-maintained database of model facts, used to fill in
- * what a routing provider doesn't tell us.
- *
- * The problem it solves: every source we route through reports a different
- * subset. The gateway snapshot has prices but no cache rates and no modalities;
- * a CLI harness reports bare slugs and nothing else. Hand-writing the remainder
- * is what rots. models.dev keys facts by model id, independent of who serves it,
- * which is exactly the missing axis.
- *
- * **It never overrides.** A field the provider stated wins, always — this only
- * fills absences. Its prices are published vendor list prices, not your bill,
- * and it is community data: treat it as a good default, never as authority over
- * a rate the provider itself reported.
- *
- * Pure leaf, like its sibling adapters — it imports only `../types`, and takes
- * the catalog as an argument rather than loading the snapshot. See
- * `./models-dev-snapshot` for the bound convenience.
- */
-
 import type {
   ModelCapabilities,
   ModelCosts,
@@ -26,8 +6,6 @@ import type {
   ProviderModelDefinition,
 } from "../types";
 
-/** Rates in USD per 1M tokens — already per-million upstream, unlike the wire
- *  formats `fromGateway`/`fromVercelRest` read, which are per-token. */
 interface ModelsDevCost {
   cache_read?: number;
   cache_write?: number;
@@ -53,6 +31,135 @@ interface ModelsDevModel {
 
 /** Keyed `author/model`, e.g. `anthropic/claude-opus-4-7`. */
 export type ModelsDevCatalog = Record<string, ModelsDevModel>;
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+function firstPartyCost(
+  key: string,
+  model: Record<string, unknown>,
+  providers: Record<string, unknown>
+): ModelsDevCost | undefined {
+  if (model.open_weights === true) {
+    return;
+  }
+  const slash = key.indexOf("/");
+  if (slash === -1) {
+    return;
+  }
+  const provider = providers[key.slice(0, slash)];
+  const models = isObject(provider) ? provider.models : undefined;
+  const entry = isObject(models) ? models[key.slice(slash + 1)] : undefined;
+  return isObject(entry) ? validCost(entry.cost) : undefined;
+}
+
+const isRate = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+const optionalRate = (value: unknown): boolean =>
+  value === undefined || isRate(value);
+
+function validCost(value: unknown): ModelsDevCost | undefined {
+  if (
+    !(
+      isObject(value) &&
+      isRate(value.input) &&
+      isRate(value.output) &&
+      optionalRate(value.cache_read) &&
+      optionalRate(value.cache_write)
+    )
+  ) {
+    return;
+  }
+  const tiers: NonNullable<ModelsDevCost["tiers"]> = [];
+  if (value.tiers !== undefined) {
+    if (!Array.isArray(value.tiers)) {
+      return;
+    }
+    for (const tier of value.tiers) {
+      const bracket = isObject(tier) ? tier.tier : undefined;
+      if (
+        !(
+          isObject(tier) &&
+          isRate(tier.input) &&
+          isRate(tier.output) &&
+          optionalRate(tier.cache_read) &&
+          isObject(bracket) &&
+          isRate(bracket.size) &&
+          typeof bracket.type === "string"
+        )
+      ) {
+        return;
+      }
+      tiers.push({
+        input: tier.input,
+        output: tier.output,
+        ...(tier.cache_read === undefined
+          ? {}
+          : { cache_read: tier.cache_read as number }),
+        tier: { size: bracket.size, type: bracket.type },
+      });
+    }
+  }
+  return {
+    input: value.input,
+    output: value.output,
+    ...(value.cache_read === undefined
+      ? {}
+      : { cache_read: value.cache_read as number }),
+    ...(value.cache_write === undefined
+      ? {}
+      : { cache_write: value.cache_write as number }),
+    ...(tiers.length > 0 ? { tiers } : {}),
+  };
+}
+
+function pruned(
+  key: string,
+  model: Record<string, unknown>,
+  providers: Record<string, unknown>
+): ModelsDevModel {
+  const { limit, modalities } = model;
+  const cost = firstPartyCost(key, model, providers);
+  return {
+    ...(typeof model.name === "string" ? { name: model.name } : {}),
+    ...(model.attachment === true ? { attachment: true } : {}),
+    ...(model.reasoning === true ? { reasoning: true } : {}),
+    ...(model.tool_call === true ? { tool_call: true } : {}),
+    ...(isObject(modalities) && Array.isArray(modalities.input)
+      ? { modalities: modalities as ModelsDevModel["modalities"] }
+      : {}),
+    ...(isObject(limit)
+      ? {
+          limit: {
+            ...(typeof limit.context === "number"
+              ? { context: limit.context }
+              : {}),
+            ...(typeof limit.output === "number"
+              ? { output: limit.output }
+              : {}),
+          },
+        }
+      : {}),
+    ...(cost ? { cost } : {}),
+  };
+}
+
+export function modelsDevCatalog(
+  payload: unknown
+): ModelsDevCatalog | undefined {
+  if (!(isObject(payload) && isObject(payload.models))) {
+    return;
+  }
+  const providers = isObject(payload.providers) ? payload.providers : {};
+  const catalog: ModelsDevCatalog = {};
+  for (const [key, model] of Object.entries(payload.models)) {
+    if (isObject(model)) {
+      catalog[key] = pruned(key, model, providers);
+    }
+  }
+  return catalog;
+}
 
 export interface ModelsDevIdOptions {
   /** Route decorations to strip from the front of an id, e.g. `["azure-"]`. */
@@ -281,8 +388,6 @@ function mergeCapabilities(
   model: ModelsDevModel
 ): ModelCapabilities | undefined {
   // Per key, and only where the provider said nothing. An explicit `false`
-  // survives — `fromGateway` distinguishes stated-false from silent precisely
-  // so a community flag can never contradict a provider that spoke.
   const merged: ModelCapabilities = {
     ...existing,
     ...(existing?.functionCalling === undefined && model.tool_call === true

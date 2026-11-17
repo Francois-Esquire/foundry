@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { InMemoryArtifactStore } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { onTestFinished } from "vitest";
 import type { WorksExecution } from "~/main/execution/contract";
 import type { AuthoringTurnRunner } from "~/main/modules/authoring/agent";

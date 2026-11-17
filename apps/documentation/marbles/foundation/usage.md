@@ -85,8 +85,8 @@ the session does not open.
 
 When the limits read fails, `claude.failed` says why and `weekly` is
 absent, so this step stays on Claude. `usage.query` rejects a name that was
-never added, such as `anthropic` on a machine where Claude Code is not
-signed in. A snapshot holds dates, which a step result cannot carry, so
+never added, such as `anthropic` on a machine where Claude Code has no
+login and no history. A snapshot holds dates, which a step result cannot carry, so
 return the fields you need rather than the snapshot.
 
 ## What a snapshot holds

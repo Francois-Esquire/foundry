@@ -1,17 +1,26 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { configureProviders } from "./providers";
 
-/**
- * A Foundry home for the run, never the developer's, with the CLI providers
- * configured. Set before workers start, so it is in their environment and in
- * that of every process they spawn: Bun hands a child the environment it
- * started with, not later changes to `process.env`.
- */
+const RUN_PARENT = "/tmp";
+
 export default function setup(): () => void {
-  const home = mkdtempSync(join(tmpdir(), "marbles-home-"));
+  const root = mkdtempSync(join(RUN_PARENT, "marbles-run-"));
+  const home = join(root, "home");
+  mkdirSync(home);
+  process.env.TMPDIR = root;
   process.env.FOUNDRY_HOME = home;
+  process.env.FOUNDRY_MODELS_DEV_URL = "";
   configureProviders(join(home, "marbles"));
-  return () => rmSync(home, { force: true, recursive: true });
+  return () => removeRunRoot(root);
+}
+
+function removeRunRoot(root: string): void {
+  try {
+    rmSync(root, { maxRetries: 3, recursive: true });
+  } catch (error) {
+    console.warn(
+      `marbles tests: could not remove the run's temp root ${root}: ${String(error)}`
+    );
+  }
 }

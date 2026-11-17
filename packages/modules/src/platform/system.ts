@@ -10,7 +10,7 @@ import type {
   ModuleGatewayInvocationRecord,
 } from "../gateway/types";
 import { createModuleManagement } from "../management";
-import type { ModuleStore } from "../store/contract";
+import type { ModuleCommands } from "../registry";
 import { createModuleVersions } from "../version";
 import { withConfirmedModuleContainerCleanup } from "./container-cleanup";
 import type { CreateContainerModuleProgramRuntimeOptions } from "./container-runtime";
@@ -34,7 +34,7 @@ export interface CreateModuleSystemOptions {
   readonly observeInvocation?: (record: ModuleGatewayInvocationRecord) => void;
   readonly onSettledTransition?: (installationId: InstallationId) => void;
   readonly providers: readonly ModuleCapabilityProvider[];
-  readonly store: ModuleStore;
+  readonly store: ModuleCommands;
   readonly transport: CreateContainerModuleProgramRuntimeOptions["transport"];
 }
 

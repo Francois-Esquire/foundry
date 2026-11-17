@@ -1,4 +1,4 @@
-import type { ArtifactStore } from "@foundry/artifacts";
+import type { ArtifactStore } from "@foundry/artifacts/store";
 import type { WorksExecution } from "~/main/execution/contract";
 import {
   SourceEvidence,

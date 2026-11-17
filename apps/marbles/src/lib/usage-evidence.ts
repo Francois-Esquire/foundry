@@ -1,4 +1,5 @@
-import type { SessionMessage, SessionStore } from "@foundry/agents/session";
+import type { SessionMessage } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
 
 import { isRecord } from "~/lib/state/json";
 import type {
@@ -86,17 +87,29 @@ export type RunRecorded =
     }
   | "unreadable";
 
-/** A session file and a stamp that changes whenever it is written; `null` when the file is there but its stamp cannot be read. */
-interface SessionStamp {
+export interface SessionStamp {
   readonly id: string;
   readonly stamp: string | null;
+}
+
+export interface ListedSessionStore extends SessionStore {
+  stamps(): readonly SessionStamp[] | Promise<readonly SessionStamp[]>;
+}
+
+export function listsSessions(
+  store: SessionStore
+): store is ListedSessionStore {
+  const listed = store as Partial<ListedSessionStore> | undefined;
+  return typeof listed?.stamps === "function";
 }
 
 /**
  * How sessions are found: by listing the store, or `unavailable` for a store
  * that cannot list them and keeps them past this process.
  */
-export type SessionListing = (() => readonly SessionStamp[]) | "unavailable";
+export type SessionListing =
+  | (() => readonly SessionStamp[] | Promise<readonly SessionStamp[]>)
+  | "unavailable";
 
 /** A recovered leaf's agent when nothing durable names one. */
 export const UNATTRIBUTED = "(unattributed)";
@@ -235,10 +248,6 @@ export class UsageEvidence {
     /** What a run recorded; `undefined` when nothing durable is kept for runs. */
     readonly recordedOf: (runId: string) => RunRecorded | undefined;
     readonly sessions: SessionStore;
-    /**
-     * Every session file the store holds, when it can list them; absent when
-     * it cannot, but keeps its sessions no longer than this process.
-     */
     readonly stamps?: SessionListing;
   }) {
     this.#sessions = deps.sessions;
@@ -407,13 +416,13 @@ export class UsageEvidence {
    * fails is counted as unreadable and owned by nothing, and the sessions
    * the last one held are read again beside the named ones.
    */
-  #listed(
+  async #listed(
     known: Known,
     unreadable: Unverified
-  ): {
+  ): Promise<{
     readonly ids: ReadonlySet<string>;
     readonly listed?: ReadonlyMap<string, string | null>;
-  } {
+  }> {
     const named = [...known.named, ...known.activeNamed];
     if (!this.#stamps) {
       return { ids: new Set(named) };
@@ -425,7 +434,8 @@ export class UsageEvidence {
     }
     let listed: Map<string, string | null>;
     try {
-      listed = new Map(this.#stamps().map(({ id, stamp }) => [id, stamp]));
+      const stamps = await this.#stamps();
+      listed = new Map(stamps.map(({ id, stamp }) => [id, stamp]));
     } catch {
       // State is advisory: what was not listed may still be there.
       unreadable.unowned += 1;
@@ -453,7 +463,7 @@ export class UsageEvidence {
         .filter((fact) => fact.lost === undefined)
         .map((fact) => fact.turnId)
     );
-    const { ids, listed } = this.#listed(known, unreadable);
+    const { ids, listed } = await this.#listed(known, unreadable);
     const facts = new Map<string, UsageFact>();
     for (const id of ids) {
       const turns = await this.#transcriptOf(id, listed);

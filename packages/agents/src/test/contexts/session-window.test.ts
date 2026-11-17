@@ -2,107 +2,143 @@ import { describe, expect, it } from "vitest";
 
 import { SessionWindow } from "../../contexts/session-window";
 import type { WindowModel } from "../../contexts/types";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
+import type { SessionStore } from "../../store";
+import { sessionStoreKinds } from "../helpers/session-stores";
 
 const MODEL: WindowModel = { contextWindow: 1000, id: "test-model" };
 
-async function seed(store: InMemorySessionStore, sessionId: string) {
-  await store.appendMessage({
+async function seed(store: SessionStore, sessionId: string) {
+  const sessions = new Sessions({ store });
+  await sessions.appendMessage({
     parts: [{ text: "hi", type: "text" }],
     role: "user",
     sessionId,
   });
-  await store.appendMessage({
+  await sessions.appendMessage({
     parts: [{ text: "hello there", type: "text" }],
     role: "assistant",
     sessionId,
   });
 }
 
-describe("SessionWindow", () => {
-  it("delegates every SessionStore method to the wrapped store", async () => {
-    const inner = new InMemorySessionStore();
-    const window = new SessionWindow(inner);
+describe.each(sessionStoreKinds())("SessionWindow over %s", (_kind, open) => {
+  describe("SessionWindow", () => {
+    it("delegates every SessionStore method to the wrapped store", async () => {
+      const inner = await open();
+      const window = new SessionWindow(inner);
 
-    const session = await window.createSession({ title: "t" });
-    expect(await window.getSession(session.id)).toEqual(session);
+      const sessions = new Sessions({ store: window });
+      const session = await sessions.createSession({ title: "t" });
+      expect(await window.getSession(session.id)).toEqual(session);
 
-    const msg = await window.appendMessage({
-      parts: [{ text: "hi", type: "text" }],
-      role: "user",
-      sessionId: session.id,
+      const msg = await sessions.appendMessage({
+        parts: [{ text: "hi", type: "text" }],
+        role: "user",
+        sessionId: session.id,
+      });
+      expect(await inner.listMessages(session.id)).toEqual([msg]);
+
+      await sessions.updateMessage(msg.id, { status: "error" });
+      const after = await window.listMessages(session.id);
+      expect(after[0]?.status).toBe("error");
+
+      const updated = await sessions.updateSession(session.id, { title: "t2" });
+      expect(updated?.title).toBe("t2");
     });
-    expect(await inner.listMessages(session.id)).toEqual([msg]);
 
-    await window.updateMessage(msg.id, { status: "error" });
-    const after = await window.listMessages(session.id);
-    expect(after[0]?.status).toBe("error");
+    it("forwards the wrapped store's transaction, so two Sessions over it keep both updates", async () => {
+      const inner = await open();
+      const window = new SessionWindow(inner);
+      const a = new Sessions({ store: window });
+      const b = new Sessions({ store: window });
+      await a.createSession({ id: "s" });
 
-    const updated = await window.updateSession(session.id, { title: "t2" });
-    expect(updated?.title).toBe("t2");
-  });
+      await Promise.all([
+        a.updateSession("s", { title: "renamed" }),
+        b.updateSession("s", { status: "archived" }),
+      ]);
 
-  it("listMessages stays a raw full-history passthrough", async () => {
-    const inner = new InMemorySessionStore();
-    const window = new SessionWindow(inner);
-    const session = await window.createSession();
-    await seed(inner, session.id);
-
-    expect(await window.listMessages(session.id)).toEqual(
-      await inner.listMessages(session.id)
-    );
-  });
-
-  it("windowFor returns the full history unchanged", async () => {
-    const inner = new InMemorySessionStore();
-    const window = new SessionWindow(inner);
-    const session = await window.createSession();
-    await seed(inner, session.id);
-
-    const result = await window.windowFor(session.id, MODEL);
-    expect(result.messages).toEqual(await inner.listMessages(session.id));
-    expect(result.plan.summarized).toBe(false);
-    expect(result.plan.dropped).toEqual([]);
-    expect(result.plan.estimatedTokens).toBeGreaterThan(0);
-  });
-
-  it("derives a budget with headroom below the window", async () => {
-    const inner = new InMemorySessionStore();
-    const window = new SessionWindow(inner, { reservedOutput: 200 });
-    const session = await window.createSession();
-    await seed(inner, session.id);
-
-    const { budget } = await window.windowFor(session.id, MODEL);
-    expect(budget.window).toBe(1000);
-    expect(budget.reservedOutput).toBe(200);
-    expect(budget.headroom).toBeLessThan(budget.window);
-  });
-
-  it("flags overBudget when a hard token limit is crossed", async () => {
-    const inner = new InMemorySessionStore();
-    const window = new SessionWindow(inner, { hardTokenLimit: 1 });
-    const session = await window.createSession();
-    await seed(inner, session.id);
-
-    const { plan } = await window.windowFor(session.id, MODEL);
-    expect(plan.overBudget).toBe(true);
-  });
-
-  it("records usage and computes turn-to-turn velocity", () => {
-    const window = new SessionWindow(new InMemorySessionStore());
-    window.recordUsage("s", {
-      inputTokens: 100,
-      outputTokens: 10,
-      totalTokens: 110,
+      await expect(inner.getSession("s")).resolves.toMatchObject({
+        status: "archived",
+        title: "renamed",
+      });
     });
-    expect(window.stateFor("s")?.velocity).toBeUndefined();
 
-    window.recordUsage("s", {
-      inputTokens: 180,
-      outputTokens: 20,
-      totalTokens: 200,
+    it("offers no transaction over a store without one", async () => {
+      const inner = await open();
+      const bare = new SessionWindow({
+        commit: (write) => inner.commit(write),
+        getMessage: (id) => inner.getMessage(id),
+        getSession: (id) => inner.getSession(id),
+        listMessages: (sessionId) => inner.listMessages(sessionId),
+      });
+
+      expect(bare.transaction).toBeUndefined();
     });
-    expect(window.stateFor("s")?.lastInputTokens).toBe(180);
-    expect(window.stateFor("s")?.velocity).toBe(80);
+
+    it("listMessages stays a raw full-history passthrough", async () => {
+      const inner = await open();
+      const window = new SessionWindow(inner);
+      const session = await new Sessions({ store: window }).createSession();
+      await seed(inner, session.id);
+
+      expect(await window.listMessages(session.id)).toEqual(
+        await inner.listMessages(session.id)
+      );
+    });
+
+    it("windowFor returns the full history unchanged", async () => {
+      const inner = await open();
+      const window = new SessionWindow(inner);
+      const session = await new Sessions({ store: window }).createSession();
+      await seed(inner, session.id);
+
+      const result = await window.windowFor(session.id, MODEL);
+      expect(result.messages).toEqual(await inner.listMessages(session.id));
+      expect(result.plan.summarized).toBe(false);
+      expect(result.plan.dropped).toEqual([]);
+      expect(result.plan.estimatedTokens).toBeGreaterThan(0);
+    });
+
+    it("derives a budget with headroom below the window", async () => {
+      const inner = await open();
+      const window = new SessionWindow(inner, { reservedOutput: 200 });
+      const session = await new Sessions({ store: window }).createSession();
+      await seed(inner, session.id);
+
+      const { budget } = await window.windowFor(session.id, MODEL);
+      expect(budget.window).toBe(1000);
+      expect(budget.reservedOutput).toBe(200);
+      expect(budget.headroom).toBeLessThan(budget.window);
+    });
+
+    it("flags overBudget when a hard token limit is crossed", async () => {
+      const inner = await open();
+      const window = new SessionWindow(inner, { hardTokenLimit: 1 });
+      const session = await new Sessions({ store: window }).createSession();
+      await seed(inner, session.id);
+
+      const { plan } = await window.windowFor(session.id, MODEL);
+      expect(plan.overBudget).toBe(true);
+    });
+
+    it("records usage and computes turn-to-turn velocity", async () => {
+      const window = new SessionWindow(await open());
+      window.recordUsage("s", {
+        inputTokens: 100,
+        outputTokens: 10,
+        totalTokens: 110,
+      });
+      expect(window.stateFor("s")?.velocity).toBeUndefined();
+
+      window.recordUsage("s", {
+        inputTokens: 180,
+        outputTokens: 20,
+        totalTokens: 200,
+      });
+      expect(window.stateFor("s")?.lastInputTokens).toBe(180);
+      expect(window.stateFor("s")?.velocity).toBe(80);
+    });
   });
 });

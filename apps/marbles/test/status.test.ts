@@ -1,12 +1,15 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-
+import { Sessions } from "@foundry/agents/session";
 import { describe, expect, it } from "vitest";
-
+import { initializeDatabase } from "~/database/open";
+import { DatabaseSessionStore } from "~/database/sessions";
+import { stateDatabase } from "~/layout";
 import { writeJson } from "~/lib/state/json";
 import { readStatus } from "~/status/model";
+import { seedWorkspace } from "./helpers/registry";
+import { temporaryDirectory } from "./helpers/temporary";
 
 function run(id: string, status: string, createdAt: number, pid: number) {
   return {
@@ -15,12 +18,13 @@ function run(id: string, status: string, createdAt: number, pid: number) {
   };
 }
 
-function layout() {
-  const state = mkdtempSync(join(tmpdir(), "marbles-status-"));
+async function layout() {
+  const state = temporaryDirectory("marbles-status-");
   const dir = join(state, "ws1");
-  writeJson(join(dir, "workspace.json"), {
+  await seedWorkspace(state, {
     config: "/repo/one/marbles.config.ts",
     firstSeen: "2026-09-10T00:00:00.000Z",
+    hosted: false,
     id: "ws1",
     lastSeen: "2026-09-10T01:00:00.000Z",
     root: "/repo/one",
@@ -31,25 +35,38 @@ function layout() {
     lastStatus: "complete",
     nextDue: "2026-09-10T01:30:00.000Z",
   });
-  writeJson(join(dir, "sessions", "s1.json"), {});
-  writeJson(join(dir, "sessions", "s2.json"), {});
+  const database = await initializeDatabase(stateDatabase(state));
+  try {
+    const sessions = new Sessions({
+      store: new DatabaseSessionStore({
+        database: database.database,
+        scope: "ws1",
+      }),
+    });
+    await sessions.createSession({ id: "s1" });
+    await sessions.createSession({ id: "s2" });
+  } finally {
+    database.close();
+  }
+  writeJson(join(dir, "sessions", "s3.json"), {});
   return { dir, state };
 }
 
 describe("readStatus", () => {
-  it("returns no workspaces for a missing or empty root", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-status-"));
-    expect(readStatus(join(state, "nope"))).toEqual({
+  it("returns no workspaces for a missing or empty root, and creates nothing", async () => {
+    const state = temporaryDirectory("marbles-status-");
+    expect(await readStatus(join(state, "nope"))).toEqual({
       process: null,
       root: join(state, "nope"),
       workspaces: [],
     });
-    expect(readStatus(state).workspaces).toEqual([]);
+    expect((await readStatus(state)).workspaces).toEqual([]);
     expect(existsSync(join(state, "nope"))).toBe(false);
+    expect(existsSync(join(state, "marbles.db"))).toBe(false);
   });
 
-  it("reads workspace, schedules, runs and sessions", () => {
-    const { state, dir } = layout();
+  it("reads workspace, schedules, runs and sessions", async () => {
+    const { state, dir } = await layout();
     for (let i = 0; i < 7; i += 1) {
       writeJson(
         join(dir, "runs", `rn-${String(i)}.json`),
@@ -58,7 +75,7 @@ describe("readStatus", () => {
     }
     mkdirSync(join(state, "stray"));
 
-    const [workspace, ...rest] = readStatus(state).workspaces;
+    const [workspace, ...rest] = (await readStatus(state)).workspaces;
     expect(rest).toEqual([]);
     expect(workspace).toMatchObject({
       alive: false,
@@ -88,8 +105,8 @@ describe("readStatus", () => {
     ]);
   });
 
-  it("marks the process alive only while the lock's pid is", () => {
-    const { state, dir } = layout();
+  it("marks the process alive only while the lock's pid is", async () => {
+    const { state, dir } = await layout();
     const dead = spawnSync("true").pid;
     mkdirSync(join(dir, "locks"));
     writeFileSync(join(dir, "locks", "process"), String(dead));
@@ -98,7 +115,7 @@ describe("readStatus", () => {
       pid: dead,
       startedAt: "x",
     });
-    expect(readStatus(state).workspaces[0]).toMatchObject({
+    expect((await readStatus(state)).workspaces[0]).toMatchObject({
       alive: false,
       host: null,
       pid: dead,
@@ -110,15 +127,15 @@ describe("readStatus", () => {
       pid: process.pid,
       startedAt: "x",
     });
-    expect(readStatus(state).workspaces[0]).toMatchObject({
+    expect((await readStatus(state)).workspaces[0]).toMatchObject({
       alive: true,
       host: "worker",
       pid: process.pid,
     });
   });
 
-  it("reports a live lock as running and ignores a dead one", () => {
-    const { state, dir } = layout();
+  it("reports a live lock as running and ignores a dead one", async () => {
+    const { state, dir } = await layout();
     mkdirSync(join(dir, "locks"));
     writeFileSync(join(dir, "locks", "schedule:guides"), String(process.pid));
     writeFileSync(join(dir, "locks", "schedule:fresh"), String(process.pid));
@@ -132,15 +149,15 @@ describe("readStatus", () => {
       join(dir, "locks", "edit-automation-probe"),
       String(process.pid)
     );
-    const schedules = readStatus(state).workspaces[0]?.schedules;
+    const schedules = (await readStatus(state)).workspaces[0]?.schedules;
     expect(schedules).toEqual([
       expect.objectContaining({ name: "fresh", running: process.pid }),
       expect.objectContaining({ name: "guides", running: process.pid }),
     ]);
   });
 
-  it("flags an unsettled run whose pid is dead as orphaned", () => {
-    const { state, dir } = layout();
+  it("flags an unsettled run whose pid is dead as orphaned", async () => {
+    const { state, dir } = await layout();
     const dead = spawnSync("true").pid;
     writeJson(join(dir, "runs", "rn-a.json"), run("rn-a", "running", 1, dead));
     writeJson(
@@ -149,7 +166,7 @@ describe("readStatus", () => {
     );
     writeJson(join(dir, "runs", "rn-c.json"), run("rn-c", "failed", 3, dead));
 
-    const recent = readStatus(state).workspaces[0]?.runs.recent;
+    const recent = (await readStatus(state)).workspaces[0]?.runs.recent;
     expect(recent?.map((r) => [r.id, r.orphaned])).toEqual([
       ["rn-c", false],
       ["rn-b", false],
@@ -157,17 +174,16 @@ describe("readStatus", () => {
     ]);
   });
 
-  it("skips corrupt files and dirs without workspace.json", () => {
-    const { state, dir } = layout();
+  it("skips corrupt files, and dirs the registry does not record", async () => {
+    const { state, dir } = await layout();
     writeJson(join(dir, "runs", "rn-ok.json"), run("rn-ok", "complete", 1, 1));
     writeJson(join(dir, "runs", "rn-hollow.json"), { pid: 1 });
     writeFileSync(join(dir, "runs", "rn-bad.json"), "{ not json");
     writeFileSync(join(dir, "schedules", "bad.json"), "{");
-    writeJson(join(state, "ws2", "workspace.json"), { id: 7 });
+    writeJson(join(state, "ws2", "workspace.json"), { id: "ws2", root: "/r" });
     mkdirSync(join(state, "ws3"));
-    writeFileSync(join(state, "ws3", "workspace.json"), "nope");
 
-    const { workspaces } = readStatus(state);
+    const { workspaces } = await readStatus(state);
     expect(workspaces.map((w) => w.id)).toEqual(["ws1"]);
     expect(workspaces[0]?.runs).toEqual({
       recent: [expect.objectContaining({ id: "rn-ok" })],

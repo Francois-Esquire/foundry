@@ -1,4 +1,4 @@
-import type { SessionStore } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
 import type { Bindings } from "~/lib/bindings";
 import type { Engine, EngineOptions } from "~/lib/engine";
 import type { Reply } from "~/lib/models/echo";

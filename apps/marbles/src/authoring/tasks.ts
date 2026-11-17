@@ -1,5 +1,6 @@
 import type { TaskEvent, TaskStore } from "@foundry/tasks";
-import { MemoryTaskStore, Tasks } from "@foundry/tasks";
+import { Tasks } from "@foundry/tasks";
+import { MemoryTaskStore } from "@foundry/tasks/store/memory";
 import { hostTaskStore } from "~/authoring/runtime";
 import type { Observable } from "~/lib/events/source";
 import { observable, TASKS } from "~/lib/events/source";

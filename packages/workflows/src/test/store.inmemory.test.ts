@@ -4,20 +4,12 @@ import {
   RecordInUseError,
   SuspensionAlreadySettledError,
 } from "../errors";
-import type {
-  RunFrame,
-  RunRecord,
-  SuspensionCancellation,
-  SuspensionCancellationTransaction,
-  SuspensionParking,
-  SuspensionParkingTransaction,
-  SuspensionRecord,
-  SuspensionSettlement,
-  SuspensionSettlementTransaction,
-} from "../store";
-import { InMemoryOrchestratorStore } from "../store";
+import { ExecutionCoordinator } from "../index";
+import type { RunRecord } from "../schema";
+import { MemoryWorkflowStore } from "../store/memory";
 import { makeInMemoryStore } from "./helpers/store";
 import { orchestratorStoreContract } from "./helpers/store.contract";
+import { FaultyWorkflowStore } from "./helpers/workflow-stores";
 
 const RUN_ID_PATTERN = /^rn-/;
 const RESERVED_PATTERN = /reserved/;
@@ -25,78 +17,28 @@ const JSON_SAFE_PATTERN = /JSON-safe/;
 
 orchestratorStoreContract("in-memory", makeInMemoryStore);
 
-class FailingSettlementStore extends InMemoryOrchestratorStore {
+class FailingSettlementStore extends ExecutionCoordinator {
   failSettlement = false as boolean;
+  readonly workflowStore: FaultyWorkflowStore;
 
-  protected override writeSuspensionSettlement(input: {
-    previousSuspension: SuspensionRecord;
-    nextSuspension: SuspensionRecord;
-    previousRun: RunRecord;
-    nextRun: RunRecord;
-  }): Promise<void> {
-    if (this.failSettlement) {
-      return Promise.reject(new Error("injected settlement failure"));
-    }
-    return super.writeSuspensionSettlement(input);
+  constructor() {
+    const store = new FaultyWorkflowStore();
+    super({ store });
+    this.workflowStore = store;
+    store.before = (write) => {
+      if (
+        this.failSettlement &&
+        write.putSuspensions?.some((record) => record.status === "resolved")
+      ) {
+        throw new Error("injected settlement failure");
+      }
+    };
   }
 }
 
-class LegacyRunProjectionStore extends InMemoryOrchestratorStore {
-  protected override writeRun(record: RunRecord): Promise<void> {
-    const { definition: _definition, links: _links, ...legacy } = record;
-    return super.writeRun(legacy);
-  }
-}
-
-class FrameHookStore extends InMemoryOrchestratorStore {
-  readonly writtenFrames: RunFrame[] = [];
-
-  protected override writeFrame(frame: RunFrame): Promise<void> {
-    this.writtenFrames.push(structuredClone(frame));
-    return super.writeFrame(frame);
-  }
-}
-
-class SuspensionTransactionHookStore extends InMemoryOrchestratorStore {
-  parkingTransactions = 0;
-  settlementTransactions = 0;
-  cancellationTransactions = 0;
-
-  protected override withSuspensionParkingTransaction(
-    runId: string,
-    address: string,
-    operation: (
-      transaction: SuspensionParkingTransaction
-    ) => Promise<SuspensionParking>
-  ): Promise<SuspensionParking> {
-    this.parkingTransactions += 1;
-    return super.withSuspensionParkingTransaction(runId, address, operation);
-  }
-
-  protected override withSuspensionSettlementTransaction(
-    id: string,
-    operation: (
-      transaction: SuspensionSettlementTransaction
-    ) => Promise<SuspensionSettlement>
-  ): Promise<SuspensionSettlement> {
-    this.settlementTransactions += 1;
-    return super.withSuspensionSettlementTransaction(id, operation);
-  }
-
-  protected override withSuspensionCancellationTransaction(
-    runId: string,
-    operation: (
-      transaction: SuspensionCancellationTransaction
-    ) => Promise<SuspensionCancellation>
-  ): Promise<SuspensionCancellation> {
-    this.cancellationTransactions += 1;
-    return super.withSuspensionCancellationTransaction(runId, operation);
-  }
-}
-
-describe("InMemoryOrchestratorStore", () => {
-  test("routes Suspension mutations through transaction-wide adapter hooks", async () => {
-    const store = new SuspensionTransactionHookStore();
+describe("ExecutionCoordinator over the memory store", () => {
+  test("commits each Suspension change with its Run as one write", async () => {
+    const store = new FailingSettlementStore();
     const firstRun = await store.createRun({
       input: null,
       queueId: "main",
@@ -130,9 +72,18 @@ describe("InMemoryOrchestratorStore", () => {
     });
     await store.cancelRunSuspensions(secondRun.id);
 
-    expect(store.parkingTransactions).toBe(2);
-    expect(store.settlementTransactions).toBe(1);
-    expect(store.cancellationTransactions).toBe(1);
+    const shapes = store.workflowStore.commits.map((write) => ({
+      runs: write.putRuns?.map((record) => record.status) ?? [],
+      suspensions: write.putSuspensions?.map((record) => record.status) ?? [],
+    }));
+    expect(shapes).toEqual([
+      { runs: ["queued"], suspensions: [] },
+      { runs: ["suspended"], suspensions: ["pending"] },
+      { runs: ["queued"], suspensions: ["resolved"] },
+      { runs: ["queued"], suspensions: [] },
+      { runs: ["suspended"], suspensions: ["pending"] },
+      { runs: ["cancelled"], suspensions: ["cancelled"] },
+    ]);
   });
 
   test("settles a Suspension only once under concurrent resolution", async () => {
@@ -197,14 +148,18 @@ describe("InMemoryOrchestratorStore", () => {
   });
 
   test("restores Run definition and links from reserved persisted metadata", async () => {
-    const store = new LegacyRunProjectionStore();
-    const run = await store.createRun({
+    const records = new MemoryWorkflowStore();
+    const created = await new ExecutionCoordinator().createRun({
       definition: { name: "publish", version: "1" },
       input: null,
       links: { sessionId: "session-1", subjectId: "subject-1" },
       queueId: "main",
       step: "publish",
     });
+    const { definition: _definition, links: _links, ...legacy } = created;
+    await records.commit({ putRuns: [legacy] });
+    const store = new ExecutionCoordinator({ store: records });
+    const run = (await store.getRun(created.id)) as RunRecord;
 
     await expect(store.getRun(run.id)).resolves.toMatchObject({
       definition: { name: "publish", version: "1" },
@@ -218,8 +173,8 @@ describe("InMemoryOrchestratorStore", () => {
     ).toHaveLength(1);
   });
 
-  test("assigns frame cursors before calling the adapter write hook", async () => {
-    const store = new FrameHookStore();
+  test("assigns frame cursors before the frames reach the store", async () => {
+    const store = new FailingSettlementStore();
     const run = await store.createRun({
       input: null,
       queueId: "main",
@@ -236,7 +191,11 @@ describe("InMemoryOrchestratorStore", () => {
       }),
     ]);
 
-    expect(store.writtenFrames.map((frame) => frame.cursor)).toEqual([0, 1]);
+    expect(
+      store.workflowStore.commits.flatMap(
+        (write) => write.putFrames?.map((frame) => frame.cursor) ?? []
+      )
+    ).toEqual([0, 1]);
   });
 
   test("prevents deletes that would leave dangling execution records", async () => {

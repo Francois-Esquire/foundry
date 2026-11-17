@@ -1,5 +1,6 @@
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for authoring imports.
 export { defineSkill } from "@foundry/agents/skills";
+export { Prompt, PromptError, prompts, ref } from "@foundry/prompts";
 export type {
   CreateTaskInput,
   DepthOptions,
@@ -19,7 +20,8 @@ export type {
   TaskToken,
   UpdateTaskInput,
 } from "@foundry/tasks";
-export { MemoryTaskStore, TaskError, Tasks } from "@foundry/tasks";
+export { TaskError, Tasks } from "@foundry/tasks";
+export { MemoryTaskStore } from "@foundry/tasks/store/memory";
 export type {
   Balance,
   Charge,

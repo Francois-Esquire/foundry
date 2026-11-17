@@ -1,9 +1,9 @@
 import type { Page } from "@foundry/core/pagination";
-import { Schema } from "effect";
 import { InvalidRunFrameSequenceError } from "./errors";
-import type { JsonValue, RunFrame, RunFramePayload } from "./execution-records";
-import { RunFrameSchema } from "./execution-records";
-import type { PageQuery } from "./execution-repository";
+import type { PageQuery } from "./execution-commands";
+import type { JsonValue } from "./json-value";
+import type { RunFrame, RunFramePayload } from "./schema";
+import { RunFrameSchema } from "./schema";
 
 export interface AppendRunFrameInput {
   at?: number;
@@ -104,7 +104,7 @@ export function isRunEffectClaim(frame: RunFrame, key: string): boolean {
 
 /** The single canonical decoder used before persistence and after hydration. */
 export function decodeRunFrame(value: unknown): RunFrame {
-  return Schema.decodeUnknownSync(RunFrameSchema)(value);
+  return RunFrameSchema.parse(value);
 }
 
 export function decodeRunFrames(values: readonly unknown[]): RunFrame[] {

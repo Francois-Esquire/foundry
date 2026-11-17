@@ -13,8 +13,8 @@ import {
 } from "@foundry/modules/grants";
 import type {
   InstallationGrant,
-  ModuleStore,
-} from "@foundry/modules/store/contract";
+  ModuleCommands,
+} from "@foundry/modules/registry";
 import type { GrantChange, WorksCapability } from "~/main/gateway/provider-kit";
 import { WORKS_TASKS } from "~/shared/execution";
 import type {
@@ -46,7 +46,7 @@ export interface ModuleAccessOptions {
   /** Cancels a revoked Grant's active Invocations before its hooks run. */
   readonly runtime: Pick<ModuleRuntime, "revoked">;
   /** The library's Artifact-backed ModuleStore: Grants live on the Installation. */
-  readonly store: ModuleStore;
+  readonly store: ModuleCommands;
 }
 
 /**
@@ -91,7 +91,7 @@ export class ModuleAccess {
   readonly #grants: ModuleGrants;
   readonly #library: ModuleAccessOptions["library"];
   readonly #now: () => Date;
-  readonly #store: ModuleStore;
+  readonly #store: ModuleCommands;
 
   constructor(options: ModuleAccessOptions) {
     this.#capabilities = options.capabilities;

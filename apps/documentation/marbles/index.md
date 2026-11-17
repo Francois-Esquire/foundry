@@ -72,5 +72,5 @@ primarily runs on your own machine; [remote execution](/marbles/reference/remote
 The [roadmap](/marbles/roadmap) follows the next additions: browser resources
 with reusable profiles, a first-class MCP definition, a hosted web
 application for people and agents, and deeper remote and event support.
-A source-checkout [MCP server](/marbles/reference/mcp) already dispatches
+The [MCP server](/marbles/reference/mcp), `marbles mcp`, already dispatches
 named definitions.

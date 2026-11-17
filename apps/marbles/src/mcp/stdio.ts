@@ -1,123 +1,158 @@
-#!/usr/bin/env bun
-import { Console } from "node:console";
-import { Writable } from "node:stream";
+import { resolve } from "node:path";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  joinProcess,
+  NotHostedError,
+  type TaskRunner,
+  withRunningWorkspace,
+  withTasks,
+} from "~/access/workspace";
 import type { Flags } from "~/args";
-import { parseMcpArgs } from "~/args";
-import { layout } from "~/layout";
+import { recordedWorkspaces } from "~/database/workspaces";
+import { onRelayGone, protocolOutput, SHUTDOWN_GRACE_MS } from "~/mcp/relay";
 import { createMcpServer, type McpServerOptions } from "~/mcp/server";
 import type { WorkspaceSummary } from "~/model/connection";
-import { connect } from "~/process/client";
-import { envFilesLoaded } from "~/process/runtime";
-import { hostWorkspace } from "~/workspace/host";
+import type { OpenedWorkspace } from "~/workspace/open";
+import { findWorkspace, recordedWorkspace } from "~/workspace/open";
 import { resolveSource } from "~/workspace/source";
 
-// Imported source and workflow bodies may print. Only the transport writes
-// to the original stdout; everything else goes to stderr.
-const protocolWrite = process.stdout.write.bind(process.stdout);
-const protocolOutput = new Writable({
-  write(chunk, encoding, callback) {
-    protocolWrite(chunk, encoding, callback);
-  },
-});
-process.stdout.write = process.stderr.write.bind(process.stderr);
-Object.assign(
-  globalThis.console,
-  new Console({
-    stderr: process.stderr,
-    stdout: process.stderr,
-  })
-);
 const print = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };
 
 /** What the server answers for, and how to let go of it. */
 interface Served extends McpServerOptions {
-  /** Where the source is, or would be; named when nothing loads there. */
-  readonly configPath: string;
   readonly release: () => Promise<void>;
 }
 
-/** Host the workspace here: nothing persists, so no process is involved. */
-async function serveInProcess(flags: Flags): Promise<Served> {
-  const host = await hostWorkspace({
-    artifacts: flags.artifacts,
-    askable: false,
-    dry: flags.dry,
-    env: "require",
-    print,
-    source: flags.config,
-    state: flags.state,
-  });
+function sessionTasks(flags: Flags, opened: OpenedWorkspace) {
+  let runner: Promise<TaskRunner> | undefined;
+  let session: Promise<void> = Promise.resolve();
+  let letGo = (): void => undefined;
   return {
-    attached: host,
-    configPath: host.configPath,
-    release: () => host.close(),
+    open(): Promise<TaskRunner> {
+      runner ??= new Promise<TaskRunner>((ready, fail) => {
+        const done = new Promise<void>((end) => {
+          letGo = end;
+        });
+        let held = false;
+        session = withTasks(flags, opened, (run) => {
+          held = true;
+          ready(run);
+          return done;
+        }).catch((error: unknown) => {
+          if (held) {
+            throw error;
+          }
+          runner = undefined;
+          fail(error);
+        });
+      });
+      return runner;
+    },
+    release(): Promise<void> {
+      letGo();
+      return session;
+    },
   };
 }
 
-/**
- * Attach the workspace to the Marbles process and answer from there. The
- * process keeps hosting it after this server closes; any other workspace
- * it hosts can be named by id, resolved through the last listing.
- */
-async function serveFromProcess(flags: Flags): Promise<Served> {
-  const client = await connect({
-    layout: layout({ artifacts: flags.artifacts, state: flags.state }),
-  });
-  const source = resolveSource(flags.config);
-  let summary: WorkspaceSummary;
-  try {
-    summary = await client.attach(source, { root: process.cwd() });
-  } catch (error) {
-    client.close();
-    throw error;
-  }
-  const known = new Map<string, WorkspaceSummary>([[summary.id, summary]]);
-  const unsubscribe = client.subscribe(summary.id, { line: print });
+function serveWorkspace(flags: Flags): Served {
+  const opened = findWorkspace(flags);
+  const own = opened.workspace;
+  const memory = flags.dry ? sessionTasks(flags, opened) : undefined;
+  let turn: Promise<unknown> = Promise.resolve();
+  const inTurn = <T>(work: () => Promise<T>): Promise<T> => {
+    const next = turn.then(work, work);
+    turn = next.catch(() => undefined);
+    return next;
+  };
+  const recorded = async (id: string): Promise<OpenedWorkspace> => {
+    if (id === own.id) {
+      return opened;
+    }
+    if (flags.dry) {
+      throw new Error(
+        `only workspace "${own.id}" is available under --dry-run`
+      );
+    }
+    const found = await recordedWorkspace(flags, id);
+    if (found === undefined) {
+      throw new Error(
+        `no workspace "${id}" is recorded under ${resolve(flags.state)}; list_workspaces names them`
+      );
+    }
+    return found;
+  };
+  const ownSummary: WorkspaceSummary = {
+    config: opened.config,
+    id: own.id,
+    root: own.root,
+    state: "stopped",
+  };
   return {
-    attached: client.workspace(summary),
-    configPath: summary.config ?? source,
-    release: () => {
-      unsubscribe();
-      client.close();
-      return Promise.resolve();
-    },
-    workspace(id) {
-      const found = known.get(id);
-      if (found === undefined) {
-        throw new Error(
-          `no workspace "${id}" is hosted; list_workspaces names the hosted ones`
-        );
+    async hosted(id, work) {
+      try {
+        return await withRunningWorkspace(flags, id, work);
+      } catch (error) {
+        if (
+          error instanceof NotHostedError &&
+          id === own.id &&
+          opened.config === null
+        ) {
+          throw new NotHostedError(
+            `no Marbles source at "${opened.configPath}"; ${error.message}`,
+            { cause: error }
+          );
+        }
+        throw error;
       }
-      return client.workspace(found);
     },
+    id: own.id,
+    release: () => turn.then(() => memory?.release()),
+    tasks: (command, id = own.id) =>
+      inTurn(async () => {
+        const target = await recorded(id);
+        return memory === undefined
+          ? withTasks(flags, target, (run) => run(command))
+          : (await memory.open())(command);
+      }),
     async workspaces() {
-      const summaries = await client.workspaces();
-      for (const entry of summaries) {
-        known.set(entry.id, entry);
+      if (flags.dry) {
+        return [ownSummary];
       }
-      return summaries;
+      const client = await joinProcess(flags);
+      let listed: readonly WorkspaceSummary[];
+      if (client === undefined) {
+        listed = (await recordedWorkspaces(flags.state)).map(
+          ({ config, id, root }) => ({ config, id, root, state: "stopped" })
+        );
+      } else {
+        try {
+          listed = await client.workspaces();
+        } finally {
+          client.close();
+        }
+      }
+      return listed.some((entry) => entry.id === own.id)
+        ? listed
+        : [ownSummary, ...listed];
     },
   };
 }
 
-/** Attach or host the workspace, and serve it until the client leaves. */
 async function serve(flags: Flags): Promise<void> {
+  const output = protocolOutput();
   const configPath = resolveSource(flags.config);
-  const served = await (flags.dry ? serveInProcess : serveFromProcess)(
-    flags
-  ).catch((error: unknown) => {
+  let served: Served;
+  try {
+    served = serveWorkspace(flags);
+  } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
       `could not open the workspace for "${configPath}": ${reason}`,
       { cause: error }
     );
-  });
-  if (served.attached.config === null) {
-    await served.release();
-    throw new Error(`no Marbles source at "${served.configPath}"`);
   }
   const server = createMcpServer(served);
   const close = async (): Promise<void> => {
@@ -127,30 +162,39 @@ async function serve(flags: Flags): Promise<void> {
       await served.release();
     }
   };
+  let closing = false;
   const shutdown = (): void => {
-    close().catch((error: unknown) => {
-      print(error instanceof Error ? error.message : String(error));
-      process.exitCode = 1;
-    });
+    if (closing) {
+      return;
+    }
+    closing = true;
+    setTimeout(() => {
+      print(
+        `marbles mcp: shutdown did not finish within ${SHUTDOWN_GRACE_MS}ms; exiting`
+      );
+      process.exit(1);
+    }, SHUTDOWN_GRACE_MS).unref();
+    close()
+      .catch((error: unknown) => {
+        print(error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+      })
+      .finally(() => {
+        output.end(() => process.exit());
+      });
   };
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
   process.stdin.once("end", shutdown);
   try {
-    await server.connect(
-      new StdioServerTransport(process.stdin, protocolOutput)
-    );
+    await server.connect(new StdioServerTransport(process.stdin, output));
   } catch (error) {
     await close();
     throw error;
   }
+  onRelayGone(shutdown);
 }
 
-/**
- * A server that cannot start says why on stderr and exits non-zero; the
- * protocol stream stays empty. A source failure keeps its stack, which
- * points into the module that threw.
- */
 function report(error: unknown): void {
   print(
     `marbles mcp: ${error instanceof Error ? error.message : String(error)}`
@@ -164,22 +208,6 @@ function report(error: unknown): void {
   process.exitCode = 1;
 }
 
-let args: ReturnType<typeof parseMcpArgs> | undefined;
-const refusal = envFilesLoaded();
-if (refusal === undefined) {
-  try {
-    args = parseMcpArgs(process.argv.slice(2));
-  } catch (error) {
-    report(error);
-  }
-} else {
-  print(`marbles: ${refusal}`);
-  process.exitCode = 1;
-}
-if (args?.help) {
-  print(
-    "bun --no-env-file src/mcp/stdio.ts [--source <file-or-directory>] [--state <directory>] [--artifacts <directory>] [--dry-run]"
-  );
-} else if (args !== undefined) {
-  await serve(args).catch(report);
+export async function serveStdio(flags: Flags): Promise<void> {
+  await serve(flags).catch(report);
 }

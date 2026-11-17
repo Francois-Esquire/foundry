@@ -10,7 +10,7 @@ import {
   SuspensionAlreadySettledError,
   SuspensionOccurrenceMismatchError,
 } from "../../errors";
-import type { JsonValue, OrchestratorStore } from "../../store";
+import type { JsonValue, OrchestratorStore } from "../../index";
 
 const CLAIMJOBRUN_PATTERN = /claimJobRun/;
 const PLAIN_OBJECTS_PATTERN = /plain objects/;

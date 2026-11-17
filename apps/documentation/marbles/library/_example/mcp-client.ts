@@ -4,8 +4,6 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 
 export interface McpCountOptions {
-  /** `apps/marbles/src/mcp/stdio.ts` in a Foundry checkout. */
-  readonly server: string;
   /** The `count` module, or the project's `.foundry/marbles` folder. */
   readonly source: string;
   /** A state root; omit it to use `~/.foundry/marbles`. */
@@ -31,12 +29,12 @@ function json(result: unknown): Record<string, unknown> {
 export async function countOverMcp(
   options: McpCountOptions
 ): Promise<Record<string, unknown>> {
-  const args = [options.server, "--source", options.source];
+  const args = ["mcp", "--source", options.source];
   if (options.state !== undefined) {
     args.push("--state", options.state);
   }
   const client = new Client({ name: "count-example", version: "0.0.0" });
-  await client.connect(new StdioClientTransport({ args, command: "bun" }));
+  await client.connect(new StdioClientTransport({ args, command: "marbles" }));
   try {
     const { runId } = json(
       await client.callTool({

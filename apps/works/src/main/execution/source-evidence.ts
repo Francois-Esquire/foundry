@@ -1,6 +1,6 @@
 import type { ArtifactResolved } from "@foundry/artifacts";
-import type { ArtifactModuleStore } from "@foundry/modules/store/artifact";
 import type { ExecutionRun, TaskContext } from "@foundry.sh/marbles/engine";
+import type { ArtifactModuleStore } from "~/main/modules/store/artifact";
 import { WORKS_TASKS } from "~/shared/execution";
 import {
   OBSERVATION,

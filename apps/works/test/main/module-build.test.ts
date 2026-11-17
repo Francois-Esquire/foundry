@@ -1,4 +1,4 @@
-import { InMemoryArtifactStore } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { describe, expect, it, vi } from "vitest";
 import { ModuleBuilds } from "~/main/modules/builds/controller";
 import { createModuleLibrary } from "~/main/modules/library";

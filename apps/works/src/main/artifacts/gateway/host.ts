@@ -7,8 +7,8 @@ import {
 } from "@foundry/artifacts";
 import type { ModulePrincipal } from "@foundry/modules/gateway/types";
 import { ModuleGatewayError } from "@foundry/modules/gateway/types";
+import type { ModuleCommands } from "@foundry/modules/registry";
 import { ModuleSettingsError } from "@foundry/modules/settings";
-import type { ModuleStore } from "@foundry/modules/store/contract";
 import { authorizeRuntime, type RequiredGrant } from "~/main/gateway/authority";
 import { denied } from "~/main/gateway/provider-kit";
 import {
@@ -53,7 +53,7 @@ export interface ArtifactHost {
   readonly limits: (moduleId: string) => Promise<ArtifactLimits>;
   /** The Artifact-backed ModuleStore over the same manager. */
   readonly modules: Pick<
-    ModuleStore,
+    ModuleCommands,
     "loadGatewayContext" | "loadRetainedManifest"
   >;
 }

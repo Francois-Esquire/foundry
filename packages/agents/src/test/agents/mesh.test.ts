@@ -4,7 +4,7 @@ import type { Message, SendEvent } from "../../agents/mesh";
 import { createMesh, Edge, HUMAN, Mesh, Node } from "../../agents/mesh";
 import type { AgentEntry } from "../../agents/registry";
 import { createAgentCompatibilityRegistry } from "../../agents/registry";
-import { InMemorySessionStore } from "../../session/store";
+import { InMemorySessionStore } from "../../store/memory";
 
 function mockAgent(...deltas: string[]): AgentEntry {
   return {

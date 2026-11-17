@@ -10,21 +10,17 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  CreateMessageInput,
-  CreateSessionInput,
-  SessionMessage,
-  SessionStore,
-  UpdateMessageInput,
-  UpdateSessionInput,
-} from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import type { SessionMessage } from "@foundry/agents/session";
+import { Sessions } from "@foundry/agents/session";
+import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { ArtifactManager } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
+import { DatabaseSessionStore } from "~/database/sessions";
 import type { Engine } from "~/lib/engine";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import type { StateCollection } from "~/lib/state/store";
@@ -45,6 +41,8 @@ import { dashboardSnapshot } from "~/workspace/snapshot";
 import { DEFAULT_DRAFT } from "~/workspace/templates";
 import { totalOf, workspaceUsage } from "~/workspace/usage";
 import { startEngine, testEngine } from "./helpers/engine";
+import { testMachine } from "./helpers/records";
+import { temporaryDirectory } from "./helpers/temporary";
 
 const engines: Engine[] = [];
 let state: string;
@@ -677,7 +675,7 @@ it("a transcript that failed to read is read again at the same stamp, keeps only
   let stamp: string | null = "unchanged";
   let fail = false;
   const sessions = new InMemorySessionStore();
-  await sessions.createSession({ id: "s" });
+  await new Sessions({ store: sessions }).createSession({ id: "s" });
   const evidence = new UsageEvidence({
     recordedOf: () => ({
       ledger: { "marbles:flow|agents.session|0": { id: "deleted" } },
@@ -861,6 +859,54 @@ it("a direct session none of whose usage was saved is found through the store's 
   }
 });
 
+it("a direct session none of whose usage was saved is found through the database store's listing too", async () => {
+  const machine = await testMachine();
+  const sessionsOf = (scope: string) =>
+    new DatabaseSessionStore({ database: machine.database.database, scope });
+  const owned: Engine[] = [];
+  try {
+    const writer = await startEngine({
+      print: () => undefined,
+      sessions: sessionsOf("test"),
+      state,
+      store: new FailingStore(state, (write) => write === 2 || write === 3),
+    });
+    owned.push(writer);
+    const helper = agent({ name: "helper", prompt: "Help." });
+    const kept = await writer.agents.session(helper);
+    await kept.generate("saved one");
+    const orphan = await writer.agents.session(helper);
+    await orphan.generate("fact and marker both fail");
+    await kept.generate("saved two");
+    await writer.dispose();
+
+    catalog.reset();
+    const second = await startEngine({
+      print: () => undefined,
+      sessions: sessionsOf("test"),
+      state,
+    });
+    owned.push(second);
+    const records = await second.readUsage();
+    expect(records.recovered).toBe(1);
+    expect(
+      records.facts.find((fact) => fact.sessionId === orphan.ref.id)
+    ).toMatchObject({ agentId: UNATTRIBUTED, lost: RECOVERED });
+    expect(records.unreadableAt.unowned).toBe(0);
+    catalog.reset();
+    const other = await startEngine({
+      print: () => undefined,
+      sessions: sessionsOf("other"),
+      state: temporaryDirectory("marbles-usage-other-"),
+    });
+    owned.push(other);
+    expect((await other.readUsage()).facts).toEqual([]);
+  } finally {
+    await Promise.all(owned.map((engine) => engine.dispose()));
+    machine.close();
+  }
+});
+
 it("a direct turn in a session a workflow only continued is not claimed by the overlapping run", async () => {
   const helper = agent({ name: "helper", prompt: "Help." });
   let continued: SessionRef | undefined;
@@ -983,6 +1029,7 @@ it("a saved marker's own attribution goes to the recovered leaf, which replaces 
 
 it("attributes a run's turn only on per-turn proof, a one-turn call's message, never on the session it was filed under or the run's window", async () => {
   const sessions = new InMemorySessionStore();
+  const written = new Sessions({ store: sessions });
   // A step named `a.b` is not `a`'s child `b`; a record kept before its path proves the run, no step.
   expect(
     ledgerNames({
@@ -1007,7 +1054,7 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
   });
   // Finished a second ago unless told otherwise: before any reader below was made.
   const turn = (sessionId: string, completedAt = Date.now() - 1000) =>
-    sessions.appendMessage({
+    written.appendMessage({
       metadata: {
         timing: {
           completedAt,
@@ -1020,24 +1067,24 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
       role: "assistant",
       sessionId,
     });
-  await sessions.createSession({ id: "run-session", title: "run" });
-  await sessions.createSession({
+  await written.createSession({ id: "run-session", title: "run" });
+  await written.createSession({
     id: "opened",
     parentSessionId: "run-session",
   });
-  await sessions.createSession({
+  await written.createSession({
     id: "one-turn",
     parentSessionId: "run-session",
   });
   // Opened before the run, outside any: the run only continued it.
-  await sessions.createSession({ id: "continued" });
+  await written.createSession({ id: "continued" });
   // A delegated child's: its parent's turn reports none of it.
-  await sessions.createSession({
+  await written.createSession({
     id: "child",
     parentSessionId: "opened",
     recursionDepth: 1,
   });
-  await sessions.appendMessage({
+  await written.appendMessage({
     parts: [],
     role: "user",
     sessionId: "opened",
@@ -1770,12 +1817,12 @@ class UnlistedSessions implements SessionStore {
     this.#inner = new JsonSessionStore(dir);
   }
 
-  appendMessage(input: CreateMessageInput) {
-    return this.#inner.appendMessage(input);
+  commit(write: SessionStoreWrite) {
+    return this.#inner.commit(write);
   }
 
-  createSession(input?: CreateSessionInput) {
-    return this.#inner.createSession(input);
+  getMessage(id: string) {
+    return this.#inner.getMessage(id);
   }
 
   getSession(id: string) {
@@ -1786,12 +1833,8 @@ class UnlistedSessions implements SessionStore {
     return this.#inner.listMessages(sessionId);
   }
 
-  updateMessage(id: string, patch: UpdateMessageInput) {
-    return this.#inner.updateMessage(id, patch);
-  }
-
-  updateSession(id: string, patch: UpdateSessionInput) {
-    return this.#inner.updateSession(id, patch);
+  transaction<T>(work: (view: SessionStore) => Promise<T>) {
+    return this.#inner.transaction(work);
   }
 }
 

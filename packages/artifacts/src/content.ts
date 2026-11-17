@@ -5,34 +5,21 @@ import { sha256Hex } from "@foundry/lib/digest";
 import { canonicalizeJson } from "@foundry/lib/json";
 import { byCodeUnit } from "@foundry/lib/ordering";
 
-import type { ARTIFACT_STATUSES, CONTENT_STATES } from "./constants";
 import { FilePointerError } from "./errors";
+import type { ContentMetadata, ContentState } from "./schema";
 
-export type ArtifactLifecycleStatus = (typeof ARTIFACT_STATUSES)[number];
-export type ContentState = (typeof CONTENT_STATES)[number];
+export type {
+  ArtifactLifecycleStatus,
+  ArtifactMetadata,
+  ContentMetadata,
+  ContentState,
+} from "./schema";
 
 /** Ready or frozen Content: the states whose files consumers may read. */
 export function isUsableContent<T extends { readonly state: ContentState }>(
   content: T | null | undefined
 ): content is T & { readonly state: "ready" | "frozen" } {
   return content?.state === "ready" || content?.state === "frozen";
-}
-
-export interface ContentMetadata {
-  readonly entries?: Readonly<Record<string, string>>;
-  readonly entry?: string;
-  readonly failure?: { readonly code: string; readonly message: string };
-  readonly from?: string;
-  readonly messageId?: string;
-  readonly runId?: string;
-  readonly sessionId?: string;
-  readonly thumbnail?: string;
-  readonly [key: string]: unknown;
-}
-
-export interface ArtifactMetadata {
-  readonly sessionId?: string;
-  readonly [key: string]: unknown;
 }
 
 /** Describe how one Content was produced. A revision or fork starts without them. */

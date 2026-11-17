@@ -7,7 +7,7 @@ import { agentSubject } from "../../authorization/authorization";
 import { AgentHarness } from "../../harness/agent-harness";
 import { SessionHarness } from "../../harness/session-harness";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../session/store";
+import { InMemorySessionStore } from "../../store/memory";
 import { getPolicy } from "../../tools/context";
 import { fakeAuthorizer } from "../helpers/authorizer";
 import {

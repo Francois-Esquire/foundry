@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import { catalog } from "~/authoring/catalog";
+import type { MarblesDatabase } from "~/database/open";
+import { openHostDatabase } from "~/database/workspaces";
 import type { Engine } from "~/lib/engine";
 import { tick } from "~/lib/schedule";
 import { inputFromFields, SchemaError } from "~/lib/schema";
@@ -135,38 +137,49 @@ export async function hostWorkspace(
     onMissing: options.onMissing,
     print,
   });
-  const engine = await hostEngine(hostOptions, opened, {
-    askable: options.askable,
-    log,
-    print,
-  });
+  const database = hostOptions.dry
+    ? undefined
+    : await openHostDatabase(hostOptions.state);
   try {
-    options.prepare?.(engine);
-    // Defined before the engine starts: background agent dispatch is a step.
-    const dispatches = new BackgroundRuns(engine, catalog);
-    await engine.start();
-    touchWorkspace(engine, opened);
-    return hosted(engine, opened, dispatches, {
-      captured,
-      diagnostics,
-      fail: (line) => {
-        report(line);
-        diagnostics.add(line, "error");
-      },
+    const engine = await hostEngine(hostOptions, opened, {
+      askable: options.askable,
+      ...(database === undefined ? {} : { database }),
+      log,
       print,
-      setStatus: (line) => {
-        status = line;
-      },
-      status: () => status,
     });
+    try {
+      options.prepare?.(engine);
+      // Defined before the engine starts: background agent dispatch is a step.
+      const dispatches = new BackgroundRuns(engine, catalog);
+      await engine.start();
+      await touchWorkspace(database, hostOptions, opened);
+      return hosted(engine, opened, dispatches, {
+        captured,
+        database,
+        diagnostics,
+        fail: (line) => {
+          report(line);
+          diagnostics.add(line, "error");
+        },
+        print,
+        setStatus: (line) => {
+          status = line;
+        },
+        status: () => status,
+      });
+    } catch (error) {
+      await engine.dispose();
+      throw error;
+    }
   } catch (error) {
-    await engine.dispose();
+    database?.close();
     throw error;
   }
 }
 
 interface Status {
   readonly captured: AsyncLocalStorage<string[]>;
+  readonly database: MarblesDatabase | undefined;
   readonly diagnostics: Diagnostics;
   /** An error line: the status, and an error in the Logs tab. */
   readonly fail: (line: string) => void;
@@ -221,7 +234,7 @@ function hosted(
   engine: Engine,
   opened: OpenedWorkspace,
   dispatches: BackgroundRuns,
-  { captured, diagnostics, fail, print, setStatus, status }: Status
+  { captured, database, diagnostics, fail, print, setStatus, status }: Status
 ): WorkspaceHost {
   const { config, configPath, workspace } = opened;
   const { activities, automations, store } = engine;
@@ -304,7 +317,11 @@ function hosted(
       try {
         await dispatches.close();
       } finally {
-        await engine.dispose();
+        try {
+          await engine.dispose();
+        } finally {
+          database?.close();
+        }
       }
     },
     config,

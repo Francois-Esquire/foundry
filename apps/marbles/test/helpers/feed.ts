@@ -1,7 +1,8 @@
 import { basename, join } from "node:path";
 import type { Artifacts } from "@foundry/artifacts";
-import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import type { FeedPublisher } from "~/lib/feed/publish";
 import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedReader } from "~/lib/feed/read";

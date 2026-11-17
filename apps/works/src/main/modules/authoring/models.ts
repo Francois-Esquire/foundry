@@ -7,6 +7,31 @@ import {
 import type { Vault } from "~/main/vault/vault";
 import type { AuthoringModels } from "./service";
 
+const GATEWAY_MODELS: Parameters<typeof gatewayProvider>[0]["models"] = [
+  {
+    capabilities: { functionCalling: true },
+    costs: { input: 0.25, output: 2 },
+    id: "openai/gpt-5-mini",
+    kind: "text",
+    label: "OpenAI GPT-5 mini",
+    limits: { maxInputTokens: 272_000 },
+    modelId: "openai/gpt-5-mini",
+    vendor: "openai",
+  },
+  {
+    id: "openai/text-embedding-3-small",
+    kind: "embedding",
+    label: "OpenAI text-embedding-3-small",
+    modelId: "openai/text-embedding-3-small",
+    vendor: "openai",
+  },
+];
+
+const GATEWAY_DEFAULTS = {
+  embedding: "openai/text-embedding-3-small",
+  text: "openai/gpt-5-mini",
+};
+
 /** Refresh provider instances from the vault; Models owns selection and leases. */
 export function vaultAuthoringModels(
   models: ModelManager,
@@ -31,6 +56,8 @@ export function vaultAuthoringModels(
           key: gatewayKey,
           provider: (factories.gateway ?? gatewayProvider)({
             config: { apiKey, baseURL: baseURL ?? "http://localhost:4000" },
+            defaults: GATEWAY_DEFAULTS,
+            models: GATEWAY_MODELS,
           }),
         };
       }
