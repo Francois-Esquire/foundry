@@ -122,6 +122,10 @@ export class HarnessInteractions {
         await this.#deferred.remove(record.approvalId);
         continue;
       }
+      const answered =
+        response && (await this.#grantStored(record, response))
+          ? response
+          : undefined;
       await this.#publishDeferred(
         {
           ...record,
@@ -134,11 +138,39 @@ export class HarnessInteractions {
         record.source,
         this.#options.policy,
         true,
-        response
+        answered
       );
-      if (response) {
+      if (answered) {
         await this.#deferred.remove(record.approvalId);
       }
+    }
+  }
+
+  async #grantStored(
+    record: DeferredApproval,
+    response: ApprovalResponsePart
+  ): Promise<boolean> {
+    if (!response.approved) {
+      return true;
+    }
+    try {
+      await resolveHarnessApproval(
+        {
+          agentGeneration: record.agentGeneration,
+          agentId: record.agentId,
+          policy: this.#options.policy,
+          store: this.#options.sessions,
+        },
+        record.sessionId,
+        record.approvalId,
+        {
+          approved: true,
+          lifetime: response.scope === "always" ? "persistent" : "session",
+        }
+      );
+      return true;
+    } catch {
+      return false;
     }
   }
 
