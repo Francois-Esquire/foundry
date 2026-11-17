@@ -18,7 +18,7 @@ it("records a command a step runs in the spawned directory the engine was given,
     const { stdout } = await exec([
       "sh",
       "-c",
-      'sleep 0.3; ls "$0"; printf "%s" "$$"',
+      'for i in $(seq 100); do [ -e "$0/$$.json" ] && break; sleep 0.05; done; ls "$0"; printf "%s" "$$"',
       spawned,
     ]);
     return stdout;

@@ -503,6 +503,53 @@ it("issues on restore the grant a stored deferred answer never got, and only onc
   expect(grants).toHaveBeenCalledTimes(2);
 });
 
+it("leaves a stored deferred answer's question open, and its record kept, when its grant fails again on restore", async () => {
+  const approvals = new MemoryDeferredApprovalStore();
+  const f = await fixture(approvals);
+  await f.permission(false)();
+  const entry = await f.open();
+  const resolveApproval = f.policy.resolveApproval.bind(f.policy);
+  let failures = 2;
+  vi.spyOn(f.policy, "resolveApproval").mockImplementation(
+    (auth, resolution) => {
+      if (failures > 0) {
+        failures -= 1;
+        return Promise.reject(new Error("grants unavailable"));
+      }
+      return resolveApproval(auth, resolution);
+    }
+  );
+  await expect(f.bridge.answer(entry.id, "Allow future runs")).rejects.toThrow(
+    "grants unavailable"
+  );
+  await f.bridge.close();
+  const restored = new HarnessInteractions({
+    approvals,
+    askable: true,
+    feed: f.feed.publisher,
+    policy: f.policy,
+    sessions: f.sessions,
+  });
+  onTestFinished(() => restored.close());
+
+  await restored.restore();
+
+  expect(failures).toBe(0);
+  const reopened = await f.open();
+  expect((await approvals.load()).requests).toHaveLength(1);
+  await expect(restored.answer(reopened.id, "Deny")).rejects.toThrow(
+    "already has a response"
+  );
+  expect(await restored.answer(reopened.id, "Allow future runs")).toBe(true);
+  expect((await approvals.load()).requests).toEqual([]);
+  await new Sessions({ store: f.sessions }).createSession({
+    id: "new-run-session",
+  });
+  expect(await f.permission(false, "new-run-session")()).toEqual({
+    behavior: "allow",
+  });
+});
+
 it("records an unattended question and returns a decline without waiting", async () => {
   const f = await fixture();
   expect(
