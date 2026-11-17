@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
@@ -28,6 +28,7 @@ import type { WorkspaceDatabase } from "~/database/managed";
 import { defaultWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
+import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import type { WorkspaceStores } from "~/database/stores";
@@ -56,6 +57,7 @@ import { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { RegisteredPlugin } from "~/lib/providers/plugins";
 import { FIRST_PARTY_PLUGINS } from "~/lib/providers/plugins";
 import { Registry } from "~/lib/registry";
+import { containerHolder } from "~/lib/sandbox/holders";
 
 /**
  * The engine as Marbles runs it. The machine is inspected and the flags are
@@ -72,6 +74,7 @@ export interface CreateEngineOptions {
   readonly catalog: Catalog;
   readonly cwd?: string;
   readonly database?: StoreDatabase;
+  readonly databaseFile?: string;
   readonly dry: boolean;
   /** The machine environment and the workspace's Varlock values; the process's own when omitted. */
   readonly environment?: {
@@ -89,6 +92,7 @@ export interface CreateEngineOptions {
   readonly providers?: readonly Provider[];
   /** The workspace root: the config's directory, or the cwd without one. */
   readonly root: string;
+  readonly spawned?: string;
   /**
    * This workspace's state dir. Under `dry` the engine gets none, so nothing
    * is written there; omit it for an engine that persists nothing either way.
@@ -250,6 +254,7 @@ function recordsFor(
   | "executionStore"
   | "grants"
   | "records"
+  | "recoveryLog"
   | "runs"
   | "sessions"
   | "triggers"
@@ -266,6 +271,7 @@ function recordsFor(
       executionStore: new DatabaseExecutionStore({ database, scope }),
       grants: new DatabaseGrantStorage({ database, scope }),
       records: new DatabaseWorkspaceRecords({ database, scope }),
+      recoveryLog: new DatabaseRecoveryLog({ database, scope }),
       runs: new DatabaseRunStore({ database, scope }),
       sessions: new DatabaseSessionStore({ database, scope }),
       triggers: new DatabaseTriggerStore({ database, scope }),
@@ -326,11 +332,24 @@ function containersFor(
     const declared = [...catalog.workspaces].map((path) => resolve(root, path));
     return createContainers({
       allowedMountRoots: allowedMountRoots([root, worktreeHome, ...declared]),
+      holder: containerHolder(),
       instanceLabel: `marbles-${workspaceId}`,
+      report: (line) => print(`[sandbox] ${line}`),
       runtime: await runtime(),
       store: store ?? createMemoryContainerStore(),
     });
   };
+}
+
+function realPath(file: string | undefined): string | undefined {
+  if (file === undefined) {
+    return;
+  }
+  try {
+    return realpathSync(file);
+  } catch {
+    // Then the identity is the one the database keeps, as without a file.
+  }
 }
 
 /** Build each instance, hand them to a new engine, and declare the config to it. Not yet started. */
@@ -343,11 +362,14 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const database = dry ? undefined : options.database;
   const { own, ...kept } = recordsFor(state, database, options);
   const stores =
-    database === undefined ? undefined : workspaceStores(database, workspaceId);
+    database === undefined
+      ? undefined
+      : workspaceStores(database, workspaceId, realPath(options.databaseFile));
   const git = dry ? { run: echoGit(print) } : {};
   const engineOptions: EngineOptions = {
     ...artifactsFor(stores, options),
     askable: options.askable,
+    ...(stores === undefined ? {} : { containerRows: stores.containers }),
     containers: containersFor(options, worktrees, stores?.containers),
     dry,
     git,
@@ -361,6 +383,9 @@ export function createEngine(options: CreateEngineOptions): Engine {
       ? {}
       : { environment: executionEnvironment(options.environment) }),
     root,
+    ...(dry || options.spawned === undefined
+      ? {}
+      : { spawned: options.spawned }),
     state,
     workspaceId,
     ...(stores === undefined

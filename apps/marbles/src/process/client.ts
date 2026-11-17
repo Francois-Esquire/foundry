@@ -33,7 +33,7 @@ import {
   workspaceSummarySchema,
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
-import { recordSpawned } from "~/process/spawned";
+import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
 import { version } from "../../package.json";
 
 /**
@@ -261,7 +261,10 @@ function startDetachedDaemon(options: ConnectOptions): void {
     }
   );
   child.unref();
-  recordSpawned(child.pid, true);
+  recordSpawned(child.pid, true, {
+    ...process.env,
+    [SPAWN_RECOVERY_ENV]: undefined,
+  });
 }
 
 interface Opened {

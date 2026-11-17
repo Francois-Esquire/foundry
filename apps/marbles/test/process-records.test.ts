@@ -112,7 +112,7 @@ it("keeps, and reports, a record written during the stop for a process it cannot
   put(path, OLD);
   let looks = 0;
   const system: ProcessSystem = {
-    alive: () => false,
+    alive: (pid) => looks > 1 && pid === PID,
     environment: () => (looks > 1 ? undefined : []),
     kill: () => {
       throw new Error("nothing here may be signalled");
@@ -188,7 +188,7 @@ it("never removes a run's root with a record in it, wherever that record lands a
       },
     };
     const system: ProcessSystem = {
-      alive: () => false,
+      alive: (pid) => landed && pid === PID,
       environment: () => undefined,
       kill: () => {
         throw new Error("nothing here may be signalled");
@@ -259,9 +259,10 @@ it("forgets a record only on proof its process is gone: never for one unlisted t
   put(path, { ...OLD, started: `ps:${OLD.started}` });
   expect(
     await stop({
+      alive: () => true,
       look: () => new Map([[PID, { pgid: 1, started: OLD.started }]]),
     })
-  ).toEqual([expect.stringContaining("a start of a kind this reader cannot")]);
+  ).toEqual([expect.stringContaining("a start of a kind this system cannot")]);
   expect(existsSync(path)).toBe(true);
 
   put(path, OLD);

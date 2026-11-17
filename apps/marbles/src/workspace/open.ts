@@ -39,6 +39,7 @@ export interface HostOptions {
   readonly config: string;
   readonly directory?: string;
   readonly dry: boolean;
+  readonly spawned?: string;
   readonly state: string;
 }
 
@@ -270,8 +271,11 @@ function workspaceEngine(
     environment,
     ...(options.log ? { log: options.log } : {}),
     print: options.print,
-    ...(database === undefined ? {} : { database: database.database }),
+    ...(database === undefined
+      ? {}
+      : { database: database.database, databaseFile: database.file }),
     root: workspace.root,
+    ...(args.spawned === undefined ? {} : { spawned: args.spawned }),
     stateDir: workspace.dir,
     stateRoot: resolve(args.state),
     workspaceId: workspace.id,

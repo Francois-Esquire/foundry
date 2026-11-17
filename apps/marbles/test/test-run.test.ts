@@ -10,6 +10,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import {
+  lookProcesses,
+  processAlive,
+  processState,
+} from "@foundry/lib/process-identity";
+import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { expect, it, vi } from "vitest";
 import { layout } from "~/layout";
@@ -22,7 +28,6 @@ import { RecordedStdioTransport } from "./helpers/mcp-stdio";
 import {
   type Marker,
   type ProcessSystem,
-  parseLook,
   parseMembers,
   recordProcess,
   stopRecorded,
@@ -31,6 +36,7 @@ import {
 import {
   RUN_ENV,
   removeRoot,
+  runIsOver,
   runRecords,
   startRun,
   sweepFinishedRuns,
@@ -155,7 +161,7 @@ it("proves a recorded process again before every signal, so a reused pid gets no
   let started = "Sun Nov 15 08:00:00 2026";
   const sent: [number, NodeJS.Signals][] = [];
   const system: ProcessSystem = {
-    alive: () => false,
+    alive: () => true,
     environment: () => [entry(marker)],
     kill(target, signal) {
       sent.push([target, signal]);
@@ -171,6 +177,60 @@ it("proves a recorded process again before every signal, so a reused pid gets no
   expect(sent).toEqual([[-4242, "SIGTERM"]]);
 });
 
+it("forgets a run's record only on proof its process is gone: never one unlisted that a signal reaches, nor one of a start it cannot compare", async () => {
+  const marker = uniqueMarker();
+  const records = temporaryDirectory("rec-");
+  const pid = 4_200_400;
+  const started = "ps:Sun Nov 15 08:00:00 2026";
+  const path = join(records, `${String(pid)}.json`);
+  const stop = (system: Partial<ProcessSystem>) =>
+    stopRecorded(
+      records,
+      marker,
+      { graceMs: 0, killMs: 0 },
+      {
+        alive: () => false,
+        environment: () => [entry(marker)],
+        kill: () => {
+          throw new Error("nothing here may be signalled");
+        },
+        look: () => new Map(),
+        members: () => [],
+        sleep: () => Promise.resolve(),
+        ...system,
+      }
+    );
+  const put = (start: string) =>
+    writePrivateFile(
+      path,
+      JSON.stringify({ group: false, pid, started: start })
+    );
+
+  put(started);
+  expect(await stop({ alive: (each) => each === pid })).toEqual([
+    expect.stringContaining("is not listed but a signal still reaches it"),
+  ]);
+  expect(existsSync(path)).toBe(true);
+
+  put("linux:00000000-0000-0000-0000-000000000000:1");
+  expect(
+    await stop({
+      alive: () => true,
+      look: () => new Map([[pid, { pgid: 1, started }]]),
+    })
+  ).toEqual([expect.stringContaining("a start of a kind this system cannot")]);
+  expect(existsSync(path)).toBe(true);
+
+  put(started);
+  expect(
+    await stop({
+      alive: () => true,
+      look: () => new Map([[pid, { exited: true, pgid: 1, started }]]),
+    })
+  ).toEqual([]);
+  expect(existsSync(records)).toBe(false);
+});
+
 function madeUpSystem(
   marker: Marker,
   running: Set<number>,
@@ -184,7 +244,7 @@ function madeUpSystem(
   return {
     sent,
     system: {
-      alive: () => false,
+      alive: (pid) => running.has(pid),
       environment: (pid) => (running.has(pid) ? [entry(marker)] : undefined),
       kill(target, signal) {
         sent.push([target, signal]);
@@ -260,19 +320,7 @@ it("keeps, as not clear, the records directory while a record is still being wri
   expect(existsSync(odd)).toBe(true);
 });
 
-it("takes a process that has exited but is not reaped (a zombie) for gone", () => {
-  const listed = [
-    "  101   101 Ss   Sun Nov 15 08:00:00 2026",
-    "  102   101 Z    Sun Nov 15 08:00:01 2026",
-    "  103   101 ZN   Sun Nov 15 08:00:02 2026",
-    "  104   101 S+   Sun Nov 15 08:00:03 2026",
-  ].join("\n");
-  expect([...parseLook(listed)]).toEqual([
-    [101, { pgid: 101, started: "Sun Nov 15 08:00:00 2026" }],
-    [102, { exited: true, pgid: 101, started: "Sun Nov 15 08:00:01 2026" }],
-    [103, { exited: true, pgid: 101, started: "Sun Nov 15 08:00:02 2026" }],
-    [104, { pgid: 101, started: "Sun Nov 15 08:00:03 2026" }],
-  ]);
+it("takes a group's member that has exited but is not reaped (a zombie) for gone", () => {
   const members = [
     "  101   101 Ss",
     "  102   101 Z",
@@ -293,7 +341,7 @@ it("does not signal a recorded process whose pid now names one that started late
     JSON.stringify({
       group: true,
       pid: later,
-      started: "Thu Jan 1 00:00:00 1970",
+      started: anotherStart(),
     })
   );
   try {
@@ -414,7 +462,7 @@ it("does not signal a recorded process whose environment cannot be read, and rep
   );
   const sent: [number, NodeJS.Signals][] = [];
   const system: ProcessSystem = {
-    alive: () => false,
+    alive: () => true,
     environment: () => undefined,
     kill: (target, signal) => {
       sent.push([target, signal]);
@@ -538,7 +586,7 @@ function forgedRun(
   chmodSync(root, rootMode);
   writePrivateFile(
     join(root, "owner.json"),
-    JSON.stringify({ pid: exitedPid(), started: "Thu Jan 1 00:00:00 1970" })
+    JSON.stringify({ pid: exitedPid(), started: anotherStart() })
   );
   const record = join(runRecords(root), "run", `${String(pid)}.json`);
   writeFileSync(
@@ -618,7 +666,7 @@ it("reads each process's identity again right before its own signal", async () =
   ]);
   const sent: [number, NodeJS.Signals][] = [];
   const system: ProcessSystem = {
-    alive: () => false,
+    alive: (pid) => started.has(pid),
     environment: () => [entry(marker)],
     kill(target, signal) {
       sent.push([target, signal]);
@@ -683,7 +731,7 @@ it("keeps a run whose records cannot be read, and still clears the others", asyn
   mkdirPrivate(join(runRecords(broken), "run"));
   writePrivateFile(
     join(broken, "owner.json"),
-    JSON.stringify({ pid: exitedPid(), started: "Thu Jan 1 00:00:00 1970" })
+    JSON.stringify({ pid: exitedPid(), started: anotherStart() })
   );
   writePrivateFile(join(runRecords(broken), "run", "1.json"), "{ not json");
   const killed = await killedRun(parent);
@@ -736,6 +784,36 @@ it("keeps a run's root while a process carries its marker without a record, and 
   }
 });
 
+it("takes a run for over only as the one rule for owners does: never for one a signal reaches that the listing leaves out", () => {
+  const parent = temporaryDirectory("sw-");
+  const root = join(parent, "marbles-run-made-up");
+  mkdirPrivate(root);
+  writePrivateFile(
+    join(root, "owner.json"),
+    JSON.stringify({ pid: 4_200_130, started: "ps:Sun Nov 15 08:00:00 2026" })
+  );
+  const unlisted = { alive: () => true, look: () => new Map() };
+  expect(runIsOver(root, unlisted)).toBe(false);
+  const exited = {
+    alive: () => true,
+    look: () =>
+      new Map([
+        [
+          4_200_130,
+          {
+            exited: true as const,
+            pgid: 1,
+            started: "ps:Sun Nov 15 08:00:00 2026",
+          },
+        ],
+      ]),
+  };
+  expect(runIsOver(root, exited)).toBe(true);
+  expect(runIsOver(root, { alive: () => false, look: () => new Map() })).toBe(
+    true
+  );
+});
+
 it("keeps a run's root while a record is still being written in it, and never removes a root a record came back to", async () => {
   const parent = temporaryDirectory("sw-");
   const run = startRun(parent, FAST);
@@ -765,7 +843,7 @@ it("leaves a run whose owner's start is of a kind it cannot compare, as one it c
     join(root, "owner.json"),
     JSON.stringify({
       pid: process.pid,
-      started: `ps:${startedAt(process.pid)}`,
+      started: "Sun Nov 15 08:00:00 2026",
     })
   );
   await sweepFinishedRuns(parent, FAST);
@@ -807,7 +885,7 @@ it("sweeps a run whose owner's pid now names a process started later", async () 
   mkdirPrivate(root);
   writePrivateFile(
     join(root, "owner.json"),
-    JSON.stringify({ pid: reused, started: "Thu Jan 1 00:00:00 1970" })
+    JSON.stringify({ pid: reused, started: anotherStart() })
   );
   const leftover = await sleeper({ [RUN_ENV]: root });
   recordProcess(join(runRecords(root), "run"), leftover, true);
@@ -853,7 +931,7 @@ it("leaves a live run and a root whose owner cannot be read alone, and handles t
   expect(existsSync(live.root)).toBe(false);
 });
 
-const left: { home?: string; pid?: number } = {};
+const left: { home?: string; pid?: number; started?: string | null } = {};
 
 it("records the Marbles process a test's CLI starts in the test's home", () => {
   const home = testHome();
@@ -877,11 +955,17 @@ it("records the Marbles process a test's CLI starts in the test's home", () => {
   expect(recorded.filter((record) => record.group === false)).toHaveLength(1);
   left.home = home.path;
   left.pid = daemon?.pid;
+  left.started = daemon?.started;
 }, 60_000);
 
 it("stops that process and removes the home when the test finishes", () => {
   expect(left.pid).toBeDefined();
-  expect(alive(left.pid ?? 0)).toBe(false);
+  expect(
+    processState(
+      { pid: left.pid ?? 0, started: left.started ?? null },
+      { alive: processAlive, look: lookProcesses }
+    )
+  ).toBe("gone");
   expect(existsSync(left.home ?? "")).toBe(false);
 });
 

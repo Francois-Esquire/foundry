@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Sessions } from "@foundry/agents/session";
 import { describe, expect, it } from "vitest";
 import { initializeDatabase } from "~/database/open";
+import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { stateDatabase } from "~/layout";
 import { writeJson } from "~/lib/state/json";
@@ -191,5 +192,28 @@ describe("readStatus", () => {
     expect(workspaces[0]?.schedules.map((s) => [s.name, s.lastStatus])).toEqual(
       [["guides", "complete"]]
     );
+  });
+});
+
+describe("the last recovery in readStatus", () => {
+  it("is each workspace's last start's report, and none before one ran", async () => {
+    const { state } = await layout();
+    expect((await readStatus(state)).workspaces[0]?.recovery).toBeNull();
+    const report = {
+      at: "2026-09-10T02:00:00.000Z",
+      steps: [
+        { detail: "Error: busy", outcome: "failed", step: "runs" },
+      ] as const,
+    };
+    const database = await initializeDatabase(stateDatabase(state));
+    try {
+      await new DatabaseRecoveryLog({
+        database: database.database,
+        scope: "ws1",
+      }).record(report);
+    } finally {
+      database.close();
+    }
+    expect((await readStatus(state)).workspaces[0]?.recovery).toEqual(report);
   });
 });

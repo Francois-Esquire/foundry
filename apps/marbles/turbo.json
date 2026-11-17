@@ -1,6 +1,11 @@
 {
   "extends": ["//"],
   "tasks": {
+    "test": {
+      "dependsOn": ["build"],
+      "outputs": [],
+      "env": ["MARBLES_TEST_RUNS"]
+    },
     "test:integration": {
       "dependsOn": ["^build"],
       "cache": false,

@@ -51,6 +51,7 @@ export interface HostedWorkspacesOptions {
   readonly dry?: boolean;
   readonly env?: "require" | "warn";
   readonly print?: (root: string, line: string) => void;
+  readonly spawned?: string;
   readonly state: string;
 }
 
@@ -161,6 +162,9 @@ export class HostedWorkspaces {
         },
         print: (line) => this.#options.print?.(root, line),
         source: found.configPath,
+        ...(this.#options.spawned === undefined
+          ? {}
+          : { spawned: this.#options.spawned }),
         state: args.state,
       });
     } catch (error) {

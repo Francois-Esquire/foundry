@@ -10,6 +10,7 @@ import { CONTAINER_ROW_STATUSES } from "../container/constants";
 
 export const sandboxContainers = sqliteTable(
   "sandbox_containers",
+  // biome-ignore assist/source/useSortedKeys: columns in the order a table gets them, `holder` added last to one that existed before it.
   {
     createdAt: integer("created_at").notNull(),
     id: text("id").notNull(),
@@ -19,6 +20,7 @@ export const sandboxContainers = sqliteTable(
     spec: text("spec").notNull(),
     status: text("status", { enum: CONTAINER_ROW_STATUSES }).notNull(),
     updatedAt: integer("updated_at").notNull(),
+    holder: text("holder"),
   },
   (table) => [
     primaryKey({ columns: [table.scope, table.id] }),

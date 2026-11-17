@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { thisProcess } from "@foundry/lib/process-identity";
 import { Workflow } from "@foundry/workflows/workflow";
 import { expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
@@ -65,7 +66,7 @@ it("writes a run when it is queued, before it starts, and when it settles", asyn
     correlation: { moduleId: "notes" },
     kind: "task",
     name: "build",
-    owner: { pid: process.pid },
+    owner: thisProcess(),
     queue: "marbles",
     status: "running",
   });
@@ -238,7 +239,7 @@ it("records a running run's observations one at a time, beside its record, and k
     await seedExecution(store, {
       ...record,
       observations: [],
-      owner: { pid: dead },
+      owner: { pid: dead, started: null },
       status: "running",
     });
     for (const observation of live?.observations ?? []) {

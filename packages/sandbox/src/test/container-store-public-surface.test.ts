@@ -56,6 +56,7 @@ describe("container store contract", () => {
       "missing",
       "stopped",
       "failed",
+      "removing",
     ]);
   });
 

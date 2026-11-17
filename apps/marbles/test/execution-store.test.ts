@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { thisProcess } from "@foundry/lib/process-identity";
 import { expect, it } from "vitest";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { initializeDatabase } from "~/database/open";
@@ -41,7 +42,7 @@ it("reads in memory what is kept, not what a transaction under way has written",
     kind: "task" as const,
     name: "save",
     observations: [],
-    owner: { pid: process.pid },
+    owner: thisProcess(),
     queue: "q",
     revision: 1,
     sequence: 1,
@@ -89,7 +90,7 @@ it("finds, in memory, a run removed and created again in one transaction after e
     kind: "task" as const,
     name: "save",
     observations: [],
-    owner: { pid: process.pid },
+    owner: thisProcess(),
     queue: "q",
     revision: 1,
     sequence: 1,
@@ -124,7 +125,7 @@ it("keeps one workspace's runs, observations and gaps apart from another's", asy
       kind: "task" as const,
       name: "save",
       observations: [],
-      owner: { pid: process.pid },
+      owner: thisProcess(),
       queue: "q",
       revision: 1,
       sequence: 1,

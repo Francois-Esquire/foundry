@@ -1,4 +1,8 @@
 import type { JsonValue } from "@foundry/lib/json";
+import {
+  type ProcessIdentity,
+  sameProcess,
+} from "@foundry/lib/process-identity";
 import { RecordsGate } from "~/lib/events/records";
 import { storableJson } from "~/lib/state/json";
 import type {
@@ -41,8 +45,8 @@ export interface LifecycleChange {
   readonly dropInput?: boolean;
   readonly error?: ExecutionRun["error"];
   readonly from: readonly ExecutionStatus[];
-  readonly newOwner?: number;
-  readonly owner: number;
+  readonly newOwner?: ProcessIdentity;
+  readonly owner: ProcessIdentity;
   readonly settledAt?: string;
   readonly startedAt?: string;
   readonly status: ExecutionStatus;
@@ -107,11 +111,17 @@ export function storedRetentionGap(gap: RetentionGap): RetentionGap {
 
 export function allows(
   change: LifecycleChange,
-  record: { readonly owner: { readonly pid: number }; readonly status: string }
+  record: {
+    readonly owner: { readonly pid: number; readonly started?: string | null };
+    readonly status: string;
+  }
 ): boolean {
   return (
     (change.from as readonly string[]).includes(record.status) &&
-    record.owner.pid === change.owner
+    sameProcess(
+      { pid: record.owner.pid, started: record.owner.started ?? null },
+      change.owner
+    )
   );
 }
 
@@ -140,7 +150,7 @@ export function changed(
     ...((change.error ?? error) === undefined
       ? {}
       : { error: change.error ?? error }),
-    owner: { pid: change.newOwner ?? record.owner.pid },
+    owner: change.newOwner ?? record.owner,
     revision: record.revision + 1,
     status: change.status,
     timestamps,

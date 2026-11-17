@@ -7,6 +7,7 @@ import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
 import { describe, expect, it, vi } from "vitest";
+import { spawnRecordedCli } from "../claude-code-spawn";
 import { claudeCodeCallCost } from "../cost";
 import { ModelManager } from "../manager";
 
@@ -50,6 +51,7 @@ describe("claudeCodeProvider", () => {
     expect(languageModel).toHaveBeenLastCalledWith("sonnet", {
       cwd: "/repo",
       env: {},
+      spawnClaudeCodeProcess: spawnRecordedCli,
     });
   });
 
@@ -62,6 +64,7 @@ describe("claudeCodeProvider", () => {
       cwd: "/repo",
       env: {},
       maxTurns: 7,
+      spawnClaudeCodeProcess: spawnRecordedCli,
     });
   });
 
@@ -110,6 +113,7 @@ it.each([1, 100])(
     expect(languageModel).toHaveBeenLastCalledWith("sonnet", {
       env: {},
       maxTurns: nativeMaxTurns,
+      spawnClaudeCodeProcess: spawnRecordedCli,
     });
   }
 );

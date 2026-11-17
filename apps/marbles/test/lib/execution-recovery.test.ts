@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { thisProcess } from "@foundry/lib/process-identity";
 import { expect, it } from "vitest";
 import { step } from "~/authoring/builder";
 import { MemoryExecutionStore } from "~/lib/execution-store";
@@ -52,11 +53,11 @@ it("marks what an exited process was running interrupted, and admits its queue a
   expect(order).toEqual([1, 2, 3, 4]);
   expect(engine.executions.get("rn-program")).toMatchObject({
     error: { code: "interrupted" },
-    owner: { pid: process.pid },
+    owner: thisProcess(),
     status: "interrupted",
   });
   expect(engine.executions.get("rn-live")).toMatchObject({
-    owner: { pid: process.ppid },
+    owner: { pid: process.ppid, started: null },
     status: "queued",
   });
   expect(await storedExecution(state, "rn-save-3")).toMatchObject({
@@ -108,7 +109,10 @@ it("keeps queued work across a stop and admits it in the next process's order", 
   const dead = exitedPid();
   await withExecutions(state, async (store) => {
     for (const record of left) {
-      await seedExecution(store, { ...record, owner: { pid: dead } });
+      await seedExecution(store, {
+        ...record,
+        owner: { pid: dead, started: null },
+      });
     }
   });
 
@@ -149,7 +153,7 @@ it("re-admits a queued workflow under its recorded id, and trusts a settled run 
   await withExecutions(state, async (store) => {
     await seedExecution(store, {
       ...record,
-      owner: { pid: dead },
+      owner: { pid: dead, started: null },
       status: "running",
     });
   });

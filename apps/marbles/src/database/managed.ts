@@ -11,6 +11,7 @@ import { DatabaseAutomationStore } from "~/database/automations";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { DatabaseGrantStorage } from "~/database/grants";
 import type { MarblesDatabase, StoreDatabase } from "~/database/open";
+import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
@@ -206,7 +207,7 @@ export function defaultWorkspaceTriggers(
 }
 
 type SideStores = Required<
-  Pick<EngineOptions, "activityStore" | "approvals" | "grants">
+  Pick<EngineOptions, "activityStore" | "approvals" | "grants" | "recoveryLog">
 >;
 
 function sideStores(
@@ -228,6 +229,7 @@ function sideStores(
     (opened) => new DatabaseDeferredApprovalStore(kept(opened))
   );
   const grants = over((opened) => new DatabaseGrantStorage(kept(opened)));
+  const recoveries = over((opened) => new DatabaseRecoveryLog(kept(opened)));
   return {
     activityStore: {
       load: () => activities((store) => store.load()),
@@ -239,6 +241,9 @@ function sideStores(
     },
     grants: {
       transact: (apply) => grants((store) => store.transact(apply)),
+    },
+    recoveryLog: {
+      record: (report) => recoveries((store) => store.record(report)),
     },
   };
 }
@@ -310,6 +315,7 @@ export function withWorkspaceDatabase(
       activityStore: options.activityStore ?? sides.activityStore,
       approvals: options.approvals ?? sides.approvals,
       grants: options.grants ?? sides.grants,
+      recoveryLog: options.recoveryLog ?? sides.recoveryLog,
     },
     release: claim(),
   };

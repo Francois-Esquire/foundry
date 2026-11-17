@@ -1,18 +1,3 @@
-/**
- * Cross-process exclusion through a lock file created with `wx`: whoever
- * creates it holds the lock until it removes it. The file records the
- * holder's pid.
- *
- * One protocol, two ways in: `tryFileLock` takes the lock now or says who
- * has it, for callers that skip rather than wait; `acquireFileLock` retries
- * that same attempt until a deadline. Each step of an attempt is a
- * synchronous file operation, so within one process no two attempts
- * interleave; across processes, the steps below are what keep them apart.
- *
- * Node-bound: import it from main-process code only. Exclusion within one
- * process is the caller's job (see `KeyedQueue`); this lock is not reentrant.
- */
-
 import {
   closeSync,
   fstatSync,
@@ -23,7 +8,13 @@ import {
   writeSync,
 } from "node:fs";
 
-import { hasErrorCode } from "./atomic-file";
+import { hasErrorCode, writeFileAtomicSync } from "./atomic-file";
+import {
+  isGone,
+  type ProcessIdentity,
+  sameProcess,
+  thisProcess,
+} from "./process-identity";
 
 const DEFAULT_WAIT_MS = 5000;
 const DEFAULT_RETRY_MS = 10;
@@ -66,12 +57,8 @@ export interface FileLockHolder {
    * `breakStale`, one left empty for 30s is broken.
    */
   readonly empty?: true;
-  /**
-   * The pid the file records, or `undefined` when it records none. A file
-   * that is neither empty nor a pid (unreadable, or written by hand) is
-   * never broken.
-   */
   readonly holder: number | undefined;
+  readonly owner?: ProcessIdentity;
 }
 
 /** Thrown when the lock stays held past the wait. */
@@ -92,20 +79,10 @@ export class FileLockTimeoutError extends Error {
   }
 }
 
-/** `EPERM` counts as running: the pid exists but belongs to another user. */
-export function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return hasErrorCode(error, "EPERM");
-  }
-}
-
 /** A lock file as one read finds it. */
 type LockFile =
   | { readonly kind: "missing" }
-  | { readonly kind: "holder"; readonly pid: number }
+  | { readonly kind: "holder"; readonly owner: ProcessIdentity }
   | { readonly kind: "empty"; readonly ino: number; readonly mtimeMs: number }
   /** Unreadable, or not a pid: for a person to look at. */
   | { readonly kind: "other" };
@@ -116,29 +93,67 @@ function absentOr(error: unknown): LockFile {
 
 function readLock(path: string): LockFile {
   let contents: string;
+  let file: ReturnType<typeof statSync>;
   try {
     contents = readFileSync(path, "utf8");
+    file = statSync(path);
   } catch (error) {
     return absentOr(error);
   }
   if (contents === "") {
-    try {
-      const { ino, mtimeMs } = statSync(path);
-      return { ino, kind: "empty", mtimeMs };
-    } catch (error) {
-      return absentOr(error);
-    }
+    return { ino: file.ino, kind: "empty", mtimeMs: file.mtimeMs };
   }
   const pid = Number(contents);
   return Number.isInteger(pid) && pid > 0
-    ? { kind: "holder", pid }
+    ? {
+        kind: "holder",
+        owner: { pid, started: ownerStart(path, pid, file) },
+      }
     : { kind: "other" };
+}
+
+interface OwnerNote {
+  readonly ctimeMs: number;
+  readonly ino: number;
+  readonly pid: number;
+  readonly started: string;
+}
+
+function ownerNotePath(path: string): string {
+  return `${path}.owner`;
+}
+
+function ownerStart(
+  path: string,
+  pid: number,
+  file: { readonly ctimeMs: number; readonly ino: number }
+): string | null {
+  let note: Partial<OwnerNote>;
+  try {
+    note = JSON.parse(readFileSync(ownerNotePath(path), "utf8"));
+  } catch {
+    return null;
+  }
+  return note.ino === file.ino &&
+    note.ctimeMs === file.ctimeMs &&
+    note.pid === pid &&
+    typeof note.started === "string"
+    ? note.started
+    : null;
+}
+
+function noteOwner(path: string, mode: number, file: OwnerNote): void {
+  try {
+    writeFileAtomicSync(ownerNotePath(path), JSON.stringify(file), { mode });
+  } catch {
+    // Without it the lock is judged by its pid alone, as earlier versions judge it.
+  }
 }
 
 /** Whether two reads found the same lock: one holder, or one untouched empty file. */
 function sameLock(a: LockFile, b: LockFile): boolean {
   if (a.kind === "holder" && b.kind === "holder") {
-    return a.pid === b.pid;
+    return a.owner.pid === b.owner.pid && a.owner.started === b.owner.started;
   }
   if (a.kind === "empty" && b.kind === "empty") {
     return a.ino === b.ino && a.mtimeMs === b.mtimeMs;
@@ -149,7 +164,7 @@ function sameLock(a: LockFile, b: LockFile): boolean {
 function abandoned(lock: LockFile): boolean {
   switch (lock.kind) {
     case "holder":
-      return !processAlive(lock.pid);
+      return isGone(lock.owner);
     case "empty":
       return Date.now() - lock.mtimeMs > ABANDONED_EMPTY_MS;
     default:
@@ -160,7 +175,7 @@ function abandoned(lock: LockFile): boolean {
 function heldBy(lock: LockFile): FileLockHolder {
   switch (lock.kind) {
     case "holder":
-      return { holder: lock.pid };
+      return { holder: lock.owner.pid, owner: lock.owner };
     case "empty":
       return { empty: true, holder: undefined };
     default:
@@ -173,8 +188,21 @@ function heldBy(lock: LockFile): FileLockHolder {
  * released between an attempt and this read) or it records no pid.
  */
 export function lockHolder(path: string): number | undefined {
+  return lockOwner(path)?.pid;
+}
+
+export function lockOwner(path: string): ProcessIdentity | undefined {
   const lock = readLock(path);
-  return lock.kind === "holder" ? lock.pid : undefined;
+  return lock.kind === "holder" ? lock.owner : undefined;
+}
+
+export function holdsLock(path: string): boolean {
+  const owner = lockOwner(path);
+  return owner !== undefined && sameProcess(owner, thisProcess());
+}
+
+export function lockContents(): string {
+  return String(thisProcess().pid);
 }
 
 /**
@@ -194,11 +222,11 @@ function create(path: string, mode: number): boolean {
     }
     throw error;
   }
-  let ino: number;
+  let written: { readonly ctimeMs: number; readonly ino: number };
   try {
     try {
-      writeSync(file, String(process.pid));
-      ({ ino } = fstatSync(file));
+      writeSync(file, lockContents());
+      written = fstatSync(file);
     } finally {
       closeSync(file);
     }
@@ -207,10 +235,22 @@ function create(path: string, mode: number): boolean {
     throw error;
   }
   try {
-    return statSync(path).ino === ino;
+    if (statSync(path).ino !== written.ino) {
+      return false;
+    }
   } catch {
     return false;
   }
+  const { pid, started } = thisProcess();
+  if (started !== null) {
+    noteOwner(path, mode, {
+      ctimeMs: written.ctimeMs,
+      ino: written.ino,
+      pid,
+      started,
+    });
+  }
+  return true;
 }
 
 /**
@@ -257,7 +297,8 @@ function releaser(path: string): () => void {
       return;
     }
     released = true;
-    if (lockHolder(path) === process.pid) {
+    if (holdsLock(path)) {
+      rmSync(ownerNotePath(path), { force: true });
       rmSync(path, { force: true });
     }
   };

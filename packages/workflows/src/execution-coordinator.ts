@@ -63,6 +63,7 @@ import {
 } from "./run-journal";
 import type {
   DefinitionReference,
+  ErrorShape,
   JobRecord,
   JobStatus,
   OrchestratorStoreSnapshot,
@@ -403,6 +404,32 @@ export class ExecutionCoordinator implements OrchestratorStore {
         );
       }
       return updated;
+    });
+  }
+
+  abandonRun(
+    id: string,
+    error: ErrorShape,
+    at: number = Date.now()
+  ): Promise<RunRecord | null> {
+    return this.#exclusive(async (store) => {
+      const stored = await store.getRun(id);
+      if (!stored) {
+        return null;
+      }
+      const existing = hydrateRunRecord(stored);
+      if (existing.status !== "queued" && existing.status !== "running") {
+        return existing;
+      }
+      const abandoned = normalizeRunRecord(
+        applyRunPatch(existing, {
+          error,
+          status: "failed",
+          timestamps: { failedAt: at },
+        })
+      );
+      await store.commit({ putRuns: [abandoned] });
+      return abandoned;
     });
   }
 

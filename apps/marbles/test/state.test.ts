@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { lockContents } from "@foundry/lib/file-lock";
 import { Step } from "@foundry/workflows/step";
 import { describe, expect, it } from "vitest";
 import { defaultWorkspaceTriggers } from "~/database/managed";
@@ -144,7 +145,7 @@ describe("locks", () => {
     const lock = acquireLock(state, "s");
     expect(lock).toHaveProperty("release");
     expect(readFileSync(join(state, "locks", "s"), "utf8")).toBe(
-      String(process.pid)
+      lockContents()
     );
     if ("release" in lock) {
       lock.release();
@@ -166,7 +167,7 @@ describe("locks", () => {
     const old = new Date(Date.now() - 60_000);
     utimesSync(path, old, old);
     expect(acquireLock(state, "s")).toHaveProperty("release");
-    expect(readFileSync(path, "utf8")).toBe(String(process.pid));
+    expect(readFileSync(path, "utf8")).toBe(lockContents());
   });
 
   it("never breaks a lock that is not a pid, and says how to clear it", () => {

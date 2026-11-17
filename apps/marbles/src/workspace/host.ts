@@ -62,6 +62,7 @@ export interface HostWorkspaceOptions {
   readonly print?: (line: string) => void;
   /** The authoring folder or module. */
   readonly source: string;
+  readonly spawned?: string;
   /** The Marbles state root. */
   readonly state: string;
 }
@@ -140,6 +141,7 @@ export async function hostWorkspace(
       ? {}
       : { directory: options.directory }),
     dry: options.dry ?? false,
+    ...(options.spawned === undefined ? {} : { spawned: options.spawned }),
     state: options.state,
   };
   const loaded = await openWorkspace(hostOptions, {

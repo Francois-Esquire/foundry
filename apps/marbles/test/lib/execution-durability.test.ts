@@ -1,3 +1,5 @@
+import { thisProcess } from "@foundry/lib/process-identity";
+
 import { expect, it, vi } from "vitest";
 import type { ExecutionRun } from "~/lib/execution-record";
 import { parseStored } from "~/lib/execution-record";
@@ -193,7 +195,7 @@ it("never prunes a run the store holds unsettled, whatever this process last saw
     kind: "task",
     name: "save",
     observations: [],
-    owner: { pid: process.pid },
+    owner: thisProcess(),
     queue: "q",
     revision: 3,
     sequence: 1,

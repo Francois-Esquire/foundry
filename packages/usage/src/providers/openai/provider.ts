@@ -1,10 +1,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import {
-  recordSpawned,
-  spawnRecordEnvironment,
-} from "@foundry/lib/spawn-record";
+import { recordChild, spawnRecordEnvironment } from "@foundry/lib/spawn-record";
 
 import { consumptionOf, listPrices } from "../../consumption";
 import { defineProvider } from "../../provider";
@@ -43,7 +40,7 @@ const spawnCodex: SpawnCodex = (command, args, options) => {
     env: { ...options.env, ...spawnRecordEnvironment() },
     stdio: "pipe",
   });
-  recordSpawned(child.pid, false);
+  recordChild(child);
   return child;
 };
 

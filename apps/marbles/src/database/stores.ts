@@ -20,11 +20,18 @@ export interface WorkspaceStores {
 
 export function workspaceStores(
   database: StoreDatabase,
-  scope: string
+  scope: string,
+  location?: string
 ): WorkspaceStores {
   return {
     artifacts: surfacingBusy(new SqliteArtifactStore({ database, scope })),
-    containers: surfacingBusy(createSqliteContainerStore({ database, scope })),
+    containers: surfacingBusy(
+      createSqliteContainerStore({
+        database,
+        scope,
+        ...(location === undefined ? {} : { location }),
+      })
+    ),
     workspaces: surfacingBusy(new SqliteWorkspaceStore({ database, scope })),
   };
 }

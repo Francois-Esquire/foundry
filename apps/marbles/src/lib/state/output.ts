@@ -11,7 +11,11 @@ import {
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { setTimeout } from "node:timers/promises";
-import { processAlive } from "@foundry/lib/file-lock";
+import {
+  isGone,
+  type ProcessIdentity,
+  thisProcess,
+} from "@foundry/lib/process-identity";
 import { z } from "zod";
 import { formatLogValues } from "~/lib/log";
 
@@ -23,6 +27,7 @@ const outputRecordSchema = z.discriminatedUnion("type", [
     name: z.string(),
     pid: z.number().int().positive(),
     runId: z.string(),
+    started: z.string().nullable().optional(),
     type: z.literal("start"),
   }),
   z.object({ text: z.string(), type: z.literal("text") }),
@@ -59,7 +64,8 @@ export class RunOutput {
     this.#path = outputPath(state, runId);
     try {
       mkdirSync(join(state, "output"), { recursive: true });
-      this.#append({ name, pid: process.pid, runId, type: "start" });
+      const { pid, started } = thisProcess();
+      this.#append({ name, pid, runId, started, type: "start" });
     } catch (error) {
       this.#failure(error);
     }
@@ -149,7 +155,7 @@ function findOutput(state: string, runId: string): string {
 class OutputReader {
   readonly #runId: string;
   #pending = "";
-  #owner: number | undefined;
+  #owner: ProcessIdentity | undefined;
 
   constructor(runId: string) {
     this.#runId = runId;
@@ -167,7 +173,7 @@ class OutputReader {
         if (record.runId !== this.#runId) {
           throw new RunOutputError("run output belongs to a different run");
         }
-        this.#owner = record.pid;
+        this.#owner = { pid: record.pid, started: record.started ?? null };
       }
       yield record;
       end = this.#pending.indexOf("\n");
@@ -175,7 +181,7 @@ class OutputReader {
   }
 
   ownerAlive(): boolean {
-    return this.#owner === undefined || processAlive(this.#owner);
+    return this.#owner === undefined || !isGone(this.#owner);
   }
 }
 

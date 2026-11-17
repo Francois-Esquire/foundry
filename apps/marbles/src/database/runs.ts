@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { processAlive } from "@foundry/lib/file-lock";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import type {
   WorkflowStore,
   WorkflowStoreWrite,
@@ -12,6 +12,16 @@ import { aroundCalls, asBusy } from "~/database/busy";
 import { followExecution, readExecution } from "~/database/executions";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
+import {
+  CHANGED,
+  claimJudged,
+  heldBy,
+  NO_OWNER,
+  type OwnerColumns,
+  ownedHere,
+  rowOwner,
+  sameOwnerColumns,
+} from "~/database/owner";
 import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { RecordsGate } from "~/lib/events/records";
@@ -49,41 +59,66 @@ export class DatabaseRunStore implements RunStore {
 
   claim(runId: string, when: ClaimCondition): Promise<boolean> {
     return this.#call(() =>
-      this.#database.transaction(async (transaction) => {
-        const stored = await new SqliteWorkflowStore({
-          database: transaction,
-          scope: this.#scope,
-        }).getRun(runId);
-        const execution = await readExecution(transaction, this.#scope, runId);
-        if (!when(stored, execution)) {
-          return false;
-        }
-        const [row] = await transaction
-          .select({
-            ownerId: marblesWorkflowRuns.ownerId,
-            ownerPid: marblesWorkflowRuns.ownerPid,
-          })
-          .from(marblesWorkflowRuns)
-          .where(this.#run(runId));
-        if (row !== undefined && this.#heldElsewhere(row)) {
-          return false;
-        }
-        await transaction
-          .insert(marblesWorkflowRuns)
-          .values({
-            ledger: {},
-            literals: {},
-            ...this.#owned(),
-            runId,
-            scope: this.#scope,
-          })
-          .onConflictDoUpdate({
-            set: this.#owned(),
-            target: [marblesWorkflowRuns.scope, marblesWorkflowRuns.runId],
-          });
-        return true;
-      })
+      claimJudged(
+        () => this.#ownerOf(this.#database, runId),
+        (seen) => seen !== undefined && this.#heldElsewhere(seen),
+        (seen, held) => this.#claimIn(runId, when, seen, held),
+        false
+      )
     );
+  }
+
+  async #ownerOf(
+    database: StoreDatabase | WorkflowTransaction,
+    runId: string
+  ): Promise<OwnerColumns | undefined> {
+    const [row] = await database
+      .select({
+        ownerId: marblesWorkflowRuns.ownerId,
+        ownerPid: marblesWorkflowRuns.ownerPid,
+        ownerStarted: marblesWorkflowRuns.ownerStarted,
+      })
+      .from(marblesWorkflowRuns)
+      .where(this.#run(runId));
+    return row;
+  }
+
+  #claimIn(
+    runId: string,
+    when: ClaimCondition,
+    seen: OwnerColumns | undefined,
+    held: boolean
+  ): Promise<boolean | typeof CHANGED> {
+    return this.#database.transaction(async (transaction) => {
+      const stored = await new SqliteWorkflowStore({
+        database: transaction,
+        scope: this.#scope,
+      }).getRun(runId);
+      const execution = await readExecution(transaction, this.#scope, runId);
+      if (!when(stored, execution)) {
+        return false;
+      }
+      if (!sameOwnerColumns(await this.#ownerOf(transaction, runId), seen)) {
+        return CHANGED;
+      }
+      if (held) {
+        return false;
+      }
+      await transaction
+        .insert(marblesWorkflowRuns)
+        .values({
+          ledger: {},
+          literals: {},
+          ...this.#owned(),
+          runId,
+          scope: this.#scope,
+        })
+        .onConflictDoUpdate({
+          set: this.#owned(),
+          target: [marblesWorkflowRuns.scope, marblesWorkflowRuns.runId],
+        });
+      return true;
+    });
   }
 
   close(): Promise<void> {
@@ -135,7 +170,7 @@ export class DatabaseRunStore implements RunStore {
     return this.#call(async () => {
       await this.#database
         .update(marblesWorkflowRuns)
-        .set({ ownerId: null, ownerPid: null })
+        .set(NO_OWNER)
         .where(
           and(
             eq(marblesWorkflowRuns.scope, this.#scope),
@@ -167,7 +202,7 @@ export class DatabaseRunStore implements RunStore {
     recorded: (runId: string) => RecordedScope | undefined
   ): Promise<void> {
     for (const { runId, scope, settled } of filedRuns(write, recorded)) {
-      const owner = settled ? { ownerId: null, ownerPid: null } : this.#owned();
+      const owner = settled ? NO_OWNER : this.#owned();
       const recording =
         scope === undefined
           ? owner
@@ -220,17 +255,17 @@ export class DatabaseRunStore implements RunStore {
   #heldElsewhere(row: {
     readonly ownerId: string | null;
     readonly ownerPid: number | null;
+    readonly ownerStarted: string | null;
   }): boolean {
     return (
       row.ownerId !== null &&
       row.ownerId !== this.#owner &&
-      row.ownerPid !== null &&
-      processAlive(row.ownerPid)
+      heldBy(row) !== null
     );
   }
 
   #owned() {
-    return { ownerId: this.#owner, ownerPid: process.pid };
+    return ownedHere(this.#owner);
   }
 
   #run(runId: string) {
@@ -248,7 +283,7 @@ export class DatabaseRunStore implements RunStore {
 export interface StoredRun {
   readonly createdAt: number;
   readonly id: string;
-  readonly owner: number | null;
+  readonly owner: ProcessIdentity | null;
   readonly status: string;
   readonly step: string;
 }
@@ -265,11 +300,12 @@ export async function readStoredRuns(
           await database
             .select({
               ownerPid: marblesWorkflowRuns.ownerPid,
+              ownerStarted: marblesWorkflowRuns.ownerStarted,
               runId: marblesWorkflowRuns.runId,
             })
             .from(marblesWorkflowRuns)
             .where(eq(marblesWorkflowRuns.scope, scope))
-        ).map((row) => [row.runId, row.ownerPid])
+        ).map((row) => [row.runId, rowOwner(row)])
       );
       const runs: StoredRun[] = [];
       let after: number | undefined;

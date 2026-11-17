@@ -9,6 +9,7 @@ import {
   withWorkspaceDatabase,
 } from "~/database/managed";
 import { initializeDatabase } from "~/database/open";
+import { readLastRecovery } from "~/database/recoveries";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { DatabaseUsageStore } from "~/database/usage";
 import { MemoryAutomationStore } from "~/lib/automation/store";
@@ -131,10 +132,48 @@ describe("the stores an engine keeps beside its records", () => {
     try {
       expect(second.activities.list()).toEqual([
         {
-          event: { ...activity.event, actions: [], status: "unknown" },
+          event: {
+            ...activity.event,
+            actions: [],
+            revision: 2,
+            status: "failed",
+            summary: "its process exited while it was running",
+          },
           source,
         },
       ]);
+    } finally {
+      await second.dispose();
+    }
+  });
+
+  it("keep each start's recovery report in the database when the engine is handed every other store, past its dispose and a restart", async () => {
+    const state = join(scratch(), "recovered");
+    const root = scratch();
+    const engine = () =>
+      testEngine({
+        automationStore: new MemoryAutomationStore(),
+        executionStore: new MemoryExecutionStore(),
+        records: new MemoryWorkspaceRecords(),
+        root,
+        runs: new MemoryRunStore(),
+        state,
+        triggers: new MemoryTriggerStore(),
+        usageStore: new MemoryUsageStore(),
+        workspaceId: "recovered",
+      }).start();
+    const first = await engine();
+    const kept = first.lastRecovery;
+    await first.dispose();
+    expect(kept).toBeDefined();
+    expect(await readLastRecovery(state, "recovered")).toEqual(kept);
+
+    const second = await engine();
+    try {
+      expect(second.lastRecovery?.at).not.toBe(kept?.at);
+      expect(await readLastRecovery(state, "recovered")).toEqual(
+        second.lastRecovery
+      );
     } finally {
       await second.dispose();
     }

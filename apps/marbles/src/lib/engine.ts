@@ -15,6 +15,7 @@ import { airplaneMode } from "@foundry/models/airplane";
 import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
 import { holdModelsDev } from "@foundry/models/catalog/models-dev-source";
 import type { Containers } from "@foundry/sandbox/container/containers";
+import type { ContainerStore } from "@foundry/sandbox/store";
 import type { TaskStore } from "@foundry/tasks";
 import { ExecutionCoordinator } from "@foundry/workflows";
 import type { ChannelMessage } from "@foundry/workflows/channels";
@@ -30,6 +31,11 @@ import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { Bindings } from "~/lib/bindings";
 import { harnessOf } from "~/lib/cli-harnesses";
 import { commandRunner } from "~/lib/command";
+import {
+  CrashRecovery,
+  type RecoveryLog,
+  type RecoveryReport,
+} from "~/lib/crash-recovery";
 import type { AnyDefinition } from "~/lib/definition";
 import { environmentSnapshot } from "~/lib/environment";
 import { Delivery } from "~/lib/events/delivery";
@@ -108,6 +114,7 @@ export interface EngineOptions {
    */
   readonly askable?: boolean;
   readonly automationStore?: AutomationStore;
+  readonly containerRows?: Pick<ContainerStore, "list">;
   /**
    * Where sandboxes run. A function is called at the first sandbox and its
    * result kept, for a runtime that is optional or slow to start.
@@ -162,11 +169,13 @@ export interface EngineOptions {
    * decides (Works fails them as abandoned), rather than leave it queued.
    */
   readonly recoverQueued?: boolean;
+  readonly recoveryLog?: RecoveryLog;
   /** The workspace root: where definitions resolve paths from. */
   readonly root: string;
   readonly runs?: RunStore;
   /** Where agent transcripts live. */
   readonly sessions: SessionStore;
+  readonly spawned?: string;
   readonly state?: string;
 
   readonly triggers?: TriggerStore;
@@ -184,6 +193,18 @@ export interface EngineOptions {
    * `Engine.worktreesFor(state)`.
    */
   readonly worktrees?: string;
+}
+
+function contextOf(
+  options: EngineOptions,
+  spawned: string | undefined
+): ExecutionContext {
+  return {
+    cwd: options.cwd ?? options.root,
+    environment: options.environment ?? environmentSnapshot(),
+    ...(spawned === undefined ? {} : { spawned }),
+    workspaceId: options.workspaceId,
+  };
 }
 
 function sessionListing(
@@ -298,6 +319,9 @@ export class Engine {
    */
   readonly #extra = new Map<string, (orchestrator: Orchestrator) => void>();
   readonly #executions: Executions;
+  readonly #crashRecovery: CrashRecovery;
+  readonly #recoveryLog: RecoveryLog | undefined;
+  #lastRecovery: RecoveryReport | undefined;
   readonly #launcher: Launcher;
   readonly #records: WorkspaceRecords;
   readonly #runs: RunStore;
@@ -325,7 +349,7 @@ export class Engine {
   }
 
   constructor(options: EngineOptions) {
-    const { models, root, sessions, state, workspaceId } = options;
+    const { models, root, sessions, spawned, state, workspaceId } = options;
     const print = options.print ?? (() => undefined);
     const home = options.home ?? homedir();
     const askable = options.askable ?? false;
@@ -371,11 +395,7 @@ export class Engine {
       ...sessionListing(sessions, usage),
     });
     this.workspaceId = workspaceId;
-    this.context = {
-      cwd: options.cwd ?? root,
-      environment: options.environment ?? environmentSnapshot(),
-      workspaceId,
-    };
+    this.context = contextOf(options, spawned);
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
     this.#executions = new Executions({
       ...(options.queues === undefined ? {} : { queues: options.queues }),
@@ -421,6 +441,8 @@ export class Engine {
       feed: this.#publisher,
       ...(options.activityStore ? { store: options.activityStore } : {}),
     });
+    this.#recoveryLog = options.recoveryLog;
+    this.#crashRecovery = this.#recoveryOf(options, print, runs);
     this.automations = new AutomationService({
       allowHttp: configuredMonitorUrl(this.#registry),
       registry: this.#registry,
@@ -498,6 +520,9 @@ export class Engine {
           dry: options.dry ?? false,
           environment: this.context.environment,
           print,
+          ...(this.context.spawned === undefined
+            ? {}
+            : { spawned: this.context.spawned }),
           signal: () => frame.signal,
           write,
         }),
@@ -679,6 +704,24 @@ export class Engine {
     }
   }
 
+  #recoveryOf(
+    options: EngineOptions,
+    print: (line: string) => void,
+    runs: RunStore
+  ): CrashRecovery {
+    const { containerRows, spawned } = options;
+    return new CrashRecovery({
+      activities: this.activities,
+      artifacts: options.artifacts,
+      ...(containerRows === undefined ? {} : { containerRows }),
+      containers: () => this.sandboxes.containers(),
+      executions: () => this.#executions.list(),
+      print,
+      runs,
+      ...(spawned === undefined ? {} : { spawned }),
+    });
+  }
+
   /** Build the Orchestrator, register what can run, and adopt what an earlier process parked. */
   start(): Promise<this> {
     if (this.#disposing) {
@@ -803,6 +846,16 @@ export class Engine {
         new Set(recovered.map(({ dispatched }) => dispatched.id)),
         statuses
       );
+      const recovery = await this.#crashRecovery.recover(store);
+      for (const runId of recovery.closed) {
+        listing.add(runId);
+      }
+      this.#lastRecovery = recovery.report;
+      await this.#recoveryLog
+        ?.record(recovery.report)
+        .catch((error: unknown) =>
+          print(`[recovery] its report was not kept: ${String(error)}`)
+        );
       this.#delivery.wake();
     } catch (error) {
       this.#phase = "failed";
@@ -1071,6 +1124,10 @@ export class Engine {
     );
     // Read again: a fact saved while the transcripts were read outranks its recovered leaf.
     return withRecovered(await this.usage.read(), found);
+  }
+
+  get lastRecovery(): RecoveryReport | undefined {
+    return this.#lastRecovery;
   }
 
   async runs(): Promise<readonly RunRecord[]> {

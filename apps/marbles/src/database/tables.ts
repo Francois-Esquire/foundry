@@ -65,6 +65,7 @@ export const marblesWorkflowRuns = sqliteTable(
       .notNull(),
     ownerId: text("owner_id"),
     ownerPid: integer("owner_pid"),
+    ownerStarted: text("owner_started"),
     runId: text("run_id").notNull(),
     scope: text().notNull(),
     sessionId: text("session_id"),
@@ -87,6 +88,7 @@ export const marblesScheduleTicks = sqliteTable(
     nextDue: text("next_due"),
     ownerId: text("owner_id"),
     ownerPid: integer("owner_pid"),
+    ownerStarted: text("owner_started"),
     scope: text().notNull(),
   },
   (table) => [primaryKey({ columns: [table.scope, table.key] })]
@@ -158,6 +160,7 @@ export const marblesExecutions = sqliteTable(
     kind: text({ enum: ["workflow", "task"] }).notNull(),
     name: text().notNull(),
     ownerPid: integer("owner_pid").notNull(),
+    ownerStarted: text("owner_started"),
     progress: text(),
     queue: text().notNull(),
     queuedAt: text("queued_at").notNull(),
@@ -257,5 +260,12 @@ export const marblesHarnessActivities = sqliteTable(
 export const marblesDeliveryClaims = sqliteTable("marbles_delivery_claims", {
   ownerId: text("owner_id"),
   ownerPid: integer("owner_pid"),
+  ownerStarted: text("owner_started"),
   scope: text().primaryKey(),
+});
+
+export const marblesRecoveries = sqliteTable("marbles_recoveries", {
+  at: text().notNull(),
+  scope: text().primaryKey(),
+  steps: text({ mode: "json" }).$type<unknown>().notNull(),
 });

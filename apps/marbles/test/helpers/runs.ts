@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { isGone, type ProcessLookup } from "@foundry/lib/process-identity";
 import {
   notPrivate,
   SPAWN_OWNER_ENV,
@@ -18,10 +19,8 @@ import {
 } from "~/process/spawned";
 import {
   type Marker,
-  otherKind,
   type ProcessSystem,
   type StopLimits,
-  signalReaches,
   stopRecorded,
   unrecordedMarked,
 } from "./processes";
@@ -112,6 +111,11 @@ export async function sweepFinishedRuns(
   }
 }
 
+export function runIsOver(root: string, lookup?: ProcessLookup): boolean {
+  const owner = readOwner(root);
+  return owner !== undefined && isGone(owner, lookup);
+}
+
 function sweepable(root: string): boolean {
   const problem = notPrivate(root, "directory");
   if (problem !== undefined) {
@@ -122,7 +126,7 @@ function sweepable(root: string): boolean {
   }
   const owner = notPrivate(join(root, OWNER_FILE), "file");
   if (owner === undefined) {
-    return isOver(root);
+    return runIsOver(root);
   }
   if (!owner.includes("ENOENT")) {
     console.warn(`marbles tests: not sweeping ${root}: ${owner}`);
@@ -143,20 +147,6 @@ function holdsRecords(root: string): boolean {
   } catch {
     return false;
   }
-}
-
-function isOver(root: string): boolean {
-  const owner = readOwner(root);
-  if (owner === undefined || otherKind(owner.started)) {
-    return false;
-  }
-  const started = startedAt(owner.pid);
-  if (started === undefined) {
-    return false;
-  }
-  return started === null
-    ? !signalReaches(owner.pid)
-    : started !== owner.started;
 }
 
 function readOwner(root: string): Owner | undefined {

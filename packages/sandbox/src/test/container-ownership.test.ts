@@ -42,6 +42,7 @@ function refusingStore(inner: ContainerStore = createMemoryContainerStore()) {
         : target.commit(write);
     },
     get: (id) => target.get(id),
+    identity: () => target.identity(),
     list: () => target.list(),
   });
   const store: ContainerStore = {
@@ -350,16 +351,26 @@ describe("an old VM whose stop fails", () => {
     expect(remaining(runtime)).toEqual([]);
   });
 
-  it("is kept by remove after its row is gone, and shutdown removes it", async () => {
+  it("is kept by remove with its row, removing, until a later recovery confirms it gone", async () => {
     const { containers, failStop, id, runtime, store } = await reopened();
     failStop.push(`${id}-1`);
 
-    await containers.remove(id);
-    expect(await store.get(id)).toBeUndefined();
+    await expect(containers.remove(id)).rejects.toThrow("kept to retry");
+    expect(await store.get(id)).toMatchObject({ status: "removing" });
     expect(remaining(runtime)).toEqual([`${id}-1`]);
     failStop.length = 0;
     await containers.shutdown();
+    const next = createContainers({ instanceLabel: "a", runtime, store });
+    expect(await next.recover(() => true)).toEqual({
+      conflicts: [],
+      kept: [],
+      passedOver: [],
+      removed: [id],
+      swept: [],
+    });
+    expect(await store.get(id)).toBeUndefined();
     expect(remaining(runtime)).toEqual([]);
+    await next.shutdown();
   });
 });
 

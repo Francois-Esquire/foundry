@@ -2,6 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { thisProcess } from "@foundry/lib/process-identity";
 import { ExecutionCoordinator } from "@foundry/workflows";
 import { and, eq } from "drizzle-orm";
 import { afterEach, expect, it } from "vitest";
@@ -13,7 +14,7 @@ import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { ExecutionRun } from "~/lib/execution-record";
 import { parseStored } from "~/lib/execution-record";
-import { adoptParkedRuns } from "~/lib/run-recovery";
+import { adoptParkedRuns, closeAbandonedRuns } from "~/lib/run-recovery";
 import type { ClaimCondition, RunStore } from "~/lib/run-store";
 import { ANY_STORED_RUN } from "~/lib/run-store";
 
@@ -69,7 +70,7 @@ async function parkedByAnOwner() {
     kind: "workflow",
     name: "flow",
     observations: [],
-    owner: { pid: spawnSync("true").pid ?? 0 },
+    owner: { pid: spawnSync("true").pid ?? 0, started: null },
     queue: "marbles",
     revision: 3,
     sequence: 1,
@@ -149,8 +150,8 @@ it("does not adopt a parked Run whose Execution Run settled after the scan", asy
     runs: interleaved(next, async () => {
       await executions.transition("rn-1", {
         from: ["suspended"],
-        newOwner: process.pid,
-        owner: execution.owner.pid,
+        newOwner: thisProcess(),
+        owner: execution.owner,
         settledAt: execution.timestamps.updatedAt,
         status: "cancelled",
         updatedAt: execution.timestamps.updatedAt,
@@ -339,4 +340,122 @@ it("adopts a Run still parked when it is claimed", async () => {
     store,
   });
   expect([...adopted.keys()]).toEqual(["rn-1"]);
+});
+
+it("closes out a Run a gone process left running whose settled Execution Run the host keeps in another store", async () => {
+  const root = mkdtempSync(join(tmpdir(), "marbles-recovery-abandoned-"));
+  roots.push(root);
+  const opened = await initializeDatabase(stateDatabase(root));
+  handles.push(opened);
+  const { database } = opened;
+  const owner = new ExecutionCoordinator({
+    store: await new DatabaseRunStore({ database, scope: "ws" }).open(
+      () => undefined
+    ),
+  });
+  const queue = await owner.ensureQueue({ id: "qu-1", name: "marbles" });
+  await owner.createRun({
+    id: "rn-1",
+    input: null,
+    queueId: queue.id,
+    step: "flow",
+  });
+  await owner.updateRun("rn-1", { status: "running" });
+  await database
+    .update(marblesWorkflowRuns)
+    .set({ ownerPid: spawnSync("true").pid })
+    .where(
+      and(
+        eq(marblesWorkflowRuns.scope, "ws"),
+        eq(marblesWorkflowRuns.runId, "rn-1")
+      )
+    );
+  const at = new Date().toISOString();
+  const settled: ExecutionRun = {
+    correlation: {},
+    id: "rn-1",
+    kind: "workflow",
+    name: "flow",
+    observations: [],
+    owner: { pid: spawnSync("true").pid ?? 0, started: null },
+    queue: "marbles",
+    revision: 4,
+    sequence: 1,
+    status: "failed",
+    timestamps: { queuedAt: at, startedAt: at, updatedAt: at },
+  };
+  const next = new DatabaseRunStore({ database, scope: "ws" });
+  const store = new ExecutionCoordinator({
+    store: await next.open(() => undefined),
+  });
+  const lines: string[] = [];
+
+  const closed = await closeAbandonedRuns({
+    execution: (runId) => (runId === settled.id ? settled : undefined),
+    print: (line) => lines.push(line),
+    runs: next,
+    store,
+  });
+
+  expect(closed).toEqual(["rn-1"]);
+  expect((await store.getRun("rn-1"))?.status).toBe("failed");
+  expect(lines).toEqual([
+    "[run] flow rn-1 closed out: its process exited while it was running",
+  ]);
+  expect(
+    await new DatabaseRunStore({ database, scope: "ws" }).claim(
+      "rn-1",
+      ANY_STORED_RUN
+    )
+  ).toBe(true);
+});
+
+it("leaves a Run this engine runs, whose Execution Run it holds open elsewhere, and its claim on it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "marbles-recovery-open-"));
+  roots.push(root);
+  const opened = await initializeDatabase(stateDatabase(root));
+  handles.push(opened);
+  const { database } = opened;
+  const next = new DatabaseRunStore({ database, scope: "ws" });
+  const store = new ExecutionCoordinator({
+    store: await next.open(() => undefined),
+  });
+  const queue = await store.ensureQueue({ id: "qu-1", name: "marbles" });
+  await store.createRun({
+    id: "rn-2",
+    input: null,
+    queueId: queue.id,
+    step: "flow",
+  });
+  await store.updateRun("rn-2", { status: "running" });
+  const at = new Date().toISOString();
+  const open: ExecutionRun = {
+    correlation: {},
+    id: "rn-2",
+    kind: "workflow",
+    name: "flow",
+    observations: [],
+    owner: thisProcess(),
+    queue: "marbles",
+    revision: 2,
+    sequence: 1,
+    status: "running",
+    timestamps: { queuedAt: at, startedAt: at, updatedAt: at },
+  };
+
+  expect(
+    await closeAbandonedRuns({
+      execution: (runId) => (runId === open.id ? open : undefined),
+      print: () => undefined,
+      runs: next,
+      store,
+    })
+  ).toEqual([]);
+  expect((await store.getRun("rn-2"))?.status).toBe("running");
+  expect(
+    await new DatabaseRunStore({ database, scope: "ws" }).claim(
+      "rn-2",
+      ANY_STORED_RUN
+    )
+  ).toBe(false);
 });

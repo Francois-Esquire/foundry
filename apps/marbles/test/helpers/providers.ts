@@ -30,7 +30,7 @@ export async function makeProvidersTemplate(
     opened.close();
   }
   for (let attempt = 0; existsSync(`${file}-wal`); attempt += 1) {
-    if (attempt === 20) {
+    if (attempt === 100) {
       throw new Error(`the template database at ${file} kept its WAL file`);
     }
     gc(true);

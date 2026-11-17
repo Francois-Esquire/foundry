@@ -20,6 +20,20 @@ export function workspaceLines(workspace: WorkspaceStatus): string[] {
       `  ${new Date(run.createdAt).toISOString()} · ${run.id}`,
     ]),
     ...(workspace.runs.recent.length === 0 ? ["none recorded"] : []),
+    ...recoveryLines(workspace.recovery),
+  ];
+}
+
+function recoveryLines(recovery: WorkspaceStatus["recovery"]): string[] {
+  if (recovery === null) {
+    return ["last recovery: none recorded"];
+  }
+  const failed = recovery.steps.filter((step) => step.outcome === "failed");
+  return [
+    `last recovery: ${recovery.at}${failed.length === 0 ? "" : ` · ${String(failed.length)} step(s) failed`}`,
+    ...recovery.steps.map(
+      (step) => `  ${step.step}  [${step.outcome}] ${step.detail}`
+    ),
   ];
 }
 

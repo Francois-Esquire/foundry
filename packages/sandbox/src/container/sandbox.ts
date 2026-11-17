@@ -80,20 +80,33 @@ export async function startContainerSandbox<TNative>(
     await instance.ensureDirectory(provisioned.spec.workdir);
     return new ContainerSandboxHandle(instance, provisioned.spec);
   } catch (error) {
-    try {
-      await instance.remove();
-    } catch (cleanup: unknown) {
+    const leftBehind = (cleanup: unknown): void => {
       try {
         options.onLeftBehind?.(cleanup);
       } catch {
         // A callback that throws does not replace the setup's error.
       }
+    };
+    if (options.mayRemove?.() === false) {
+      leftBehind(
+        new SandboxError(
+          "invalid-contract",
+          "the VM is not its owner's to remove"
+        )
+      );
+      throw error;
+    }
+    try {
+      await instance.remove();
+    } catch (cleanup: unknown) {
+      leftBehind(cleanup);
     }
     throw error;
   }
 }
 
 export interface StartContainerSandboxOptions {
+  readonly mayRemove?: () => boolean;
   readonly onLeftBehind?: (error: unknown) => void;
 }
 

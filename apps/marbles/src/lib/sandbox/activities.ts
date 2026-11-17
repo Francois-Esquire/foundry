@@ -50,6 +50,9 @@ export interface ActivityStore {
   put(key: string, record: ActivityRecord): Promise<void>;
 }
 
+const OPEN_STATUSES: ReadonlySet<string> = new Set(["running", "waiting"]);
+const CLOSED_OUT = "its process exited while it was running";
+
 /** A dashboard projection. The complete activity history remains in the session store. */
 export class HarnessActivities {
   readonly #records = new Map<string, ActivityRecord>();
@@ -154,11 +157,39 @@ export class HarnessActivities {
     }
   }
 
+  async closeOut(ended: (runId: string) => boolean): Promise<number> {
+    let closed = 0;
+    for (const [key, record] of this.#records) {
+      const { event, source } = record;
+      if (
+        !OPEN_STATUSES.has(event.status) ||
+        this.#observed.get(event.sessionId)?.has(event.id) ||
+        !ended(source.runId)
+      ) {
+        continue;
+      }
+      const next: ActivityRecord = {
+        event: {
+          ...event,
+          actions: [],
+          revision: event.revision + 1,
+          status: "failed",
+          summary: CLOSED_OUT,
+        },
+        source,
+      };
+      await this.#store?.put(key, next);
+      this.#records.set(key, next);
+      closed += 1;
+    }
+    return closed;
+  }
+
   list(): readonly ActivityRecord[] {
     return [...this.#records.values()].map((record) => {
       if (
         this.#observed.get(record.event.sessionId)?.has(record.event.id) ||
-        !["running", "waiting"].includes(record.event.status)
+        !OPEN_STATUSES.has(record.event.status)
       ) {
         return record;
       }

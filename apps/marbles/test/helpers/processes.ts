@@ -14,6 +14,11 @@ import {
 import { basename, dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
+  lookProcesses,
+  processAlive,
+  processState,
+} from "@foundry/lib/process-identity";
+import {
   notPrivate,
   recordSpawned,
   SPAWN_RECORD_ENV,
@@ -51,12 +56,9 @@ const MAX_PASSES = 8;
 const STALE_PARTIAL_MS = 60_000;
 const PS_TIMEOUT_MS = 5000;
 const PS_ENV = { ...process.env, LC_ALL: "C", TZ: "UTC" };
-const LOOK_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/;
 const MEMBER_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s*$/;
 const COMMAND_LINE = /^\s*(\d+) (.*)$/;
 const PID = /^\d+$/;
-const SPACES = /\s+/g;
-const START_KIND = /^[a-z]+:/;
 
 export function recordProcess(dir: string, pid: number, group: boolean): void {
   recordSpawned(pid, group, { [SPAWN_RECORD_ENV]: dir });
@@ -347,26 +349,23 @@ function prove(
   seen: Seen | undefined,
   environment: readonly string[] | undefined,
   marker: Marker,
-  system: Pick<ProcessSystem, "alive">
+  system: Pick<ProcessSystem, "alive" | "look">
 ): Proof {
   const pid = String(record.pid);
-  if (seen?.exited === true) {
+  const state = processState(record, {
+    alive: (each) => system.alive(each),
+    look: (pids) => system.look(pids),
+  });
+  if (state === "gone") {
     return "gone";
   }
-  if (seen === undefined) {
-    return system.alive(record.pid)
-      ? {
-          problem: `process ${pid} is not listed but a signal still reaches it; not signalled, its record kept`,
-        }
-      : "gone";
-  }
-  if (otherKind(record.started)) {
+  if (state === "unknown" || seen === undefined || seen.exited === true) {
     return {
-      problem: `process ${pid}'s record names a start of a kind this reader cannot compare (${record.started}); not signalled, its record kept`,
+      problem:
+        seen === undefined
+          ? `process ${pid} is not listed but a signal still reaches it; not signalled, its record kept`
+          : `process ${pid}'s record names a start of a kind this system cannot compare (${record.started}); not signalled, its record kept`,
     };
-  }
-  if (seen.started !== normal(record.started)) {
-    return "gone";
   }
   if (record.group && seen.pgid !== record.pid) {
     return {
@@ -383,19 +382,6 @@ function prove(
     };
   }
   return "recorded";
-}
-
-export function otherKind(started: string): boolean {
-  return START_KIND.test(started);
-}
-
-export function signalReaches(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
 }
 
 function signalIfThere(
@@ -489,12 +475,8 @@ function gone(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
-function normal(started: string): string {
-  return started.trim().replace(SPACES, " ");
-}
-
 const SYSTEM: ProcessSystem = {
-  alive: signalReaches,
+  alive: processAlive,
   environment(pid) {
     return process.platform === "linux"
       ? linuxEnvironment(pid)
@@ -502,11 +484,11 @@ const SYSTEM: ProcessSystem = {
   },
   kill: (target, signal) => process.kill(target, signal),
   look(pids) {
-    return pids.length === 0
-      ? new Map()
-      : parseLook(
-          ps(["-o", "pid=,pgid=,state=,lstart=", "-p", pids.join(",")])
-        );
+    const seen = lookProcesses(pids);
+    if (seen === undefined) {
+      throw new Error(`the system could not say how ${pids.join(", ")} run`);
+    }
+    return seen;
   },
   members(pgid) {
     return parseMembers(ps(["-A", "-o", "pid=,pgid=,state="]), pgid);
@@ -516,21 +498,6 @@ const SYSTEM: ProcessSystem = {
 
 function exited(state: string): boolean {
   return state.startsWith("Z");
-}
-
-export function parseLook(listed: string): Map<number, Seen> {
-  const seen = new Map<number, Seen>();
-  for (const line of listed.split("\n")) {
-    const parsed = LOOK_LINE.exec(line);
-    if (parsed) {
-      seen.set(Number(parsed[1]), {
-        ...(exited(parsed[3] ?? "") ? { exited: true as const } : {}),
-        pgid: Number(parsed[2]),
-        started: normal(parsed[4] ?? ""),
-      });
-    }
-  }
-  return seen;
 }
 
 export function parseMembers(listed: string, pgid: number): number[] {

@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { thisProcess } from "@foundry/lib/process-identity";
 import { expect, it } from "vitest";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { initializeDatabase } from "~/database/open";
@@ -53,7 +54,7 @@ it("writes the Execution Run a Run's commit follows with in that commit's own tr
       kind: "workflow",
       name: "flow",
       observations: [],
-      owner: { pid: process.pid },
+      owner: thisProcess(),
       queue: "marbles",
       revision: 2,
       sequence: 1,
@@ -65,7 +66,7 @@ it("writes the Execution Run a Run's commit follows with in that commit's own tr
       runId === "rn-1" && status === "suspended"
         ? {
             from: ["running"],
-            owner: process.pid,
+            owner: thisProcess(),
             status: "suspended",
             updatedAt: at,
           }

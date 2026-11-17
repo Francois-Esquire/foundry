@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { processAlive } from "@foundry/lib/file-lock";
+import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import type { TaskTransaction } from "@foundry/tasks/store/sqlite";
@@ -8,6 +8,14 @@ import { and, asc, eq, gt, inArray, max, sql } from "drizzle-orm";
 import { busyError } from "~/database/client";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
+import {
+  CHANGED,
+  claimJudged,
+  heldBy,
+  NO_OWNER,
+  ownedHere,
+  sameOwnerColumns,
+} from "~/database/owner";
 import {
   marblesDeliveryClaims,
   marblesTaskChangeDeliveries,
@@ -104,35 +112,45 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
   }
 
   #claim(): Promise<string | undefined> {
-    return this.#database.transaction(
-      async (transaction): Promise<string | undefined> => {
-        const [row] = await transaction
-          .select({
-            ownerId: marblesDeliveryClaims.ownerId,
-            ownerPid: marblesDeliveryClaims.ownerPid,
-          })
-          .from(marblesDeliveryClaims)
-          .where(eq(marblesDeliveryClaims.scope, this.#scope));
-        const holder = row?.ownerPid ?? null;
-        if (
-          holder !== null &&
-          row?.ownerId !== this.#owner &&
-          processAlive(holder)
-        ) {
-          return holder === process.pid
-            ? "another engine in this process"
-            : `pid ${String(holder)}`;
-        }
-        const owner = { ownerId: this.#owner, ownerPid: process.pid };
-        await transaction
-          .insert(marblesDeliveryClaims)
-          .values({ ...owner, scope: this.#scope })
-          .onConflictDoUpdate({
-            set: owner,
-            target: marblesDeliveryClaims.scope,
-          });
-        return undefined;
-      }
+    const look = (database: StoreDatabase) =>
+      database
+        .select({
+          ownerId: marblesDeliveryClaims.ownerId,
+          ownerPid: marblesDeliveryClaims.ownerPid,
+          ownerStarted: marblesDeliveryClaims.ownerStarted,
+        })
+        .from(marblesDeliveryClaims)
+        .where(eq(marblesDeliveryClaims.scope, this.#scope))
+        .then(([row]) => row);
+    return claimJudged(
+      () => look(this.#database),
+      (seen) =>
+        seen === undefined || seen.ownerId === this.#owner
+          ? null
+          : heldBy(seen),
+      (seen, holder) =>
+        this.#database.transaction(
+          async (transaction): Promise<string | undefined | typeof CHANGED> => {
+            if (!sameOwnerColumns(await look(transaction), seen)) {
+              return CHANGED;
+            }
+            if (holder !== null) {
+              return sameProcess(holder, thisProcess())
+                ? "another engine in this process"
+                : `pid ${String(holder.pid)}`;
+            }
+            const owner = ownedHere(this.#owner);
+            await transaction
+              .insert(marblesDeliveryClaims)
+              .values({ ...owner, scope: this.#scope })
+              .onConflictDoUpdate({
+                set: owner,
+                target: marblesDeliveryClaims.scope,
+              });
+            return undefined;
+          }
+        ),
+      "an owner that kept changing"
     );
   }
 
@@ -148,7 +166,7 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     try {
       await this.#database
         .update(marblesDeliveryClaims)
-        .set({ ownerId: null, ownerPid: null })
+        .set(NO_OWNER)
         .where(
           and(
             eq(marblesDeliveryClaims.scope, this.#scope),

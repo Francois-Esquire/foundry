@@ -10,6 +10,7 @@ const timestampSchema = z.custom<number>((value) => typeof value === "number");
 
 const containerRowObjectSchema = z.object({
   createdAt: timestampSchema,
+  holder: z.string().optional(),
   id: z.string(),
   nativeId: z.string().or(z.undefined()),
   spec: z.string(),

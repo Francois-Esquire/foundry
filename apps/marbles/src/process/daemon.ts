@@ -4,7 +4,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { lockHolder } from "@foundry/lib/file-lock";
+import { holdsLock } from "@foundry/lib/file-lock";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
@@ -33,7 +33,7 @@ import {
   workspaceIdSchema,
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
-import { recordSpawned } from "~/process/spawned";
+import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
 import { resolveSource, sourceFiles, sourceRoot } from "~/workspace/source";
 import { version } from "../../package.json";
 
@@ -394,7 +394,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       ],
       {
         cwd: worker.summary.root,
-        env: { ...process.env, FOUNDRY_HOME: layout.home },
+        env: {
+          ...process.env,
+          FOUNDRY_HOME: layout.home,
+          [SPAWN_RECOVERY_ENV]: layout.spawned,
+        },
         stdio: ["ignore", "pipe", "pipe"],
       }
     );
@@ -432,7 +436,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     );
     worker.onNotification = (method, params) =>
       onWorkerNotification(worker, method, params);
-    recordSpawned(child.pid, false);
+    recordSpawned(child.pid, false, {
+      ...process.env,
+      [SPAWN_RECOVERY_ENV]: undefined,
+    });
     return worker.ready.promise;
   }
 
@@ -825,7 +832,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   // The claim is the daemon's reason to run: a state root that was removed,
   // or a lock someone else now holds, means this process answers for nothing.
   const claimCheck = setInterval(() => {
-    if (lockHolder(join(layout.state, "locks", "process")) !== process.pid) {
+    if (!holdsLock(join(layout.state, "locks", "process"))) {
       print("[daemon] the claim at the state root is gone; stopping");
       close({ claimLost: true }).catch(() => undefined);
     }
